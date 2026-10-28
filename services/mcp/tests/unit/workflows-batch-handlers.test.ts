@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { isFeatureFlagEnabled } from '@/lib/posthog/flags'
 import type { Context } from '@/tools/types'
 import { workflowsBlastRadius, workflowsRunBatch, workflowsScheduleCreate } from '@/tools/workflows/batch'
+
+vi.mock('@/lib/posthog/flags', () => ({
+    isFeatureFlagEnabled: vi.fn().mockResolvedValue(false),
+}))
 
 // Default per-team audience cap the mocked blast-radius endpoint returns unless a test overrides it.
 const DEFAULT_LIMIT = 50_000
@@ -24,10 +29,11 @@ function createMockContext(opts: {
     trigger: unknown
     blastRadius: { affected: number; total: number; limit?: number }
     status?: string
+    actions?: unknown[]
 }): { context: Context; request: ReturnType<typeof vi.fn> } {
     const request = vi.fn(async ({ method, path }: RequestArgs) => {
         if (method === 'GET' && /\/hog_flows\/[^/]+\/$/.test(path)) {
-            return { id: 'wf-1', status: opts.status ?? 'active', trigger: opts.trigger }
+            return { id: 'wf-1', status: opts.status ?? 'active', trigger: opts.trigger, actions: opts.actions ?? [] }
         }
         if (method === 'POST' && path.endsWith('/user_blast_radius/')) {
             return { limit: DEFAULT_LIMIT, confirm_token: 'tok-preview', ...opts.blastRadius }
@@ -43,7 +49,11 @@ function createMockContext(opts: {
 
     const context = {
         api: { request },
-        stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        stateManager: {
+            getProjectId: vi.fn().mockResolvedValue('1'),
+            getAnalyticsContext: vi.fn().mockResolvedValue({ organizationId: 'org-1', projectUuid: 'project-uuid-1' }),
+        },
+        getDistinctId: vi.fn().mockResolvedValue('user-1'),
     } as unknown as Context
 
     return { context, request }
@@ -60,13 +70,19 @@ const scheduleCreateTool = workflowsScheduleCreate()
 describe('workflows batch handlers', () => {
     beforeEach(() => {
         vi.clearAllMocks()
+        vi.mocked(isFeatureFlagEnabled).mockResolvedValue(false)
     })
 
     describe('workflows-blast-radius', () => {
-        it('resolves the workflow trigger filters and sizes them, returning the count', async () => {
+        it.each([
+            ['an email step', [{ type: 'function_email' }], true],
+            ['an email template step', [{ type: 'function', config: { template_id: 'template-email' } }], true],
+            ['only webhook steps', [{ type: 'function', config: { template_id: 'template-webhook' } }], false],
+        ])('sizes the trigger filters for a workflow with %s', async (_, actions, sendsEmail) => {
             const { context, request } = createMockContext({
                 trigger: { type: 'batch', filters: BATCH_FILTERS },
                 blastRadius: { affected: 42, total: 100 },
+                actions,
             })
 
             const result = await blastRadiusTool.handler(context, { workflow_id: 'wf-1' })
@@ -76,7 +92,7 @@ describe('workflows batch handlers', () => {
             expect(c[1]).toMatchObject({
                 method: 'POST',
                 path: '/api/projects/1/hog_flows/user_blast_radius/',
-                body: { filters: BATCH_FILTERS },
+                body: { filters: BATCH_FILTERS, sends_email: sendsEmail },
             })
             // confirm_token must surface to the agent: it is a required workflows-run-batch input.
             expect(result).toEqual({ affected: 42, total: 100, limit: DEFAULT_LIMIT, confirm_token: 'tok-preview' })
@@ -138,21 +154,45 @@ describe('workflows batch handlers', () => {
             expect(calls(request).some((c) => c.path.endsWith('/batch_jobs/'))).toBe(false)
         })
 
-        it('rejects and does not fire when the audience exceeds the per-team cap', async () => {
-            const { context, request } = createMockContext({
-                trigger: { type: 'batch', filters: BATCH_FILTERS },
-                blastRadius: { affected: 5001, total: 1_000_000, limit: 5000 },
-            })
-
-            await expect(
-                runBatchTool.handler(context, {
-                    workflow_id: 'wf-1',
-                    acknowledged_affected_count: 5001,
-                    confirm_token: 'tok-123',
+        it.each([
+            {
+                name: 'an email workflow with the flag on for its project',
+                actions: [{ type: 'function_email' }],
+                flagOn: true,
+                pointsAtTier: true,
+            },
+            {
+                name: 'an email workflow with the flag off',
+                actions: [{ type: 'function_email' }],
+                flagOn: false,
+                pointsAtTier: false,
+            },
+            { name: 'a non-email workflow', actions: [], flagOn: true, pointsAtTier: false },
+        ])(
+            'rejects and does not fire when the audience exceeds the per-team cap for $name',
+            async ({ actions, flagOn, pointsAtTier }) => {
+                // The flag targets the workspace, so it reads as on only when the project group is passed.
+                vi.mocked(isFeatureFlagEnabled).mockImplementation(
+                    async (_key, _distinctId, groups) => flagOn && groups?.project === 'project-uuid-1'
+                )
+                const { context, request } = createMockContext({
+                    trigger: { type: 'batch', filters: BATCH_FILTERS },
+                    blastRadius: { affected: 5001, total: 1_000_000, limit: 5000 },
+                    actions,
                 })
-            ).rejects.toThrow(/5000/)
-            expect(calls(request).some((c) => c.path.endsWith('/batch_jobs/'))).toBe(false)
-        })
+
+                const error = await runBatchTool
+                    .handler(context, {
+                        workflow_id: 'wf-1',
+                        acknowledged_affected_count: 5001,
+                        confirm_token: 'tok-123',
+                    })
+                    .catch((e: Error) => e)
+                expect(String(error)).toMatch(/5000/)
+                expect(String(error).includes('workflows-reputation-get')).toBe(pointsAtTier)
+                expect(calls(request).some((c) => c.path.endsWith('/batch_jobs/'))).toBe(false)
+            }
+        )
 
         it('fires for a large audience that is within an elevated per-team cap', async () => {
             const { context, request } = createMockContext({

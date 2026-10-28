@@ -31,12 +31,19 @@
         }
     }
 
+    &__viz--custom {
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: flex-start;
+        padding-top: 2rem;
+    }
+
     &__chart {
         // The quill chart root stretches via flex-1, so it needs a flex column parent
         display: flex;
         flex-direction: column;
+        align-self: stretch;
         width: 100%;
-        height: 100%;
 
         // The chart is a picture of made-up data, so it answers nothing the pointer asks of it.
         // Hover still reaches __viz, which owns the settle-to-full-opacity effect.
@@ -61,30 +68,22 @@
         animation: SampleDataState__fade-up 0.7s cubic-bezier(0.25, 0.1, 0.25, 1) both;
     }
 
-    // One-shot entrance animations complete instantly for reduced motion or screenshot tests;
-    // the looping "breathe" is dropped entirely.
-    &--static &__viz {
-        animation: none;
-    }
-
+    // Reduced motion and screenshot tests get no animation at all. A zero-duration animation is not
+    // enough, because headless Chromium in CI can paint its 0% keyframe, which hides the placeholder.
+    &--static &__viz,
     &--static &__chart,
     &--static &__row,
     &--static &__number {
-        animation-duration: 0s;
-        animation-delay: 0s;
+        animation: none;
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .SampleDataState__viz {
-        animation: none;
-    }
-
+    .SampleDataState__viz,
     .SampleDataState__chart,
     .SampleDataState__row,
     .SampleDataState__number {
-        animation-duration: 0s;
-        animation-delay: 0s;
+        animation: none;
     }
 }
 

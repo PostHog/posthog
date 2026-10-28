@@ -1,17 +1,20 @@
 from datetime import timedelta
+from typing import Any
 
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.db import DatabaseError
 from django.utils import timezone
 
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.test import APIRequestFactory
 
-from posthog.api.project import ProjectViewSet
+from posthog.api.project import ProjectBackwardCompatSerializer, ProjectCreateRequestSerializer, ProjectViewSet
 from posthog.api.project_tags import MAX_TAGS_PER_FILTER
-from posthog.api.team import TeamCustomerAnalyticsConfigSerializer
+from posthog.api.team.team_config import TeamCustomerAnalyticsConfigSerializer
+from posthog.api.team.team_serializer import TeamSerializer
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -22,7 +25,10 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
 from posthog.models.tag import Tag
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team import Team
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person, delete_person
 
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
@@ -39,6 +45,22 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
     """
 
     client_class = EnvironmentToProjectRewriteClient
+
+    def test_project_create_request_excludes_response_only_fields(self) -> None:
+        serializer = ProjectCreateRequestSerializer()
+        self.assertIn("name", serializer.fields)
+        self.assertFalse(any(field.required for field in serializer.fields.values()))
+        for field_name in ("id", "organization", "created_at", "api_token", "home_tab_dashboard"):
+            self.assertNotIn(field_name, serializer.fields)
+        self.assertFalse(any(field.read_only for field in serializer.fields.values()))
+
+    def test_conversations_settings_ai_reply_modes_requires_an_object(self):
+        # Checks that the real PATCH request runs the shared validator. test_team.py covers its other cases.
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"conversations_settings": {"ai_reply_modes": ["not", "a", "dict"]}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_projects_outside_personal_api_key_scoped_organizations_not_listed(self):
         other_org, _, team_in_other_org = Organization.objects.bootstrap(self.user)
@@ -147,6 +169,41 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         duplicate_project.refresh_from_db()
         self.assertEqual(duplicate_project.product_description, "still saveable")
+
+    @parameterized.expand(
+        [
+            ("this_environment", "this_environment", status.HTTP_200_OK),
+            ("other_environment_of_this_project", "other_environment", status.HTTP_200_OK),
+            ("other_project_in_organization", "other_project", status.HTTP_400_BAD_REQUEST),
+            ("project_in_other_organization", "other_organization", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_logo_media_must_be_uploaded_to_this_project(self, _name: str, uploaded_to: str, expected_status: int):
+        if uploaded_to == "this_environment":
+            team = self.team
+        elif uploaded_to == "other_environment":
+            team = Team.objects.create(organization=self.organization, project=self.project, name="Staging")
+        elif uploaded_to == "other_project":
+            _, team = Project.objects.create_with_team(
+                organization=self.organization, name="Other project", initiating_user=self.user
+            )
+        else:
+            other_organization = Organization.objects.create(name="Other organization")
+            _, team = Project.objects.create_with_team(
+                organization=other_organization, name="Other project", initiating_user=None
+            )
+        media = UploadedMedia.objects.create(team=team, created_by=self.user, content_type="image/png")
+
+        response = self.client.patch(f"/api/projects/{self.project.id}/", {"logo_media_id": str(media.id)})
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        self.project.refresh_from_db()
+        if expected_status == status.HTTP_200_OK:
+            self.assertEqual(response.json()["logo_media_id"], str(media.id))
+            self.assertEqual(self.project.logo_media_id, media.id)
+        else:
+            self.assertEqual(response.json()["attr"], "logo_media_id")
+            self.assertIsNone(self.project.logo_media_id)
 
     def test_cannot_create_second_demo_project(self):
         # Create first demo project
@@ -606,6 +663,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             response = self.client.delete(f"/api/projects/{self.project.id}")
 
         self.assertEqual(response.status_code, expected_status)
+        if project_count > 1:
+            mock_get_billing.assert_not_called()
         if expected_status == status.HTTP_400_BAD_REQUEST:
             self.assertIn("active subscription", response.json()["detail"])
             self.assertTrue(Project.objects.filter(id=self.project.id).exists())
@@ -899,6 +958,193 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertIsNotNone(settings.get("widget_public_token"))
         self.assertGreater(len(settings["widget_public_token"]), 20)
 
+    @parameterized.expand(
+        [(False, False, False), (True, False, False), (False, True, False), (True, True, False), (False, True, True)]
+    )
+    def test_conversations_settings_preserve_managed_values(
+        self, include_enabled: bool, clear_settings: bool, use_team_serializer: bool
+    ) -> None:
+        managed = {
+            "widget_public_token": "test-server-generated-token",
+            "slack_bot_token": "test-server-managed-token",
+            "slack_team_id": "test-slack-team",
+            "slack_enabled": False,
+            "slack_scopes": "test-scope",
+            "teams_enabled": False,
+            "teams_tenant_id": None,
+            "teams_team_id": "test-team",
+            "teams_team_name": "Test team",
+            "teams_channel_id": "test-channel",
+            "teams_channel_name": "Test channel",
+            "teams_channels": [],
+            "email_enabled": True,
+            "github_enabled": True,
+            "github_integration_id": 123,
+            "github_repos": ["example-org/example-repo"],
+        }
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {**managed, "widget_color": "#123456"}
+        self.team.save()
+        payload: dict[str, dict[str, str] | bool | None] = {
+            "conversations_settings": None if clear_settings else dict.fromkeys(managed, "test-client-value")
+        }
+        if include_enabled:
+            payload["conversations_enabled"] = True
+
+        if use_team_serializer:
+            request = APIRequestFactory().patch("/", payload, format="json")
+            request.user = self.user
+            TeamSerializer(context={"request": request}).update(self.team, payload)
+        else:
+            response = self.client.patch(f"/api/projects/{self.project.id}/", payload, format="json")
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        self.team.refresh_from_db()
+        expected = managed if clear_settings else {**managed, "widget_color": "#123456"}
+        self.assertEqual(self.team.conversations_settings, expected)
+
+    @parameterized.expand(
+        [(TeamSerializer, "null"), (ProjectBackwardCompatSerializer, "null"), (TeamSerializer, "enabled")]
+    )
+    def test_conversations_settings_clear_rereads_team_before_merging(self, serializer_class: type, mode: str) -> None:
+        # A conversations PATCH must read the team row it writes from under the lock, not
+        # from the instance the serializer was handed. Otherwise a dedicated integration
+        # update that commits between the request's snapshot and the save gets clobbered
+        # by the whole-blob write, restoring stale state.
+        self.team.conversations_enabled = False
+        self.team.conversations_settings = {"widget_color": "#123456"}
+        self.team.save()
+
+        def simulate_integration_update(*args: Any, **kwargs: Any) -> Any:
+            # Runs when the update path takes its locking re-read: commit the
+            # integration change now, so the merge must see it. The null clear
+            # keeps only managed keys, so the token and the integration state
+            # the integration update just wrote are the ones that must survive.
+            # Another admin enables conversations in the same window.
+            Team.objects.filter(pk=self.team.pk).update(
+                conversations_enabled=True,
+                conversations_settings={
+                    "widget_color": "#123456",
+                    "widget_public_token": "integration-token",
+                    "teams_enabled": True,
+                },
+            )
+            return real_select_for_update(*args, **kwargs)
+
+        def simulate_late_integration_update(team: Team, *args: Any, **kwargs: Any) -> None:
+            # Runs after this request's locked write commits. The late write must not
+            # be reported as this user's setting change.
+            latest = Team.objects.only("conversations_settings").get(pk=team.pk).conversations_settings
+            Team.objects.filter(pk=team.pk).update(conversations_settings={**latest, "late_key": True})
+            real_refresh_from_db(team, *args, **kwargs)
+
+        real_select_for_update = Team.objects.select_for_update
+        real_refresh_from_db = Team.refresh_from_db
+        if mode == "null":
+            payload: dict[str, Any] = {"conversations_settings": None}
+        else:
+            payload = {"conversations_enabled": True}
+
+        with (
+            capture_db_queries() as queries,
+            patch("posthog.api.team.conversations_settings.report_user_action") as mock_report,
+        ):
+            with (
+                patch.object(Team.objects, "select_for_update", simulate_integration_update),
+                patch.object(Team, "refresh_from_db", simulate_late_integration_update),
+            ):
+                if serializer_class is TeamSerializer:
+                    TeamSerializer(context={"request": MagicMock(user=self.user)}).update(self.team, payload)
+                else:
+                    request = APIRequestFactory().patch("/", payload, format="json")
+                    request.user = self.user
+                    ProjectBackwardCompatSerializer(context={"request": request, "view": None}).update(
+                        self.project, payload
+                    )
+
+        self.team.refresh_from_db()
+        if mode == "enabled":
+            # The enable path finds the token the integration update just wrote, so it
+            # keeps that whole blob rather than re-minting.
+            expected: dict[str, Any] = {
+                "widget_color": "#123456",
+                "widget_public_token": "integration-token",
+                "teams_enabled": True,
+            }
+        else:
+            expected = {"widget_public_token": "integration-token", "teams_enabled": True}
+        self.assertEqual(self.team.conversations_settings, {**expected, "late_key": True})
+        self.assertTrue(self.team.conversations_enabled)
+
+        # The blob must be written exactly once by this request, inside the lock. The
+        # first captured UPDATE is the simulated integration write; a second one after
+        # the lock is released would clobber an integration writer queued on it.
+        settings_saves = [
+            q
+            for q in queries.captured_queries
+            if q["sql"].startswith('UPDATE "posthog_team"') and "late_key" not in q["sql"]
+        ]
+        self.assertEqual(len(settings_saves), 2, [q["sql"][:120] for q in settings_saves])
+        self.assertIn("integration-token", settings_saves[0]["sql"])
+
+        # Neither concurrent writer's keys may be reported as this user's setting changes.
+        reported = [c.args[2]["setting"] for c in mock_report.call_args_list if c.args[1] == "support setting changed"]
+        self.assertEqual(reported, [] if mode == "enabled" else ["widget_color"])
+
+        # The other admin's toggle must not be logged as this user's change.
+        logged_fields = [
+            change["field"]
+            for log in ActivityLog.objects.filter(team_id=self.team.pk, scope="Team")
+            for change in (log.detail or {}).get("changes") or []
+        ]
+        self.assertNotIn("conversations_enabled", logged_fields)
+
+    @parameterized.expand(
+        [
+            (TeamSerializer, "saved"),
+            (ProjectBackwardCompatSerializer, "saved"),
+            (TeamSerializer, "save_fails"),
+            (ProjectBackwardCompatSerializer, "save_fails"),
+        ]
+    )
+    def test_conversations_patch_with_other_team_fields_saves_the_team_once(
+        self, serializer_class: type, outcome: str
+    ) -> None:
+        self.team.conversations_settings = {"widget_color": "#123456"}
+        self.team.capture_console_log_opt_in = False
+        self.team.save()
+        payload = {"conversations_settings": {"widget_color": "#654321"}, "capture_console_log_opt_in": True}
+        request = APIRequestFactory().patch("/", payload, format="json")
+        request.user = self.user
+        serializer = serializer_class(context={"request": request, "view": None})
+        instance = self.team if serializer_class is TeamSerializer else self.project
+
+        real_save = Team.save
+
+        def save_that_fails_on_other_fields(team: Team, *args: Any, **kwargs: Any) -> None:
+            if "capture_console_log_opt_in" in (kwargs.get("update_fields") or []):
+                raise DatabaseError("simulated failure")
+            real_save(team, *args, **kwargs)
+
+        if outcome == "save_fails":
+            with (
+                patch.object(Team, "save", autospec=True, side_effect=save_that_fails_on_other_fields),
+                self.assertRaises(DatabaseError),
+            ):
+                serializer.update(instance, payload)
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.conversations_settings, {"widget_color": "#123456"})
+            self.assertFalse(self.team.capture_console_log_opt_in)
+            return
+
+        with capture_db_queries() as queries:
+            serializer.update(instance, payload)
+        team_saves = [q["sql"] for q in queries.captured_queries if q["sql"].startswith('UPDATE "posthog_team"')]
+        self.assertEqual(len(team_saves), 1, [sql[:120] for sql in team_saves])
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.conversations_settings, {"widget_color": "#654321"})
+        self.assertTrue(self.team.capture_console_log_opt_in)
+
     def test_generate_conversations_public_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -1080,12 +1326,12 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             ),
         ]
     )
-    def test_flag_evaluations_mode_while_the_usage_tab_is_forced_to_events(self, _name, stored_mode, expected_mode):
+    def test_flag_evaluations_mode_while_reads_are_forced_to_events(self, _name, stored_mode, expected_mode):
         OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
             flag_evaluations_mode=stored_mode
         )
 
-        with override_instance_config("FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS", True):
+        with override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", True):
             response = self.client.get(f"/api/projects/{self.project.id}/")
 
         self.assertEqual(response.json()["flag_evaluations_mode"], expected_mode)
@@ -1147,7 +1393,10 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             format="json",
         )
         self.assertEqual(definition_response.status_code, status.HTTP_201_CREATED, definition_response.json())
-        default_pins = [{"kind": "custom_property", "id": definition_response.json()["id"]}]
+        default_pins = [
+            {"kind": "custom_property", "id": definition_response.json()["id"]},
+            {"kind": "account_field", "id": "stripe_customer_id"},
+        ]
 
         response = self.client.patch(
             f"/api/projects/{self.project.id}/",
@@ -1238,26 +1487,54 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertIn("default_experiment_stats_method", response.json())
 
-    def test_experiments_config_precomputation_toggle_stamps_manual_provenance(self):
-        # A missing stamp would let the auto-enrollment job override a human's disable
-        # on its next run. Other settings must not stamp it.
+    def test_experiments_config_ignores_precomputation_toggle(self):
+        # A write here would stamp the row as manual and stop the auto-enrollment job from
+        # managing the team, so the field is read-only for project admins.
         response = self.client.patch(
             f"/api/projects/{self.project.id}/experiments_config/",
-            {"default_cuped_enabled": True},
+            {"experiment_precomputation_enabled": True, "default_cuped_enabled": True},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertFalse(response.json()["experiment_precomputation_enabled"])
         config = TeamExperimentsConfig.objects.get(team_id=self.project.id)
+        self.assertFalse(config.experiment_precomputation_enabled)
         self.assertIsNone(config.precomputation_enabled_set_by)
+        self.assertTrue(config.default_cuped_enabled)
+
+    def test_experiments_config_changes_are_logged_as_team_activity(self):
+        # The first read creates the config row with defaults, which is not a change anyone made.
+        self.client.get(f"/api/projects/{self.project.id}/experiments_config/")
+        team_activity = ActivityLog.objects.filter(team_id=self.project.id, scope="Team", item_id=str(self.project.id))
+        self.assertEqual(team_activity.count(), 0)
 
         response = self.client.patch(
             f"/api/projects/{self.project.id}/experiments_config/",
-            {"experiment_precomputation_enabled": True},
+            {"default_cuped_enabled": True, "experiment_precomputation_enabled": True},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        config.refresh_from_db()
-        self.assertEqual(config.precomputation_enabled_set_by, TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL)
+
+        log = team_activity.get()
+        self.assertEqual(log.activity, "updated")
+        self.assertEqual(log.user, self.user)
+        assert log.detail is not None
+        # Precomputation is managed by PostHog, so only the customer's own setting is recorded.
+        self.assertEqual(
+            log.detail["changes"],
+            [{"type": "Team", "action": "changed", "field": "default_cuped_enabled", "before": False, "after": True}],
+        )
+
+    def test_experiments_config_created_with_non_default_values_is_logged(self):
+        # The Django admin creates the row and sets values in one save, so there is no update to diff.
+        TeamExperimentsConfig.objects.create(team=self.team, default_cuped_enabled=True)
+
+        log = ActivityLog.objects.get(team_id=self.team.id, scope="Team", item_id=str(self.team.id))
+        assert log.detail is not None
+        self.assertEqual(
+            log.detail["changes"],
+            [{"type": "Team", "action": "changed", "field": "default_cuped_enabled", "before": False, "after": True}],
+        )
 
     def test_experiments_config_recalculation_times_write_and_clear(self):
         response = self.client.patch(
@@ -1309,6 +1586,27 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
 
+    @parameterized.expand(
+        [
+            ("zero", 0, status.HTTP_400_BAD_REQUEST),
+            ("one", 1, status.HTTP_400_BAD_REQUEST),
+            ("above_one", 1.5, status.HTTP_400_BAD_REQUEST),
+            ("negative", -0.5, status.HTTP_400_BAD_REQUEST),
+            ("ninety_percent", 0.9, status.HTTP_200_OK),
+        ]
+    )
+    def test_experiments_config_confidence_level_must_be_between_zero_and_one(self, _name, level, expected_status):
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/experiments_config/",
+            {"default_experiment_confidence_level": level},
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertEqual(response.json()["attr"], "default_experiment_confidence_level")
+        else:
+            self.assertEqual(response.json()["default_experiment_confidence_level"], "0.90")
+
     def test_tags_round_trip_and_land_in_the_project_team_namespace(self):
         # `tags` is not a Project column, so it must be pulled out before the serializer's
         # passthrough loop setattr()s everything left in validated_data onto the model.
@@ -1335,6 +1633,57 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["tags"], ["keep"])
         self.assertEqual(set(Tag.objects.filter(team_id=self.project.id).values_list("name", flat=True)), {"keep"})
+
+    def test_only_organization_admins_can_change_project_groups(self) -> None:
+        group_tag = "project-group:production-apps"
+        self.client.patch(f"/api/projects/{self.project.id}/", {"tags": [group_tag, "keep"]}, format="json")
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        regular_tag_update = self.client.patch(
+            f"/api/projects/{self.project.id}/", {"tags": [group_tag, "updated"]}, format="json"
+        )
+        self.assertEqual(regular_tag_update.status_code, status.HTTP_200_OK, regular_tag_update.json())
+
+        group_update = self.client.patch(
+            f"/api/projects/{self.project.id}/", {"tags": ["project-group:staging", "updated"]}, format="json"
+        )
+        self.assertEqual(group_update.status_code, status.HTTP_400_BAD_REQUEST, group_update.json())
+
+    def test_member_tag_edit_cannot_revert_group_changed_after_validation(self) -> None:
+        endpoint = f"/api/projects/{self.project.id}/"
+        initial = self.client.patch(endpoint, {"tags": ["project-group:production", "keep"]}, format="json")
+        self.assertEqual(initial.status_code, status.HTTP_200_OK, initial.json())
+        member = self._create_user("member@example.com", level=OrganizationMembership.Level.MEMBER)
+        member_client = self.client_class()
+        member_client.force_login(member)
+        original = ProjectViewSet.perform_update
+
+        def finish_admin_write_before_member_write(
+            view: ProjectViewSet, serializer: serializers.BaseSerializer
+        ) -> None:
+            if view.request.user.pk == member.pk:
+                admin_response = self.client.patch(endpoint, {"tags": ["project-group:staging", "keep"]}, format="json")
+                self.assertEqual(admin_response.status_code, status.HTTP_200_OK, admin_response.json())
+            original(view, serializer)
+
+        with patch.object(ProjectViewSet, "perform_update", finish_admin_write_before_member_write):
+            response = member_client.patch(endpoint, {"tags": ["project-group:production", "updated"]}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        persisted = self.client.get(endpoint)
+        self.assertEqual(set(persisted.json()["tags"]), {"project-group:staging", "keep"})
+
+    @parameterized.expand(
+        [
+            ("invalid_slug", ["project-group:production apps"]),
+            ("multiple_groups", ["project-group:production", "project-group:staging"]),
+        ]
+    )
+    def test_project_group_tags_must_use_one_slug(self, _name: str, tags: list[str]) -> None:
+        response = self.client.patch(f"/api/projects/{self.project.id}/", {"tags": tags}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
 
     def test_project_can_be_created_with_tags(self):
         self.organization.available_product_features = [

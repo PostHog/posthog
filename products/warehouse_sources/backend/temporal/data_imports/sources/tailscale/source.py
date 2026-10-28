@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TailscaleSource(ResumableSource[TailscaleSourceConfig, TailscaleResumeConfig]):
+    codebase_detection = detect(env=("^TAILSCALE_", "^TS_AUTHKEY$"), npm=("@tailscale/connect",), go=("tailscale.com",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -56,7 +59,7 @@ class TailscaleSource(ResumableSource[TailscaleSourceConfig, TailscaleResumeConf
             name=ExternalDataSourceType.TAILSCALE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Tailscale",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["vpn", "wireguard", "tailnet"],
             caption="""Sync your Tailscale devices, users, keys, and configuration audit logs into the PostHog Data warehouse.
 

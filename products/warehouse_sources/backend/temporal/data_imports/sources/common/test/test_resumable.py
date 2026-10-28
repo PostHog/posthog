@@ -1,12 +1,17 @@
 import typing
+import threading
 
 import pytest
 from unittest.mock import MagicMock, patch
 
+import fakeredis
 import redis.exceptions as redis_exceptions
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.abandonable_iterate import (
+    SourceAbandonedError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import (
@@ -22,8 +27,14 @@ class _SweepPosition:
     cursor: str | None = None
 
 
-def _manager() -> ResumableSourceManager[_SweepPosition]:
-    return ResumableSourceManager[_SweepPosition](MagicMock(team_id=1, job_id="job-1"), _SweepPosition)
+def _manager(job_id: str = "job-1") -> ResumableSourceManager[_SweepPosition]:
+    return ResumableSourceManager[_SweepPosition](MagicMock(team_id=1, job_id=job_id), _SweepPosition)
+
+
+def _commit(manager: ResumableSourceManager[_SweepPosition], cursor: str) -> None:
+    manager.save_state(_SweepPosition(cursor=cursor))
+    manager.confirm()
+    manager.commit()
 
 
 class TestResolveResumeManager:
@@ -61,7 +72,7 @@ class TestResumableSourceManager:
 
         assert state == _SweepPosition(cursor="cus_1")
 
-    def test_state_reaches_redis_only_on_commit(self):
+    def test_only_a_confirmed_cursor_reaches_redis_and_only_on_commit(self):
         manager = _manager()
         redis = MagicMock()
 
@@ -69,6 +80,11 @@ class TestResumableSourceManager:
             get_redis.return_value.__enter__.return_value = redis
             manager.save_state(_SweepPosition(cursor="cus_1"))
             manager.save_state(_SweepPosition(cursor="cus_2"))
+            manager.commit()
+            redis.set.assert_not_called()
+
+            manager.confirm()
+            manager.save_state(_SweepPosition(cursor="cus_3"))
             redis.set.assert_not_called()
 
             manager.commit()
@@ -86,6 +102,7 @@ class TestResumableSourceManager:
         with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
             get_redis.return_value.__enter__.return_value = redis
             manager.save_state(_SweepPosition(cursor="sensitive-customer-id"))
+            manager.confirm()
             manager.commit()
             manager.load_state()
 
@@ -115,20 +132,25 @@ class TestResumableSourceManager:
         with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
             get_redis.return_value.__enter__.return_value = redis
             manager.with_namespace("deltas").save_state(_SweepPosition(cursor="cus_3"))
+            manager.confirm()
             manager.commit()
 
         redis.set.assert_called_once_with(
             "posthog:data_warehouse:resumable_source:1:job-1:deltas", '{"cursor":"cus_3"}', ex=60 * 60 * 24
         )
 
-    def test_clear_state_drops_the_staged_cursor(self):
+    @pytest.mark.parametrize("confirmed", [True, False], ids=["confirmed", "pending"])
+    def test_clear_state_drops_the_staged_cursor(self, confirmed: bool):
         manager = _manager()
         redis = MagicMock()
 
         with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
             get_redis.return_value.__enter__.return_value = redis
             manager.save_state(_SweepPosition(cursor="cus_1"))
+            if confirmed:
+                manager.confirm()
             manager.clear_state()
+            manager.confirm()
             manager.commit()
 
         redis.delete.assert_called_once_with("posthog:data_warehouse:resumable_source:1:job-1")
@@ -145,6 +167,7 @@ class TestResumableSourceManager:
         with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
             get_redis.return_value.__enter__.return_value = redis
             manager.save_state(_SweepPosition(cursor="cus_1"))
+            manager.confirm()
             manager.commit()
 
         redis.connection_pool.disconnect.assert_called_once()
@@ -177,6 +200,63 @@ class TestResumableSourceManager:
 
         redis.connection_pool.disconnect.assert_called_once()
         assert redis.delete.call_count == 2
+
+
+class TestContinueFromJob:
+    @pytest.fixture(autouse=True)
+    def _fake_redis(self):
+        client = fakeredis.FakeRedis()
+        with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
+            get_redis.return_value.__enter__.return_value = client
+            yield
+
+    def test_the_next_job_resumes_from_every_cursor_the_interrupted_job_committed(self):
+        interrupted = _manager("job-1")
+        _commit(interrupted, "ch_100")
+        _commit(interrupted.with_namespace("refunds"), "re_7")
+
+        next_job = _manager("job-2")
+        assert next_job.continue_from_job("job-1") is True
+
+        assert next_job.load_state() == _SweepPosition(cursor="ch_100")
+        assert next_job.with_namespace("refunds").load_state() == _SweepPosition(cursor="re_7")
+
+    def test_a_cursor_the_job_committed_itself_is_not_replaced(self):
+        _commit(_manager("job-1"), "ch_100")
+        next_job = _manager("job-2")
+        next_job.continue_from_job("job-1")
+        _commit(next_job, "ch_50")
+
+        assert next_job.continue_from_job("job-1") is False
+
+        assert next_job.load_state() == _SweepPosition(cursor="ch_50")
+
+    def test_a_later_execution_does_not_bring_back_a_namespace_the_job_cleared(self):
+        interrupted = _manager("job-1")
+        _commit(interrupted, "ch_100")
+        _commit(interrupted.with_namespace("refunds"), "re_7")
+        next_job = _manager("job-2")
+        next_job.continue_from_job("job-1")
+        next_job.with_namespace("refunds").clear_state()
+        next_job.clear_state()
+        _commit(next_job.with_namespace("disputes"), "dp_3")
+
+        assert next_job.continue_from_job("job-1") is False
+
+        assert next_job.with_namespace("refunds").load_state() is None
+        assert next_job.load_state() is None
+
+    def test_clear_job_state_drops_every_namespace_of_the_job_only(self):
+        job = _manager("job-1")
+        _commit(job, "ch_100")
+        _commit(job.with_namespace("refunds"), "re_7")
+        _commit(_manager("job-2"), "ch_9")
+
+        job.clear_job_state()
+
+        assert job.load_state() is None
+        assert job.with_namespace("refunds").load_state() is None
+        assert _manager("job-2").load_state() == _SweepPosition(cursor="ch_9")
 
 
 class TestResumeCoversRun:
@@ -229,3 +309,56 @@ class TestResumeCoversRun:
         # on its incremental field, so narrowing the default would cut their retry budgets.
         for incremental in (True, False):
             assert ResumableSource.resume_covers_run(MagicMock(), incremental_or_append=incremental) is True
+
+
+class TestRevokedWrites:
+    @pytest.mark.parametrize("write", ["commit", "clear_state", "sibling_commit"])
+    def test_a_revoked_manager_writes_nothing_to_redis(self, write: str):
+        manager = _manager()
+        sibling = manager.with_namespace("other")
+        redis = MagicMock()
+
+        with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
+            get_redis.return_value.__enter__.return_value = redis
+            manager.save_state(_SweepPosition(cursor="cus_1"))
+            sibling.save_state(_SweepPosition(cursor="cus_2"))
+
+            assert manager.revoke_writes(timeout_seconds=1) is True
+            # A source thread that still runs after the hand-off can confirm its cursors.
+            manager.confirm()
+            with pytest.raises(SourceAbandonedError):
+                {"commit": manager.commit, "clear_state": manager.clear_state, "sibling_commit": sibling.commit}[
+                    write
+                ]()
+
+        redis.set.assert_not_called()
+        redis.delete.assert_not_called()
+
+    def test_a_write_in_progress_blocks_the_revoke_and_still_lands(self):
+        manager = _manager()
+        redis = MagicMock()
+        in_redis = threading.Event()
+        release = threading.Event()
+
+        def blocked_write(*args: typing.Any, **kwargs: typing.Any) -> None:
+            in_redis.set()
+            release.wait()
+
+        redis.set.side_effect = blocked_write
+
+        with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
+            get_redis.return_value.__enter__.return_value = redis
+            manager.save_state(_SweepPosition(cursor="cus_1"))
+            manager.confirm()
+            writer = threading.Thread(target=manager.commit, daemon=True)
+            writer.start()
+            assert in_redis.wait(5)
+
+            # A hand-off now would let this write land after the next attempt starts.
+            assert manager.revoke_writes(timeout_seconds=0.01) is False
+
+            release.set()
+            writer.join(5)
+            assert manager.revoke_writes(timeout_seconds=1) is True
+
+        assert redis.set.call_count == 1

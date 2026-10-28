@@ -1,6 +1,7 @@
 from typing import cast
 from uuid import UUID
 
+from django.db import models
 from django.http import JsonResponse
 
 import structlog
@@ -16,6 +17,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
@@ -25,6 +27,7 @@ from products.error_tracking.backend.facade import (
     api as facade_api,
     contracts,
     issues as issues_facade,
+    summaries as summaries_facade,
 )
 from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 from products.error_tracking.backend.presentation.views.external_references import (
@@ -97,10 +100,16 @@ class ErrorTrackingIssueAssigneeIdField(serializers.Field):
         return value if isinstance(value, int | str) else str(value)
 
 
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class AssigneeType(models.TextChoices):
+    USER = "user", "user"
+    ROLE = "role", "role"
+
+
 class ErrorTrackingIssueAssigneeWriteSerializer(serializers.Serializer):
     id = ErrorTrackingIssueAssigneeIdField(help_text="User ID or role UUID to assign the issue to.")
     type = serializers.ChoiceField(
-        choices=["user", "role"],
+        choices=AssigneeType.choices,
         help_text="Assignment target type: user or role.",
     )
 
@@ -248,10 +257,72 @@ class ErrorTrackingIssueSplitResponseSerializer(serializers.Serializer):
     )
 
 
+class IssueSummaryStatus(models.TextChoices):
+    READY = "ready"
+    GENERATING = "generating"
+    UNAVAILABLE = "unavailable"
+
+
+class ErrorTrackingStoredIssueSummarySerializer(serializers.Serializer):
+    what_happened = serializers.CharField(help_text="What the exception is and where it happens.")
+    likely_cause = serializers.CharField(
+        help_text="The model's hypothesis about the cause. Not a confirmed finding. Can be empty."
+    )
+    who_is_affected = serializers.CharField(help_text="Which users, sessions or environments see the issue.")
+    suggested_next_step = serializers.CharField(help_text="One concrete step to investigate or fix the issue.")
+    category = serializers.ChoiceField(
+        choices=contracts.IssueSummaryCategory.choices,
+        allow_null=True,
+        help_text="Broad source of the issue, or null when the category model did not answer.",
+    )
+    model = serializers.CharField(help_text="Model that wrote the summary.")
+    generated_at = serializers.DateTimeField(help_text="When the summary was written.")
+    checked_at = serializers.DateTimeField(
+        help_text="When generation last wrote the summary or confirmed it unchanged. The regenerate interval runs from it."
+    )
+
+
+class ErrorTrackingIssueSummaryResponseSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=IssueSummaryStatus.choices,
+        help_text=(
+            "ready: `summary` holds the stored summary. "
+            "generating: a summary is being written in the background, so poll again. "
+            "`summary` holds the previous one, if any. "
+            "unavailable: no summary exists and none will be written, for example because the feature is off."
+        ),
+    )
+    summary = ErrorTrackingStoredIssueSummarySerializer(
+        allow_null=True, help_text="The stored summary, or null when none exists yet."
+    )
+
+
+def issue_summary_response(team_id: int, issue_id: UUID, *, user: User, regenerate: bool) -> dict[str, object]:
+    """Read the stored summary and ask the facade to start generation, which it skips while the summary is fresh.
+
+    `regenerate` only changes the status of a started refresh of a stored summary: `generating` instead of `ready`.
+    Never waits.
+    """
+    summary = summaries_facade.get_issue_summary(team_id, issue_id, user=user)
+    # Starting is a no-op while a stored summary is younger than the regenerate interval,
+    # so a read of a stale summary also refreshes it in the background.
+    started = summaries_facade.start_issue_summary_generation(team_id, issue_id, user=user)
+    if started and (regenerate or summary is None):
+        summary_status = IssueSummaryStatus.GENERATING
+    elif summary is not None:
+        summary_status = IssueSummaryStatus.READY
+    else:
+        summary_status = IssueSummaryStatus.UNAVAILABLE
+    return {
+        "status": summary_status,
+        "summary": ErrorTrackingStoredIssueSummarySerializer(summary).data if summary is not None else None,
+    }
+
+
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
     scope_object = "error_tracking"
     # These override the base defaults, so keep the standard DRF actions too.
-    scope_object_read_actions = ["list", "retrieve", "values", "exists"]
+    scope_object_read_actions = ["list", "retrieve", "values", "exists", "summary"]
     scope_object_write_actions = [
         "update",
         "partial_update",
@@ -262,8 +333,20 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         "assign",
         "cohort",
         "bulk",
+        "summary_regenerate",
     ]
     serializer_class = ErrorTrackingIssueReadSerializer
+
+    def _report_issue_change(self, request: request.Request, action: str, properties: dict[str, object]) -> None:
+        # Captured server-side because the frontend issue events only see the web app.
+        # This event also counts changes made through MCP, PostHog AI, Slack and the API.
+        report_user_action(
+            cast(User, request.user),
+            "error_tracking_issue_changed",
+            {"action": action, **properties},
+            team=self.team,
+            request=request,
+        )
 
     def list(self, request: request.Request, *args: object, **kwargs: object) -> Response:
         return paginate_via_facade(
@@ -318,7 +401,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         request_serializer = ErrorTrackingIssueWriteSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
         try:
-            issue = issues_facade.update_issue(
+            update = issues_facade.update_issue(
                 self.team.id,
                 UUID(str(pk)),
                 fields=dict(request_serializer.validated_data),
@@ -327,7 +410,21 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             )
         except IssueNotFoundError:
             raise NotFound("Issue not found")
-        return Response(ErrorTrackingIssueReadSerializer(issue).data)
+        if update.changed_fields:
+            self._report_issue_change(
+                request,
+                "update",
+                {
+                    "issue_id": str(pk),
+                    "updated_fields": sorted(update.changed_fields),
+                    **{
+                        key: getattr(update.issue, key)
+                        for key in ("status", "severity")
+                        if key in update.changed_fields
+                    },
+                },
+            )
+        return Response(ErrorTrackingIssueReadSerializer(update.issue).data)
 
     @extend_schema(responses={200: ErrorTrackingIssueExistsResponseSerializer})
     @action(methods=["GET"], detail=False)
@@ -342,7 +439,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def merge(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
         ids = [str(issue_id) for issue_id in request.validated_data["ids"]]
         try:
-            merge_result = issues_facade.merge_issues(
+            merge = issues_facade.merge_issues(
                 self.team.id,
                 UUID(str(pk)),
                 ids,
@@ -351,11 +448,16 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             )
         except IssueNotFoundError:
             raise NotFound("Issue not found")
-        if merge_result == issues_facade.ErrorTrackingIssueMergeResult.STALE_ISSUES:
+        if merge.result == "stale_issues":
             raise NotFound("Issue not found")
-        if merge_result == issues_facade.ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS:
+        if merge.result == "stale_fingerprints":
             raise ValidationError("Issue fingerprints changed before merge. Please retry.")
-        return Response({"success": merge_result == issues_facade.ErrorTrackingIssueMergeResult.MERGED})
+        merged = merge.result == "merged"
+        if merged:
+            self._report_issue_change(
+                request, "merge", {"issue_id": str(pk), "merged_issue_count": merge.merged_issue_count}
+            )
+        return Response({"success": merged})
 
     @validated_request(
         request_serializer=ErrorTrackingIssueSplitRequestSerializer,
@@ -374,6 +476,11 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             )
         except IssueNotFoundError:
             raise NotFound("Issue not found")
+        self._report_issue_change(
+            request,
+            "split",
+            {"issue_id": str(pk), "fingerprint_count": len(fingerprints), "new_issue_count": len(new_issue_ids)},
+        )
         return Response({"success": True, "new_issue_ids": [str(i) for i in new_issue_ids]})
 
     @validated_request(
@@ -382,11 +489,12 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     )
     @action(methods=["PATCH"], detail=True)
     def assign(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
+        assignee = request.validated_data["assignee"]
         try:
-            issues_facade.assign_issue(
+            assigned = issues_facade.assign_issue(
                 self.team.id,
                 UUID(str(pk)),
-                request.validated_data["assignee"],
+                assignee,
                 user=request.user,
                 was_impersonated=is_impersonated(request),
             )
@@ -394,6 +502,10 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             raise NotFound("Issue not found")
         except issues_facade.AssigneeValidationError as err:
             raise ValidationError(str(err))
+        if assigned:
+            self._report_issue_change(
+                request, "assign", {"issue_id": str(pk), "assignee_type": assignee["type"] if assignee else None}
+            )
         return Response({"success": True})
 
     @extend_schema(
@@ -418,6 +530,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             )
             raise ValidationError("An error occurred while assigning this cohort")
 
+        self._report_issue_change(request, "set_cohort", {"issue_id": str(pk)})
         return Response({"success": True})
 
     @extend_schema(
@@ -452,12 +565,15 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     )
     @action(methods=["POST"], detail=False)
     def bulk(self, request: request.Request, **kwargs: object) -> Response:
+        ids = request.data.get("ids", [])
+        bulk_action = request.data.get("action")
+        bulk_status = request.data.get("status")
         try:
-            issues_facade.bulk_update_issues(
+            changed_issue_count = issues_facade.bulk_update_issues(
                 self.team.id,
-                request.data.get("ids", []),
-                action=request.data.get("action"),
-                status=request.data.get("status"),
+                ids,
+                action=bulk_action,
+                status=bulk_status,
                 assignee=request.data.get("assignee", None),
                 user=request.user,
                 was_impersonated=is_impersonated(request),
@@ -466,7 +582,40 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             raise ValidationError("Invalid status")
         except issues_facade.AssigneeValidationError as err:
             raise ValidationError(str(err))
+        if changed_issue_count:
+            self._report_issue_change(
+                request,
+                f"bulk_{bulk_action}",
+                {
+                    "issue_count": changed_issue_count,
+                    **({"status": bulk_status} if bulk_action == "set_status" else {}),
+                },
+            )
         return Response({"success": True})
+
+    @extend_schema(responses={200: ErrorTrackingIssueSummaryResponseSerializer})
+    @action(methods=["GET"], detail=True)
+    def summary(self, request: request.Request, *args: object, pk: object = None, **kwargs: object) -> Response:
+        return self._summary_response(pk, regenerate=False)
+
+    @extend_schema(request=None, responses={200: ErrorTrackingIssueSummaryResponseSerializer})
+    @action(methods=["POST"], detail=True, url_path="summary/regenerate")
+    def summary_regenerate(
+        self, request: request.Request, *args: object, pk: object = None, **kwargs: object
+    ) -> Response:
+        return self._summary_response(pk, regenerate=True)
+
+    def _summary_response(self, pk: object, *, regenerate: bool) -> Response:
+        try:
+            issue_id = UUID(str(pk))
+        except ValueError:
+            raise NotFound("Issue not found")
+        # Without this, another team's issue id would queue a generation task under this team.
+        if not facade_api.issue_exists_by_id(self.team_id, issue_id):
+            raise NotFound("Issue not found")
+        return Response(
+            issue_summary_response(self.team_id, issue_id, user=cast(User, self.request.user), regenerate=regenerate)
+        )
 
     @extend_schema(operation_id="error_tracking_issues_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])

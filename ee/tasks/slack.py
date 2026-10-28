@@ -2,33 +2,17 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
-from django.conf import settings
-
 import structlog
 
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.sharing_configuration import SharingConfiguration
 
-from products.exports.backend.models.exported_asset import ExportedAsset
-
-from ee.tasks.subscriptions.subscription_utils import DEBUG_PLACEHOLDER_IMAGE_URL, generate_assets
+from products.subscriptions.backend.facade.api import render_shared_insight_image
 
 logger = structlog.get_logger(__name__)
 
 
 SHARED_LINK_REGEX = r"\/(?:shared_dashboard|shared|embedded)\/(.+)"
-
-
-def _block_for_asset(asset: ExportedAsset) -> dict:
-    image_url = asset.get_public_content_url()
-    alt_text = None
-    if asset.insight:
-        alt_text = asset.insight.name or asset.insight.derived_name
-
-    if settings.DEBUG:
-        image_url = DEBUG_PLACEHOLDER_IMAGE_URL
-
-    return {"type": "image", "image_url": image_url, "alt_text": alt_text}
 
 
 def _handle_slack_event(event_payload: Any) -> None:
@@ -51,9 +35,9 @@ def _handle_slack_event(event_payload: Any) -> None:
 
             # First we try and get the sharingconfig for the given link
             try:
-                sharing_config: SharingConfiguration = SharingConfiguration.objects.get(
-                    access_token=share_token, enabled=True
-                )
+                sharing_config: SharingConfiguration = SharingConfiguration.objects.filter(
+                    SharingConfiguration.without_retired_resources_q()
+                ).get(access_token=share_token, enabled=True)
             except SharingConfiguration.DoesNotExist:
                 logger.info("No SharingConfiguration found")
                 continue
@@ -82,18 +66,18 @@ def _handle_slack_event(event_payload: Any) -> None:
                 sharing_configuration_id=sharing_config.id,
             )
 
-            insights, assets = generate_assets(sharing_config, 1)
+            image = render_shared_insight_image(sharing_config)
 
-            if assets:
+            if image:
                 unfurls[link] = {
                     "blocks": [
                         {
                             "type": "section",
                             "text": {
                                 "type": "mrkdwn",
-                                "text": insights[0].name or insights[0].derived_name,
+                                "text": image.title,
                             },
-                            "accessory": _block_for_asset(assets[0]),
+                            "accessory": {"type": "image", "image_url": image.image_url, "alt_text": image.alt_text},
                         }
                     ]
                 }

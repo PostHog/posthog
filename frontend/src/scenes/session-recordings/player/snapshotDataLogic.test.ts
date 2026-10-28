@@ -9,7 +9,7 @@ import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot
 
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
-import { setupSessionRecordingTest } from './__mocks__/test-setup'
+import { overrideSessionRecordingMocks, setupSessionRecordingTest } from './__mocks__/test-setup'
 import { snapshotDataLogic } from './snapshotDataLogic'
 
 const BLOB_SOURCE: SessionRecordingSnapshotSource = {
@@ -119,6 +119,22 @@ describe('snapshotDataLogic', () => {
                 logic.actions.loadSnapshotsForSourceFailure('Unauthorized', error)
             }).toDispatchActions(['snapshotSourceLoadExhausted'])
             consoleError.mockRestore()
+        })
+    })
+
+    describe('replay proxy token', () => {
+        it.each([
+            ['the token from the sources listing', 'header.payload.signature', 'header.payload.signature'],
+            ['null when the listing has a null token', null, null],
+            ['null when the listing has no token field', undefined, null],
+        ])('stores %s', async (_, replayProxyToken, expected) => {
+            overrideSessionRecordingMocks({ snapshotSources: [BLOB_SOURCE], replayProxyToken })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotSources()
+            })
+                .toDispatchActions(['loadSnapshotSourcesSuccess'])
+                .toMatchValues({ replayProxyToken: expected })
         })
     })
 

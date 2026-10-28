@@ -569,11 +569,7 @@ export const LLMDetectorConfigApiType = {
 export interface LLMDetectorConfigApi {
     /** What counts as unusual or interesting for this metric, in your own words. Optional. */
     instructions?: string | null
-    /** Minimum confidence [0-1] the model must report before the alert fires (default: 0.7) */
-    threshold?: number | null
     type: LLMDetectorConfigApiType
-    /** How many recent points the model is shown (default: 90) */
-    window?: number | null
 }
 
 /**
@@ -923,6 +919,11 @@ export interface AlertSimulateApi {
     date_from?: string | null
     /** Per-insight-kind alert config. For SQL insights, selects the evaluated column and read direction (last_row/first_row) so the preview matches the alert; ignored for trends. */
     config?: AlertConfigUnionApi | null
+    /**
+     * ID of the saved alert this preview is for. The AI detector reads the points that the alert's earlier AI checks fired on, the same way a live check does. Omit it for a new alert.
+     * @nullable
+     */
+    alert?: string | null
 }
 
 export type AlertSimulateResponseApiSubDetectorScoresItem = { [key: string]: unknown }
@@ -963,7 +964,7 @@ export interface AlertSimulateResponseApi {
     data: number[]
     /** Date labels for each point. */
     dates: string[]
-    /** Score for each point. Null can mean insufficient data or a valid unscored point. AI previews report model confidence only for points flagged by an anomaly verdict; all other points are null, including every point in a normal verdict. */
+    /** Score for each point. Null can mean insufficient data or a valid unscored point. The AI detector has no score, so every point is null in an AI preview. */
     scores: (number | null)[]
     /** Indices of points flagged as anomalies. */
     triggered_indices: number[]
@@ -980,6 +981,13 @@ export interface AlertSimulateResponseApi {
     anomaly_count: number
     /** Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields. */
     sub_detector_scores?: AlertSimulateResponseApiSubDetectorScoresItem[]
+    /** AI detector only: the model's reason for its verdict on the latest point. */
+    rationale?: string
+    /**
+     * AI detector only: the shape the model saw at the latest point, or 'none'.
+     * @nullable
+     */
+    kind?: string | null
     /** Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values). */
     breakdown_results?: BreakdownSimulationResultApi[]
 }
@@ -1004,127 +1012,6 @@ export interface PaginatedThresholdWithAlertListApi {
     /** @nullable */
     previous?: string | null
     results: ThresholdWithAlertApi[]
-}
-
-/**
- * * `logs` - Logs
- */
-export type PlatformAlertConfigurationSourceKindEnumApi =
-    (typeof PlatformAlertConfigurationSourceKindEnumApi)[keyof typeof PlatformAlertConfigurationSourceKindEnumApi]
-
-export const PlatformAlertConfigurationSourceKindEnumApi = {
-    Logs: 'logs',
-} as const
-
-/**
- * * `not_firing` - Not firing
- * * `firing` - Firing
- * * `errored` - Errored
- * * `snoozed` - Snoozed
- * * `broken` - Broken
- */
-export type BillingAlertConfigurationStateEnumApi =
-    (typeof BillingAlertConfigurationStateEnumApi)[keyof typeof BillingAlertConfigurationStateEnumApi]
-
-export const BillingAlertConfigurationStateEnumApi = {
-    NotFiring: 'not_firing',
-    Firing: 'firing',
-    Errored: 'errored',
-    Snoozed: 'snoozed',
-    Broken: 'broken',
-} as const
-
-export interface PlatformAlertApi {
-    /** Unique identifier of this alert instance. */
-    readonly id: string
-    /** Key of the result group this instance tracks. Empty when the source does not group results. */
-    readonly grouping_key: string
-    /** Current state of this alert instance.
-     *
-     * * `not_firing` - Not firing
-     * * `firing` - Firing
-     * * `errored` - Errored
-     * * `snoozed` - Snoozed
-     * * `broken` - Broken */
-    readonly state: BillingAlertConfigurationStateEnumApi
-    /**
-     * When the current firing started. Null when the instance is not firing.
-     * @nullable
-     */
-    readonly firing_started_at: string | null
-    /**
-     * When a notification was last sent for this instance.
-     * @nullable
-     */
-    readonly last_notified_at: string | null
-    /**
-     * Time until which notifications are snoozed. Null when not snoozed.
-     * @nullable
-     */
-    readonly snooze_until: string | null
-}
-
-/**
- * Source-specific query settings. The shape depends on source_kind.
- */
-export type PlatformAlertConfigurationApiSourceConfig = { [key: string]: unknown }
-
-export interface PlatformAlertConfigurationApi {
-    /** Unique identifier of the alert configuration. */
-    readonly id: string
-    /** Human-readable name of the alert. */
-    readonly name: string
-    /** Whether the alert is evaluated on schedule. */
-    readonly enabled: boolean
-    /** Product whose data the alert evaluates.
-     *
-     * * `logs` - Logs */
-    readonly source_kind: PlatformAlertConfigurationSourceKindEnumApi
-    /** Source-specific query settings. The shape depends on source_kind. */
-    readonly source_config: PlatformAlertConfigurationApiSourceConfig
-    /** Count the evaluated value is compared against. */
-    readonly threshold_count: number
-    /** Comparison operator applied between the value and threshold_count. */
-    readonly threshold_operator: string
-    /** Length of the evaluated time window, in minutes. */
-    readonly window_minutes: number
-    /** Minutes between scheduled checks. */
-    readonly check_interval_minutes: number
-    /** Number of recent checks considered when deciding to fire. */
-    readonly evaluation_periods: number
-    /** Number of breaching checks within evaluation_periods required to fire. */
-    readonly datapoints_to_alarm: number
-    /** Minimum minutes between notifications for the same alert. */
-    readonly cooldown_minutes: number
-    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not run. Null means no quiet hours. */
-    readonly schedule_restriction: AlertScheduleRestrictionApi | null
-    /**
-     * When the next check is due. Null when no check is scheduled.
-     * @nullable
-     */
-    readonly next_check_at: string | null
-    /** Number of checks in a row that failed to evaluate. */
-    readonly consecutive_failures: number
-    /**
-     * ID of the legacy source configuration this row was backfilled from. Null for alerts created on the platform.
-     * @nullable
-     */
-    readonly legacy_configuration_id: string | null
-    /** When the configuration was created. */
-    readonly created_at: string
-    /** When the configuration was last changed. */
-    readonly updated_at: string
-    /** Runtime state for each result group of this configuration. */
-    readonly alerts: readonly PlatformAlertApi[]
-}
-
-export interface PaginatedPlatformAlertConfigurationListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: PlatformAlertConfigurationApi[]
 }
 
 export type AlertsListParams = {
@@ -1178,17 +1065,6 @@ export type AlertsRetrieveParams = {
 }
 
 export type InsightsThresholdsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type PlatformAlertsListParams = {
     /**
      * Number of results to return per page.
      */

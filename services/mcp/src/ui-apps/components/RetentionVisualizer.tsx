@@ -23,7 +23,9 @@ const CHART_MODE_OPTIONS = [
 const TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
 
 export function RetentionVisualizer({ query, results }: RetentionVisualizerProps): ReactElement {
-    const [chartMode, setChartMode] = useState<ChartMode>('line')
+    const [chartMode, setChartMode] = useState<ChartMode>(
+        query?.retentionFilter?.display === 'ActionsBar' ? 'bar' : 'line'
+    )
     const theme = useMcpChartTheme()
 
     // No cohort cap — mirrors the web, which renders every cohort and lets colors wrap past the palette.

@@ -2,17 +2,12 @@
 
 from django.db import migrations
 
-from posthog.models import Filter
 
-
+# The legacy Filter this normalized is gone. The migration is elidable and replaced by
+# 0001_squash_2026_09_07_initial, so a fresh database never runs it and an existing one
+# applied it years ago; the normalization is left out rather than reimplemented.
 def forwards_func(apps, schema_editor):
-    DashboardItem = apps.get_model("posthog", "DashboardItem")
-    items = DashboardItem.objects.filter(filters__isnull=False)
-    for item in items:
-        if item.filters == {}:
-            continue
-        item.filters = Filter(data=item.filters).to_dict()
-        item.save()
+    pass
 
 
 def reverse_func(apps, schema_editor):

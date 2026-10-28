@@ -24,7 +24,7 @@
             if(greater(uniqExact(properties.$feature_flag_response), 1), '$multiple', any(properties.$feature_flag_response)) AS variant,
             toDate(toString(min(timestamp))) AS day
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id)
   SELECT first_exposures.day AS day,
          first_exposures.variant AS variant,
@@ -48,7 +48,7 @@
                if(greater(uniqExact(properties.$feature_flag_response), 1), '$multiple', any(properties.$feature_flag_response)) AS variant,
                min(timestamp) AS first_flag_exposure_time
         FROM events
-        WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+        WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
         GROUP BY entity_id) AS flag_exposures ON equals(person_id, flag_exposures.entity_id)
      WHERE and(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), equals(event, 'signed_up'), notILike(toString(person.properties.email), '%@posthog.com%')), greaterOrEquals(timestamp, flag_exposures.first_flag_exposure_time))
      GROUP BY entity_id)
@@ -72,12 +72,12 @@
          argMin($session_id, timestamp) AS exposure_session_id,
          [] AS breakdown_value
   FROM events
-  WHERE and(greaterOrEquals(timestamp, '__TIME_WINDOW_MIN__'), less(timestamp, '__TIME_WINDOW_MAX__'), greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, '__EXPERIMENT_DATE_TO__'), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+  WHERE and(greaterOrEquals(timestamp, '__TIME_WINDOW_MIN__'), less(timestamp, '__TIME_WINDOW_MAX__'), greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, '__EXPERIMENT_DATE_TO__'), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
   GROUP BY entity_id
   '''
 # ---
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_exposures_precompute_write.1
-  '08e0e73558ee4c8e0a529a4debad2c115b644ea2ec256ebe5b337fe9dc9f0f52'
+  '8d3cae031c3db3ed052cc58b07ab25c013527a7324e761853e73006011310c58'
 # ---
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_funnel_activation_drops_cuped
   '''
@@ -94,7 +94,7 @@
                if(greater(uniqExact(properties.$feature_flag_response), 1), '$multiple', any(properties.$feature_flag_response)) AS variant,
                min(timestamp) AS first_flag_exposure_time
         FROM events
-        WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+        WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
         GROUP BY entity_id) AS flag_exposures ON equals(person_id, flag_exposures.entity_id)
      WHERE and(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), equals(event, 'signed_up'), notILike(toString(person.properties.email), '%@posthog.com%')), greaterOrEquals(timestamp, flag_exposures.first_flag_exposure_time))
      GROUP BY entity_id),
@@ -130,11 +130,11 @@
   WITH base_events AS
     (SELECT person_id AS entity_id,
             properties.$feature_flag_response AS variant_value, timestamp, uuid,
-                                                                           and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])) AS step_0,
+                                                                           and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])) AS step_0,
                                                                            if(equals(event, '$pageview'), 1, 0) AS step_1,
                                                                            if(equals(event, 'purchase'), 1, 0) AS step_2
      FROM events
-     WHERE or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), and(greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2024-01-01 00:00:00')), toIntervalDay(14))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), or(equals(event, '$pageview'), equals(event, 'purchase'))))),
+     WHERE or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), and(greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2024-01-01 00:00:00')), toIntervalDay(14))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), or(equals(event, '$pageview'), equals(event, 'purchase'))))),
        first_exposures AS
     (SELECT entity_id,
             min(timestamp) AS first_exposure_time
@@ -174,7 +174,7 @@
             argMin($session_id, timestamp) AS exposure_session_id,
             argMin(properties.$user_id, timestamp) AS exposure_identifier
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id),
        metric_events AS
     (SELECT toString(properties.$user_id) AS entity_id,
@@ -182,11 +182,11 @@
             timestamp AS timestamp,
             uuid AS uuid,
                     properties.$session_id AS session_id,
-                    if(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), 1, 0) AS step_0,
+                    if(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), 1, 0) AS step_0,
                     if(equals(event, '$pageview'), 1, 0) AS step_1,
                     0 AS step_2
      FROM events
-     WHERE and(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), less(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00')))), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), equals(event, '$pageview')))
+     WHERE and(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), less(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00')))), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), equals(event, '$pageview')))
      UNION ALL SELECT toString(userid) AS entity_id,
                       '' AS variant,
                       ds AS timestamp,
@@ -221,11 +221,11 @@
   WITH base_events AS
     (SELECT person_id AS entity_id,
             properties.$feature_flag_response AS variant_value, timestamp, uuid,
-                                                                           and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])) AS step_0,
+                                                                           and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])) AS step_0,
                                                                            if(equals(event, '$pageview'), 1, 0) AS step_1,
                                                                            if(equals(event, 'purchase'), 1, 0) AS step_2
      FROM events
-     WHERE or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), or(equals(event, '$pageview'), equals(event, 'purchase'))))),
+     WHERE or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), or(equals(event, '$pageview'), equals(event, 'purchase'))))),
        entity_metrics AS
     (SELECT base_events.entity_id AS entity_id,
             argMinIf(variant_value, timestamp, equals(step_0, 1)) AS variant,
@@ -249,11 +249,11 @@
   WITH base_events AS
     (SELECT person_id AS entity_id,
             properties.$feature_flag_response AS variant_value, timestamp, uuid,
-                                                                           and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])) AS step_0,
+                                                                           and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])) AS step_0,
                                                                            if(equals(event, '$pageview'), 1, 0) AS step_1,
                                                                            if(equals(event, 'purchase'), 1, 0) AS step_2
      FROM events
-     WHERE or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, plus(assumeNotNull(toDateTime('2024-01-20 12:00:00')), toIntervalSecond(604800))), or(equals(event, '$pageview'), equals(event, 'purchase'))))),
+     WHERE or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, plus(assumeNotNull(toDateTime('2024-01-20 12:00:00')), toIntervalSecond(604800))), or(equals(event, '$pageview'), equals(event, 'purchase'))))),
        entity_metrics AS
     (SELECT base_events.entity_id AS entity_id,
             if(greater(uniqExactIf(variant_value, equals(step_0, 1)), 1), '$multiple', anyIf(variant_value, equals(step_0, 1))) AS variant,
@@ -277,11 +277,11 @@
   WITH base_events AS
     (SELECT person_id AS entity_id,
             properties.$feature_flag_response AS variant_value, timestamp, uuid,
-                                                                           and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])) AS step_0,
+                                                                           and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])) AS step_0,
                                                                            if(equals(event, '$pageview'), 1, 0) AS step_1,
                                                                            if(equals(event, 'purchase'), 1, 0) AS step_2
      FROM events
-     WHERE or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, plus(assumeNotNull(toDateTime('2024-01-20 12:00:00')), toIntervalSecond(604800))), or(equals(event, '$pageview'), equals(event, 'purchase'))))),
+     WHERE or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, plus(assumeNotNull(toDateTime('2024-01-20 12:00:00')), toIntervalSecond(604800))), or(equals(event, '$pageview'), equals(event, 'purchase'))))),
        entity_metrics AS
     (SELECT base_events.entity_id AS entity_id,
             if(greater(uniqExactIf(variant_value, equals(step_0, 1)), 1), '$multiple', anyIf(variant_value, equals(step_0, 1))) AS variant,
@@ -305,11 +305,11 @@
   WITH base_events AS
     (SELECT person_id AS entity_id,
             properties.$feature_flag_response AS variant_value, timestamp, uuid,
-                                                                           and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])) AS step_0,
+                                                                           and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])) AS step_0,
                                                                            if(equals(event, '$pageview'), 1, 0) AS step_1,
                                                                            if(equals(event, 'purchase'), 1, 0) AS step_2
      FROM events
-     WHERE or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), or(equals(event, '$pageview'), equals(event, 'purchase'))))),
+     WHERE or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), or(equals(event, '$pageview'), equals(event, 'purchase'))))),
        entity_metrics AS
     (SELECT base_events.entity_id AS entity_id,
             if(greater(uniqExactIf(variant_value, equals(step_0, 1)), 1), '$multiple', anyIf(variant_value, equals(step_0, 1))) AS variant,
@@ -334,15 +334,15 @@
          timestamp AS timestamp,
          uuid AS event_uuid,
                  $session_id AS session_id,
-                 [_toUInt8(if(and(and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), 1, 0)),
+                 [_toUInt8(if(and(and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), 1, 0)),
                   _toUInt8(if(equals(event, '$pageview'), 1, 0)),
                   _toUInt8(if(equals(event, 'purchase'), 1, 0))] AS steps
   FROM events
-  WHERE and(greaterOrEquals(timestamp, '__TIME_WINDOW_MIN__'), less(timestamp, '__TIME_WINDOW_MAX__'), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, '__EXPERIMENT_DATE_TO__'), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, plus('__EXPERIMENT_DATE_TO__', toIntervalSecond(604800))), or(equals(event, '$pageview'), equals(event, 'purchase')))))
+  WHERE and(greaterOrEquals(timestamp, '__TIME_WINDOW_MIN__'), less(timestamp, '__TIME_WINDOW_MAX__'), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, '__EXPERIMENT_DATE_TO__'), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, plus('__EXPERIMENT_DATE_TO__', toIntervalSecond(604800))), or(equals(event, '$pageview'), equals(event, 'purchase')))))
   '''
 # ---
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_funnel_precompute_write.1
-  '6307e2ad5206d6cbdc8881bea666f3c24090e5f826ae2acc79b9a254d9fd0ace'
+  '99b0aa3d82a91602b532e3fbcde19359a8f566487aac41f3600327eea84aa2dc'
 # ---
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_funnel_precomputed
   '''
@@ -399,11 +399,11 @@
        metric_events AS
     (SELECT person_id AS entity_id,
             properties.$feature_flag_response AS variant, timestamp, uuid,
-                                                                     and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])) AS step_0,
+                                                                     and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])) AS step_0,
                                                                      if(equals(event, '$pageview'), 1, 0) AS step_1,
                                                                      if(equals(event, 'purchase'), 1, 0) AS step_2
      FROM events
-     WHERE or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, plus(assumeNotNull(toDateTime('2024-01-20 12:00:00')), toIntervalSecond(604800))), or(equals(event, '$pageview'), equals(event, 'purchase'))))),
+     WHERE or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, plus(assumeNotNull(toDateTime('2024-01-20 12:00:00')), toIntervalSecond(604800))), or(equals(event, '$pageview'), equals(event, 'purchase'))))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -428,11 +428,11 @@
   WITH base_events AS
     (SELECT person_id AS entity_id,
             properties.$feature_flag_response AS variant_value, timestamp, uuid,
-                                                                           and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])) AS step_0,
+                                                                           and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])) AS step_0,
                                                                            if(equals(event, '$pageview'), 1, 0) AS step_1,
                                                                            if(equals(event, 'purchase'), 1, 0) AS step_2
      FROM events
-     WHERE or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), or(equals(event, '$pageview'), equals(event, 'purchase'))))),
+     WHERE or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), or(equals(event, '$pageview'), equals(event, 'purchase'))))),
        first_exposures AS
     (SELECT entity_id,
             min(timestamp) AS first_exposure_time
@@ -468,7 +468,7 @@
             argMin(uuid, timestamp) AS exposure_event_uuid,
             argMin($session_id, timestamp) AS exposure_session_id
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id),
        metric_events AS
     (SELECT person_id AS entity_id,
@@ -504,7 +504,7 @@
             argMin($session_id, timestamp) AS exposure_session_id,
             argMin(coalesce(toString(properties.$browser), '$$_posthog_breakdown_null_$$'), timestamp) AS breakdown_value_1
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id),
        metric_events AS
     (SELECT person_id AS entity_id,
@@ -545,7 +545,7 @@
             argMin($session_id, timestamp) AS exposure_session_id,
             argMin(coalesce(toString(properties.$browser), '$$_posthog_breakdown_null_$$'), timestamp) AS breakdown_value_1
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id),
        metric_events AS
     (SELECT person_id AS entity_id,
@@ -585,7 +585,7 @@
             argMin(uuid, timestamp) AS exposure_event_uuid,
             argMin($session_id, timestamp) AS exposure_session_id
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id),
        metric_events AS
     (SELECT person_id AS entity_id,
@@ -625,7 +625,7 @@
             argMin($session_id, timestamp) AS exposure_session_id,
             argMin(properties.$user_id, timestamp) AS exposure_identifier
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id),
        metric_events AS
     (SELECT userid AS entity_id,
@@ -660,7 +660,7 @@
             argMin(uuid, timestamp) AS exposure_event_uuid,
             argMin($session_id, timestamp) AS exposure_session_id
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id),
        metric_events AS
     (SELECT person_id AS entity_id,
@@ -695,7 +695,7 @@
             argMin(uuid, timestamp) AS exposure_event_uuid,
             argMin($session_id, timestamp) AS exposure_session_id
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']), notEmpty($group_0))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']), notEmpty($group_0))
      GROUP BY entity_id),
        metric_events AS
     (SELECT $group_0 AS entity_id,
@@ -730,7 +730,7 @@
             argMin(uuid, timestamp) AS exposure_event_uuid,
             argMin($session_id, timestamp) AS exposure_session_id
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id
      HAVING lessOrEquals(plus(min(timestamp), toIntervalSecond(604800)), toDateTime('2024-01-20 12:00:00', 'UTC'))),
        metric_events AS
@@ -854,7 +854,7 @@
             argMin(uuid, timestamp) AS exposure_event_uuid,
             argMin($session_id, timestamp) AS exposure_session_id
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id),
        metric_events_by_session AS
     (SELECT person_id AS entity_id,
@@ -895,7 +895,7 @@
             argMin(uuid, timestamp) AS exposure_event_uuid,
             argMin($session_id, timestamp) AS exposure_session_id
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id),
        metric_events AS
     (SELECT person_id AS entity_id,
@@ -930,7 +930,7 @@
             argMin(uuid, timestamp) AS exposure_event_uuid,
             argMin($session_id, timestamp) AS exposure_session_id
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id),
        metric_events AS
     (SELECT person_id AS entity_id,
@@ -976,7 +976,7 @@
             argMin($session_id, timestamp) AS exposure_session_id,
             argMin(coalesce(toString(properties.$browser), '$$_posthog_breakdown_null_$$'), timestamp) AS breakdown_value_1
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id),
        numerator_events AS
     (SELECT person_id AS entity_id,
@@ -1041,7 +1041,7 @@
             argMin($session_id, timestamp) AS exposure_session_id,
             argMin(properties.$user_id, timestamp) AS exposure_identifier_num
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id),
        numerator_events AS
     (SELECT userid AS entity_id,
@@ -1101,7 +1101,7 @@
             argMin(uuid, timestamp) AS exposure_event_uuid,
             argMin($session_id, timestamp) AS exposure_session_id
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id),
        numerator_events AS
     (SELECT person_id AS entity_id,
@@ -1161,7 +1161,7 @@
             argMin(uuid, timestamp) AS exposure_event_uuid,
             argMin($session_id, timestamp) AS exposure_session_id
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id),
        numerator_events AS
     (SELECT person_id AS entity_id,
@@ -1235,7 +1235,7 @@
             argMin($session_id, timestamp) AS exposure_session_id,
             argMin(coalesce(toString(properties.$browser), '$$_posthog_breakdown_null_$$'), timestamp) AS breakdown_value_1
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
@@ -1287,7 +1287,7 @@
             argMin(uuid, timestamp) AS exposure_event_uuid,
             argMin($session_id, timestamp) AS exposure_session_id
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
@@ -1335,7 +1335,7 @@
             argMin(uuid, timestamp) AS exposure_event_uuid,
             argMin($session_id, timestamp) AS exposure_session_id
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
@@ -1381,7 +1381,7 @@
             argMin(uuid, timestamp) AS exposure_event_uuid,
             argMin($session_id, timestamp) AS exposure_session_id
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
@@ -1427,7 +1427,7 @@
             argMin(uuid, timestamp) AS exposure_event_uuid,
             argMin($session_id, timestamp) AS exposure_session_id
      FROM events
-     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,

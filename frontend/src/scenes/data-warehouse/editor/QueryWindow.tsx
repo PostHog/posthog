@@ -4,36 +4,29 @@ import type { editor as importedEditor } from 'monaco-editor'
 import posthog from 'posthog-js'
 import { memo, useCallback, useMemo, useRef } from 'react'
 
-import { IconDatabase, IconGear, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconDatabase, IconGear, IconInfo, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
-import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { cn } from 'lib/utils/css-classes'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
-import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSection'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitlePanelButton'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { VimrcModal } from 'products/data_warehouse/frontend/shared/components/VimrcModal'
+import { sqlEditorVimLogic } from 'products/data_warehouse/frontend/shared/logics/sqlEditorVimLogic'
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
-import { BIEditor } from './bi/BIEditor'
-import { biEditorLogic } from './bi/biEditorLogic'
-import { BIEditorView } from './bi/biEditorTypes'
 import { FixErrorButton } from './components/FixErrorButton'
 import { ConnectionSelector } from './ConnectionSelector'
 import { editorSizingLogic } from './editorSizingLogic'
@@ -41,7 +34,9 @@ import { applyExecuteSqlToolOutput, getExecuteSqlToolContext } from './maxSqlToo
 import { OutputPane } from './OutputPane'
 import { QueryFiltersMenu } from './QueryFiltersMenu'
 import { QueryPane } from './QueryPane'
+import { QueryPlaceholdersMenu } from './QueryPlaceholdersMenu'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
+import { RunButton } from './RunButton'
 import { sqlEditorLogic, tabModelPath } from './sqlEditorLogic'
 
 const EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS = 150
@@ -69,6 +64,12 @@ interface QueryWindowProps {
     onShareTab?: () => void
     /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
     autoFocusQueryPane?: boolean
+    hideVariables?: boolean
+    hideFilters?: boolean
+    hideAiTools?: boolean
+    showOpenInSqlEditor?: boolean
+    /** False removes the button that expands the schema panel. Defaults to true. */
+    canExpandDatabaseTree?: boolean
 }
 
 export function QueryWindow({
@@ -89,10 +90,14 @@ export function QueryWindow({
     hideRunButton,
     onShareTab,
     autoFocusQueryPane,
+    hideVariables,
+    hideFilters,
+    hideAiTools,
+    showOpenInSqlEditor,
+    canExpandDatabaseTree = true,
 }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
     const logic = sqlEditorLogic({ tabId })
-    const biLogic = biEditorLogic({ tabId })
 
     const {
         queryInput,
@@ -105,8 +110,9 @@ export function QueryWindow({
         selectedConnectionId,
         sendRawQueryEnabled,
         selectedConnectionSupportsHogQL,
+        placeholderValues,
+        singleStatementDisabledReason,
     } = useValues(logic)
-    const { config: biConfig, editorView } = useValues(biLogic)
 
     const {
         setQueryInput,
@@ -119,17 +125,16 @@ export function QueryWindow({
         openMaterializationModal,
         setSourceQuery,
     } = useActions(logic)
-    const { setEditorView } = useActions(biLogic)
 
     const { setSuggestedQueryInput, reportAIQueryPromptOpen, fixIndexUsageWithAI } = useActions(logic)
-    const biModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
-    const { editorVimModeEnabled } = useValues(userPreferencesLogic)
-    const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
+    const { vimModeEnabled, vimrc, editorSettingsMenuKey } = useValues(sqlEditorVimLogic)
+    const { setVimModeEnabled, openVimrcModal, setEditorSettingsMenuOpen } = useActions(sqlEditorVimLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
     // Raw-only connections are forced to raw SQL mode — no toggle to show.
-    const canSendRawQuery = !!selectedConnectionId && selectedConnectionSupportsHogQL
-    const showBIEditor = biModeFeatureEnabled && mode === SQLEditorMode.FullScene && editorView === BIEditorView.BI
+    const canSendRawQuery =
+        sourceQuery.source.executionTarget === 'managed_trino' ||
+        (!!selectedConnectionId && selectedConnectionSupportsHogQL)
     const debouncedMaxToolQueryInput = useDebouncedValue(queryInput, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const debouncedMaxToolSourceQuery = useDebouncedValue(sourceQuery, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const executeSqlToolStateRef = useRef({ queryInput, sourceQuery })
@@ -210,7 +215,7 @@ export function QueryWindow({
     const sendRawQueryLabel = (
         <span className="inline-flex items-center gap-1">
             <span>Send raw query</span>
-            <Tooltip title="Send the query directly to the selected external connection without translating it through HogQL first. This is an escape hatch for SQL syntax that HogQL does not yet support. Your query may be logged to improve the service.">
+            <Tooltip title="Send the query directly to the selected connection without translating it through HogQL first. This is an escape hatch for SQL syntax that HogQL does not yet support. Your query may be logged to improve the service.">
                 <span
                     className="inline-flex cursor-help"
                     onClick={(event) => {
@@ -231,8 +236,8 @@ export function QueryWindow({
                       custom: true,
                       label: () => (
                           <LemonSwitch
-                              checked={editorVimModeEnabled}
-                              onChange={setEditorVimModeEnabled}
+                              checked={vimModeEnabled}
+                              onChange={setVimModeEnabled}
                               label="Vim mode"
                               size="small"
                               fullWidth
@@ -240,6 +245,16 @@ export function QueryWindow({
                           />
                       ),
                   },
+                  ...(vimModeEnabled
+                      ? [
+                            {
+                                label: 'Edit vimrc',
+                                onClick: () => openVimrcModal(codeEditorKey),
+                                size: 'small' as const,
+                                'data-attr': 'sql-editor-vimrc-edit',
+                            },
+                        ]
+                      : []),
               ]
             : []),
         ...(canSendRawQuery
@@ -266,26 +281,17 @@ export function QueryWindow({
             {showQueryPanel ? (
                 <div
                     className={cn(
-                        'flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b border-t py-1',
+                        'flex flex-row flex-wrap gap-y-1 justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b border-t py-1',
                         isDatabaseTreeCollapsed || mode !== SQLEditorMode.FullScene ? '' : 'rounded-tl-lg'
                     )}
                 >
-                    <div className="flex items-center gap-2">
-                        <ExpandDatabaseTreeButton
-                            showDatabaseTree={showDatabaseTree}
-                            onShowDatabaseTree={onShowDatabaseTree}
-                            mode={mode}
-                            hostProduct={hostProduct}
-                        />
-                        {mode === SQLEditorMode.FullScene && biModeFeatureEnabled ? (
-                            <LemonSegmentedButton
-                                value={editorView}
-                                onChange={setEditorView}
-                                options={[
-                                    { value: BIEditorView.SQL, label: 'SQL' },
-                                    { value: BIEditorView.BI, label: 'BI' },
-                                ]}
-                                size="small"
+                    <div className="flex flex-wrap items-center gap-2">
+                        {canExpandDatabaseTree ? (
+                            <ExpandDatabaseTreeButton
+                                showDatabaseTree={showDatabaseTree}
+                                onShowDatabaseTree={onShowDatabaseTree}
+                                mode={mode}
+                                hostProduct={hostProduct}
                             />
                         ) : null}
                         {hideRunButton ? null : (
@@ -293,10 +299,7 @@ export function QueryWindow({
                                 onRunQuery={onRunQuery}
                                 runQueryLoading={runQueryLoading}
                                 runQueryDisabledReason={
-                                    runQueryDisabledReason ??
-                                    (showBIEditor && !biConfig.source
-                                        ? 'Drag a field into the BI editor before running'
-                                        : undefined)
+                                    runQueryDisabledReason ?? singleStatementDisabledReason ?? undefined
                                 }
                                 runQueryTooltip={runQueryTooltip}
                                 onCancelQuery={onCancelQuery}
@@ -304,14 +307,15 @@ export function QueryWindow({
                             />
                         )}
                         <CollapsedConnectionSelector tabId={tabId} mode={mode} />
-                        {!showBIEditor ? <LemonDivider vertical /> : null}
-                        {!showBIEditor ? (
+                        <LemonDivider vertical />
+                        {!hideVariables ? (
                             <QueryVariablesMenu
                                 disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
                             />
                         ) : null}
-                        {!showBIEditor ? <QueryFiltersMenu /> : null}
-                        {editingView && !showBIEditor ? (
+                        {!hideFilters ? <QueryFiltersMenu /> : null}
+                        <QueryPlaceholdersMenu />
+                        {editingView && mode !== SQLEditorMode.Embedded ? (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.WarehouseObjects}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -330,9 +334,16 @@ export function QueryWindow({
                     </div>
 
                     <div className="ml-auto flex items-center gap-2">
-                        <FixErrorButton type="secondary" size="small" source="action-bar" />
+                        {showOpenInSqlEditor ? <OpenInSqlEditorButton /> : null}
+                        {hideAiTools ? null : <FixErrorButton type="secondary" size="small" source="action-bar" />}
                         {editorSettingsItems.length > 0 ? (
-                            <LemonMenu items={editorSettingsItems} closeOnClickInside={false} placement="bottom-end">
+                            <LemonMenu
+                                items={editorSettingsItems}
+                                closeOnClickInside={false}
+                                placement="bottom-end"
+                                visible={editorSettingsMenuKey === codeEditorKey}
+                                onVisibilityChange={(open) => setEditorSettingsMenuOpen(codeEditorKey, open)}
+                            >
                                 <LemonButton
                                     icon={<IconGear />}
                                     type="secondary"
@@ -342,7 +353,8 @@ export function QueryWindow({
                                 />
                             </LemonMenu>
                         ) : null}
-                        {mode === SQLEditorMode.Embedded && (
+                        {vimModeFeatureEnabled ? <VimrcModal editorKey={codeEditorKey} /> : null}
+                        {mode === SQLEditorMode.Embedded && !hideAiTools && (
                             <SceneTitlePanelButton
                                 buttonClassName="size-[26px]"
                                 maxToolProps={executeSqlMaxToolProps}
@@ -352,22 +364,18 @@ export function QueryWindow({
                 </div>
             ) : null}
 
-            {showQueryPanel && showBIEditor ? (
-                <BIEditor tabId={tabId}>
-                    {showOutputPanel ? <InternalQueryWindow tabId={tabId} biMode onShareTab={onShareTab} /> : null}
-                </BIEditor>
-            ) : null}
-
-            {showQueryPanel && !showBIEditor ? (
+            {showQueryPanel ? (
                 <QueryPane
                     originalValue={originalQueryInput ?? ''}
                     queryInput={(suggestedQueryInput || queryInput) ?? ''}
                     sourceQuery={sourceQuery.source}
                     promptError={null}
                     onRun={runQuery}
-                    editorVimModeEnabled={vimModeFeatureEnabled && editorVimModeEnabled}
+                    editorVimModeEnabled={vimModeFeatureEnabled && vimModeEnabled}
+                    editorVimrc={vimrc}
                     constrainHeight={showOutputPanel}
                     codeEditorProps={{
+                        ...(sendRawQueryEnabled ? { language: 'sql' } : {}),
                         queryKey: codeEditorKey,
                         autoFocus: autoFocusQueryPane ?? true,
                         // Bind the editor to the tab's persistent Monaco model and keep it
@@ -381,6 +389,8 @@ export function QueryWindow({
                         // that mounts against an existing model never runs that path, and would then
                         // ask for metadata without the index report.
                         indexUsage: true,
+                        // Lets error checking resolve the host's placeholders instead of flagging them
+                        globals: placeholderValues ?? undefined,
                         onFixWithAI: (prompt) => fixIndexUsageWithAI(prompt),
                         onChange: (v) => {
                             setQueryInput(v ?? '')
@@ -421,9 +431,7 @@ export function QueryWindow({
                 />
             ) : null}
 
-            {showOutputPanel && !(showQueryPanel && showBIEditor) ? (
-                <InternalQueryWindow tabId={tabId} biMode={showBIEditor} onShareTab={onShareTab} />
-            ) : null}
+            {showOutputPanel ? <InternalQueryWindow tabId={tabId} biMode={false} onShareTab={onShareTab} /> : null}
         </div>
     )
 }
@@ -471,118 +479,6 @@ function ExpandDatabaseTreeButton({
     )
 }
 
-function RunButton({
-    onRunQuery,
-    runQueryLoading,
-    runQueryDisabledReason,
-    runQueryTooltip,
-    onCancelQuery,
-    cancelQueryLoading,
-}: {
-    onRunQuery?: () => void
-    runQueryLoading?: boolean
-    runQueryDisabledReason?: string
-    runQueryTooltip?: string
-    onCancelQuery?: () => void
-    cancelQueryLoading?: boolean
-}): JSX.Element {
-    const { runQuery, runSubquery } = useActions(sqlEditorLogic)
-    const { cancelQuery } = useActions(dataNodeLogic)
-    const { responseLoading } = useValues(dataNodeLogic)
-    const { metadata, queryInput, isSourceQueryLastRun } = useValues(sqlEditorLogic)
-
-    const isRunning = onRunQuery ? !!runQueryLoading : responseLoading
-    // The external-run path shows a cancel affordance only when a canceller is provided.
-    const showCancel = isRunning && (!onRunQuery || !!onCancelQuery)
-
-    const [iconColor, tooltipContent] = useMemo(() => {
-        if (onRunQuery) {
-            if (isRunning && onCancelQuery) {
-                return ['var(--success)', 'Stop the running query']
-            }
-            return ['var(--success)', runQueryTooltip ?? 'Run query']
-        }
-
-        if (isSourceQueryLastRun) {
-            return ['var(--primary)', 'No changes to run']
-        }
-
-        // No index verdict colors this button. The per-filter report counts filters, and a count does
-        // not track what a query costs: one selective filter bounds the read however many others scan,
-        // and nothing here yet looks at the time range, which is what really decides how much is read.
-        return ['var(--success)', 'New changes to run']
-    }, [metadata, queryInput, isSourceQueryLastRun, onRunQuery, runQueryTooltip, isRunning, onCancelQuery])
-
-    const sideAction = useMemo(
-        () =>
-            responseLoading || onRunQuery
-                ? undefined
-                : {
-                      dropdown: {
-                          placement: 'bottom-end' as const,
-                          overlay: (
-                              <>
-                                  <LemonButton
-                                      fullWidth
-                                      onClick={() => runQuery()}
-                                      sideIcon={<span className="text-muted text-xs">⌘↵</span>}
-                                  >
-                                      Run query at cursor
-                                  </LemonButton>
-                                  <LemonButton
-                                      fullWidth
-                                      onClick={() => runSubquery()}
-                                      sideIcon={<span className="text-muted text-xs">⌘⇧↵</span>}
-                                  >
-                                      Run innermost subquery at cursor
-                                  </LemonButton>
-                              </>
-                          ),
-                      },
-                  },
-        [onRunQuery, responseLoading, runQuery, runSubquery]
-    )
-
-    return (
-        <Shortcut
-            name="SQLEditorRun"
-            keybind={[keyBinds.run]}
-            intent={showCancel ? 'Cancel query' : 'Run query'}
-            interaction="click"
-            scope={Scene.SQLEditor}
-        >
-            <LemonButton
-                data-attr="sql-editor-run-button"
-                onClick={() => {
-                    if (onRunQuery) {
-                        if (runQueryLoading) {
-                            // Guard against double submission: one cancel request at a time.
-                            if (onCancelQuery && !cancelQueryLoading) {
-                                onCancelQuery()
-                            }
-                        } else {
-                            onRunQuery()
-                        }
-                    } else if (responseLoading) {
-                        cancelQuery()
-                    } else {
-                        runQuery()
-                    }
-                }}
-                icon={showCancel ? <IconCancel /> : <IconPlayFilled color={iconColor} />}
-                type="primary"
-                size="small"
-                tooltip={tooltipContent}
-                sideAction={sideAction}
-                loading={onRunQuery ? (onCancelQuery ? !!cancelQueryLoading : isRunning) : false}
-                disabledReason={runQueryDisabledReason}
-            >
-                {showCancel ? 'Cancel' : 'Run'}
-            </LemonButton>
-        </Shortcut>
-    )
-}
-
 const InternalQueryWindow = memo(function InternalQueryWindow({
     tabId,
     biMode,
@@ -600,6 +496,25 @@ const InternalQueryWindow = memo(function InternalQueryWindow({
 
     return <OutputPane tabId={tabId} biMode={biMode} onShareTab={onShareTab} />
 })
+
+function OpenInSqlEditorButton(): JSX.Element {
+    const { editingView, queryInput, hasEditorChanges } = useValues(sqlEditorLogic)
+
+    // Unsaved edits travel with the link, so the view opens in the SQL editor with them applied and not saved.
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            to={urls.sqlEditor({
+                view_id: editingView?.id,
+                query: !editingView || hasEditorChanges ? (queryInput ?? '') : undefined,
+            })}
+            data-attr="sql-editor-open-in-sql-editor"
+        >
+            Open in SQL editor
+        </LemonButton>
+    )
+}
 
 function CollapsedConnectionSelector({ tabId, mode }: { tabId: string; mode?: SQLEditorMode }): JSX.Element | null {
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)

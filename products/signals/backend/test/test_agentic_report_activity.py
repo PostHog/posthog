@@ -3,7 +3,7 @@ import random
 import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
@@ -15,6 +15,7 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from pydantic import ValidationError
+from temporalio.exceptions import ApplicationError
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
@@ -26,7 +27,6 @@ from posthog.temporal.oauth import grants_scratchpad_write
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_REASON_WRONG_REPO,
     Dismissal,
-    ImpactMeasurementPlan,
     ImplementationAssessment,
     ImplementationTarget,
     NoteArtefact,
@@ -34,11 +34,13 @@ from products.signals.backend.artefact_schemas import (
     ReportLink,
 )
 from products.signals.backend.enums import ReportLinkKind
-from products.signals.backend.impact_measurement_plans import (
-    latest_measurement_plans,
-    persist_authored_measurement_plans,
+from products.signals.backend.models import (
+    ArtefactAttribution,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportCheck,
+    SignalScoutNote,
 )
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutNote
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
@@ -51,6 +53,7 @@ from products.signals.backend.report_generation.research import (
     PriorityUpdate,
     ReportPresentationOutput,
     ReportResearchOutput,
+    ResearchReviewerDecision,
     SignalFinding,
     _resolve_actionability_response,
     _resolve_priority_response,
@@ -61,6 +64,7 @@ from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, R
 from products.signals.backend.supersession import ImplementationResearchContext
 from products.signals.backend.temporal.agentic.report import (
     RESEARCH_MCP_SCOPES,
+    RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE,
     RunAgenticReportInput,
     _load_linked_report_context,
     _load_previous_research,
@@ -82,6 +86,7 @@ from products.signals.backend.temporal.summary import (
     mark_report_ready_activity,
 )
 from products.signals.backend.temporal.types import SignalData
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext, SandboxRunFailed
 from products.tasks.backend.models import Task  # tach-ignore
 
 
@@ -214,39 +219,14 @@ _EXISTING_CHART = {
 _EXISTING_METRIC = _metric("existing-affected-users").model_dump(mode="json")
 
 
-def test_automatic_metric_goal_requires_authoring_flag():
+def test_report_observations_do_not_store_goal_fields():
     metric = _metric().model_copy(
         update={"goal_value": 2, "goal_direction": "at_most", "decision_window_days": 7, "minimum_data_points": 30}
     )
 
-    blocked = _resolve_report_metrics_payload([metric], True, report_id="report-1", team_id=2)
-    allowed = _resolve_report_metrics_payload(
-        [metric], True, expected_impact_authoring_enabled=True, report_id="report-1", team_id=2
-    )
-
-    assert blocked is not None and allowed is not None
-    assert all(blocked[0][field_name] is None for field_name in REPORT_METRIC_GOAL_FIELDS)
-    assert allowed[0]["goal_value"] == 2
-
-
-def test_disabled_authoring_preserves_existing_goal_only_for_the_same_measure():
-    previous = _metric().model_copy(update={"goal_value": 5, "goal_direction": "at_most", "decision_window_days": 7})
-    changed_goal = previous.model_copy(update={"goal_value": 0, "decision_window_days": 1})
-    changed_query = json.loads(json.dumps(changed_goal.query))
-    changed_query["source"]["series"][0]["event"] = "$pageview"
-    changed_measure = changed_goal.model_copy(update={"query": changed_query})
-
-    retained = _resolve_report_metrics_payload(
-        [changed_goal], True, previous_metrics=[previous], report_id="report-1", team_id=2
-    )
-    removed = _resolve_report_metrics_payload(
-        [changed_measure], True, previous_metrics=[previous], report_id="report-1", team_id=2
-    )
-
-    assert retained is not None and removed is not None
-    assert retained[0]["goal_value"] == 5
-    assert retained[0]["decision_window_days"] == 7
-    assert removed[0]["goal_value"] is None
+    observations = _resolve_report_metrics_payload([metric], True, report_id="report-1", team_id=2)
+    assert observations is not None
+    assert all(field_name not in observations[0] for field_name in REPORT_METRIC_GOAL_FIELDS)
 
 
 async def _run_activity_with_output(
@@ -625,7 +605,7 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result.repository == "posthog/posthog"
@@ -656,7 +636,7 @@ async def test_select_repository_activity_reuses_previous_selection(monkeypatch,
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result is previous
@@ -685,7 +665,7 @@ async def test_select_repository_activity_retries_transient_db_drop(monkeypatch,
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result is previous
@@ -714,7 +694,7 @@ async def test_select_repository_activity_no_repo(monkeypatch, ateam):
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result.repository is None
@@ -757,11 +737,53 @@ async def test_select_repository_activity_does_not_raise_with_only_user_integrat
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result.repository == "posthog/posthog"
     assert captured_user_id == [user.id], "user_id should come from the UserIntegration owner"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "sandbox_error_type,expected_transient",
+    [("RepositoryCloneError", True), ("RepositoryAccessError", False)],
+)
+async def test_run_agentic_report_activity_flags_transient_sandbox_failures(
+    monkeypatch, ateam, sandbox_error_type, expected_transient
+):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+    )
+    monkeypatch.setattr("products.signals.backend.temporal.agentic.report.resolve_user_id_for_team", lambda team_id: 1)
+
+    async def fake_run_multi_turn_research(*args, **kwargs):
+        raise SandboxRunFailed("TaskRun reached terminal status=failed", error_type=sandbox_error_type)
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.run_multi_turn_research", fake_run_multi_turn_research
+    )
+
+    with patch("products.signals.backend.temporal.agentic.report.Heartbeater"):
+        with pytest.raises((ApplicationError, SandboxRunFailed)) as error:
+            await run_agentic_report_activity(
+                RunAgenticReportInput(
+                    team_id=ateam.id,
+                    report_id=str(report.id),
+                    signals=_build_signals(),
+                    repo_selection=RepoSelectionResult(repository="posthog/posthog", reason="single repository"),
+                )
+            )
+
+    if expected_transient:
+        assert isinstance(error.value, ApplicationError)
+        assert error.value.type == RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
+    else:
+        assert isinstance(error.value, SandboxRunFailed)
 
 
 @pytest.mark.asyncio
@@ -1169,35 +1191,43 @@ async def test_run_agentic_report_activity_resolves_metrics_payload(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_run_agentic_report_activity_supplies_existing_plans_to_reresearch(monkeypatch, ateam):
+@pytest.mark.parametrize("has_previous_research", [False, True])
+@pytest.mark.parametrize("has_query", [False, True])
+@pytest.mark.parametrize("monitoring_enabled", [False, True])
+async def test_run_agentic_report_activity_supplies_existing_checks_to_reresearch(
+    monkeypatch, ateam, has_previous_research, has_query, monitoring_enabled
+):
+    monkeypatch.setattr(
+        "products.signals.backend.report_content_gates.feature_enabled_or_false",
+        lambda flag, *args, **kwargs: monitoring_enabled if flag == "signals-report-monitoring" else False,
+    )
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=2, total_weight=1.3
     )
-    plan = ImpactMeasurementPlan(
-        metric_id="affected-users",
-        title="Affected users",
-        kind="affected_users",
-        query=_metric().query,
-        value_format="count",
-        unit="users",
-        goal_value=0,
-        goal_direction="at_most",
-        decision_window_days=7,
-        activated=True,
-    )
-    row = await database_sync_to_async(SignalReportArtefact.add_log)(
+    check = await database_sync_to_async(SignalReportCheck.objects.for_team(ateam.id).create)(
         team_id=ateam.id,
-        report_id=str(report.id),
-        content=plan,
-        attribution=ArtefactAttribution.system(),
+        report=report,
+        title="Affected users stay at zero",
+        kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
+        config={
+            "query": _metric().query if has_query else None,
+            "baseline_value": 40,
+            "comparison": {"operator": "lte", "value": 0},
+            "monitoring": {
+                "reference_period_minutes": 10080,
+                "threshold_scaling": "fixed",
+                "baseline_period_minutes": 10080,
+            },
+        },
+        status=SignalReportCheck.Status.PENDING,
+        next_run_at=timezone.now() + timedelta(days=7),
+        expires_at=timezone.now() + timedelta(days=37),
+        soak_minutes=7 * 24 * 60,
+        approved_at=timezone.now(),
     )
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report._load_previous_research",
-        AsyncMock(return_value=_build_research_output()),
-    )
-    monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.report.team_expected_impact_authoring_enabled",
-        lambda team_id: True,
+        AsyncMock(return_value=_build_research_output() if has_previous_research else None),
     )
     research_kwargs: dict[str, object] = {}
 
@@ -1205,8 +1235,16 @@ async def test_run_agentic_report_activity_supplies_existing_plans_to_reresearch
         monkeypatch, ateam, report, _build_research_output(), research_kwargs=research_kwargs
     )
 
-    assert research_kwargs["previous_measurement_plans"] == {"affected-users": (str(row.id), plan)}
-    assert result.previous_measurement_plan_ids == {"affected-users": str(row.id)}
+    previous_checks = research_kwargs["previous_checks"]
+    assert isinstance(previous_checks, list)
+    assert isinstance(previous_checks[0], dict)
+    assert previous_checks[0]["id"] == str(check.id)
+    assert previous_checks[0]["approved"] is True
+    assert ("baseline_value" in previous_checks[0]["config"]) is has_query
+    assert ("monitoring" in previous_checks[0]["config"]) is monitoring_enabled
+    assert research_kwargs["monitoring_enabled"] is monitoring_enabled
+    assert result.checks_monitoring_enabled is monitoring_enabled
+    assert result.checks_snapshot == {str(check.id): check.updated_at.isoformat()}
 
 
 @pytest.mark.asyncio
@@ -1255,6 +1293,54 @@ async def test_mark_report_ready_activity_applies_charts(ateam, name, charts, ex
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize("pending", [False, True])
+@pytest.mark.parametrize(
+    "tags,expected",
+    [
+        (["Session Replay", "!!!"], ["session-replay"]),
+        ([], []),
+        (None, ["billing", "api"]),
+    ],
+)
+async def test_report_transition_replaces_tags_with_the_prose(ateam, pending, tags, expected):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+        tags=["billing", "api"],
+    )
+
+    if pending:
+        await mark_report_pending_input_activity(
+            MarkReportPendingInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                title="Title",
+                summary="Summary",
+                reason="Requires human input",
+                tags=tags,
+            )
+        )
+    else:
+        await mark_report_ready_activity(
+            MarkReportReadyInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                title="Title",
+                summary="Summary",
+                processed_signal_count=2,
+                tags=tags,
+            )
+        )
+
+    stored = await database_sync_to_async(lambda: SignalReport.objects.get(id=report.id))()
+    assert stored.title == "Title"
+    assert stored.tags == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "name,metrics,expected",
     [
@@ -1294,41 +1380,102 @@ async def test_mark_report_ready_activity_applies_metrics(ateam, name, metrics, 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_mark_report_ready_activity_revises_existing_measurement_plan(ateam):
+@pytest.mark.parametrize(
+    "reconcile_checks,checks,retired,approval",
+    [
+        (False, [], False, None),
+        (True, None, False, None),
+        (True, [], True, None),
+        (True, [], True, "before_research"),
+        (True, [], False, "during_research"),
+        (
+            False,
+            [{"title": "Legacy proposal", "kind": "agent", "config": {"instructions": "Check again."}}],
+            False,
+            "before_research",
+        ),
+        (
+            True,
+            [
+                {
+                    "title": "Invalid metric",
+                    "kind": "metric_threshold",
+                    "config": {"metric_id": "missing", "comparison": {"operator": "lte", "value": 5}},
+                }
+            ],
+            False,
+            None,
+        ),
+    ],
+)
+@pytest.mark.parametrize("pending_input", [False, True])
+async def test_ready_transition_only_reconciles_explicit_new_check_payloads(
+    ateam: Team,
+    reconcile_checks: bool,
+    checks: list[dict] | None,
+    retired: bool,
+    approval: str | None,
+    pending_input: bool,
+) -> None:
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.IN_PROGRESS,
         signal_count=2,
         total_weight=1.3,
     )
-    original_metric = (
-        _metric()
-        .model_copy(update={"goal_value": 0, "goal_direction": "at_most", "decision_window_days": 7})
-        .model_dump(mode="json")
+    check = await database_sync_to_async(SignalReportCheck.objects.for_team(ateam.id).create)(
+        team_id=ateam.id,
+        report=report,
+        title="The export error stays fixed",
+        kind=SignalReportCheck.Kind.AGENT,
+        config={"instructions": "Check for export errors."},
+        status=SignalReportCheck.Status.PENDING,
+        next_run_at=timezone.now() + timedelta(days=7),
+        expires_at=timezone.now() + timedelta(days=37),
+        soak_minutes=7 * 24 * 60,
     )
-    await database_sync_to_async(persist_authored_measurement_plans)(
-        report, [original_metric], ArtefactAttribution.system()
-    )
-    previous_row, _ = await database_sync_to_async(lambda: latest_measurement_plans(report)["affected-users"])()
-    revised_metric = {**original_metric, "goal_value": 7}
+    if approval == "before_research":
+        check.approved_at = timezone.now()
+        await database_sync_to_async(check.save)(update_fields=["approved_at", "updated_at"])
+    snapshot = {str(check.id): check.updated_at.isoformat()}
+    if approval == "during_research":
+        check.approved_at = timezone.now()
+        await database_sync_to_async(check.save)(update_fields=["approved_at", "updated_at"])
 
-    await mark_report_ready_activity(
-        MarkReportReadyInput(
-            team_id=ateam.id,
-            report_id=str(report.id),
-            title="Updated title",
-            summary="Updated expected impact",
-            processed_signal_count=2,
-            metrics=[revised_metric],
-            revise_measurement_plan_metric_ids=["affected-users"],
-            previous_measurement_plan_ids={"affected-users": str(previous_row.id)},
+    if pending_input:
+        await mark_report_pending_input_activity(
+            MarkReportPendingInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                title="Title",
+                summary="Summary",
+                reason="Needs input",
+                checks=checks,
+                checks_snapshot=snapshot,
+                reconcile_checks=reconcile_checks,
+                checks_summary="Reconciled summary",
+            )
         )
-    )
+    else:
+        await mark_report_ready_activity(
+            MarkReportReadyInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                title="Title",
+                summary="Summary",
+                processed_signal_count=2,
+                checks=checks,
+                checks_snapshot=snapshot,
+                reconcile_checks=reconcile_checks,
+                checks_summary="Reconciled summary",
+            )
+        )
 
-    updated_row, revised = await database_sync_to_async(lambda: latest_measurement_plans(report)["affected-users"])()
-    assert updated_row.id != previous_row.id
-    assert revised.goal_value == 7
-    assert revised.activated is False
+    await database_sync_to_async(check.refresh_from_db)()
+    assert (check.status == SignalReportCheck.Status.CANCELLED) is retired
+
+    await database_sync_to_async(report.refresh_from_db)()
+    assert report.summary == ("Reconciled summary" if retired else "Summary")
 
 
 @pytest.mark.asyncio
@@ -1351,6 +1498,15 @@ async def test_mark_report_pending_input_activity_applies_metrics_with_draft_pro
             summary="Draft summary",
             reason="Needs input",
             metrics=[new_metric],
+            checks=[
+                {
+                    "title": "Affected users stay below five",
+                    "kind": "metric_threshold",
+                    "soak_hours": 24,
+                    "config": {"metric_id": "pending-affected-users", "comparison": {"operator": "lte", "value": 5}},
+                }
+            ],
+            reconcile_checks=True,
         )
     )
 
@@ -1359,14 +1515,15 @@ async def test_mark_report_pending_input_activity_applies_metrics_with_draft_pro
     assert stored.title == "Draft title"
     assert stored.summary == "Draft summary"
     assert [metric["metric_id"] for metric in stored.metrics] == ["pending-affected-users"]
+    check = await database_sync_to_async(SignalReportCheck.objects.for_team(ateam.id).get)(report=report)
+    assert check.status == SignalReportCheck.Status.PENDING
+    assert check.config["query"] == new_metric["query"]
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize("pending_input", [False, True])
-async def test_report_transition_saves_goals_as_plans_and_keeps_observations_goal_free(
-    ateam: Team, pending_input: bool
-) -> None:
+async def test_report_transition_discards_legacy_goal_fields(ateam: Team, pending_input: bool) -> None:
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.IN_PROGRESS,
@@ -1401,20 +1558,27 @@ async def test_report_transition_saves_goals_as_plans_and_keeps_observations_goa
             )
         )
 
-    def stored_outcome() -> tuple[list[dict[str, object]], ImpactMeasurementPlan]:
+    def stored_outcome() -> list[dict[str, object]]:
         updated_report = SignalReport.objects.get(id=report.id)
-        return updated_report.metrics, latest_measurement_plans(updated_report)["measured-outcome"][1]
+        return updated_report.metrics
 
-    observations, plan = await database_sync_to_async(stored_outcome)()
-    assert observations[0]["metric_id"] == plan.metric_id
+    observations = await database_sync_to_async(stored_outcome)()
+    assert observations[0]["metric_id"] == "measured-outcome"
     assert not any(field in observations[0] for field in REPORT_METRIC_GOAL_FIELDS)
-    assert plan.goal_value == 0
-    assert plan.activated is False
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(monkeypatch, ateam):
+@pytest.mark.parametrize(
+    "error,raised_type,error_type",
+    [
+        (RuntimeError("sandbox failed"), RuntimeError, None),
+        (ValueError("No JSON in initial turn: end-turn text was prose"), ApplicationError, "output_parse_failed"),
+    ],
+)
+async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(
+    monkeypatch, ateam, error: Exception, raised_type: type[Exception], error_type: str | None
+):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.IN_PROGRESS,
@@ -1427,8 +1591,11 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
         lambda team_id: 1,
     )
 
-    async def fake_run_multi_turn_research(*args, **kwargs):
-        raise RuntimeError("sandbox failed")
+    contexts: list[CustomPromptSandboxContext] = []
+
+    async def fake_run_multi_turn_research(signals, context, **kwargs):
+        contexts.append(context)
+        raise error
 
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report.run_multi_turn_research",
@@ -1436,7 +1603,7 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
     )
 
     with patch("products.signals.backend.temporal.agentic.report.Heartbeater"):
-        with pytest.raises(RuntimeError, match="sandbox failed"):
+        with pytest.raises(raised_type, match=str(error)) as raised:
             await run_agentic_report_activity(
                 RunAgenticReportInput(
                     team_id=ateam.id,
@@ -1450,6 +1617,43 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
             lambda: SignalReportArtefact.objects.filter(report=report).count()
         )()
         assert artefact_count == 0
+    assert getattr(raised.value, "type", None) == error_type
+    assert contexts[0].disable_repo_hooks
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("selected", [False, True])
+async def test_research_returns_reviewer_decision_only_when_enabled(enabled: bool, selected: bool) -> None:
+    decision = ResearchReviewerDecision.model_validate(
+        {
+            "reviewers": [{"user_uuid": "00000000-0000-4000-8000-000000000001", "reason": "Owns this component."}]
+            if selected
+            else [],
+            "reason": "Checked ownership and corrections for this component.",
+        }
+    )
+    finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
+    session = Mock(task=Mock(id="research-task-id"), end=AsyncMock())
+    session.send_followup = AsyncMock(
+        side_effect=[
+            ActionabilityAssessment(
+                explanation="No change needed.",
+                actionability=ActionabilityChoice.NOT_ACTIONABLE,
+                already_addressed=False,
+            ),
+            ReportPresentationOutput(title="Report", summary="Summary", reviewer_decision=decision),
+        ]
+    )
+    with (
+        patch(
+            "products.tasks.backend.facade.agents.MultiTurnSession.start", AsyncMock(return_value=(session, finding))
+        ),
+        patch("products.signals.backend.task_run_artefacts.aappend_task_run_artefact", new_callable=AsyncMock),
+    ):
+        result = await run_multi_turn_research(
+            _build_signals()[:1], Mock(team_id=1), reviewer_selection_enabled=enabled
+        )
+    assert result.reviewer_decision == (decision if enabled else None)
 
 
 @parameterized.expand(
@@ -1459,6 +1663,8 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
         ("not_actionable", ActionabilityChoice.NOT_ACTIONABLE, None),
         ("timeout", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, TimeoutError),
         ("validation_failure", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, ValidationError),
+        ("malformed_optional_checks", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, None),
+        ("revised_metric_summary", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, None),
         ("cancellation", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, asyncio.CancelledError),
     ]
 )
@@ -1505,9 +1711,30 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
         responses.append(
             verification_error
             if verification_error is not None
-            else FixVerificationOutput(
-                current_state="Run query-trends for onboarding_completed over the same 14-day window.",
-                outcome="Confirm event volume returns to the pre-regression baseline.",
+            else FixVerificationOutput.model_validate(
+                {
+                    "current_state": "Run query-trends for onboarding_completed over the same 14-day window.",
+                    "outcome": "Confirm event volume returns to the pre-regression baseline.",
+                    **(
+                        {"checks": [{"kind": "metric_threshold", "title": "A malformed check"}]}
+                        if _name == "malformed_optional_checks"
+                        else {
+                            "checks": [
+                                {
+                                    "title": "Completion returns to baseline",
+                                    "kind": "metric_threshold",
+                                    "config": {
+                                        "metric_id": "completion",
+                                        "comparison": {"operator": "gte", "value": 80},
+                                    },
+                                }
+                            ],
+                            "summary": "Users cannot complete the tracked onboarding flow. Expected impact: completion returns to at least 80 users.",
+                        }
+                        if _name == "revised_metric_summary"
+                        else {}
+                    ),
+                }
             )
         )
     session.send_followup = AsyncMock(side_effect=responses)
@@ -1517,7 +1744,7 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
         patch(
             "products.tasks.backend.facade.agents.MultiTurnSession.start",
             AsyncMock(return_value=(session, first_finding)),
-        ),
+        ) as start_session,
         patch("products.signals.backend.task_run_artefacts.aappend_task_run_artefact", new_callable=AsyncMock),
         patch("products.signals.backend.report_generation.research.logger.exception") as log_exception,
     ):
@@ -1526,25 +1753,47 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
                 await run_multi_turn_research(_build_signals()[:1], Mock(team_id=1), signal_report_id="report-id")
             assert canceled.value is verification_error
         else:
-            result = await run_multi_turn_research(_build_signals()[:1], Mock(team_id=1), signal_report_id="report-id")
+            result = await run_multi_turn_research(
+                _build_signals()[:1],
+                Mock(team_id=1),
+                signal_report_id="report-id",
+                metrics_enabled=_name in ("malformed_optional_checks", "revised_metric_summary"),
+                monitoring_enabled=_name == "revised_metric_summary",
+            )
             assert result.effective_findings() == [first_finding]
             assert result.effective_actionability() == actionability_result
             assert result.effective_priority() == priority_result
             assert result.title == presentation_result.title
-            assert result.summary == presentation_result.summary
+            assert result.summary == "Users cannot complete the tracked onboarding flow."
+            assert result.checks_summary == (
+                "Users cannot complete the tracked onboarding flow. Expected impact: completion returns to at least 80 users."
+                if _name == "revised_metric_summary"
+                else None
+            )
             assert result.research_task_id == "research-task-id"
             if actionability != ActionabilityChoice.NOT_ACTIONABLE and failure is None:
                 assert result.verification_note is not None
+                if _name == "revised_metric_summary":
+                    assert result.checks is not None
+                    assert result.checks[0].config["comparison"]["value"] == 80
+                else:
+                    assert result.checks is None
                 assert result.verification_note.note.startswith(
                     "## Verification plan\n\n### Confirm the current state\n\n"
                 )
             else:
                 assert result.verification_note is None
 
+    preferred = _name in ("malformed_optional_checks", "revised_metric_summary")
+    assert ("## Prepare metric-based follow-up checks" in start_session.call_args.kwargs["prompt"]) is preferred
+    prompts = {call.kwargs["label"]: call.args[0] for call in session.send_followup.await_args_list}
+    assert ("## Metrics for follow-up checks" in prompts["presentation"]) is preferred
+    if "fix_verification" in prompts:
+        assert ("70-80% confidence" in prompts["fix_verification"]) is preferred
     labels = [call.kwargs["label"] for call in session.send_followup.await_args_list]
     assert labels == expected_labels
     if failure is asyncio.CancelledError:
-        session.end.assert_awaited_once_with(status="failed", error=str(verification_error))
+        session.end.assert_awaited_once_with(status="failed", error=str(verification_error), error_type=None)
     else:
         session.end.assert_awaited_once_with()
     if failure is not None and failure is not asyncio.CancelledError:
@@ -1614,7 +1863,7 @@ async def test_run_multi_turn_research_survives_a_failed_supersede_turn(supersed
         "supersede": supersede_outcome,
     }
 
-    async def fake_send_followup(message, model, *, label=""):
+    async def fake_send_followup(message, model, *, label="", validation_context=None):
         outcome = by_label[label]
         if isinstance(outcome, Exception):
             raise outcome
@@ -1708,7 +1957,7 @@ async def test_run_multi_turn_research_only_asks_about_the_pr_when_actionable(ac
     }
     asked_labels: list[str] = []
 
-    async def fake_send_followup(message, model, *, label=""):
+    async def fake_send_followup(message, model, *, label="", validation_context=None):
         asked_labels.append(label)
         return by_label[label]
 

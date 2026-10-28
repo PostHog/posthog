@@ -6,6 +6,7 @@ from google.auth.exceptions import RefreshError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -95,6 +96,13 @@ def _property_list_http_error(error: requests.HTTPError) -> str:
 class GoogleSearchConsoleSource(
     ResumableSource[GoogleSearchConsoleSourceConfig, GoogleSearchConsoleResumeConfig], OAuthMixin
 ):
+    codebase_detection = detect(
+        env=("^SEARCH_CONSOLE_", "^GSC_"),
+        npm=("@googleapis/searchconsole", "@googleapis/webmasters"),
+        maven=("com.google.apis:google-api-services-searchconsole",),
+        rubygems=("google-apis-searchconsole_v1",),
+    )
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://developers.google.com/webmaster-tools"
@@ -128,6 +136,20 @@ class GoogleSearchConsoleSource(
         # Temporal retry the activity without paging it as a bug. The three quota raise sites carry a
         # stable `(retryable)` marker, which does not collide with the 401/403 non-retryable keys.
         return {"(retryable)"}
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # The quota raise sites name the customer's site and our own retry bookkeeping. The quota
+        # is shared by every table synced from the site, so a run that keeps exhausting it needs
+        # fewer or less frequent tables rather than a wait.
+        quota_message = (
+            "Google Search Console's query limit for your site ran out before this sync finished. "
+            "Sync fewer tables or sync them less often to stay within the limit."
+        )
+        return {
+            "Search Analytics daily quota for": quota_message,
+            "Search Analytics quota for": quota_message,
+            "Search Console quota exhausted while listing": quota_message,
+        }
 
     def get_oauth_accounts(
         self, integration_id: int, team_id: int, search: str | None = None
@@ -380,6 +402,7 @@ class GoogleSearchConsoleSource(
                     ),
                     SourceFieldSelectConfig(
                         name="search_types",
+                        sync_setting=True,
                         label="Search types",
                         required=True,
                         defaultValue=DEFAULT_SEARCH_TYPE,

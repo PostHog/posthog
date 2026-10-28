@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class StreamElementsSource(ResumableSource[StreamElementsSourceConfig, StreamElementsResumeConfig]):
+    codebase_detection = detect(env=("^(STREAM_ELEMENTS|STREAMELEMENTS)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = SUPPORTED_VERSIONS
@@ -54,7 +57,7 @@ class StreamElementsSource(ResumableSource[StreamElementsSourceConfig, StreamEle
             category=DataWarehouseSourceCategory.COMMUNICATION,
             keywords=["twitch", "streaming", "tips", "donations"],
             label="StreamElements",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Sync tips, activity feed events, loyalty points, store redemptions and chatbot settings from StreamElements into the PostHog Data warehouse.
 
 Use the channel JWT token from your StreamElements dashboard: open your account page, enable **Show secrets** under **Channels**, then copy the JWT token. An OAuth2 access token also works if it has the `channel:read`, `tips:read`, `activities:read`, `loyalty:read` and `store:read` scopes.

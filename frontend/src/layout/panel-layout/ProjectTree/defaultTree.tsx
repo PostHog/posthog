@@ -1,7 +1,6 @@
 import React, { CSSProperties } from 'react'
 
 import {
-    IconAIGateway,
     IconApp,
     IconApps,
     IconArrowUpRight,
@@ -9,7 +8,6 @@ import {
     IconBook,
     IconBrackets,
     IconBrowser,
-    IconBug,
     IconCheckbox,
     IconCircleDashed,
     IconClock,
@@ -22,7 +20,6 @@ import {
     IconDocument,
     IconDownload,
     IconEndpoints,
-    IconExternal,
     IconEye,
     IconFeatures,
     IconFilter,
@@ -40,6 +37,7 @@ import {
     IconList,
     IconListCheck,
     IconListTree,
+    IconLetter,
     IconLive,
     IconLlmAnalytics,
     IconLlmPromptManagement,
@@ -47,9 +45,10 @@ import {
     IconMagicWand,
     IconMegaphone,
     IconMessage,
-    IconMicrophone,
     IconNotebook,
+    IconPalette,
     IconNotification,
+    IconPageChart,
     IconPencil,
     IconPeople,
     IconPerson,
@@ -68,6 +67,7 @@ import {
     IconSend,
     IconServer,
     IconShuffle,
+    IconSignal,
     IconSpotlight,
     IconStack,
     IconStar,
@@ -84,7 +84,7 @@ import {
 } from '@posthog/icons'
 
 import {
-    IconBracketsChart,
+    IconSQL,
     IconInsightFunnels,
     IconInsightLifecycle,
     IconInsightRetention,
@@ -114,13 +114,13 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconDashboard />,
         iconColor: ['var(--color-product-dashboards-light)'],
     },
+    canvas: {
+        icon: <IconPalette />,
+        iconColor: ['var(--color-product-tasks-light)', 'var(--color-product-tasks-dark)'],
+    },
     llm_analytics: {
         icon: <IconLlmAnalytics />,
         iconColor: ['var(--color-product-llm-analytics-light)'],
-    },
-    ai_gateway: {
-        icon: <IconAIGateway />,
-        iconColor: ['var(--color-product-ai-gateway-light)', 'var(--color-product-ai-gateway-dark)'],
     },
     product_analytics: {
         icon: <IconGraph />,
@@ -157,6 +157,13 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconEndpoints />,
         iconColor: ['var(--color-product-endpoints-light)', 'var(--color-product-endpoints-dark)'],
     },
+    business_intelligence: {
+        icon: <IconPageChart />,
+        iconColor: [
+            'var(--color-product-business-intelligence-light)',
+            'var(--color-product-business-intelligence-dark)',
+        ],
+    },
     sql_editor: {
         icon: <IconServer />,
         iconColor: ['var(--color-product-data-warehouse-light)'],
@@ -191,10 +198,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     product_tour: {
         icon: <IconSpotlight />,
         iconColor: ['var(--color-product-product-tours-light)', 'var(--color-product-product-tours-dark)'],
-    },
-    user_interview: {
-        icon: <IconMicrophone />,
-        iconColor: ['var(--color-product-user-interviews-light)', 'var(--color-product-user-interviews-dark)'],
     },
     home: {
         icon: <IconHome />,
@@ -245,10 +248,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconDatabase />,
         iconColor: ['var(--color-product-data-warehouse-light)', 'var(--color-product-data-warehouse-dark)'],
     },
-    link: {
-        icon: <IconExternal />,
-        iconColor: ['var(--color-product-links-light)', 'var(--color-product-links-dark)'],
-    },
     workflows: {
         icon: <IconDecisionTree />,
         iconColor: ['var(--color-product-workflows-light)', 'var(--color-product-workflows-dark)'],
@@ -257,13 +256,13 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconSend />,
         iconColor: ['var(--color-product-broadcasts-light)', 'var(--color-product-broadcasts-dark)'],
     },
+    transactional: {
+        icon: <IconLetter />,
+        iconColor: ['var(--color-product-workflows-light)', 'var(--color-product-workflows-dark)'],
+    },
     notebook: {
         icon: <IconNotebook />,
         iconColor: ['var(--color-product-notebooks-light)', 'var(--color-product-notebooks-dark)'],
-    },
-    live_debugger: {
-        icon: <IconBug />,
-        iconColor: ['var(--color-product-live-debugger-light)', 'var(--color-product-live-debugger-dark)'],
     },
     action: {
         icon: <IconPlay />,
@@ -328,7 +327,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconInsightStickiness />,
     },
     'insight/hog': {
-        icon: <IconBracketsChart />,
+        icon: <IconSQL />,
     },
     team_activity: {
         icon: <IconNotification />,
@@ -414,6 +413,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     stamphog: {
         icon: <IconStamphog />,
     },
+    uptime_monitoring: {
+        icon: <IconSignal />,
+    },
     exports: {
         icon: <IconDownload />,
     },
@@ -497,7 +499,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
 }
 
-const getIconColor = (type?: string, colorOverride?: FileSystemIconColor): FileSystemIconColor => {
+export const getIconColor = (type?: string, colorOverride?: FileSystemIconColor): FileSystemIconColor => {
     // Manifest color takes precedence
     const fileSystemColor = (fileSystemTypes as unknown as Record<string, { iconColor?: FileSystemIconColor }>)[
         type as keyof typeof fileSystemTypes
@@ -537,6 +539,16 @@ export const ProductIconWrapper = ({ type, children, colorOverride }: ProductIco
             {children}
         </span>
     )
+}
+
+export function getFileSystemIconType(item: Pick<FileSystemEntry, 'type' | 'meta'>): FileSystemIconType | undefined {
+    if (item.type === 'insight' && typeof item.meta?.insight_type === 'string') {
+        const insightIconType = `insight/${item.meta.insight_type}` as FileSystemIconType
+        if (insightIconType in iconTypes || insightIconType in fileSystemTypes) {
+            return insightIconType
+        }
+    }
+    return item.type as FileSystemIconType
 }
 
 export function iconForType(type?: FileSystemIconType, colorOverride?: FileSystemIconColor): JSX.Element {
@@ -646,11 +658,6 @@ export function withProductShortcutHref(entry: FileSystemEntry): FileSystemEntry
 
 export const getDefaultTreeGames = (): FileSystemImport[] =>
     [...getTreeItemsGames()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
-
-export const getDefaultTreeDataAndPeople = (): FileSystemImport[] =>
-    [...getDefaultTreeData(), ...getDefaultTreePersons()].sort((a, b) =>
-        a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' })
-    )
 
 export const getDefaultTreePersons = (): FileSystemImport[] => [
     {

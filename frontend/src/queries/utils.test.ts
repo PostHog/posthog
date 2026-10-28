@@ -17,6 +17,7 @@ import {
     escapeHogQLString,
     escapePropertyAsHogQLIdentifier,
     getDisplay,
+    getShowLegend,
     hogql,
     isMetricInsightQuery,
     queryUsesDataWarehouse,
@@ -238,6 +239,24 @@ describe('convertDataTableNodeToDataVisualizationNode', () => {
                 columns: [{ column: 'event' }],
             },
         })
+    })
+})
+
+describe('getShowLegend', () => {
+    const trends = (display: ChartDisplayType, showLegend?: boolean): InsightQueryNode => ({
+        kind: NodeKind.TrendsQuery,
+        series: [],
+        trendsFilter: { display, showLegend },
+    })
+
+    it.each([
+        ['a proportion bar with few parts', trends(ChartDisplayType.ActionsProportionBar), 5, true],
+        ['a proportion bar with many parts', trends(ChartDisplayType.ActionsProportionBar), 25, undefined],
+        ['a proportion bar before its parts load', trends(ChartDisplayType.ActionsProportionBar), undefined, undefined],
+        ['a proportion bar with the legend turned off', trends(ChartDisplayType.ActionsProportionBar, false), 5, false],
+        ['a line chart', trends(ChartDisplayType.ActionsLineGraph), 5, undefined],
+    ])('%s', (_name, query, partCount, expected) => {
+        expect(getShowLegend(query, partCount)).toBe(expected)
     })
 })
 

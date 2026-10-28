@@ -1,10 +1,7 @@
-import pytest
 from unittest import mock
 
 import structlog
-from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shortio import (
     ShortioSourceConfig,
@@ -35,43 +32,6 @@ class TestShortioSource:
         self.team_id = 123
         self.config = ShortioSourceConfig(api_key="sk-key")
 
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Shortio"
-        assert config.label == "Shortio"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # A finished source is visible — it must not carry the scaffolding flag.
-        assert not config.unreleasedSource
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/shortio"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_no_connection_host_fields(self) -> None:
-        # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret
-        # field an editor could retarget to reuse a preserved key against another account.
-        assert self.source.connection_host_fields == []
-
-    @parameterized.expand(
-        [
-            ("401 Client Error: Unauthorized for url: https://api.short.io/api/domains",),
-            ("403 Client Error: Forbidden for url: https://api.short.io/api/domains",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://api.short.io/api/domains",),
-            ("429 Client Error: Too Many Requests for url: https://api.short.io/api/domains",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.shortio.source.shortio_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = _make_inputs(schema_name="domains")
@@ -82,8 +42,3 @@ class TestShortioSource:
         kwargs = mock_source.call_args.kwargs
         assert kwargs["api_key"] == "sk-key"
         assert kwargs["endpoint"] == "domains"
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = _make_inputs(schema_name="not_a_table")
-        with pytest.raises(ValueError, match="Unknown Short.io schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, inputs)

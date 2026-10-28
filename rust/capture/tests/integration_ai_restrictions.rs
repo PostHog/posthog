@@ -11,11 +11,12 @@ use capture::event_restrictions::{
     EventRestrictionService, Pipeline, Restriction, RestrictionManager, RestrictionScope,
     RestrictionType,
 };
-use capture::outputs::{OutputRegistry, PublishEvents};
+use capture::outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
+use capture::sinks::sink::SinkResult;
 use capture::time::TimeSource;
-use capture::v0_request::{AiLanePredicate, DataType, OverflowReason, ProcessedEvent};
+use capture::v0_request::{DataType, OverflowReason, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
 use futures::StreamExt;
@@ -60,6 +61,13 @@ impl PublishEvents for CapturingSink {
     async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().await.extend(events);
         Ok(())
+    }
+}
+
+#[async_trait]
+impl PublishPrepared for CapturingSink {
+    async fn publish_prepared(&self, _events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+        unreachable!("v0 endpoints publish events")
     }
 }
 
@@ -168,8 +176,7 @@ async fn setup_ai_router_with_restriction(
         false,
         0.0_f32,
         26_214_400,
-        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
-        AiLanePredicate::Allowlist,
+        983_040, // ai_max_event_bytes (960KB)
         None,
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -178,10 +185,8 @@ async fn setup_ai_router_with_restriction(
         None,             // ai_events_overflow_limiter
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
-        None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
-        false,            // ai_events_overflow_enabled
         None,             // ingestion_warning_emitter
     );
 
@@ -491,8 +496,7 @@ async fn setup_ai_router_with_redirect_to_topic(
         false,
         0.0_f32,
         26_214_400,
-        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
-        AiLanePredicate::Allowlist,
+        983_040, // ai_max_event_bytes (960KB)
         None,
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -501,10 +505,8 @@ async fn setup_ai_router_with_redirect_to_topic(
         None,             // ai_events_overflow_limiter
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
-        None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
-        false,            // ai_events_overflow_enabled
         None,             // ingestion_warning_emitter
     );
 
@@ -520,7 +522,6 @@ async fn setup_ai_router_with_redirect_to_topic(
 async fn setup_ai_router_with_force_overflow_and_limiter(
     token: &str,
     overflow_limiter: Arc<OverflowLimiter>,
-    ai_events_overflow_enabled: bool,
 ) -> (Router, CapturingSink) {
     let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
@@ -572,8 +573,7 @@ async fn setup_ai_router_with_force_overflow_and_limiter(
         false,
         0.0_f32,
         26_214_400,
-        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
-        AiLanePredicate::Allowlist,
+        983_040, // ai_max_event_bytes (960KB)
         None,
         256,
         10 * 1024 * 1024,       // capture_v1_max_compressed_body_bytes
@@ -582,11 +582,9 @@ async fn setup_ai_router_with_force_overflow_and_limiter(
         Some(overflow_limiter), // ai_events_overflow_limiter
         None,                   // ai_byte_rate_limiter
         None,                   // replay_overflow_limiter
-        None,                   // v1_sink_router
         8,                      // capture_v1_scatter_gather_min_batch
         None,                   // ai_gateway_signing_secret
-        ai_events_overflow_enabled,
-        None, // ingestion_warning_emitter
+        None,                   // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -612,8 +610,7 @@ async fn test_ai_force_overflow_restriction_wins_over_overflow_limiter() {
     ));
 
     let (router, sink) =
-        setup_ai_router_with_force_overflow_and_limiter(restricted_token, overflow_limiter, false)
-            .await;
+        setup_ai_router_with_force_overflow_and_limiter(restricted_token, overflow_limiter).await;
     let test_client = TestClient::new(router);
 
     let properties = json!({"$ai_model": "gpt-4"});
@@ -666,12 +663,9 @@ async fn test_ai_endpoint_keeps_events_on_the_ai_lane() {
     ));
 
     // Restriction is registered for a different token, so only the limiter acts.
-    let (router, sink) = setup_ai_router_with_force_overflow_and_limiter(
-        "phc_some_other_token",
-        overflow_limiter,
-        true,
-    )
-    .await;
+    let (router, sink) =
+        setup_ai_router_with_force_overflow_and_limiter("phc_some_other_token", overflow_limiter)
+            .await;
     let test_client = TestClient::new(router);
 
     let properties = json!({"$ai_model": "gpt-4"});
@@ -690,7 +684,7 @@ async fn test_ai_endpoint_keeps_events_on_the_ai_lane() {
     assert_eq!(
         events[0].metadata.overflow_reason,
         Some(OverflowReason::ForceLimited),
-        "the AI lane's own limiter must apply once the valve is armed"
+        "the AI lane's own limiter must apply"
     );
 }
 

@@ -1,7 +1,7 @@
 # PR approval agent
 
 A Python package that reviews one pull request and returns a verdict.
-It runs deterministic safety gates over the changed files, classifies the PR into a tier, then lets a Claude Agent SDK reviewer look for showstoppers.
+It runs deterministic safety gates over the changed files, classifies the PR into a tier, then lets an LLM reviewer look for showstoppers.
 
 The package reads its policy from the `.stamphog/` directory of the checked-out tree it runs in.
 It writes nothing to GitHub.
@@ -25,7 +25,15 @@ The stamphog product in [`products/stamphog/`](../../../stamphog/) runs `review_
 | ERROR    | The run could not produce a verdict                                                                                |
 
 These are the values of `Pipeline.final_verdict`, which both entrypoints return.
-The nested LLM reviewer answers with `APPROVE` and `REFUSE`, and the pipeline maps those onto the names above.
+The nested LLM reviewer does not choose a verdict.
+It reports facts in a fixed schema: the risky territory the diff enters, the reviews on the current head, whether the author is on the owning team or has STRONG familiarity, the unresolved substantive concerns, and any other refusal ground the policy names.
+`verdict_rule.py` derives `APPROVE`, `REFUSE` or `ESCALATE` from those facts, and the pipeline maps that onto the names above:
+
+- any refusal ground or unresolved concern: `REFUSE`
+- risky territory with no current-head review, no owning-team author and no STRONG familiarity: `ESCALATE`
+- everything else: `APPROVE`
+
+Asked for a verdict directly, the model sees the same facts but does not apply this rule reliably, so the rule lives in code.
 
 `WAIT` means either that an allowlisted reviewer bot still had a review in flight (👀 reaction) after the polling budget, or that the `Migration risk` check had not reported yet.
 Neither is a verdict on the PR, so the caller can retry unchanged.
@@ -51,7 +59,8 @@ uv run products/stamphog/packages/pr-approval-agent/review_pr.py 46594 --output-
 uv run products/stamphog/packages/pr-approval-agent/review_pr.py 46594 -v
 ```
 
-`review_pr.py` requires the `gh` CLI authenticated and `ANTHROPIC_API_KEY` in your environment.
+`review_pr.py` requires the `gh` CLI authenticated and `OPENAI_API_KEY` in your environment, or `AI_GATEWAY_URL` with `AI_GATEWAY_API_KEY`.
+`ANTHROPIC_API_KEY` is only needed with `STAMPHOG_REVIEWER_ENGINE=claude`.
 It uses PEP 723 inline metadata, so `uv run` handles dependencies automatically.
 
 ## How it works
@@ -88,7 +97,9 @@ Size ceiling (hard gate)
     snapshots (.snap/.ambr, __snapshots__/), images,
     `.lock`-extension files (e.g. `yarn.lock`), tests (test dirs and
     .test/.spec/_test files), and generated/ artifacts
-    (regenerated-artifact extensions only: .ts/.tsx/.js/.jsx/.json/.md/.snap/.pyi/.txt)
+    (regenerated-artifact extensions only: .ts/.tsx/.js/.jsx/.json/.md/.snap/.pyi/.txt),
+    and Drizzle Kit schema snapshots (`migrations/meta/NNNN_snapshot.json`; the migrator reads only
+    the SQL and `_journal.json`, which still count)
     don't count toward the ceiling, because they inflate diffs without adding review
     surface. Note: `pnpm-lock.yaml` and `package-lock.json` are not `.lock`-extension
     files and do count toward the ceiling. All files still count toward tier
@@ -114,10 +125,20 @@ Wait for in-flight bot reviews (skipped when gates already denied)
   - Human 👀 reactions are not waited on; the LLM refuses over them instead
   - If the wait refetched the PR, classification and gates re-run on the
     fresh data before the LLM sees it
+  - Hosted runs also get external reviewers' status for the head from the
+    server (`review_evidence` in the context, for example PostHog Review). Any
+    pending review is WAIT; each completed one against the current merge base
+    counts as a current-head review only when it skipped no changed file. Each
+    gets its own line in the assurance summary and the verdict, which says why
+    a review with skipped files does not count
   │
   ▼
 LLM Review
-  - Claude Agent SDK with Read/Grep/Glob tools
+  - GPT-6.1 Sol at low effort in an OpenAI Responses tool loop (openai_reviewer.py), with
+    read_file/grep/glob tools confined to the checkout
+  - STAMPHOG_REVIEWER_ENGINE=claude on the worker switches to the Claude Agent SDK reviewer
+    (Opus 5.5 low, Read/Grep/Glob) as a rollback without a deploy
+  - Reports facts, not a verdict; verdict_rule.py derives the verdict (see Verdicts)
   - Explores the repo via git diff, reads source files if needed
   - Looks for showstoppers: production breakage, security, missed deps
   - Receives the PR description (untrusted) and verifies the diff matches the
@@ -158,37 +179,59 @@ The repo root is resolved from the package's own location, never from the workin
 
 ### `policy.yml`
 
-Required, at `.stamphog/policy.yml`.
-The machine policy, loaded and validated by a strict loader: a malformed or incomplete file hard-fails at load rather than reviewing under a half-loaded policy.
+The machine policy is the engine's shipped [`defaults/policy.yml`](defaults/policy.yml) with the repository's optional `.stamphog/policy.yml` merged onto it (`merge_policy` in `policy.py`).
+Mappings merge key by key, a list the repository declares replaces the default's list, and an `extend_<name>` key appends to the inherited `<name>` list.
+A strict loader validates the merged document: a malformed or incomplete result hard-fails at load rather than reviewing under a half-loaded policy.
 
 Top-level sections:
 
-| Section       | What it declares                                                     |
-| ------------- | -------------------------------------------------------------------- |
-| `version`     | The policy schema version                                            |
-| `deny`        | The T2 categories and the title/path patterns that match them        |
-| `allow`       | The path patterns and extensions that make a PR eligible for T0      |
-| `size_gate`   | The global `max_lines` and `max_files` ceilings                      |
-| `tiers`       | The T1 sub-class thresholds                                          |
-| `overrides`   | The keys a folder file may override, and each key's ceiling          |
-| `familiarity` | The author-familiarity bands, a judgment input and never a gate      |
-| `ownership`   | The ownership sources that feed the reviewer's advisory team context |
+| Section           | What it declares                                                          |
+| ----------------- | ------------------------------------------------------------------------- |
+| `version`         | The policy schema version                                                 |
+| `deny`            | The T2 categories and the title/path patterns that match them             |
+| `deny_exceptions` | Optional per-pattern or category path exceptions without replacing `deny` |
+| `allow`           | The path patterns and extensions that make a PR eligible for T0           |
+| `size_gate`       | The global `max_lines` and `max_files` ceilings                           |
+| `tiers`           | The T1 sub-class thresholds                                               |
+| `overrides`       | The keys a folder file may override, and each key's ceiling               |
+| `familiarity`     | The author-familiarity bands, a judgment input and never a gate           |
+| `ownership`       | The ownership sources that feed the reviewer's advisory team context      |
 
 A rule may carry a `rationale`.
 It records why the rule became what it is, which false positives drove an exclusion and when.
 Treat it as historical justification like a commit message, not as a claim about the present.
 
 The `deny` section must keep a `stamphog_policy` category matching the policy files and the engine itself.
-The loader hard-fails when the category or one of its required path patterns is missing.
-It checks the pattern sources only, so a policy that keeps the patterns but hollows them out, for example with a blanket `exempt_path_prefixes`, still loads.
-That is one more reason every edit to a policy file is a human-reviewed change.
+The loader hard-fails when the category or one of its required path patterns is missing, and when a repository's file drops a pattern the shipped default declares for it.
+It checks the pattern sources only, so every edit to a policy file stays a human-reviewed change.
 
 The loader rejects unknown top-level keys.
 The two exceptions are `digest` and `dismiss`, which a hosting server may declare and parse itself; the engine allows them and never reads them.
 
+`deny_exceptions` maps existing category names to non-empty lists of rules.
+Each rule requires `path_prefixes`, a non-empty list of literal repository-relative directory prefixes ending in `/`.
+Absolute paths, traversal, wildcards, regular expressions, and noncanonical prefixes fail validation.
+Optional `extensions` restricts the rule to a non-empty list of literal dot-prefixed file suffixes.
+Optional `keyword` restricts the exception to an existing literal pattern in `match.any` or `match.paths`; title-only patterns and arbitrary regular expressions are not accepted.
+Without `keyword`, the rule exempts every path pattern in that category within the selected paths.
+Rules combine their selectors with AND, and the rules within a category combine with OR.
+Prefix and extension comparisons ignore case.
+An absent or empty `deny_exceptions` mapping leaves matching unchanged.
+
+The matcher skips only matching patterns on matching files.
+Other keywords in the same category, other categories, and non-exempt files in a mixed PR still deny.
+Rename checks keep both real paths, so an exempt destination does not waive a protected source.
+Title scrutiny remains unchanged.
+When these exceptions lift a denial, classification requires `T1-agent` rather than the allow-list or test-only `T0` route.
+All remaining gates and the reviewer still apply.
+The loader rejects unknown rule fields and categories, malformed selectors, and every exception to `stamphog_policy`.
+A repository file containing only this section keeps the inherited `deny` rules, including future additions.
+A deny exception without `keyword` also suppresses the category's title scrutiny flag when it covers every changed file, so a connector fix that says "stripe" in its title is not flagged.
+See the [repository configuration example](../../README.md#deny-exceptions).
+
 ### `review-guidance.md`
 
-The trusted review-norms prose, injected into the reviewer's system prompt.
+The trusted review-norms prose, injected into the reviewer's system prompt: the repository's `.stamphog/review-guidance.md` when present, which replaces the shipped [`defaults/review-guidance.md`](defaults/review-guidance.md) as a whole, else that default.
 Ordinary markdown.
 Editing it changes the reviewer's behavior directly, so update it deliberately.
 
@@ -277,8 +320,10 @@ How the head tree is materialized differs per entrypoint:
   Symbolic links the PR adds or repoints fail closed, so a PR path cannot resolve outside the worktree.
 
 **The explored tree is PR-authored content.**
-The reviewer runs the Agent SDK with `setting_sources=[]` (isolation mode) plus `strict_mcp_config`, so it does **not** load `.claude/settings.json` hooks (command execution), `CLAUDE.md` (injected instructions), or `.mcp.json` from the tree.
+The Claude rollback reviewer runs the Agent SDK with `setting_sources=[]` (isolation mode) plus `strict_mcp_config`, so it does **not** load `.claude/settings.json` hooks (command execution), `CLAUDE.md` (injected instructions), or `.mcp.json` from the tree.
 Those files are still readable as untrusted _content_ under the anti-injection notice, never as configuration.
+The OpenAI reviewer discovers no SDK settings, hooks or MCP servers from the tree. Like the Claude reviewer, its prompt still reads the trusted `.stamphog/review-guidance.md` and optional `.stamphog/steering.md`.
+Its tools search through git, which never follows a symbolic link, and refuse any path that resolves outside the checkout.
 The diff scratch file is created with `mkstemp` under an unpredictable name, so a tracked symlink in the tree cannot redirect the write.
 
 The base commit of a stacked PR is its parent branch tip, which the checkout does not necessarily carry.
@@ -333,7 +378,17 @@ And the reviewer prompt must REFUSE on execution-bearing changes the scan can't 
 Manifest and lockfile pairing is per-ecosystem, from the `DEPENDENCY_ECOSYSTEMS` table in `gates.py`, which is the single source the deny patterns and helpers derive from.
 So a Cargo.lock bump hard-denies on its own but doesn't silence the scripts guard on an unrelated package.json edit in the same PR.
 
-A deny category may carry `exempt_path_prefixes`, for code that legitimately looks like a sensitive domain without touching one.
+Code that legitimately looks like a sensitive domain without touching one gets a `deny_exceptions` rule. The removed `exempt_path_prefixes` key fails the load with a pointer to it.
+
+A deny category may also carry `exempt_author_teams`, a list of bare GitHub team slugs.
+It makes the category owner-only: the category does not deny a PR whose author is on one of the teams, and denies everyone else's, so stamphog approves those paths only for the team that owns them.
+The deny-list gate message names the teams, so a refused author knows who has to review.
+Membership comes from GitHub, never from the PR.
+The hosted server looks up every team the author is on, and a local run asks GitHub per team.
+A failed lookup counts as no team, so the category denies.
+Bot authors are never on a team.
+The `stamphog_policy` category cannot carry the key, because a team that may approve policy edits could widen its own exemption.
+Unlike CODEOWNERS, the category only stops stamphog: any human approval still counts on GitHub.
 
 The **migrations** deny-list is bypassed when the `Migration risk` check on the head commit concludes `success` (all migrations classified Safe).
 The check is the same signal humans see in the PR's Checks tab.
@@ -369,7 +424,7 @@ Every run produces a JSON evidence bundle (`--output-json` on `review_pr.py`) co
 - Stamphog version and PR metadata (number, author, title)
 - Classification (tier, sub-tier, breadth, commit type, deny categories, ownership)
 - Gate results (each gate's pass/fail status and message)
-- Reviewer output (verdict, reasoning, risk, issues)
+- Reviewer output (derived verdict, reasoning, risk, issues, change summary, and the raw `facts` the verdict came from)
 - Final verdict
 
 ## Architecture
@@ -379,7 +434,9 @@ Every run produces a JSON evidence bundle (`--output-json` on `review_pr.py`) co
 - `policy.py` - policy loader, resolver, and the untrusted-text sanitizer
 - `gates.py` - deterministic classification and deny-list logic
 - `github.py` - GitHub data fetching via `gh` CLI
-- `reviewer.py` - Claude Agent SDK reviewer (showstoppers prompt)
+- `reviewer.py` - the shared prompt and the Claude Agent SDK rollback reviewer (reports facts)
+- `openai_reviewer.py` - the GPT-6.1 Sol reviewer: Responses tool loop and the read-only repo tools
+- `verdict_rule.py` - the facts schema and the rule that derives the verdict from it
 
 ## Empirical basis
 

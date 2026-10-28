@@ -13,10 +13,12 @@ from products.ai_observability.backend.llm.errors import (
 )
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
 from products.ai_observability.backend.llm.providers.openrouter import (
-    NON_CHAT_MODELS_CACHE_KEY,
+    MODEL_MODALITIES_CACHE_KEY,
+    MODEL_MODALITIES_LAST_GOOD_CACHE_KEY,
     OPENROUTER_HEADERS,
     OpenRouterAdapter,
-    _non_chat_model_ids,
+    decision_model_ids,
+    non_chat_model_ids,
 )
 
 
@@ -159,7 +161,7 @@ class TestOpenRouterNonChatModels:
         with (
             patch.object(OpenAIAdapter, "complete", side_effect=outcome),
             patch(
-                "products.ai_observability.backend.llm.providers.openrouter._non_chat_model_ids",
+                "products.ai_observability.backend.llm.providers.openrouter.non_chat_model_ids",
                 return_value=frozenset({"typesafe/jev-1.13"}),
             ),
             pytest.raises(expected),
@@ -169,7 +171,7 @@ class TestOpenRouterNonChatModels:
     def test_successful_complete_skips_the_catalogue(self) -> None:
         with (
             patch.object(OpenAIAdapter, "complete", return_value=MagicMock(parsed=MagicMock())),
-            patch("products.ai_observability.backend.llm.providers.openrouter._non_chat_model_ids") as mock_ids,
+            patch("products.ai_observability.backend.llm.providers.openrouter.non_chat_model_ids") as mock_ids,
         ):
             OpenRouterAdapter().complete(MagicMock(model="openai/gpt-4o"), "sk-or-test-key", MagicMock())
         mock_ids.assert_not_called()
@@ -180,8 +182,18 @@ class TestOpenRouterNonChatModels:
             "data": [
                 {"id": "openai/gpt-4o", "architecture": {"output_modalities": ["text"]}},
                 {"id": "google/image-model", "architecture": {"output_modalities": ["image", "text"]}},
+                {"id": "example/dual-model", "architecture": {"output_modalities": ["text", "decisions"]}},
                 {"id": "typesafe/jev-1.13", "architecture": {"output_modalities": ["decisions"]}},
+                {"id": "~typesafe/jev-latest", "architecture": {"output_modalities": ["decisions"]}},
+                {"id": "typesafe/jev-router", "architecture": {"output_modalities": ["text"]}},
+                {"id": "respan/span-01", "architecture": {"output_modalities": ["decisions"]}},
+                {"id": "respan/span-01-lite", "architecture": {"output_modalities": ["decisions"]}},
+                {"id": "respan/span-01-lite:free", "architecture": {"output_modalities": ["decisions"]}},
+                {"id": "respan/example-future-model", "architecture": {"output_modalities": ["decisions"]}},
+                {"id": "example/new-decision-model", "architecture": {"output_modalities": ["decisions"]}},
+                {"id": "example/embedding", "architecture": {"output_modalities": ["embeddings"]}},
                 {"id": "no-architecture/model"},
+                {"id": "null-modalities/model", "architecture": {"output_modalities": None}},
             ]
         }
         with (
@@ -189,17 +201,67 @@ class TestOpenRouterNonChatModels:
             patch("products.ai_observability.backend.llm.providers.openrouter.cache.set"),
             patch("products.ai_observability.backend.llm.providers.openrouter.httpx.get", return_value=mock_response),
         ):
-            assert _non_chat_model_ids() == frozenset({"typesafe/jev-1.13"})
+            assert non_chat_model_ids() == frozenset(
+                {
+                    "typesafe/jev-1.13",
+                    "~typesafe/jev-latest",
+                    "example/embedding",
+                    "respan/span-01",
+                    "respan/span-01-lite",
+                    "respan/span-01-lite:free",
+                    "respan/example-future-model",
+                    "example/new-decision-model",
+                }
+            )
+            expected_decisions = frozenset(
+                {
+                    "example/dual-model",
+                    "typesafe/jev-1.13",
+                    "~typesafe/jev-latest",
+                    "respan/span-01",
+                    "respan/span-01-lite",
+                    "respan/span-01-lite:free",
+                    "example/new-decision-model",
+                    "respan/example-future-model",
+                }
+            )
+            assert decision_model_ids() == expected_decisions
+            assert decision_model_ids(decision_only=True) == expected_decisions - {"example/dual-model"}
 
-    def test_catalogue_failure_is_cached_briefly(self) -> None:
-        cache.delete(NON_CHAT_MODELS_CACHE_KEY)
+    @pytest.mark.parametrize("cached_decisions", [None, False, True])
+    def test_catalogue_failure_keeps_last_success_and_recovers(self, cached_decisions: bool | None) -> None:
+        cache.delete(MODEL_MODALITIES_CACHE_KEY)
+        cache.delete(MODEL_MODALITIES_LAST_GOOD_CACHE_KEY)
         try:
             with patch(
                 "products.ai_observability.backend.llm.providers.openrouter.httpx.get",
-                side_effect=httpx.ConnectError("down"),
             ) as mock_get:
-                assert _non_chat_model_ids() is None
-                assert _non_chat_model_ids() is None
-            assert mock_get.call_count == 1
+                expected: frozenset[str] | None = None
+                if cached_decisions is not None:
+                    mock_get.return_value.json.return_value = {
+                        "data": [{"id": "example/decision", "architecture": {"output_modalities": ["decisions"]}}]
+                        if cached_decisions
+                        else []
+                    }
+                    expected = frozenset({"example/decision"}) if cached_decisions else frozenset()
+                    assert decision_model_ids() == expected
+                    cache.delete(MODEL_MODALITIES_CACHE_KEY)
+                    mock_get.reset_mock()
+
+                mock_get.side_effect = httpx.ConnectError("down")
+                assert decision_model_ids() == expected
+                assert decision_model_ids() == expected
+                mock_get.assert_called_once()
+
+                cache.delete(MODEL_MODALITIES_CACHE_KEY)
+                mock_get.side_effect = None
+                mock_get.return_value.json.return_value = {
+                    "data": [{"id": "example/replacement", "architecture": {"output_modalities": ["decisions"]}}]
+                }
+                assert decision_model_ids() == frozenset({"example/replacement"})
+                cache.delete(MODEL_MODALITIES_CACHE_KEY)
+                mock_get.side_effect = httpx.ConnectError("down")
+                assert decision_model_ids() == frozenset({"example/replacement"})
         finally:
-            cache.delete(NON_CHAT_MODELS_CACHE_KEY)
+            cache.delete(MODEL_MODALITIES_CACHE_KEY)
+            cache.delete(MODEL_MODALITIES_LAST_GOOD_CACHE_KEY)

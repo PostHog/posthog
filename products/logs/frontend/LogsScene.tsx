@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -113,6 +114,15 @@ const LogsSceneTabbedContent = (): JSX.Element => {
 }
 
 const LogsSceneFeedbackButton = (): JSX.Element => {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav) {
+        return (
+            <Button variant="outline" onClick={() => posthog.displaySurvey('019a7d95-3810-0000-34dc-404a58075f17')}>
+                <IconFeedback />
+                Feedback
+            </Button>
+        )
+    }
     return (
         <LemonButton
             size="small"

@@ -92,6 +92,13 @@ LLMA_PROXY_BYOK_REQUESTS = Counter(
     labelnames=["provider"],
 )
 
+# Empty BYOK model lists include provider errors, because `list_models` returns [] when it fails.
+LLMA_PROXY_BYOK_EMPTY_MODEL_LISTS = Counter(
+    "llma_proxy_byok_empty_model_lists_total",
+    "BYOK model list requests that returned no models",
+    labelnames=["provider"],
+)
+
 
 def llma_track_latency(endpoint: str) -> Callable[[F], F]:
     """

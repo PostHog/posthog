@@ -1,4 +1,6 @@
+import re
 from datetime import datetime
+from enum import Enum
 from typing import Any, cast
 
 from posthog.schema import (
@@ -9,11 +11,13 @@ from posthog.schema import (
     DateRange,
     EventsNode,
     FunnelsDataWarehouseNode,
+    FunnelsFilter,
     FunnelsQuery,
     FunnelStepReference,
     FunnelVizType,
 )
 
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 
@@ -27,6 +31,18 @@ from .utils import (
     partial_bucket_note,
     strip_datetime_seconds,
 )
+
+SESSION_ID_EXPRESSIONS = {"properties.$session_id", "$session_id"}
+# Only a short property path goes into the LLM context, so a saved expression cannot carry free-form text.
+DISPLAYABLE_EXPRESSION_RE = re.compile(r"[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*")
+DISPLAYABLE_EXPRESSION_MAX_LENGTH = 100
+
+
+@frozen
+class FunnelAggregation:
+    count_label: str
+    distribution_label: str
+    unit: str
 
 
 class FunnelResultsFormatter:
@@ -101,9 +117,10 @@ class FunnelResultsFormatter:
         else:
             matrixes.append(self._format_steps_series(cast(list[dict], results)))
 
-        conversion_type_hint = 'Conversion and drop-off rates are calculated in overall. For example, "Conversion rate: 9%" means that 9% of users from the first step completed the funnel.'
+        unit = self._aggregation.unit
+        conversion_type_hint = f'Conversion and drop-off rates are calculated in overall. For example, "Conversion rate: 9%" means that 9% of {unit} from the first step completed the funnel.'
         if self._step_reference == FunnelStepReference.PREVIOUS:
-            conversion_type_hint = "Conversion and drop-off rates are relative to the previous steps. For example, 'Conversion rate: 90%' means that 90% of users from the previous step completed the funnel."
+            conversion_type_hint = f"Conversion and drop-off rates are relative to the previous steps. For example, 'Conversion rate: 90%' means that 90% of {unit} from the previous step completed the funnel."
 
         joined_matrixes = "\n\n".join(matrixes)
         return f"{self._format_time_range()}\n\n{joined_matrixes}\n\n{conversion_type_hint}"
@@ -113,13 +130,16 @@ class FunnelResultsFormatter:
         if not isinstance(results, dict) or len(results) == 0:
             return "No data recorded for this time period."
 
+        aggregation = self._aggregation
         matrix: list[list[Any]] = [
-            ["Average time to convert", "User distribution"],
+            ["Average time to convert", aggregation.distribution_label],
         ]
-        for series in results.get("bins") or []:
-            matrix.append([format_duration(series[0]), format_percentage(series[1])])
+        bins = results.get("bins") or []
+        total = sum(count for _, count in bins)
+        for bin_from_seconds, count in bins:
+            matrix.append([format_duration(bin_from_seconds), format_percentage(count / total if total else 0)])
 
-        hint = "The user distribution is the percentage of users who completed the funnel in the given period."
+        hint = f"The {aggregation.distribution_label.lower()} is the percentage of {aggregation.unit} who completed the funnel in the given period."
         return f"{self._format_time_range()}\n\nEvents: {self._format_filter_series_label()}\n{format_matrix(matrix)}\n\n{hint}"
 
     def _format_trends(self) -> str:
@@ -144,10 +164,50 @@ class FunnelResultsFormatter:
             viz_type = self._query.funnelsFilter.funnelVizType
         return viz_type
 
+    @property
+    def _aggregation(self) -> FunnelAggregation:
+        funnels_filter = self._query.funnelsFilter
+        if isinstance(funnels_filter, FunnelsFilter) and funnels_filter.customAggregationTarget:
+            # Data warehouse steps count rows by each node's aggregation_target_field, not by person.
+            return FunnelAggregation(
+                count_label="Total entity count", distribution_label="Entity distribution", unit="entities"
+            )
+        # Group aggregation takes precedence over a HogQL expression, the same as in the funnel query runner.
+        if self._query.aggregation_group_type_index is not None:
+            return FunnelAggregation(
+                count_label=f"Total group count (group type index {self._query.aggregation_group_type_index})",
+                distribution_label="Group distribution",
+                unit="groups",
+            )
+        hogql = self._query.funnelsFilter.funnelAggregateByHogQL if self._query.funnelsFilter else None
+        if isinstance(hogql, Enum):
+            hogql = hogql.value
+        if not hogql or hogql == "person_id":
+            return FunnelAggregation(
+                count_label="Total person count", distribution_label="User distribution", unit="users"
+            )
+        if hogql in SESSION_ID_EXPRESSIONS:
+            return FunnelAggregation(
+                count_label=f"Total session count (aggregated by {hogql})",
+                distribution_label="Session distribution",
+                unit="sessions",
+            )
+        if len(hogql) <= DISPLAYABLE_EXPRESSION_MAX_LENGTH and DISPLAYABLE_EXPRESSION_RE.fullmatch(hogql):
+            return FunnelAggregation(
+                count_label=f"Total unique value count (aggregated by {hogql})",
+                distribution_label="Value distribution",
+                unit=f"unique values of {hogql}",
+            )
+        return FunnelAggregation(
+            count_label="Total unique value count (aggregated by a custom HogQL expression)",
+            distribution_label="Value distribution",
+            unit="unique values of the custom HogQL expression",
+        )
+
     def _format_steps_series(self, results: list[dict[str, Any]]) -> str:
         matrix: list[list[Any]] = [
             ["Metric"],
-            ["Total person count"],
+            [self._aggregation.count_label],
             ["Conversion rate"],
             ["Dropoff rate"],
             ["Average conversion time"],

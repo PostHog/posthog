@@ -1,8 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -102,6 +105,7 @@ function StuckCohortsPanel(): JSX.Element {
 
 export function CohortsStaffToolsScene(): JSX.Element {
     const { user } = useValues(userLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!user?.is_staff) {
         return <AccessDenied object="page" reason="This page is only accessible to staff users." />
@@ -114,9 +118,15 @@ export function CohortsStaffToolsScene(): JSX.Element {
                 description="Look up cohorts across all teams, inspect their calculation state, and force recalculation of stuck cohorts."
                 resourceType={{ type: 'cohort' }}
                 actions={
-                    <LemonButton type="secondary" size="small" to={urls.featureFlagsStaffTools()}>
-                        Flags staff tools
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button variant="outline" render={<LinkPrimitive to={urls.featureFlagsStaffTools()} />}>
+                            Flags staff tools
+                        </Button>
+                    ) : (
+                        <LemonButton type="secondary" size="small" to={urls.featureFlagsStaffTools()}>
+                            Flags staff tools
+                        </LemonButton>
+                    )
                 }
             />
             <div className="space-y-6">

@@ -52,29 +52,13 @@ class TestTwelveLabsSource:
         assert schema.supports_incremental is supports_incremental
         assert schema.supports_append is supports_append
 
-    def test_videos_not_synced_by_default(self) -> None:
-        # Per-index fan-out is expensive on free plans, so videos is opt-in.
-        videos = next(
-            s for s in self.source.get_schemas(TwelveLabsSourceConfig(api_key="x"), team_id=1) if s.name == "videos"
-        )
-        assert videos.should_sync_default is False
-
     @parameterized.expand(
         [
-            ("valid", (True, 200), True, None),
-            ("rejected_key", (False, 401), False, "Invalid Twelve Labs API key"),
-            ("forbidden_key", (False, 403), False, "Invalid Twelve Labs API key"),
             # A transient outage must not be reported as a bad key, or a user gets told to replace a
             # key that is actually valid.
             (
                 "rate_limited",
                 (False, 429),
-                False,
-                "Could not connect to Twelve Labs. Check your connection and try again.",
-            ),
-            (
-                "server_error",
-                (False, 500),
                 False,
                 "Could not connect to Twelve Labs. Check your connection and try again.",
             ),

@@ -35,10 +35,10 @@ from django.db.models import (
     BooleanField,
     CharField,
     Count,
-    DateTimeField,
     Exists,
+    ExpressionWrapper,
     F,
-    Field,
+    FilteredRelation,
     FloatField,
     IntegerField,
     Max,
@@ -49,7 +49,6 @@ from django.db.models import (
     QuerySet,
     Subquery,
     Sum,
-    TextField,
     Value,
 )
 from django.db.models.fields.json import KeyTextTransform
@@ -96,7 +95,10 @@ from products.customer_analytics.backend.events import emit_account_tags_added, 
 from products.customer_analytics.backend.facade.contracts import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
 )
-from products.customer_analytics.backend.facade.email_matching import schedule_email_thread_link_recalculation
+from products.customer_analytics.backend.facade.email_matching import (
+    schedule_email_thread_link_recalculation,
+    schedule_email_thread_link_recalculation_for_account_properties,
+)
 from products.customer_analytics.backend.facade.enums import (
     AccountPropertyPinKind,
     AccountRelationshipSource,
@@ -113,6 +115,7 @@ from products.customer_analytics.backend.logic import (
     customer_tasks as _customer_tasks_logic,
     feature_request_github as _feature_request_github_logic,
     feature_requests as _feature_requests_logic,
+    key_metrics as _key_metrics_logic,
     ownership as _ownership,
     relationships as _relationships_logic,
     user_customer_analytics_config as _user_customer_analytics_config_logic,
@@ -124,6 +127,7 @@ from products.customer_analytics.backend.logic.account_filters import (
     parse_email_search,
 )
 from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
+from products.customer_analytics.backend.logic.account_member_search import get_account_users_organization_id
 from products.customer_analytics.backend.logic.custom_property_definitions import (
     apply_option_side_effects,
     coerce_is_big_number,
@@ -165,6 +169,7 @@ from products.customer_analytics.backend.models import (
     EventStream,
     EventStreamMember,
     Meeting,
+    MeetingStatus,
     SyncStatus,
     SyncTrigger,
     TargetType,
@@ -386,6 +391,11 @@ def _resolve_accessible_account(
         return _accounts_queryset(team_id, user_access_control).filter(**lookup).first()
     except (ValidationError, ValueError):
         return None
+
+
+def validate_account_users_access(team: Team, user: "User | None", account_id: str) -> None:
+    """Raise `UserAccessControlError` unless `user` may read the users of this account."""
+    get_account_users_organization_id(team=team, user=user, account_id=account_id)
 
 
 def get_account(
@@ -1004,7 +1014,10 @@ def _set_tags(
     for tagged_item in account.tagged_items.exclude(tag__name__in=deduped_tags).select_related("tag"):
         removed_tags.append(tagged_item.tag)
         tagged_item.delete()
-    Tag.objects.filter(Q(team_id=account.team_id) & Q(tagged_items__isnull=True)).delete()
+    if removed_tags:
+        Tag.objects.filter(
+            Q(team_id=account.team_id) & Q(id__in=[tag.id for tag in removed_tags]) & Q(tagged_items__isnull=True)
+        ).delete()
     account.prefetched_tags = tagged_item_objects  # type: ignore[attr-defined]
     _schedule_account_tags_added(account, added_tags, actor, workflow_id=workflow_id)
     _schedule_account_tags_removed(account, removed_tags, actor, workflow_id=workflow_id)
@@ -1352,8 +1365,8 @@ def _to_user_customer_analytics_config(
     return contracts.UserCustomerAnalyticsConfig(
         pinned_properties=[
             contracts.PinnedAccountProperty(
-                kind=cast(Literal["custom_property", "relationship"], reference["kind"]),
-                id=UUID(str(reference["id"])),
+                kind=cast(contracts.PinnedAccountPropertyKind, reference["kind"]),
+                id=str(reference["id"]),
             )
             for reference in raw_references
         ],
@@ -1835,19 +1848,9 @@ def _resolve_saved_query(team_id: int, saved_query_id: Any, user_access_control:
 
 def _saved_query_meta(saved_query: Any) -> _ProfileWarehouseMeta:
     """Display metadata for a view-bound source. A view's name is already its HogQL name, so it needs
-    no table-name resolution. ``sync_frequency_interval`` is null once the view's DAG runs on a shared
-    schedule (the frequency lives on the DAG node), which leaves the next run unknown rather than
-    guessable — so both schedule fields stay None."""
-    interval = saved_query.sync_frequency_interval
-    next_sync_at = (
-        saved_query.last_run_at + interval if interval is not None and saved_query.last_run_at is not None else None
-    )
-    return _ProfileWarehouseMeta(
-        table_name=saved_query.name,
-        sync_frequency_interval_seconds=interval.total_seconds() if interval is not None else None,
-        next_sync_at=next_sync_at,
-        saved_query_name=saved_query.name,
-    )
+    no table-name resolution. A view's frequency lives on its DAG node, which leaves the next run
+    unknown rather than guessable — so both schedule fields stay None."""
+    return _ProfileWarehouseMeta(table_name=saved_query.name, saved_query_name=saved_query.name)
 
 
 def _resolve_profile_warehouse_meta(
@@ -3334,15 +3337,6 @@ def _apply_account_table_filters(
         raise InvalidAccountTableColumn(str(error)) from error
 
 
-def _custom_property_sort_output_field(display_type: DisplayType) -> Field:
-    return {
-        DataType.STRING: TextField(),
-        DataType.NUMERIC: FloatField(),
-        DataType.BOOLEAN: BooleanField(),
-        DataType.DATETIME: DateTimeField(),
-    }[DATA_TYPE_BY_DISPLAY_TYPE[display_type]]
-
-
 def _apply_account_table_sort(
     queryset: QuerySet[Account],
     *,
@@ -3415,14 +3409,16 @@ def _apply_account_table_sort(
             DataType.BOOLEAN: "value_bool",
             DataType.DATETIME: "value_datetime",
         }[DATA_TYPE_BY_DISPLAY_TYPE[display_type]]
-        custom_property_value = CustomPropertyValue.objects.for_team(team_id).filter(
-            account_id=OuterRef("pk"), definition_id=sort.definition_id, is_deleted=False
-        )
         queryset = queryset.annotate(
-            _account_table_sort=Subquery(
-                custom_property_value.values(value_field)[:1],
-                output_field=_custom_property_sort_output_field(display_type),
-            )
+            _custom_property_sort_value=FilteredRelation(
+                "custom_property_values",
+                condition=Q(
+                    custom_property_values__team_id=team_id,
+                    custom_property_values__definition_id=sort.definition_id,
+                    custom_property_values__is_deleted=False,
+                ),
+            ),
+            _account_table_sort=F(f"_custom_property_sort_value__{value_field}"),
         )
 
     order = F("_account_table_sort")
@@ -3700,6 +3696,7 @@ def list_accounts_for_view(
     include_churned: bool = False,
     include_ignored: bool = False,
     ordering: str | None = None,
+    inactive_last: bool = False,
 ) -> tuple[list[contracts.AccountDetails], int]:
     """The accounts list endpoint, behind the facade: team + object-level access filtering,
     the search / tags / unassigned / ordering query filters, notebook + tag prefetching, and
@@ -3730,7 +3727,15 @@ def list_accounts_for_view(
             .values("account_id")
         )
 
-    queryset = queryset.order_by(ordering) if ordering else queryset.order_by("-created_at")
+    order_fields = [ordering or "-created_at"]
+    if inactive_last:
+        queryset = queryset.annotate(
+            is_inactive=ExpressionWrapper(
+                Q(churned_at__isnull=False) | Q(ignored_at__isnull=False), output_field=BooleanField()
+            )
+        )
+        order_fields.insert(0, "is_inactive")
+    queryset = queryset.order_by(*order_fields)
 
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
@@ -3785,6 +3790,7 @@ def update_account(
     properties: "dict | _ModelAccountProperties | _Unset" = _UNSET,
     slack_summary_cadence: "str | None | _Unset" = _UNSET,
     churned_at: "datetime | None | _Unset" = _UNSET,
+    ignored_at: "datetime | None | _Unset" = _UNSET,
     allow_matching_updates: bool = False,
 ) -> Account:
     """Field-write primitive shared by every account update path. Only the fields passed are
@@ -3792,14 +3798,22 @@ def update_account(
     returns the model, so it must not be called across the product boundary."""
     update_fields: list[str] = []
     matching_expanded = False
+    matching_changed = False
+    external_id_changed = False
+    previous_known_emails: list[str] = []
+    previous_email_domains: list[str] = []
     if not isinstance(name, _Unset):
         account.name = _cap_to_field_length("name", name)
         update_fields.append("name")
     if not isinstance(external_id, _Unset):
-        account.external_id = _cap_to_field_length("external_id", external_id) if external_id is not None else None
+        next_external_id = _cap_to_field_length("external_id", external_id) if external_id is not None else None
+        external_id_changed = next_external_id != account.external_id
+        account.external_id = next_external_id
         update_fields.append("external_id")
     if not isinstance(properties, _Unset):
         previous_properties = account.properties
+        previous_known_emails = previous_properties.known_emails
+        previous_email_domains = previous_properties.email_domains
         validated_properties = _ModelAccountProperties.from_input(properties)
         known_emails_added = set(validated_properties.known_emails) - set(previous_properties.known_emails)
         email_domains_added = set(validated_properties.email_domains) - set(previous_properties.email_domains)
@@ -3817,12 +3831,22 @@ def update_account(
     if not isinstance(churned_at, _Unset):
         account.churned_at = churned_at
         update_fields.append("churned_at")
+    if not isinstance(ignored_at, _Unset):
+        account.ignored_at = ignored_at
+        update_fields.append("ignored_at")
     if update_fields:
         account.save(update_fields=update_fields)
     if matching_expanded:
         transaction.on_commit(lambda: _enqueue_meeting_rematch(account.team_id, str(account.id)))
-    if "external_id" in update_fields or "_properties" in update_fields:
+    if external_id_changed:
         schedule_email_thread_link_recalculation(account.team_id)
+    elif matching_changed:
+        schedule_email_thread_link_recalculation_for_account_properties(
+            account.team_id,
+            str(account.id),
+            previous_known_emails=previous_known_emails,
+            previous_email_domains=previous_email_domains,
+        )
     return account
 
 
@@ -3836,6 +3860,7 @@ def create_account(
     tags: list[str] | None = None,
     slack_summary_cadence: str | None = None,
     churned_at: datetime | None = None,
+    ignored_at: datetime | None = None,
     was_impersonated: bool = False,
     trigger: Trigger | None = None,
 ) -> Account:
@@ -3854,6 +3879,7 @@ def create_account(
                 _properties=validated.model_dump(mode="json", exclude_unset=True),
                 slack_summary_cadence=slack_summary_cadence,
                 churned_at=churned_at,
+                ignored_at=ignored_at,
             )
             _set_tags(tags, account, actor=created_by)
     except PydanticValidationError as exc:
@@ -3890,6 +3916,7 @@ def create_account_for_view(
         tags=input.tags,
         slack_summary_cadence=input.slack_summary_cadence,
         churned_at=input.churned_at,
+        ignored_at=input.ignored_at,
         was_impersonated=was_impersonated,
     )
     return _to_account_details(account)
@@ -3922,6 +3949,8 @@ def update_account_for_view(
         update_kwargs["slack_summary_cadence"] = input.slack_summary_cadence
     if input.churned_at_provided:
         update_kwargs["churned_at"] = input.churned_at
+    if input.ignored_at_provided:
+        update_kwargs["ignored_at"] = input.ignored_at
     update_kwargs["allow_matching_updates"] = allow_matching_updates
 
     try:
@@ -4677,11 +4706,24 @@ def list_account_meetings(
     search: str | None = None,
 ) -> tuple[list[contracts.MeetingView], int] | None:
     """Synced calendar meetings for an accessible account, newest first, optionally
-    filtered by ``search`` (title or attendee email/name). None when the account isn't
+    filtered by ``search`` (title or attendee email/name). A recurring series shows each
+    past occurrence but only its next upcoming one. None when the account isn't
     accessible (→ 404)."""
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
-    queryset = Meeting.objects.for_team(team_id).filter(account_id=account_id)
+    now = timezone.now()
+    next_occurrence_id = (
+        Meeting.objects.for_team(team_id)
+        .filter(account_id=account_id, ical_uid=OuterRef("ical_uid"), start_time__gte=now)
+        .exclude(recurrence_instance_id="")
+        .exclude(status=MeetingStatus.CANCELLED)
+        .order_by("start_time")
+        .values("id")[:1]
+    )
+    queryset = Meeting.objects.for_team(team_id).filter(
+        Q(recurrence_instance_id="") | Q(start_time__lt=now) | Q(id=Subquery(next_occurrence_id)),
+        account_id=account_id,
+    )
     if search:
         queryset = queryset.filter(
             Q(title__icontains=search)
@@ -4704,6 +4746,7 @@ def list_account_meetings(
         contracts.MeetingView(
             id=meeting.id,
             title=meeting.title,
+            is_recurring=bool(meeting.recurrence_instance_id),
             gong_url=gong_urls_by_meeting_id.get(meeting.id),
             start_time=meeting.start_time,
             end_time=meeting.end_time,
@@ -5430,6 +5473,25 @@ def update_customer_task(
     return _to_customer_task_view(task, fresh_user_access_control)
 
 
+def bulk_update_customer_tasks(
+    *,
+    team: Team,
+    task_ids: list[UUID],
+    input: contracts.UpdateCustomerTaskInput,
+    archived: bool | None,
+    actor: "User | None",
+    user_access_control: "UserAccessControl",
+) -> int | None:
+    return _customer_tasks_logic.bulk_update_customer_tasks(
+        team=team,
+        task_ids=task_ids,
+        input=input,
+        archived=archived,
+        actor=actor,
+        user_access_control=user_access_control,
+    )
+
+
 def archive_customer_task(
     *,
     team_id: int,
@@ -5718,3 +5780,8 @@ def list_announcement_channels(team_id: int) -> list[contracts.AnnouncementChann
     except SupportSlackChannelsUnavailable:
         logger.warning("announcement_channels_unavailable", team_id=team_id)
         return []
+
+
+def get_key_metrics(*, team: Team, user: "User") -> list[contracts.KeyMetric] | None:
+    """The key metrics, or None while a background calculation is still running."""
+    return _key_metrics_logic.key_metrics(team, user)

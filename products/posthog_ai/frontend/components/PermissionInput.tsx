@@ -81,7 +81,8 @@ function PayloadPermissionEvidence({ label, payload }: PayloadPermissionEvidence
         <div className="flex flex-col gap-1 min-w-0">
             {label && <div className="text-xs text-secondary font-medium">{label}</div>}
             <div className={cn(showAll && 'max-h-96 overflow-y-auto')}>
-                <CodeSnippet language={language} className="text-xs" compact>
+                {/* Wrapped, so the whole request is visible before approving it. The padding keeps text clear of the copy button. */}
+                <CodeSnippet language={language} className="text-xs [&_pre]:pr-9" compact wrap>
                     {visible}
                 </CodeSnippet>
             </div>

@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 
-import { IconChevronDown, IconChevronLeft, IconGear, IconRevert } from '@posthog/icons'
+import { IconBrain, IconChevronDown, IconChevronLeft, IconGear, IconRevert } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -14,6 +14,8 @@ import {
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
 } from '@posthog/quill-primitives'
+
+import { cn } from 'lib/utils/css-classes'
 
 import {
     getCapabilityLadder,
@@ -32,12 +34,15 @@ import {
     ModelChoiceApi,
     ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
+    TaskRuntimeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import { useThreadSkin } from '../../hooks/useThreadSkin'
 import { ModelCostChip } from '../ModelCostChip'
 import { ModelCostFooter } from '../ModelCostFooter'
+import { COMPOSER_MENU_CLASS } from '../quill/composerMenuClass'
 import type { ThreadSkin } from '../quill/quillThreadContext'
+import { ComposerModelEffortSheet } from './ComposerModelEffortSheet'
 import { ComposerReasoningSlider } from './ComposerReasoningSlider'
 
 // Separates model and effort in a slider stop key; never appears in a model id or an effort.
@@ -86,6 +91,8 @@ export interface ComposerModelEffortPickersProps {
     onOpenDefaultSettings?: () => void
     /** Who pays for a run on the Codex harness. Shown only while Codex is selected; omit to hide the row. */
     codexBilling?: ComposerCodexBilling
+    phoneSheet?: boolean
+    taskRuntime?: TaskRuntimeEnumApi
 }
 
 interface PickerSectionProps {
@@ -102,20 +109,27 @@ interface PickerSectionProps {
 /** One `label … current ›` row of the cascade, opening a radio list. */
 const PICKER_CHROME: Record<
     ThreadSkin,
-    { triggerVariant: 'outline' | 'default'; icons: boolean; defaultPrefix: boolean }
+    {
+        triggerVariant: 'outline' | 'default'
+        icons: boolean
+        defaultPrefix: boolean
+        modelIcon: boolean
+        composerMenu: boolean
+    }
 > = {
-    lemon: { triggerVariant: 'outline', icons: true, defaultPrefix: true },
-    quill: { triggerVariant: 'default', icons: false, defaultPrefix: false },
+    lemon: { triggerVariant: 'outline', icons: true, defaultPrefix: true, modelIcon: false, composerMenu: false },
+    quill: { triggerVariant: 'default', icons: false, defaultPrefix: false, modelIcon: true, composerMenu: true },
 }
 
 function PickerSection({ title, current, value, onValueChange, children, footer }: PickerSectionProps): JSX.Element {
+    const chrome = PICKER_CHROME[useThreadSkin()]
     return (
         <DropdownMenuSub>
             <DropdownMenuSubTrigger>
                 <span>{title}</span>
                 <span className="flex-1 text-right text-muted">{current}</span>
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
+            <DropdownMenuSubContent className={cn(chrome.composerMenu && COMPOSER_MENU_CLASS)}>
                 <DropdownMenuRadioGroup value={value} onValueChange={onValueChange}>
                     {children}
                 </DropdownMenuRadioGroup>
@@ -148,6 +162,8 @@ export function ComposerModelEffortPickers({
     onResetToDefault,
     onOpenDefaultSettings,
     codexBilling,
+    phoneSheet = false,
+    taskRuntime,
 }: ComposerModelEffortPickersProps): JSX.Element {
     const chrome = PICKER_CHROME[useThreadSkin()]
     const [open, setOpen] = useState(false)
@@ -162,18 +178,18 @@ export function ComposerModelEffortPickers({
     const { selectedAdapter, modelLabel, effortOptions, adapters, adapterModels, ladder, showsAnyCost } =
         useMemo(() => {
             const adapter = getRuntimeAdapterForModel(models, selectedModel)
-            const offered = modelsForRuntimeAdapter(models, adapter)
+            const offered = modelsForRuntimeAdapter(models, adapter, taskRuntime)
             return {
                 selectedAdapter: adapter,
                 modelLabel: getModelLabel(models, selectedModel),
                 effortOptions: getEffortsForModel(models, selectedModel),
-                adapters: listRuntimeAdapters(models),
+                adapters: listRuntimeAdapters(models, taskRuntime),
                 adapterModels: offered,
                 ladder: getCapabilityLadder(models, adapter),
                 // The legend explains a symbol, so it only belongs where a row carries one.
                 showsAnyCost: offered.some((option) => !!getModelCost(option.model)),
             }
-        }, [models, selectedModel])
+        }, [models, selectedModel, taskRuntime])
 
     const selectAdapter = (adapter: string): void => {
         const runtimeAdapter = adapter as RuntimeAdapterEnumApi
@@ -222,6 +238,36 @@ export function ComposerModelEffortPickers({
         setOpen(false)
     }
 
+    if (phoneSheet) {
+        return (
+            <ComposerModelEffortSheet
+                modelLabel={modelLabel}
+                selectedModel={selectedModel}
+                selectedEffort={selectedEffort}
+                selectedAdapter={selectedAdapter}
+                adapters={adapters}
+                adapterModels={adapterModels}
+                effortOptions={effortOptions}
+                showsAnyCost={showsAnyCost}
+                harnessDisabled={(adapter) =>
+                    isDefaultModelLoading || (!!lockedRuntimeAdapter && adapter !== lockedRuntimeAdapter)
+                }
+                billing={billing}
+                billingLabels={BILLING_LABELS}
+                onModelChange={onModelChange}
+                onEffortChange={onEffortChange}
+                onAdapterChange={selectAdapter}
+                resetDisabled={Boolean(onResetToDefault) && isDefaultSelection}
+                onReset={
+                    showReset
+                        ? (onResetToDefault ?? (() => selectStop(stops[Math.floor((stops.length - 1) / 2)])))
+                        : undefined
+                }
+                onOpenDefaultSettings={onOpenDefaultSettings}
+            />
+        )
+    }
+
     return (
         <DropdownMenu
             open={open}
@@ -245,10 +291,13 @@ export function ComposerModelEffortPickers({
         >
             <DropdownMenuTrigger
                 render={
-                    <Button variant={chrome.triggerVariant} size="sm">
+                    <Button variant={chrome.triggerVariant} size="sm" aria-label="Model and reasoning">
+                        {chrome.modelIcon && <IconBrain className="shrink-0 text-muted-foreground" />}
                         {isDefaultSelection && chrome.defaultPrefix ? `Default · ${modelLabel}` : modelLabel}
                         {effortOptions.length > 0 && (
-                            <span className="text-muted">{getEffortLabel(selectedEffort)}</span>
+                            <span className="text-muted @max-[400px]/composer:hidden">
+                                {getEffortLabel(selectedEffort)}
+                            </span>
                         )}
                         {billing?.value === ModelAccessEnumApi.OwnSubscription && (
                             <span className="text-muted">ChatGPT plan</span>
@@ -257,7 +306,11 @@ export function ComposerModelEffortPickers({
                     </Button>
                 }
             />
-            <DropdownMenuContent className="w-auto min-w-56">
+            <DropdownMenuContent
+                side={chrome.composerMenu ? 'top' : 'bottom'}
+                sideOffset={chrome.composerMenu ? 6 : 4}
+                className={cn('w-auto min-w-56', chrome.composerMenu && COMPOSER_MENU_CLASS)}
+            >
                 {advanced ? (
                     <>
                         {showBack && (
@@ -372,15 +425,22 @@ export function ComposerModelEffortPickers({
                         )}
                     </>
                 ) : (
-                    <ComposerReasoningSlider
-                        stops={stops}
-                        currentStop={currentStop}
-                        onSelect={selectStop}
-                        onAdvanced={() => {
-                            setShowBack(true)
-                            setAdvanced(true)
-                        }}
-                    />
+                    <>
+                        {isDefaultSelection && !chrome.defaultPrefix && (
+                            <div className="px-2 pt-1.5 pb-1 text-xs text-muted" data-attr="composer-default-selection">
+                                Using your default
+                            </div>
+                        )}
+                        <ComposerReasoningSlider
+                            stops={stops}
+                            currentStop={currentStop}
+                            onSelect={selectStop}
+                            onAdvanced={() => {
+                                setShowBack(true)
+                                setAdvanced(true)
+                            }}
+                        />
+                    </>
                 )}
 
                 {(showReset || onOpenDefaultSettings) && <DropdownMenuSeparator />}

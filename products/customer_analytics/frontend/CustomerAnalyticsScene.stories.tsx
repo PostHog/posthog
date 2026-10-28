@@ -1,8 +1,12 @@
+import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -14,10 +18,17 @@ import type { CustomerTaskApi } from 'products/customer_analytics/frontend/gener
 
 import { BusinessType, customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
 
-function setBusinessTypeOnMountedLogic(businessType: BusinessType): void {
-    for (const logic of customerAnalyticsSceneLogic.findAllMounted()) {
-        logic.actions.setBusinessType(businessType)
-    }
+// Mount the scene logic in an effect, so that App has already mounted sceneLogic with its scenes.
+// The effect runs before the lazy scene loads, so the first scene render uses this business type.
+function useBusinessType(businessType: BusinessType, groupType?: number): void {
+    useOnMountEffect(() => {
+        const unmount = customerAnalyticsSceneLogic.mount()
+        customerAnalyticsSceneLogic.actions.setBusinessType(businessType)
+        if (groupType !== undefined) {
+            customerAnalyticsSceneLogic.actions.setSelectedGroupType(groupType)
+        }
+        return unmount
+    })
 }
 
 const meta: Meta = {
@@ -36,6 +47,7 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 'api/environments/:team_id/customer_profile_configs/': { count: 0, results: [] },
+                'api/environments/:team_id/customer_journeys/': { count: 0, results: [] },
             },
         }),
     ],
@@ -46,9 +58,7 @@ type Story = StoryObj<{}>
 
 export const B2CMode: Story = {
     render: () => {
-        useDelayedOnMountEffect(() => {
-            setBusinessTypeOnMountedLogic('b2c')
-        })
+        useBusinessType('b2c')
 
         return <App />
     },
@@ -71,17 +81,15 @@ export const B2BModeWithGroupsEnabled: Story = {
             },
         })
 
-        useDelayedOnMountEffect(() => {
-            setBusinessTypeOnMountedLogic('b2b')
-            for (const logic of customerAnalyticsSceneLogic.findAllMounted()) {
-                logic.actions.setSelectedGroupType(0)
-            }
-        })
+        useBusinessType('b2b', 0)
 
         return <App />
     },
     parameters: {
         pageUrl: urls.customerAnalyticsDashboard(),
+        testOptions: {
+            waitForSelector: '[data-attr="customer-analytics-group-type"]',
+        },
     },
 }
 
@@ -89,9 +97,7 @@ export const B2BModeWithoutGroups: Story = {
     render: () => {
         useAvailableFeatures([])
 
-        useDelayedOnMountEffect(() => {
-            setBusinessTypeOnMountedLogic('b2b')
-        })
+        useBusinessType('b2b')
 
         return <App />
     },
@@ -185,6 +191,75 @@ export const CustomerTasks: Story = {
         testOptions: {
             waitForSelector: '[data-attr="customer-task-name"]',
         },
+    },
+}
+
+const roleStoryItems = [
+    {
+        id: '018f47de-7e12-7000-8000-000000000061',
+        name: 'Team Onboarding',
+        created_at: '2024-01-01T10:00:00Z',
+        created_by: null,
+        members: [
+            {
+                id: '018f47de-7e12-7000-8000-000000000071',
+                role_id: '018f47de-7e12-7000-8000-000000000061',
+                user: MOCK_DEFAULT_BASIC_USER,
+                user_uuid: MOCK_DEFAULT_BASIC_USER.uuid,
+                joined_at: '2024-01-01T10:00:00Z',
+                updated_at: '2024-01-01T10:00:00Z',
+            },
+        ],
+    },
+    {
+        id: '018f47de-7e12-7000-8000-000000000062',
+        name: 'Team Customer Success',
+        created_at: '2024-01-01T10:00:00Z',
+        created_by: null,
+        members: [],
+    },
+]
+
+export const CustomerTasksAssigneeRoles: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                'api/projects/:team_id/customer_tasks/': {
+                    count: customerTaskStoryItems.length,
+                    next: null,
+                    previous: null,
+                    results: customerTaskStoryItems,
+                },
+                '/api/organizations/:organization_id/roles/': {
+                    count: roleStoryItems.length,
+                    next: null,
+                    previous: null,
+                    results: roleStoryItems,
+                },
+            },
+        })
+        return <App />
+    },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.CUSTOMER_ANALYTICS, FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS],
+        pageUrl: urls.customerAnalyticsTasks(),
+        testOptions: {
+            waitForSelector: '[data-attr="customer-task-name"]',
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const trigger = await waitFor(
+            () => {
+                const element = canvasElement.querySelector<HTMLElement>('[data-attr="customer-tasks-assignee-filter"]')
+                if (!element) {
+                    throw new Error('Assignee filter not rendered yet')
+                }
+                return element
+            },
+            { timeout: 15000 }
+        )
+        await userEvent.click(trigger)
+        await within(canvasElement.ownerDocument.body).findByText('Team Customer Success', {}, { timeout: 15000 })
     },
 }
 

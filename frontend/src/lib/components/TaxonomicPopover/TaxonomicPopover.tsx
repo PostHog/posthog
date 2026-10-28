@@ -4,11 +4,13 @@ import { Ref, forwardRef, useEffect, useId, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 
+import { DisplayableEntity } from 'lib/components/EntityFilterInfo'
 import { taxonomicTriggerWrapperClassName } from 'lib/components/TaxonomicFilter/menu/triggerLayout'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     DataWarehousePopoverField,
     DefinitionPopoverRenderer,
+    ExcludedOperators,
     ExcludedProperties,
     SelectedProperties,
     TaxonomicFilterGroupType,
@@ -21,7 +23,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
-import { ActionFilter, EntityFilter } from '~/types'
 
 import { taxonomicMenuPreferenceLogic } from './taxonomicMenuPreferenceLogic'
 import { TaxonomicMenuToggle } from './TaxonomicMenuToggle'
@@ -35,7 +36,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     value?: ValueType | null
     onChange: (value: ValueType, groupType: TaxonomicFilterGroupType, item: any) => void
 
-    filter?: EntityFilter | ActionFilter
+    filter?: DisplayableEntity
     groupTypes?: TaxonomicFilterGroupType[]
     renderValue?: (value: ValueType) => JSX.Element | null
     eventNames?: string[]
@@ -49,6 +50,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     style?: React.CSSProperties
     closeOnChange?: boolean
     excludedProperties?: ExcludedProperties
+    excludedOperators?: ExcludedOperators
     includeHiddenEvents?: boolean
     selectedProperties?: SelectedProperties
     metadataSource?: AnyDataNode
@@ -95,6 +97,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         allowClear = false,
         closeOnChange = true,
         excludedProperties,
+        excludedOperators,
         includeHiddenEvents,
         selectedProperties,
         metadataSource,
@@ -171,6 +174,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                     schemaColumns={schemaColumns}
                     metadataSource={metadataSource}
                     excludedProperties={excludedProperties}
+                    excludedOperators={excludedOperators}
                     includeHiddenEvents={includeHiddenEvents}
                     selectedProperties={selectedProperties}
                     showNumericalPropsOnly={showNumericalPropsOnly}
@@ -255,6 +259,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                 schemaColumns={schemaColumns}
                 metadataSource={metadataSource}
                 excludedProperties={excludedProperties}
+                excludedOperators={excludedOperators}
                 includeHiddenEvents={includeHiddenEvents}
                 selectedProperties={selectedProperties}
                 showNumericalPropsOnly={showNumericalPropsOnly}

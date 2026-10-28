@@ -11,13 +11,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     JSONResponsePaginator,
     OffsetPaginator,
     SinglePagePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -32,7 +38,7 @@ logger = logging.getLogger(__name__)
 SENDGRID_BASE_URL = "https://api.sendgrid.com/v3"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SendGridResumeConfig:
     # Full next-page URL to fetch within the current sync. Set by metadata pagination (the API
     # hands us the whole next URL) and by pre-migration saved states (which stored the offset URL
@@ -45,6 +51,9 @@ class SendGridResumeConfig:
     # instead of recomputing it from "now" and losing the oldest slice of a first backfill.
     activity_window_start: Optional[str] = None
     activity_window_end: Optional[str] = None
+    # Fan-out progress in the shape the shared dependent-resource paginator emits
+    # (`{"completed": [...], "current": ..., "child_state": ...}`).
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -175,6 +184,13 @@ class SendGridMetadataPaginator(JSONResponsePaginator):
         if self._next_url is not None and not _is_sendgrid_url(self._next_url):
             self._next_url = None
             self._has_next_page = False
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        # A fan-out child seeds its page from Redis through this hook, not `_initial_paginator_state`.
+        next_url = state.get("next_url")
+        if next_url is not None:
+            _require_sendgrid_url(next_url)
+        super().set_resume_state(state)
 
 
 class SendGridMessagesPaginator(BasePaginator):
@@ -352,6 +368,76 @@ def _initial_paginator_state(
     return None
 
 
+def _client_config(api_key: str, paginator: BasePaginator) -> ClientConfig:
+    return {
+        "base_url": SENDGRID_BASE_URL,
+        # Auth (Bearer) goes through the framework auth config so its value is redacted from logs
+        # and raised errors; only the non-secret Accept header is set here.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "bearer", "token": api_key},
+        "paginator": paginator,
+    }
+
+
+def _fanout_resource(
+    api_key: str,
+    config: SendGridEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[SendGridResumeConfig],
+) -> Any:
+    assert config.fanout is not None
+    parent_config = SENDGRID_ENDPOINTS[config.fanout.parent_name]
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.fanout_state:
+            initial_paginator_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(SendGridResumeConfig(fanout_state=state))
+
+    return build_dependent_resource(
+        endpoint_configs=SENDGRID_ENDPOINTS,
+        child_endpoint=config.name,
+        fanout=config.fanout,
+        client_config=_client_config(api_key, SendGridMetadataPaginator()),
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        page_size_param="page_size",
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+        parent_endpoint_extra={
+            "paginator": SendGridMetadataPaginator(),
+            "data_selector": parent_config.data_key,
+            "data_selector_required": True,
+        },
+        child_endpoint_extra={
+            "paginator": SendGridMetadataPaginator(),
+            "data_selector": config.data_key,
+            "data_selector_required": True,
+        },
+    )
+
+
+def _source_response(endpoint: str, config: SendGridEndpointConfig, resource: Any) -> SourceResponse:
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="week" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        sort_mode=config.sort_mode,
+    )
+
+
 def sendgrid_source(
     api_key: str,
     endpoint: str,
@@ -363,6 +449,11 @@ def sendgrid_source(
     incremental_field: Optional[str] = None,
 ) -> SourceResponse:
     config = SENDGRID_ENDPOINTS[endpoint]
+
+    if config.fanout is not None:
+        return _source_response(
+            endpoint, config, _fanout_resource(api_key, config, team_id, job_id, resumable_source_manager)
+        )
 
     params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value, incremental_field)
 
@@ -394,14 +485,7 @@ def sendgrid_source(
     )
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": SENDGRID_BASE_URL,
-            # Auth (Bearer) goes through the framework auth config so its value is redacted from logs
-            # and raised errors; only the non-secret Accept header is set here.
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "bearer", "token": api_key},
-            "paginator": paginator,
-        },
+        "client": _client_config(api_key, paginator),
         "resource_defaults": {},
         "resources": [resource_config],
     }
@@ -434,17 +518,7 @@ def sendgrid_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=config.primary_keys,
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="week" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-        sort_mode=config.sort_mode,
-    )
+    return _source_response(endpoint, config, resource)
 
 
 def get_status_code(api_key: str, path: str, params: Optional[dict[str, Any]] = None) -> Optional[int]:
@@ -477,7 +551,14 @@ def _probe_params(config: SendGridEndpointConfig) -> dict[str, Any]:
 
 
 def get_endpoint_status_code(api_key: str, config: SendGridEndpointConfig) -> Optional[int]:
-    return get_status_code(api_key, config.path, _probe_params(config))
+    # A fan-out child path needs a parent id, and its parent reads with the same scope, so the
+    # parent listing stands in for it.
+    probe_config = config
+    if config.fanout is not None:
+        probe_config = SENDGRID_ENDPOINTS[config.fanout.parent_name]
+    elif config.probe_endpoint is not None:
+        probe_config = SENDGRID_ENDPOINTS[config.probe_endpoint]
+    return get_status_code(api_key, probe_config.path, _probe_params(probe_config))
 
 
 def permission_error_for(config: SendGridEndpointConfig) -> str:

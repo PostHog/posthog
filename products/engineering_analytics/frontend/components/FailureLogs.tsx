@@ -47,20 +47,28 @@ function JobFailureLog({ job, jobName }: { job: CIJobFailureLogApi; jobName?: st
 
 /**
  * A set of failed jobs with their log excerpts, straight from the loader's union: ``null`` is the
- * not-loaded state, ``'unavailable'`` a failed fetch, and ``logs_available === false`` means the run
- * didn't fail or its logs aged out of retention.
+ * not-loaded state, ``'unavailable'`` a failed fetch, and ``logs_available === false`` means no log lines
+ * were collected or they aged out of retention. Callers render this only for a run known to have failed,
+ * so the empty text must not suggest that nothing failed.
  */
 export function FailureLogGroups({
     logs,
     loading,
     onRetry,
     jobNames,
-    errorDescription = 'Retry, or open the run on GitHub to read its logs.',
-    emptyText = 'No failure logs. Nothing failed, or the logs have aged out of retention.',
+    logsOnGitHub,
+    errorDescription = logsOnGitHub
+        ? 'Retry, or open the run on GitHub to read its logs.'
+        : 'Retry, or read the run logs in your CI provider.',
+    emptyText = `Failure logs aren't available for this run. They weren't collected, or they've aged out of retention. ${
+        logsOnGitHub ? 'Open the run on GitHub to read its logs.' : 'Read the run logs in your CI provider.'
+    }`,
 }: {
     logs: { jobs: CIJobFailureLogApi[]; logs_available: boolean } | 'unavailable' | null | undefined
     loading: boolean
     onRetry: () => void
+    /** Only GitHub Actions runs have a GitHub page to send the reader to. */
+    logsOnGitHub: boolean
     /** job_id → display name, when the caller has the run's jobs loaded, because logs only carry ids. */
     jobNames?: Record<number, string>
     errorDescription?: string

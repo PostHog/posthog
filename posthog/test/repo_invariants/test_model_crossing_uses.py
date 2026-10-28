@@ -28,6 +28,8 @@ promises rather than what a caller does. `facade-returns` and `facade-accepts(<p
 public facade callable puts a Django, a DRF or an ORM type on its signature; `facade-logic` means a
 capability submodule holds bodies instead of re-exports. An import linter sees the same edge either
 way, so the shape is frozen here. The rule is `products/architecture.md` § Facades: The Public Interface.
+`facade-wiring` means an Isolated product's facade hands out a class from a wiring location that
+implements no approved interface (§ Wiring couplings). Only Isolated products get these lines.
 
 The check is strict equality, not "no worse than": a line that disappears must be deleted from the
 file in the same change, so the file can never go stale behind the code.
@@ -37,9 +39,9 @@ The two directions are not symmetric. A line that went away is regenerated out:
     bin/hogli product:crossings --all --write-baseline
 
 That command refuses to write while the scan holds a line the file does not, so a new line is
-never absorbed. Change the caller back, or seal the relation. A coupling that must stand is a
-hand-edited line in the baseline plus an amendment in products/architecture.md § Wiring couplings,
-which is what a reviewer reads.
+never absorbed. Change the caller back, or seal the relation. A hand-edited line passes this test,
+because the scan holds it too, so `hogli product:lint --all` compares the file with the pull
+request's base and refuses growth unless the change touches the scanner.
 """
 
 from hogli_commands.product.crossings import (
@@ -47,6 +49,7 @@ from hogli_commands.product.crossings import (
     all_crossing_uses,
     baseline_drift,
     baseline_drift_message,
+    grown_debt,
     names_defined_in,
     read_baseline,
     scanned_baseline_lines,
@@ -61,7 +64,9 @@ def test_disallowed_crossing_uses_match_the_baseline() -> None:
         return
 
     drift = baseline_drift(recorded, scanned)
-    raise AssertionError(baseline_drift_message(drift.grown, drift.shrunk))
+    # A moved or split consumer raises no debt, so a regenerate records its new lines.
+    added = drift.grown if grown_debt(recorded, scanned) else []
+    raise AssertionError(baseline_drift_message(added, drift.shrunk))
 
 
 # product_analytics watches backend/hogql_queries/trends/ alone, because trends is the only subtree

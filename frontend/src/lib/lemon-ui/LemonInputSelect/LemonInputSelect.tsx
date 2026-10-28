@@ -160,6 +160,8 @@ export type LemonInputSelectProps<T = string> = Pick<
     onBlur?: () => void
     onFocus?: () => void
     onInputChange?: (newValue: string) => void
+    /** Set on the inner input, so that a label with a matching `htmlFor` names it. */
+    id?: string
     'data-attr'?: string
     className?: string
     popoverClassName?: string
@@ -201,6 +203,7 @@ export function LemonInputSelect<T = string>({
     autoFocus = false,
     className,
     popoverClassName,
+    id,
     'data-attr': dataAttr,
     size = 'medium',
     transparentBackground,
@@ -221,6 +224,8 @@ export function LemonInputSelect<T = string>({
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
     const [itemBeingEditedIndex, setItemBeingEditedIndex] = useState<number | null>(null)
+    // The key the current edit started from, so an edit that changes nothing commits it verbatim
+    const itemBeingEditedKey = useRef<string | null>(null)
     const popoverFocusRef = useRef<boolean>(false)
     // Picking an option blurs the input synchronously, and the blur would otherwise commit the typed
     // search text as a custom value before (or instead of) the option the user picked.
@@ -336,7 +341,12 @@ export function LemonInputSelect<T = string>({
         const ret: LemonInputSelectOption<T>[] = []
         // Show the input value if custom values are allowed and it's not in the list
         if (inputValue && !stringKeys.includes(inputValue)) {
-            if (allowCustomValues && !optionMaps.keySet.has(inputValue)) {
+            const exactMatch = optionMaps.keyToOption.get(inputValue)
+            if (exactMatch) {
+                // Enter commits the first row. With disableFiltering the caller sets the order, so
+                // the option the person typed can be anywhere in the list unless it goes first.
+                ret.push(exactMatch)
+            } else if (allowCustomValues) {
                 const unescapedInputValue = inputValue.replaceAll('\\,', ',') // Transform escaped commas to plain commas
                 ret.push({ key: unescapedInputValue, label: unescapedInputValue, __isInput: true })
             }
@@ -360,8 +370,8 @@ export function LemonInputSelect<T = string>({
                 // We don't want to show the input-based option again. The check for __isInput covers the case the user types something that is already an option, but we want to keep the original option
                 continue
             }
-            if (mode === 'single' && ret[0]?.key === option.key) {
-                // In single-select mode, we've already added the selected value to the top earlier
+            if (ret[0]?.key === option.key) {
+                // We've already added this option to the top earlier
                 continue
             }
             ret.push(option)
@@ -505,12 +515,14 @@ export function LemonInputSelect<T = string>({
                 }
                 setItemBeingEditedIndex(indexOfValue)
             }
+            itemBeingEditedKey.current = item
             _setInputValue(item)
             onInputChange?.(item)
             inputRef.current?.focus()
             return
         }
         setItemBeingEditedIndex(null)
+        itemBeingEditedKey.current = null
         if (mode === 'single') {
             setShowPopover(false)
             popoverFocusRef.current = false
@@ -550,7 +562,10 @@ export function LemonInputSelect<T = string>({
             return
         }
         if (hasCustomValue && !blurringForSelectionRef.current) {
-            _onActionItem(inputValue.trim(), null)
+            // An edit the person did not change must commit the value as it was. Trimming here
+            // would drop whitespace they never typed, and a value can end in a space.
+            const editedKey = itemBeingEditedKey.current
+            _onActionItem(editedKey !== null && inputValue === editedKey ? editedKey : inputValue.trim(), null)
         } else {
             setInputValue('')
         }
@@ -1046,6 +1061,7 @@ export function LemonInputSelect<T = string>({
             }
         >
             <LemonInput
+                id={id}
                 inputRef={inputRef}
                 placeholder={
                     displayMode === 'count'
@@ -1198,8 +1214,17 @@ function ValueSnacks<T = string>({
         })
     )
 
+    const optionsByKey = useMemo(() => {
+        const indexed = new Map<string, LemonInputSelectOption<T>>()
+        for (const option of options) {
+            if (!indexed.has(option.key)) {
+                indexed.set(option.key, option)
+            }
+        }
+        return indexed
+    }, [options])
     const content = values.map((value) => {
-        const option: LemonInputSelectOption<T> = options.find((option) => option.key === value) ?? {
+        const option: LemonInputSelectOption<T> = optionsByKey.get(value) ?? {
             key: value,
             label: value,
             labelComponent: null,

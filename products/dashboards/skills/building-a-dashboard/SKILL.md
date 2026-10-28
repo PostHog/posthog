@@ -52,7 +52,15 @@ Prefer reusing existing insights over recreating them.
 - Search with `insights-list` and read promising ones with `insight-get` to check they match the user's intent and
   actually have data. Full-text search misses things named differently, so list broadly before concluding an insight
   doesn't exist.
-- For anything missing, create it with `insight-create` (see the product-analytics insight skills for query shape).
+- For anything missing, read `querying-posthog-data` before choosing its query method. After Data Catalog routing,
+  default to typed runners for each supported product-analytics tile: trends (including simple counts, unique users,
+  sums, and breakdowns), funnels, retention, stickiness, paths, and lifecycle. Run the query to verify it, then save its
+  native query node with `insight-create`. Use SQL-backed insights for explicit SQL requests or calculations the typed
+  schemas cannot express, such as custom joins. SQL used to discover events or existing insights does not determine
+  the query type of new tiles. Keep valid existing insights rather than rebuilding them.
+- Follow `querying-posthog-data` for presenting verified query results: some harnesses show charts inline, while
+  others need a separate top-level `render-ui` call with the same query tool and input. Rendering support does not
+  determine the saved insight's query type.
 - Keep the set minimal — only the insights the request needs. A focused dashboard is more useful than an exhaustive one.
 
 ## Use Data Catalog for reusable metrics
@@ -79,6 +87,15 @@ metric as noncanonical and do not claim that `agent_context` makes it governed.
 - Existing dashboard: use `dashboard-update` to add insight tiles or change their layout. Tiles omitted from a PATCH
   remain on the dashboard. To remove a tile, find its ID with `dashboard-get`, then use `dashboard-delete-tile`.
   To replace an insight tile, add the new insight and delete the old tile.
+- Description on create and update: it is a short note for people who open the dashboard. Say what the dashboard shows
+  and who it is for, in one or two sentences (about 30 words). Shorter is better. The limit is not a target.
+  - Skip the description when the name already tells a viewer what the dashboard shows. An empty description is fine.
+  - Test: would a viewer who never saw this session need the sentence? If not, delete it.
+  - Good: "Weekly signups and activation by plan."
+  - Bad: "Tracks signups, activation, and churn across all plans. Revised 3 March to add the enterprise tile."
+  - When you update it, rewrite it. Do not append.
+  - Put metric definitions in the Data Catalog. Put working notes in a text tile's `agent_context`.
+  - Use the same rules for insight descriptions. Write plain, short copy: see `writing-user-facing-copy`.
 - Layout: after you add insight tiles, call `dashboard-get` again to get their tile IDs. Use `dashboard-update` to plan
   each tile independently on the 12-column grid. Tile widths can be any whole number from 1 to 12, subject to each
   tile's minimum size. Use wider tiles for primary charts and smaller tiles for supporting metrics. Mixed rows such as

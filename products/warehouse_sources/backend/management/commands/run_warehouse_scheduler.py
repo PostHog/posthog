@@ -8,7 +8,11 @@ import structlog
 from posthog.product_db_migrations import collect_unapplied_product_migrations, configured_product_databases
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 
-from products.warehouse_sources.backend.scheduling.runner import ShadowScheduler, ShadowSchedulerConfig
+from products.warehouse_sources.backend.scheduling.runner import (
+    REFRESH_PAGE_SIZE,
+    ShadowScheduler,
+    ShadowSchedulerConfig,
+)
 from products.warehouse_sources_queue.backend.sdk import HealthState, start_health_server
 
 logger = structlog.get_logger(__name__)
@@ -50,6 +54,12 @@ class Command(BaseCommand):
             type=int,
             default=30,
             help="Days to keep shadow decisions before pruning (default: 30)",
+        )
+        parser.add_argument(
+            "--refresh-page-size",
+            type=int,
+            default=REFRESH_PAGE_SIZE,
+            help=f"Schemas read and upserted per refresh page; bounds refresh memory (default: {REFRESH_PAGE_SIZE})",
         )
         parser.add_argument(
             "--health-port",
@@ -94,6 +104,7 @@ class Command(BaseCommand):
             refresh_interval_seconds=options["refresh_interval"],
             claim_limit=options["claim_limit"],
             decision_retention_days=options["decision_retention_days"],
+            refresh_page_size=options["refresh_page_size"],
         )
 
         logger.info(

@@ -627,6 +627,7 @@ const OrganizationEnforce2faSchema = () => {
             members_can_see_org_members: true,
             allow_publicly_shared_resources: true,
             read_only_mcp_access: true,
+            member_notice: true,
             is_ai_data_processing_approved: true,
             is_ai_training_opted_in: true,
             default_anonymize_ips: true,
@@ -747,8 +748,11 @@ const organizationGet = (): ToolBase<ReturnType<typeof OrganizationGetSchema>, S
             'teams.*.id',
             'teams.*.name',
             'teams.*.project_id',
+            'teams.*.is_demo',
             'projects.*.id',
             'projects.*.name',
+            'available_product_features.*.key',
+            'available_product_features.*.limit',
         ]) as typeof result
         return filtered
     },

@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { LemonButton, LemonSnack } from '@posthog/lemon-ui'
+import { LemonSnack } from '@posthog/lemon-ui'
 
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
 import { AssigneeLabelDisplay, AssigneeResolver } from '../Assignee/AssigneeDisplay'
@@ -20,7 +20,6 @@ export function TicketAppliedFilters(): JSX.Element | null {
         setAssigneeFilter,
         setTagsFilter,
         setTagsExcludeFilter,
-        resetFilters,
     } = useActions(logic)
 
     const chips = useAppliedTicketFilters()
@@ -70,9 +69,6 @@ export function TicketAppliedFilters(): JSX.Element | null {
                     {chip.kind === 'assignee' ? <AssigneeFilterChipLabel entry={chip.entry} /> : chip.label}
                 </LemonSnack>
             ))}
-            <LemonButton type="tertiary" size="small" onClick={resetFilters} data-attr="clear-ticket-filters">
-                Clear all filters
-            </LemonButton>
         </div>
     )
 }

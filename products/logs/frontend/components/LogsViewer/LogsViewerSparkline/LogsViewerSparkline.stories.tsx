@@ -72,3 +72,11 @@ export const WithVisibleRowRange: Story = {
         },
     },
 }
+
+export const QueryFailed: Story = {
+    args: {
+        sparklineData: { data: [], dates: [] },
+        sparklineError: 'Bad gateway',
+        onRetry: () => {},
+    },
+}

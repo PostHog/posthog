@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconChevronDown, IconRewindPlay, IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -12,7 +12,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
-import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import {
@@ -21,6 +20,7 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/quill'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -28,20 +28,19 @@ import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SceneMenuBar, SceneMenuBarItem, SceneMenuBarMenu } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { ReplayTabs } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { markScannerHandoffIntent } from 'products/replay_vision/frontend/replay_scanners/scannerHandoffIntent'
+import { messageAudienceAccessDisabledReason } from 'products/workflows/frontend/MessageAudience/messageAudience'
 
 import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
 import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsLogic'
 import { getEventMarkerColor } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
-import { manageFingerprintsLogic } from '../../components/FingerprintPreview/manageFingerprintsLogic'
 import { ManageFingerprintsModal } from '../../components/FingerprintPreview/ManageFingerprintsModal'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import {
@@ -53,10 +52,15 @@ import { IssueStatusButton } from '../../components/IssueStatusButton'
 import { IssueStatusSelect } from '../../components/IssueStatusSelect'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
+import { SuppressSimilarIssuesDialog } from '../../components/SuppressSimilarIssues/SuppressSimilarIssuesDialog'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { getIssueReplayDateRange, getIssueReplayFilterGroup, issueVisionScannerHandoff } from '../../utils'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { IssueEmailMenu } from './IssueEmailMenu'
+import { IssueEmailMenuItems } from './IssueEmailMenuItems'
 import { IssueEventsPanel } from './IssueEventsPanel'
+import { issueRecordingFilterLogic } from './issueRecordingFilterLogic'
+import { IssueSummary } from './IssueSummary'
 import { LinkedReports } from './LinkedReports'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
@@ -67,6 +71,10 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
     paramsToProps: ({ params: { id }, searchParams: { fingerprint, timestamp } }) => ({ id, fingerprint, timestamp }),
 }
 
+function isDisplayed(element: HTMLElement | null): boolean {
+    return !!element && getComputedStyle(element).display !== 'none'
+}
+
 export function ErrorTrackingIssueScene(): JSX.Element {
     const { issue, issueId, issueIdValid, lastSeen, initialEventTimestamp, selectedEvent, mobileDetailOpen } =
         useValues(errorTrackingIssueSceneLogic)
@@ -75,30 +83,28 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { severityUpdateInFlightIds } = useValues(issueActionsLogic)
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('md')
-    const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
-    const visionCrossSellEnabled = useFeatureFlag('VISION_ENTRYPOINT_ERROR_TRACKING')
+    const inlineEmailMenuRef = useRef<HTMLDivElement>(null)
+    // The overflow menu portals out of the scene container, so a container query cannot hide its email items.
+    const [emailInOverflow, setEmailInOverflow] = useState(true)
 
     // Jump to the session replay list filtered to this issue. Captured so we can measure how often
     // people watch recordings themselves, the baseline the Replay vision cross-sell is weighed against.
     // Named to match the sibling 'viewed recordings from experiment' / 'from feature flag' events, so
     // all three cross-product entry points compare in one breakdown.
-    const openRecordings = useCallback(
-        (source: 'header' | 'menubar'): void => {
-            posthog.capture('viewed recordings from error tracking', { issue_id: issueId, source })
-            newInternalTab(
-                urls.replay(ReplayTabs.Home, {
-                    ...getIssueReplayDateRange(
-                        issue?.first_seen,
-                        lastSeen,
-                        selectedEvent?.timestamp ?? initialEventTimestamp
-                    ),
-                    filter_group: getIssueReplayFilterGroup(issueId),
-                })
-            )
-        },
-        [issueId, issue?.first_seen, lastSeen, selectedEvent?.timestamp, initialEventTimestamp]
-    )
+    const openRecordings = useCallback((): void => {
+        posthog.capture('viewed recordings from error tracking', { issue_id: issueId, ui_source: 'header' })
+        newInternalTab(
+            urls.replay(ReplayTabs.Home, {
+                ...getIssueReplayDateRange(
+                    issue?.first_seen,
+                    lastSeen,
+                    selectedEvent?.timestamp ?? initialEventTimestamp
+                ),
+                filter_group: getIssueReplayFilterGroup(issueId),
+            })
+        )
+    }, [issueId, issue?.first_seen, lastSeen, selectedEvent?.timestamp, initialEventTimestamp])
 
     // Prefill a Replay vision scanner scoped to this issue and open the wizard on its review-and-create
     // overview. The overview blocks creation when no recordings match, so a sessionless issue can't
@@ -148,40 +154,15 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
                         {issue && (
                             <div className="flex flex-col h-[calc(var(--scene-layout-rect-height))]">
-                                {sceneMenuBarEnabled && (
-                                    <SceneMenuBar>
-                                        <SceneMenuBarMenu label="File" dataAttr="issue-menubar-file">
-                                            <SceneMenuBarFileItems dataAttrKey="issue" />
-                                            {hasIssueSplitting && <ManageFingerprintsMenuItem issueId={issueId} />}
-                                        </SceneMenuBarMenu>
-                                        <SceneMenuBarMenu label="View" dataAttr="issue-menubar-view">
-                                            <SceneMenuBarItem
-                                                onClick={() => openRecordings('menubar')}
-                                                data-attr="issue-menubar-view-recordings"
-                                            >
-                                                <IconRewindPlay />
-                                                View recordings
-                                            </SceneMenuBarItem>
-                                            {visionCrossSellEnabled && (
-                                                <SceneMenuBarItem
-                                                    onClick={setUpVisionScanner}
-                                                    data-attr="issue-menubar-scan-with-vision"
-                                                >
-                                                    <IconSparkles className="text-ai" />
-                                                    Set up a scanner to watch these
-                                                </SceneMenuBarItem>
-                                            )}
-                                        </SceneMenuBarMenu>
-                                    </SceneMenuBar>
-                                )}
                                 <SceneTitleSection
+                                    noPadding
                                     canEdit
                                     name={issue.name ?? undefined}
                                     onNameChange={updateName}
                                     description={null}
                                     resourceType={{ type: 'error_tracking' }}
                                     className={clsx(
-                                        'pl-4 pr-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0 mb-0',
+                                        'pl-4 pr-2 h-[50px] @2xl/main-content:relative top-[0px] [&>.scene-title-section]:py-2',
                                         isMobile
                                             ? '[&>.scene-title-section]:flex-row [&>.scene-title-section]:items-center [&>.scene-title-section>*:last-child]:order-last'
                                             : undefined
@@ -207,23 +188,31 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                         disabled={issue.status != 'active'}
                                                     />
                                                 </ButtonGroup>
-                                                {visionCrossSellEnabled ? (
+                                                {issue.name ? (
                                                     <ButtonGroup>
                                                         <Button
                                                             variant="outline"
-                                                            onClick={() => openRecordings('header')}
+                                                            onClick={openRecordings}
                                                             data-attr="error-tracking-issue-view-recordings"
                                                         >
                                                             View recordings
                                                             <IconRewindPlay />
                                                         </Button>
-                                                        <DropdownMenu>
+                                                        <DropdownMenu
+                                                            onOpenChange={(open) => {
+                                                                if (open) {
+                                                                    setEmailInOverflow(
+                                                                        !isDisplayed(inlineEmailMenuRef.current)
+                                                                    )
+                                                                }
+                                                            }}
+                                                        >
                                                             <DropdownMenuTrigger
                                                                 render={
                                                                     <Button
                                                                         variant="outline"
                                                                         size="icon"
-                                                                        aria-label="More recording options"
+                                                                        aria-label="More options"
                                                                     />
                                                                 }
                                                             >
@@ -240,19 +229,35 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                                     <IconSparkles className="text-ai" />
                                                                     Set up a scanner to watch these
                                                                 </DropdownMenuItem>
+                                                                {emailInOverflow &&
+                                                                    !messageAudienceAccessDisabledReason() && (
+                                                                        <>
+                                                                            <DropdownMenuSeparator />
+                                                                            <IssueEmailMenuItems
+                                                                                issueId={issue.id}
+                                                                                issueName={issue.name}
+                                                                            />
+                                                                        </>
+                                                                    )}
                                                             </DropdownMenuContent>
                                                         </DropdownMenu>
                                                     </ButtonGroup>
                                                 ) : (
                                                     <Button
                                                         variant="outline"
-                                                        onClick={() => openRecordings('header')}
+                                                        onClick={openRecordings}
                                                         data-attr="error-tracking-issue-view-recordings"
                                                     >
                                                         View recordings
                                                         <IconRewindPlay />
                                                     </Button>
                                                 )}
+                                                <IssueEmailMenu
+                                                    issueId={issue.id}
+                                                    issueName={issue.name}
+                                                    collapseWhenNarrow={!!issue.name}
+                                                    wrapperRef={inlineEmailMenuRef}
+                                                />
                                                 <IssueStatusButton status={issue.status} onChange={updateStatus} />
                                             </div>
                                         )
@@ -279,6 +284,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 disabled={issue.status != 'active'}
                                             />
                                         </ButtonGroup>
+                                        <IssueEmailMenu issueId={issue.id} issueName={issue.name} />
                                         <IssueStatusButton status={issue.status} onChange={updateStatus} />
                                         {!mobileDetailOpen && (
                                             <LemonButton
@@ -294,6 +300,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
 
                                 <ErrorTrackingIssueScenePanel issue={issue} />
                                 {hasIssueSplitting && <ManageFingerprintsModal issueId={issueId} />}
+                                <SuppressSimilarIssuesDialog />
 
                                 <div className="ErrorTrackingIssue flex flex-grow min-h-0 overflow-hidden">
                                     <div className="relative flex flex-1 h-full w-full min-h-0">
@@ -323,10 +330,12 @@ const RightHandColumn = ({
     isOpen: boolean
     onClose: () => void
 }): JSX.Element | null => {
-    const { issue, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
+    const { issue, issueId, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
         useValues(errorTrackingIssueSceneLogic)
+    const { setOnlyWithRecording } = useActions(issueRecordingFilterLogic({ issueId }))
     const tagRenderer = useErrorTagRenderer()
     const detailEvent = selectedEvent ?? initialEvent
+    const showOnlyWithRecording = useCallback(() => setOnlyWithRecording(true), [setOnlyWithRecording])
 
     if (isMobile && !isOpen) {
         return null
@@ -347,6 +356,7 @@ const RightHandColumn = ({
                 </div>
             )}
             <PostHogSDKIssueBanner event={detailEvent} />
+            <IssueSummary />
             <LinkedReports />
             <div className="flex-1 min-h-0 flex flex-col">
                 <ExceptionCard
@@ -354,6 +364,7 @@ const RightHandColumn = ({
                     issueName={issue?.name ?? null}
                     loading={issueLoading || initialEventLoading}
                     event={detailEvent ?? undefined}
+                    onShowOnlyWithRecording={showOnlyWithRecording}
                     eventMarkerColor={
                         detailEvent
                             ? getEventMarkerColor(detailEvent.uuid, summary?.first_event_uuid, summary?.last_event_uuid)
@@ -398,14 +409,5 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
 
             {!isMobile && <Resizer {...resizerLogicProps} />}
         </div>
-    )
-}
-
-function ManageFingerprintsMenuItem({ issueId }: { issueId: string }): JSX.Element {
-    const { openManage } = useActions(manageFingerprintsLogic({ issueId }))
-    return (
-        <SceneMenuBarItem onClick={openManage} data-attr="issue-menubar-fingerprints">
-            Manage fingerprints
-        </SceneMenuBarItem>
     )
 }

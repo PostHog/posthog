@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE posthog_person\n            SET version = $3\n            WHERE team_id = $1 AND id = $2 AND COALESCE(version, 0) < $3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f0f8d50926a4b094c736c97c7bc1d0ed6ca4cafc131112a7ea61fc5ebbffb078"
+}

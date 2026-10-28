@@ -85,4 +85,5 @@ class CompiledCheck:
     query: "ast.SelectQuery"
     printed_query: str
     printed_failing_rows_query: str
+    failing_rows: "ast.SelectQuery | ast.SelectSetQuery"
     evaluation: Evaluation

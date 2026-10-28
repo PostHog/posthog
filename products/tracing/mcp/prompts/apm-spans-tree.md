@@ -42,7 +42,7 @@ Set `query.compareFilter.compare: true` to also fetch a comparison window. The r
 
 `query.filterGroup` narrows the matched span set. Same filter shape and operators as `apm-spans-aggregate` / `query-apm-spans`:
 
-- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)
+- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). A `duration` filter value is in milliseconds (1 second = `1000`).
 - `span_attribute` — span-level attributes
 - `span_resource_attribute` — resource-level attributes
 
@@ -137,7 +137,7 @@ Property filters applied to both windows. See the "Property filters" section.
 
 - `spanName` and `serviceName` are both required. Bound `spanName` to a specific high-level span (avoid generic names like `HTTP`); set `serviceName` to the one service whose call-tree you want.
 - Root spans have `parent_name = "<ROOT>"` and `avg_start_offset_nano = 0`.
-- Duration values are in nanoseconds.
+- Duration values in results are in nanoseconds. A `duration` filter value is in milliseconds.
 - Results are ordered by `total_duration_nano` DESC and capped at 5000 rows.
 - `calls_per_parent_invocation` is derived from the returned rows. If results hit the 5000-row cap (only happens with very high span-name cardinality in one service), a parent's edges can be split across the cut and the ratio can read high — treat it as approximate when the row count is at the cap.
 - For a flat per-operation aggregate without parent linkage, use `apm-spans-aggregate`.

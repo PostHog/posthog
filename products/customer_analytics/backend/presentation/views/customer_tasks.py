@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import cached_property
 from typing import Any, cast
+from uuid import UUID
 
 from drf_spectacular.helpers import forced_singular_serializer
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
@@ -23,7 +24,9 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG
 
-_ASSIGNED_TO_ERROR = "assigned_to must be me, unassigned, or a project member ID."
+_ASSIGNED_TO_ERROR = "assigned_to must be me, unassigned, a project member ID, or role:<role UUID>."
+# pinned: the frontend writes the same prefix into links and API calls
+_ROLE_ASSIGNEE_PREFIX = "role:"
 # posthog_user.id is an int4 column, and DRF never runs full_clean, so an ID past this bound would
 # fail in Postgres with a 500 rather than being rejected here.
 _MAX_MEMBER_ID = 2147483647
@@ -90,6 +93,10 @@ class CustomerTaskAssigneeErrorSerializer(serializers.Serializer):
     assigned_to_id = serializers.CharField(read_only=True, help_text="Why the selected assignee is not allowed.")
 
 
+class CustomerTaskAssigneeFilterErrorSerializer(serializers.Serializer):
+    assigned_to = serializers.CharField(read_only=True, help_text="Why the selected assignee filter is not allowed.")
+
+
 class CustomerTaskCreateSerializer(serializers.Serializer):
     account_id = serializers.UUIDField(
         required=False, allow_null=True, help_text="UUID of a visible account, or null for an accountless task."
@@ -121,18 +128,9 @@ class CustomerTaskCreateSerializer(serializers.Serializer):
         return attrs
 
 
-class CustomerTaskUpdateSerializer(serializers.Serializer):
+class CustomerTaskUpdateFieldsSerializer(serializers.Serializer):
     account_id = serializers.UUIDField(
         required=False, allow_null=True, help_text="UUID of a visible account, or null to remove the account link."
-    )
-    name = serializers.CharField(
-        max_length=400,
-        allow_null=False,
-        error_messages={"blank": "Enter a task name."},
-        help_text="Replacement task name.",
-    )
-    description = serializers.CharField(
-        required=False, allow_null=True, allow_blank=True, help_text="Replacement description, or null to clear it."
     )
     assigned_to_id = serializers.IntegerField(
         required=False, allow_null=True, help_text="Replacement assignee ID, or null to unassign."
@@ -147,17 +145,67 @@ class CustomerTaskUpdateSerializer(serializers.Serializer):
         help_text="Replacement task status.",
     )
 
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        if isinstance(data, dict):
+            unexpected = set(data) - set(self.fields)
+            if unexpected:
+                raise serializers.ValidationError(dict.fromkeys(unexpected, "This field is not accepted."))
+        return super().to_internal_value(data)
+
+
+class CustomerTaskUpdateSerializer(CustomerTaskUpdateFieldsSerializer):
+    name = serializers.CharField(
+        max_length=400,
+        allow_null=False,
+        error_messages={"blank": "Enter a task name."},
+        help_text="Replacement task name.",
+    )
+    description = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True, help_text="Replacement description, or null to clear it."
+    )
+
     def validate_name(self, value: str) -> str:
         value = value.strip()
         if not value:
             raise serializers.ValidationError("Enter a task name.")
         return value
 
+
+class CustomerTaskBulkPatchSerializer(CustomerTaskUpdateFieldsSerializer):
+    archived = serializers.BooleanField(
+        required=False, help_text="Archive tasks when true, or restore them when false."
+    )
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        unexpected = set(self.initial_data) - set(self.fields)
-        if unexpected:
-            raise serializers.ValidationError(dict.fromkeys(unexpected, "This field is not accepted."))
+        attrs = super().validate(attrs)
+        if not attrs:
+            raise serializers.ValidationError("Change at least one task field.")
+        if "archived" in attrs and len(attrs) != 1:
+            raise serializers.ValidationError("Change archive state separately from other task fields.")
         return attrs
+
+
+class CustomerTaskBulkUpdateSerializer(serializers.Serializer):
+    task_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=100,
+        help_text="UUIDs of up to 100 tasks to update together.",
+    )
+    updates = CustomerTaskBulkPatchSerializer(help_text="Changes to apply to every selected task.")
+
+    def validate_task_ids(self, value: list[UUID]) -> list[UUID]:
+        if len(set(value)) != len(value):
+            raise serializers.ValidationError("Select each task once.")
+        return value
+
+
+class CustomerTaskBulkUpdateResultSerializer(serializers.Serializer):
+    updated_count = serializers.IntegerField(read_only=True, help_text="Number of tasks changed by this batch.")
+
+
+class CustomerTaskBulkUpdateErrorSerializer(serializers.Serializer):
+    detail = serializers.CharField(read_only=True, help_text="Reason the batch could not be updated.")
 
 
 @extend_schema_field({"oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}, {"type": "object"}]})
@@ -188,7 +236,10 @@ class CustomerTaskActivitySerializer(serializers.Serializer):
 class CustomerTaskListQuerySerializer(serializers.Serializer):
     search = serializers.CharField(required=False, allow_blank=True, help_text="Search task name and description.")
     account_id = serializers.UUIDField(required=False, help_text="Filter by account UUID.")
-    assigned_to = serializers.CharField(required=False, help_text="Filter by me, unassigned, or one user ID.")
+    assigned_to = serializers.CharField(
+        required=False,
+        help_text="Filter by me, unassigned, one user ID, or role:<role UUID>. A role returns tasks assigned to any current member of that organization role.",
+    )
     statuses = serializers.CharField(required=False, help_text="Comma-separated task statuses.")
     archive_state = serializers.ChoiceField(
         required=False,
@@ -212,6 +263,12 @@ class CustomerTaskListQuerySerializer(serializers.Serializer):
     def validate_assigned_to(self, value: str) -> str:
         if value in {"me", "unassigned"}:
             return value
+        if value.startswith(_ROLE_ASSIGNEE_PREFIX):
+            try:
+                role_id = UUID(value.removeprefix(_ROLE_ASSIGNEE_PREFIX))
+            except ValueError:
+                raise serializers.ValidationError(_ASSIGNED_TO_ERROR) from None
+            return f"{_ROLE_ASSIGNEE_PREFIX}{role_id}"
         # str.isdigit() accepts characters such as "²" that int() rejects.
         try:
             member_id = int(value)
@@ -226,6 +283,12 @@ class CustomerTaskListQuerySerializer(serializers.Serializer):
         if not values or any(part not in dict(api.CUSTOMER_TASK_STATUS_CHOICES) for part in values):
             raise serializers.ValidationError("statuses must contain only open, in_progress, completed, or canceled.")
         return values
+
+
+def _parse_assigned_role_id(assigned_to: str | None) -> UUID | None:
+    if assigned_to is None or not assigned_to.startswith(_ROLE_ASSIGNEE_PREFIX):
+        return None
+    return UUID(assigned_to.removeprefix(_ROLE_ASSIGNEE_PREFIX))
 
 
 class CustomerTaskActivityQuerySerializer(serializers.Serializer):
@@ -294,7 +357,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     pagination_class = None
     posthog_feature_flag = CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG
     scope_object_read_actions = ["list", "retrieve", "activities"]
-    scope_object_write_actions = ["create", "update", "partial_update", "archive", "restore"]
+    scope_object_write_actions = ["create", "update", "partial_update", "archive", "restore", "bulk_update"]
     permission_classes = [CustomerTaskCanonicalTeamAccessPermission, PostHogFeatureFlagPermission]
 
     @cached_property
@@ -323,13 +386,16 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         data = request.validated_query_data
+        assigned_to = data.get("assigned_to")
+        assigned_role_id = _parse_assigned_role_id(assigned_to)
         page, count = api.list_customer_tasks(
             team_id=self.canonical_team_id,
             user_access_control=self.user_access_control,
             filters=contracts.CustomerTaskListFilters(
                 search=data.get("search", "").strip() or None,
                 account_id=data.get("account_id"),
-                assigned_to=data.get("assigned_to"),
+                assigned_to=None if assigned_role_id else assigned_to,
+                assigned_role_id=assigned_role_id,
                 statuses=data.get("statuses", ()),
                 archive_state=data["archive_state"],
                 due_after=data.get("due_after"),
@@ -398,6 +464,37 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._update_customer_task(request, partial=False)
 
+    @validated_request(
+        request_serializer=CustomerTaskBulkUpdateSerializer,
+        responses={
+            200: CustomerTaskBulkUpdateResultSerializer,
+            404: CustomerTaskBulkUpdateErrorSerializer,
+            409: CustomerTaskBulkUpdateErrorSerializer,
+        },
+        description="Update selected tasks in one transaction. No tasks change if any task fails validation.",
+    )
+    @action(detail=False, methods=["post"])
+    def bulk_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        updates = dict(request.validated_data["updates"])
+        archived = updates.pop("archived", None)
+        count = api.bulk_update_customer_tasks(
+            team=self.canonical_team,
+            task_ids=request.validated_data["task_ids"],
+            input=contracts.UpdateCustomerTaskInput(
+                **updates,
+                account_id_provided="account_id" in updates,
+                assigned_to_id_provided="assigned_to_id" in updates,
+                due_at_provided="due_at" in updates,
+                status_provided="status" in updates,
+            ),
+            archived=archived,
+            actor=cast(User, request.user),
+            user_access_control=self.user_access_control,
+        )
+        if count is None:
+            return Response({"detail": "Task not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(CustomerTaskBulkUpdateResultSerializer(instance={"updated_count": count}).data)
+
     @extend_schema(request=None, responses={200: CustomerTaskSerializer})
     @action(detail=True, methods=["post"])
     def archive(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -460,6 +557,11 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 }
             )
             return Response(error.data, status=status.HTTP_400_BAD_REQUEST)
+        if isinstance(exc, contracts.CustomerTaskRoleNotFound):
+            role_error = CustomerTaskAssigneeFilterErrorSerializer(
+                instance={"assigned_to": "Select a role in this organization."}
+            )
+            return Response(role_error.data, status=status.HTTP_400_BAD_REQUEST)
         if isinstance(exc, contracts.CustomerTaskInvalidTransition):
             return Response(
                 {"status": "This task can" + chr(39) + f"t move from {exc.current} to {exc.requested}."},
@@ -471,4 +573,9 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         if isinstance(exc, contracts.CustomerTaskArchived):
             return Response({"detail": "Restore this task before editing it."}, status=status.HTTP_409_CONFLICT)
+        if isinstance(exc, contracts.CustomerTaskBulkUpdateConflict):
+            return Response(
+                {"detail": "Could not update the tasks. No tasks changed. Refresh the page and try again."},
+                status=status.HTTP_409_CONFLICT,
+            )
         return super().handle_exception(exc)

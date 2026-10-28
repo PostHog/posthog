@@ -4,12 +4,12 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.alerts.backend.facade.contracts import (
+from products.alerts.backend.facade.destinations import build_alert_destination_config, validate_destination_data
+from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
 )
-from products.alerts.backend.facade.destinations import build_alert_destination_config, validate_destination_data
 from products.logs.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
     EVENT_KINDS,
@@ -57,7 +57,8 @@ class TestDestinationValidation(SimpleTestCase):
 
         assert error.exception.field == "type"
         assert error.exception.message == (
-            "Choose a supported destination type: Slack (slack), Webhook (webhook), Microsoft Teams (teams)."
+            "Choose a supported destination type: Slack (slack), Webhook (webhook), Microsoft Teams (teams), "
+            "PagerDuty (pagerduty)."
         )
 
 
@@ -78,8 +79,11 @@ def destination_inputs(kind: EventKind, data: AlertDestinationData) -> dict[str,
     return config.payload["inputs"]
 
 
+MESSAGE_KINDS = [kind for kind in EVENT_KINDS if EVENT_KIND_CONFIG[kind].incident_action is None]
+
+
 class TestRenderedDestinationContent(SimpleTestCase):
-    @parameterized.expand([(kind,) for kind in EVENT_KINDS])
+    @parameterized.expand([(kind,) for kind in MESSAGE_KINDS])
     def test_slack_body_puts_every_detail_on_its_own_line(self, kind: EventKind) -> None:
         spec = EVENT_KIND_CONFIG[kind]
         blocks = destination_inputs(kind, SLACK_DATA)["blocks"]["value"]
@@ -90,7 +94,7 @@ class TestRenderedDestinationContent(SimpleTestCase):
         # Slack mrkdwn bolds with one asterisk, so a `**` pair would render as literal text.
         assert "**" not in body
 
-    @parameterized.expand([(kind,) for kind in EVENT_KINDS])
+    @parameterized.expand([(kind,) for kind in MESSAGE_KINDS])
     def test_teams_text_is_adaptive_card_markdown(self, kind: EventKind) -> None:
         spec = EVENT_KIND_CONFIG[kind]
         text = destination_inputs(kind, TEAMS_DATA)["text"]["value"]

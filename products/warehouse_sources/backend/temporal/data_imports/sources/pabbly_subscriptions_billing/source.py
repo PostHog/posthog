@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PabblySubscriptionsBillingSource(ResumableSource[PabblySubscriptionsBillingSourceConfig, PabblyResumeConfig]):
+    codebase_detection = detect(env=("^(PABBLY_SUBSCRIPTIONS_BILLING|PABBLYSUBSCRIPTIONSBILLING)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -45,7 +48,7 @@ class PabblySubscriptionsBillingSource(ResumableSource[PabblySubscriptionsBillin
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Pabbly Subscription Billing",
             keywords=["pabbly subscriptions"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Pabbly Subscription Billing API key and secret key to pull your billing data into the PostHog Data warehouse.
 
 You can generate both keys under **Settings → API Settings** in [Pabbly Subscription Billing](https://payments.pabbly.com). The keys grant read access to your customers, subscriptions, products, invoices, transactions, and related billing objects.

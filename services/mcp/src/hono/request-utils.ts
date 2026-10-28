@@ -26,6 +26,7 @@ const InitializeParamsSchema = z.object({
         })
         .optional(),
     protocolVersion: z.string().optional(),
+    capabilities: z.unknown().optional(),
 })
 
 const JsonRpcMessageSchema = z.object({
@@ -55,6 +56,9 @@ function parseClientInfo(bodyText: string): ClientInfo {
                     clientName: sanitizeHeaderValue(params.data.clientInfo?.name),
                     clientVersion: sanitizeHeaderValue(params.data.clientInfo?.version),
                     protocolVersion: sanitizeHeaderValue(params.data.protocolVersion),
+                    elicitationUrlSupported: z
+                        .object({ elicitation: z.object({ url: z.object({}) }) })
+                        .safeParse(params.data.capabilities).success,
                 }
             }
             if (!metaFallback) {
@@ -131,6 +135,7 @@ export function handleCatchError(error: unknown, props: RequestProperties): Resp
                 team: 'posthog_ai',
                 source: 'mcp_hono_request',
                 mcp_transport: props.transport,
+                suppress_analytics: props.suppressAnalytics === true,
             })
         }
     } catch {}

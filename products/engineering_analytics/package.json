@@ -6,10 +6,12 @@
     },
     "dependencies": {
         "@posthog/icons": "catalog:",
+        "@posthog/quill": "workspace:*",
         "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
-        "kea-router": "catalog:"
+        "kea-router": "catalog:",
+        "posthog-js": "catalog:"
     },
     "devDependencies": {
         "kea-test-utils": "catalog:"
@@ -18,7 +20,10 @@
         "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@storybook/react": "catalog:",
+        "@tanstack/react-virtual": "*",
         "@types/react": "*",
+        "@xyflow/react": "*",
+        "elkjs": "*",
         "react": "*"
     }
 }

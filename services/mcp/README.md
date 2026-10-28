@@ -273,7 +273,6 @@ Available features:
 | `surveys`                | [Surveys](https://posthog.com/docs/surveys)                                                     |
 | `tasks`                  | [Tasks](https://posthog.com/docs/posthog-desktop/tasks)                                         |
 | `tracing`                | Tracing                                                                                         |
-| `user_interviews`        | User interview topics                                                                           |
 | `visual_review`          | Visual review                                                                                   |
 | `warehouse_sources`      | Warehouse sources                                                                               |
 | `web_analytics`          | [Web analytics](https://posthog.com/docs/web-analytics)                                         |
@@ -287,7 +286,7 @@ To view which tools are available per feature, see our [documentation](https://p
 ### Learning and skills in cli mode
 
 Claude web and desktop silently drop `exec` when its serialized `inputSchema` reaches 16,384 characters.
-In cli mode, the `posthog` tool keeps the guidance needed for routine calls in its schema.
+In cli mode, the `exec` tool keeps the guidance needed for routine calls in its schema.
 The compact tool-domain index stays inline in the `command` schema so Claude can discover relevant tools before making a call.
 Optional, task-specific guidance is served through the same tool:
 
@@ -327,6 +326,8 @@ Other clients keep the full inline command reference.
 
 ### Tool filtering
 
+In CLI mode, `tools` and `exclude_tools` also apply to namespaced connected tools. A `features` filter excludes connected tools unless `tools` explicitly names them. Exclusions take precedence over explicit selections.
+
 For finer-grained control you can allowlist specific tools by name using the `tools` query parameter. Only the exact tool names listed will be exposed, regardless of their feature category.
 
 ```text
@@ -343,7 +344,7 @@ The example above exposes all flag tools plus `dashboard-get`.
 
 ### Server mode (tools vs cli)
 
-The MCP server can register either every PostHog tool individually (**tools** mode) or wrap them all behind a single `posthog` CLI-like tool (**cli** mode).
+The MCP server can register either every PostHog tool individually (**tools** mode) or wrap them all behind a single `exec` CLI-like tool (**cli** mode).
 **cli is the default for all clients.**
 When the caller does not pin a mode, the server only auto-selects tools mode for a short allow-list of clients that are better served by the full per-tool roster — currently Cursor (matched by its self-reported client name or its `Cursor/…` User-Agent).
 Every OpenAI surface (ChatGPT, Codex, Agent Builder, Responses API) gets the cli default. OpenAI's `openai-mcp` client caches the roster it captures for a published plugin and serves that snapshot to every user of the plugin, so the mode a plugin listing should run in is pinned on the URL submitted to OpenAI rather than inferred from a User-Agent label.
@@ -360,10 +361,10 @@ x-posthog-mcp-mode: cli
 x-posthog-mcp-mode: tools
 ```
 
-| Value   | Behavior                                                |
-| ------- | ------------------------------------------------------- |
-| `tools` | Force tools mode (one MCP tool per PostHog tool).       |
-| `cli`   | Force cli mode (single `posthog` tool wraps all tools). |
+| Value   | Behavior                                             |
+| ------- | ---------------------------------------------------- |
+| `tools` | Force tools mode (one MCP tool per PostHog tool).    |
+| `cli`   | Force cli mode (single `exec` tool wraps all tools). |
 
 The header wins when both the header and the query parameter are set.
 An explicit value always wins over the client auto-detection; any other value is ignored and the auto-detection takes over.
@@ -407,7 +408,21 @@ Then replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in t
 
 The server defaults to port **8787**, reads config from `.env` (see `.env.example`), and expects a local Redis on port `6379` for session state; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint.
 
+Startup waits up to 45 seconds for Redis to become ready, including connection retries. If Redis stops reconnecting or the deadline expires, the process exits without starting the HTTP server.
+
 ### Session cache
+
+Each MCP transport session keeps its own active organization and project, including connections without a `project_id` or `organization_id` pin. An unpinned session starts from the user's active organization and project, within the credential's allowed scope. Later website changes and switches in other MCP sessions do not change that selection. `switch-project` and `switch-organization` update only the calling session; switching to another organization clears the previous project.
+
+`switch-project` requires a positive integer `projectId`. It also accepts `project_id` and `new_project_id` as aliases. If several are supplied, `projectId` takes precedence, followed by `project_id`.
+
+Clients without an MCP session ID use the SDK's `conversation_id` instead. Echo the handle returned by the first tool call on subsequent calls. A switch without a carried session or conversation handle returns an error and a new handle; retry with that handle to apply the switch. Conversation state is bound to the credential and stored separately from transport sessions. Calls without either identity start from the connection's pin or default selection. If your client cannot retain conversation handles, pin the project or organization in the connection URL.
+
+Legacy JSON-RPC batches restore each call's conversation handle independently. The wrapper's `sessionId` query parameter is an analytics hint and does not replace a conversation handle; wrapper-only calls still receive a new handle from the SDK.
+
+Session defaults are stored once, separately from explicit selections. A delayed lookup can resolve context for its own request without overwriting a completed switch.
+
+If default project discovery fails, later requests retry within the session's original organization. The first successful project discovery wins, and explicit switches still take precedence. An organization switch retains a selected project when the destination's team list confirms that it belongs there, even if the credential cannot read project metadata.
 
 A session's client context lives in one `mcp:s:<id>:c` key with a 24-hour idle expiry, refreshed on every request in the session.
 Concurrent requests merge their fields through a Lua compare-and-merge, so a field first seen mid-session is never lost to an overlapping write.
@@ -452,7 +467,9 @@ Changes in the examples repo will be reflected on the next request.
 
 ### Adding New Tools
 
-See the [tools documentation](src/tools/README.md) for a guide on adding new tools to the MCP server.
+Most tools are generated from `products/<product>/mcp/tools.yaml`.
+Follow the [implementing MCP tools skill](../../.agents/skills/implementing-mcp-tools/SKILL.md) and the [handbook guide](../../docs/published/handbook/engineering/ai/implementing-mcp-tools.md) for that flow.
+Use [src/tools/README.md](src/tools/README.md) only for hand-written tools.
 
 ### Environment variables
 

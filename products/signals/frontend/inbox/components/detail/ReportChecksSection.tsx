@@ -17,9 +17,8 @@ import { ReportCheckRow } from './ReportCheckRow'
 
 /**
  * What is still watching this report, and what the checks that already ran decided. A check is the
- * one forward-looking row a report carries: an expectation plus the time to test it. Until it
- * produces a verdict nothing else on the page mentions it, so a reader cannot otherwise tell that a
- * check is scheduled, waiting for the report to resolve, or expired without ever running.
+ * expectation plus the time to test it. The rail shows whether each check is scheduled, waiting
+ * for the report to resolve, or expired without ever running.
  *
  * Reads the report's checks endpoint and the artefacts the detail logic already loads, which is
  * where a finished check's explanation lives. Hidden entirely when the report has no checks, so the
@@ -44,7 +43,7 @@ export function ReportChecksSection({ report }: { report: SignalReport }): JSX.E
         return null
     }
 
-    const rows = buildReportCheckRows(reportChecks, latestCheckExplanations(reportArtefacts ?? []))
+    const rows = buildReportCheckRows(reportChecks, latestCheckExplanations(reportArtefacts ?? []), report.status)
     const { visible, hidden } = splitReportCheckRows(rows)
 
     return (
@@ -52,7 +51,11 @@ export function ReportChecksSection({ report }: { report: SignalReport }): JSX.E
             icon={<IconTarget />}
             title="Follow-up checks"
             collapsible
-            meta={<span className="text-xs text-tertiary tabular-nums">{reportChecksMeta(reportChecks)}</span>}
+            meta={
+                <span className="text-xs text-tertiary tabular-nums">
+                    {reportChecksMeta(reportChecks, report.status)}
+                </span>
+            }
         >
             <div className="flex flex-col gap-1.5">
                 {(showRetired ? rows : visible).map((row) => (

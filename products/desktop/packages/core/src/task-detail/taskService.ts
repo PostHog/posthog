@@ -288,6 +288,7 @@ export class TaskService {
           await this.piRunner.resume({
             taskContext: {
               taskId,
+              taskRunId: task.latest_run?.id,
               cwd:
                 existingWorkspace.worktreePath ?? existingWorkspace.folderPath,
             },
@@ -311,7 +312,9 @@ export class TaskService {
     if (runtime === "pi") {
       try {
         const cwd = await this.host.ensureScratchDir(taskId);
-        await this.piRunner.resume({ taskContext: { taskId, cwd } });
+        await this.piRunner.resume({
+          taskContext: { taskId, taskRunId: task.latest_run?.id, cwd },
+        });
         return {
           success: true,
           data: { task, workspace: null },

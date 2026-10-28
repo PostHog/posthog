@@ -63,12 +63,13 @@ GET   /api/projects/{project_id}/wizard/runs/{run_id}/stream/
 
 Run responses include the creator ID and basic creator details for attribution in project-level run lists.
 Use `GET /api/projects/{project_id}/wizard/runs/?status=created,running&limit=5` to fetch the newest active runs; `count` gives the total number of active runs in the project. The `status` filter also accepts any individual run status.
-The app-wide sync widget polls this summary and also fetches the five most recently created completed runs with `?status=completed&limit=5`.
-It opens one event stream for the displayed active run. Completed runs do not open a stream.
-It shows the newest active run by default, or the newest completed run when none are active.
-The selector lists up to five active and five completed runs by workspace and status, with the selected run marked and the total active count shown separately.
+The optional `created_after` filter limits results and `count` to runs created after an ISO 8601 timestamp.
+The app-wide sync widget uses a fixed launch cutoff with this filter for active runs and the five newest runs of any status. It shows runs from anyone in the current project, not only runs created by the viewer.
+It opens one event stream for the displayed active run. Terminal runs do not open a stream.
+It shows the newest active run by default, or the newest recent run when none are active.
+The selector lists up to five active and five recent runs by workspace and status, with the selected run marked and the total active count shown separately.
 The Wizard page lists any others. A manual selection stays in place while that run remains in either list, including when it completes.
-Its card shows the current task, run stages, elapsed time, environment, and workspace. "Close" hides the current run until the page reloads, while "Don't show this run again" hides that run in this browser. New runs still show the widget, and run details remain on the Wizard page. Recent completed runs remain available after reloading unless dismissed.
+Its card shows the current task, run stages, elapsed time, environment, and workspace. "Close" hides the current run until the page reloads, while "Don't show this run again" hides that run in this browser. New runs still show the widget, and run details remain on the Wizard page. Recent terminal runs remain available after reloading unless dismissed.
 The `wizard-run-sync` feature flag uses the `wizard-session` and `wizard-run` variants to select the sync widget in the authenticated shell.
 
 The PATCH request accepts a terminal `status`: `completed`, `failed`, or `cancelled`.
@@ -77,11 +78,34 @@ Local agents can create runs and update runs they created.
 The browser does not offer cancellation for local runs because the server cannot stop a local Wizard process. Users stop those runs in their terminal.
 These operations accept OAuth tokens with `wizard_run:write`; browser sessions can also create and manage runs.
 Run creation uses the existing per-user creation throttle for both environments.
-Cloud creation requires a signed-in browser session and enabled cloud execution.
+Cloud creation on this endpoint requires a signed-in browser session and enabled cloud execution.
+Agents start cloud runs through the install endpoint instead.
 Cloud lifecycle updates are owned by the Wizard Worker.
 
 Run lookups, transitions, and artifact access verify the project boundary.
 A user cannot update another user's local run.
+
+## Agent-started cloud runs
+
+An agent connected to the MCP server starts and follows a cloud run through two endpoints:
+
+```text
+POST /api/projects/{project_id}/wizard/installs/
+GET  /api/projects/{project_id}/wizard/installs/{run_id}/
+```
+
+The request takes a `repository` in `owner/name` format, an optional `branch`, and an optional `idempotency_key`.
+The server picks the `posthog-integration` program and uses the project's GitHub integration.
+When the repository is missing from the integration's cached repository list, the server refreshes the list once, at most once a minute, before it refuses with `repository_not_accessible`.
+A `branch` is cloned instead of the default branch and becomes the pull request's base branch.
+The status response returns `status`, `stage`, `error_code`, `error_message`, `pull_request_url`, the task names and statuses, and a `next_step` sentence for the agent to relay.
+The MCP server exposes them as the `wizard-install-start` and `wizard-install-status` tools.
+The `installing-posthog-from-chat` skill walks an agent from connecting GitHub to sharing the pull request.
+
+Both endpoints accept browser sessions and OAuth access tokens, not personal API keys.
+Start needs `task:write` and status needs `task:read`.
+Both return `404` unless cloud execution is enabled.
+Start uses the same per-user admission limits as browser-started cloud runs, and checks the AI gateway access rules with the caller's IP.
 
 ## Cloud execution
 

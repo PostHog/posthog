@@ -11,14 +11,20 @@ use std::sync::{
 use std::time::Duration;
 
 use axum::{http::StatusCode, routing::get, Router};
+use common_metrics::Matcher;
 use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::CymbalResolutionServer;
+use cymbal_proto::CYMBAL_RESOLUTION_MAX_MESSAGE_SIZE_BYTES;
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
+use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Server;
 use tracing::{info, warn};
 
 use crate::core::{config::ResolverConfig, shutdown::wait_for_shutdown};
+use crate::metric_consts::{
+    BYTE_HISTOGRAM_BUCKETS, SYMBOL_SET_DECOMPRESSED_BYTES, SYMBOL_SET_PARSE_INPUT_BYTES,
+};
 
 pub mod app_context;
 pub mod auth;
@@ -85,19 +91,19 @@ pub async fn serve(
 
     info!("gRPC server listening on {}", res.grpc_address);
 
+    let grpc_service = CymbalResolutionServer::new(service)
+        .max_decoding_message_size(CYMBAL_RESOLUTION_MAX_MESSAGE_SIZE_BYTES)
+        .max_encoding_message_size(CYMBAL_RESOLUTION_MAX_MESSAGE_SIZE_BYTES);
+    let grpc_service = InterceptedService::new(grpc_service, move |request| {
+        auth_interceptor.authenticate(request)
+    });
+
     let server_result = Server::builder()
         .http2_keepalive_interval(Some(Duration::from_secs(30)))
         .http2_keepalive_timeout(Some(Duration::from_secs(20)))
         .layer(GrpcMetricsLayer::default().with_processing_time_header())
         .layer(GrpcLoadShedLayer::new(res.max_concurrent_requests))
-        // The cymbal client submits exception-level ResolveItems. The server
-        // relies on tonic's 4 MiB per-message default; an oversized item
-        // surfaces as `InvalidArgument`. Future: signal "send smaller" back
-        // via `LoadEvent`.
-        .add_service(CymbalResolutionServer::with_interceptor(
-            service,
-            move |request| auth_interceptor.authenticate(request),
-        ))
+        .add_service(grpc_service)
         .serve_with_incoming_shutdown(incoming, wait_for_shutdown(shutdown_rx))
         .await;
 
@@ -123,7 +129,20 @@ fn spawn_metrics_server(
                 "/_readiness",
                 get(move || readiness(readiness_draining.clone())),
             );
-        let router = common_metrics::setup_metrics_routes_for_product(router, "cymbal-resolution");
+        let router = common_metrics::setup_metrics_routes_for_product_with_overrides(
+            router,
+            "cymbal-resolution",
+            &[
+                (
+                    Matcher::Full(SYMBOL_SET_DECOMPRESSED_BYTES.into()),
+                    BYTE_HISTOGRAM_BUCKETS,
+                ),
+                (
+                    Matcher::Full(SYMBOL_SET_PARSE_INPUT_BYTES.into()),
+                    BYTE_HISTOGRAM_BUCKETS,
+                ),
+            ],
+        );
 
         let bind = format!("0.0.0.0:{port}");
         info!("Metrics server listening on {}", bind);

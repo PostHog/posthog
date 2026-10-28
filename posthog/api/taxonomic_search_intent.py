@@ -17,10 +17,17 @@ from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import report_user_action
 from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.models import User
 from posthog.taxonomic_search_intent.classify import classify_search_intent, search_intent_enabled
-from posthog.taxonomic_search_intent.contracts import EventMatchRequest, SearchIntentRequest, SearchIntentSource
+from posthog.taxonomic_search_intent.contracts import (
+    EventMatch,
+    EventMatchOutcome,
+    EventMatchRequest,
+    SearchIntentRequest,
+    SearchIntentSource,
+)
 from posthog.taxonomic_search_intent.event_match import EVENT_MATCH_FEATURE_FLAG, match_core_events
 
 logger = structlog.get_logger(__name__)
@@ -108,6 +115,18 @@ class EventMatchResponseSerializer(serializers.Serializer):
         child=EventMatchSerializer(),
         help_text="PostHog core events the search most likely means, strongest first. Empty when nothing is likely.",
     )
+    outcome = serializers.ChoiceField(
+        choices=EventMatchOutcome.choices,
+        help_text="The step that decided the answer, so an empty answer says why it is empty.",
+    )
+    unsent = serializers.ListField(
+        child=EventMatchSerializer(),
+        help_text="Likely core events this project never sent, strongest first. Only filled when outcome is not_ingested.",
+    )
+
+
+def _serialize_match(match: EventMatch) -> dict[str, Any]:
+    return {"name": match.name, "display_name": match.label, "probability": match.probability}
 
 
 class SearchIntentUnavailable(APIException):
@@ -208,17 +227,28 @@ class SearchIntentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             team_id=self.team_id, project_id=self.team.project_id, query=request.validated_data["query"]
         )
         try:
-            matches = match_core_events(search)
+            answer = match_core_events(search)
         except (SystemOneNotConfigured, SystemOneRequestFailed) as error:
             logger.warning("taxonomic_event_match_unavailable", team_id=self.team_id, reason=type(error).__name__)
+            self._report_event_match(request, EventMatchOutcome.UNAVAILABLE)
             raise SearchIntentUnavailable() from error
+        self._report_event_match(request, answer.outcome)
         return Response(
             EventMatchResponseSerializer(
                 {
-                    "matches": [
-                        {"name": match.name, "display_name": match.label, "probability": match.probability}
-                        for match in matches
-                    ]
+                    "matches": [_serialize_match(match) for match in answer.matches],
+                    "outcome": answer.outcome.value,
+                    "unsent": [_serialize_match(match) for match in answer.unsent],
                 }
             ).data
+        )
+
+    def _report_event_match(self, request: Request, outcome: EventMatchOutcome) -> None:
+        # The picker counts only the answers it shows, so only this event says which step left an answer empty.
+        report_user_action(
+            cast(User, request.user),
+            "taxonomic filter event match answered",
+            {"outcome": outcome.value},
+            team=self.team,
+            request=request,
         )

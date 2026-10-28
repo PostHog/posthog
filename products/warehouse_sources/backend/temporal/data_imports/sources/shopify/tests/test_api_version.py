@@ -2,10 +2,15 @@ from datetime import date
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
     ShopifyAuthMethodConfig,
     ShopifySourceConfig,
@@ -15,18 +20,32 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.co
     SHOPIFY_API_VERSION_2025_10,
     SHOPIFY_API_VERSION_2026_07,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import shopify_source
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source import ShopifySource
 
+TOKEN_PATH = "/admin/oauth/access_token"
 
-def _make_inputs(api_version: str | None) -> MagicMock:
-    inputs = MagicMock()
-    inputs.schema_name = ORDERS
-    inputs.api_version = api_version
-    inputs.should_use_incremental_field = False
-    inputs.db_incremental_field_last_value = None
-    inputs.db_incremental_field_earliest_value = None
-    return inputs
+
+def _config() -> ShopifySourceConfig:
+    return ShopifySourceConfig(
+        shopify_store_id="my-store",
+        auth_method=ShopifyAuthMethodConfig(
+            selection="client_credentials", shopify_client_id="client-id", shopify_client_secret="secret"
+        ),
+    )
+
+
+def _shopify(request: RecordedRequest) -> ScriptedResponse:
+    if request.path == TOKEN_PATH:
+        return ScriptedResponse(json={"access_token": "test-token"})
+    if request.method == "GET":
+        return ScriptedResponse(json={"access_scopes": []})
+    return ScriptedResponse(
+        json={"data": {ORDERS: {"nodes": [], "pageInfo": {"hasNextPage": False, "endCursor": None}}}}
+    )
+
+
+def _graphql_urls(requests: list[RecordedRequest]) -> list[str]:
+    return [request.url for request in requests if request.path.endswith("/graphql.json")]
 
 
 class TestApiVersionResolution:
@@ -63,59 +82,22 @@ class TestApiVersionResolution:
             (None, SHOPIFY_API_VERSION_2026_07),
         ],
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source.shopify_source")
-    def test_resolved_pin_reaches_request_layer(
-        self, mock_shopify_source: MagicMock, pin: str | None, expected: str
-    ) -> None:
-        source = ShopifySource()
-        config = ShopifySourceConfig(
-            shopify_store_id="my-store",
-            auth_method=ShopifyAuthMethodConfig(
-                selection="client_credentials", shopify_client_id="client-id", shopify_client_secret="secret"
-            ),
-        )
+    def test_resolved_pin_reaches_request_layer(self, pin: str | None, expected: str) -> None:
+        result = SourceDriver(ShopifySource(), _config()).run(ORDERS, _shopify, api_version=pin)
 
-        source.source_for_pipeline(config, MagicMock(spec=ResumableSourceManager), _make_inputs(pin))
-
-        assert mock_shopify_source.call_args.kwargs["api_version"] == expected
+        assert result.raised is None
+        assert _graphql_urls(result.requests) == [f"https://my-store.myshopify.com/admin/api/{expected}/graphql.json"]
 
 
 class TestApiVersionReachesRequestUrl:
     @pytest.mark.parametrize("api_version", [SHOPIFY_API_VERSION_2025_10, SHOPIFY_API_VERSION_2026_07])
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify._get_shopify_access_token",
-        return_value="test-token",
-    )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify.requests.Session")
-    def test_version_is_the_url_segment(self, session_cls: MagicMock, _mock_token: MagicMock, api_version: str) -> None:
-        posted_urls: list[str] = []
+    def test_version_is_the_url_segment(self, api_version: str) -> None:
+        result = SourceDriver(ShopifySource(), _config()).run(ORDERS, _shopify, api_version=api_version)
 
-        def _post(url: str, json: dict[str, Any] | None = None, **kwargs: Any) -> MagicMock:
-            posted_urls.append(url)
-            response = MagicMock()
-            response.status_code = 200
-            response.ok = True
-            response.json.return_value = {
-                "data": {ORDERS: {"nodes": [], "pageInfo": {"hasNextPage": False, "endCursor": None}}}
-            }
-            return response
-
-        session_cls.return_value.post.side_effect = _post
-
-        source = shopify_source(
-            shopify_store_id="my-store",
-            shopify_client_id="id",
-            shopify_client_secret="secret",
-            graphql_object_name=ORDERS,
-            db_incremental_field_last_value=None,
-            db_incremental_field_earliest_value=None,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-            api_version=api_version,
-        )
-        list(source.items())
-
-        assert posted_urls == [f"https://my-store.myshopify.com/admin/api/{api_version}/graphql.json"]
+        assert result.raised is None
+        assert _graphql_urls(result.requests) == [
+            f"https://my-store.myshopify.com/admin/api/{api_version}/graphql.json"
+        ]
 
 
 class TestNonSyncSurfacesUseResolvedPin:
@@ -170,14 +152,12 @@ class TestNonSyncSurfacesUseResolvedPin:
         assert mock_check.call_args.args[-1] == expected
 
     @pytest.mark.parametrize("api_version", [SHOPIFY_API_VERSION_2025_10, SHOPIFY_API_VERSION_2026_07])
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify._get_shopify_access_token")
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify.make_tracked_session")
-    def test_authenticated_session_url_carries_version(self, session_cls: Any, token: Any, api_version: str) -> None:
+    def test_authenticated_session_url_carries_version(self, api_version: str) -> None:
         from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
             _authenticated_session,
         )
 
-        token.return_value = "tok"
-        api_url, _ = _authenticated_session("my-store", "id", "secret", api_version)
+        with scripted_network(_shopify):
+            api_url, _ = _authenticated_session("my-store", "id", "secret", api_version)
 
         assert api_url == f"https://my-store.myshopify.com/admin/api/{api_version}/graphql.json"

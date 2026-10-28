@@ -455,12 +455,12 @@ describe('MCPClientProfile', () => {
     })
 
     describe('isInlineExecUiHost()', () => {
-        it.each([['ClaudeCode'], ['Cowork']])('is true for the %s vendor client', (vendorClient) => {
-            expect(new MCPClientProfile({ vendorClient }).isInlineExecUiHost()).toBe(true)
+        it('is true for the ClaudeCode vendor client', () => {
+            expect(new MCPClientProfile({ vendorClient: 'ClaudeCode' }).isInlineExecUiHost()).toBe(true)
         })
 
-        // Claude.ai renders via the separate render-ui tool, not the inline exec payload.
-        it.each([['ClaudeAI'], ['ClaudeDesign'], ['some-random-tool'], ['']])(
+        // Claude.ai and Cowork render via the separate render-ui tool, not the inline exec payload.
+        it.each([['ClaudeAI'], ['Cowork'], ['ClaudeDesign'], ['some-random-tool'], ['']])(
             'is false for the %s vendor client',
             (vendorClient) => {
                 expect(new MCPClientProfile({ vendorClient }).isInlineExecUiHost()).toBe(false)

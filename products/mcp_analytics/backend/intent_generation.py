@@ -137,8 +137,7 @@ def summarize_intents(intents: list[str], team: Team) -> str:
 # server, for the dashboard's activity tab.
 #
 # Clustering short free text into named groups is what the cheapest Gemini tier is good at, and the
-# endpoint runs the call inline, so latency is part of the UX. Mirrors the same choice in
-# `products/replay_vision/backend/feedback_themes.py`.
+# endpoint runs the call inline, so latency is part of the UX.
 DIGEST_THEMES_MODEL = "gemini-3.5-flash-lite"
 DIGEST_TIMEOUT_MS = 45_000
 MAX_DIGEST_INTENTS = 100

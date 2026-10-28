@@ -13,14 +13,17 @@ INNGEST_API_VERSION_V2 = "v2"
 INNGEST_SUPPORTED_VERSIONS = (INNGEST_API_VERSION_V1, INNGEST_API_VERSION_V2)
 INNGEST_DEFAULT_VERSION = INNGEST_API_VERSION_V2
 
+# Documented max `limit` for the v2 apps, functions, runs and sessions lists.
+V2_MAX_PAGE_SIZE = 100
+
 
 @dataclass(frozen=True)
 class InngestVersionPath:
     path: str
-    pagination: Literal["events_cursor", "v2_cursor", "none"]
+    pagination: Literal["events_cursor", "v2_cursor", "v2_runs_window", "none"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class InngestEndpointConfig:
     name: str
     path: str
@@ -33,11 +36,18 @@ class InngestEndpointConfig:
     #   - "events_cursor": the /v1/events walk — `cursor` (last event internal_id) + `limit`,
     #     bounded by an explicit [received_after, received_before] window.
     #   - "v2_cursor": v2 envelope pagination — follow `page.cursor` while `page.hasMore`.
+    #   - "v2_runs_window": v2 envelope pagination over a pinned [from, until] queuedAt window,
+    #     ordered ascending.
     #   - "none": a single request returning the full (small) list.
-    pagination: Literal["events_cursor", "v2_cursor", "none"] = "none"
+    pagination: Literal["events_cursor", "v2_cursor", "v2_runs_window", "none"] = "none"
     # When True, the endpoint fans out over the incremental events walk, fetching
     # GET /v1/events/{internal_id}/runs once per event.
     fan_out_runs_per_event: bool = False
+    # v2 parent/child walks: "app_functions" lists each app's functions, "session_key_sessions"
+    # lists each session key's sessions, "session_runs" lists each session's runs.
+    fan_out: Optional[Literal["app_functions", "session_key_sessions", "session_runs"]] = None
+    # `limit` sent on v2 list requests. None keeps the server default.
+    page_size: Optional[int] = None
     # Secret-bearing response fields dropped from every row before yielding — key material
     # must never be synced into the warehouse.
     redacted_fields: tuple[str, ...] = ()
@@ -57,9 +67,10 @@ class InngestEndpointConfig:
 #
 # Only the event-driven endpoints sync incrementally: GET /v1/events takes `received_after` /
 # `received_before` RFC3339 bounds, a genuine server-side filter (and `received_after` defaults to
-# only 1 hour ago, so we always pass it explicitly). Function runs have no list endpoint of their
-# own — they are discovered by walking the events window and fetching each event's runs. The
-# remaining endpoints are small full-refresh inventories with no server-side timestamp filter.
+# only 1 hour ago, so we always pass it explicitly). `function_runs` is discovered by walking the
+# events window and fetching each event's runs, so it misses cron- and invoke-triggered runs;
+# `runs` lists every run directly from GET /v2/runs with a server-side queuedAt window. The
+# remaining endpoints are full-refresh inventories with no server-side timestamp filter.
 INNGEST_ENDPOINTS: dict[str, InngestEndpointConfig] = {
     "events": InngestEndpointConfig(
         name="events",
@@ -101,6 +112,36 @@ INNGEST_ENDPOINTS: dict[str, InngestEndpointConfig] = {
             },
         ],
     ),
+    "runs": InngestEndpointConfig(
+        name="runs",
+        path="/v2/runs",
+        # Run IDs are ULIDs, unique across the environment.
+        primary_keys=["id"],
+        # `queuedAt` is set when the run is enqueued and never changes.
+        partition_key="queuedAt",
+        pagination="v2_runs_window",
+        page_size=V2_MAX_PAGE_SIZE,
+        # The window filters on queuedAt, so a run that was still Running when pulled keeps that
+        # status until re-read; re-read a trailing hour each run so recent runs settle.
+        default_incremental_lookback_seconds=3600,
+        incremental_fields=[
+            {
+                "label": "queuedAt",
+                "type": IncrementalFieldType.DateTime,
+                "field": "queuedAt",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    "functions": InngestEndpointConfig(
+        name="functions",
+        path="/v2/apps/{app_id}/functions",
+        # Function IDs are only documented per app, so the parent app ID is part of the key.
+        primary_keys=["app_id", "id"],
+        pagination="v2_cursor",
+        fan_out="app_functions",
+        page_size=V2_MAX_PAGE_SIZE,
+    ),
     "cancellations": InngestEndpointConfig(
         name="cancellations",
         path="/v1/cancellations",
@@ -137,6 +178,34 @@ INNGEST_ENDPOINTS: dict[str, InngestEndpointConfig] = {
         primary_keys=["id"],
         pagination="v2_cursor",
         redacted_fields=("key",),
+    ),
+    # AgentKit sessions: a session key names a grouping dimension, a session is one value of it.
+    "session_keys": InngestEndpointConfig(
+        name="session_keys",
+        path="/v2/sessions",
+        primary_keys=["id"],
+        pagination="v2_cursor",
+        page_size=V2_MAX_PAGE_SIZE,
+    ),
+    "sessions": InngestEndpointConfig(
+        name="sessions",
+        path="/v2/sessions/{session_key}",
+        primary_keys=["session_key", "id"],
+        pagination="v2_cursor",
+        fan_out="session_key_sessions",
+        page_size=V2_MAX_PAGE_SIZE,
+    ),
+    "session_runs": InngestEndpointConfig(
+        name="session_runs",
+        path="/v2/sessions/{session_key}/{session_id}/runs",
+        # A run can belong to more than one session, so both parents are part of the key.
+        primary_keys=["session_key", "session_id", "id"],
+        partition_key="queuedAt",
+        pagination="v2_cursor",
+        fan_out="session_runs",
+        page_size=V2_MAX_PAGE_SIZE,
+        # One request per session, so it is opt-in.
+        should_sync_default=False,
     ),
 }
 

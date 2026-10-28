@@ -85,6 +85,7 @@ class FunnelQueryContext(QueryContext):
             "person",
             "event",
             "event_metadata",
+            "element",
             "hogql",
             "session",
             None,

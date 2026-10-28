@@ -50,6 +50,7 @@ import {
     PersonDistinctIdsOutput,
     PersonMergeEventsOutput,
     PersonsOutput,
+    RealtimeOnlyEventsOutput,
 } from './outputs'
 import {
     PostTeamPreprocessingSubpipelineConfig,
@@ -68,6 +69,7 @@ export interface JoinedIngestionPipelineConfig {
     outputs: IngestionOutputs<
         | EventOutput
         | FlagEvaluationsOutput
+        | RealtimeOnlyEventsOutput
         | IngestionWarningsOutput
         | DlqOutput
         | OverflowOutput

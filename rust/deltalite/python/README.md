@@ -6,8 +6,10 @@ is bounded by the size of the incoming batch and a few concurrency knobs —
 **never by the size of the target table**.
 
 delta-rs stays the storage and protocol layer (transaction log, checkpoints,
-Parquet writing, Add-action statistics, S3 conditional-put commits, conflict
-resolution). deltalite replaces only the *merge execution*.
+Parquet encoding, S3 conditional-put commits, conflict resolution). deltalite
+replaces only the *merge execution*, and writes output files through a streaming
+writer that produces the same files and Add-action statistics as delta-rs's
+`RecordBatchWriter` without holding a second copy of each file.
 
 ```python
 import deltalite
@@ -98,7 +100,10 @@ rejected (raising `DeltaLiteError`) rather than silently double-inserted.
 |---|---|
 | `DeltaLiteTable.open(uri, storage_options=None)` | Open an existing Delta table. `storage_options` is the usual object-store dict (S3/GCS/Azure/local). |
 | `DeltaLiteTable.is_deltatable(uri, storage_options=None)` | `True` if a Delta table exists at `uri`. |
+| `DeltaLiteTable.table_exists(uri, storage_options=None)` | `True` if the log at `uri` holds a commit or a checkpoint, the same check as `DeltaTable.is_deltatable`. Storage errors raise; they never read as `False`. |
 | `.upsert(data, primary_keys, partition_key=None, **opts)` | Insert-or-replace `data` by key. Returns `UpsertStats`. See knobs below. |
+| `.compact(**opts)` | Small-file compaction, the replacement for `DeltaTable.optimize.compact`. Returns a stats dict. See "Compaction" below. |
+| `.restore(version, *, commit_metadata=None)` | delta-rs's restore to `version`, in one commit, with the GIL released. Returns `numRemovedFile`, `numRestoredFile` and the committed `version`. The handle moves onto the restored table. |
 | `.version()` | Current table version (`int`). |
 | `.reload()` | Bring the table state up to date with the log (incremental; falls back to a full re-open). |
 | `.table_id()` | The table id from the metadata action (`str`). |
@@ -119,17 +124,53 @@ log.
 ### `UpsertStats`
 
 Returned by `upsert`. Counts: `version`, `partitions_touched`, `files_added`,
-`files_removed`, `files_carried_over`, `files_probed`, `rows_updated`,
-`rows_inserted`, `rows_copied`, `source_rows`, `null_pk_rows`. Per-phase
+`files_removed`, `files_carried_over`, `files_probed` (candidate files the probe
+read), `files_probe_cached` (candidate files the probe decided from the probe
+cache), `rows_updated`, `rows_inserted`, `rows_copied`, `source_rows`,
+`null_pk_rows`. Per-phase
 wall-clock timings (milliseconds): `ingest_ms` (importing the pyarrow source),
 `initial_open_ms` (the full snapshot load in `DeltaLiteTable.open`, reported on
 the first upsert through a handle and `0` afterwards, so a sum over a handle's
 upserts counts it once), `open_ms` (snapshot refreshes around the upsert),
 `relax_ms` (nullability-relax check), `plan_ms` (listing + pruning files),
-`rewrite_ms` (reading + rewriting the touched partitions), `commit_ms`
+`rewrite_ms` (reading + rewriting the touched partitions), `probe_ms` (probing,
+summed over partitions, part of `rewrite_ms`), `commit_ms`
 (committing to the Delta log), `maintenance_ms` (checkpoint/log cleanup,
 non-zero only on checkpoint-boundary commits). `columns_relaxed` counts
 non-nullable columns flipped to nullable before the write.
+
+### Compaction
+
+`compact` plans bins exactly as delta-rs's `optimize.compact` does, from the
+loaded log with no storage reads, and commits them the same way (ZSTD level 4,
+one `OPTIMIZE` commit, `dataChange=false`). Each bin is streamed one file and
+one byte-bounded batch at a time through the upsert's fetch and decode budgets,
+so memory follows the knobs, not the bin. Output files and row groups are also
+capped by decoded size, so a bin that decodes past a cap writes more than one
+file where delta-rs writes one.
+
+| Knob | Default | Meaning |
+|---|---|---|
+| `target_file_size` | table's `delta.targetFileSize` | Bin size and output file size (compressed bytes). |
+| `max_parallel_bins` | 2 | Bins rewritten at once. |
+| `slot_budget_bytes` | none | Memory for the whole call: caps the decode and fetch budgets at a quarter each and lowers `max_parallel_bins` so the output files fit the rest. |
+| `max_decoded_file_bytes` | 1 GiB | An output file closes when its decoded bytes reach this (keeps files under the 2 GiB Arrow offset limit). |
+| `max_row_group_decoded_bytes` | 128 MiB | An output row group closes at this many decoded bytes. |
+| `partitions` | all | Only these partition values. |
+| `min_partition_removable_files` | 1 | Rewrite a partition only when its bins remove at least this many more files than they write. `1` is delta-rs's behavior. |
+| `max_bins_per_commit` | one commit | Commit every N bins instead. |
+| `max_replan_rounds` | 1 | Times the partitions of bins dropped on a conflict are planned and rewritten again. |
+| `commit_max_retries` | 15 | Commit attempts after another writer committed first. |
+| `dry_run` | `False` | Plan only; report what would be rewritten. |
+
+Conflicts: when another writer commits first, compaction keeps each bin whose
+input files are all still live and drops the others (deleting their output), so
+it never resurrects rows a merge replaced. A concurrent schema, partitioning or
+protocol change raises `DeltaLiteCommitConflictError`. Tables the upsert refuses
+are refused here too (`DeltaLiteUnsupportedTableError`). The result dict carries
+deltalite's counters plus delta-rs's `numFilesAdded`, `numFilesRemoved`,
+`partitionsOptimized`, `numBatches`, `totalConsideredFiles` and
+`totalFilesSkipped`.
 
 ### Exceptions
 
@@ -143,6 +184,7 @@ All inherit from `DeltaLiteError`, so you can catch the base or branch on kind:
 | `DeltaLiteTableNotFoundError` | No Delta table at the URI. |
 | `DeltaLiteUnsupportedTableError` | Table uses a feature deltalite can't handle (e.g. deletion vectors, column mapping). |
 | `DeltaLiteSourceTooLargeError` | Batch exceeds `max_source_bytes` (see below). |
+| `DeltaLiteTimeoutError` | A wait for a process-wide budget passed its bound (see "Timeouts" below). |
 
 ## Operational knobs
 
@@ -152,16 +194,23 @@ All inherit from `DeltaLiteError`, so you can catch the base or branch on kind:
 |---|---|---|
 | `max_parallel_partitions` | `2` | Partitions merged concurrently. |
 | `max_parallel_files` | `4` | Files read concurrently within a partition. |
-| `max_buffered_bytes` | `64 MiB` | Output buffered in memory before flushing. |
+| `max_buffered_bytes` | `64 MiB` | Decoded rows in flight between the file readers and the writer. |
+| `max_fetch_bytes` | `128 MiB` | Compressed row-group bytes the file readers hold before decoding. A reader reserves its file's largest row group before fetching; a row group larger than the cap still runs, alone. |
 | `prune_strategy` | `"probe"` | `"probe"` skips files that can't contain a source key; `"none"` scans all. |
 | `skip_unmatched_files` | `True` | Convenience toggle: `False` ≡ `prune_strategy="none"`. |
 | `probe_concurrency` | `8` | Concurrent statistics/probe reads. |
 | `read_batch_size` | `8192` | Row-group read batch size. |
 | `target_file_size` | table setting, else 100 MiB | Output file size target. |
+| `isolate_source_rows` | `False` | Write the batch's rows to their own files, apart from the unchanged rows copied out of the rewritten files. A later batch that touches the same rows then rewrites only those files. Costs up to one more file per touched partition. |
+| `max_row_group_bytes` | `None` | Close an output row group at this many encoded bytes. A later upsert's reader fetches one whole row group at a time, so smaller row groups lower its memory. `None` closes row groups only at the encoder's row cap. |
 | `max_source_bytes` | `2 GiB` | Oversized-batch guard (`0` disables). |
-| `multipart_threshold` / `multipart_part_size` | `64 MiB` / `16 MiB` | Multipart upload thresholds (`0` threshold disables). |
+| `multipart_threshold` / `multipart_part_size` | `16 MiB` / `8 MiB` | Multipart upload thresholds (`0` threshold disables). With `multipart_concurrency=1` the defaults are `64 MiB` / `16 MiB`. |
+| `multipart_concurrency` | `4` | Parts of one upload sent at once. The parts are slices of the finished file, so more parts in flight add no memory. `1` sends them one after another. |
+| `range_get_part_size` / `range_get_concurrency` | `8 MiB` / `4` | A ranged read of a data file (a row group) larger than the part size is split into requests of that size, this many at once. Each request writes into its place in one buffer, so the split adds no memory. `1` turns the split off. |
+| `read_ahead_row_groups` | `False` | Read the next row group of a file while the current one decodes. A reader then holds up to two row groups, and reserves both from `max_fetch_bytes`; a file whose two largest neighbouring row groups do not fit is read without it. |
 | `commit_max_retries` | `15` | Conditional-put commit retry budget. |
 | `commit_metadata` | `None` | Extra key/values recorded in the Delta commit. |
+| `use_probe_cache` | `True` | Use the process-wide probe cache (see below). `False` reads every candidate file from storage. |
 
 **Process-global** — environment variables, enforced *on top of* the per-call
 knobs so that many concurrent upsert threads in one process cannot multiply the
@@ -170,8 +219,51 @@ budgets:
 `DELTALITE_PROCESS_MAX_PARALLEL_PARTITIONS` (8),
 `DELTALITE_PROCESS_MAX_PARALLEL_FILES` (16),
 `DELTALITE_PROCESS_MAX_BUFFERED_BYTES` (256 MiB),
+`DELTALITE_PROCESS_MAX_FETCH_BYTES` (256 MiB),
 `DELTALITE_MAX_SOURCE_BYTES`, `DELTALITE_MULTIPART_THRESHOLD_BYTES`,
-`DELTALITE_MULTIPART_PART_SIZE_BYTES`.
+`DELTALITE_MULTIPART_PART_SIZE_BYTES`, `DELTALITE_MULTIPART_CONCURRENCY`,
+`DELTALITE_RANGE_GET_PART_SIZE_BYTES`, `DELTALITE_RANGE_GET_CONCURRENCY`.
+The last five are the defaults of the per-call arguments of the same names.
+
+**Timeouts.** All upserts and compactions of one process share the
+process-wide budgets above, and their waits are fair. So one call that holds
+permits and stops making progress can make every other call wait. Three bounds
+stop that:
+
+| Bound | Default | Override | When it passes |
+|---|---|---|---|
+| S3 request | `timeout` 120s, `connect_timeout` 5s, `pool_idle_timeout` 15s | the storage option of the same name (any spelling `object_store` accepts, for example `aws_timeout`), or its environment variable (`AWS_TIMEOUT`) | `object_store` retries the request, then the call fails. |
+| One object-store call | 10 minutes | `DELTALITE_IO_DEADLINE_SECS` (`0` removes it) | An upload of a data file or a part, or a ranged read of a data file, fails with a `DeltaLiteError` that names the call. Conditional puts (commits) have no deadline. |
+| One wait for a process-wide budget | 30 minutes | `DELTALITE_PERMIT_WAIT_TIMEOUT_SECS` (`0` removes it) | The call fails with `DeltaLiteTimeoutError`, which names the budget and gives its free permits and waiters. |
+
+Only S3 tables get the request defaults. `object_store` uses a 30s request
+timeout, which cuts a 128 MiB checkpoint read or a 64 MiB single PUT on a
+connection slower than about 4 MB/s.
+
+`deltalite.limits_snapshot()` returns the free and total permits of each
+process-wide budget and the number of acquisitions that wait for it:
+`{"partitions": {"available": 8, "total": 8, "waiters": 0}, "files": ...,
+"buffer_kb": ..., "fetch_kb": ...}`. It does no I/O and takes no lock, so a
+caller can read it while another call of the process hangs. A waiter that needs
+more permits than are free takes the free ones and waits for the rest, so
+`available` can be 0 while a part of the budget belongs to a waiter.
+
+**Probe cache.** The probe reads a footer and the PK column of every candidate
+file, so on object storage its cost grows with the number of files in the
+touched partitions. A Delta data file never changes, so deltalite keeps the
+64-bit hashes of each file's PK tuples in one process-wide LRU cache, keyed by
+table URL and file path. A probe that reads a file and finds no match caches it,
+and an upsert caches the files it writes once its commit lands. A later probe
+decides a cached file with no read. Equal keys always give equal hashes, so a
+cached file that holds a key is never skipped. A hash collision only adds a file
+to the rewrite, which copies its rows unchanged. A file the commit removes leaves
+the cache. `DELTALITE_PROBE_CACHE_BYTES` (128 MiB, `0` turns the cache off) caps
+the entries, and one entry can use at most an eighth of the cap, so a file with
+more keys is probed every time. Hashes collected for files still being read or
+written use at most a quarter of the cap more, so the cache uses at most
+1.25 times the cap. `deltalite.set_probe_cache_max_bytes(n)` changes the cap at
+run time, `deltalite.clear_probe_cache()` empties the cache, and
+`deltalite.probe_cache_stats()` returns its size and hit counters.
 
 **Checkpoint prefetch.** Opening or reloading a table reads its latest
 checkpoint Parquet file whole in one GET and serves the Parquet reader's many
@@ -196,14 +288,47 @@ hint, so a footer that fits arrives in one GET instead of two, and a file the
 probe found a match in hands its parsed footer to the rewrite, so the file is
 not opened a second time.
 
+**Log requests.** Four changes remove LIST requests of `_delta_log/` and repeated
+reads. Each one has a kill switch that restores the earlier requests: set the
+variable to `0` (`false`, `off` and `no` also work).
+
+| Switch | What it controls |
+| --- | --- |
+| `DELTALITE_PROBE_REFRESH` | A refresh asks if the snapshot is current with one GET and one HEAD, sent together, before it lists the log. The GET is for the commit file after the loaded version: a 404 proves that no newer version exists, because versions have no gaps and a commit file is written one time. The HEAD compares the ETag and the modification time of a commit file that the last load read, so a table that was deleted and created again is loaded again. When a newer commit exists, the refresh lists the log as before. |
+| `DELTALITE_OPTIMISTIC_COMMIT_VERSION` | Before the commit put, delta-rs lists the log to find the latest version. The same GET and HEAD replace that LIST. The create-only put (`If-None-Match: *` on S3) stays the conflict check. If the put loses a race, delta-rs lists the log and checks for conflicts as before. If the table was replaced, the commit fails as a conflict, writes nothing, and the upsert runs again on the table that it loads again. |
+| `DELTALITE_COMMIT_JSON_CACHE` | During one load each commit file is read one time (the kernel reads it two times), and the commit that an upsert wrote is not read back. The memory is at most 256 files and 8 MiB (1 MiB for one file), counts against `DELTALITE_CHECKPOINT_PREFETCH_MAX_BYTES` and `DELTALITE_PROCESS_MAX_BUFFERED_BYTES`, and is released when the operation ends. A commit that does not fit is read as before. |
+| `DELTALITE_SMALL_FILE_SINGLE_GET` | A data file of 64 KiB or less is read with one GET when it is opened without a footer from the probe. The size comes from the Delta log. The reader takes its permit from the fetch budget (`max_fetch_bytes`, `DELTALITE_PROCESS_MAX_FETCH_BYTES`) for the whole file before the request, and the bytes are released with the reader. |
+
+The probe is used only while a 404 is proof:
+
+- The handle lists the log when the last LIST is older than 10 minutes, or older
+  than half of `delta.logRetentionDuration` if that is shorter. Log cleanup
+  removes only commit files older than the retention, so inside this time a
+  missing commit file was never written.
+- The handle lists the log when the last load read no commit file (the loaded
+  version is a checkpoint version), when the store gives no ETag, and after its
+  own commit on a checkpoint boundary.
+- A log store that does not commit with a create-only put (for example the
+  DynamoDB lock store) keeps the LIST before the commit put.
+
+The probe needs a store that answers a GET or a HEAD with the current state of
+the object. S3 does this (reads are strongly consistent after a write or a
+delete), and so do SeaweedFS, the local file system and the in-memory store. Set
+`DELTALITE_PROBE_REFRESH=0` and `DELTALITE_OPTIMISTIC_COMMIT_VERSION=0` for a
+store, or a cache in front of a store, that can answer 404 for an object that
+exists.
+
 ## Metrics
 
 deltalite emits via the Rust [`metrics`](https://docs.rs/metrics) facade (static
 labels only): `deltalite_upserts_total` (`outcome`, `prune_strategy`,
 `error_kind`), `deltalite_upsert_duration_seconds`,
-`deltalite_files_{added,removed,carried_over,probed}_total`,
-`deltalite_rows_{updated,inserted,copied}_total`, and
-`deltalite_checkpoint_prefetch_total` (`outcome`).
+`deltalite_files_{added,removed,carried_over,probed,probe_cached}_total`,
+`deltalite_rows_{updated,inserted,copied}_total`,
+`deltalite_checkpoint_prefetch_total` (`outcome`),
+`deltalite_refresh_probe_total` (`outcome`: `current`, `new_commits`,
+`replaced`, `unknown`, `listed`, `no_anchor`), and
+`deltalite_commit_probe_total` (`outcome`).
 
 ## Compatibility & status
 

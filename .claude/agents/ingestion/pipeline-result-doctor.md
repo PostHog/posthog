@@ -45,6 +45,7 @@ Before reviewing or writing any code, read these files:
 - `nodejs/src/ingestion/framework/docs/09-ingestion-warnings.test.ts` — warning structure, debouncing, team context
 - `nodejs/src/ingestion/framework/results.ts` — result type definitions and constructor implementations
 - `nodejs/src/ingestion/framework/docs/17-fan-out-fan-in.test.ts` — sub-result contract inside fan-out/fan-in stages
+- `nodejs/src/ingestion/framework/docs/18-batch-budgets.test.ts` — the timeout result, budget checkpoints, and the timeout barrier
 
 Also read any files the user points you to.
 
@@ -59,6 +60,10 @@ Never throw from steps — exceptions are for truly unexpected errors, not expec
 - `dlq(reason, error)` — errors that need investigation
 - `drop(reason)` — items to silently discard
 - `redirect(reason, topic, preserveKey?)` — reroute to another topic
+
+`timeout()` is not a step result.
+Only the framework's budget checkpoints and `.timeoutBarrier()` produce it, because steps never see the budget.
+A timed-out message is not acked, and its source redelivers it.
 
 ```typescript
 // GOOD
@@ -200,6 +205,9 @@ steps — the stage settles the parent from its sub-results:
 - `redirect()` — a review flag: sub-elements are not Kafka messages, so there is nothing to
   redirect. The stage excludes it with a warning log. Route the parent in a step before the
   fan-out instead — sub redirects never escape the stage's result type.
+- `timeout()` — comes from a budget checkpoint inside the sub-pipeline, and times the parent out.
+  It wins over a sub DLQ: the parent's message is redelivered whole, so fanning in would build an element from partial work.
+  Sibling side effects still run, and the collected values are discarded.
 
 ## Output format
 

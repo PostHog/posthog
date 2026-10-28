@@ -2,8 +2,10 @@ from datetime import UTC, datetime, timedelta
 from textwrap import dedent
 
 import time_machine
-from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import MagicMock, patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -693,7 +695,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("does not exist", result)
 
 
-class TestFinalAnswerTool(BaseTest):
+class TestFinalAnswerTool(SimpleTestCase):
     def test_normalize_plan(self):
         original = """
         Series:

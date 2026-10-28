@@ -10,7 +10,12 @@ import {
     createFlushBatchStoresStep,
 } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
 import { BatchWritingStore, BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
-import { BatchingPipeline, BeforeBatchInput, FeedResult } from '~/ingestion/framework/batching-pipeline'
+import {
+    BatchingContext,
+    BatchingPipeline,
+    BeforeBatchInput,
+    FeedResult,
+} from '~/ingestion/framework/batching-pipeline'
 import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
@@ -277,7 +282,7 @@ class Harness {
     public scheduler = new PromiseScheduler()
     /** Accepted batches in batchId order: which events went into which batch. */
     public submissions: { batchId: number; specs: EventSpec[] }[] = []
-    public pipeline: BatchingPipeline<In, ProcessedEvent, Ctx, StoreBatchContext, Ctx & { messageId: number }, never>
+    public pipeline: BatchingPipeline<In, ProcessedEvent, Ctx, StoreBatchContext, Ctx & BatchingContext, never>
 
     private gates = new Map<string, Deferred>()
     private nextOffset = 0

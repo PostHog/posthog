@@ -18,6 +18,8 @@ import structlog
 import posthoganalytics
 from rest_framework import exceptions, generics, permissions, response, serializers, status
 from rest_framework.request import Request
+from social_core.backends.base import BaseAuth
+from social_core.exceptions import AuthFailed
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 from webauthn.helpers import base64url_to_bytes
@@ -32,10 +34,26 @@ from posthog.api.webauthn import (
 from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import EmailValidationHelper, reject_plus_addressed_email, validate_display_name
-from posthog.helpers.oauth_pending_connection import read_pending_oauth_connection
+from posthog.helpers.email_utils import (
+    EmailLookupHandler,
+    EmailValidationHelper,
+    reject_plus_addressed_email,
+    validate_display_name,
+)
+from posthog.helpers.oauth_pending_connection import (
+    apply_connector_signup_onboarding_skip,
+    read_pending_oauth_connection,
+)
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
-from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
+from posthog.models import (
+    InviteExpiredException,
+    Organization,
+    OrganizationDomain,
+    OrganizationInvite,
+    OrganizationMembership,
+    Team,
+    User,
+)
 from posthog.models.identity_provider_config import ConfigScope, IdentityProviderConfig
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -46,11 +64,23 @@ from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_att
 
 from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager
 from products.growth.backend.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
-from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.api import (
+    REFUSAL_CODE as SECURITY_REFUSAL_CODE,
+    access_refused as security_access_refused,
+)
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
 
 logger = structlog.get_logger(__name__)
+
+# Says nothing about the rule that matched, so an abuser learns nothing from it. The code
+# is what lets support trace the refusal to an access rule.
+SIGNUP_BLOCKED_DETAIL = (
+    "We couldn't complete your signup. If you think this is a mistake, contact support "
+    f"and quote the code {SECURITY_REFUSAL_CODE}."
+)
+
+DELEGATED_ONBOARDING_NEXT = "/onboarding"
 
 
 def _save_session_with_recovery(session: SessionBase) -> None:
@@ -238,7 +268,7 @@ class SignupSerializer(serializers.Serializer):
             )
 
         try:
-            security_shadow_check(
+            refused = security_access_refused(
                 SecuritySubject(
                     email=validated_data["email"],
                     ip=get_trusted_client_ip(getattr(request, "_request", request)),
@@ -247,7 +277,10 @@ class SignupSerializer(serializers.Serializer):
                 call_site="signup",
             )
         except Exception:
-            logger.exception("security_shadow_check_site_failed", call_site="signup")
+            logger.exception("security_access_check_site_failed", call_site="signup")
+            refused = False
+        if refused:
+            raise exceptions.PermissionDenied(SIGNUP_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
 
         is_instance_first_user: bool = not User.objects.exists()
 
@@ -320,6 +353,9 @@ class SignupSerializer(serializers.Serializer):
             _save_session_with_recovery(request.session)
 
         user = self._user
+        oauth_connection = read_pending_oauth_connection(request)
+        if oauth_connection is not None:
+            apply_connector_signup_onboarding_skip(user, self._organization)
 
         report_user_signed_up(
             user,
@@ -332,7 +368,7 @@ class SignupSerializer(serializers.Serializer):
             role_at_organization=role_at_organization,
             referral_source=referral_source,
             referral_source_ai_prompt=referral_source_ai_prompt,
-            oauth_connection=read_pending_oauth_connection(request),
+            oauth_connection=oauth_connection,
         )
 
         # Fire-and-forget real-time enrichment for onboarding routing. Fully guarded and
@@ -421,9 +457,13 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
             # Mirror SignupSerializer.validate_email. Without this the form clears the email step,
             # the user fills in the rest, and only then hits the rejection on submit.
             reject_plus_addressed_email(email)
-            email_exists = EmailValidationHelper.user_exists_with_stripped_alias(
-                email
-            ) or EmailValidationHelper.user_exists_with_gmail_canonical(email)
+            email_exists = (
+                EmailValidationHelper.user_exists_with_stripped_alias(email)
+                or EmailValidationHelper.user_exists_with_gmail_canonical(email)
+                # The alias checks only see active accounts, but the email column is unique across
+                # all of them, so a deactivated account would otherwise fail signup at the last step
+                or EmailLookupHandler.get_user_by_email(email, is_active=None) is not None
+            )
         if email_exists:
             return response.Response(
                 {
@@ -601,7 +641,7 @@ class InviteSignupSerializer(serializers.Serializer):
         # Runs for both branches below: an already signed-in user accepting an invite never hits
         # the "not user" branch, so this must not live inside it.
         try:
-            security_shadow_check(
+            refused = security_access_refused(
                 SecuritySubject(
                     email=(user.email if user else invite.target_email) or "",
                     user_uuid=str(user.uuid) if user else None,
@@ -611,7 +651,10 @@ class InviteSignupSerializer(serializers.Serializer):
                 call_site="invite_signup",
             )
         except Exception:
-            logger.exception("security_shadow_check_site_failed", call_site="invite_signup")
+            logger.exception("security_access_check_site_failed", call_site="invite_signup")
+            refused = False
+        if refused:
+            raise exceptions.PermissionDenied(SIGNUP_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
 
         with transaction.atomic():
             if not user:
@@ -697,6 +740,11 @@ class InviteSignupSerializer(serializers.Serializer):
                 user.save(update_fields=["credentials_reviewed_at"])
 
         if is_new_user:
+            oauth_connection = read_pending_oauth_connection(request)
+            # A delegated invitee is the teammate asked to run onboarding, so they keep it.
+            if oauth_connection is not None and not is_delegation:
+                apply_connector_signup_onboarding_skip(user, invite.organization)
+
             verify_email_or_login(self.context["request"], user)
 
             report_user_signed_up(
@@ -708,7 +756,7 @@ class InviteSignupSerializer(serializers.Serializer):
                 user_analytics_metadata=user.get_analytics_metadata(),
                 org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
                 role_at_organization=role_at_organization,
-                oauth_connection=read_pending_oauth_connection(request),
+                oauth_connection=oauth_connection,
                 referral_source="signed up from invite link",
             )
 
@@ -774,7 +822,9 @@ class SocialSignupSerializer(serializers.Serializer):
 
     organization_name: serializers.Field = serializers.CharField(max_length=64)
     first_name: serializers.Field = serializers.CharField(max_length=128)
-    role_at_organization: serializers.Field = serializers.CharField(max_length=123, required=False, default="")
+    role_at_organization: serializers.Field = serializers.CharField(
+        max_length=123, required=False, allow_blank=True, default=""
+    )
     referral_source: serializers.Field = serializers.CharField(
         max_length=1000, required=False, allow_blank=True, default=""
     )
@@ -865,15 +915,69 @@ def lookup_invite_for_saml(email: str, saml_relay_state: str) -> Optional[Organi
     config = IdentityProviderConfig.objects.filter(saml_relay_state=saml_relay_state).first()
     if config is None:
         return None
+    # An existing member cannot use an invite, because `OrganizationInvite.validate` rejects one for
+    # them, either as expired or as a duplicate membership. The caller raises that rejection inside
+    # the social-auth pipeline, which answers the login with a 500, so report no invite instead.
+    if OrganizationMembership.objects.filter(
+        organization_id=config.organization_id, user__email__iexact=email
+    ).exists():
+        return None
+    # An email can hold more than one pending invite in an organization, so use the unexpired one with the
+    # highest level. An expired invite fails the same validation as a duplicate membership above.
     return (
-        OrganizationInvite.objects.filter(target_email__iexact=email, organization_id=config.organization_id)
-        .order_by("-created_at")
+        OrganizationInvite.objects.filter(
+            target_email__iexact=email,
+            organization_id=config.organization_id,
+            created_at__gt=timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
+        )
+        .order_by("-level", "-created_at")
         .first()
     )
 
 
+def signup_refused(email: str, *, call_site: str) -> bool:
+    """Whether an enforced signup rule refuses a new account for this email. Never raises.
+
+    For signup paths that a partner's server drives, so there is no person's IP to check.
+    """
+    try:
+        return security_access_refused(SecuritySubject(email=email), SecuritySurface.SIGNUP, call_site=call_site)
+    except Exception:
+        logger.exception("security_access_check_site_failed", call_site=call_site)
+        return False
+
+
+def _refuse_blocked_sso_join(strategy: DjangoStrategy, backend: BaseAuth, email: str, user: Optional[User]) -> None:
+    """Refuse an SSO signup or organization join that an enforced signup rule blocks.
+
+    Invite and verified-domain joins over SSO never reach the signup serializers, so they run this
+    check themselves, right before an account is created or joins an organization.
+    """
+    try:
+        refused = security_access_refused(
+            SecuritySubject(
+                email=(user.email if user else email) or "",
+                user_uuid=str(user.uuid) if user else None,
+                ip=get_trusted_client_ip(strategy.request),
+            ),
+            SecuritySurface.SIGNUP,
+            call_site="sso_signup",
+        )
+    except Exception:
+        logger.exception("security_access_check_site_failed", call_site="sso_signup")
+        refused = False
+    if refused:
+        raise AuthFailed(backend, SIGNUP_BLOCKED_DETAIL)
+
+
 def process_social_invite_signup(
-    strategy: DjangoStrategy, invite_id: str, email: str, full_name: str, user: Optional[User] = None
+    strategy: DjangoStrategy,
+    invite_id: str,
+    email: str,
+    full_name: str,
+    user: Optional[User] = None,
+    *,
+    backend: BaseAuth,
 ) -> Optional[User]:
     try:
         # nosemgrep: idor-lookup-without-org (invite UUID from server session serves as auth token)
@@ -890,6 +994,8 @@ def process_social_invite_signup(
         if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(email, invite.organization):
             return None
 
+    _refuse_blocked_sso_join(strategy, backend, email, user)
+
     # Capture before invite.use() — use() deletes the invite row, so the in-memory boolean is
     # the only safe source of truth for delegation routing.
     is_delegation = bool(getattr(invite, "is_setup_delegation", False))
@@ -897,7 +1003,7 @@ def process_social_invite_signup(
         invite.validate(user=user, email=email)
         invite.use(user, prevalidated=True)
         if is_delegation:
-            strategy.session_set("next", "/onboarding")
+            strategy.session_set("next", DELEGATED_ONBOARDING_NEXT)
         return user
     else:
         invite.validate(user=None, email=email)
@@ -911,12 +1017,12 @@ def process_social_invite_signup(
             raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
 
         if is_delegation:
-            strategy.session_set("next", "/onboarding")
+            strategy.session_set("next", DELEGATED_ONBOARDING_NEXT)
         return _user
 
 
 def process_social_domain_jit_provisioning_signup(
-    strategy: DjangoStrategy, email: str, full_name: str, user: Optional[User] = None
+    strategy: DjangoStrategy, email: str, full_name: str, user: Optional[User] = None, *, backend: BaseAuth
 ) -> Optional[User]:
     # Check if the user is on an allowed domain
     domain = email.split("@")[-1]
@@ -941,11 +1047,23 @@ def process_social_domain_jit_provisioning_signup(
             scim_enabled=scim_enabled,
         )
         if domain_instance.is_verified and domain_instance.jit_provisioning_enabled:
+            if not user or not user.organizations.filter(pk=domain_instance.organization_id).exists():
+                _refuse_blocked_sso_join(strategy, backend, email, user)
             if not user:
                 try:
-                    invite: OrganizationInvite = OrganizationInvite.objects.get(
-                        target_email__iexact=email, organization=domain_instance.organization
+                    # An email can hold more than one pending invite in an organization, so accept
+                    # the one with the highest level.
+                    invite = (
+                        OrganizationInvite.objects.filter(
+                            target_email__iexact=email,
+                            organization=domain_instance.organization,
+                            created_at__gt=timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
+                        )
+                        .order_by("-level", "-created_at")
+                        .first()
                     )
+                    if invite is None:
+                        raise OrganizationInvite.DoesNotExist()
                     invite.validate(user=None, email=email)
                     # Capture before invite.use() deletes the invite row.
                     is_delegation = bool(getattr(invite, "is_setup_delegation", False))
@@ -962,7 +1080,7 @@ def process_social_domain_jit_provisioning_signup(
                         raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
 
                     if is_delegation:
-                        strategy.session_set("next", "/onboarding")
+                        strategy.session_set("next", DELEGATED_ONBOARDING_NEXT)
 
                 except (OrganizationInvite.DoesNotExist, InviteExpiredException):
                     user = User.objects.create_and_join(
@@ -1066,9 +1184,9 @@ def social_create_user(
             user.save()
 
         if invite_id:
-            process_social_invite_signup(strategy, invite_id, user.email, user.first_name, user)
+            process_social_invite_signup(strategy, invite_id, user.email, user.first_name, user, backend=backend)
         else:
-            process_social_domain_jit_provisioning_signup(strategy, user.email, user.first_name, user)
+            process_social_domain_jit_provisioning_signup(strategy, user.email, user.first_name, user, backend=backend)
 
         return {"is_new": False}
 
@@ -1092,13 +1210,13 @@ def social_create_user(
 
     if invite_id:
         from_invite = True
-        user = process_social_invite_signup(strategy, invite_id, email, full_name)
+        user = process_social_invite_signup(strategy, invite_id, email, full_name, backend=backend)
         if user is None:
             return redirect("/login?error_code=invalid_invite")
 
     else:
         # JIT Provisioning?
-        user = process_social_domain_jit_provisioning_signup(strategy, email, full_name)
+        user = process_social_domain_jit_provisioning_signup(strategy, email, full_name, backend=backend)
         logger.info(
             f"social_create_user_jit_user",
             full_name_len=len(full_name),
@@ -1142,6 +1260,12 @@ def social_create_user(
 
             return redirect(f"/organization/confirm-creation?{query_params_string}")
 
+    oauth_connection = read_pending_oauth_connection(request)
+    # A delegated invitee is the teammate asked to run onboarding, so they keep it.
+    is_delegated_invitee = strategy.session_get("next") == DELEGATED_ONBOARDING_NEXT
+    if oauth_connection is not None and user.organization is not None and not is_delegated_invitee:
+        apply_connector_signup_onboarding_skip(user, user.organization)
+
     report_user_signed_up(
         user,
         is_instance_first_user=User.objects.count() == 1,
@@ -1152,7 +1276,7 @@ def social_create_user(
         user_analytics_metadata=user.get_analytics_metadata(),
         org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
         referral_source="social signup - no info",
-        oauth_connection=read_pending_oauth_connection(request),
+        oauth_connection=oauth_connection,
     )
 
     return {"is_new": True, "user": user}

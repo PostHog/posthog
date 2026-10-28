@@ -54,22 +54,39 @@ export class RemotePiRpcClient implements PiRemoteRpcClient {
   async prompt(
     message: string,
     images?: Parameters<PiRemoteRpcClient["prompt"]>[1],
-  ): Promise<void> {
-    await this.request({ type: "prompt", message, images });
+    streamingBehavior?: Parameters<PiRemoteRpcClient["prompt"]>[2],
+  ): ReturnType<PiRemoteRpcClient["prompt"]> {
+    const data = this.data<{
+      disposition: Awaited<ReturnType<PiRemoteRpcClient["prompt"]>>;
+    }>(
+      await this.request({
+        type: "prompt",
+        message,
+        images,
+        streamingBehavior,
+      }),
+    );
+    return data.disposition;
   }
 
   async steer(
     message: string,
     images?: Parameters<PiRemoteRpcClient["steer"]>[1],
-  ): Promise<void> {
-    await this.request({ type: "steer", message, images });
+  ): ReturnType<PiRemoteRpcClient["steer"]> {
+    const data = this.data<{
+      disposition: Awaited<ReturnType<PiRemoteRpcClient["steer"]>>;
+    }>(await this.request({ type: "steer", message, images }));
+    return data.disposition;
   }
 
   async followUp(
     message: string,
     images?: Parameters<PiRemoteRpcClient["followUp"]>[1],
-  ): Promise<void> {
-    await this.request({ type: "follow_up", message, images });
+  ): ReturnType<PiRemoteRpcClient["followUp"]> {
+    const data = this.data<{
+      disposition: Awaited<ReturnType<PiRemoteRpcClient["followUp"]>>;
+    }>(await this.request({ type: "follow_up", message, images }));
+    return data.disposition;
   }
 
   async abort(): Promise<void> {

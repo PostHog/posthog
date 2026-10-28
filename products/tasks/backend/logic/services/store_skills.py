@@ -85,7 +85,11 @@ def refresh_store_skills_state(task_run: TaskRun, user: User, *, reason: str) ->
     """
     run_id = str(task_run.id)
     try:
-        store_skills = resolve_store_skills(task_run.task.team, user, run_id=run_id)
+        store_skills = (
+            []
+            if (task_run.state or {}).get("include_live_context") is False
+            else resolve_store_skills(task_run.task.team, user, run_id=run_id)
+        )
         if store_skills is None:
             return
         TaskRun.update_state_atomic(task_run.id, updates={STORE_SKILLS_STATE_KEY: store_skills})

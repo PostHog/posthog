@@ -1,22 +1,36 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
 import { subscriptions } from 'kea-subscriptions'
+import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { isUnderPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { fromPostHogProducts } from 'scenes/analytics/analyticsUtils'
 import { libraryTypeForPath } from 'scenes/library/libraryUtils'
+import { PhaiViewMode, maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { settingsSectionSceneForPath } from 'scenes/settings/settingsSectionScenes'
 import { urls } from 'scenes/urls'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { getNavProductPages, navProductHrefForPath } from '~/layout/panel-layout/navbar/tabs/navProductItems'
+import { FileSystemImport } from '~/queries/schema/schema-general'
 
-import { toolHrefForPath } from './todayToolsLogic'
+export type TodayRailPane = 'home' | 'spaces' | 'analytics' | 'products' | 'settings'
 
-export type TodayRailPane = 'home' | 'spaces' | 'views' | 'library' | 'tools'
+/** What showed or hid the sidebar. `navigation` is a page change that hides the unpinned sidebar. */
+export type TodaySidebarToggleSource =
+    | 'rail'
+    | 'shortcut'
+    | 'resizer'
+    | 'pane_header'
+    | 'scene_breadcrumb'
+    | 'navigation'
 
-export const TODAY_RAIL_WIDTH = 56
+export const TODAY_RAIL_WIDTH = 60
+export const TODAY_PHONE_MAX_WIDTH = 768
 export const TODAY_SIDEBAR_DEFAULT_WIDTH: number = 312
 export const TODAY_SIDEBAR_MIN_WIDTH = 240
 export const TODAY_SIDEBAR_MAX_WIDTH = 480
@@ -30,46 +44,119 @@ export function clampSidebarWidth(width: number | null): number {
     )
 }
 
-function isUnder(path: string, root: string): boolean {
-    return path === root || path.startsWith(`${root}/`)
+/** The task composer runs on the sandbox, so the legacy view starts a chat on `/ai` instead. */
+export function todayNewChatUrl(effectivePhaiView: PhaiViewMode): string {
+    return effectivePhaiView === 'new' ? urls.taskNewSession() : urls.ai()
+}
+
+/** The page a rail pick opens. Without one, a pick only opens the sidebar and the open page stays. */
+const RAIL_PANE_HOMES: Partial<Record<TodayRailPane, (effectivePhaiView: PhaiViewMode) => string>> = {
+    home: () => urls.projectHomepage(),
+    spaces: todayNewChatUrl,
+    analytics: () => urls.analyticsProductHome(),
+    settings: () => urls.settings('project'),
+}
+
+/** The page a rail pane opens, or undefined when the pane only opens the sidebar. */
+export function railPaneHref(pane: TodayRailPane, effectivePhaiView: PhaiViewMode): string | undefined {
+    return RAIL_PANE_HOMES[pane]?.(effectivePhaiView)
+}
+
+const PHONE_PAGE_LIMIT = 50
+
+export interface TodayPhonePage {
+    pathname: string
+    url: string
+}
+
+export function nextPhonePages(
+    pages: TodayPhonePage[],
+    method: LocationChangedPayload['method'],
+    page: TodayPhonePage
+): TodayPhonePage[] {
+    const current = pages[pages.length - 1]
+    if (method === 'PUSH' && current?.pathname !== page.pathname) {
+        return [...pages, page].slice(-PHONE_PAGE_LIMIT)
+    }
+    if (method === 'POP' && pages[pages.length - 2]?.pathname === page.pathname) {
+        return [...pages.slice(0, -2), page]
+    }
+    return [...pages.slice(0, -1), page]
 }
 
 /** The pane a route belongs to, or null for pages that keep whichever pane was open. */
 export function railPaneForPath(pathname: string): TodayRailPane | null {
     const path = removeProjectIdIfPresent(pathname)
-    if (path === '/' || isUnder(path, urls.projectHomepage())) {
+    if (path === '/' || isUnderPath(path, urls.projectHomepage())) {
         return 'home'
     }
-    if (isUnder(path, '/ai') || isUnder(path, '/spaces')) {
+    if (isUnderPath(path, '/ai') || isUnderPath(path, '/spaces')) {
         return 'spaces'
     }
+    // Notebooks, dashboards and insights are analytics, list pages included, so they never open the Products pane.
     if (
-        isUnder(path, urls.views()) ||
-        isUnder(path, '/canvases') ||
-        isUnder(path, urls.notebooks()) ||
-        isUnder(path, urls.dashboards())
+        isUnderPath(path, urls.analytics()) ||
+        isUnderPath(path, '/canvases') ||
+        isUnderPath(path, urls.notebooks()) ||
+        isUnderPath(path, urls.dashboards()) ||
+        isUnderPath(path, '/insights') ||
+        fromPostHogProducts().some((product) => isUnderPath(path, product.href.split(/[?#]/)[0]))
     ) {
-        return 'views'
+        return 'analytics'
     }
-    if (isUnder(path, urls.library()) || libraryTypeForPath(path)) {
-        return 'library'
+    if (isUnderPath(path, '/settings') || settingsSectionSceneForPath(path)) {
+        return 'settings'
     }
-    if (toolHrefForPath(path)) {
-        return 'tools'
+    if (
+        isUnderPath(path, urls.library()) ||
+        isUnderPath(path, urls.tools()) ||
+        libraryTypeForPath(path) ||
+        productsPaneListsPath(path)
+    ) {
+        return 'products'
     }
     return null
+}
+
+let navProductPages: FileSystemImport[] | null = null
+
+/** Whether the Products pane lists the product that owns this page. Some, like Dashboards, open under Analytics too. */
+function productsPaneListsPath(path: string): boolean {
+    navProductPages ??= getNavProductPages()
+    return !!navProductHrefForPath(path, navProductPages)
+}
+
+/** The pane to show after a page change: a page both panes list keeps the Products pane when it is open. */
+function paneAfterNavigation(openPane: TodayRailPane | null, pathname: string): TodayRailPane | null {
+    const routePane = railPaneForPath(pathname)
+    return openPane === 'products' &&
+        routePane === 'analytics' &&
+        productsPaneListsPath(removeProjectIdIfPresent(pathname))
+        ? openPane
+        : (routePane ?? openPane)
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface todayShellLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    effectivePhaiView: PhaiViewMode // maxGlobalLogic
     mobileLayout: boolean // navigationLogic
     activePane: TodayRailPane
+    lastSceneUrl: string | null
     leftNavWidth: number
     mobileSidebarOpen: boolean
+    onAiPage: boolean
+    paneHasSidebar: boolean
+    phoneCanGoBack: boolean
+    phoneHeaderHidden: boolean
+    phoneHeaderShown: boolean
+    phoneLayout: boolean
+    phonePages: TodayPhonePage[]
     pickedPane: TodayRailPane | null
     routePane: TodayRailPane | null
+    sidebarBreadcrumbShown: boolean
     sidebarOpen: boolean
+    sidebarPinned: boolean
     sidebarVisible: boolean
     sidebarWidth: number
     todayRailEnabled: boolean
@@ -98,11 +185,27 @@ export interface todayShellLogicActions {
         searchParams: Record<string, any>
         url: string
     } // router
+    clickRailPane: (pane: TodayRailPane) => {
+        pane: TodayRailPane
+    }
+    goBackOnPhone: () => {
+        value: true
+    }
     pickPane: (pane: TodayRailPane) => {
         pane: TodayRailPane
     }
+    rememberSceneUrl: (location: { hash: string; pathname: string; search: string }) => {
+        location: {
+            hash: string
+            pathname: string
+            search: string
+        }
+    }
     setMobileSidebarOpen: (open: boolean) => {
         open: boolean
+    }
+    setPhonePages: (pages: TodayPhonePage[]) => {
+        pages: TodayPhonePage[]
     }
     setSidebarOpen: (open: boolean) => {
         open: boolean
@@ -110,7 +213,10 @@ export interface todayShellLogicActions {
     setSidebarWidth: (width: number) => {
         width: number
     }
-    toggleSidebar: () => {
+    toggleSidebar: (source: TodaySidebarToggleSource) => {
+        source: TodaySidebarToggleSource
+    }
+    toggleSidebarPinned: () => {
         value: true
     }
 }
@@ -120,9 +226,36 @@ export interface todayShellLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         routePane: (location: { hash: string; pathname: string; search: string }) => TodayRailPane | null
         activePane: (pickedPane: TodayRailPane | null, routePane: TodayRailPane | null) => TodayRailPane
-        leftNavWidth: (sidebarOpen: boolean, sidebarWidth: number, mobileLayout: boolean) => number
-        sidebarVisible: (mobileLayout: boolean, mobileSidebarOpen: boolean, sidebarOpen: boolean) => boolean
+        paneHasSidebar: (activePane: TodayRailPane) => boolean
+        leftNavWidth: (
+            sidebarOpen: boolean,
+            sidebarWidth: number,
+            mobileLayout: boolean,
+            phoneLayout: boolean,
+            paneHasSidebar: boolean
+        ) => number
+        sidebarVisible: (
+            mobileLayout: boolean,
+            mobileSidebarOpen: boolean,
+            sidebarOpen: boolean,
+            paneHasSidebar: boolean
+        ) => boolean
         todayRailEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        onAiPage: (location: { hash: string; pathname: string; search: string }) => boolean
+        phoneHeaderHidden: (
+            onAiPage: boolean,
+            searchParams: Record<string, any>,
+            todayRailEnabled: boolean,
+            phoneLayout: boolean
+        ) => boolean
+        phoneHeaderShown: (todayRailEnabled: boolean, phoneLayout: boolean, phoneHeaderHidden: boolean) => boolean
+        phoneCanGoBack: (phonePages: TodayPhonePage[]) => boolean
+        sidebarBreadcrumbShown: (
+            todayRailEnabled: boolean,
+            phoneLayout: boolean,
+            sidebarVisible: boolean,
+            paneHasSidebar: boolean
+        ) => boolean
     }
 }
 
@@ -133,26 +266,53 @@ export type todayShellLogicType = MakeLogicType<
     todayShellLogicMeta
 >
 
+function isAiPath(pathname: string): boolean {
+    const path = removeProjectIdIfPresent(pathname)
+    return path === urls.ai() || path.startsWith(`${urls.ai()}/`)
+}
+
+function sceneUrlOutsideAi(
+    current: string | null,
+    { pathname, search, hash }: { pathname: string; search: string; hash: string }
+): string | null {
+    return isAiPath(pathname) ? current : `${pathname}${search}${hash}`
+}
+
 export const todayShellLogic = kea<todayShellLogicType>([
     path(['layout', 'today', 'todayShellLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], navigationLogic, ['mobileLayout']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            maxGlobalLogic,
+            ['effectivePhaiView'],
+            navigationLogic,
+            ['mobileLayout'],
+        ],
         actions: [router, ['locationChanged']],
     })),
     actions({
+        rememberSceneUrl: (location: { pathname: string; search: string; hash: string }) => ({ location }),
         pickPane: (pane: TodayRailPane) => ({ pane }),
+        goBackOnPhone: true,
+        setPhonePages: (pages: TodayPhonePage[]) => ({ pages }),
         setMobileSidebarOpen: (open: boolean) => ({ open }),
         setSidebarOpen: (open: boolean) => ({ open }),
         setSidebarWidth: (width: number) => ({ width }),
-        toggleSidebar: true,
+        toggleSidebar: (source: TodaySidebarToggleSource) => ({ source }),
+        toggleSidebarPinned: true,
+        clickRailPane: (pane: TodayRailPane) => ({ pane }),
     }),
+    windowValues(() => ({
+        phoneLayout: (window: Window) => window.innerWidth < TODAY_PHONE_MAX_WIDTH,
+    })),
     reducers({
         // The last pane picked on the rail, or reached through a route that belongs to one, stays open on other pages.
         pickedPane: [
             null as TodayRailPane | null,
             {
                 pickPane: (_, { pane }) => pane,
-                locationChanged: (state, { pathname }) => railPaneForPath(pathname) ?? state,
+                locationChanged: (state, { pathname }) => paneAfterNavigation(state, pathname),
             },
         ],
         sidebarOpen: [
@@ -162,11 +322,35 @@ export const todayShellLogic = kea<todayShellLogicType>([
                 setSidebarOpen: (_, { open }) => open,
             },
         ],
+        sidebarPinned: [
+            true,
+            { persist: true },
+            {
+                toggleSidebarPinned: (state) => !state,
+            },
+        ],
         mobileSidebarOpen: [
             false,
             {
                 setMobileSidebarOpen: (_, { open }) => open,
                 locationChanged: () => false,
+            },
+        ],
+        phonePages: [
+            [] as TodayPhonePage[],
+            {
+                setPhonePages: (_, { pages }) => pages,
+                setMobileSidebarOpen: (state, { open }) => (open ? [] : state),
+                locationChanged: (state, { method, pathname, search, hash }) =>
+                    nextPhonePages(state, method, { pathname, url: `${pathname}${search}${hash}` }),
+            },
+        ],
+        // Where the user was before /ai, so a chat moved from /ai into the panel opens over that scene again.
+        lastSceneUrl: [
+            null as string | null,
+            {
+                locationChanged: (state, location) => sceneUrlOutsideAi(state, location),
+                rememberSceneUrl: (state, { location }) => sceneUrlOutsideAi(state, location),
             },
         ],
         // The resizer persists the width itself. This copy lets the app layout size the main column from it.
@@ -182,31 +366,102 @@ export const todayShellLogic = kea<todayShellLogicType>([
             (pickedPane: TodayRailPane | null, routePane: TodayRailPane | null): TodayRailPane =>
                 pickedPane ?? routePane ?? 'home',
         ],
+        paneHasSidebar: [(s) => [s.activePane], (activePane: TodayRailPane): boolean => activePane !== 'home'],
         leftNavWidth: [
-            (s) => [s.sidebarOpen, s.sidebarWidth, s.mobileLayout],
-            (sidebarOpen: boolean, sidebarWidth: number, mobileLayout: boolean): number =>
-                TODAY_RAIL_WIDTH + (sidebarOpen && !mobileLayout ? sidebarWidth : 0),
+            (s) => [s.sidebarOpen, s.sidebarWidth, s.mobileLayout, s.phoneLayout, s.paneHasSidebar],
+            (
+                sidebarOpen: boolean,
+                sidebarWidth: number,
+                mobileLayout: boolean,
+                phoneLayout: boolean,
+                paneHasSidebar: boolean
+            ): number =>
+                phoneLayout
+                    ? 0
+                    : TODAY_RAIL_WIDTH + (sidebarOpen && paneHasSidebar && !mobileLayout ? sidebarWidth : 0),
         ],
         sidebarVisible: [
-            (s) => [s.mobileLayout, s.mobileSidebarOpen, s.sidebarOpen],
-            (mobileLayout: boolean, mobileSidebarOpen: boolean, sidebarOpen: boolean): boolean =>
-                mobileLayout ? mobileSidebarOpen : sidebarOpen,
+            (s) => [s.mobileLayout, s.mobileSidebarOpen, s.sidebarOpen, s.paneHasSidebar],
+            (
+                mobileLayout: boolean,
+                mobileSidebarOpen: boolean,
+                sidebarOpen: boolean,
+                paneHasSidebar: boolean
+            ): boolean => paneHasSidebar && (mobileLayout ? mobileSidebarOpen : sidebarOpen),
         ],
         todayRailEnabled: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV],
+        ],
+        onAiPage: [
+            () => [router.selectors.location],
+            (location: { pathname: string }): boolean => isAiPath(location.pathname),
+        ],
+        phoneHeaderHidden: [
+            (s) => [s.onAiPage, router.selectors.searchParams, s.todayRailEnabled, s.phoneLayout],
+            (
+                onAiPage: boolean,
+                searchParams: Record<string, any>,
+                todayRailEnabled: boolean,
+                phoneLayout: boolean
+            ): boolean => todayRailEnabled && phoneLayout && onAiPage && !!searchParams.task,
+        ],
+        // The phone header shows the scene title, so the scene title row leaves it out.
+        phoneHeaderShown: [
+            (s) => [s.todayRailEnabled, s.phoneLayout, s.phoneHeaderHidden],
+            (todayRailEnabled: boolean, phoneLayout: boolean, phoneHeaderHidden: boolean): boolean =>
+                todayRailEnabled && phoneLayout && !phoneHeaderHidden,
+        ],
+        phoneCanGoBack: [(s) => [s.phonePages], (phonePages: TodayPhonePage[]): boolean => phonePages.length > 1],
+        // The scene title row names the hidden sidebar's pane, so a click there opens it again. A floating sidebar
+        // covers the button instead of replacing it, so it stays and the title never shifts. Phones open the
+        // sidebar from the phone header.
+        sidebarBreadcrumbShown: [
+            (s) => [s.todayRailEnabled, s.phoneLayout, s.sidebarVisible, s.paneHasSidebar],
+            (
+                todayRailEnabled: boolean,
+                phoneLayout: boolean,
+                sidebarVisible: boolean,
+                paneHasSidebar: boolean
+            ): boolean =>
+                // A hidden sidebar needs the crumb to come back, docked or overlay. The phone header has its own.
+                todayRailEnabled && paneHasSidebar && !phoneLayout && !sidebarVisible,
         ],
     }),
     subscriptions(({ actions }) => ({
         mobileLayout: () => actions.setMobileSidebarOpen(false),
     })),
     listeners(({ actions, values, cache }) => ({
-        toggleSidebar: () => {
+        toggleSidebar: ({ source }) => {
             if (values.mobileLayout) {
                 actions.setMobileSidebarOpen(!values.mobileSidebarOpen)
             } else {
                 actions.setSidebarOpen(!values.sidebarOpen)
             }
+            // pinned: analytics event name and properties. Renaming them breaks dashboards.
+            posthog.capture('today sidebar toggled', {
+                source,
+                open: values.sidebarVisible,
+                mobile_layout: values.mobileLayout,
+            })
+        },
+        locationChanged: ({ method, pathname }) => {
+            const pageChanged = method === 'PUSH' && pathname !== cache.lastPathname
+            cache.lastPathname = pathname
+            // An unpinned sidebar gives the new page room. The drawer closes on its own, and a rail pick wants it open.
+            if (
+                pageChanged &&
+                !values.sidebarPinned &&
+                !values.mobileLayout &&
+                values.sidebarOpen &&
+                !cache.pickingPane
+            ) {
+                actions.toggleSidebar('navigation')
+            }
+        },
+        toggleSidebarPinned: () => {
+            // pinned: analytics event name and property. Renaming them breaks dashboards.
+            posthog.capture('today sidebar pin toggled', { pinned: values.sidebarPinned })
         },
         setMobileSidebarOpen: ({ open }) => {
             if (!open) {
@@ -223,17 +478,30 @@ export const todayShellLogic = kea<todayShellLogicType>([
                 return () => window.removeEventListener('keydown', onKeyDown)
             }, 'drawerEscape')
         },
+        goBackOnPhone: () => {
+            const previous = values.phonePages[values.phonePages.length - 2]
+            if (!previous) {
+                actions.setMobileSidebarOpen(true)
+                return
+            }
+            actions.setPhonePages(values.phonePages.slice(0, -1))
+            router.actions.replace(previous.url)
+        },
+        clickRailPane: ({ pane }) => {
+            if (values.activePane === pane && values.sidebarVisible) {
+                actions.toggleSidebar('rail')
+                return
+            }
+            actions.pickPane(pane)
+        },
         pickPane: ({ pane }) => {
             // pinned: analytics event name and property. Renaming them breaks dashboards.
-            posthog.capture('today rail pane picked', { pane })
-            if (pane === 'home' && values.routePane !== 'home') {
-                router.actions.push(urls.projectHomepage())
-            }
-            if (pane === 'views' && values.routePane !== 'views') {
-                router.actions.push(urls.views())
-            }
-            if (pane === 'library' && values.routePane !== 'library') {
-                router.actions.push(urls.library())
+            posthog.capture('today rail pane picked', { pane, phone_layout: values.phoneLayout })
+            const href = railPaneHref(pane, values.effectivePhaiView)
+            if (href) {
+                cache.pickingPane = true
+                router.actions.push(href)
+                cache.pickingPane = false
             }
             if (values.mobileLayout) {
                 actions.setMobileSidebarOpen(true)
@@ -242,4 +510,10 @@ export const todayShellLogic = kea<todayShellLogicType>([
             }
         },
     })),
+    afterMount(({ actions, cache }) => {
+        const { pathname, search, hash } = router.values.location
+        cache.lastPathname = pathname
+        actions.rememberSceneUrl({ pathname, search, hash })
+        actions.setPhonePages([{ pathname, url: `${pathname}${search}${hash}` }])
+    }),
 ])

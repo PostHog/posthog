@@ -24,13 +24,15 @@ from posthog.api import (
 )
 from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
 from posthog.api.integration_connect import integration_connect_redirect
+from posthog.api.livestream import LivestreamAuthorizationView
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.toolbar_views import authorize_and_redirect
+from posthog.api.scim import views as scim_views
 from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.web_experiment import web_experiments
 from posthog.ee_urls import ee_urlpatterns
-from posthog.frontend_views import home, home_with_region_redirect
+from posthog.frontend_views import app_context, home, home_with_region_redirect
 from posthog.ingress.github.provider import build_github_provider
 from posthog.ingress.views import build_webhook_view
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
@@ -39,17 +41,16 @@ from posthog.temporal.codec_server import decode_payloads
 from posthog.web_bot_auth import http_message_signatures_directory
 
 from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
-from products.canvas.backend.artifacts import canvas_artifact, canvas_sandbox_document
+from products.canvas.backend.presentation.views import canvas_artifact, canvas_sandbox_document
 from products.cdp.backend.api import hog_function_template
 from products.conversations.backend.api.internal import InternalTicketView as ConversationsInternalTicketView
 from products.customer_analytics.backend.presentation.views.internal import (
     InternalAccountCustomPropertiesView as CustomerAnalyticsInternalAccountCustomPropertiesView,
     InternalAccountView as CustomerAnalyticsInternalAccountView,
 )
-from products.demo.backend.facade.api import demo_route
 from products.early_access_features.backend.api import early_access_features
-from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
-from products.messaging.backend.api.push_subscriptions import push_subscriptions
+from products.messaging.backend.presentation.views.customerio_webhook import CustomerIOWebhookView
+from products.messaging.backend.presentation.views.recipient_preferences import preferences_page, update_preferences
 from products.notebooks.backend.facade.sql_v2 import (
     notebook_sql_v2_callback,
     notebook_sql_v2_data_plane,
@@ -72,10 +73,10 @@ from products.slack_app.backend.views import (
 from products.streamlit_apps.backend.presentation.bridge_views import StreamlitBridgeView
 from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
+from products.tasks.backend.presentation.views.artifact_preview import task_artifact_preview
 from products.tasks.backend.presentation.views.gateway_generation_requests import gateway_generation_request
-from products.user_interviews.backend.presentation.webhooks import start_call as user_interviews_start_call
 from products.warehouse_sources.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
-from products.workflows.backend.presentation.views import hog_flow, hog_flow_template
+from products.workflows.backend.presentation.views import hog_flow
 
 from .utils import opt_slash_path
 from .views import (
@@ -83,20 +84,19 @@ from .views import (
     health,
     login_required,
     metrics_view,
-    preferences_page,
     preflight_check,
     render_query,
     replay_player_frame,
     robots_txt,
     security_txt,
     stats,
-    update_preferences,
 )
 
 # One view for both paths, so the provider is built once per process rather than once per route.
 github_app_webhook = build_webhook_view(build_github_provider("posthog"))
 
 urlpatterns = [
+    path("api/livestream/authorize/", LivestreamAuthorizationView.as_view(), name="livestream-authorize"),
     # EU spend must precede both the API router and the API fallback.
     *(
         [
@@ -135,8 +135,32 @@ urlpatterns = [
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
+    opt_slash_path(r"(?:project/\d+/)?_app_context", app_context),
     # ee
     *ee_urlpatterns,
+    path("scim/v2/<str:scim_slug>/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users"),
+    path(
+        "scim/v2/<str:scim_slug>/Users/<int:user_id>",
+        csrf_exempt(scim_views.SCIMUserDetailView.as_view()),
+        name="scim_user_detail",
+    ),
+    path("scim/v2/<str:scim_slug>/Groups", csrf_exempt(scim_views.SCIMGroupsView.as_view()), name="scim_groups"),
+    path(
+        "scim/v2/<str:scim_slug>/Groups/<uuid:group_id>",
+        csrf_exempt(scim_views.SCIMGroupDetailView.as_view()),
+        name="scim_group_detail",
+    ),
+    path(
+        "scim/v2/<str:scim_slug>/ServiceProviderConfig",
+        csrf_exempt(scim_views.SCIMServiceProviderConfigView.as_view()),
+        name="scim_service_provider_config",
+    ),
+    path(
+        "scim/v2/<str:scim_slug>/ResourceTypes",
+        csrf_exempt(scim_views.SCIMResourceTypesView.as_view()),
+        name="scim_resource_types",
+    ),
+    path("scim/v2/<str:scim_slug>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
     # api
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
@@ -147,11 +171,6 @@ urlpatterns = [
         name="user_signal_autonomy",
     ),
     path("api/projects/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
-    path(
-        "api/user_interviews/share/<str:access_token>/start_call/",
-        csrf_exempt(user_interviews_start_call),
-        name="user_interviews_start_call",
-    ),
     path("api/sdk_health/", sdk_health),
     # Conversations serves its widget and channel API from backend/api/, which its routes module
     # may not import (import-linter contract "routes must only import presentation"), so the mount
@@ -187,7 +206,6 @@ urlpatterns = [
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/early_access_features", early_access_features),
     opt_slash_path("api/web_experiments", web_experiments),
-    opt_slash_path("api/push_subscriptions", push_subscriptions),
     opt_slash_path("api/product_tours", product_tours),
     re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
     opt_slash_path("api/signup/precheck", signup.SignupEmailPrecheckViewset.as_view()),
@@ -206,10 +224,6 @@ urlpatterns = [
     opt_slash_path(
         "api/public_hog_function_templates",
         hog_function_template.PublicHogFunctionTemplateViewSet.as_view({"get": "list"}),
-    ),
-    opt_slash_path(
-        "api/public_hog_flow_templates",
-        hog_flow_template.PublicHogFlowTemplateViewSet.as_view({"get": "list"}),
     ),
     opt_slash_path(
         "api/public_source_configs",
@@ -305,10 +319,6 @@ urlpatterns = [
         "embedded/<str:access_token>",
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
-    path(
-        "interview/<str:access_token>",
-        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
-    ),
     path("render_query", render_query, name="render_query"),
     path("exporter", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
     path(
@@ -316,7 +326,6 @@ urlpatterns = [
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
-    re_path(r"^demo.*", login_required(demo_route)),
     path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
@@ -369,6 +378,11 @@ urlpatterns = [
         r"^canvas-artifacts/sandbox/(?P<content_hash>[0-9a-f]{64})/index\.html$",
         canvas_sandbox_document,
         name="canvas-sandbox-document",
+    ),
+    re_path(
+        r"^canvas-artifacts/task-preview/(?P<token>[A-Za-z0-9_-]+)/index\.html$",
+        task_artifact_preview,
+        name="task-artifact-preview",
     ),
     re_path(r"^canvas-artifacts/(?P<token>[^/]+)/(?P<artifact_path>.+)$", canvas_artifact, name="canvas-artifact"),
     # Preserve the host and query when redirecting the legacy signup URL.

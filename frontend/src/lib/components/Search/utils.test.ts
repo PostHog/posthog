@@ -7,6 +7,7 @@ interface TestItem {
     displayName?: string
     category: string
     searchKeywords?: string[]
+    matchedSearchKeyword?: string | null
 }
 
 const makeItem = (name: string, category = 'tools', extra: Partial<TestItem> = {}): TestItem => ({
@@ -88,6 +89,15 @@ describe('filterSearchItems', () => {
         it('matches on keyword "database"', () => {
             const results = filterSearchItems(items, 'database')
             expect(names(results)).toContain('Data warehouse')
+        })
+
+        it.each([
+            ['sql', 'sql'],
+            ['DATABASE', 'database'],
+            ['data warehouse', null],
+        ])('reports the keyword that matched %s', (query, expectedKeyword) => {
+            const match = filterSearchItems(items, query).find((item) => item.name === 'Data warehouse')
+            expect(match?.matchedSearchKeyword).toBe(expectedKeyword)
         })
     })
 

@@ -28,7 +28,9 @@ export function NodeTypeLegend({ collapsed, onToggleCollapse }: NodeTypeLegendPr
                 onClick={onToggleCollapse}
                 data-attr="lineage-legend-toggle"
                 tooltip="Show what each node type means"
-            />
+            >
+                Node types
+            </LemonButton>
         )
     }
 

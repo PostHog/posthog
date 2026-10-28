@@ -50,8 +50,10 @@ export function PropertiesTable({
                     className: 'font-medium bg-inherit',
                     render: (dataValue, record) => (
                         <div className="flex gap-x-2 justify-between items-center">
-                            <div>{String(dataValue)}</div>
-                            <div className="flex items-center gap-1">
+                            <div className={tableLayout === 'fixed' ? 'min-w-0 wrap-anywhere' : undefined}>
+                                {String(dataValue)}
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1">
                                 {onFilterValue &&
                                     record.filterKey &&
                                     getFilterableValue(record.filterValue ?? record.value) !== null && (

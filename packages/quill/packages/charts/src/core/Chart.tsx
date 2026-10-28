@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useLayoutEffect, useMemo, useState } from 'react'
 
 import {
     AxisLabels,
@@ -46,6 +46,8 @@ import { computeYAxisGutters, type Gutter } from './y-axis-gutters'
 
 const DEFAULT_AXIS_COLOR = 'rgba(0, 0, 0, 0.5)'
 const DEFAULT_HOVER_ANIMATION_MS = 150
+// Horizontal charts let category labels use this share of the chart width when it beats the fixed cap.
+const HORIZONTAL_CATEGORY_LABEL_WIDTH_RATIO = 0.3
 
 function resolveHoverAnimationMs(animateHover: boolean | number | undefined): number {
     if (animateHover === true) {
@@ -70,6 +72,12 @@ export interface ChartProps<Meta = unknown> {
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Fires on a right click with the series nearest the cursor. It never pins or unpins the
+     *  tooltip. The browser menu still opens unless the host calls `preventDefault()` on the
+     *  `contextmenu` event. `isPointClickable` limits it like `onPointClick`. */
+    onPointContextMenu?: (data: PointClickData<Meta>) => void
+    /** Limits `onPointClick` and the pointer cursor to the points it returns true for. */
+    isPointClickable?: (dataIndex: number) => boolean
     /** Enables x-axis drag-to-zoom. Fired with the label range the user dragged across.
      *  x-axis only — has no effect on charts with a vertical (`interactionAxis: 'y'`) interaction. */
     onDateRangeZoom?: (data: DateRangeZoomData) => void
@@ -126,6 +134,8 @@ export function Chart<Meta = unknown>({
     drawHover,
     tooltip: renderTooltipProp,
     onPointClick,
+    onPointContextMenu,
+    isPointClickable,
     onDateRangeZoom,
     onAreaSelect,
     className,
@@ -154,9 +164,16 @@ export function Chart<Meta = unknown>({
         isPercent = false,
         animateHover,
         margins: marginsOverride,
-        maxCategoryLabelWidth,
+        maxCategoryLabelWidth: baseMaxCategoryLabelWidth,
         yAxes,
     } = config ?? {}
+
+    // Width from the last layout. Margins feed the canvas size, so the cap can only react to it one render later.
+    const [chartWidth, setChartWidth] = useState(0)
+    const maxCategoryLabelWidth =
+        baseMaxCategoryLabelWidth && axisOrientation === 'horizontal'
+            ? Math.max(baseMaxCategoryLabelWidth, Math.floor(chartWidth * HORIZONTAL_CATEGORY_LABEL_WIDTH_RATIO))
+            : baseMaxCategoryLabelWidth
 
     const {
         formatters: yAxisFormatters,
@@ -215,6 +232,7 @@ export function Chart<Meta = unknown>({
         xTickLabelRotation,
         yTickFormatter,
         axisOrientation,
+        isPercent,
         override: marginsOverride,
         valueRangeSeries,
         maxCategoryLabelWidth,
@@ -225,6 +243,8 @@ export function Chart<Meta = unknown>({
     })
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
+    const containerWidth = dimensions?.width ?? 0
+    useLayoutEffect(() => setChartWidth(containerWidth), [containerWidth])
 
     const coloredSeries = useColoredSeries<Meta>(series, theme)
 
@@ -334,6 +354,8 @@ export function Chart<Meta = unknown>({
         pinnable: pinnableTooltip,
         resolveClickToNearestSeries,
         onPointClick,
+        onPointContextMenu,
+        isPointClickable,
         onDateRangeZoom,
         onAreaSelect,
         resolveValue,
@@ -434,9 +456,16 @@ export function Chart<Meta = unknown>({
                     overlayCanvasRef={overlayCanvasRef}
                     className={className}
                     dataAttr={dataAttr}
-                    pointer={hoverIndex >= 0 && !!onPointClick}
+                    pointer={
+                        hoverIndex >= 0 &&
+                        hoverIndex < labels.length &&
+                        !!onPointClick &&
+                        (isPointClickable?.(hoverIndex) ?? true)
+                    }
                     crosshair={!!onDateRangeZoom || !!onAreaSelect}
+                    contextMenu={!!onPointContextMenu}
                     ariaLabel={ariaLabel}
+                    labelCount={labels.length}
                     handlers={handlers}
                     showOverlay={!!(dimensions && scales)}
                 >

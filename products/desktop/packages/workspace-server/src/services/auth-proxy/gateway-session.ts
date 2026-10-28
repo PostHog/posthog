@@ -4,6 +4,8 @@ import {
   aiGatewayDenialCode,
   aiGatewayRemintReason,
   applyAllowedModels,
+  GATEWAY_BLOCKED_ERROR_TYPES,
+  GATEWAY_TRANSIENT_DETAIL,
   serializeError,
 } from "@posthog/shared";
 import { collapsePropertyHeadersForAiGateway } from "@posthog/shared/posthog-property-headers";
@@ -75,7 +77,10 @@ function isSessionHeader(lower: string): boolean {
 
 /** Serves session targets: Go under a per-request credential, else legacy. */
 export class GatewaySessionHandler {
-  private readonly modes = new WeakMap<SessionTarget, "go" | "legacy">();
+  private readonly modes = new WeakMap<
+    SessionTarget,
+    GatewayCredential["mode"]
+  >();
 
   constructor(
     private readonly deps: {
@@ -144,18 +149,20 @@ export class GatewaySessionHandler {
     const credential: GatewayCredential = await this.deps
       .source()
       .getRoute(target.projectId)
-      .catch(() => ({ mode: "legacy", reason: "route_failed" }));
+      .catch(() => ({
+        mode: "blocked",
+        reason: "route_failed",
+        detail: GATEWAY_TRANSIENT_DETAIL,
+        status: 503,
+      }));
     if (abort.signal.aborted) return;
     this.noteMode(
       target,
-      credential.mode === "legacy" ? "legacy" : "go",
-      credential.mode === "legacy" ? credential.reason : undefined,
+      credential.mode,
+      credential.mode === "blocked" ? credential.reason : undefined,
     );
     // Listing models is read-only, so a blocked org still sees the picker.
-    if (
-      credential.mode === "legacy" ||
-      (credential.mode === "blocked" && path === "/v1/models")
-    ) {
+    if (credential.mode === "blocked" && path === "/v1/models") {
       this.forwardOnLegacy(
         target,
         { path, search, method, body },
@@ -166,8 +173,8 @@ export class GatewaySessionHandler {
       return;
     }
     if (credential.mode === "blocked") {
-      jsonError(res, 402, {
-        type: "billing_error",
+      jsonError(res, credential.status, {
+        type: GATEWAY_BLOCKED_ERROR_TYPES[credential.status],
         code: credential.reason,
         message: credential.detail,
       });
@@ -191,13 +198,13 @@ export class GatewaySessionHandler {
 
   private noteMode(
     target: SessionTarget,
-    mode: "go" | "legacy",
+    mode: GatewayCredential["mode"],
     reason: string | undefined,
   ): void {
     const previous = this.modes.get(target);
     this.modes.set(target, mode);
     if (previous === undefined || previous === mode) return;
-    this.deps.log.info("Gateway session switched gateway", {
+    this.deps.log.info("Gateway session route changed", {
       projectId: target.projectId,
       from: previous,
       to: mode,

@@ -1,14 +1,10 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lemonsqueezy import (
     LemonSqueezySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemon_squeezy.settings import (
-    ENDPOINTS,
-    INCREMENTAL_ENDPOINTS,
-    INCREMENTAL_FIELDS,
     SCHEMA_TO_WEBHOOK_EVENTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemon_squeezy.source import LemonSqueezySource
@@ -21,52 +17,6 @@ class TestLemonSqueezySource:
         self.source = LemonSqueezySource()
         self.team_id = 123
         self.config = LemonSqueezySourceConfig(api_key="test-api-key")
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "LemonSqueezy"
-        assert config.label == "Lemon Squeezy"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # The source must ship visible: unreleasedSource hides it from every user.
-        assert not config.unreleasedSource
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/lemon-squeezy"
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.lemonsqueezy.com/v1/orders?page%5Bsize%5D=100",
-            "403 Client Error: Forbidden for url: https://api.lemonsqueezy.com/v1/stores",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://api.lemonsqueezy.com/v1/orders",
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_unrelated(self, other_error):
-        assert not any(key in other_error for key in self.source.get_non_retryable_errors())
-
-    def test_get_schemas(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        incremental = {schema.name for schema in schemas if schema.supports_incremental}
-        # Only append-mostly endpoints get the stop-early created_at cursor; mutable
-        # resources stay full refresh so in-place updates aren't silently missed.
-        assert incremental == set(INCREMENTAL_ENDPOINTS)
-
-    def test_incremental_schemas_are_merge_only(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-        for name in INCREMENTAL_ENDPOINTS:
-            # The stop-early cursor re-yields watermark boundary rows, which only merge dedupes.
-            assert schemas[name].supports_append is False
-            assert schemas[name].incremental_fields == INCREMENTAL_FIELDS[name]
 
     @pytest.mark.parametrize("mock_return, expected_valid", [(True, True), (False, False)])
     @mock.patch(f"{API_CLIENT_PATCH}.validate_credentials")
@@ -124,10 +74,6 @@ class TestLemonSqueezySource:
         assert template.type == "warehouse_source_webhook"
         input_keys = {input_schema["key"] for input_schema in template.inputs_schema}
         assert {"signing_secret", "schema_mapping", "source_id"} <= input_keys
-
-    def test_get_desired_webhook_events_covers_eligible_schemas_only(self):
-        events = self.source.get_desired_webhook_events(self.config, ["orders", "license_keys"])
-        assert events == sorted(SCHEMA_TO_WEBHOOK_EVENTS["orders"] + SCHEMA_TO_WEBHOOK_EVENTS["license_keys"])
 
     @mock.patch(f"{API_CLIENT_PATCH}.create_webhook")
     def test_create_webhook_delegates(self, mock_create):

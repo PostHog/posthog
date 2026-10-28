@@ -1,35 +1,31 @@
 from collections.abc import Iterator
-from datetime import (
-    UTC,
-    date,
-    datetime,
-    time,
-    timedelta,
-    timezone as fixed_timezone,
-)
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
-from django.conf import settings
-
+import requests
 from requests_oauthlib import OAuth1
 
 from posthog.dataclasses import frozen
 from posthog.models.integration.model import Integration
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.twitter_ads.settings import (
     API_VERSION,
     ENTITY_TABLES,
+    MAX_STATS_BACKFILL_DAYS,
     MISSING_APP,
     MISSING_INTEGRATION,
+    PAGE_SIZES,
     PARTITION_KEYS,
     PLACEMENTS,
     PRIMARY_KEYS,
     STATS_TABLES,
+    UNSORTABLE_TABLES,
 )
 
 
@@ -39,6 +35,53 @@ class TwitterAdsResumeConfig:
     next_date: str | None = None
     end_date: str | None = None
     complete: bool = False
+
+
+# X rejects a DAY-granularity window wider than this.
+MAX_STATS_WINDOW = timedelta(days=7)
+
+# Cap on how much of X's error body rides along in the exception message.
+_MAX_ERROR_DETAIL = 300
+
+
+def _account_midnight(day: date, account_timezone: ZoneInfo) -> datetime:
+    """Midnight on `day` in the ad account's own timezone, as UTC.
+
+    X requires a DAY-granularity window to start and end at midnight in that timezone, and the
+    offset it wants is the one in force on `day` itself. Reusing today's offset for a historical
+    window sends an hour past midnight across a daylight-saving boundary, which X answers with a
+    400 rather than a shifted result.
+    """
+    return datetime.combine(day, time.min, account_timezone).astimezone(UTC)
+
+
+def _error_detail(response: requests.Response) -> str:
+    """X's own explanation for a failed request, for the message a user and an engineer both read.
+
+    A bare status line says nothing about which parameter X objected to, and the body is the only
+    place that appears.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        return response.text.strip()[:_MAX_ERROR_DETAIL]
+
+    if not isinstance(body, dict):
+        return ""
+    errors = body.get("errors") or body.get("operation_errors") or []
+    if not isinstance(errors, list):
+        return ""
+    parts = []
+    for error in errors:
+        if not isinstance(error, dict):
+            continue
+        label = error.get("code") or ""
+        parameter = error.get("parameter")
+        if parameter:
+            label = f"{label} ({parameter})" if label else f"({parameter})"
+        message = error.get("message") or ""
+        parts.append(f"{label}: {message}" if label and message else label or message)
+    return "; ".join(part for part in parts if part)[:_MAX_ERROR_DETAIL]
 
 
 class TwitterAdsClient:
@@ -51,27 +94,34 @@ class TwitterAdsClient:
         secret = integration.sensitive_config.get("oauth_token_secret")
         if not token or not secret:
             raise ValueError(MISSING_INTEGRATION)
-        if not settings.TWITTER_ADS_CONSUMER_KEY or not settings.TWITTER_ADS_CONSUMER_SECRET:
+        consumer = credentials_service.get_secrets(["TWITTER_ADS_CONSUMER_KEY", "TWITTER_ADS_CONSUMER_SECRET"])
+        consumer_key = consumer["TWITTER_ADS_CONSUMER_KEY"]
+        consumer_secret = consumer["TWITTER_ADS_CONSUMER_SECRET"]
+        if not consumer_key or not consumer_secret:
             raise ValueError(MISSING_APP)
-        self.session = make_tracked_session(
-            allow_redirects=False, redact_values=(token, secret, settings.TWITTER_ADS_CONSUMER_SECRET)
-        )
-        self.session.auth = OAuth1(
-            settings.TWITTER_ADS_CONSUMER_KEY, settings.TWITTER_ADS_CONSUMER_SECRET, token, secret
-        )
+        self.session = make_tracked_session(allow_redirects=False, redact_values=(token, secret, consumer_secret))
+        self.session.auth = OAuth1(consumer_key, consumer_secret, token, secret)
         self.base_url = f"https://ads-api.x.com/{api_version}"
 
     def get(self, path: str, params: dict[str, str | int] | None = None) -> dict[str, Any]:
         response = self.session.get(f"{self.base_url}/{path}", params=params, timeout=60)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as error:
+            # Keep the "<status> Client Error" prefix: `get_non_retryable_errors` matches on it.
+            detail = _error_detail(response)
+            if detail:
+                raise requests.HTTPError(f"{error}. {detail}", response=response, request=error.request) from None
+            raise
         if response.status_code != 200:
             raise ValueError("X Ads returned an unexpected response")
         return response.json()
 
     def pages(self, path: str, cursor: str | None = None) -> Iterator[dict[str, Any]]:
+        table = path.rsplit("/", 1)[-1]
         while True:
-            params: dict[str, str | int] = {"count": 1000, "with_deleted": "true"}
-            if path.rsplit("/", 1)[-1] != "media_creatives":
+            params: dict[str, str | int] = {"count": PAGE_SIZES.get(table, 1000), "with_deleted": "true"}
+            if table not in UNSORTABLE_TABLES:
                 params["sort_by"] = "created_at-asc"
             if cursor:
                 params["cursor"] = cursor
@@ -131,8 +181,6 @@ class TwitterAdsClient:
         account = self.get(account_path, {"with_deleted": "true"})["data"]
         account_timezone = ZoneInfo(account["timezone"])
         account_now = datetime.now(account_timezone)
-        # X requires the current account UTC offset even when querying historical days.
-        timezone = fixed_timezone(account_now.utcoffset() or timedelta())
         campaigns = self.entities(account_id, "campaigns")
         funding = {row["id"]: row["currency"] for row in self.entities(account_id, "funding_instruments")}
         campaign_currencies = {row["id"]: funding[row["funding_instrument_id"]] for row in campaigns}
@@ -145,18 +193,25 @@ class TwitterAdsClient:
         entity_ids = sorted(row["id"] for row in entities)
         if not entity_ids:
             return
-        start = (
-            date.fromisoformat(str(incremental_since)[:10])
-            if incremental_since is not None
-            else datetime.fromisoformat(account["created_at"].replace("Z", "+00:00")).astimezone(timezone).date()
-        )
+        if incremental_since is not None:
+            start = date.fromisoformat(str(incremental_since)[:10])
+        else:
+            created_at = (
+                datetime.fromisoformat(account["created_at"].replace("Z", "+00:00")).astimezone(account_timezone).date()
+            )
+            start = max(created_at, account_now.date() - timedelta(days=MAX_STATS_BACKFILL_DAYS))
         if state.next_date:
             start = date.fromisoformat(state.next_date)
         end = date.fromisoformat(state.end_date) if state.end_date else account_now.date()
         while start < end:
             window_end = min(start + timedelta(days=7), end)
-            start_time = datetime.combine(start, time.min, timezone).astimezone(UTC)
-            end_time = datetime.combine(window_end, time.min, timezone).astimezone(UTC)
+            start_time = _account_midnight(start, account_timezone)
+            end_time = _account_midnight(window_end, account_timezone)
+            # A week containing a fall-back transition spans 169 hours, one over X's ceiling, so
+            # hand that window a day back rather than letting the request 400.
+            while end_time - start_time > MAX_STATS_WINDOW:
+                window_end -= timedelta(days=1)
+                end_time = _account_midnight(window_end, account_timezone)
             for batch_start in range(0, len(entity_ids), 20):
                 for placement in PLACEMENTS:
                     payload = self.get(
@@ -164,8 +219,13 @@ class TwitterAdsClient:
                         {
                             "entity": STATS_TABLES[table],
                             "entity_ids": ",".join(entity_ids[batch_start : batch_start + 20]),
-                            "start_time": start_time.isoformat().replace("+00:00", "Z"),
-                            "end_time": end_time.isoformat().replace("+00:00", "Z"),
+                            # A bare date tells X to resolve midnight-to-midnight in the account's
+                            # own timezone itself. An account on a half-hour-offset timezone (e.g.
+                            # IST) never lands on a whole UTC hour, so sending our own UTC
+                            # conversion here gets a 400 ("whole hours" requirement) that this
+                            # sidesteps entirely.
+                            "start_time": start.isoformat(),
+                            "end_time": window_end.isoformat(),
                             "granularity": "DAY",
                             "placement": placement,
                             "metric_groups": "ENGAGEMENT,BILLING",

@@ -9,13 +9,19 @@ from posthog.models.team.team import Team
 from products.actions.backend.models.action import Action
 
 
-def _get_source_name(source: dict) -> str:
+def _get_source_name(source: object) -> str:
     """Extract a display name from an event/action/data warehouse source dict."""
+    # A stored definition can hold null where a source belongs. The health checks name such a metric to report it as
+    # invalid, so it gets a generic name instead of an error.
+    if not isinstance(source, dict):
+        return "Event"
     kind = source.get("kind", "")
     if kind == "ExperimentDataWarehouseNode":
         return source.get("table_name") or "Table"
     if kind == "ExperimentExposureNode":
         return "Exposure"
+    if kind == "ExperimentWarehouseNativeNode":
+        return source.get("custom_name") or "Warehouse-native query"
     # EventsNode or ActionsNode
     return source.get("name") or source.get("event") or "Event"
 
@@ -24,8 +30,8 @@ def get_default_metric_title(metric_dict: dict) -> str:
     """Generate a default title for a metric based on its configuration."""
     metric_type = metric_dict.get("metric_type", "")
     if metric_type == "funnel":
-        series = metric_dict.get("series", [])
-        if series:
+        series = metric_dict.get("series")
+        if isinstance(series, list) and series:
             first_event = _get_source_name(series[0])
             last_event = _get_source_name(series[-1])
             if len(series) == 1:
@@ -46,20 +52,6 @@ def get_default_metric_title(metric_dict: dict) -> str:
 
 
 logger = logging.getLogger(__name__)
-
-# A legacy metric nests its query under a kind-specific key: ExperimentTrendsQuery under
-# `count_query`, ExperimentFunnelsQuery under `funnels_query`.
-LEGACY_METRIC_QUERY_KEYS = ("count_query", "funnels_query")
-
-
-def apply_metric_date_range(metric: dict[str, Any], date_range: dict[str, Any]) -> None:
-    """Overwrite a legacy metric's nested query date range in place.
-
-    Only a query that already carries a date range is rewritten, so the stored shape of a metric
-    without one is preserved."""
-    for key in LEGACY_METRIC_QUERY_KEYS:
-        if metric.get(key, {}).get("dateRange"):
-            metric[key]["dateRange"] = date_range
 
 
 def refresh_action_names_in_metric(

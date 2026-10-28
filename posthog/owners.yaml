@@ -3,8 +3,6 @@ owners: []
 rules:
     - match: '/caching/'
       owners: team-analytics-platform
-    - match: '/cdp/'
-      owners: team-workflows
     - match: '/clickhouse/hcl/'
       owners: clickhouse
     - match:
@@ -23,6 +21,9 @@ rules:
       owners: team-data-tools
     - match: '/management/migration_analysis/'
       owners: team-devex
+    # Each line acknowledges a risky migration, so one added line lets that migration skip the check.
+    - match: '/management/migration_analysis/*_acknowledged_migrations.txt'
+      sensitive: true
     - match: '/queries/'
       owners: team-analytics-platform
     - match: '/rbac/'
@@ -35,5 +36,8 @@ rules:
       owners: conversations
     - match: '/warehouse/'
       owners: team-data-stack
+    - match: '*llm_gateway*'
+      owners: team-agent-infrastructure
+      sensitive: true
     - match: '*llm_prompt*.py'
       owners: team-experiments

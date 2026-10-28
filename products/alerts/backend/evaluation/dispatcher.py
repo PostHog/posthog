@@ -1,8 +1,17 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import replace
+from typing import Any
+
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import AlertCondition, InsightThreshold, IntervalType, NodeKind
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.api.services.query import ExecutionMode
+from posthog.dataclasses import frozen
+from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError
 from posthog.hogql_queries.validation.validate_query import rule_violation_message
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
@@ -11,6 +20,7 @@ from posthog.utils import get_from_dict_or_attr
 from products.alerts.backend.evaluation.comparator import evaluate_threshold
 from products.alerts.backend.evaluation.contract import (
     AlertExtractionError,
+    ComparableSeries,
     DetectorExtractor,
     ExtractionResult,
     Extractor,
@@ -58,6 +68,23 @@ def _resolve_execution_mode(alert: AlertConfiguration, kind: NodeKind, query: ob
     return execution_mode_for_alert(interval, high_frequency=alert.is_high_frequency_interval)
 
 
+@contextmanager
+def owner_sql_errors(query: object) -> Iterator[None]:
+    """Raise a user-safe failure of a SQL insight's own query as an ``AlertExtractionError``.
+
+    The owner wrote the query, such as a HogQL call with the wrong arguments or a column type
+    mismatch, and it fails the same way until they fix it. Other kinds keep the ordinary path,
+    because PostHog builds their SQL and the error can be a bug. A transient ClickHouse error also
+    keeps the ordinary path, because the query itself can be sound.
+    """
+    try:
+        yield
+    except (ExposedHogQLError, ExposedCHQueryError) as err:
+        if isinstance(err, CH_TRANSIENT_ERRORS) or get_from_dict_or_attr(query, "kind") != NodeKind.HOG_QL_QUERY:
+            raise
+        raise AlertExtractionError(str(err)) from err
+
+
 def run_extractor(
     extractor: Extractor,
     alert: AlertConfiguration,
@@ -77,9 +104,13 @@ def run_extractor(
     that is itself sound (see ``build_failure_exception`` in
     ``posthog/hogql_queries/query_failure_handling.py``), and disabling on it would silence a
     working alert over a load problem, so it keeps the ordinary failure path.
+
+    A SQL insight that HogQL or ClickHouse rejects with a user-safe error gets the same verdict
+    (see ``owner_sql_errors``).
     """
     try:
-        return extractor.extract(alert, insight, query, execution_mode)
+        with owner_sql_errors(query):
+            return extractor.extract(alert, insight, query, execution_mode)
     except DRFValidationError as err:
         if getattr(err, "served_from_query_failure_cache", False):
             raise
@@ -108,13 +139,18 @@ def check_detector_alert(
     )
 
 
-def _check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | None = None) -> AlertEvaluationResult:
-    """Dispatch an alert to its insight-kind extractor, then run the shared comparator.
+@frozen
+class _ResolvedQuery:
+    insight: Insight
+    query: Any
+    kind: Any
 
-    If ``detector_config`` is set, routes through the anomaly-detector registry (one extractor per
-    supported insight kind); each detector extractor shares the ``ComparableSeries`` contract, so the
-    dispatch shape mirrors the threshold path. Otherwise the extractor normalizes the query result into an
-    ``ExtractionResult`` and the comparator evaluates it against the threshold.
+
+@contextmanager
+def _resolved_query(alert: AlertConfiguration) -> Iterator[_ResolvedQuery]:
+    """The alert's insight query, upgraded, unwrapped and checked against its evaluation delay.
+
+    A context manager, because the upgrade holds only while the query runs.
     """
     insight = alert.insight
     if insight.query is None:
@@ -132,22 +168,116 @@ def _check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | 
             validate_evaluation_delay(query, alert.config, alert.evaluation_delay_intervals)
         except ValueError as err:
             raise AlertExtractionError(str(err)) from err
+        yield _ResolvedQuery(insight=insight, query=query, kind=kind)
 
+
+def _check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | None = None) -> AlertEvaluationResult:
+    """Dispatch an alert to its insight-kind extractor, then run the shared comparator.
+
+    If ``detector_config`` is set, routes through the anomaly-detector registry (one extractor per
+    supported insight kind); each detector extractor shares the ``ComparableSeries`` contract, so the
+    dispatch shape mirrors the threshold path. Otherwise the extractor normalizes the query result into an
+    ``ExtractionResult`` and the comparator evaluates it against the threshold.
+    """
+    with _resolved_query(alert) as resolved:
         if alert.detector_config:
-            return check_detector_alert(alert, insight, query, evaluation_id=evaluation_id)
+            return check_detector_alert(alert, resolved.insight, resolved.query, evaluation_id=evaluation_id)
 
-        extractor = EXTRACTORS.get(kind)
-        if extractor is None:
-            raise NotImplementedError(f"AlertCheckError: Alerts for {kind} are not supported yet")
-
-        # Short-circuit before the (potentially expensive) query: no bounds means nothing to breach.
-        threshold = InsightThreshold.model_validate(alert.threshold.configuration) if alert.threshold else None
-        if not threshold or not threshold.bounds:
+        extracted = _extract_for_threshold(alert, resolved.insight, resolved.query, resolved.kind)
+        if extracted is None:
             return AlertEvaluationResult(value=0, breaches=[])
+        return describe_delayed_evaluation(
+            evaluate_threshold(extracted.result, extracted.condition, extracted.threshold), extracted.result
+        )
 
-        condition = AlertCondition.model_validate(alert.condition)
-        result = run_extractor(extractor, alert, insight, query, _resolve_execution_mode(alert, kind, query))
-        return describe_delayed_evaluation(evaluate_threshold(result, condition, threshold), result)
+
+@frozen
+class _ThresholdExtraction:
+    result: ExtractionResult
+    condition: AlertCondition
+    threshold: InsightThreshold
+
+
+def _extract_for_threshold(
+    alert: AlertConfiguration, insight: Insight, query: object, kind: NodeKind
+) -> _ThresholdExtraction | None:
+    """Run a threshold alert's query. None when the alert has no bounds, so there is nothing to breach."""
+    extractor = EXTRACTORS.get(kind)
+    if extractor is None:
+        raise NotImplementedError(f"AlertCheckError: Alerts for {kind} are not supported yet")
+
+    # Short-circuit before the (potentially expensive) query: no bounds means nothing to breach.
+    threshold = InsightThreshold.model_validate(alert.threshold.configuration) if alert.threshold else None
+    if not threshold or not threshold.bounds:
+        return None
+
+    condition = AlertCondition.model_validate(alert.condition)
+    result = run_extractor(extractor, alert, insight, query, _resolve_execution_mode(alert, kind, query))
+    return _ThresholdExtraction(result=result, condition=condition, threshold=threshold)
+
+
+def _one_series(result: ExtractionResult, series: ComparableSeries) -> ExtractionResult:
+    """One series as its own result. Not a breakdown any more, so a series that does not breach
+    still reports its value, and the label stays in a breach message."""
+    return replace(
+        result,
+        series=[series],
+        is_breakdown=False,
+        include_series_label=result.is_breakdown or result.include_series_label,
+    )
+
+
+@frozen
+class SeriesEvaluation:
+    # What per-series state is keyed on. `label` is for display, and two series can share one.
+    identity: str
+    label: str
+    result: AlertEvaluationResult
+
+
+@frozen
+class PerSeriesEvaluation:
+    series: tuple[SeriesEvaluation, ...]
+    # The breakdown limit folded some values into "Other", so a value not in `series` may still breach.
+    truncated: bool = False
+
+
+def check_alert_per_series(alert: AlertConfiguration) -> PerSeriesEvaluation | AlertEvaluationResult:
+    """Each series' own verdict for a threshold alert, rather than one verdict for the insight.
+
+    `check_alert_for_insight` stops at the first series that breaches, because one alert holds one
+    state. A caller that keeps state per breakdown value needs every series judged on its own.
+    Returns the skipped result instead when the evaluation delay leaves no complete interval.
+    Detector alerts are not supported, because a detector scores the series together.
+    """
+    if alert.detector_config:
+        raise AlertExtractionError("Per-series evaluation supports threshold alerts only")
+    try:
+        with _resolved_query(alert) as resolved:
+            extracted = _extract_for_threshold(alert, resolved.insight, resolved.query, resolved.kind)
+    except DelayedEvaluationUnavailable as err:
+        return AlertEvaluationResult(value=None, breaches=[], skipped_reason=str(err))
+    if extracted is None:
+        return PerSeriesEvaluation(series=())
+    result = extracted.result
+    if result.is_breakdown and result.empty_query_result:
+        # The extractor stands in a zero series for a query with no rows. A breakdown with no rows
+        # has no values, so that series is not a breakdown value and must not become a group.
+        return PerSeriesEvaluation(series=())
+    return PerSeriesEvaluation(
+        series=tuple(
+            SeriesEvaluation(
+                identity=series.identity or series.label,
+                label=series.label,
+                result=describe_delayed_evaluation(
+                    evaluate_threshold(_one_series(result, series), extracted.condition, extracted.threshold),
+                    result,
+                ),
+            )
+            for series in result.series
+        ),
+        truncated=result.truncated,
+    )
 
 
 def check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | None = None) -> AlertEvaluationResult:

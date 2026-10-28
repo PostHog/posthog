@@ -32,6 +32,7 @@ from products.slack_app.backend.models import (
     SlackSettings,
     SlackThreadTaskMapping,
     SlackUserProfileCache,
+    ThreadJoinMode,
     UntaggedFollowupMode,
 )
 from products.slack_app.backend.services import slack_app_home
@@ -39,13 +40,16 @@ from products.slack_app.backend.services.slack_app_home import (
     ACTION_EDIT_PERSONAL,
     ACTION_RESET_PERSONAL,
     ACTION_RESET_PROJECT_PERSONAL,
+    ACTION_SET_AUTO_MODEL_CHOICE,
     ACTION_SET_CHANNEL_WELCOME_MODE,
     ACTION_SET_PROJECT_WORKSPACE,
+    ACTION_SET_THREAD_JOIN_MODE,
     ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
     ACTION_TASKS_FILTER_REPO,
     ACTION_TASKS_PAGE_NEXT,
     ACTION_TASKS_PAGE_PREV,
     ACTION_UNLINK_ACCOUNT,
+    AUTO_MODEL_CHOICE_VALUE,
     BLOCK_TASKS_CONTROLS,
     EDIT_MODAL_PERSONAL_CALLBACK_ID,
     HOME_ACTION_IDS,
@@ -58,6 +62,7 @@ from products.slack_app.backend.services.slack_app_home import (
     AccountState,
     GitHubAccount,
     GitHubState,
+    OwnPlanState,
     ProjectChoice,
     ProjectState,
     RunDefaultsState,
@@ -284,6 +289,23 @@ def _find_block(view: dict, block_prefix: str) -> dict | None:
     return None
 
 
+def _option_objects(view: dict) -> list[dict]:
+    out: list[dict] = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in ("options", "initial_options") and isinstance(value, list):
+                    out.extend(option for option in value if isinstance(option, dict))
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(view["blocks"])
+    return out
+
+
 def _all_text(view: dict) -> str:
     """Flatten all `text` fields for substring assertions."""
     out: list[str] = []
@@ -421,11 +443,8 @@ class TestRenderHomeView:
         assert "Claude Opus 4.7" in text_blob
         assert "Your PostHog default" in _all_text(view)
 
-    def test_every_control_the_tab_renders_is_routable(self):
-        # The interactivity endpoint claims region ownership and dispatches off
-        # HOME_ACTION_IDS, so a control missing from it renders as a button that
-        # silently does nothing. Render every card at once and check the whole set.
-        view = render_home_view(
+    def _every_card_view(self, *, auto_model_choice: bool = False) -> dict:
+        return render_home_view(
             is_admin=True,
             run_defaults=RunDefaultsState(model="claude-opus-4-7", runtime_adapter="claude", source="user"),
             account_state=AccountState(enabled=True, link_url="https://app/link"),
@@ -457,13 +476,55 @@ class TestRenderHomeView:
             ),
             stats_state=StatsState(tasks_started=4, tasks_with_pr=2, tasks_merged=1, active_people=2),
             untagged_followup_mode=UntaggedFollowupMode.AUTO,
+            untagged_question_mode=UntaggedFollowupMode.ASK,
             channel_welcome_mode=ChannelWelcomeMode.CHANNEL,
+            auto_model_choice=auto_model_choice,
+            own_plan=OwnPlanState(connected=True, settings_url="https://app.example.com/settings"),
+            thread_join_mode=ThreadJoinMode.ASK_PER_THREAD,
         )
+
+    @pytest.mark.parametrize(
+        "connected, in_multiplayer, connect_link",
+        [(True, True, False), (False, False, True)],
+    )
+    def test_a_connected_plan_is_described_under_multiplayer(self, connected, in_multiplayer, connect_link):
+        # People who join spend the creator's plan, so the plan belongs with who may join.
+        view = render_home_view(
+            is_admin=False,
+            own_plan=OwnPlanState(connected=connected, settings_url="https://app.example.com/settings"),
+        )
+        text = _all_text(view)
+
+        assert ("Multiplayer" in text) is in_multiplayer
+        assert ("use your ChatGPT plan, also when other people join your thread" in text) is in_multiplayer
+        assert ("Connect your ChatGPT plan" in text) is connect_link
+
+    def test_every_control_the_tab_renders_is_routable(self):
+        # The interactivity endpoint claims region ownership and dispatches off
+        # HOME_ACTION_IDS, so a control missing from it renders as a button that
+        # silently does nothing. Render every card at once and check the whole set.
+        view = self._every_card_view()
 
         # Equality both ways: an unroutable control fails on the left, and a card that
         # stopped rendering fails on the right instead of passing a subset check trivially.
         # Unlink only renders once an account is linked, which this fixture deliberately isn't.
         assert set(_action_ids(view)) == HOME_ACTION_IDS - {ACTION_UNLINK_ACCOUNT}
+
+    @pytest.mark.parametrize("auto_model_choice", [False, True])
+    def test_every_option_stays_within_the_limits_slack_enforces(self, auto_model_choice):
+        # `views.publish` validates the whole payload, so one over-long label or
+        # description costs the entire tab: Slack returns `invalid_arguments` and the
+        # viewer keeps whatever was published last. Checked options carry a second copy
+        # of the option object under `initial_options`, hence both renders.
+        view = self._every_card_view(auto_model_choice=auto_model_choice)
+
+        oversized = [
+            (option["value"], field, len(option[field]["text"]))
+            for option in _option_objects(view)
+            for field, limit in (("text", 75), ("description", 75))
+            if field in option and len(option[field]["text"]) > limit
+        ]
+        assert oversized == []
 
 
 class TestThreadFollowupsCard:
@@ -521,6 +582,42 @@ class TestThreadFollowupsPicker:
 
         row = SlackSettings.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001").first()
         assert (row.untagged_followup_mode if row else None) == expected
+        assert mock_slack_client.views_publish.called
+
+
+class TestAutoModelChoiceToggle:
+    def _toggle(self, checked: bool) -> dict:
+        selected = [{"value": AUTO_MODEL_CHOICE_VALUE}] if checked else []
+        return {
+            "type": "block_actions",
+            "team": {"id": SLACK_WORKSPACE_ID},
+            "user": {"id": "U001"},
+            "actions": [{"action_id": ACTION_SET_AUTO_MODEL_CHOICE, "selected_options": selected}],
+        }
+
+    @pytest.mark.parametrize(
+        "linked,checked,expected",
+        [
+            (True, True, True),
+            (True, False, False),
+            # The router runs as a PostHog user, so a viewer with no linked user must not opt in.
+            (False, True, None),
+        ],
+    )
+    def test_toggle_is_stored_for_the_clicking_user_only_when_linked_to_a_posthog_user(
+        self, slack_integration, mock_slack_client, linked, checked, expected
+    ):
+        if linked:
+            User.objects.create_and_join(slack_integration.team.organization, "mapped@example.com", None)
+        SlackUserProfileCache.objects.create(
+            integration=slack_integration, slack_user_id="U001", email="mapped@example.com"
+        )
+        payload = self._toggle(checked)
+        with patch("products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin", return_value=False):
+            handle_ai_preferences_block_action(payload, payload["actions"][0])
+
+        row = SlackSettings.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001").first()
+        assert (row.auto_model_choice if row else None) == expected
         assert mock_slack_client.views_publish.called
 
 
@@ -1170,6 +1267,46 @@ class TestHandleAppHomeOpened:
         handle_app_home_opened({}, SLACK_WORKSPACE_ID, integration=slack_integration)
         assert not mock_slack_client.views_publish.called
 
+    def test_home_opened_is_attributed_to_the_resolved_posthog_user(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        opener = User.objects.create_and_join(slack_integration.team.organization, "opener@posthog.com", None)
+        SlackUserProfileCache.objects.create(integration=slack_integration, slack_user_id="U001", email=opener.email)
+
+        with patch("products.slack_app.backend.services.slack_app_home.capture_slack_event") as mock_capture:
+            handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        assert mock_capture.call_args.args[1] == "slack app home opened"
+        assert mock_capture.call_args.kwargs["posthog_user"] == opener
+
+    @pytest.mark.parametrize("viewer_linked", [True, False])
+    def test_multiplayer_section_shows_only_to_a_linked_viewer(
+        self, slack_integration, mock_slack_client, flag_on, admin_user, viewer_linked
+    ):
+        if viewer_linked:
+            opener = User.objects.create_and_join(slack_integration.team.organization, "opener@posthog.com", None)
+            SlackUserProfileCache.objects.create(
+                integration=slack_integration, slack_user_id="U001", email=opener.email
+            )
+
+        handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        view = mock_slack_client.views_publish.call_args.kwargs["view"]
+        assert (ACTION_SET_THREAD_JOIN_MODE in _action_ids(view)) is viewer_linked
+        assert ("Multiplayer" in _all_text(view)) is viewer_linked
+
+    def test_join_picker_shows_without_the_plan_card(self, slack_integration, mock_slack_client, flag_on, admin_user):
+        # Who may join a thread is not a plan feature, so closing the BYOS gate must not hide it.
+        opener = User.objects.create_and_join(slack_integration.team.organization, "opener@posthog.com", None)
+        SlackUserProfileCache.objects.create(integration=slack_integration, slack_user_id="U001", email=opener.email)
+
+        with patch("products.slack_app.backend.services.slack_app_home.is_slack_app_byos_enabled", return_value=False):
+            handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        view = mock_slack_client.views_publish.call_args.kwargs["view"]
+        assert ACTION_SET_THREAD_JOIN_MODE in _action_ids(view)
+        assert "ChatGPT plan" not in _all_text(view)
+
     def _github_row(self, user: User, login: str) -> UserIntegration:
         return UserIntegration.objects.create(
             user=user,
@@ -1288,15 +1425,24 @@ class TestResetPersonal:
 
 
 class TestResetProjectPersonal:
+    @pytest.mark.parametrize(
+        "other_settings",
+        [
+            {"untagged_followup_mode": UntaggedFollowupMode.AUTO},
+            {"untagged_question_mode": UntaggedFollowupMode.NEVER},
+            {"auto_model_choice": True},
+        ],
+        ids=["followup_mode", "question_mode", "auto_model_choice"],
+    )
     def test_clears_routing_only_when_other_settings_present(
-        self, slack_integration, mock_slack_client, flag_on, admin_user
+        self, slack_integration, mock_slack_client, flag_on, admin_user, other_settings
     ):
-        # Mixed row → reset clears routing, the follow-up mode stays.
+        # Mixed row → reset clears routing, the other setting stays.
         SlackSettings.objects.create(
             default_integration=slack_integration,
             slack_workspace_id=SLACK_WORKSPACE_ID,
             slack_user_id="U001",
-            untagged_followup_mode=UntaggedFollowupMode.AUTO,
+            **other_settings,
         )
         payload = _block_action_payload(
             action_id=ACTION_RESET_PROJECT_PERSONAL,
@@ -1307,7 +1453,7 @@ class TestResetProjectPersonal:
 
         row = SlackSettings.objects.get(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
         assert row.default_integration_id is None
-        assert row.untagged_followup_mode == UntaggedFollowupMode.AUTO
+        assert {field: getattr(row, field) for field in other_settings} == other_settings
         assert mock_slack_client.views_publish.called
 
     def test_deletes_row_when_no_other_settings_remain(self, slack_integration, mock_slack_client, flag_on, admin_user):

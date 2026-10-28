@@ -112,6 +112,7 @@ const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set([
     'batch-exports',
     'managed-warehouse',
+    'subscriptions',
     'tasks',
     'warehouse-sources',
 ])
@@ -1023,11 +1024,11 @@ const DJANGO_SEGMENTS = {
             'posthog/hogql/',
         ],
     },
-    // batch-exports, tasks and product-analytics used to run their temporal suites
-    // here. They now run them in their own product jobs, which cost no extra
-    // infrastructure because every shard already starts the temporal profile.
-    // signals/emission is listed because select-tests routes it here; leaving it
-    // out under-counted the segment.
+    // batch-exports, tasks, product-analytics and subscriptions used to run their
+    // temporal suites here. They now run them in their own product jobs, which cost
+    // no extra infrastructure because every shard already starts the temporal
+    // profile. signals/emission is listed because select-tests routes it here;
+    // leaving it out under-counted the segment.
     Temporal: {
         include: ['posthog/temporal/', 'products/signals/backend/emission/'],
         exclude: [],
@@ -1241,6 +1242,9 @@ function decideSelection({ applies, disabled, draft, legacyChanged, runLegacy, r
     if (fullRunReasons.length > 0) {
         console.error(`Selector requested a full run:\n  ${fullRunReasons.join('\n  ')}`)
         return fallbackSelection(fallbackMode, 'full_run_requested', selection)
+    }
+    if (!(Number(selection.durations?.total_seconds) > 0)) {
+        return fallbackSelection(fallbackMode, 'no_durations', selection)
     }
     const segments = selection.combined?.segments ?? {}
     const core = segments.core ?? []

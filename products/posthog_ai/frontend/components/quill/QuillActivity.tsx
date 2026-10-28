@@ -9,6 +9,7 @@ export function QuillActivity({
     id,
     title,
     subtitle,
+    wrapTitle = false,
     status,
     icon,
     animate = true,
@@ -18,10 +19,11 @@ export function QuillActivity({
     details = null,
     children = null,
     autoExpand = true,
+    defaultOpen,
     onToggleDetails,
 }: ActivityProps): JSX.Element {
     const hasDetails = substeps.length > 0 || !!details
-    const { open, setOpen } = useActivityDisclosure({ autoExpand, hasDetails, status, onToggleDetails })
+    const { open, setOpen } = useActivityDisclosure({ autoExpand, defaultOpen, hasDetails, status, onToggleDetails })
 
     const isRunning = status === 'in_progress'
     const body = hasDetails ? (
@@ -45,14 +47,25 @@ export function QuillActivity({
                 body={body}
                 open={open}
                 onOpenChange={setOpen}
-                className={cn(status === 'pending' && 'opacity-40')}
+                className={cn(
+                    status === 'pending' && 'opacity-40',
+                    // A wrapped title keeps its icon on the first line.
+                    wrapTitle && 'items-start [&>[data-slot=marker-icon]]:mt-[3px]'
+                )}
             >
-                <span className="min-w-0 truncate font-medium">{title}</span>
+                <span
+                    className={cn(
+                        'min-w-0 font-medium [&_.LemonMarkdown_p]:mb-0',
+                        wrapTitle ? 'whitespace-normal' : 'truncate'
+                    )}
+                >
+                    {title}
+                </span>
                 {subtitle && <span className="min-w-0 truncate">{subtitle}</span>}
             </ThreadMarker>
             {/* Product widgets (charts, tables, diffs) keep PostHog's own colours inside the quill thread. */}
             {children && (
-                <div className="min-w-0 ps-5" data-not-quill>
+                <div className="my-2 min-w-0 ps-5" data-not-quill>
                     {children}
                 </div>
             )}

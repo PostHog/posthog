@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class SlashSourceConfig(config.Config):
-    pass
+    api_key: str
+    legal_entity_id: str | None = None

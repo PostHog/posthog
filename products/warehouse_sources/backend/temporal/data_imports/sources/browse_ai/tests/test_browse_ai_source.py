@@ -6,8 +6,7 @@ from unittest.mock import Mock
 
 import requests_mock
 
-from posthog.cdp.validation import compile_hog
-
+from products.cdp.backend.validation import compile_hog
 from products.warehouse_sources.backend.temporal.data_imports.sources.browse_ai.settings import BASE_URL
 from products.warehouse_sources.backend.temporal.data_imports.sources.browse_ai.source import BrowseAISource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.browseai import (

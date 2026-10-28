@@ -2,13 +2,16 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
+import { expectLogic } from 'kea-test-utils'
+
+import api from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { getEvaluationResultDisplay } from '../../components/EvaluationResultTag'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
-import { EvaluationRun } from '../types'
+import { EvaluationConfig, EvaluationRun } from '../types'
 import { EvaluationRunsTable } from './EvaluationRunsTable'
 
 const props = { evaluationId: 'eval-123' }
@@ -58,6 +61,7 @@ describe('EvaluationRunsTable', () => {
     beforeEach(() => {
         useMocks({
             get: {
+                '/api/llm_proxy/models/': [],
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: [] },
                 '/api/environments/:teamId/llm_analytics/evaluation_config/': {
                     active_provider_key: null,
@@ -73,6 +77,7 @@ describe('EvaluationRunsTable', () => {
     })
 
     afterEach(() => {
+        jest.restoreAllMocks()
         cleanup()
         logic?.unmount()
     })
@@ -98,9 +103,15 @@ describe('EvaluationRunsTable', () => {
         expect(screen.getByText('Good')).toBeInTheDocument()
     })
 
-    it('says a filter is hiding rows when the evaluation has runs but none match', () => {
-        logic.actions.loadEvaluationRunsSuccess([passingRun])
+    it('says a filter is hiding rows when the evaluation has runs but none match', async () => {
+        jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadEvaluationSuccess({
+            output_type: 'boolean',
+            output_config: { allows_na: false },
+        } as EvaluationConfig)
         logic.actions.setEvaluationRunsFilter('fail', 'all')
+        await expectLogic(logic).toFinishAllListeners()
         renderTable()
 
         expect(screen.getByText('No runs match this filter')).toBeInTheDocument()

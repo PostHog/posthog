@@ -377,25 +377,20 @@ class AssistantContextManager(AssistantContextMixin):
             # Flag lookups read `user.organization`; keep them off the event loop and skip them
             # when no notebook needs inline authoring guidance.
             sql_v2_enabled = False
-            widgets_enabled = False
-            if any(nb.markdown_with_insertion_placeholder for nb in ui_context.notebooks):
+            has_inline_notebook = any(nb.markdown_with_insertion_placeholder for nb in ui_context.notebooks)
+            if has_inline_notebook:
                 sql_v2_enabled = await database_sync_to_async(notebooks_facade.is_sql_v2_enabled)(self._user)
-                widgets_enabled = await database_sync_to_async(notebooks_facade.is_notebook_widget_enabled)(self._user)
             notebook_texts = []
             reusable_catalog = (
                 await database_sync_to_async(reusable_widget_catalog_context)(team_id=self._team.id, user=self._user)
-                if widgets_enabled
+                if has_inline_notebook
                 else ""
             )
             if reusable_catalog:
                 notebook_texts.append(reusable_catalog)
             for nb in ui_context.notebooks:
                 if nb.markdown_with_insertion_placeholder:
-                    notebook_texts.append(
-                        self._format_markdown_notebook_context(
-                            nb, sql_v2_enabled=sql_v2_enabled, widgets_enabled=widgets_enabled
-                        )
-                    )
+                    notebook_texts.append(self._format_markdown_notebook_context(nb, sql_v2_enabled=sql_v2_enabled))
                     continue
 
                 ctx = await NotebookContext.from_short_id(self._team, nb.id)
@@ -453,9 +448,7 @@ class AssistantContextManager(AssistantContextMixin):
             )
         return None
 
-    def _format_markdown_notebook_context(
-        self, notebook: MaxNotebookContext, *, sql_v2_enabled: bool, widgets_enabled: bool
-    ) -> str:
+    def _format_markdown_notebook_context(self, notebook: MaxNotebookContext, *, sql_v2_enabled: bool) -> str:
         title = _sanitize_inline_prompt_value(notebook.name or f"Notebook {notebook.id}")
         inline_request_id = _sanitize_inline_prompt_value(notebook.insertion_placeholder_block_id or "unknown")
         response_marker = _sanitize_inline_prompt_value(notebook.insertion_placeholder_marker or "Thinking...")
@@ -503,7 +496,7 @@ class AssistantContextManager(AssistantContextMixin):
                     "- The user may ask you to change selected text, nearby content, or the entire notebook. "
                     "Preserve unrelated content only when the request's scope is local."
                 ),
-                cell_guidance_prompt(sql_v2_enabled=sql_v2_enabled, widgets_enabled=widgets_enabled),
+                cell_guidance_prompt(sql_v2_enabled=sql_v2_enabled),
                 (
                     "When the current user asks you to change broad notebook content, use notebook tools against "
                     "the current notebook instead of explaining how the user could do it. "
@@ -641,45 +634,9 @@ class AssistantContextManager(AssistantContextMixin):
             prompts.append(mode_prompt)
         if contextual_tools := await self._get_contextual_tools_prompt():
             prompts.append(ContextMessage(content=contextual_tools, id=str(uuid4())))
-        if voice_prompt := self._get_voice_mode_prompt(ui_context):
-            prompts.append(ContextMessage(content=voice_prompt, id=str(uuid4())))
         if formatted_ui_context := await self._format_ui_context(ui_context):
             prompts.append(ContextMessage(content=formatted_ui_context, id=str(uuid4())))
         return self._deduplicate_context_messages(state, prompts)
-
-    def _get_voice_mode_prompt(self, ui_context: MaxUIContext | None) -> str | None:
-        """Return a voice-mode instruction reflecting the current turn's modality.
-
-        Emits a tag whenever the frontend tells us explicitly whether voice mode is on
-        or off — both states need to survive in conversation history so a typed turn
-        that follows a spoken one cleanly overrides the earlier voice formatting rules
-        (otherwise the prior <voice_mode> instruction keeps steering the model toward
-        spelled-out numbers and no markdown).
-        """
-        if ui_context is None or ui_context.voice_mode is None:
-            return None
-        if ui_context.voice_mode:
-            return (
-                "<voice_mode>\n"
-                "The user is asking via hands-free voice mode. Your response will be read "
-                "aloud by text-to-speech. Write it so it sounds natural when spoken:\n"
-                "- Spell out all numbers and currencies in words "
-                '(e.g. "one hundred dollars from five thousand two hundred and thirty eight users", '
-                'not "$100 from 5,238 users").\n'
-                "- Spell out percentages as words "
-                '(e.g. "twelve point five percent", not "12.5%").\n'
-                "- No markdown — no headings, no bullets, no bold, no inline code or code blocks.\n"
-                "- No emoji.\n"
-                "- Use plain sentences. Keep it concise — assume the user can't see the screen.\n"
-                "</voice_mode>"
-            )
-        return (
-            "<voice_mode>\n"
-            "The user is no longer in hands-free voice mode for this turn. Ignore any "
-            "earlier voice-mode formatting instructions in this conversation: you may use "
-            "markdown, numerals, currency symbols, code blocks, and emoji as normal.\n"
-            "</voice_mode>"
-        )
 
     async def _get_contextual_tools_prompt(self) -> str | None:
         from ee.hogai.registry import get_contextual_tool_class

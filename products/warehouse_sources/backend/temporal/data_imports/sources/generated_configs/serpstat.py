@@ -6,4 +6,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class SerpstatSourceConfig(config.Config):
-    pass
+    api_key: str
+    project_id: str
+    project_region_id: str
+    domain: str | None = None
+    search_engine: str | None = None

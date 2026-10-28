@@ -1,4 +1,7 @@
-from typing import TYPE_CHECKING, Final
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import TYPE_CHECKING, Any, Final, Optional
 
 from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save
@@ -7,12 +10,20 @@ from django.utils.functional import Promise
 
 import structlog
 
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
 
 from products.actions.backend.models.action import Action
+from products.workflows.backend.facade.enums import (
+    HogFlowEmailSendingPausedBy,
+    HogFlowExitCondition,
+    HogFlowOriginProduct,
+    HogFlowState,
+)
 
 if TYPE_CHECKING:
     pass
@@ -46,6 +57,8 @@ SUPPORTED_ACTION_TYPES: Final[list[str]] = [
 TRIGGER_TYPES: Final[frozenset[str]] = frozenset(
     {
         "event",
+        # A transactional email: one authenticated API call runs the workflow once.
+        "api",
         "schedule",
         "manual",
         "batch",
@@ -54,8 +67,12 @@ TRIGGER_TYPES: Final[frozenset[str]] = frozenset(
         "data-warehouse-table",
         "data-warehouse-view",
         "internal-event",
+        "cohort",
     }
 )
+
+# Membership changes a cohort trigger can start a run on.
+COHORT_TRIGGER_TRANSITIONS: Final[tuple[str, ...]] = ("entered", "left")
 
 # The internal events a workflow may subscribe to. The internal-events stream carries payloads
 # that each owning product gates behind its own scopes — recording content, exception detail,
@@ -76,8 +93,8 @@ BILLABLE_ACTION_TYPES: Final[set[str]] = {
 
 # Action types that send a message to a person. A workflow containing at least one of these is a
 # "messaging" workflow; everything else is an "automation". Keep in sync with the frontend's
-# WorkflowTypeTag (products/workflows/frontend/Workflows/WorkflowsTable.tsx), which renders the
-# same split, and the list API's `type` filter, which queries on it.
+# MESSAGING_ACTION_TYPES (products/workflows/frontend/Workflows/workflowTypeFilters.ts), which the list's
+# type tag and the template type filter use, and the list API's `type` filter, which queries on it.
 MESSAGING_ACTION_TYPES: Final[list[str]] = [
     "function_email",
     "function_sms",
@@ -102,12 +119,90 @@ ROW_SCOPED_TRIGGER_TYPES: Final[set[str]] = {
 }
 
 
+# The "Add to static cohort" step. Its template lives in the plugin server.
+ADD_TO_STATIC_COHORT_TEMPLATE_ID: Final[str] = "template-posthog-add-to-static-cohort"
+
+
+def literal_static_cohort_id(inputs: Any) -> int | None:
+    """The cohort id an "Add to static cohort" step names as a plain value, or None."""
+    cohort_input = inputs.get("cohort_id") if isinstance(inputs, dict) else None
+    cohort_id = cohort_input.get("value") if isinstance(cohort_input, dict) else None
+    if isinstance(cohort_id, bool) or not isinstance(cohort_id, int) or cohort_id < 1:
+        return None
+    return cohort_id
+
+
+def _function_step_inputs(actions: Any, template_id: str) -> Iterator[Any]:
+    """The inputs of each function action that runs the template.
+
+    Only function actions count, because the serializer validates template inputs for those alone.
+    """
+    for action in actions if isinstance(actions, list) else []:
+        if not isinstance(action, dict) or action.get("type") != "function":
+            continue
+        config = action.get("config")
+        if isinstance(config, dict) and config.get("template_id") == template_id:
+            yield config.get("inputs")
+
+
+def static_cohort_ids(actions: Any) -> set[int]:
+    """The cohorts that the "Add to static cohort" steps in these actions add people to."""
+    cohort_ids = (
+        literal_static_cohort_id(inputs) for inputs in _function_step_inputs(actions, ADD_TO_STATIC_COHORT_TEMPLATE_ID)
+    )
+    return {cohort_id for cohort_id in cohort_ids if cohort_id is not None}
+
+
+# The "Opt out of messages" step. Its template lives in the plugin server.
+OPT_OUT_OF_MESSAGES_TEMPLATE_ID: Final[str] = "template-posthog-opt-out-of-messages"
+# The step's category value for all marketing messages. Matches the messaging product's reserved preference key.
+ALL_MARKETING_CATEGORY_ID: Final[str] = "$all"
+
+
+def literal_opt_out_category_id(inputs: Any) -> str | None:
+    """The message category id an "Opt out of messages" step names as a plain value, or None."""
+    category_input = inputs.get("category_id") if isinstance(inputs, dict) else None
+    category_id = category_input.get("value") if isinstance(category_input, dict) else None
+    if not isinstance(category_id, str) or not category_id.strip():
+        return None
+    return category_id.strip()
+
+
+def opt_out_category_ids(actions: Any) -> set[str]:
+    """The message categories that the "Opt out of messages" steps in these actions opt people out of."""
+    category_ids = (
+        literal_opt_out_category_id(inputs)
+        for inputs in _function_step_inputs(actions, OPT_OUT_OF_MESSAGES_TEMPLATE_ID)
+    )
+    return {category_id for category_id in category_ids if category_id is not None}
+
+
+# Trigger types the executor re-checks before each step: an event trigger against its filters, and a
+# cohort trigger against the person's membership in its cohort.
+RECHECKED_TRIGGER_TYPES: Final[frozenset[str]] = frozenset({"event", "cohort"})
+
+
+def exit_condition_that_runs(trigger_type: str | None, exit_condition: str | None) -> str | None:
+    """The exit condition a run of this trigger actually follows.
+
+    On a trigger the executor cannot re-check, "exit when the trigger no longer matches" never fires.
+    """
+    if trigger_type in RECHECKED_TRIGGER_TYPES:
+        return exit_condition
+    if exit_condition == HogFlowExitCondition.TRIGGER_NOT_MATCHED:
+        return HogFlowExitCondition.ONLY_AT_END
+    if exit_condition == HogFlowExitCondition.TRIGGER_NOT_MATCHED_OR_CONVERSION:
+        return HogFlowExitCondition.CONVERSION
+    return exit_condition
+
+
 def hog_flow_origin_product_choices() -> list[tuple[str, str | Promise]]:
     # Callable so growing the enum doesn't generate a no-op migration.
     return list(HogFlow.OriginProduct.choices)
 
 
-class HogFlow(UUIDTModel):
+# nosemgrep: no-new-uuidt-models -- an existing model, and its stored ids cannot change.
+class HogFlow(Taggable, UUIDTModel):
     """
     Stores the version, layout and other meta information for each HogFlow
     """
@@ -117,37 +212,34 @@ class HogFlow(UUIDTModel):
         indexes = [
             models.Index(fields=["status", "team"]),
             models.Index(fields=["version", "team"]),
+            models.Index(
+                fields=["team", "source_record"],
+                name="hogflow_team_source_record_idx",
+                condition=models.Q(source_record__isnull=False),
+            ),
         ]
 
         constraints = [
             models.UniqueConstraint(fields=["team", "version", "id"], name="unique_version_per_flow"),
         ]
 
-    class State(models.TextChoices):
-        DRAFT = "draft"
-        ACTIVE = "active"
-        ARCHIVED = "archived"
-
-    class ExitCondition(models.TextChoices):
-        CONVERSION = "exit_on_conversion"
-        TRIGGER_NOT_MATCHED = "exit_on_trigger_not_matched"
-        TRIGGER_NOT_MATCHED_OR_CONVERSION = "exit_on_trigger_not_matched_or_conversion"
-        ONLY_AT_END = "exit_only_at_end"
-
-    class OriginProduct(models.TextChoices):
-        LOOPS = "loops", "Loops"
-        BROADCASTS = "broadcasts", "Broadcasts"
+    State = HogFlowState
+    ExitCondition = HogFlowExitCondition
+    OriginProduct = HogFlowOriginProduct
 
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")
     version = models.IntegerField(default=1)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    status = models.CharField(max_length=20, choices=State, default=State.DRAFT)
+    status = models.CharField(max_length=20, choices=State.choices, default=State.DRAFT.value)
     # The product surface that owns this workflow, so that surface can list only its own flows.
     # Null for workflows built directly in the workflows UI or over the API.
     origin_product = models.CharField(
         max_length=40, choices=hog_flow_origin_product_choices, null=True, blank=True, db_index=False
     )
+    # The record another product's "message these people" entry point started this flow from, as
+    # "<kind>:<id>". A later broadcast from the same record warns that this one already went out.
+    source_record = models.CharField(max_length=255, null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
@@ -156,7 +248,9 @@ class HogFlow(UUIDTModel):
     trigger = models.JSONField(default=dict)
     trigger_masking = models.JSONField(null=True, blank=True)
     conversion = models.JSONField(null=True, blank=True)
-    exit_condition = models.CharField(max_length=100, choices=ExitCondition, default=ExitCondition.CONVERSION)
+    exit_condition = models.CharField(
+        max_length=100, choices=ExitCondition.choices, default=ExitCondition.CONVERSION.value
+    )
 
     # Optional email pacing for deliverability: {"count": <int>, "period": "minute" | "hour"}.
     # Enforced per workflow by the email worker, which spreads sends instead of dropping them.
@@ -173,9 +267,7 @@ class HogFlow(UUIDTModel):
     # re-trips on the feedback that caused the pause in the first place.
     email_sending_resumed_at = models.DateTimeField(null=True, blank=True)
 
-    class EmailSendingPausedBy(models.TextChoices):
-        AUTO = "auto", "auto"
-        STAFF = "staff", "staff"
+    EmailSendingPausedBy = HogFlowEmailSendingPausedBy
 
     # Who paused it: "auto" for the deliverability detector, "staff" for a PostHog admin. A staff
     # pause is not customer-resumable, so the resume endpoint refuses it. Empty when not paused.
@@ -218,10 +310,50 @@ class HogFlow(UUIDTModel):
         return f"HogFlow {self.id}/{self.version}: {self.name}"
 
 
+# Every reload makes each worker drop the team's whole workflow list, so a bulk write sends a few large ones.
+RELOAD_BATCH_SIZE = 500
+_deferred_reloads: ContextVar[Optional[dict[int, set[str]]]] = ContextVar("hog_flow_deferred_reloads", default=None)
+
+
+@contextmanager
+def defer_hog_flow_reloads() -> Iterator[None]:
+    """Collect the worker reloads of the saves inside the block and send them together when it ends."""
+    if _deferred_reloads.get() is not None:
+        yield
+        return
+    pending: dict[int, set[str]] = {}
+    token = _deferred_reloads.set(pending)
+    try:
+        yield
+    finally:
+        _deferred_reloads.reset(token)
+        for team_id, hog_flow_ids in pending.items():
+            ordered = sorted(hog_flow_ids)
+            for start in range(0, len(ordered), RELOAD_BATCH_SIZE):
+                _reload_batch_on_workers(team_id, ordered[start : start + RELOAD_BATCH_SIZE])
+
+
+def _reload_batch_on_workers(team_id: int, hog_flow_ids: list[str]) -> None:
+    # The saves have already committed, so a failed publish must not fail the request that made them.
+    # Workers also expire their cached workflows on a timer, so a lost reload only delays the change.
+    for attempt in range(2):
+        try:
+            reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=hog_flow_ids)
+            return
+        except Exception as e:
+            if attempt == 1:
+                logger.exception("hog_flow_deferred_reload_failed", team_id=team_id, hog_flow_count=len(hog_flow_ids))
+                capture_exception(e)
+
+
 @receiver(post_save, sender=HogFlow)
 def hog_flow_saved(sender, instance: HogFlow, created, update_fields=None, **kwargs):
     # Draft columns don't affect live execution, so workers don't need a config reload for them.
     if update_fields and set(update_fields) <= {"draft", "draft_updated_at"}:
+        return
+    pending = _deferred_reloads.get()
+    if pending is not None:
+        pending.setdefault(instance.team_id, set()).add(str(instance.id))
         return
     reload_hog_flows_on_workers(team_id=instance.team_id, hog_flow_ids=[str(instance.id)])
 
@@ -246,4 +378,5 @@ def action_saved_for_hog_flows(sender, instance: Action, created, **kwargs):
 def team_saved_for_hog_flows(sender, instance: Team, created, **kwargs):
     from products.workflows.backend.tasks.hog_flows import refresh_affected_hog_flows  # noqa: PLC0415
 
-    refresh_affected_hog_flows.delay(team_id=instance.id)
+    team_id = instance.id
+    transaction.on_commit(lambda: refresh_affected_hog_flows.delay(team_id=team_id))

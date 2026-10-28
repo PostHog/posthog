@@ -87,7 +87,7 @@ pub(super) const CAPTURE_V1_PAYLOAD_SIZE: &str = "capture_v1_payload_size_bytes"
 /// configured in prometheus.rs (CLOCK_SKEW_SECONDS).
 pub(super) const CAPTURE_V1_CLOCK_SKEW_SECONDS: &str = "capture_v1_clock_skew_seconds";
 
-/// Histogram of batch serialize wall-time (label: batch_size bucket). Sink- and
+/// Histogram of batch serialize wall-time (label: batch_size bucket). Output- and
 /// product-agnostic by design — faceting comes from the per-mode service
 /// deployment (capture-analytics / capture-replay / capture-ai).
 pub(super) const CAPTURE_V1_SERIALIZE_DURATION_SECONDS: &str =

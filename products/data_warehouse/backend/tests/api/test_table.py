@@ -2,19 +2,32 @@ import ipaddress
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import ANY, MagicMock, Mock, patch
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.test import SimpleTestCase, override_settings
 
 import boto3
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory
 
+from posthog.models.activity_logging.activity_log import ActivityLog
+
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.presentation.views.table import SimpleTableSerializer, resolve_created_via
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+from products.data_warehouse.backend.presentation.views.table import (
+    CreateTableFromUploadSerializer,
+    SimpleTableSerializer,
+    TableSerializer,
+    resolve_created_via,
+)
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSource,
+)
 
 PUBLIC_IP = {ipaddress.ip_address("93.184.216.34")}
 
@@ -42,6 +55,25 @@ class TestResolveCreatedVia(SimpleTestCase):
     )
     def test_attributes_request_to_its_transport(self, _: str, headers: dict[str, str], expected: str):
         assert resolve_created_via(APIRequestFactory().post("/", headers=headers)) == expected
+
+
+class TestTableNameValidation(SimpleTestCase):
+    @parameterized.expand([("root", "models"), ("nested", "models.revenue")])
+    def test_unchanged_legacy_name_is_allowed(self, _case: str, name: str) -> None:
+        instance = DataWarehouseTable(name=name)
+        assert TableSerializer(instance=instance).validate_name(name) == name
+
+    @parameterized.expand([("root", "models"), ("nested", "models.revenue")])
+    def test_models_namespace_is_reserved(self, _case: str, name: str) -> None:
+        with self.assertRaises(ValidationError):
+            TableSerializer().validate_name(name)
+        with self.assertRaises(ValidationError):
+            CreateTableFromUploadSerializer().validate_table_name(name)
+        instance = DataWarehouseTable(name=name)
+        with self.assertRaises(DjangoValidationError):
+            instance.clean()
+        with self.assertRaises(DjangoValidationError):
+            instance.save()
 
 
 class TestTable(APIBaseTest):
@@ -306,6 +338,19 @@ class TestTable(APIBaseTest):
         assert columns is not None
         assert columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
 
+        log = ActivityLog.objects.get(scope="DataWarehouseTable", item_id=str(table.id))
+        assert (log.activity, log.user) == ("updated", self.user)
+        assert log.detail is not None
+        assert log.detail["changes"] == [
+            {
+                "type": "DataWarehouseTable",
+                "field": "columns",
+                "action": "changed",
+                "before": "masked",
+                "after": "masked",
+            }
+        ]
+
     def test_update_schema_200_no_updates(self):
         columns = {"id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"}}
         table = DataWarehouseTable.objects.create(
@@ -442,17 +487,22 @@ class TestTable(APIBaseTest):
         assert response.status_code == 400
         assert DataWarehouseTable.objects.count() == 1
 
-    def test_delete_table(self):
+    @parameterized.expand([("delete_endpoint", "delete", 204), ("patch_deleted_flag", "patch", 200)])
+    def test_delete_table(self, _name: str, method: str, expected_status: int):
         table = DataWarehouseTable.objects.create(
             name="test_table", format="Parquet", team=self.team, team_id=self.team.pk, columns={}
         )
-        response = self.client.delete(f"/api/projects/{self.team.pk}/warehouse_tables/{table.id}")
+        url = f"/api/projects/{self.team.pk}/warehouse_tables/{table.id}"
+        response = self.client.delete(url) if method == "delete" else self.client.patch(url, {"deleted": True})
 
-        assert response.status_code == 204
+        assert response.status_code == expected_status
 
         table.refresh_from_db()
 
         assert table.deleted is True
+        assert ActivityLog.objects.filter(
+            scope="DataWarehouseTable", item_id=str(table.id), activity="deleted", user=self.user
+        ).exists()
 
     def test_delete_table_with_source(self):
         source = ExternalDataSource.objects.create(team=self.team, team_id=self.team.pk)
@@ -746,6 +796,24 @@ class TestTable(APIBaseTest):
         assert response.status_code == 200
         assert response.json()["name"] == "test_table2"
 
+    def test_update_options_keeps_the_history_table_marker(self):
+        table = DataWarehouseTable.objects.create(
+            name="orders_cdc",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            columns={},
+            options={"history_table": True},
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
+            {"options": {}},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        table.refresh_from_db()
+        assert table.is_history_table
+
     def test_update_table_url_pattern_to_internal_bucket(self):
         table = DataWarehouseTable.objects.create(
             name="test_table",
@@ -876,6 +944,30 @@ class TestTable(APIBaseTest):
         credential.refresh_from_db()
         assert credential.access_key == "original_key"
 
+    @parameterized.expand(
+        [
+            ("key_and_secret", {"access_key": "new_key", "access_secret": "new_secret"}),
+            ("key_only", {"access_key": "new_key"}),
+        ]
+    )
+    def test_update_credential_of_a_table_without_one_is_a_validation_error(self, _name, credential):
+        table = DataWarehouseTable.objects.create(
+            name="uploaded_table",
+            format="CSVWithNames",
+            team=self.team,
+            columns={},
+            url_pattern=f"https://warehouse.posthog.test/file_uploads/team_{self.team.pk}/abc/data.csv",
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_tables/{table.id}", {"credential": credential}, format="json"
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "no credential" in str(response.json())
+        table.refresh_from_db()
+        assert table.credential_id is None
+
     def test_update_table_credential_blank_access_secret(self):
         from products.warehouse_sources.backend.facade.models import DataWarehouseCredential
 
@@ -960,9 +1052,14 @@ class TestTable(APIBaseTest):
         file_content = b"id,name,value\n1,Test,100\n2,Test2,200"
         test_file = SimpleUploadedFile("test_file.csv", file_content, content_type="text/csv")
 
-        with patch(
-            "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns"
-        ) as mock_get_columns:
+        with (
+            patch("products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns") as mock_get_columns,
+            # Quote detection reads the file for real, which a mocked S3 client can't serve.
+            patch(
+                "products.warehouse_sources.backend.models.table.DataWarehouseTable.detect_csv_double_quotes_setting",
+                return_value=True,
+            ),
+        ):
             mock_get_columns.return_value = {
                 "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
                 "name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
@@ -988,6 +1085,7 @@ class TestTable(APIBaseTest):
         # Verify the table was created
         table = DataWarehouseTable.objects.get(name="test_csv_table")
         assert table is not None
+        assert table.options == {"csv_allow_double_quotes": True}
 
         # Verify S3 client was called to upload the file
         mock_s3.upload_fileobj.assert_called_once_with(
@@ -996,6 +1094,47 @@ class TestTable(APIBaseTest):
 
         # Verify URL pattern was set correctly
         assert table.url_pattern == f"https://test-bucket.s3.amazonaws.com/managed/team_{self.team.id}/test_file.csv"
+
+    @parameterized.expand(
+        [
+            ("neither_quote_setting_parses", None, "comma-separated CSV with a header row"),
+            ("the_read_fails_outright", ServerException("Access Denied", code=499), "Failed to upload file"),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("boto3.client")
+    def test_file_upload_leaves_no_table_when_the_csv_cannot_be_read(
+        self, _name, detect_outcome, expected_message, mock_boto3_client, mock_feature_enabled
+    ):
+        mock_boto3_client.return_value = MagicMock()
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        test_file = SimpleUploadedFile("test_file.csv", b'id,name\n1,"Test\n', content_type="text/csv")
+        detect = Mock(side_effect=detect_outcome) if isinstance(detect_outcome, Exception) else Mock(return_value=None)
+
+        s3 = MagicMock()
+
+        with (
+            patch.object(DataWarehouseTable, "detect_csv_double_quotes_setting", detect),
+            patch("products.data_warehouse.backend.presentation.views.table.get_s3_client", return_value=s3),
+            self.settings(
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY="test_key",
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET="test_secret",
+                DATAWAREHOUSE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
+                DATAWAREHOUSE_BUCKET="test-warehouse-bucket",
+            ),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                {"file": test_file, "name": "unreadable_csv", "format": "CSVWithNames"},
+                format="multipart",
+            )
+
+        assert response.status_code == 400
+        assert expected_message in response.json()["message"]
+        assert not DataWarehouseTable.objects.filter(name="unreadable_csv").exists()
+        s3.rm.assert_called_once_with(f"test-warehouse-bucket/managed/team_{self.team.id}/test_file.csv")
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_file_upload_api_disabled(self, mock_feature_enabled):
@@ -1033,15 +1172,20 @@ class TestTable(APIBaseTest):
         assert response.status_code == 400
         assert "Table names must start with a letter or underscore" in response.json()["message"]
 
+    @patch.object(DataWarehouseTable, "detect_csv_double_quotes_setting", lambda self: True)
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("boto3.client")
     def test_file_upload_updates_existing_table(self, mock_boto3_client, mock_feature_enabled):
         mock_s3 = MagicMock()
         mock_boto3_client.return_value = mock_s3
 
-        # Create an existing table
         existing_table = DataWarehouseTable.objects.create(
-            name="existing_table", format="CSVWithNames", team=self.team, team_id=self.team.pk, columns={}
+            name="existing_table",
+            format="CSVWithNames",
+            team=self.team,
+            team_id=self.team.pk,
+            columns={},
+            url_pattern=f"https://test-bucket.s3.amazonaws.com/managed/team_{self.team.id}/old_file.csv",
         )
 
         from django.core.files.uploadedfile import SimpleUploadedFile
@@ -1064,13 +1208,15 @@ class TestTable(APIBaseTest):
                 DATAWAREHOUSE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
                 DATAWAREHOUSE_BUCKET="test-warehouse-bucket",
             ):
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/warehouse_tables/file/",
-                    {"file": test_file, "name": "existing_table", "format": "CSVWithNames"},
-                    format="multipart",
-                )
-
-        assert response.status_code == 201
+                # The second upload changes no metadata and must still be logged.
+                for _ in range(2):
+                    test_file.seek(0)
+                    response = self.client.post(
+                        f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                        {"file": test_file, "name": "existing_table", "format": "CSVWithNames"},
+                        format="multipart",
+                    )
+                    assert response.status_code == 201
 
         # Verify the table was updated
         existing_table.refresh_from_db()
@@ -1087,9 +1233,76 @@ class TestTable(APIBaseTest):
         }
 
         # Verify S3 client was called to upload the file
-        mock_s3.upload_fileobj.assert_called_once_with(
+        mock_s3.upload_fileobj.assert_called_with(
             ANY, "test-warehouse-bucket", f"managed/team_{self.team.id}/updated_file.csv"
         )
+
+        assert (
+            ActivityLog.objects.filter(
+                scope="DataWarehouseTable", item_id=str(existing_table.id), activity="updated", user=self.user
+            ).count()
+            == 2
+        )
+
+    @parameterized.expand(
+        [
+            ("no_url", "", False, False),
+            ("customer_bucket", "https://exports.example.com/orders.csv", True, False),
+            (
+                "file_upload_folder",
+                "https://test-bucket.s3.amazonaws.com/file_uploads/team_{team}/11111111-1111-1111-1111-111111111111/a.csv",
+                False,
+                False,
+            ),
+            ("another_teams_folder", "https://test-bucket.s3.amazonaws.com/managed/team_999999/a.csv", False, False),
+            ("sourced_table", "https://test-bucket.s3.amazonaws.com/managed/team_{team}/a.csv", False, True),
+            ("nested_key", "https://test-bucket.s3.amazonaws.com/managed/team_{team}/x/a.csv", False, False),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("boto3.client")
+    def test_file_upload_refuses_a_table_it_did_not_make(
+        self, _name, url_pattern, with_credential, with_source, mock_boto3_client, mock_feature_enabled
+    ):
+        mock_s3 = MagicMock()
+        mock_boto3_client.return_value = mock_s3
+        url_pattern = url_pattern.format(team=self.team.id)
+        existing_table = DataWarehouseTable.objects.create(
+            name="existing_table",
+            format="CSVWithNames",
+            team=self.team,
+            columns={},
+            url_pattern=url_pattern,
+            credential=(
+                DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+                if with_credential
+                else None
+            ),
+            external_data_source=(
+                ExternalDataSource.objects.create(
+                    team=self.team, source_id="s", connection_id="c", status="Running", source_type="Stripe"
+                )
+                if with_source
+                else None
+            ),
+        )
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        with self.settings(
+            DATAWAREHOUSE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com", DATAWAREHOUSE_BUCKET="test-warehouse-bucket"
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                {"file": SimpleUploadedFile("new.csv", b"id\n1\n"), "name": "existing_table"},
+                format="multipart",
+            )
+
+        assert response.status_code == 400
+        assert "already exists" in response.json()["message"]
+        existing_table.refresh_from_db()
+        assert existing_table.url_pattern == url_pattern
+        mock_s3.upload_fileobj.assert_not_called()
 
     def _delete_all_from_s3(self, s3_client, bucket_name, prefix=""):
         """Helper to delete all objects in a bucket with a given prefix."""
@@ -1099,6 +1312,7 @@ class TestTable(APIBaseTest):
                 if "Key" in obj:
                     s3_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
 
+    @patch.object(DataWarehouseTable, "detect_csv_double_quotes_setting", lambda self: True)
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_file_upload_with_minio(self, mock_feature_enabled):
         """Test file upload using actual MinIO bucket instead of mocking."""
@@ -1164,6 +1378,7 @@ class TestTable(APIBaseTest):
         self._delete_all_from_s3(s3_client, test_bucket_name)
         s3_client.delete_bucket(Bucket=test_bucket_name)
 
+    @patch.object(DataWarehouseTable, "detect_csv_double_quotes_setting", lambda self: True)
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("boto3.client")
     def test_file_upload_sanitizes_filename_for_s3_key(self, mock_boto3_client, mock_feature_enabled):
@@ -1235,6 +1450,7 @@ class TestTable(APIBaseTest):
         assert response.status_code == 400
         assert "Table names must start with a letter" in response.json()["message"]
 
+    @patch.object(DataWarehouseTable, "detect_csv_double_quotes_setting", lambda self: True)
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("boto3.client")
     def test_file_upload_table_name_defaults_to_sanitized_filename_when_valid(

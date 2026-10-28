@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.models.integration import Integration, OauthIntegration
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -30,6 +31,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.settings import (
     ENDPOINTS,
+    HELP_SCOUT_API_VERSION_V2,
+    HELP_SCOUT_API_VERSION_V3,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -37,8 +40,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpScoutResumeConfig]):
-    supported_versions = ("v2",)
-    default_version = "v2"
+    codebase_detection = detect(
+        env=("^(HELP_SCOUT|HELPSCOUT)_",),
+        script_hosts=("beacon-v2.helpscout.net",),
+        npm=("@helpscout/javascript-sdk",),
+        composer=("helpscout/api", "helpscout/helpscout-cli-php"),
+    )
+
+    supported_versions = (HELP_SCOUT_API_VERSION_V2, HELP_SCOUT_API_VERSION_V3)
+    default_version = HELP_SCOUT_API_VERSION_V3
     api_docs_url = "https://developer.helpscout.com/mailbox-api/"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -59,6 +69,8 @@ class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpSco
             # Permanent token-exchange failures (invalid_client, inactive user, …) carry the
             # framework's stable marker; transient 429/5xx token errors don't.
             "401 Client Error: Unauthorized for url: https://api.helpscout.net": "Help Scout authentication failed. Please reconnect your Help Scout account.",
+            # Reports are gated to the Plus and Pro plans, which a retry can't change.
+            "403 Client Error: Forbidden for url: https://api.helpscout.net/v2/reports": "Help Scout reports are only available on the Plus and Pro plans. Upgrade your Help Scout plan or deselect the happiness_ratings table.",
             # The linked OAuth integration was deleted while the source still references it.
             # Retrying can never resolve this, so ask the user to reconnect.
             "Integration not found": "The linked Help Scout integration no longer exists. Please reconnect your Help Scout account.",
@@ -77,7 +89,7 @@ class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpSco
             caption="Sync your Help Scout conversations, customers, and mailboxes into the PostHog Data warehouse.",
             iconPath="/static/services/helpscout.png",
             docsUrl="https://posthog.com/docs/cdp/sources/helpscout",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
@@ -127,7 +139,7 @@ class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpSco
     ) -> tuple[bool, str | None]:
         try:
             access_token = self._get_access_token(config, team_id)
-            return validate_helpscout_credentials(access_token, schema_name)
+            return validate_helpscout_credentials(access_token, self.resolve_api_version(api_version), schema_name)
         except Exception as e:
             return False, str(e)
 
@@ -148,8 +160,8 @@ class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpSco
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
-            incremental_field=inputs.incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,

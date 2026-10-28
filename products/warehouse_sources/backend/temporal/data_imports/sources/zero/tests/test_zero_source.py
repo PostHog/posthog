@@ -1,8 +1,15 @@
+import json
+
 import pytest
 from unittest import mock
 from unittest.mock import MagicMock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    route,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zero import ZeroSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.zero.settings import ENDPOINT_CONFIGS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zero.source import ZeroSource
@@ -60,17 +67,19 @@ class TestZeroSource:
             db_incremental_field_last_value="2026-01-01T00:00:00+00:00",
         )
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.zero.source.zero_source")
-    def test_source_for_pipeline_drops_last_value_when_not_incremental(self, mock_zero_source: MagicMock) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        inputs = MagicMock()
-        inputs.schema_name = "Users"
-        inputs.team_id = 7
-        inputs.job_id = "job-1"
-        inputs.should_use_incremental_field = False
-        inputs.incremental_field = None
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00+00:00"
+    def test_source_for_pipeline_drops_last_value_when_not_incremental(self) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "Companies",
+            route(
+                {
+                    "/api/workspaces": [ScriptedResponse(json={"data": [{"id": "ws-1"}], "total": 1})],
+                    "/api/companies": [ScriptedResponse(json={"data": [], "total": 0})],
+                }
+            ),
+            should_use_incremental_field=False,
+            incremental_field=None,
+            db_incremental_field_last_value="2026-01-01T00:00:00+00:00",
+        )
 
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        assert mock_zero_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        company_request = next(request for request in result.requests if request.path == "/api/companies")
+        assert json.loads(company_request.param("where") or "{}") == {"workspaceId": "ws-1"}

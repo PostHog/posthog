@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 from django.db import transaction
 
 import structlog
@@ -71,6 +73,13 @@ def _filter_by_user_preferences(
     return [uid for uid, settings in rows if not _is_disabled(settings)]
 
 
+def _filter_by_project_access(user_ids: list[int], team: Team) -> list[int]:
+    if not user_ids:
+        return user_ids
+    with_access = set(team.all_users_with_access().filter(id__in=user_ids).values_list("id", flat=True))
+    return [uid for uid in user_ids if uid in with_access]
+
+
 def has_been_dispatched(
     *,
     notification_type: NotificationType,
@@ -112,6 +121,27 @@ def publish_resource_edited(
     `resource_type` is the value the frontend matches on (e.g. "HogFlow"); `ac_resource_type` is the
     access-control scope used to drop recipients without viewer access (e.g. "hog_flow").
     """
+    publish_resources_edited(
+        team=team,
+        resource_type=resource_type,
+        edits=[(resource_id, updated_at)],
+        actor_user_id=actor_user_id,
+        ac_resource_type=ac_resource_type,
+    )
+
+
+def publish_resources_edited(
+    *,
+    team: Team,
+    resource_type: str,
+    edits: Sequence[tuple[str, str]],
+    actor_user_id: int | None = None,
+    ac_resource_type: str | None = None,
+) -> None:
+    """`publish_resource_edited` for many resources of one type at once. `edits` holds (resource_id, updated_at)
+    pairs. The flag check and the recipients resolve once for the whole set, not once per resource."""
+    if not edits:
+        return
     organization_id = team.organization_id
 
     if not posthoganalytics.feature_enabled(
@@ -131,24 +161,32 @@ def publish_resource_edited(
     if not recipient_user_ids:
         return
 
-    payload = {
-        "organization_id": str(organization_id),
-        "team_id": team.id,
-        "notification_type": RESOURCE_EDITED_EVENT_TYPE,
-        "resource_type": resource_type,
-        "resource_id": str(resource_id),
-        "updated_at": updated_at,
-        "actor_user_id": actor_user_id,
-        "resolved_user_ids": recipient_user_ids,
-        "priority": "normal",
-    }
+    payloads = [
+        {
+            "organization_id": str(organization_id),
+            "team_id": team.id,
+            "notification_type": RESOURCE_EDITED_EVENT_TYPE,
+            "resource_type": resource_type,
+            "resource_id": str(resource_id),
+            "updated_at": updated_at,
+            "actor_user_id": actor_user_id,
+            "resolved_user_ids": recipient_user_ids,
+            "priority": "normal",
+        }
+        for resource_id, updated_at in edits
+    ]
 
     def _on_commit() -> None:
         try:
             producer = get_producer(topic=KAFKA_NOTIFICATION_EVENTS)
-            producer.produce(topic=KAFKA_NOTIFICATION_EVENTS, data=payload, key=str(organization_id))
         except Exception:
-            logger.exception("notifications.resource_edited_publish_failed", resource_id=str(resource_id))
+            logger.exception("notifications.resource_edited_publish_failed", resource_id=edits[0][0])
+            return
+        for payload in payloads:
+            try:
+                producer.produce(topic=KAFKA_NOTIFICATION_EVENTS, data=payload, key=str(organization_id))
+            except Exception:
+                logger.exception("notifications.resource_edited_publish_failed", resource_id=payload["resource_id"])
 
     transaction.on_commit(_on_commit)
 
@@ -183,6 +221,11 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
 
     resolver = data.resolver or RecipientsResolver()
     resolved_user_ids = resolver.resolve(data.target_type, data.target_id, data.team_id)
+
+    # A USER, ROLE or ORGANIZATION target, or a custom resolver, can name an org member who is denied
+    # this project. The resource-level check below does not decide project access, so filter here.
+    if team is not None:
+        resolved_user_ids = _filter_by_project_access(resolved_user_ids, team)
 
     if team is not None and data.resource_type and str(data.resource_type) in ACCESS_CONTROL_RESOURCES:
         resolved_user_ids = resolver.filter_by_access_control(resolved_user_ids, str(data.resource_type), team)

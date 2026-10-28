@@ -84,6 +84,7 @@ function createMockPostgres(): jest.Mocked<PersonRepository> {
         updateCohortsAndFeatureFlagsForMergeBatch: jest.fn(),
         createPerson: jest.fn(),
         updatePerson: jest.fn(),
+        handleOversizedPersonProperties: jest.fn(),
         updatePersonAssertVersion: jest.fn(),
         updatePersonsBatch: jest.fn(),
         deletePerson: jest.fn(),

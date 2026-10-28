@@ -3,7 +3,7 @@ import time
 import uuid
 import datetime
 from datetime import timedelta
-from typing import Any, cast
+from typing import Any, Literal, cast
 from urllib.parse import quote, unquote, urlparse
 
 import pytest
@@ -30,6 +30,7 @@ from social_django.models import UserSocialAuth
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_oauth_state, new_state_nonce
 from posthog.api.user import MAX_PRODUCT_INTROS_SEEN, UserSerializer
+from posthog.auth import SessionAuthentication
 from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.models import Team, User
@@ -37,11 +38,14 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.user import default_ui_configuration_for_new_users
+from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
+from posthog.test.authentication_checks import covers_authentication
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -61,6 +65,9 @@ def issue_verification_code(user: User, target_email: str | None = None) -> str:
     with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
         email_verification_code_verifier.send_code(user, target_email=target_email)
     return mock_send.call_args[0][1]
+
+
+ProvisionedBy = Literal["organization", "team", "vercel_installation", "vercel_connectable"]
 
 
 class TestUserAPI(APIBaseTest):
@@ -92,6 +99,7 @@ class TestUserAPI(APIBaseTest):
 
     # RETRIEVING USER
 
+    @covers_authentication(SessionAuthentication)
     def test_retrieve_current_user(self):
         response = self.client.get("/api/users/@me/")
 
@@ -116,6 +124,10 @@ class TestUserAPI(APIBaseTest):
 
         self.assertEqual(response_data["organization"]["name"], self.organization.name)
         self.assertEqual(response_data["organization"]["membership_level"], 1)
+        self.assertEqual(
+            response_data["organization"]["membership_joined_at"],
+            self.organization_membership.joined_at.isoformat(),
+        )
         self.assertEqual(response_data["organization"]["teams"][0]["id"], self.team.id)
         self.assertEqual(response_data["organization"]["teams"][0]["name"], self.team.name)
         self.assertNotIn(
@@ -271,13 +283,7 @@ class TestUserAPI(APIBaseTest):
         assert response.json() == {"a bag": "of data"}
 
     def test_can_update_ui_configuration(self):
-        configuration = {
-            "version": 1,
-            "sidebar": {
-                "sections": {"recents": {"visible": False}},
-                "items": {"data": {"visible": False}},
-            },
-        }
+        configuration = {"version": 1, "sql_editor": {"vim_mode_enabled": True, "vimrc": "imap jj <Esc>"}}
 
         response = self.client.patch("/api/users/@me/", {"ui_configuration": configuration})
 
@@ -291,7 +297,7 @@ class TestUserAPI(APIBaseTest):
 
         response = self.client.patch(
             "/api/users/@me/",
-            {"ui_configuration": {"version": 1, "sidebar": {"items": {"bogus": {"visible": False}}}}},
+            {"ui_configuration": {"version": 1, "sql_editor": {"vim_mode_enabled": "nope"}}},
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -307,26 +313,47 @@ class TestUserAPI(APIBaseTest):
         assert "active_realtime_notification_types" in body
         assert "comment_mention" in body["active_realtime_notification_types"]
 
+    def _provision_organization(self, provisioned_by: ProvisionedBy | None = "organization") -> None:
+        if provisioned_by == "organization":
+            OrganizationProvisioning.objects.create(
+                organization=self.organization, partner=OrganizationProvisioning.Partner.VERCEL
+            )
+        elif provisioned_by == "team":
+            TeamProvisioningConfig.objects.create(team=self.team)
+        elif provisioned_by in ("vercel_installation", "vercel_connectable"):
+            OrganizationIntegration.objects.create(
+                organization=self.organization,
+                kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+                integration_id="icfg_test",
+                config={"type": "connectable"} if provisioned_by == "vercel_connectable" else {},
+            )
+
     @parameterized.expand(
         [
-            ("unreviewed_nothing", False, False, False, False),
-            ("unreviewed_pat_only", False, True, False, True),
-            ("unreviewed_passkey_only", False, False, True, True),
-            ("unreviewed_pat_and_passkey", False, True, True, True),
-            ("reviewed_pat_only", True, True, False, False),
-            ("reviewed_passkey_only", True, False, True, False),
-            ("reviewed_pat_and_passkey", True, True, True, False),
-            ("reviewed_nothing", True, False, False, False),
+            ("unreviewed_nothing", "organization", False, False, False, False),
+            ("unreviewed_pat_only", "organization", False, True, False, True),
+            ("unreviewed_passkey_only", "organization", False, False, True, True),
+            ("unreviewed_pat_and_passkey", "organization", False, True, True, True),
+            ("unreviewed_pat_only_legacy_team_provisioning", "team", False, True, False, True),
+            ("unreviewed_pat_only_legacy_vercel_installation", "vercel_installation", False, True, False, True),
+            ("unreviewed_pat_only_vercel_connected_own_organization", "vercel_connectable", False, True, False, False),
+            ("unreviewed_pat_and_passkey_not_provisioned", None, False, True, True, False),
+            ("reviewed_pat_only", "organization", True, True, False, False),
+            ("reviewed_passkey_only", "organization", True, False, True, False),
+            ("reviewed_pat_and_passkey", "organization", True, True, True, False),
+            ("reviewed_nothing", "organization", True, False, False, False),
         ]
     )
     def test_requires_credential_review(
         self,
         _name: str,
+        provisioned_by: ProvisionedBy | None,
         reviewed: bool,
         with_key: bool,
         with_passkey: bool,
         expected: bool,
     ):
+        self._provision_organization(provisioned_by)
         self.user.credentials_reviewed_at = timezone.now() if reviewed else None
         self.user.save(update_fields=["credentials_reviewed_at"])
         if with_key:
@@ -351,6 +378,7 @@ class TestUserAPI(APIBaseTest):
         assert response.json()["requires_credential_review"] is expected
 
     def test_requires_credential_review_skipped_when_impersonating_via_session(self):
+        self._provision_organization()
         User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
         PersonalAPIKey.objects.create(
             user=self.user,
@@ -364,6 +392,7 @@ class TestUserAPI(APIBaseTest):
         assert response.json()["requires_credential_review"] is False
 
     def test_requires_credential_review_skipped_when_impersonating_via_oauth_token(self):
+        self._provision_organization()
         User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
         PersonalAPIKey.objects.create(
             user=self.user,
@@ -399,6 +428,7 @@ class TestUserAPI(APIBaseTest):
     def test_requires_credential_review_unverified_passkey(self):
         # Unverified passkeys are the realistic pre-claim attack artifact - a partner
         # session can register a credential without ever completing verification.
+        self._provision_organization()
         self.user.credentials_reviewed_at = None
         self.user.save(update_fields=["credentials_reviewed_at"])
         WebauthnCredential.objects.create(
@@ -416,21 +446,26 @@ class TestUserAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("live_access_token", 1, False, False, True),
-            ("live_refresh_token_only", -1, True, False, True),
-            ("expired_access_token_only", -1, False, False, False),
-            ("live_access_token_first_party", 1, False, True, False),
-            ("live_refresh_token_only_first_party", -1, True, True, False),
+            ("live_access_token", True, 1, False, False, True),
+            ("live_refresh_token_only", True, -1, True, False, True),
+            ("expired_access_token_only", True, -1, False, False, False),
+            ("live_access_token_first_party", True, 1, False, True, False),
+            ("live_refresh_token_only_first_party", True, -1, True, True, False),
+            ("live_access_token_not_provisioned", False, 1, False, False, False),
+            ("live_refresh_token_only_not_provisioned", False, -1, True, False, False),
         ]
     )
     def test_requires_credential_review_for_oauth_access(
         self,
         _name: str,
+        provisioned: bool,
         expires_hours: int,
         with_refresh_token: bool,
         is_first_party: bool,
         expected: bool,
     ):
+        if provisioned:
+            self._provision_organization()
         User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
         app = OAuthApplication.objects.create(
             name="Provisioning partner",
@@ -463,6 +498,7 @@ class TestUserAPI(APIBaseTest):
         assert response.json()["requires_credential_review"] is expected
 
     def test_credentials_review_complete_endpoint(self):
+        self._provision_organization()
         User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
         PersonalAPIKey.objects.create(
             user=self.user,
@@ -593,6 +629,31 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.json(), self.method_not_allowed_response("POST"))
 
         self.assertEqual(User.objects.count(), count)
+
+    @parameterized.expand(
+        [
+            ("same_project", [False, False], 1),
+            ("switched_project", [False, True], 2),
+            ("switched_back_to_earlier_project", [False, True, False], 3),
+        ]
+    )
+    @patch("posthoganalytics.capture")
+    def test_retrieve_current_user_refreshes_person_properties_once_per_project(
+        self, _name, use_new_project_per_request, expected_refreshes, mock_capture
+    ):
+        for use_new_project in use_new_project_per_request:
+            if use_new_project:
+                User.objects.filter(pk=self.user.pk).update(
+                    current_organization=self.new_org, current_team=self.new_project
+                )
+            else:
+                User.objects.filter(pk=self.user.pk).update(
+                    current_organization=self.organization, current_team=self.team
+                )
+            self.client.get("/api/users/@me/")
+
+        refreshes = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "update user properties"]
+        assert len(refreshes) == expected_refreshes
 
     # UPDATING USER
 
@@ -2463,6 +2524,7 @@ class TestUserAPI(APIBaseTest):
             {
                 "notification_settings": {
                     "plugin_disabled": False,
+                    "mobile_push_tasks_enabled": False,
                     "discussions_mentioned": False,
                     "error_tracking_issue_assigned": False,
                     "project_weekly_digest_disabled": {123: True},
@@ -2481,6 +2543,10 @@ class TestUserAPI(APIBaseTest):
                 "plugin_disabled": False,
                 "discussions_mentioned": False,
                 "task_comments_slack_dm": True,
+                "mobile_push_enabled": True,
+                "mobile_push_tasks_enabled": False,
+                "mobile_push_reports_enabled": True,
+                "mobile_push_report_updates_enabled": True,
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
@@ -2488,11 +2554,14 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "ai_evaluation_disabled": True,
+                "workflow_suggestions": True,
                 "materialized_view_sync_failed": True,
                 "materialized_view_sync_failed_daily": True,
                 "materialized_view_sync_failed_immediate": False,
                 "web_analytics_weekly_digest": True,
                 "data_catalog_weekly_digest": True,
+                "approval_requested": True,
+                "approval_resolved": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
                 "pipeline_notifications_disabled": {},
@@ -2506,6 +2575,10 @@ class TestUserAPI(APIBaseTest):
                 "plugin_disabled": False,
                 "discussions_mentioned": False,
                 "task_comments_slack_dm": True,
+                "mobile_push_enabled": True,
+                "mobile_push_tasks_enabled": False,
+                "mobile_push_reports_enabled": True,
+                "mobile_push_report_updates_enabled": True,
                 "project_weekly_digest_disabled": {"123": True},
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
@@ -2513,11 +2586,14 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "ai_evaluation_disabled": True,
+                "workflow_suggestions": True,
                 "materialized_view_sync_failed": True,
                 "materialized_view_sync_failed_daily": True,
                 "materialized_view_sync_failed_immediate": False,
                 "web_analytics_weekly_digest": True,
                 "data_catalog_weekly_digest": True,
+                "approval_requested": True,
+                "approval_resolved": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
                 "pipeline_notifications_disabled": {},
@@ -2778,7 +2854,11 @@ class TestUserAPI(APIBaseTest):
             {
                 "plugin_disabled": True,  # Default value
                 "discussions_mentioned": True,  # Default value
-                "task_comments_slack_dm": True,  # Default value
+                "task_comments_slack_dm": True,
+                "mobile_push_enabled": True,
+                "mobile_push_tasks_enabled": True,
+                "mobile_push_reports_enabled": True,
+                "mobile_push_report_updates_enabled": True,
                 "project_weekly_digest_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value
@@ -2786,11 +2866,14 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.01,  # Default value
                 "project_api_key_exposed": True,  # Default value
                 "ai_evaluation_disabled": True,  # Default value
+                "workflow_suggestions": True,  # Default value
                 "materialized_view_sync_failed": False,  # Default value
                 "materialized_view_sync_failed_daily": True,  # Default value
                 "materialized_view_sync_failed_immediate": False,  # Default value
                 "web_analytics_weekly_digest": True,  # Default value
                 "data_catalog_weekly_digest": True,  # Default value
+                "approval_requested": True,  # Default value
+                "approval_resolved": True,  # Default value
                 "organization_member_join_email_disabled": {},  # Default value
                 "realtime_notifications_disabled": {},  # Default value
                 "pipeline_notifications_disabled": {},  # Default value
@@ -2802,12 +2885,13 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("not_an_object", ["version"]),
-            ("missing_version", {"sidebar": {}}),
-            ("unknown_section", {"version": 1, "sidebar": {"sections": {"bogus": {"visible": False}}}}),
-            ("unknown_item", {"version": 1, "sidebar": {"items": {"bogus": {"visible": False}}}}),
-            ("activity_not_customizable", {"version": 1, "sidebar": {"items": {"activity": {"visible": False}}}}),
-            ("non_boolean_visible", {"version": 1, "sidebar": {"items": {"home": {"visible": "nope"}}}}),
-            ("unknown_node_key", {"version": 1, "sidebar": {"items": {"home": {"visible": False, "size": 1}}}}),
+            ("missing_version", {"sql_editor": {}}),
+            ("non_boolean_vim_mode", {"version": 1, "sql_editor": {"vim_mode_enabled": "nope"}}),
+            ("non_string_vimrc", {"version": 1, "sql_editor": {"vimrc": ["imap jj <Esc>"]}}),
+            ("vimrc_too_long", {"version": 1, "sql_editor": {"vimrc": "x" * 10001}}),
+            ("unknown_analytics_list_sort", {"version": 1, "analytics_list": {"default_sort": "name"}}),
+            ("unknown_analytics_list_key", {"version": 1, "analytics_list": {"columns": ["owner"]}}),
+            ("non_boolean_hide_insights", {"version": 1, "analytics_list": {"hide_insights": "nope"}}),
         ]
     )
     def test_invalid_ui_configuration_is_rejected(self, _name, value):
@@ -2821,9 +2905,13 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
             ("null", None),
             ("minimal", {"version": 1}),
             ("unknown_top_level_key", {"version": 1, "surprise": True}),
-            ("unknown_sidebar_key", {"version": 1, "sidebar": {"density": "compact", "surprise": True}}),
             (
-                "full",
+                "analytics_list",
+                {"version": 1, "analytics_list": {"hide_insights": True, "default_sort": "-created_at"}},
+            ),
+            (
+                # Sidebar settings an older client stored. Rejecting them would block every later save.
+                "stored_sidebar_settings",
                 {
                     "version": 1,
                     "sidebar": {
@@ -2841,7 +2929,13 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
                     },
                 },
             ),
-            ("new_user_default", default_ui_configuration_for_new_users()),
+            (
+                "sql_editor",
+                {
+                    "version": 1,
+                    "sql_editor": {"vim_mode_enabled": True, "vimrc": "imap jj <Esc>\nset cursorblink"},
+                },
+            ),
         ]
     )
     def test_valid_ui_configuration_is_accepted(self, _name, value):
@@ -2849,37 +2943,6 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
 
         self.assertTrue(serializer.is_valid(), serializer.errors)
         self.assertEqual(serializer.validated_data["ui_configuration"], value)
-
-    @parameterized.expand(
-        [
-            (
-                "omitted_key_is_kept",
-                True,
-                {"version": 1, "sidebar": {"density": "compact"}},
-                {"version": 1, "sidebar": {"density": "compact", "starred_products_setup_completed": True}},
-            ),
-            (
-                "omitted_sidebar_is_kept",
-                True,
-                {"version": 1},
-                {"version": 1, "sidebar": {"starred_products_setup_completed": True}},
-            ),
-            ("reset_is_kept", True, None, {"version": 1, "sidebar": {"starred_products_setup_completed": True}}),
-            (
-                "explicit_false_wins",
-                True,
-                {"version": 1, "sidebar": {"starred_products_setup_completed": False}},
-                {"version": 1, "sidebar": {"starred_products_setup_completed": False}},
-            ),
-            ("not_completed_is_untouched", False, {"version": 1}, {"version": 1}),
-        ]
-    )
-    def test_update_keeps_completed_starred_products_setup(self, _name, completed, value, expected):
-        user = User(ui_configuration={"version": 1, "sidebar": {"starred_products_setup_completed": completed}})
-        serializer = UserSerializer(instance=user, data={"ui_configuration": value}, partial=True)
-
-        self.assertTrue(serializer.is_valid(), serializer.errors)
-        self.assertEqual(serializer.validated_data["ui_configuration"], expected)
 
 
 @pytest.mark.ee

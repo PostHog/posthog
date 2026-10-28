@@ -7,6 +7,13 @@ import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 
 const RELOAD_GUARD_KEY = 'posthog-chunk-reload-at'
 
+function renderStableBuildImportMap(): void {
+    const importMap = document.createElement('script')
+    importMap.type = 'importmap'
+    importMap.textContent = '{"imports":{}}'
+    document.head.appendChild(importMap)
+}
+
 class TestErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
     override state: { error: Error | null } = { error: null }
 
@@ -42,6 +49,7 @@ describe('ChunkLoadErrorBoundary', () => {
 
     beforeEach(() => {
         window.localStorage.clear()
+        document.head.innerHTML = ''
         consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
         consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
     })
@@ -84,6 +92,23 @@ describe('ChunkLoadErrorBoundary', () => {
         expect(
             screen.getByText('Failed to fetch dynamically imported module: /static/react-json-view.js')
         ).toBeInTheDocument()
+    })
+
+    it('reloads on the stable build even after a recent reload, because that reload leaves the stable build', () => {
+        const reload = jest.fn()
+        window.localStorage.setItem(RELOAD_GUARD_KEY, String(Date.now()))
+        renderStableBuildImportMap()
+
+        render(
+            <TestErrorBoundary>
+                <ChunkLoadErrorBoundary reload={reload} fallback={() => <div>fallback</div>}>
+                    <ThrowChunkError />
+                </ChunkLoadErrorBoundary>
+            </TestErrorBoundary>
+        )
+
+        expect(reload).toHaveBeenCalledTimes(1)
+        expect(screen.queryByText('fallback')).not.toBeInTheDocument()
     })
 
     it('renders the fallback for repeated chunk errors when one is provided', () => {

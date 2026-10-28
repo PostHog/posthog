@@ -1,26 +1,21 @@
-import { useActions, useValues } from 'kea'
-import type { ReactNode } from 'react'
+import { useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconArchive, IconEllipsis } from '@posthog/icons'
-import {
-    Button,
-    DropdownMenu,
-    DropdownMenuCheckboxItem,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-    MenuLabel,
-} from '@posthog/quill-primitives'
+import { IconEllipsis } from '@posthog/icons'
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@posthog/quill-primitives'
 
-import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
+import { DROPDOWN_PARTS, SHEET_PARTS, TodayMenuParts } from '~/layout/today/todayMenuParts'
+import { panelChatTaskFor } from '~/layout/today/todayPanelChat'
+import { TodayPanelMoveMenuItems } from '~/layout/today/TodayPanelMoveMenuItems'
+import { TodaySheetMenu } from '~/layout/today/TodaySheetMenu'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { debugLogsLogic } from '../../../logics/debugLogsLogic'
-import { modelCatalogueLogic } from '../../../logics/modelCatalogueLogic'
 import type { Task } from '../../../types/taskTypes'
-import { getTaskRunMetadataFields } from './taskRunMetadataFields'
+import { TaskMenuItems } from './TaskMenuItems'
 
 export interface QuillTaskMenuProps {
     task: Task
@@ -28,78 +23,54 @@ export interface QuillTaskMenuProps {
     onArchive: () => void
 }
 
-function RelativeTime({ time }: { time: string }): JSX.Element {
-    return (
-        <time dateTime={time} title={dayjs(time).format('MMM D, YYYY HH:mm:ss')}>
-            {dayjs(time).fromNow()}
-        </time>
-    )
-}
-
-function FactList({ facts }: { facts: { label: string; value: ReactNode }[] }): JSX.Element {
-    return (
-        <dl className="m-0 flex flex-col gap-1 px-2 pb-1 text-xs">
-            {facts.map((fact) => (
-                <div key={fact.label} className="flex items-baseline justify-between gap-4">
-                    <dt className="text-muted-foreground">{fact.label}</dt>
-                    <dd className="m-0 min-w-0 truncate text-end text-foreground">{fact.value}</dd>
-                </div>
-            ))}
-        </dl>
-    )
-}
-
 export function QuillTaskMenu({ task, selectedRun, onArchive }: QuillTaskMenuProps): JSX.Element {
-    const { catalogue } = useValues(modelCatalogueLogic)
-    const { canControlDebugLogs, debugLogsEnabled } = useValues(debugLogsLogic)
-    const { setDebugLogsEnabled } = useActions(debugLogsLogic)
+    const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
+    const sandboxModeEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
+    const [sheetOpen, setSheetOpen] = useState(false)
+    // The phone layout has no floating or docked panel to move the chat into. Without the sandbox, the panel
+    // shows the legacy chat and cannot show the task.
+    const chat = todayRailEnabled && !phoneLayout && sandboxModeEnabled ? panelChatTaskFor(task, selectedRun) : null
 
-    const taskFacts = [
-        { label: 'Task ID', value: <span className="font-mono">{task.slug}</span> },
-        ...(task.repository ? [{ label: 'Repository', value: task.repository }] : []),
-        { label: 'Created by', value: task.created_by?.first_name || task.created_by?.email || 'Unknown' },
-        { label: 'Created', value: <RelativeTime time={task.created_at} /> },
-    ]
-    const runFacts = selectedRun
-        ? getTaskRunMetadataFields(selectedRun, catalogue).map((field) => ({
-              label: field.label,
-              value: field.kind === 'time' ? <RelativeTime time={field.value} /> : field.value,
-          }))
-        : []
+    const items = (parts: TodayMenuParts): JSX.Element => (
+        <TaskMenuItems
+            parts={parts}
+            task={task}
+            run={selectedRun}
+            onArchive={onArchive}
+            placement={chat && <TodayPanelMoveMenuItems parts={parts} chat={chat} dataAttrPrefix="task" />}
+        />
+    )
+
+    if (todayRailEnabled && phoneLayout) {
+        return (
+            <>
+                <Button
+                    variant="default"
+                    size="icon-lg"
+                    aria-label="Task actions"
+                    onClick={() => setSheetOpen(true)}
+                    data-attr="run-staff-menu"
+                >
+                    <IconEllipsis />
+                </Button>
+                <TodaySheetMenu open={sheetOpen} onOpenChange={setSheetOpen} title={task.title || 'Task'}>
+                    {items(SHEET_PARTS)}
+                </TodaySheetMenu>
+            </>
+        )
+    }
 
     return (
         <DropdownMenu>
             <DropdownMenuTrigger
                 render={
-                    <Button variant="default" size="icon-sm" aria-label="Task details" data-attr="run-staff-menu">
+                    <Button variant="default" size="icon" aria-label="Task details" data-attr="run-staff-menu">
                         <IconEllipsis />
                     </Button>
                 }
             />
             <DropdownMenuContent align="end" className="min-w-64 max-w-80">
-                <MenuLabel>Task</MenuLabel>
-                <FactList facts={taskFacts} />
-                {runFacts.length > 0 && (
-                    <>
-                        <DropdownMenuSeparator />
-                        <MenuLabel>Run</MenuLabel>
-                        <FactList facts={runFacts} />
-                    </>
-                )}
-                <DropdownMenuSeparator />
-                {canControlDebugLogs && (
-                    <DropdownMenuCheckboxItem
-                        checked={debugLogsEnabled}
-                        onCheckedChange={setDebugLogsEnabled}
-                        data-attr="run-toggle-debug-logs"
-                    >
-                        Show debug logs
-                    </DropdownMenuCheckboxItem>
-                )}
-                <DropdownMenuItem variant="destructive" onClick={onArchive} data-attr="task-archive">
-                    <IconArchive />
-                    Archive task
-                </DropdownMenuItem>
+                {items(DROPDOWN_PARTS)}
             </DropdownMenuContent>
         </DropdownMenu>
     )

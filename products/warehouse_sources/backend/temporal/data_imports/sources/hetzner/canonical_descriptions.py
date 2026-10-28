@@ -272,4 +272,31 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "value": "Sample value: a count for open_connections, per second for the rates, bytes/s for bandwidth.",
         },
     },
+    "network_members": {
+        "description": "Servers and load balancers attached to each private network, with their IP inside the network.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "network_id": "ID of the network the resource is attached to.",
+            "type": "Type of the attached resource: server or load_balancer.",
+            "id": "ID of the attached server or load balancer.",
+            "ip": "IP address of the resource within the network.",
+            "alias_ips": "Additional IP addresses of the resource within the network.",
+            "subnet": "IP range of the subnet the resource is attached to, in CIDR notation.",
+            "status": "Status of the resource within the network: ok, attaching, detaching, updating or error.",
+        },
+    },
+    "zone_rrsets": {
+        "description": "DNS resource record sets (RRSets) of each zone. One row per record name and type.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "zone": "ID of the zone the RRSet belongs to.",
+            "id": "ID of the RRSet, composed of its name and type joined with a slash (e.g. www/AAAA).",
+            "name": "Name of the RRSet relative to the zone. The zone apex is @.",
+            "type": "DNS record type of the RRSet, e.g. A, AAAA, CNAME, MX or TXT.",
+            "ttl": "Time to live (TTL) of the RRSet, in seconds. Null when the zone's default TTL applies.",
+            "records": "Records of the RRSet, each with its value and an optional comment.",
+            "protection": "Protection configuration of the RRSet.",
+            "labels": "User-defined key/value labels attached to the RRSet.",
+        },
+    },
 }

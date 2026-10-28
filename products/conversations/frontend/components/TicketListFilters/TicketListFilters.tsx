@@ -10,6 +10,7 @@ import { pluralize } from 'lib/utils/strings'
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
 import { TicketColumnsDropdown } from '../../scenes/tickets/TicketColumnsDropdown'
 import { SavedViewsButton } from '../SavedViews/SavedViewsButton'
+import { useAppliedTicketFilters } from '../TicketAppliedFilters/appliedTicketFilters'
 import { TicketAppliedFilters } from '../TicketAppliedFilters/TicketAppliedFilters'
 import { TicketFiltersDropdown } from '../TicketFiltersDropdown/TicketFiltersDropdown'
 import { TicketListBulkActions } from '../TicketListBulkActions/TicketListBulkActions'
@@ -21,7 +22,8 @@ interface TicketListFiltersProps {
 export function TicketListFilters({ embedded = false }: TicketListFiltersProps): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
     const { searchQuery, ticketsLoading, totalCount, hasActiveFilters, aiEnabled, dateFrom, dateTo } = useValues(logic)
-    const { setSearchQuery, loadTickets, setDateRange } = useActions(logic)
+    const { setSearchQuery, loadTickets, setDateRange, resetFilters } = useActions(logic)
+    const appliedFilters = useAppliedTicketFilters()
 
     return (
         <div className="flex flex-col gap-2">
@@ -46,6 +48,16 @@ export function TicketListFilters({ embedded = false }: TicketListFiltersProps):
                     />
                     <TicketFiltersDropdown />
                     <SavedViewsButton id="SupportTicketsScene" />
+                    {appliedFilters.length > 0 && (
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            onClick={resetFilters}
+                            data-attr="clear-ticket-filters"
+                        >
+                            Clear all filters
+                        </LemonButton>
+                    )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     <Tooltip

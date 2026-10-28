@@ -24,6 +24,7 @@ from posthog.models.team.team import Team
 
 from products.business_knowledge.backend.logic import (
     KnowledgeSearchResult,
+    RetrievalTrace,
     has_docs_shadow_feature_flag,
     search_knowledge_for_team,
 )
@@ -155,7 +156,7 @@ def _elapsed_ms(started: float) -> float:
 
 def _run_search(team: Team, query: str, started: float) -> _ShadowSearch:
     try:
-        results = search_knowledge_for_team(team, query)
+        results = search_knowledge_for_team(team, query, trace=RetrievalTrace(surface="docs_shadow"))
     except Exception:
         logger.warning("bk_docs_shadow_search_failed", team_id=team.id, exc_info=True)
         return _ShadowSearch(urls=[], error="exception", latency_ms=_elapsed_ms(started))

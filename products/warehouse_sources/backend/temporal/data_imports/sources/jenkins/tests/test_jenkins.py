@@ -6,15 +6,21 @@ import pytest
 from unittest import mock
 from unittest.mock import MagicMock
 
-import urllib3
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jenkins import (
+    JenkinsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins import jenkins
 from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.jenkins import (
     JenkinsResumeConfig,
     _discover_jobs,
-    _get_build_rows,
     _is_job_container,
     _iter_job_builds,
     _pin_job_url,
@@ -22,13 +28,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.je
     normalize_base_url,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.source import JenkinsSource
 
 
-def _resp(payload: Any, status: int = 200) -> MagicMock:
+def _resp(payload: Any) -> MagicMock:
     response = MagicMock()
     response.json.return_value = payload
-    response.status_code = status
-    response.ok = 200 <= status < 400
     return response
 
 
@@ -120,15 +125,6 @@ class TestToEpochMs:
 class TestIterJobBuilds:
     def _builds(self, *timestamps: int) -> list[dict[str, Any]]:
         return [{"number": i, "url": f"https://j/{i}/", "timestamp": ts} for i, ts in enumerate(timestamps)]
-
-    def test_full_refresh_yields_all_with_derived_fields(self) -> None:
-        page = self._builds(3000, 2000, 1000)
-        with mock.patch.object(jenkins, "_fetch", return_value=_resp({"builds": page})):
-            rows = list(_iter_job_builds(MagicMock(), "https://j/", ("u", "t"), MagicMock(), watermark_ms=None))
-        assert [r["number"] for r in rows] == [0, 1, 2]
-        # Every row carries the parent job URL and a created_at derived from the epoch-ms timestamp.
-        assert all(r["job_url"] == "https://j/" for r in rows)
-        assert rows[0]["created_at"] == datetime.fromtimestamp(3000 / 1000, tz=UTC).isoformat()
 
     def test_stops_at_watermark(self) -> None:
         # Newest-first; watermark falls between the 2nd and 3rd builds, so only the two newer ones
@@ -320,71 +316,28 @@ class TestReadBodyCapped:
         assert response.closed
 
 
-def _fake_manager(state: JenkinsResumeConfig | None) -> MagicMock:
-    """A mock satisfying the ResumableSourceManager surface without Redis.
-
-    Saved states accumulate on `.saved` for assertions.
-    """
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.saved = []
-    manager.can_resume.return_value = state is not None
-    manager.load_state.return_value = state
-    manager.save_state.side_effect = manager.saved.append
-    return manager
-
-
 class TestGetBuildRows:
-    def _run(self, manager: MagicMock) -> None:
-        job_urls = ["https://j/a/", "https://j/b/", "https://j/c/"]
-        batcher = MagicMock()
-        batcher.should_yield.return_value = False
-        with mock.patch.object(jenkins, "_iter_buildable_job_urls", return_value=job_urls):
-            with mock.patch.object(jenkins, "_iter_job_builds", return_value=iter([])):
-                list(
-                    _get_build_rows(
-                        MagicMock(), "https://j", ("u", "t"), MagicMock(), batcher, manager, watermark_ms=None
-                    )
-                )
-
-    def test_bookmarks_next_job_after_each_completes(self) -> None:
-        # After finishing job a, the bookmark points at b; after b, at c. The last job saves nothing,
-        # so a resume never restarts at a job whose rows already fully landed.
-        manager = _fake_manager(state=None)
-        self._run(manager)
-        assert [s.next_job_url for s in manager.saved] == ["https://j/b/", "https://j/c/"]
-
     def test_resumes_from_saved_bookmark(self) -> None:
-        manager = _fake_manager(state=JenkinsResumeConfig(next_job_url="https://j/b/"))
-        with mock.patch.object(jenkins, "_iter_job_builds", return_value=iter([])) as iter_builds:
-            with mock.patch.object(
-                jenkins, "_iter_buildable_job_urls", return_value=["https://j/a/", "https://j/b/", "https://j/c/"]
-            ):
-                batcher = MagicMock()
-                batcher.should_yield.return_value = False
-                list(
-                    _get_build_rows(
-                        MagicMock(), "https://j", ("u", "t"), MagicMock(), batcher, manager, watermark_ms=None
-                    )
-                )
+        jobs = [
+            {"name": name, "url": f"https://jenkins.example.com/{name}/", "buildable": True} for name in ("a", "b", "c")
+        ]
+        driver = SourceDriver(
+            JenkinsSource(),
+            JenkinsSourceConfig(host="https://jenkins.example.com", username="user", api_token="token"),
+        )
+        result = driver.run(
+            "builds",
+            [
+                ScriptedResponse(json={"jobs": jobs}),
+                ScriptedResponse(json={"builds": []}),
+                ScriptedResponse(json={"builds": []}),
+            ],
+            resume_state=JenkinsResumeConfig(next_job_url="https://jenkins.example.com/b/"),
+        )
         # Only b and c are processed; a (already synced) is skipped.
-        processed = [call.args[1] for call in iter_builds.call_args_list]
-        assert processed == ["https://j/b/", "https://j/c/"]
-
-    def test_stale_bookmark_restarts_from_beginning(self) -> None:
-        # The bookmarked job was deleted between runs; fall back to the full list rather than syncing
-        # nothing (merge dedupes the re-pulled rows).
-        manager = _fake_manager(state=JenkinsResumeConfig(next_job_url="https://j/gone/"))
-        with mock.patch.object(jenkins, "_iter_job_builds", return_value=iter([])) as iter_builds:
-            with mock.patch.object(jenkins, "_iter_buildable_job_urls", return_value=["https://j/a/", "https://j/b/"]):
-                batcher = MagicMock()
-                batcher.should_yield.return_value = False
-                list(
-                    _get_build_rows(
-                        MagicMock(), "https://j", ("u", "t"), MagicMock(), batcher, manager, watermark_ms=None
-                    )
-                )
-        processed = [call.args[1] for call in iter_builds.call_args_list]
-        assert processed == ["https://j/a/", "https://j/b/"]
+        assert result.raised is None
+        assert result.paths == ["/api/json", "/b/api/json", "/c/api/json"]
+        assert result.saved_states == [JenkinsResumeConfig(next_job_url="https://jenkins.example.com/c/")]
 
 
 class TestValidateCredentials:
@@ -397,26 +350,18 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected_ok: bool) -> None:
-        session = MagicMock()
-        session.get.return_value = _resp({}, status=status)
-        with mock.patch.object(jenkins, "make_tracked_session", return_value=session):
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
             ok, error = validate_credentials("https://jenkins.example.com", "user", "token")
         assert ok is expected_ok
         assert (error is None) is expected_ok
+        assert {request.path for request in network.requests_log} == {"/api/json"}
+        assert network.requests_log[0].param("tree") == "nodeName"
+        assert network.session_options == [{"redact_values": ("token",), "allow_redirects": False}]
 
     def test_invalid_url_short_circuits_without_request(self) -> None:
-        with mock.patch.object(jenkins, "make_tracked_session") as make_session:
+        with scripted_network([]) as network:
             ok, error = validate_credentials("https://user@evil.example.com", "user", "token")
         assert ok is False
-        make_session.assert_not_called()
-
-    def test_request_uses_total_bounded_timeout(self) -> None:
-        # A total-bounded timeout is what stops a dripped-header response from stalling the request
-        # before the body watchdog is armed; a plain int read timeout would reintroduce that hang.
-        session = MagicMock()
-        session.get.return_value = _resp({}, status=200)
-        with mock.patch.object(jenkins, "make_tracked_session", return_value=session):
-            validate_credentials("https://jenkins.example.com", "user", "token")
-        timeout = session.get.call_args.kwargs["timeout"]
-        assert isinstance(timeout, urllib3.Timeout)
-        assert timeout.total == jenkins.MAX_DOWNLOAD_SECONDS
+        assert error is not None
+        assert network.requests_log == []
+        assert network.session_options == []

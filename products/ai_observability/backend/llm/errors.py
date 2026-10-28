@@ -18,6 +18,18 @@ class UnsupportedModelError(LLMError):
         super().__init__(f"Unsupported model: {model}")
 
 
+class ClaudeDeploymentOnAzureOpenAIError(UnsupportedModelError):
+    """Raised when an Azure OpenAI key names a Claude deployment, which only the Anthropic API serves."""
+
+    def __init__(self, model: str):
+        self.model = model
+        LLMError.__init__(
+            self,
+            f"'{model}' looks like a Claude deployment. Azure OpenAI keys can't call Claude models. "
+            "Add an Anthropic key with your Microsoft Foundry endpoint, then pick that key for this model.",
+        )
+
+
 class UnsupportedProviderError(LLMError):
     """Raised when an unsupported provider is requested"""
 
@@ -35,8 +47,9 @@ class RateLimitError(LLMError):
 
 
 class RetryableRateLimitError(RateLimitError):
-    def __init__(self, message: str, retry_after: str | None = None) -> None:
+    def __init__(self, message: str, retry_after: str | None = None, *, status: int = 429) -> None:
         super().__init__(message)
+        self.status = status
         self.retry_after: float | None = None
         if retry_after:
             try:
@@ -65,6 +78,14 @@ class ProviderTimeoutError(ProviderConnectionError):
         super().__init__(
             f"The endpoint did not finish within {timeout:g} seconds. Check the endpoint's response time before trying again."
         )
+
+
+class ProviderHostUnresolvedError(ProviderConnectionError):
+    """A configured endpoint whose hostname did not resolve. A DNS lookup can fail for a moment
+    while the endpoint is healthy, so this is retryable and must not disable the provider key."""
+
+    def __init__(self) -> None:
+        super().__init__("Could not resolve the base URL host. Check the base URL, then try again.")
 
 
 RESPONSE_LIMIT_MESSAGE = (
@@ -142,6 +163,14 @@ def is_output_limit_error_message(message: str) -> bool:
     return any(marker in lowered for marker in _OUTPUT_LIMIT_ERROR_MARKERS)
 
 
+class ContentFilteredError(LLMError):
+    """Raised when the provider's content filter refused the prompt or withheld the reply.
+
+    The prompt is usually built from customer trace content, so the refusal is not a PostHog
+    defect. Callers should skip the item rather than report one.
+    """
+
+
 class ModelPermissionError(LLMError):
     """Raised when the API key doesn't have permission to access a model"""
 
@@ -153,7 +182,7 @@ class ModelPermissionError(LLMError):
         super().__init__(msg)
 
 
-def provider_error_detail(error: Exception | None) -> str | None:
+def provider_error_detail(error: BaseException | None) -> str | None:
     """The provider's own sentence, without the SDK's `Error code: NNN - {...}` wrapper.
 
     `str(e)` on an OpenAI or Anthropic error embeds the whole response dict, so read the parsed
@@ -185,6 +214,8 @@ def user_facing_error_message(error: Exception | None) -> str:
     """
     if isinstance(error, ModelNotFoundError):
         return f"Model '{error.model}' is not available. Pick a different model and try again."
+    if isinstance(error, ClaudeDeploymentOnAzureOpenAIError):
+        return str(error)
     if isinstance(error, UnsupportedModelError):
         return f"Model '{error.model}' is not supported. Pick a different model and try again."
     if isinstance(error, ModelPermissionError):
@@ -203,6 +234,8 @@ def user_facing_error_message(error: Exception | None) -> str:
         return "This conversation is too long for the model's context window. Shorten it, then try again."
     if isinstance(error, OutputTokenLimitError):
         return "The model ran out of room before it finished its reply. Ask for a shorter answer, then try again."
+    if isinstance(error, ContentFilteredError):
+        return "The provider's content filter refused this request. Change the input, then try again."
     if isinstance(error, (ProviderTimeoutError, ProviderRequestRejectedError)):
         return str(error)
     if isinstance(error, ProviderConnectionError):

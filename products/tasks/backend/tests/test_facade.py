@@ -1,3 +1,4 @@
+import json
 import importlib
 import threading
 from datetime import datetime, timedelta
@@ -7,12 +8,14 @@ from uuid import UUID, uuid4
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
-from django.db import close_old_connections
-from django.test import TestCase, TransactionTestCase
+from django.db import close_old_connections, transaction
+from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
+from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
 from posthog.constants import AvailableFeature
 from posthog.models import Integration, Organization, OrganizationMembership, Team
 from posthog.models.scoping import team_scope
@@ -25,9 +28,11 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
+from products.tasks.backend.facade.profiles import TaskProfileError, get_task_profile
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
+    ChannelMembership,
     SandboxCustomImage,
     SandboxEnvironment,
     Task,
@@ -49,7 +54,7 @@ FACADE_MODULES = [
 ]
 
 
-class TestFacadeImports(TestCase):
+class TestFacadeImports(SimpleTestCase):
     @parameterized.expand([(m,) for m in FACADE_MODULES])
     def test_module_imports_and_all_symbols_resolve(self, module_path):
         module = importlib.import_module(module_path)
@@ -201,6 +206,50 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
         self.assertEqual(self.task.created_by_id, self.recipient.id)
 
 
+class TestUpsertInternalSandboxEnvConcurrency(TransactionTestCase):
+    def setUp(self) -> None:
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+
+    def test_concurrent_upsert_reuses_the_row_another_caller_created(self) -> None:
+        results: list[UUID] = []
+        errors: list[BaseException] = []
+        finished = threading.Event()
+
+        def upsert() -> None:
+            close_old_connections()
+            try:
+                results.append(
+                    facade.upsert_internal_sandbox_env(
+                        self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.TRUSTED
+                    )
+                )
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                finished.set()
+                close_old_connections()
+
+        with transaction.atomic():
+            first_id = facade.upsert_internal_sandbox_env(
+                self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.TRUSTED
+            )
+            thread = threading.Thread(target=upsert)
+            thread.start()
+            self.assertFalse(finished.wait(timeout=1))
+        thread.join(timeout=10)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(results, [first_id])
+        self.assertEqual(
+            list(
+                SandboxEnvironment.objects.filter(team_id=self.team.id, name="SIGNALS_X").values_list("id", flat=True)
+            ),
+            [first_id],
+        )
+
+
 class TestBootstrapTaskRun(TestCase):
     def test_invalid_cloud_origin_returns_validation_error(self) -> None:
         organization = Organization.objects.create(name="Legacy task org")
@@ -284,6 +333,8 @@ class TestFacadeReadsAndMappers(TestCase):
                 "store_skills": [{"name": "my-skill", "description": "Mine.", "version": 1}],
                 "systemPrompt": {"type": "preset", "preset": "claude_code", "append": "PostHog AI"},
                 "sandbox_jwt_kid": "secret",
+                "unknown_server_context": {"title": "Saved context"},
+                "posthog_mcp_scopes": "read_only",
                 "task_summary": "Private workflow context",
                 "token_cost": {"model": {"provider": {"cost_microusd": 4, "request_ids": ["request-1"]}}},
                 "compute_cost": 2,
@@ -305,6 +356,8 @@ class TestFacadeReadsAndMappers(TestCase):
         assert ("store_skills" in detail.state) is include_agent_state
         assert ("systemPrompt" in detail.state) is include_agent_state
         assert "sandbox_jwt_kid" not in detail.state
+        assert "unknown_server_context" not in detail.state
+        assert "posthog_mcp_scopes" not in detail.state
         assert {"token_cost", "compute_cost", "token_cost_incomplete", "unprocessed_request_ids"}.isdisjoint(
             detail.state
         )
@@ -377,8 +430,40 @@ class TestFacadeReadsAndMappers(TestCase):
 
         self.assertEqual(outcome, "invalid_origin")
         self.assertIsNone(resumed_run)
+
+    @override_settings(TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED=True)
+    def test_resume_in_cloud_logs_a_restart_beside_a_live_run(self):
+        task = self._make_task()
+        live = TaskRun.objects.create(
+            task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.QUEUED
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.CLOUD,
+            status=TaskRun.Status.COMPLETED,
+            state={"pr_authorship_mode": "bot"},
+        )
+
+        with patch("products.tasks.backend.models.log_run_started_beside_live_run") as log_started:
+            outcome, _, _ = facade.resume_task_run_in_cloud(run.id, task.id, self.team.id, self.user.id)
+
+        self.assertEqual(outcome, "resumed")
+        log_started.assert_called_once_with(run, [live.id])
         run.refresh_from_db()
         self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
+
+    @parameterized.expand([(Task.OriginProduct.SIGNAL_REPORT,), (Task.OriginProduct.SIGNALS_SCOUT,)])
+    def test_resume_in_cloud_cannot_reopen_automated_spend(self, origin_product: str) -> None:
+        task = self._make_task(origin_product=origin_product)
+        run = TaskRun.objects.create(
+            task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.COMPLETED
+        )
+        with self.assertRaisesMessage(ValidationError, "Start a new run"):
+            facade.resume_task_run_in_cloud(run.id, task.id, self.team.id, self.user.id)
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.COMPLETED
+        assert run.state == {}
 
     def test_list_workflow_last_runs_uses_each_workflows_newest_listed_task(self):
         now = django_timezone.now()
@@ -414,14 +499,85 @@ class TestFacadeReadsAndMappers(TestCase):
             ),
         }
 
-    def test_task_exists_and_visibility(self):
-        task = self._make_task()
+    @parameterized.expand([("ordinary", False), ("scout_trial", True), ("scout_judge", True, "scout-trial-judge:")])
+    def test_task_exists_and_visibility(self, _name: str, is_trial: bool, prefix: str = "scout-trial:") -> None:
+        task = self._make_task(
+            **{
+                "origin_product": Task.OriginProduct.SIGNALS_SCOUT,
+                "origin_key": f"{prefix}{uuid4()}:{uuid4()}",
+            }
+            if is_trial
+            else {}
+        )
         self.assertTrue(facade.task_exists(task.id, self.team.id))
         self.assertFalse(facade.task_exists(task.id, self.team.id + 999))
         # Creator can control it; an unrelated user cannot.
         self.assertTrue(facade.is_task_controllable_by_user(task.id, self.user.id))
         other_user = User.objects.create(email="other@test.com", distinct_id="other")
         self.assertFalse(facade.is_task_controllable_by_user(task.id, other_user.id))
+        self.assertFalse(facade.task_visible(task.id, self.team.id, other_user.id))
+        if is_trial:
+            self.assertIsNone(facade.get_task_detail(task.id, self.team.id, other_user.id, bypass_visibility=True))
+            self.assertFalse(
+                facade.task_accessible_for_run_view(task.id, self.team.id, other_user.id, bypass_visibility=True)
+            )
+            self.assertTrue(
+                facade.task_accessible_for_run_view(
+                    task.id, self.team.id, other_user.id, bypass_visibility=True, sandbox_task_id=task.id
+                )
+            )
+
+    @parameterized.expand(
+        [
+            ("ordinary", False, False, False, True),
+            ("owner", True, False, False, True),
+            ("bound", True, True, True, True),
+            ("sibling", True, True, False, False),
+            ("legacy", True, True, None, False),
+        ]
+    )
+    def test_run_authorization_classifies_trial_in_one_lookup(
+        self, _name: str, is_trial: bool, sandbox: bool, bound: bool | None, allowed: bool
+    ) -> None:
+        task = self._make_task(
+            **{"origin_product": Task.OriginProduct.SIGNALS_SCOUT, "origin_key": f"scout-trial:{uuid4()}"}
+            if is_trial
+            else {}
+        )
+        reset_query_tags()
+        try:
+            with self.assertNumQueries(1):
+                result = facade.task_accessible_for_run_view(
+                    task.id,
+                    self.team.id,
+                    self.user.id,
+                    bypass_visibility=bool(bound),
+                    sandbox_request=sandbox,
+                    sandbox_task_id=(task.id if bound else uuid4()) if bound is not None and sandbox else None,
+                )
+            assert result is allowed
+            assert (get_query_tags().is_scout_experiment is True) == is_trial
+        finally:
+            reset_query_tags()
+
+    @parameterized.expand([("read", False), ("control", True)])
+    def test_run_authorization_checks_all_private_channel_members(self, _name: str, for_control: bool) -> None:
+        other_user = User.objects.create(email="channel-member@example.com", distinct_id="channel-member")
+        outsider = User.objects.create(email="channel-outsider@example.com", distinct_id="channel-outsider")
+        channel = Channel.objects.for_team(self.team.id).create(
+            team=self.team, name="Private", channel_type=Channel.ChannelType.PRIVATE, created_by=other_user
+        )
+        ChannelMembership.objects.for_team(self.team.id).bulk_create(
+            [
+                ChannelMembership(team=self.team, channel=channel, user=other_user),
+                ChannelMembership(team=self.team, channel=channel, user=self.user),
+            ]
+        )
+        task = self._make_task(channel=channel, created_by=self.user if for_control else other_user)
+
+        with self.assertNumQueries(1):
+            assert facade.task_accessible_for_run_view(task.id, self.team.id, self.user.id, for_control=for_control)
+        assert not facade.task_accessible_for_run_view(task.id, self.team.id, outsider.id, for_control=for_control)
 
     def test_task_control_runtime_and_origin_uses_control_predicate(self):
         task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI, runtime=Task.Runtime.PI)
@@ -1283,9 +1439,10 @@ class TestFacadeReadsAndMappers(TestCase):
 
     @parameterized.expand(
         [
-            ("manual_implementation", False, "implementation", "implementation", None),
-            ("pipeline_after_manual", True, "implementation", None, "implementation"),
-            ("pipeline_discussion", True, "discussion", "implementation", None),
+            ("manual_implementation", False, "implementation", "implementation", None, True),
+            ("pipeline_after_manual", True, "implementation", None, "implementation", True),
+            ("pipeline_after_ui_task", True, "implementation", None, "implementation", False),
+            ("pipeline_discussion", True, "discussion", "implementation", None, True),
         ]
     )
     def test_run_task_resume_of_a_pipeline_task_stamps_only_requested_pipeline_runs(
@@ -1295,12 +1452,13 @@ class TestFacadeReadsAndMappers(TestCase):
         relationship: str,
         previous_stage: str | None,
         expected_stage: str | None,
+        internal: bool,
     ):
-        from products.signals.backend.models import SignalReport
+        from products.signals.backend.models import SignalReport, SignalSpend
         from products.signals.backend.task_run_artefacts import record_report_task
 
         report = SignalReport.objects.create(team=self.team)
-        task = self._make_task(origin_product=Task.OriginProduct.SIGNAL_REPORT, signal_report=report, internal=True)
+        task = self._make_task(origin_product=Task.OriginProduct.SIGNAL_REPORT, signal_report=report, internal=internal)
         record_report_task(
             team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship=relationship
         )
@@ -1324,6 +1482,17 @@ class TestFacadeReadsAndMappers(TestCase):
         assert result is not None and result.error is None
         new_run = task.runs.exclude(id=previous_run.id).get()
         self.assertEqual(new_run.state.get("ai_stage"), expected_stage)
+        self.assertEqual(new_run.state.get("billing_product"), None if expected_stage else "posthog_ai")
+        spend = SignalSpend.objects.for_team(self.team.id).filter(task_run_id=new_run.id).first()
+        if expected_stage:
+            assert spend is not None
+            assert spend.kind == SignalSpend.Kind.REVIEWER_TRIGGERED_IMPLEMENTATION
+            assert spend.report_id == report.id
+            assert spend.signal_id is None
+        else:
+            assert spend is None
+        task.refresh_from_db()
+        self.assertEqual(task.origin_product, Task.OriginProduct.SIGNAL_REPORT)
 
     @parameterized.expand(
         [
@@ -1587,6 +1756,60 @@ class TestFacadeReadsAndMappers(TestCase):
         assert created.latest_run is not None
         self.assertEqual(created.latest_run.task_id, created.task_id)
 
+    @parameterized.expand(
+        [
+            (
+                "create_and_run_task_origin",
+                "create_and_run_task",
+                {"origin_product": facade.TaskOriginProduct.BUSINESS_KNOWLEDGE, "internal": True},
+                ("business_knowledge", True, None),
+            ),
+            (
+                "create_and_run_task_profile",
+                "create_and_run_task",
+                {"profile": get_task_profile("business_knowledge")},
+                ("business_knowledge", True, "business_knowledge"),
+            ),
+            (
+                "create_task_without_run_origin",
+                "create_task_without_run",
+                {"origin_product": facade.TaskOriginProduct.BUSINESS_KNOWLEDGE},
+                ("business_knowledge", False, None),
+            ),
+            (
+                "create_task_without_run_profile",
+                "create_task_without_run",
+                {"profile": get_task_profile("business_knowledge")},
+                ("business_knowledge", True, "business_knowledge"),
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_facade_creates_a_task_from_an_origin_or_a_profile(
+        self, _name: str, entry: str, origin_kwargs: dict, expected: tuple[str, bool, str | None], _mock_workflow
+    ) -> None:
+        created = getattr(facade, entry)(
+            team=self.team, title="t", description="d", user_id=self.user.id, **origin_kwargs
+        )
+
+        task = Task.objects.get(id=created if isinstance(created, UUID) else created.task_id)
+        self.assertEqual((task.origin_product, task.internal, task.profile), expected)
+
+    @parameterized.expand(
+        [
+            ("create_and_run_task_neither", "create_and_run_task", {}),
+            ("create_and_run_task_internal_only", "create_and_run_task", {"internal": True}),
+            ("create_and_run_task_empty_origin", "create_and_run_task", {"origin_product": ""}),
+            ("create_task_without_run_neither", "create_task_without_run", {}),
+            ("create_task_without_run_empty_origin", "create_task_without_run", {"origin_product": ""}),
+        ]
+    )
+    def test_facade_refuses_a_task_with_no_profile_or_origin(self, _name: str, entry: str, origin_kwargs: dict) -> None:
+        with self.assertRaises(TaskProfileError):
+            getattr(facade, entry)(team=self.team, title="t", description="d", user_id=self.user.id, **origin_kwargs)
+
+        self.assertFalse(Task.objects.filter(team=self.team, title="t").exists())
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_slack_report_link_is_idempotent_and_does_not_claim_implementation(self, _mock_workflow):
         from products.signals.backend.models import (
@@ -1809,7 +2032,50 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(run.state.get("ai_stage"), "wizard_pr_agent")
 
 
-class TestAppendLogAgentActivity(TestCase):
+def _tool_update(tool_response: object) -> dict:
+    return {
+        "type": "notification",
+        "notification": {
+            "method": "session/update",
+            "params": {
+                "update": {
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": "t1",
+                    "rawOutput": "out",
+                    "_meta": {"claudeCode": {"toolName": "Bash", "toolResponse": tool_response}},
+                }
+            },
+        },
+    }
+
+
+class TestThreadViewOfLogContent(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("output_copy_dropped", {"stdout": "x" * 500, "stderr": ""}, None),
+            (
+                "denial_fields_kept",
+                {"decisionReason": "Denied", "message": "No", "stdout": "x"},
+                {"decisionReason": "Denied", "message": "No"},
+            ),
+            ("non_object_dropped", "plain text", None),
+        ]
+    )
+    def test_reduces_the_tool_response_copy(self, _name: str, tool_response: object, expected: object) -> None:
+        other = {"type": "notification", "notification": {"method": "_posthog/run_started", "params": {}}}
+        content = "\n".join([json.dumps(other), json.dumps(_tool_update(tool_response)), "not json", ""])
+
+        lines = facade.thread_view_of_log_content(content).split("\n")
+
+        self.assertEqual(lines[0], json.dumps(other))
+        self.assertEqual(lines[2:], ["not json", ""])
+        update = json.loads(lines[1])["notification"]["params"]["update"]
+        self.assertEqual(update["rawOutput"], "out")
+        self.assertEqual(update["_meta"]["claudeCode"].get("toolResponse"), expected)
+        self.assertEqual(update["_meta"]["claudeCode"]["toolName"], "Bash")
+
+
+class TestAppendLogAgentActivity(SimpleTestCase):
     # Guards the self-sustaining heartbeat loop: infra log lines (credential refresh ->
     # _posthog/console) heartbeating with agent_active=True reset the workflow's inactivity
     # timer on every write, so a run whose agent went silent could never time out.
@@ -2134,36 +2400,27 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
         self.assertTrue(Task.objects.filter(id=created.task_id).exists())
 
     @parameterized.expand([(None,), ("implementation",), ("discussion",)])
-    def test_create_task_blocked_for_manual_report_creation_when_enforced(self, relationship):
-        # The inbox "start work from report" path (write serializer binds `signal_report`).
-        # Every relationship label is gated: the label is client-selected and manual tasks run
-        # PR-capable by default, so a "discussion" label must not dodge the limit.
-        from django.apps import apps
-
-        from posthog.exceptions import QuotaLimitExceeded
-
-        SignalReport = apps.get_model("signals", "SignalReport")
-        report = SignalReport.objects.create(team=self.team, status="ready", title="t", summary="s")
-        with (
-            self._enforced_gate(),
-            patch("products.signals.backend.quota.capture_signal_report_quota_paused") as capture_mock,
-            self.assertRaises(QuotaLimitExceeded),
-        ):
-            facade.create_task(
+    def test_manual_report_creation_uses_phai_instead_of_self_driving_quota(self, relationship):
+        report = apps.get_model("signals", "SignalReport").objects.create(team=self.team, status="ready")
+        apps.get_model("signals", "SignalReportArtefact").objects.create(
+            team=self.team,
+            report=report,
+            type="repo_selection",
+            content='{"repository": "example/repository", "reason": "Matches the example application"}',
+        )
+        with self._enforced_gate():
+            dto = facade.create_task(
                 self.team.id,
                 self.user.id,
                 validated_data={
-                    "title": "Implementation: t",
+                    "title": "Implementation",
                     "description": "d",
                     "origin_product": Task.OriginProduct.SIGNAL_REPORT,
                     "signal_report": report,
                     "signal_report_task_relationship": relationship,
                 },
             )
-        self.assertFalse(Task.objects.filter(team=self.team).exists())
-        # Genuinely manual creations keep the `manual_create` stage, distinct from the facade
-        # backstop's `task_create`.
-        self.assertEqual(capture_mock.call_args.kwargs["stage"], "manual_create")
+        self.assertEqual(Task.objects.get(id=dto.id).signal_report_id, report.id)
 
 
 class TestSelfDrivingQuotaRefreshDispatch(TestCase):
@@ -2497,8 +2754,6 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
 
     @parameterized.expand([(None,), ("implementation",)])
     def test_create_task_refuses_create_pr_from_report_on_trial(self, relationship):
-        # A trial org gets reports, not pull requests: the manual Create PR path is refused with
-        # the trial code, so a client can show the trial message, and the held-back PR is counted.
         from products.signals.backend.free_trial import FreeTrialPullRequestRefused
 
         report = self._report()
@@ -2523,7 +2778,6 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
         self.assertEqual(capture_mock.call_args.kwargs, {"report_id": str(report.id), "stage": "manual_create"})
 
     def test_create_task_allows_discussion_from_report_on_trial(self):
-        # Discuss answers questions about a report and stays open on a trial; only Create PR is held back.
         report = self._report()
         with self._on_trial():
             dto = facade.create_task(
@@ -2539,11 +2793,10 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
             )
         self.assertTrue(Task.objects.filter(id=dto.id).exists())
 
-    @parameterized.expand([("implementation", True), ("discussion", False)])
-    def test_run_task_refuses_an_existing_report_implementation_on_trial(self, relationship, expect_refusal):
-        # The create-time gate cannot see a task that already existed when sales turned the flag
-        # on. Starting or retrying that task opens the pull request the trial promises to withhold,
-        # and bills the trial org for it. A discussion opens none, so it keeps running.
+    @parameterized.expand(
+        [("implementation", True, True), ("implementation", False, True), ("discussion", False, False)]
+    )
+    def test_run_task_refuses_report_implementation_on_trial(self, relationship, pipeline_rerun, expect_refusal):
         from products.signals.backend.free_trial import FreeTrialPullRequestRefused
         from products.signals.backend.task_run_artefacts import record_report_task
 
@@ -2567,11 +2820,23 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
         ):
             if expect_refusal:
                 with self.assertRaises(FreeTrialPullRequestRefused) as raised:
-                    facade.run_task(task.id, self.team.id, self.user.id, validated_data={"mode": "background"})
+                    facade.run_task(
+                        task.id,
+                        self.team.id,
+                        self.user.id,
+                        validated_data={"mode": "background"},
+                        pipeline_rerun=pipeline_rerun,
+                    )
                 self.assertEqual(raised.exception.get_codes(), "self_driving_free_trial")
                 self.assertEqual(capture_mock.call_args.kwargs, {"report_id": str(report.id), "stage": "task_run"})
             else:
-                result = facade.run_task(task.id, self.team.id, self.user.id, validated_data={"mode": "background"})
+                result = facade.run_task(
+                    task.id,
+                    self.team.id,
+                    self.user.id,
+                    validated_data={"mode": "background"},
+                    pipeline_rerun=pipeline_rerun,
+                )
                 assert result is not None and result.error is None
         self.assertEqual(task.runs.exists(), not expect_refusal)
 

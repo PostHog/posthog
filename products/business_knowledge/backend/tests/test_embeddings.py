@@ -1,15 +1,18 @@
 import datetime
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.utils import timezone
 
+from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.business_knowledge.backend import logic
+from products.business_knowledge.backend import llm_telemetry, logic
 from products.business_knowledge.backend.constants import (
     BK_EMBEDDING_DOCUMENT_TYPE,
     BK_EMBEDDING_MODEL,
@@ -207,9 +210,29 @@ class TestEmitOneDocument(BaseTest):
     def test_emits_each_chunk_and_stamps(self) -> None:
         doc, entry = self._pending("Refunds", "Our refund policy covers widgets and gadgets.")
 
-        with patch.object(coordinator, "emit_embedding_request") as emit:
+        with (
+            patch.object(coordinator, "emit_embedding_request") as emit,
+            patch.object(llm_telemetry.posthoganalytics, "capture_ai") as capture,
+        ):
             written = coordinator._emit_one_document(entry)
 
+        capture.assert_called_once()
+        assert capture.call_args.args == ("$ai_embedding",)
+        assert capture.call_args.kwargs["distinct_id"] == f"team-{self.team.id}"
+        assert capture.call_args.kwargs["properties"] == {
+            "$ai_model": "text-embedding-3-small",
+            "$ai_provider": "openai",
+            "$ai_input_tokens": llm_telemetry.estimate_tokens(c.content for c in entry.chunks),
+            "$ai_trace_id": str(doc.id),
+            "$process_person_profile": False,
+            "ai_product": "business_knowledge",
+            "ai_feature": "bk_ingest_embedding",
+            "team_id": self.team.id,
+            "document_id": str(doc.id),
+            "source_id": str(doc.source_id),
+            "source_type": SourceType.TEXT,
+            "chunk_count": len(entry.chunks),
+        }
         assert written == len(entry.chunks)
         assert emit.call_count == len(entry.chunks)
         emitted_doc_ids = {call.kwargs["document_id"] for call in emit.call_args_list}
@@ -351,6 +374,25 @@ class TestTtlRefreshSelection(BaseTest):
             self._emitted_doc(emitted_days_ago=EMBEDDING_TTL_REFRESH_WINDOW.days + 5)
         assert len(logic.list_documents_for_embedding_refresh(limit=2)) == 2
 
+    def test_stops_at_content_budget(self) -> None:
+        docs = []
+        for index in range(3):
+            source = logic.create_text_source(
+                team_id=self.team.id, created_by_id=self.user.id, name=f"Doc {index}", text="a" * 100
+            )
+            emitted_at = timezone.now() - datetime.timedelta(days=EMBEDDING_TTL_REFRESH_WINDOW.days + 5 + index)
+            with team_scope(self.team.id, canonical=True):
+                KnowledgeDocument.objects.filter(source_id=source.id).update(
+                    safety_verdict=SafetyVerdict.SAFE, embeddings_emitted_at=emitted_at
+                )
+                docs.append(KnowledgeDocument.objects.get(source_id=source.id))
+        mine = {doc.id for doc in docs}
+        with patch.object(logic, "COORDINATOR_PASS_CONTENT_BYTES", 250):
+            pending = [
+                item.document_id for item in logic.list_documents_for_embedding_refresh() if item.document_id in mine
+            ]
+        assert len(pending) == 2
+
     def test_orders_oldest_emitted_first(self) -> None:
         older = self._emitted_doc(emitted_days_ago=EMBEDDING_TTL_REFRESH_WINDOW.days + 30)
         newer = self._emitted_doc(emitted_days_ago=EMBEDDING_TTL_REFRESH_WINDOW.days + 5)
@@ -441,3 +483,33 @@ class TestRestampAndReemit(BaseTest):
             after = KnowledgeDocument.objects.get(id=doc.id).embeddings_emitted_at
         # Stamp unchanged (no re-stamp), so the doc is retried on a later pass.
         assert after == before
+
+    def test_refresh_pass_skips_a_failing_doc_that_fills_the_page(self) -> None:
+        failing = self._safe_emitted_doc()
+        healthy = self._safe_emitted_doc()
+        older_stamp = timezone.now() - EMBEDDING_TTL_REFRESH_WINDOW - datetime.timedelta(days=6)
+        with team_scope(self.team.id, canonical=True):
+            KnowledgeDocument.objects.filter(id=failing.id).update(embeddings_emitted_at=older_stamp)
+            failing_before = KnowledgeDocument.objects.get(id=failing.id).embeddings_emitted_at
+            healthy_before = KnowledgeDocument.objects.get(id=healthy.id).embeddings_emitted_at
+
+        def _emit(**kwargs: object) -> None:
+            if kwargs["metadata"] == {"document_id": str(failing.id)}:
+                raise RuntimeError("kafka down")
+
+        def _same_thread(fn: Callable[..., Any], **_kwargs: object) -> Callable[..., Awaitable[Any]]:
+            return sync_to_async(fn, thread_sensitive=True)
+
+        with (
+            patch.object(logic, "COORDINATOR_PASS_CONTENT_BYTES", 1),
+            patch.object(coordinator, "database_sync_to_async", _same_thread),
+            patch.object(coordinator, "emit_embedding_request", side_effect=_emit),
+        ):
+            result = async_to_sync(coordinator.refresh_aging_embeddings_activity)()
+
+        assert result["documents_refreshed"] == 1
+        with team_scope(self.team.id, canonical=True):
+            assert KnowledgeDocument.objects.get(id=failing.id).embeddings_emitted_at == failing_before
+            healthy_after = KnowledgeDocument.objects.get(id=healthy.id).embeddings_emitted_at
+        assert healthy_after is not None and healthy_before is not None
+        assert healthy_after > healthy_before

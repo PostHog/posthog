@@ -24,7 +24,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -81,7 +84,7 @@ def _build_initial_params(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {"per_page": config.page_size}
+    params: dict[str, Any] = {"per_page": config.page_size, **config.params}
     # Only Aha!'s `updated_since`-capable endpoints filter server-side; everything else is full refresh.
     if config.supports_incremental and should_use_incremental_field and db_incremental_field_last_value:
         params["updated_since"] = _format_updated_since(db_incremental_field_last_value)
@@ -111,6 +114,17 @@ class AhaIdeasPageNumberPaginator(PageNumberPaginator):
         has_total_metadata = bool(values) and isinstance(values[0], int)
         if not has_total_metadata and len(data) < self._page_size:
             self._has_next_page = False
+
+
+def _explode_idea_nested_rows(record: dict[str, Any], nested_field: str) -> list[dict[str, Any]]:
+    nested = record.get(nested_field)
+    if not isinstance(nested, list):
+        return []
+    return [
+        {**row, "idea_id": record.get("id"), "idea_updated_at": record.get("updated_at")}
+        for row in nested
+        if isinstance(row, dict)
+    ]
 
 
 def _client_config(subdomain: str, api_key: str, page_size: int) -> ClientConfig:
@@ -173,6 +187,9 @@ def _non_fanout_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
+    nested_field = config.nested_rows_field
+    if nested_field is not None:
+        resource.add_map(lambda record: _explode_idea_nested_rows(record, nested_field))
 
     return SourceResponse(
         name=endpoint,
@@ -197,6 +214,10 @@ def _fanout_source(
     config = AHA_IDEAS_ENDPOINTS[endpoint]
     assert config.fanout is not None
 
+    child_endpoint_extra: Endpoint = {"data_selector": config.response_key}
+    if not config.paginated:
+        child_endpoint_extra["paginator"] = "single_page"
+
     dependent_resource = cast(
         Iterable[Any],
         build_dependent_resource(
@@ -213,7 +234,7 @@ def _fanout_source(
             should_use_incremental_field=False,
             page_size_param="per_page",
             parent_endpoint_extra={"data_selector": AHA_IDEAS_ENDPOINTS[config.fanout.parent_name].response_key},
-            child_endpoint_extra={"data_selector": config.response_key},
+            child_endpoint_extra=child_endpoint_extra,
         ),
     )
 

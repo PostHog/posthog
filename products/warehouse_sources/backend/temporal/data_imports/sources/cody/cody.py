@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cody.settings import (
@@ -17,7 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cody.setti
     REPORTS_PATH,
     CodyEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -41,7 +44,7 @@ class CodyCredentialsError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CodyResumeConfig:
     # ISO date (YYYY-MM-DD) of the first day of the calendar-month window to resume from.
     window_start: str
@@ -85,7 +88,7 @@ def _build_url(
     return f"{CODY_BASE_URL}{config.path}?{urlencode(params)}"
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             CodyRetryableError,
@@ -299,9 +302,10 @@ def cody_source(
 
     return SourceResponse(
         name=endpoint,
-        # The CSV column names aren't published and can't be verified without an Enterprise
-        # token, so no primary keys are declared — every endpoint is full refresh (replace).
+        # Most reports' CSV column names aren't published and can't be verified without an
+        # Enterprise token, so only endpoints with documented columns declare primary keys.
+        # Every endpoint is full refresh (replace).
         items=get_rows,
-        primary_keys=None,
+        primary_keys=config.primary_keys,
         sort_mode="asc",
     )

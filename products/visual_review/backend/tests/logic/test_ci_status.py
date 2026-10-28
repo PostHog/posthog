@@ -40,7 +40,7 @@ class TestCommitStatusChecks:
         check = mock_github_api.status_checks[0]
         assert check["state"] == "pending"
         assert check["context"] == "PostHog Visual Review / storybook"
-        assert f"/visual_review/runs/{run.id}" in check["target_url"]
+        assert f"/visual-review/runs/{run.id}" in check["target_url"]
 
     @pytest.mark.parametrize(
         ("quarantined_difference", "description"),
@@ -164,7 +164,7 @@ class TestCommitStatusChecks:
         assert mock_github_api.issue_comments[0]["action"] == "created"
         comment = mock_github_api.issue_comments[0]["body"]
         assert "Review and approve in PostHog Visual Review" in comment
-        assert f"/visual_review/runs/{run.id}" in comment
+        assert f"/visual-review/runs/{run.id}" in comment
         # Verify comment ID stored for future updates
         run.refresh_from_db()
         assert run.metadata["github_comment_id"] is not None
@@ -207,7 +207,7 @@ class TestCommitStatusChecks:
         deleted = [c for c in mock_github_api.issue_comments if c["action"] == "deleted"]
         assert len(created) == 2
         assert [c["id"] for c in deleted] == [created[0]["id"]]
-        assert f"/visual_review/runs/{run2.id}" in created[1]["body"]
+        assert f"/visual-review/runs/{run2.id}" in created[1]["body"]
 
     def test_complete_run_does_not_comment_twice_on_retry(self, github_repo, mock_github_api):
         github_repo.enable_pr_comments = True

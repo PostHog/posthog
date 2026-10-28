@@ -1,13 +1,13 @@
 from typing import Any
 
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.models.property import Property
 
 
-class TestPropertyParseValue(BaseTest):
+class TestPropertyParseValue(SimpleTestCase):
     """Test the Property._parse_value method to ensure it handles all edge cases correctly."""
 
     @parameterized.expand(

@@ -31,7 +31,6 @@ from posthog.temporal.data_modeling.activities import (
     SucceedMaterializationInputs,
     SucceedMaterializationResult,
     check_managed_warehouse_shadow_eligibility_activity,
-    check_managed_warehouse_shadow_enabled_activity,
     clear_cdp_staging_activity,
     create_data_modeling_job_activity,
     fail_materialization_activity,
@@ -45,6 +44,8 @@ from posthog.temporal.data_modeling.activities import (
 )
 from posthog.temporal.data_modeling.activities.enrich_view_semantics import EnrichViewSemanticsInputs
 from posthog.temporal.data_modeling.metrics import (
+    UNKNOWN_RUN_MODE,
+    error_class,
     get_clickhouse_materialization_duration_metric,
     get_managed_warehouse_shadow_duration_metrics,
     get_managed_warehouse_shadow_finished_metrics,
@@ -57,15 +58,13 @@ from posthog.temporal.data_modeling.metrics import (
     get_node_rows_materialized_metric,
     get_node_storage_delta_mib_metric,
     get_node_total_storage_mib_metric,
+    tier_label,
 )
 from posthog.temporal.data_modeling.workflows.enrich_view_semantics import EnrichViewSemanticsWorkflow
 from posthog.temporal.utils import CDPProducerWorkflowInputs
 
-from products.customer_analytics.backend.facade.temporal_contracts import (
-    DispatchAccountPropertySyncInput,
-    StageAccountPropertySyncInput,
-)
-from products.data_modeling.backend.facade.models import DataModelingJobEngine
+from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
+from products.data_modeling.backend.facade.models import DataModelingJobEngine, DataModelingJobRunMode
 from products.data_quality.backend.facade.contracts import (
     CHECK_SUITE_WORKFLOW_NAME,
     QUALITY_AUDIT_GATE,
@@ -80,21 +79,6 @@ from products.warehouse_sources.backend.facade.hooks import (
     PersonPropertySyncActivityInputs,
 )
 
-# Covers every command the data quality feature adds here: the stage/audit/publish trio and the
-# warn-mode suite child.
-QUALITY_AUDIT_PATCH = "data-quality-audit-2026-08"
-QUALITY_BLOCK_SUITE_RUN_ID_PATCH = "data-quality-block-suite-run-id-2026-09"
-ACCOUNT_PROPERTY_S3_SYNC_PATCH = "account-property-s3-sync-2026-08"
-ACCOUNT_PROPERTY_STAGING_WORKFLOW_PATCH = "account-property-staging-workflow-2026-08"
-
-# Covers the CDP producer child and the staging-cleanup activity. Both are new commands, so a
-# history recorded before this deploy has to keep taking the branch that issues neither.
-CDP_VIEW_TRIGGER_PATCH = "cdp-data-warehouse-view-trigger-2026-08"
-
-# Histories recorded before this marker must keep passing only the team ID to the activity.
-DUCKGRES_SHADOW_TRANSLATION_GATE_PATCH = "duckgres-shadow-translation-gate-2026-09"
-TRINO_SHADOW_EXECUTION_PATCH = "trino-shadow-execution-2026-09"
-
 # these indicate problems with the query or data, not transient issues
 NON_RETRYABLE_ERRORS = [
     "CHQueryErrorMemoryLimitExceeded",
@@ -105,6 +89,8 @@ NON_RETRYABLE_ERRORS = [
     "DuplicateOutputColumnError",
     "UnstorableIntegerError",
 ]
+
+CLICKHOUSE_RUN_WITHOUT_TRINO_SHADOW_PATCH = "data-modeling-clickhouse-run-without-trino-shadow"
 
 
 def _is_cancellation(error: BaseException) -> bool:
@@ -159,6 +145,8 @@ class MaterializeViewWorkflowResult:
             means no gated audit ran.
         quality_audited: Whether a check suite covered this run, so the DAG's post-run sweep must
             not run one again.
+        trino_materialized: Whether this run materialized the node in Trino. None means it made
+            no Trino attempt, as for every ClickHouse run.
     """
 
     job_id: str
@@ -176,15 +164,51 @@ class _StagedAuditVerdict:
     blocking_failures: int
 
 
+CLICKHOUSE_ENGINE = DataModelingJobEngine.CLICKHOUSE.value
+MANAGED_WAREHOUSE_ENGINE = DataModelingJobEngine.MANAGED_WAREHOUSE.value
+
+
+def _run_mode(materialize_result: MaterializeViewResult | None) -> str:
+    if materialize_result is None:
+        return UNKNOWN_RUN_MODE
+    if materialize_result.incremental:
+        return DataModelingJobRunMode.INCREMENTAL.value
+    return DataModelingJobRunMode.FULL_REFRESH.value
+
+
+def _record_managed_warehouse_node_metrics(result: ManagedWarehouseShadowResult, tier: str) -> None:
+    if result.skipped:
+        get_node_finished_metric("skipped", MANAGED_WAREHOUSE_ENGINE, tier=tier, run_mode=result.run_mode).add(1)
+        return
+    if result.error is not None:
+        get_node_finished_metric(
+            "failed",
+            MANAGED_WAREHOUSE_ENGINE,
+            tier=tier,
+            run_mode=result.run_mode,
+            error_class=error_class(result.error),
+        ).add(1)
+        return
+    get_node_finished_metric("completed", MANAGED_WAREHOUSE_ENGINE, tier=tier, run_mode=result.run_mode).add(1)
+    get_node_duration_metric(MANAGED_WAREHOUSE_ENGINE, run_mode=result.run_mode).record(result.duration_seconds)
+    get_node_rows_materialized_metric(MANAGED_WAREHOUSE_ENGINE).record(result.row_count)
+    if result.file_size_bytes > 0:
+        get_node_total_storage_mib_metric(MANAGED_WAREHOUSE_ENGINE).record(result.file_size_bytes / (1024 * 1024))
+        if result.file_size_delta_bytes >= 0:
+            get_node_storage_delta_mib_metric(MANAGED_WAREHOUSE_ENGINE).record(
+                result.file_size_delta_bytes / (1024 * 1024)
+            )
+
+
 @temporalio.workflow.defn(name="data-modeling-materialize-view")
 class MaterializeViewWorkflow(PostHogWorkflow):
     """Temporal workflow to materialize a single view.
 
     This workflow handles the complete materialization of a single view/materialized view:
     1. Creates a job record to track progress
-    2. Executes the HogQL query and writes results to a delta lake table
-    3. Copies the data to DuckLake (if enabled)
-    4. Updates the node and job with completion status
+    2. Executes the HogQL query and writes results to a delta lake table, or, when
+       `managed_warehouse_only` is set, materializes it in the managed warehouse instead
+    3. Updates the node and job with completion status
 
     This workflow is designed to be called directly for ad hoc materialization of a single view
     (i.e. a user clicks 'materialize now' or something to that effect), or as a child workflow
@@ -203,11 +227,15 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         start_time = temporalio.workflow.now()
         parent_info = temporalio.workflow.info().parent
         parent_workflow_id = parent_info.workflow_id if parent_info else None
+        tier = tier_label(parent_workflow_id)
         job_id = None
         managed_warehouse_job_id = None
         managed_warehouse_only = inputs.managed_warehouse_only
 
-        if temporalio.workflow.patched(DUCKGRES_SHADOW_TRANSLATION_GATE_PATCH):
+        # Histories recorded without the patch marker replay the in-workflow shadow below.
+        if not managed_warehouse_only and temporalio.workflow.patched(CLICKHOUSE_RUN_WITHOUT_TRINO_SHADOW_PATCH):
+            managed_warehouse_enabled = False
+        else:
             managed_warehouse_enabled = await temporalio.workflow.execute_activity(
                 check_managed_warehouse_shadow_eligibility_activity,
                 ManagedWarehouseShadowEligibilityInputs(
@@ -220,17 +248,8 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     maximum_attempts=3,
                 ),
             )
-        else:
-            managed_warehouse_enabled = await temporalio.workflow.execute_activity(
-                check_managed_warehouse_shadow_enabled_activity,
-                inputs.team_id,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=3,
-                ),
-            )
 
-        use_trino = managed_warehouse_enabled and temporalio.workflow.patched(TRINO_SHADOW_EXECUTION_PATCH)
+        use_trino = managed_warehouse_enabled
         trino_materialized: bool | None = False if use_trino else None
         managed_warehouse_shadow_handle = None
         if (managed_warehouse_enabled or managed_warehouse_only) and not (use_trino and inputs.skip_trino):
@@ -260,7 +279,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
                     use_trino=use_trino,
                 ),
-                start_to_close_timeout=dt.timedelta(minutes=20),
+                start_to_close_timeout=dt.timedelta(minutes=365 if use_trino else 20),
                 heartbeat_timeout=dt.timedelta(minutes=2) if use_trino else None,
                 cancellation_type=(
                     temporalio.workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED
@@ -315,15 +334,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 # materialize_view_activity guarantees file_uris is non-empty even for
                 # zero-row results — it falls back to _write_empty_parquet_for_zero_rows
                 # so prepare_s3_files_for_querying has something to list.
-                # Reading the mode as skip when the marker is absent keeps every command this
-                # feature adds out of a history that predates it. A rolling deploy can hand an old
-                # workflow worker a result from new activity code, and the SDK drops the fields the
-                # old dataclass lacks, so the mode alone cannot say who wrote the history.
-                quality_audit = (
-                    self._audit_mode(materialize_result, inputs)
-                    if temporalio.workflow.patched(QUALITY_AUDIT_PATCH)
-                    else QUALITY_AUDIT_SKIP
-                )
+                quality_audit = self._audit_mode(materialize_result, inputs)
                 staged_verdict: _StagedAuditVerdict | None = None
                 prepare_inputs = PrepareQueryableTableInputs(
                     team_id=inputs.team_id,
@@ -353,18 +364,15 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                                 dag_id=inputs.dag_id,
                                 job_id=job_id,
                                 blocking_failures=staged_verdict.blocking_failures,
-                                suite_run_id=(
-                                    staged_verdict.suite_run_id
-                                    if temporalio.workflow.patched(QUALITY_BLOCK_SUITE_RUN_ID_PATCH)
-                                    else None
-                                ),
+                                suite_run_id=staged_verdict.suite_run_id,
                             ),
                             start_to_close_timeout=dt.timedelta(minutes=5),
                             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
                         )
-                        get_node_finished_metric("quality_blocked").add(1)
-                        if temporalio.workflow.patched(CDP_VIEW_TRIGGER_PATCH):
-                            await self._discard_staged_cdp_rows(inputs, job_id, materialize_result)
+                        get_node_finished_metric(
+                            "quality_blocked", CLICKHOUSE_ENGINE, tier=tier, run_mode=_run_mode(materialize_result)
+                        ).add(1)
+                        await self._discard_staged_cdp_rows(inputs, job_id, materialize_result)
                         end_time = temporalio.workflow.now()
                         blocked_duration_seconds = (end_time - start_time).total_seconds()
                         if managed_warehouse_shadow_handle is not None:
@@ -429,8 +437,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 # None for in-flight runs on the pre-deploy activity version — treat that as "not needed".
                 await self._maybe_enrich_view_semantics(inputs, succeed_result)
 
-                if temporalio.workflow.patched(CDP_VIEW_TRIGGER_PATCH):
-                    await self._maybe_produce_cdp_rows(inputs, job_id, materialize_result)
+                await self._maybe_produce_cdp_rows(inputs, job_id, materialize_result)
 
                 quality_audited = staged_verdict is not None
                 if quality_audit == QUALITY_AUDIT_WARN:
@@ -440,13 +447,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 # that reads it. Fire-and-forget on the metadata queue, like enrichment above.
                 await self._maybe_sync_person_properties(inputs, materialize_result, job_id)
 
-                # New executions start the isolated staging child. A history that recorded the old
-                # inline dispatch under ACCOUNT_PROPERTY_S3_SYNC_PATCH must keep emitting that
-                # command on replay, so keep the old path in the else branch.
-                if temporalio.workflow.patched(ACCOUNT_PROPERTY_STAGING_WORKFLOW_PATCH):
-                    await self._maybe_stage_account_properties(inputs, materialize_result, job_id)
-                elif temporalio.workflow.patched(ACCOUNT_PROPERTY_S3_SYNC_PATCH):
-                    await self._replay_account_property_dispatch(inputs, materialize_result, job_id)
+                await self._maybe_stage_account_properties(inputs, materialize_result, job_id)
 
                 # after the main workflow succeeds, collect shadow stats for comparison
                 if managed_warehouse_shadow_handle is not None:
@@ -470,13 +471,14 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 )
 
                 # node-level metrics
-                get_node_finished_metric("completed").add(1)
-                get_node_duration_metric().record(duration_seconds)
-                get_node_rows_materialized_metric().record(materialize_result.row_count)
+                run_mode = _run_mode(materialize_result)
+                get_node_finished_metric("completed", CLICKHOUSE_ENGINE, tier=tier, run_mode=run_mode).add(1)
+                get_node_duration_metric(CLICKHOUSE_ENGINE, run_mode=run_mode).record(duration_seconds)
+                get_node_rows_materialized_metric(CLICKHOUSE_ENGINE).record(materialize_result.row_count)
                 if storage_result.storage_delta_mib is not None and storage_result.storage_delta_mib >= 0:
-                    get_node_storage_delta_mib_metric().record(storage_result.storage_delta_mib)
+                    get_node_storage_delta_mib_metric(CLICKHOUSE_ENGINE).record(storage_result.storage_delta_mib)
                 if storage_result.total_storage_mib is not None:
-                    get_node_total_storage_mib_metric().record(storage_result.total_storage_mib)
+                    get_node_total_storage_mib_metric(CLICKHOUSE_ENGINE).record(storage_result.total_storage_mib)
 
                 return MaterializeViewWorkflowResult(
                     job_id=job_id,
@@ -505,10 +507,11 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 )
                 # A failure after the activity returned (publish, succeed) leaves that run's staged
                 # rows behind. The activity cleans up after its own failures itself.
-                if materialize_result is not None and temporalio.workflow.patched(CDP_VIEW_TRIGGER_PATCH):
+                if materialize_result is not None:
                     await self._discard_staged_cdp_rows(inputs, job_id, materialize_result)
+                failed_run_mode = None
                 try:
-                    await temporalio.workflow.execute_activity(
+                    failed_run_mode = await temporalio.workflow.execute_activity(
                         fail_materialization_activity,
                         FailMaterializationInputs(
                             team_id=inputs.team_id,
@@ -528,7 +531,14 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                         f"Failed to mark job as failed: {str(fail_err)}",
                         extra=inputs.properties_to_log,
                     )
-                get_node_finished_metric("cancelled" if cancelled else "failed").add(1)
+                get_node_finished_metric(
+                    "cancelled" if cancelled else "failed",
+                    CLICKHOUSE_ENGINE,
+                    tier=tier,
+                    # A history recorded before the activity returned the mode decodes it as None.
+                    run_mode=failed_run_mode or _run_mode(materialize_result),
+                    error_class="none" if cancelled else error_class(error_message),
+                ).add(1)
                 raise
 
         # Keep the parent workflow's concurrency slot until managed warehouse finishes the query.
@@ -536,8 +546,17 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         if managed_warehouse_shadow_handle is not None:
             try:
                 result = await managed_warehouse_shadow_handle
+                _record_managed_warehouse_node_metrics(result, tier)
             except Exception as shadow_err:
-                await self._finalize_orphaned_managed_warehouse_job(managed_warehouse_job_id, inputs, str(shadow_err))
+                shadow_cancelled = _is_cancellation(shadow_err)
+                get_node_finished_metric(
+                    "cancelled" if shadow_cancelled else "failed",
+                    MANAGED_WAREHOUSE_ENGINE,
+                    tier=tier,
+                    run_mode=UNKNOWN_RUN_MODE,
+                    error_class="none" if shadow_cancelled else error_class(str(shadow_err)),
+                ).add(1)
+                await self._finalize_orphaned_managed_warehouse_job(managed_warehouse_job_id, inputs, shadow_err)
                 temporalio.workflow.logger.warning(
                     f"Managed warehouse shadow activity failed (managed_warehouse_only): {str(shadow_err)}",
                     extra=inputs.properties_to_log,
@@ -705,26 +724,6 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 "Failed to start person-property sync",
                 extra={"job_id": job_id, "error": str(e)},
             )
-
-    async def _replay_account_property_dispatch(
-        self,
-        inputs: MaterializeViewWorkflowInputs,
-        materialize_result: MaterializeViewResult,
-        job_id: str,
-    ) -> None:
-        if not materialize_result.account_property_sync_enabled:
-            return
-        await temporalio.workflow.execute_activity(
-            "dispatch-warehouse-account-property-sync",
-            DispatchAccountPropertySyncInput(
-                team_id=inputs.team_id,
-                saved_query_id=materialize_result.saved_query_id,
-                job_id=job_id,
-            ),
-            task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=5),
-        )
 
     async def _maybe_stage_account_properties(
         self,
@@ -897,7 +896,12 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             shadow_result: ManagedWarehouseShadowResult = await shadow_handle
 
             row_count_matched = clickhouse_row_count == shadow_result.row_count
-            status = "completed" if shadow_result.error is None else "failed"
+            if shadow_result.skipped:
+                status = "skipped"
+            elif shadow_result.error is None:
+                status = "completed"
+            else:
+                status = "failed"
 
             get_managed_warehouse_shadow_finished_metrics(status).add(1)
             get_clickhouse_materialization_duration_metric().record(clickhouse_duration_seconds)
@@ -931,7 +935,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             return shadow_result.error is None
         except Exception as shadow_err:
             get_managed_warehouse_shadow_finished_metrics("error").add(1)
-            await self._finalize_orphaned_managed_warehouse_job(managed_warehouse_job_id, inputs, str(shadow_err))
+            await self._finalize_orphaned_managed_warehouse_job(managed_warehouse_job_id, inputs, shadow_err)
             temporalio.workflow.logger.warning(
                 f"Managed warehouse shadow comparison failed: {str(shadow_err)}",
                 extra=inputs.properties_to_log,
@@ -943,9 +947,11 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         self,
         managed_warehouse_job_id: str | None,
         inputs: MaterializeViewWorkflowInputs,
-        error: str,
+        error: BaseException,
     ) -> None:
         """Mark a managed warehouse shadow job FAILED when its activity died before self-finalizing.
+
+        A cancelled activity marks the job CANCELLED instead, since it never got to fail on its own.
 
         The shadow activity finalizes its own job on the happy path and on caught errors, but a
         timeout, worker loss, or a raise before its try block leaves the job stuck in RUNNING. The
@@ -963,6 +969,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     dag_id=inputs.dag_id,
                     job_id=managed_warehouse_job_id,
                     error=f"Managed warehouse shadow activity did not finalize: {error}",
+                    cancelled=_is_cancellation(error),
                     update_node=False,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),

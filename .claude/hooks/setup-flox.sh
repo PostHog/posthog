@@ -20,13 +20,20 @@ VENV_DIR="$PROJECT_DIR/.flox/cache/venv"
 CACHE_FILE="$PROJECT_DIR/.flox/cache/claude-env-cache"
 FLOX_MANIFEST="$PROJECT_DIR/.flox/env/manifest.toml"
 
-# Checksum the flox manifest to auto-invalidate cache on env changes
+# Checksum the flox manifest to auto-invalidate cache on env changes.
+# On macOS md5/md5sum live in /sbin, which isn't on the PATH a SessionStart hook
+# inherits. Without them MANIFEST_HASH stays empty, the fast path below is always
+# skipped, and every session pays for a full `flox activate`.
+PATH="$PATH:/sbin:/usr/sbin"
+
 MANIFEST_HASH=""
 if [ -f "$FLOX_MANIFEST" ]; then
   if command -v md5sum &>/dev/null; then
     MANIFEST_HASH=$(md5sum "$FLOX_MANIFEST" | awk '{print $1}')
   elif command -v md5 &>/dev/null; then
     MANIFEST_HASH=$(md5 -q "$FLOX_MANIFEST")
+  elif command -v shasum &>/dev/null; then
+    MANIFEST_HASH=$(shasum "$FLOX_MANIFEST" | awk '{print $1}')
   fi
 fi
 
@@ -39,7 +46,13 @@ if [ -f "$CACHE_FILE" ] && [ -n "$MANIFEST_HASH" ]; then
   fi
 fi
 
-# Slow path: capture the flox activation environment
+# Slow path: capture the flox activation environment.
+#
+# `flox activate` can block forever: an activation that was started elsewhere and
+# never finished (e.g. one left blocked on a terminal's stdin) pins the shared env
+# state at "Starting", and every later activation waits on it. The hook's own
+# `timeout` in .claude/settings.json caps that, so a wedged activation costs the
+# session a warning instead of a startup that never completes.
 FLOX_ENV_SNAPSHOT=$(flox activate --dir "$PROJECT_DIR" -- bash -c 'printenv' 2>/dev/null)
 
 if [ $? -ne 0 ] || [ -z "$FLOX_ENV_SNAPSHOT" ]; then

@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 from django.db import transaction
 from django.db.models import Q, QuerySet, Sum
 from django.http import Http404
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -29,7 +30,7 @@ from rest_framework import (
     viewsets,
 )
 from rest_framework.decorators import action
-from rest_framework.exceptions import MethodNotAllowed, ValidationError
+from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -52,7 +53,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, Trigger
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, is_scout_sandbox_request
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     ComposeTicketBurstThrottle,
@@ -78,6 +79,9 @@ from products.conversations.backend.api.ticket_filters import (
 )
 from products.conversations.backend.cache import (
     get_cached_unread_count,
+    invalidate_identity_tickets_cache,
+    invalidate_messages_cache,
+    invalidate_tickets_cache,
     invalidate_unread_count_cache,
     set_cached_unread_count,
 )
@@ -97,7 +101,9 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status, TicketMessageType
 from products.conversations.backend.person_lookup import _get_persons_by_email
+from products.conversations.backend.services.delivery import cancel_open_deliveries_for_ticket
 from products.conversations.backend.services.messages import ticket_message_type
+from products.conversations.backend.tasks.email import cancel_pending_email_replies_for_ticket
 
 from .. import reply_dedupe
 
@@ -286,7 +292,9 @@ class ComposeTicketSerializer(serializers.Serializer):
         help_text="Email subject line.",
     )
     email_config_id = serializers.UUIDField(
-        help_text="ID of the EmailChannel to send from.",
+        required=False,
+        allow_null=True,
+        help_text="ID of the support email channel to send from. Omit it to send from the team's default support channel.",
     )
     message = serializers.CharField(
         max_length=5000,
@@ -601,7 +609,14 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
 
     def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
         validated_data.pop("assignee", None)
-        return super().update(instance, validated_data)
+        validated_data.pop("tags", None)
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        # Only the submitted columns. A full save writes back every column this request
+        # loaded, so a delete that commits in between would be undone.
+        instance.save(update_fields=[*validated_data, "updated_at"])
+        self._attempt_set_tags(self.initial_data.get("tags"), instance)
+        return instance
 
 
 class TicketUnreadCountResponseSerializer(serializers.Serializer):
@@ -734,7 +749,7 @@ class _TicketUpdateDiff:
     partial_update=extend_schema(
         parameters=[TICKET_ID_PARAM], request=TicketUpdateRequestSerializer, responses=TicketSerializer
     ),
-    destroy=extend_schema(parameters=[TICKET_ID_PARAM]),
+    destroy=extend_schema(parameters=[TICKET_ID_PARAM], responses={204: None}),
     # The mixin action's default schema documents integer ids; tickets are keyed by UUID.
     bulk_update_tags=extend_schema(
         request=BulkUpdateTagsUUIDRequestSerializer,
@@ -758,6 +773,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         "note",
         "delete_note",
         "create_note",
+        "destroy",
     ]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
@@ -769,6 +785,16 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
     # Which search branch safely_get_queryset applied, for the latency histogram.
     _search_path: str | None = None
+
+    def check_permissions(self, request: Request) -> None:
+        super().check_permissions(request)
+        if is_scout_sandbox_request(request):
+            if self.action in {"compose", "note", "delete_note"}:
+                raise PermissionDenied(
+                    "Scouts can add private notes but cannot compose emails or change existing notes."
+                )
+            if self.action in {"update", "partial_update"} and "anonymous_traits" in request.data:
+                raise PermissionDenied("Scouts cannot change customer identity fields.")
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
@@ -870,6 +896,70 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         context = super().get_serializer_context()
         context["team"] = self.team
         return context
+
+    def destroy(self, request, *args, **kwargs):
+        """Soft-delete a ticket. A daily sweeper hard-deletes it after the grace window."""
+        ticket = self.get_object()
+        access = self.user_access_control
+        # Without the access-control add-on there is no manager role to grant, so a
+        # team member who can edit tickets can delete them. With it, only a manager
+        # or an organization admin can.
+        if access.access_controls_supported:
+            is_manager = access.check_access_level_for_object(ticket, required_level="manager")
+            if not is_manager and not access.is_organization_admin:
+                raise PermissionDenied("You need manager access to delete this ticket.")
+
+        with transaction.atomic():
+            # Conditional update, so a second concurrent delete cannot move the purge date or the actor.
+            now = timezone.now()
+            deleted = Ticket.objects.filter(team_id=self.team_id, id=ticket.id).update(
+                deleted_at=now, deleted_by=request.user, updated_at=now
+            )
+            if not deleted:
+                raise Http404("Ticket not found")
+            ticket.deleted_at = now
+            ticket.deleted_by = request.user
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=request.user,
+                was_impersonated=is_impersonated(request),
+                item_id=str(ticket.id),
+                scope="Ticket",
+                activity="deleted",
+                detail=Detail(name=f"Ticket #{ticket.ticket_number}"),
+            )
+
+        ticket_id = ticket.id
+        team_id = self.team_id
+        widget_session_id = ticket.widget_session_id
+
+        def _after_delete() -> None:
+            # The delete has committed. One failed step must not skip the others or fail the response.
+            steps: list[Callable[[], object]] = [
+                lambda: cancel_open_deliveries_for_ticket(team_id=team_id, ticket_id=ticket_id),
+                lambda: cancel_pending_email_replies_for_ticket(team_id=team_id, ticket_id=ticket_id),
+                lambda: invalidate_unread_count_cache(team_id),
+                lambda: invalidate_messages_cache(team_id, str(ticket_id)),
+                lambda: invalidate_identity_tickets_cache(team_id),
+                lambda: report_user_action(
+                    request.user,
+                    "support ticket deleted",
+                    _ticket_action_properties(ticket),
+                    team=self.team,
+                    request=request,
+                ),
+            ]
+            if widget_session_id:
+                steps.append(lambda: invalidate_tickets_cache(team_id, widget_session_id))
+            for step in steps:
+                try:
+                    step()
+                except Exception as e:
+                    capture_exception(e, {"ticket_id": str(ticket_id)})
+
+        transaction.on_commit(_after_delete)
+        return Response(status=drf_status.HTTP_204_NO_CONTENT)
 
     @extend_schema(exclude=True)
     def create(self, *args, **kwargs):
@@ -1195,6 +1285,15 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         ticket and keep it pending.
         """
         with transaction.atomic():
+            # Lock the live row, so a delete waits for this write, or this write sees the delete.
+            live = (
+                Ticket.objects.select_for_update()
+                .filter(team_id=self.team_id, id=instance.id)
+                .values_list("id", flat=True)
+                .first()
+            )
+            if live is None:
+                raise Http404("Ticket not found")
             self.perform_update(serializer)
 
             implied_status = _status_implied_by_snooze(before.snoozed_until, instance.snoozed_until)
@@ -1624,6 +1723,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
     def _create_message(self, ticket: Ticket, *, message: str, rich_content: object, is_private: bool) -> Response:
         request = self.request
+        if is_scout_sandbox_request(request) and not is_private:
+            raise PermissionDenied("Scouts can only add private notes. Set is_private to true.")
+
         item_context = {"author_type": "support", "is_private": is_private}
 
         def create_comment() -> Comment:
@@ -1831,6 +1933,22 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        try:
+            message_id = uuid.UUID(data["message_id"])
+        except ValueError:
+            message_id = None
+        if (
+            message_id
+            and Comment.objects.filter(
+                id=message_id,
+                team_id=self.team_id,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                item_context__automated_update_key__isnull=False,
+            ).exists()
+        ):
+            raise ValidationError({"message_id": "Automated updates cannot receive AI feedback."})
+
         ai_triage = ticket.ai_triage or {}
         trace_id = ai_triage.get("ai_trace_id")
         distinct_id = f"reviewer:{request.user.distinct_id}"
@@ -1943,15 +2061,18 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 
-        email_config = EmailChannel.objects.filter(
-            id=data["email_config_id"],
-            team=team,
-            kind=EmailChannelKind.SUPPORT,
-            domain_verified=True,
-        ).first()
+        email_configs = EmailChannel.objects.filter(team=team, kind=EmailChannelKind.SUPPORT, domain_verified=True)
+        if data.get("email_config_id"):
+            email_config = email_configs.filter(id=data["email_config_id"]).first()
+        else:
+            email_config = email_configs.filter(is_default=True).first()
         if not email_config:
             return Response(
-                {"detail": "Email configuration not found or domain not verified."},
+                {
+                    "detail": "Email configuration not found or domain not verified."
+                    if data.get("email_config_id")
+                    else "No default support email channel with a verified domain. Pass email_config_id."
+                },
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 

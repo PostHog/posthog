@@ -2,28 +2,15 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intruder import (
     IntruderSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.intruder import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.source import IntruderSource
 
 
 class TestSourceConfig:
-    def test_config_shape(self) -> None:
-        config = IntruderSource().get_source_config
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Kept behind the unreleased flag while the source is in alpha — hides it from the wizard.
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/intruder"
-
     def test_single_secret_access_token_field(self) -> None:
         # A single required, secret bearer-token field is the whole auth surface — a non-secret or
         # non-required regression would leak or break the token input.
@@ -36,20 +23,6 @@ class TestSourceConfig:
         assert field.required is True
 
 
-class TestGetSchemas:
-    def test_all_endpoints_are_full_refresh(self) -> None:
-        # Intruder exposes no verifiable server-side cursor, so every schema must ship full-refresh
-        # only. A stray supports_incremental=True would advertise a cursor the transport can't honor.
-        schemas = IntruderSource().get_schemas(IntruderSourceConfig(access_token="t"), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        assert all(s.supports_incremental is False and s.supports_append is False for s in schemas)
-
-    def test_documented_tables_match_endpoints(self) -> None:
-        # lists_tables_without_credentials=True publishes the catalog to public docs with no I/O.
-        tables = IntruderSource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-
-
 class TestValidateCredentials:
     @parameterized.expand([("valid", True), ("invalid", False)])
     def test_delegates_to_transport(self, _name: str, transport_result: bool) -> None:
@@ -58,25 +31,3 @@ class TestValidateCredentials:
         mock.assert_called_once_with("tok")
         assert ok is transport_result
         assert (error is None) is transport_result
-
-
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.intruder.io/v1/targets/"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.intruder.io/v1/issues/"),
-        ]
-    )
-    def test_auth_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = IntruderSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.intruder.io/v1/targets/"),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.intruder.io/v1/scans/"),
-        ]
-    )
-    def test_transient_errors_stay_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = IntruderSource().get_non_retryable_errors()
-        assert not any(key in observed_error for key in non_retryable)

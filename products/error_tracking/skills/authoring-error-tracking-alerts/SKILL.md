@@ -94,7 +94,7 @@ guess: show the user the matching names and ask whether one of them is the alert
   a scoped alert and an all-issues alert to the same channel both fire on the scoped issue.
 
 PostHog's "alerts configured" recommendation only inspects `filters.events` — adding per-issue
-`filters.properties` does not affect the status the recommendations card reports.
+`filters.properties` does not affect the status the alerts banner reports.
 
 ### 3. Pick the integration
 

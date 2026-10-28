@@ -178,26 +178,25 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
 }
 
 /**
+ * * `semver_eq` - semver_eq
+ * * `semver_neq` - semver_neq
  * * `semver_gt` - semver_gt
  * * `semver_gte` - semver_gte
  * * `semver_lt` - semver_lt
  * * `semver_lte` - semver_lte
- * * `semver_eq` - semver_eq
- * * `semver_neq` - semver_neq
  * * `semver_tilde` - semver_tilde
  * * `semver_caret` - semver_caret
  * * `semver_wildcard` - semver_wildcard
  */
-export type FeatureFlagFilterPropertySemverSchemaOperatorEnumApi =
-    (typeof FeatureFlagFilterPropertySemverSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertySemverSchemaOperatorEnumApi]
+export type SemverOperatorEnumApi = (typeof SemverOperatorEnumApi)[keyof typeof SemverOperatorEnumApi]
 
-export const FeatureFlagFilterPropertySemverSchemaOperatorEnumApi = {
+export const SemverOperatorEnumApi = {
+    SemverEq: 'semver_eq',
+    SemverNeq: 'semver_neq',
     SemverGt: 'semver_gt',
     SemverGte: 'semver_gte',
     SemverLt: 'semver_lt',
     SemverLte: 'semver_lte',
-    SemverEq: 'semver_eq',
-    SemverNeq: 'semver_neq',
     SemverTilde: 'semver_tilde',
     SemverCaret: 'semver_caret',
     SemverWildcard: 'semver_wildcard',
@@ -224,16 +223,16 @@ export interface FeatureFlagFilterPropertySemverSchemaApi {
     group_type_index?: number | null
     /** Semantic version comparison operator.
      *
+     * * `semver_eq` - semver_eq
+     * * `semver_neq` - semver_neq
      * * `semver_gt` - semver_gt
      * * `semver_gte` - semver_gte
      * * `semver_lt` - semver_lt
      * * `semver_lte` - semver_lte
-     * * `semver_eq` - semver_eq
-     * * `semver_neq` - semver_neq
      * * `semver_tilde` - semver_tilde
      * * `semver_caret` - semver_caret
      * * `semver_wildcard` - semver_wildcard */
-    operator: FeatureFlagFilterPropertySemverSchemaOperatorEnumApi
+    operator: SemverOperatorEnumApi
     /** Semantic version string. */
     value: string
 }
@@ -324,6 +323,10 @@ export interface FeatureFlagFilterPropertyCohortInSchemaApi {
     operator: FeatureFlagFilterPropertyCohortInSchemaOperatorEnumApi
     /** Cohort comparison value (single or list, depending on usage). */
     value: unknown
+    /** Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write. */
+    cohort_deleted?: boolean
+    /** Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write. */
+    cohort_missing?: boolean
 }
 
 /**
@@ -933,21 +936,82 @@ export interface ExperimentFeatureFlagInputApi {
     ensure_experience_continuity?: boolean | null
 }
 
-export interface ExperimentToSavedMetricApi {
-    readonly id: number
-    experiment: number
-    saved_metric: number
-    metadata?: unknown
-    readonly created_at: string
-    readonly query: unknown
-    readonly name: string
+export type BreakdownTypeApi = (typeof BreakdownTypeApi)[keyof typeof BreakdownTypeApi]
+
+export const BreakdownTypeApi = {
+    Cohort: 'cohort',
+    Person: 'person',
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Element: 'element',
+    Group: 'group',
+    Session: 'session',
+    Hogql: 'hogql',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    RevenueAnalytics: 'revenue_analytics',
+} as const
+
+export type MultipleBreakdownTypeApi = (typeof MultipleBreakdownTypeApi)[keyof typeof MultipleBreakdownTypeApi]
+
+export const MultipleBreakdownTypeApi = {
+    Person: 'person',
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Element: 'element',
+    Group: 'group',
+    Session: 'session',
+    Hogql: 'hogql',
+    Cohort: 'cohort',
+    RevenueAnalytics: 'revenue_analytics',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+} as const
+
+export interface BreakdownApi {
+    group_type_index?: number | null
+    histogram_bin_count?: number | null
+    normalize_url?: boolean | null
+    property: string | number
+    type?: MultipleBreakdownTypeApi | null
 }
 
-export type Kind2Api = (typeof Kind2Api)[keyof typeof Kind2Api]
+export interface BreakdownFilterApi {
+    breakdown?: string | (string | number)[] | number | null
+    breakdown_group_type_index?: number | null
+    breakdown_hide_other_aggregation?: boolean | null
+    breakdown_histogram_bin_count?: number | null
+    breakdown_limit?: number | null
+    breakdown_normalize_url?: boolean | null
+    breakdown_path_cleaning?: boolean | null
+    breakdown_type?: BreakdownTypeApi | null
+    breakdowns?: BreakdownApi[] | null
+}
 
-export const Kind2Api = {
-    ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
-    ActionsNode: 'ActionsNode',
+export type FunnelConversionWindowTimeUnitApi =
+    (typeof FunnelConversionWindowTimeUnitApi)[keyof typeof FunnelConversionWindowTimeUnitApi]
+
+export const FunnelConversionWindowTimeUnitApi = {
+    Second: 'second',
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+} as const
+
+export type ExperimentMetricGoalApi = (typeof ExperimentMetricGoalApi)[keyof typeof ExperimentMetricGoalApi]
+
+export const ExperimentMetricGoalApi = {
+    Increase: 'increase',
+    Decrease: 'decrease',
+} as const
+
+export type ExperimentMeanMetricApiMetricType =
+    (typeof ExperimentMeanMetricApiMetricType)[keyof typeof ExperimentMeanMetricApiMetricType]
+
+export const ExperimentMeanMetricApiMetricType = {
+    Mean: 'mean',
 } as const
 
 export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
@@ -979,6 +1043,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -1054,6 +1119,10 @@ export interface SessionPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null
@@ -1275,6 +1344,738 @@ export interface BehavioralPropertyFilterApi {
     value: InlineBehavioralTypeApi
 }
 
+export type BaseMathTypeApi = (typeof BaseMathTypeApi)[keyof typeof BaseMathTypeApi]
+
+export const BaseMathTypeApi = {
+    Total: 'total',
+    Dau: 'dau',
+    WeeklyActive: 'weekly_active',
+    MonthlyActive: 'monthly_active',
+    UniqueSession: 'unique_session',
+    FirstTimeForUser: 'first_time_for_user',
+    FirstMatchingEventForUser: 'first_matching_event_for_user',
+} as const
+
+export type FunnelMathTypeApi = (typeof FunnelMathTypeApi)[keyof typeof FunnelMathTypeApi]
+
+export const FunnelMathTypeApi = {
+    Total: 'total',
+    FirstTimeForUser: 'first_time_for_user',
+    FirstTimeForUserWithFilters: 'first_time_for_user_with_filters',
+} as const
+
+export type PropertyMathTypeApi = (typeof PropertyMathTypeApi)[keyof typeof PropertyMathTypeApi]
+
+export const PropertyMathTypeApi = {
+    Avg: 'avg',
+    Sum: 'sum',
+    Min: 'min',
+    Max: 'max',
+    Median: 'median',
+    P75: 'p75',
+    P90: 'p90',
+    P95: 'p95',
+    P99: 'p99',
+} as const
+
+export type CountPerActorMathTypeApi = (typeof CountPerActorMathTypeApi)[keyof typeof CountPerActorMathTypeApi]
+
+export const CountPerActorMathTypeApi = {
+    AvgCountPerActor: 'avg_count_per_actor',
+    MinCountPerActor: 'min_count_per_actor',
+    MaxCountPerActor: 'max_count_per_actor',
+    MedianCountPerActor: 'median_count_per_actor',
+    P75CountPerActor: 'p75_count_per_actor',
+    P90CountPerActor: 'p90_count_per_actor',
+    P95CountPerActor: 'p95_count_per_actor',
+    P99CountPerActor: 'p99_count_per_actor',
+} as const
+
+export type GroupMathTypeApi = (typeof GroupMathTypeApi)[keyof typeof GroupMathTypeApi]
+
+export const GroupMathTypeApi = {
+    UniqueGroup: 'unique_group',
+    FirstTimeForGroup: 'first_time_for_group',
+    FirstMatchingEventForGroup: 'first_matching_event_for_group',
+} as const
+
+export type ExperimentMetricMathTypeApi = (typeof ExperimentMetricMathTypeApi)[keyof typeof ExperimentMetricMathTypeApi]
+
+export const ExperimentMetricMathTypeApi = {
+    Total: 'total',
+    Sum: 'sum',
+    UniqueSession: 'unique_session',
+    Min: 'min',
+    Max: 'max',
+    Avg: 'avg',
+    Dau: 'dau',
+    UniqueGroup: 'unique_group',
+    Hogql: 'hogql',
+} as const
+
+export type CalendarHeatmapMathTypeApi = (typeof CalendarHeatmapMathTypeApi)[keyof typeof CalendarHeatmapMathTypeApi]
+
+export const CalendarHeatmapMathTypeApi = {
+    Total: 'total',
+    Dau: 'dau',
+} as const
+
+export type MathGroupTypeIndexApi = (typeof MathGroupTypeIndexApi)[keyof typeof MathGroupTypeIndexApi]
+
+export const MathGroupTypeIndexApi = {
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
+    Number3: 3,
+    Number4: 4,
+} as const
+
+export type CurrencyCodeApi = (typeof CurrencyCodeApi)[keyof typeof CurrencyCodeApi]
+
+export const CurrencyCodeApi = {
+    Aed: 'AED',
+    Afn: 'AFN',
+    All: 'ALL',
+    Amd: 'AMD',
+    Ang: 'ANG',
+    Aoa: 'AOA',
+    Ars: 'ARS',
+    Aud: 'AUD',
+    Awg: 'AWG',
+    Azn: 'AZN',
+    Bam: 'BAM',
+    Bbd: 'BBD',
+    Bdt: 'BDT',
+    Bgn: 'BGN',
+    Bhd: 'BHD',
+    Bif: 'BIF',
+    Bmd: 'BMD',
+    Bnd: 'BND',
+    Bob: 'BOB',
+    Brl: 'BRL',
+    Bsd: 'BSD',
+    Btc: 'BTC',
+    Btn: 'BTN',
+    Bwp: 'BWP',
+    Byn: 'BYN',
+    Bzd: 'BZD',
+    Cad: 'CAD',
+    Cdf: 'CDF',
+    Chf: 'CHF',
+    Clp: 'CLP',
+    Cny: 'CNY',
+    Cop: 'COP',
+    Crc: 'CRC',
+    Cve: 'CVE',
+    Czk: 'CZK',
+    Djf: 'DJF',
+    Dkk: 'DKK',
+    Dop: 'DOP',
+    Dzd: 'DZD',
+    Egp: 'EGP',
+    Ern: 'ERN',
+    Etb: 'ETB',
+    Eur: 'EUR',
+    Fjd: 'FJD',
+    Gbp: 'GBP',
+    Gel: 'GEL',
+    Ghs: 'GHS',
+    Gip: 'GIP',
+    Gmd: 'GMD',
+    Gnf: 'GNF',
+    Gtq: 'GTQ',
+    Gyd: 'GYD',
+    Hkd: 'HKD',
+    Hnl: 'HNL',
+    Hrk: 'HRK',
+    Htg: 'HTG',
+    Huf: 'HUF',
+    Idr: 'IDR',
+    Ils: 'ILS',
+    Inr: 'INR',
+    Iqd: 'IQD',
+    Irr: 'IRR',
+    Isk: 'ISK',
+    Jmd: 'JMD',
+    Jod: 'JOD',
+    Jpy: 'JPY',
+    Kes: 'KES',
+    Kgs: 'KGS',
+    Khr: 'KHR',
+    Kmf: 'KMF',
+    Krw: 'KRW',
+    Kwd: 'KWD',
+    Kyd: 'KYD',
+    Kzt: 'KZT',
+    Lak: 'LAK',
+    Lbp: 'LBP',
+    Lkr: 'LKR',
+    Lrd: 'LRD',
+    Ltl: 'LTL',
+    Lvl: 'LVL',
+    Lsl: 'LSL',
+    Lyd: 'LYD',
+    Mad: 'MAD',
+    Mdl: 'MDL',
+    Mga: 'MGA',
+    Mkd: 'MKD',
+    Mmk: 'MMK',
+    Mnt: 'MNT',
+    Mop: 'MOP',
+    Mru: 'MRU',
+    Mtl: 'MTL',
+    Mur: 'MUR',
+    Mvr: 'MVR',
+    Mwk: 'MWK',
+    Mxn: 'MXN',
+    Myr: 'MYR',
+    Mzn: 'MZN',
+    Nad: 'NAD',
+    Ngn: 'NGN',
+    Nio: 'NIO',
+    Nok: 'NOK',
+    Npr: 'NPR',
+    Nzd: 'NZD',
+    Omr: 'OMR',
+    Pab: 'PAB',
+    Pen: 'PEN',
+    Pgk: 'PGK',
+    Php: 'PHP',
+    Pkr: 'PKR',
+    Pln: 'PLN',
+    Pyg: 'PYG',
+    Qar: 'QAR',
+    Ron: 'RON',
+    Rsd: 'RSD',
+    Rub: 'RUB',
+    Rwf: 'RWF',
+    Sar: 'SAR',
+    Sbd: 'SBD',
+    Scr: 'SCR',
+    Sdg: 'SDG',
+    Sek: 'SEK',
+    Sgd: 'SGD',
+    Srd: 'SRD',
+    Ssp: 'SSP',
+    Stn: 'STN',
+    Syp: 'SYP',
+    Szl: 'SZL',
+    Thb: 'THB',
+    Tjs: 'TJS',
+    Tmt: 'TMT',
+    Tnd: 'TND',
+    Top: 'TOP',
+    Try: 'TRY',
+    Ttd: 'TTD',
+    Twd: 'TWD',
+    Tzs: 'TZS',
+    Uah: 'UAH',
+    Ugx: 'UGX',
+    Usd: 'USD',
+    Uyu: 'UYU',
+    Uzs: 'UZS',
+    Ves: 'VES',
+    Vnd: 'VND',
+    Vuv: 'VUV',
+    Wst: 'WST',
+    Xaf: 'XAF',
+    Xcd: 'XCD',
+    Xof: 'XOF',
+    Xpf: 'XPF',
+    Yer: 'YER',
+    Zar: 'ZAR',
+    Zmw: 'ZMW',
+} as const
+
+export interface RevenueCurrencyPropertyConfigApi {
+    property?: string | null
+    static?: CurrencyCodeApi | null
+}
+
+export type EventsNodeApiResponse = { [key: string]: unknown } | null
+
+export interface EventsNodeApi {
+    custom_name?: string | null
+    /** The event or `null` for all events. */
+    event?: string | null
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+              | BehavioralPropertyFilterApi
+          )[]
+        | null
+    kind?: 'EventsNode'
+    limit?: number | null
+    math?:
+        | BaseMathTypeApi
+        | FunnelMathTypeApi
+        | PropertyMathTypeApi
+        | CountPerActorMathTypeApi
+        | GroupMathTypeApi
+        | ExperimentMetricMathTypeApi
+        | CalendarHeatmapMathTypeApi
+        | 'hogql'
+        | null
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    math_hogql?: string | null
+    math_multiplier?: number | null
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
+    math_property_type?: string | null
+    name?: string | null
+    optionalInFunnel?: boolean | null
+    /** Columns to order by */
+    orderBy?: string[] | null
+    /** Properties configurable in the interface */
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+              | BehavioralPropertyFilterApi
+          )[]
+        | null
+    response?: EventsNodeApiResponse
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type ActionsNodeApiResponse = { [key: string]: unknown } | null
+
+export interface ActionsNodeApi {
+    custom_name?: string | null
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+              | BehavioralPropertyFilterApi
+          )[]
+        | null
+    id: number
+    kind?: 'ActionsNode'
+    math?:
+        | BaseMathTypeApi
+        | FunnelMathTypeApi
+        | PropertyMathTypeApi
+        | CountPerActorMathTypeApi
+        | GroupMathTypeApi
+        | ExperimentMetricMathTypeApi
+        | CalendarHeatmapMathTypeApi
+        | 'hogql'
+        | null
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    math_hogql?: string | null
+    math_multiplier?: number | null
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
+    math_property_type?: string | null
+    name?: string | null
+    optionalInFunnel?: boolean | null
+    /** Properties configurable in the interface */
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+              | BehavioralPropertyFilterApi
+          )[]
+        | null
+    response?: ActionsNodeApiResponse
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type ExperimentDataWarehouseNodeApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentDataWarehouseNodeApi {
+    custom_name?: string | null
+    data_warehouse_join_key: string
+    events_join_key: string
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+              | BehavioralPropertyFilterApi
+          )[]
+        | null
+    kind?: 'ExperimentDataWarehouseNode'
+    math?:
+        | BaseMathTypeApi
+        | FunnelMathTypeApi
+        | PropertyMathTypeApi
+        | CountPerActorMathTypeApi
+        | GroupMathTypeApi
+        | ExperimentMetricMathTypeApi
+        | CalendarHeatmapMathTypeApi
+        | 'hogql'
+        | null
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    math_hogql?: string | null
+    math_multiplier?: number | null
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
+    math_property_type?: string | null
+    name?: string | null
+    optionalInFunnel?: boolean | null
+    /** Properties configurable in the interface */
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+              | BehavioralPropertyFilterApi
+          )[]
+        | null
+    response?: ExperimentDataWarehouseNodeApiResponse
+    table_name: string
+    timestamp_field: string
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type ExperimentWarehouseNativeMathTypeApi =
+    (typeof ExperimentWarehouseNativeMathTypeApi)[keyof typeof ExperimentWarehouseNativeMathTypeApi]
+
+export const ExperimentWarehouseNativeMathTypeApi = {
+    Total: 'total',
+    Sum: 'sum',
+} as const
+
+export type ExperimentWarehouseNativeNodeApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentWarehouseNativeNodeApi {
+    /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
+    connection_id: string
+    custom_name?: string | null
+    kind?: 'ExperimentWarehouseNativeNode'
+    /** How to aggregate the rows per entity. Defaults to `total` (row count). */
+    math?: ExperimentWarehouseNativeMathTypeApi | null
+    /** The numeric column `math` reads. Required when `math` is `sum`. One SQL relation can serve several metrics, each reading a different column. */
+    math_property?: string | null
+    /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure. */
+    query: string
+    response?: ExperimentWarehouseNativeNodeApiResponse
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type ExperimentMeanMetricApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentMeanMetricApi {
+    breakdownFilter?: BreakdownFilterApi | null
+    conversion_window?: number | null
+    conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
+    fingerprint?: string | null
+    goal?: ExperimentMetricGoalApi | null
+    ignore_zeros?: boolean | null
+    isSharedMetric?: boolean | null
+    kind?: 'ExperimentMetric'
+    /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
+    lower_bound_percentile?: number | null
+    metric_type: ExperimentMeanMetricApiMetricType
+    name?: string | null
+    response?: ExperimentMeanMetricApiResponse
+    sharedMetricId?: number | null
+    source: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi | ExperimentWarehouseNativeNodeApi
+    /** When set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types. */
+    threshold?: number | null
+    /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
+    upper_bound_percentile?: number | null
+    uuid?: string | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type BreakdownAttributionTypeApi = (typeof BreakdownAttributionTypeApi)[keyof typeof BreakdownAttributionTypeApi]
+
+export const BreakdownAttributionTypeApi = {
+    FirstTouch: 'first_touch',
+    LastTouch: 'last_touch',
+    AllEvents: 'all_events',
+    Step: 'step',
+} as const
+
+export type StepOrderValueApi = (typeof StepOrderValueApi)[keyof typeof StepOrderValueApi]
+
+export const StepOrderValueApi = {
+    Strict: 'strict',
+    Unordered: 'unordered',
+    Ordered: 'ordered',
+} as const
+
+export type ExperimentFunnelMetricApiMetricType =
+    (typeof ExperimentFunnelMetricApiMetricType)[keyof typeof ExperimentFunnelMetricApiMetricType]
+
+export const ExperimentFunnelMetricApiMetricType = {
+    Funnel: 'funnel',
+} as const
+
+export type ExperimentFunnelMetricApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentFunnelMetricApi {
+    /** How to attribute the breakdown value across funnel steps. */
+    breakdownAttributionType?: BreakdownAttributionTypeApi | null
+    /** When breakdownAttributionType is `step`, the 0-indexed step to attribute from. */
+    breakdownAttributionValue?: number | null
+    breakdownFilter?: BreakdownFilterApi | null
+    conversion_window?: number | null
+    conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
+    fingerprint?: string | null
+    funnel_order_type?: StepOrderValueApi | null
+    goal?: ExperimentMetricGoalApi | null
+    isSharedMetric?: boolean | null
+    kind?: 'ExperimentMetric'
+    metric_type: ExperimentFunnelMetricApiMetricType
+    name?: string | null
+    response?: ExperimentFunnelMetricApiResponse
+    series: (EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi)[]
+    sharedMetricId?: number | null
+    uuid?: string | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export interface ExperimentMetricOutlierHandlingApi {
+    ignore_zeros?: boolean | null
+    /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
+    lower_bound_percentile?: number | null
+    /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
+    upper_bound_percentile?: number | null
+}
+
+export type ExperimentRatioMetricApiMetricType =
+    (typeof ExperimentRatioMetricApiMetricType)[keyof typeof ExperimentRatioMetricApiMetricType]
+
+export const ExperimentRatioMetricApiMetricType = {
+    Ratio: 'ratio',
+} as const
+
+export type ExperimentRatioMetricApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentRatioMetricApi {
+    breakdownFilter?: BreakdownFilterApi | null
+    conversion_window?: number | null
+    conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
+    denominator: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi | ExperimentWarehouseNativeNodeApi
+    denominator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
+    fingerprint?: string | null
+    goal?: ExperimentMetricGoalApi | null
+    isSharedMetric?: boolean | null
+    kind?: 'ExperimentMetric'
+    metric_type: ExperimentRatioMetricApiMetricType
+    name?: string | null
+    numerator: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi | ExperimentWarehouseNativeNodeApi
+    numerator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
+    response?: ExperimentRatioMetricApiResponse
+    sharedMetricId?: number | null
+    uuid?: string | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type ExperimentRetentionMetricApiMetricType =
+    (typeof ExperimentRetentionMetricApiMetricType)[keyof typeof ExperimentRetentionMetricApiMetricType]
+
+export const ExperimentRetentionMetricApiMetricType = {
+    Retention: 'retention',
+} as const
+
+export type ExperimentExposureNodeApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentExposureNodeApi {
+    kind?: 'ExperimentExposureNode'
+    response?: ExperimentExposureNodeApiResponse
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type StartHandlingApi = (typeof StartHandlingApi)[keyof typeof StartHandlingApi]
+
+export const StartHandlingApi = {
+    FirstSeen: 'first_seen',
+    LastSeen: 'last_seen',
+} as const
+
+export type ExperimentRetentionMetricApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentRetentionMetricApi {
+    breakdownFilter?: BreakdownFilterApi | null
+    completion_event: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    conversion_window?: number | null
+    conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
+    fingerprint?: string | null
+    goal?: ExperimentMetricGoalApi | null
+    isSharedMetric?: boolean | null
+    kind?: 'ExperimentMetric'
+    metric_type: ExperimentRetentionMetricApiMetricType
+    name?: string | null
+    response?: ExperimentRetentionMetricApiResponse
+    retention_window_end: number
+    retention_window_start: number
+    retention_window_unit: FunnelConversionWindowTimeUnitApi
+    sharedMetricId?: number | null
+    start_event: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi | ExperimentExposureNodeApi
+    start_handling: StartHandlingApi
+    uuid?: string | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type ExperimentMetricApi =
+    | ExperimentMeanMetricApi
+    | ExperimentFunnelMetricApi
+    | ExperimentRatioMetricApi
+    | ExperimentRetentionMetricApi
+
+/**
+ * A shared metric's link to one experiment, as the experiment API returns it.
+ */
+export interface ExperimentToSavedMetricApi {
+    readonly id: number
+    experiment: number
+    saved_metric: number
+    metadata?: unknown
+    readonly created_at: string
+    readonly query: unknown
+    readonly name: string
+    /** The metric this experiment calculates for this shared metric: `query` with the per-experiment overrides from `metadata` applied (breakdowns, breakdown_limit, and funnel breakdown attribution). Results, fingerprints and queries for this metric use this definition, not `query`. Null when `query` is not an ExperimentMetric, such as a legacy shared metric (kind ExperimentTrendsQuery or ExperimentFunnelsQuery), which takes no overrides. */
+    readonly effective_query: ExperimentMetricApi | null
+}
+
+export type Kind2Api = (typeof Kind2Api)[keyof typeof Kind2Api]
+
+export const Kind2Api = {
+    ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
+    ActionsNode: 'ActionsNode',
+} as const
+
 export interface ExperimentApiExposureConfigApi {
     /** Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'. */
     event?: string | null
@@ -1327,35 +2128,61 @@ export interface ExperimentApiExposureCriteriaApi {
     multiple_variant_handling?: MultipleVariantHandlingApi | null
 }
 
-export type Kind1Api = (typeof Kind1Api)[keyof typeof Kind1Api]
+export type ExperimentApiBreakdownAttributionTypeApi =
+    (typeof ExperimentApiBreakdownAttributionTypeApi)[keyof typeof ExperimentApiBreakdownAttributionTypeApi]
 
-export const Kind1Api = {
-    EventsNode: 'EventsNode',
-    ActionsNode: 'ActionsNode',
+export const ExperimentApiBreakdownAttributionTypeApi = {
+    FirstTouch: 'first_touch',
+    LastTouch: 'last_touch',
+    Step: 'step',
 } as const
 
-export type ExperimentMetricMathTypeApi = (typeof ExperimentMetricMathTypeApi)[keyof typeof ExperimentMetricMathTypeApi]
+export type ExperimentApiPropertyBreakdownTypeApi =
+    (typeof ExperimentApiPropertyBreakdownTypeApi)[keyof typeof ExperimentApiPropertyBreakdownTypeApi]
 
-export const ExperimentMetricMathTypeApi = {
-    Total: 'total',
-    Sum: 'sum',
-    UniqueSession: 'unique_session',
-    Min: 'min',
-    Max: 'max',
-    Avg: 'avg',
-    Dau: 'dau',
-    UniqueGroup: 'unique_group',
-    Hogql: 'hogql',
+export const ExperimentApiPropertyBreakdownTypeApi = {
+    Event: 'event',
+    Person: 'person',
+    Session: 'session',
 } as const
 
-export type MathGroupTypeIndexApi = (typeof MathGroupTypeIndexApi)[keyof typeof MathGroupTypeIndexApi]
+export interface ExperimentApiPropertyBreakdownApi {
+    /** Property name to break down by. */
+    property: string
+    /** Where the property lives. Defaults to 'event'. */
+    type?: ExperimentApiPropertyBreakdownTypeApi | null
+}
 
-export const MathGroupTypeIndexApi = {
+export type GroupTypeIndexApi = (typeof GroupTypeIndexApi)[keyof typeof GroupTypeIndexApi]
+
+export const GroupTypeIndexApi = {
     Number0: 0,
     Number1: 1,
     Number2: 2,
     Number3: 3,
     Number4: 4,
+} as const
+
+export interface ExperimentApiGroupBreakdownApi {
+    /** Which group type the property belongs to. */
+    group_type_index: GroupTypeIndexApi
+    /** Property name to break down by. */
+    property: string
+    type?: 'group'
+}
+
+export interface ExperimentApiBreakdownFilterApi {
+    /** Maximum number of breakdown values to compute results for. */
+    breakdown_limit?: number | null
+    /** Properties to break the metric results down by. */
+    breakdowns?: (ExperimentApiPropertyBreakdownApi | ExperimentApiGroupBreakdownApi)[] | null
+}
+
+export type Kind1Api = (typeof Kind1Api)[keyof typeof Kind1Api]
+
+export const Kind1Api = {
+    EventsNode: 'EventsNode',
+    ActionsNode: 'ActionsNode',
 } as const
 
 export interface ExperimentApiEventSourceApi {
@@ -1375,41 +2202,6 @@ export interface ExperimentApiEventSourceApi {
     /** Event property filters to narrow which events are counted. */
     properties?: EventPropertyFilterApi[] | null
 }
-
-export type FunnelConversionWindowTimeUnitApi =
-    (typeof FunnelConversionWindowTimeUnitApi)[keyof typeof FunnelConversionWindowTimeUnitApi]
-
-export const FunnelConversionWindowTimeUnitApi = {
-    Second: 'second',
-    Minute: 'minute',
-    Hour: 'hour',
-    Day: 'day',
-    Week: 'week',
-    Month: 'month',
-} as const
-
-export interface ExperimentMetricOutlierHandlingApi {
-    ignore_zeros?: boolean | null
-    /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
-    lower_bound_percentile?: number | null
-    /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
-    upper_bound_percentile?: number | null
-}
-
-export type StepOrderValueApi = (typeof StepOrderValueApi)[keyof typeof StepOrderValueApi]
-
-export const StepOrderValueApi = {
-    Strict: 'strict',
-    Unordered: 'unordered',
-    Ordered: 'ordered',
-} as const
-
-export type ExperimentMetricGoalApi = (typeof ExperimentMetricGoalApi)[keyof typeof ExperimentMetricGoalApi]
-
-export const ExperimentMetricGoalApi = {
-    Increase: 'increase',
-    Decrease: 'decrease',
-} as const
 
 export type ExperimentMetricTypeApi = (typeof ExperimentMetricTypeApi)[keyof typeof ExperimentMetricTypeApi]
 
@@ -1447,14 +2239,13 @@ export interface ExperimentApiRetentionStartApi {
     properties?: EventPropertyFilterApi[] | null
 }
 
-export type StartHandlingApi = (typeof StartHandlingApi)[keyof typeof StartHandlingApi]
-
-export const StartHandlingApi = {
-    FirstSeen: 'first_seen',
-    LastSeen: 'last_seen',
-} as const
-
 export interface ExperimentApiMetricApi {
+    /** For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels. */
+    breakdownAttributionType?: ExperimentApiBreakdownAttributionTypeApi | null
+    /** When breakdownAttributionType is 'step', the 0-indexed step to attribute from. */
+    breakdownAttributionValue?: number | null
+    /** Break the metric results down by up to 3 event, person, session or group properties. */
+    breakdownFilter?: ExperimentApiBreakdownFilterApi | null
     /** For retention metrics: completion event. */
     completion_event?: ExperimentApiEventSourceApi | null
     /** Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends. */
@@ -1503,6 +2294,246 @@ export interface ExperimentApiMetricApi {
  * List wrapper for OpenAPI schema generation — the field stores an array of metrics.
  */
 export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
+
+/**
+ * * `flag_off_while_running` - Flag Off While Running
+ * * `variant_shipped_while_running` - Variant Shipped While Running
+ * * `flag_live_after_end` - Flag Live After End
+ * * `flag_live_before_launch` - Flag Live Before Launch
+ * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+ * * `multiple_variants_share` - Multiple Variants Share
+ * * `no_metric` - No Metric
+ * * `metric_event_not_ingested` - Metric Event Not Ingested
+ * * `metric_cannot_compile` - Metric Cannot Compile
+ * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+ * * `srm` - Sample Ratio Mismatch
+ * * `zero_exposures` - Zero Exposures
+ * * `forced_variant_release_condition` - Forced Variant Release Condition
+ * * `flag_variants_mismatch` - Flag Variants Mismatch
+ * * `split_changed_mid_run` - Split Changed Mid Run
+ * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+ * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+ * * `new_flag_no_traffic` - New Flag No Traffic
+ * * `early_significance` - Early Significance
+ */
+export type ExperimentHealthFindingCodeEnumApi =
+    (typeof ExperimentHealthFindingCodeEnumApi)[keyof typeof ExperimentHealthFindingCodeEnumApi]
+
+export const ExperimentHealthFindingCodeEnumApi = {
+    FlagOffWhileRunning: 'flag_off_while_running',
+    VariantShippedWhileRunning: 'variant_shipped_while_running',
+    FlagLiveAfterEnd: 'flag_live_after_end',
+    FlagLiveBeforeLaunch: 'flag_live_before_launch',
+    BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
+    MultipleVariantsShare: 'multiple_variants_share',
+    NoMetric: 'no_metric',
+    MetricEventNotIngested: 'metric_event_not_ingested',
+    MetricCannotCompile: 'metric_cannot_compile',
+    ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
+    Srm: 'srm',
+    ZeroExposures: 'zero_exposures',
+    ForcedVariantReleaseCondition: 'forced_variant_release_condition',
+    FlagVariantsMismatch: 'flag_variants_mismatch',
+    SplitChangedMidRun: 'split_changed_mid_run',
+    BucketingChangedMidRun: 'bucketing_changed_mid_run',
+    ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
+    NewFlagNoTraffic: 'new_flag_no_traffic',
+    EarlySignificance: 'early_significance',
+} as const
+
+/**
+ * * `critical` - Critical severity
+ * * `warning` - Warning severity
+ * * `info` - Info severity
+ */
+export type ExperimentHealthFindingSeverityEnumApi =
+    (typeof ExperimentHealthFindingSeverityEnumApi)[keyof typeof ExperimentHealthFindingSeverityEnumApi]
+
+export const ExperimentHealthFindingSeverityEnumApi = {
+    Critical: 'critical',
+    Warning: 'warning',
+    Info: 'info',
+} as const
+
+/**
+ * * `open_feature_flag` - Open Feature Flag
+ * * `open_feature_flag_history` - Open Feature Flag History
+ * * `adjust_distribution` - Adjust Distribution
+ * * `use_first_seen_variant` - Use First Seen Variant
+ * * `add_primary_metric` - Add Primary Metric
+ * * `add_secondary_metric` - Add Secondary Metric
+ * * `edit_exposure_criteria` - Edit Exposure Criteria
+ * * `edit_release_conditions` - Edit Release Conditions
+ */
+export type ExperimentHealthFindingActionKindEnumApi =
+    (typeof ExperimentHealthFindingActionKindEnumApi)[keyof typeof ExperimentHealthFindingActionKindEnumApi]
+
+export const ExperimentHealthFindingActionKindEnumApi = {
+    OpenFeatureFlag: 'open_feature_flag',
+    OpenFeatureFlagHistory: 'open_feature_flag_history',
+    AdjustDistribution: 'adjust_distribution',
+    UseFirstSeenVariant: 'use_first_seen_variant',
+    AddPrimaryMetric: 'add_primary_metric',
+    AddSecondaryMetric: 'add_secondary_metric',
+    EditExposureCriteria: 'edit_exposure_criteria',
+    EditReleaseConditions: 'edit_release_conditions',
+} as const
+
+/**
+ * The values behind the finding, such as the key of a shipped variant or the share of users exposed to multiple variants. The keys depend on the code.
+ */
+export type ExperimentHealthFindingApiEvidence = { [key: string]: string | number | boolean | null }
+
+export interface ExperimentHealthFindingApi {
+    /** Stable identifier of the problem. Each code has one meaning across every surface that reports it.
+     *
+     * * `flag_off_while_running` - Flag Off While Running
+     * * `variant_shipped_while_running` - Variant Shipped While Running
+     * * `flag_live_after_end` - Flag Live After End
+     * * `flag_live_before_launch` - Flag Live Before Launch
+     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
+     * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `srm` - Sample Ratio Mismatch
+     * * `zero_exposures` - Zero Exposures
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `flag_variants_mismatch` - Flag Variants Mismatch
+     * * `split_changed_mid_run` - Split Changed Mid Run
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `early_significance` - Early Significance */
+    code: ExperimentHealthFindingCodeEnumApi
+    /**
+     * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
+     * @nullable
+     */
+    subcode: string | null
+    /** How much the problem affects the results: critical, warning, or info.
+     *
+     * * `critical` - Critical severity
+     * * `warning` - Warning severity
+     * * `info` - Info severity */
+    severity: ExperimentHealthFindingSeverityEnumApi
+    /** One-line summary of the problem. */
+    title: string
+    /** What is wrong, what it does to the experiment, and how to fix it. */
+    detail: string
+    /** The values behind the finding, such as the key of a shipped variant or the share of users exposed to multiple variants. The keys depend on the code. */
+    evidence: ExperimentHealthFindingApiEvidence
+    /** The actions that fix the problem, in order of preference, for example 'open_feature_flag' or 'add_primary_metric'. */
+    actions: ExperimentHealthFindingActionKindEnumApi[]
+    /**
+     * The id of the matching diagnostic in the diagnosing-experiment-health skill, for example 'A5'. Null when the skill has none.
+     * @nullable
+     */
+    diagnostic_ref: string | null
+}
+
+/**
+ * * `flag_state` - Flag State
+ * * `flag_history` - Flag History
+ * * `split_changed_mid_run` - Split Changed Mid Run
+ * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+ * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+ * * `flag_variants_mismatch` - Flag Variants Mismatch
+ * * `forced_variant_release_condition` - Forced Variant Release Condition
+ * * `new_flag_no_traffic` - New Flag No Traffic
+ * * `no_metric` - No Metric
+ * * `metric_event_not_ingested` - Metric Event Not Ingested
+ * * `metric_cannot_compile` - Metric Cannot Compile
+ * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+ * * `early_significance` - Early Significance
+ * * `zero_exposures` - Zero Exposures
+ * * `srm` - Srm
+ * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+ * * `multiple_variants_share` - Multiple Variants Share
+ */
+export type ExperimentHealthCheckKeyEnumApi =
+    (typeof ExperimentHealthCheckKeyEnumApi)[keyof typeof ExperimentHealthCheckKeyEnumApi]
+
+export const ExperimentHealthCheckKeyEnumApi = {
+    FlagState: 'flag_state',
+    FlagHistory: 'flag_history',
+    SplitChangedMidRun: 'split_changed_mid_run',
+    BucketingChangedMidRun: 'bucketing_changed_mid_run',
+    ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
+    FlagVariantsMismatch: 'flag_variants_mismatch',
+    ForcedVariantReleaseCondition: 'forced_variant_release_condition',
+    NewFlagNoTraffic: 'new_flag_no_traffic',
+    NoMetric: 'no_metric',
+    MetricEventNotIngested: 'metric_event_not_ingested',
+    MetricCannotCompile: 'metric_cannot_compile',
+    ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
+    EarlySignificance: 'early_significance',
+    ZeroExposures: 'zero_exposures',
+    Srm: 'srm',
+    BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
+    MultipleVariantsShare: 'multiple_variants_share',
+} as const
+
+/**
+ * * `passed` - Passed
+ * * `finding` - Finding
+ * * `not_applicable` - Not Applicable
+ * * `not_checked` - Not Checked
+ */
+export type ExperimentHealthCheckStatusEnumApi =
+    (typeof ExperimentHealthCheckStatusEnumApi)[keyof typeof ExperimentHealthCheckStatusEnumApi]
+
+export const ExperimentHealthCheckStatusEnumApi = {
+    Passed: 'passed',
+    Finding: 'finding',
+    NotApplicable: 'not_applicable',
+    NotChecked: 'not_checked',
+} as const
+
+export interface ExperimentHealthCheckResultApi {
+    /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
+     *
+     * * `flag_state` - Flag State
+     * * `flag_history` - Flag History
+     * * `split_changed_mid_run` - Split Changed Mid Run
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `flag_variants_mismatch` - Flag Variants Mismatch
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `early_significance` - Early Significance
+     * * `zero_exposures` - Zero Exposures
+     * * `srm` - Srm
+     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share */
+    key: ExperimentHealthCheckKeyEnumApi
+    /** What the check looks at, for example 'Feature flag variants'. */
+    name: string
+    /** passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
+     *
+     * * `passed` - Passed
+     * * `finding` - Finding
+     * * `not_applicable` - Not Applicable
+     * * `not_checked` - Not Checked */
+    status: ExperimentHealthCheckStatusEnumApi
+    /**
+     * Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding.
+     * @nullable
+     */
+    reason: string | null
+}
+
+export interface ExperimentHealthApi {
+    /** Problems that the health checks found in the experiment's configuration and its feature flag. Empty when no check found a problem. An empty list does not mean that every check ran: read `checks`. */
+    findings: ExperimentHealthFindingApi[]
+    /** The result of each health check, in the order the checks run. The checks that read the exposure counts are not here: the exposure query returns them as `health_checks`. */
+    checks: ExperimentHealthCheckResultApi[]
+}
 
 /**
  * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
@@ -1632,6 +2663,8 @@ export interface ExperimentWriteApi {
     readonly can_freeze_exposure: boolean
     /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
     readonly resolved_exposure_event: string
+    /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
+    readonly health: ExperimentHealthApi | null
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -1783,6 +2816,8 @@ export interface ExperimentApi {
     readonly can_freeze_exposure: boolean
     /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
     readonly resolved_exposure_event: string
+    /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
+    readonly health: ExperimentHealthApi | null
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -1930,6 +2965,8 @@ export interface PatchedExperimentWriteApi {
     readonly can_freeze_exposure?: boolean
     /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
     readonly resolved_exposure_event?: string
+    /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
+    readonly health?: ExperimentHealthApi | null
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -2130,6 +3167,565 @@ export interface ExperimentFlagCleanupTaskApi {
 }
 
 /**
+ * Whether the project has received each event that the metrics and the exposure criteria name, by event name. A name that ingestion keeps no record of is absent.
+ */
+export type ExperimentHealthInputsApiEventsReceived = { [key: string]: boolean }
+
+export interface ExperimentHealthInputsReleaseConditionApi {
+    /** The condition's position in the flag, from 1, as the flag page labels it ('Set 2'). */
+    number: number
+    /**
+     * The condition's rollout, in percent. Null when the flag stores no number.
+     * @nullable
+     */
+    rollout_percentage: number | null
+    /**
+     * The number of property filters. Null when the flag stores no list.
+     * @nullable
+     */
+    property_count: number | null
+    /** Whether the condition can serve a request. A condition after one that matches everyone never does. */
+    reachable: boolean
+    /**
+     * The variant that the condition's override serves. Null when the condition is not reachable, has no override, or its override names no variant of the flag.
+     * @nullable
+     */
+    pinned_variant: string | null
+}
+
+export interface ExperimentHealthInputsVariantApi {
+    /**
+     * The variant key. Null when the flag stores no string key.
+     * @nullable
+     */
+    key: string | null
+    /**
+     * The variant's share of the split, in percent. Null when the flag stores no number.
+     * @nullable
+     */
+    rollout_percentage: number | null
+}
+
+export interface ExperimentHealthInputsFlagApi {
+    /** Whether the flag is enabled. */
+    active: boolean
+    /** Whether the flag is deleted. */
+    deleted: boolean
+    /** The flag's release conditions, in evaluation order. */
+    release_conditions: ExperimentHealthInputsReleaseConditionApi[]
+    /** The flag's variants and their split. */
+    variants: ExperimentHealthInputsVariantApi[]
+    /** The split as text, in the form of a change's before and after, such as 'control 50%, test 50%'. */
+    split_text: string
+}
+
+export interface ExperimentHealthInputsExposureEventsApi {
+    /**
+     * The event the exposure criteria count in place of the flag calls. Null for flag calls or an action.
+     * @nullable
+     */
+    custom_event: string | null
+    /**
+     * The flag key the exposure query requires on the flag call events. Null for a custom event or an action.
+     * @nullable
+     */
+    required_flag_key: string | null
+    /** The event property that holds the variant. */
+    variant_property: string
+    /**
+     * The event, or the action's name, that has to follow a user's flag call before the user counts. Null without an activation.
+     * @nullable
+     */
+    activation: string | null
+}
+
+/**
+ * * `rejected` - Rejected
+ * * `syntax` - Syntax
+ * * `query` - Query
+ * * `definition` - Definition
+ */
+export type ExperimentHealthMetricCompileErrorKindEnumApi =
+    (typeof ExperimentHealthMetricCompileErrorKindEnumApi)[keyof typeof ExperimentHealthMetricCompileErrorKindEnumApi]
+
+export const ExperimentHealthMetricCompileErrorKindEnumApi = {
+    Rejected: 'rejected',
+    Syntax: 'syntax',
+    Query: 'query',
+    Definition: 'definition',
+} as const
+
+export interface ExperimentHealthInputsMetricCompileFailureApi {
+    /** The metric's name as the experiment shows it. */
+    name: string
+    /** 'primary' or 'secondary'. */
+    role: string
+    /** Who rejected the query: 'rejected' is a validation of the query builder, 'syntax' and 'query' come from HogQL, 'definition' means the stored definition doesn't parse into a metric.
+     *
+     * * `rejected` - Rejected
+     * * `syntax` - Syntax
+     * * `query` - Query
+     * * `definition` - Definition */
+    kind: ExperimentHealthMetricCompileErrorKindEnumApi
+    /**
+     * The compiler's message, without the list of a scope's fields. Null when it can hold the evaluation rules that the AI evaluation markers keep out of the browser.
+     * @nullable
+     */
+    message: string | null
+}
+
+export interface ExperimentHealthInputsMetricCompilesApi {
+    /** The metrics that the experiment calculates, one per uuid. */
+    metric_count: number
+    /** The metrics whose compile raised an error that names no problem of the metric, such as a defect. */
+    unknown_count: number
+    /** The metrics that read a warehouse table or view that the reader may not query, so they aren't checked. */
+    no_access_count: number
+    /** Whether the exposure query alone doesn't compile. Every metric then fails for that reason, so no failure is listed. */
+    exposure_query_fails: boolean
+    /** The metrics whose query doesn't compile, with the compiler's message. */
+    failures: ExperimentHealthInputsMetricCompileFailureApi[]
+}
+
+/**
+ * * `split` - Split
+ * * `bucketing` - Bucketing
+ * * `release_conditions` - Release-condition
+ */
+export type ExperimentHealthFlagChangeKindEnumApi =
+    (typeof ExperimentHealthFlagChangeKindEnumApi)[keyof typeof ExperimentHealthFlagChangeKindEnumApi]
+
+export const ExperimentHealthFlagChangeKindEnumApi = {
+    Split: 'split',
+    Bucketing: 'bucketing',
+    ReleaseConditions: 'release_conditions',
+} as const
+
+export interface ExperimentHealthInputsFlagChangeApi {
+    /** The kind of change. A bucketing change is a change of a setting that decides the variant draw.
+     *
+     * * `split` - Split
+     * * `bucketing` - Bucketing
+     * * `release_conditions` - Release-condition */
+    kind: ExperimentHealthFlagChangeKindEnumApi
+    /** When the flag changed. */
+    changed_at: string
+    /** What changed, as the staff view names it, such as 'Split' or 'Key'. */
+    changed: string
+    /** The value before the change as text, such as 'control 50%, test 50%' or 'device_id'. 'none' when unset. */
+    before: string
+    /** The value after the change, in the same form. */
+    after: string
+    /** Whether the checks count this change: every change counts from the first change, of any kind, with an exposure before it, or an unknown answer. False for every change when not checked. */
+    counted: boolean
+}
+
+export interface ExperimentHealthInputsExposedBetweenApi {
+    /** The kind of change. A bucketing change is a change of a setting that decides the variant draw.
+     *
+     * * `split` - Split
+     * * `bucketing` - Bucketing
+     * * `release_conditions` - Release-condition */
+    kind: ExperimentHealthFlagChangeKindEnumApi
+    /** What was asked, as the staff view names it. */
+    question: string
+    /**
+     * Whether anyone was exposed between the first and the last counted change of this kind. Asked only when the last sets back what the first changed. Null when not asked or unknown.
+     * @nullable
+     */
+    exposed: boolean | null
+}
+
+export interface ExperimentHealthInputsFlagHistoryApi {
+    /** Whether the changes were compared with the exposures. False when not_checked_reason is set. */
+    checked: boolean
+    /**
+     * Why the changes were not compared with the exposures: 'no_history_access', 'no_query_access', 'exposure_filters', 'exposure_action' or 'exposure_criteria'. Null when they were.
+     * @nullable
+     */
+    not_checked_reason: string | null
+    /** When the experiment launched. */
+    launched_at: string
+    /** The project's time zone, which the findings use for times. */
+    team_timezone: string
+    /** Every change since launch that can move exposed people, of every kind, in time order. A bucketing change is one per setting and save. A rollout change alone is no release-condition change. Empty for 'no_history_access', which does not read them. */
+    changes: ExperimentHealthInputsFlagChangeApi[]
+    /**
+     * Whether anyone was exposed before the first counted change. Null when unknown or not checked.
+     * @nullable
+     */
+    exposed_before_first: boolean | null
+    /** One entry for each kind of change with a counted change, in the order of the kinds. */
+    exposed_between: ExperimentHealthInputsExposedBetweenApi[]
+}
+
+/**
+ * * `read` - Read
+ * * `not_needed` - Not Needed
+ * * `no_query_access` - No Query Access
+ * * `denied_properties` - Denied Properties
+ * * `no_flag_version` - No Flag Version
+ * * `unknown` - Unknown
+ */
+export type ExperimentHealthInputsTrafficStatusEnumApi =
+    (typeof ExperimentHealthInputsTrafficStatusEnumApi)[keyof typeof ExperimentHealthInputsTrafficStatusEnumApi]
+
+export const ExperimentHealthInputsTrafficStatusEnumApi = {
+    Read: 'read',
+    NotNeeded: 'not_needed',
+    NoQueryAccess: 'no_query_access',
+    DeniedProperties: 'denied_properties',
+    NoFlagVersion: 'no_flag_version',
+    Unknown: 'unknown',
+} as const
+
+export interface ExperimentHealthInputsConditionSetPeopleApi {
+    /** The number of the release condition, from 1. */
+    condition_set: number
+    /** The people whose latest call this condition served. */
+    people: number
+}
+
+export interface ExperimentHealthInputsConditionSetTrafficApi {
+    /** The start of the window: the latest of launch, the flag's last save and 7 days ago. */
+    since: string
+    /** The project's time zone, which the finding uses for times. */
+    team_timezone: string
+    /** People by the release condition that served their latest call of the flag's version. */
+    people_by_set: ExperimentHealthInputsConditionSetPeopleApi[]
+    /** The flag's calls in the window, of any flag version. */
+    calls: number
+    /** The calls that the flag service evaluated. Only those name a condition set. Local evaluation in a server SDK and a bootstrapped value name none. */
+    remotely_evaluated_calls: number
+    /** The people who got a variant from a call without a flag version that is no local evaluation in a server SDK, from an hour after the start of the window: a bootstrap or the caller's own assignment. With a 0% rollout, 10 or more of them turn `running_but_no_rollout` into `assigned_outside_flag_service`. */
+    people_assigned_outside: number
+}
+
+export interface ExperimentHealthInputsReaderAccessApi {
+    /** Whether the reader may read the flag's history, which the flag-change checks need. */
+    can_read_flag_history: boolean
+    /** Whether the reader may query events, which the flag-change and forced-variant checks need. */
+    can_query_events: boolean
+    /** Event properties the reader is denied. The forced-variant and release-condition checks skip their scan when one of them is a flag call property it reads. */
+    denied_event_properties: string[]
+}
+
+/**
+ * * `ready` - Ready
+ * * `stale` - Stale
+ * * `calculating` - Calculating
+ * * `not_launched` - Not Launched
+ * * `no_query_access` - No Query Access
+ * * `failed` - Failed
+ */
+export type HealthExposureInputsStatusEnumApi =
+    (typeof HealthExposureInputsStatusEnumApi)[keyof typeof HealthExposureInputsStatusEnumApi]
+
+export const HealthExposureInputsStatusEnumApi = {
+    Ready: 'ready',
+    Stale: 'stale',
+    Calculating: 'calculating',
+    NotLaunched: 'not_launched',
+    NoQueryAccess: 'no_query_access',
+    Failed: 'failed',
+} as const
+
+/**
+ * Exposed people by variant. '$multiple' counts the people exposed to more than one variant.
+ */
+export type ExperimentHealthInputsExposureTotalsApiTotalExposures = { [key: string]: number }
+
+export interface ExperimentHealthInputsExposureTotalsApi {
+    /** Exposed people by variant. '$multiple' counts the people exposed to more than one variant. */
+    total_exposures: ExperimentHealthInputsExposureTotalsApiTotalExposures
+    /** How the analysis treats people in several variants: 'exclude' or 'first_seen'. */
+    multiple_variant_handling: string
+    /**
+     * The p-value of the sample ratio test. Null when there was too little data.
+     * @nullable
+     */
+    sample_ratio_mismatch_p_value: number | null
+    /**
+     * Hours from launch to the computation of the answer, as the checks read them.
+     * @nullable
+     */
+    hours_since_launch: number | null
+}
+
+export interface ExperimentHealthInputsExposuresApi {
+    /** Whether a cached answer was read. 'calculating' means no answer is cached and a calculation runs in the background, so a later request reads a fresh answer. 'stale' means the cached answer is past its age: a recalculation runs in the background, or the last one failed and 'error' says why. After a failed calculation, no new one starts for 20 minutes.
+     *
+     * * `ready` - Ready
+     * * `stale` - Stale
+     * * `calculating` - Calculating
+     * * `not_launched` - Not Launched
+     * * `no_query_access` - No Query Access
+     * * `failed` - Failed */
+    status: HealthExposureInputsStatusEnumApi
+    /**
+     * When the answer was computed.
+     * @nullable
+     */
+    computed_at: string | null
+    /** What the exposure checks read. Null without an answer. */
+    totals: ExperimentHealthInputsExposureTotalsApi | null
+    /** The findings of the exposure checks on this answer: zero exposures, SRM and bias risk. */
+    findings: ExperimentHealthFindingApi[]
+    /**
+     * Why the query or its last background calculation failed. Set for 'failed', and for 'stale' when the recalculation failed.
+     * @nullable
+     */
+    error: string | null
+}
+
+/**
+ * * `ok` - Ok
+ * * `skipped` - Skipped
+ * * `timed_out` - Timed Out
+ * * `error` - Error
+ */
+export type SetupContextSectionStatusEnumApi =
+    (typeof SetupContextSectionStatusEnumApi)[keyof typeof SetupContextSectionStatusEnumApi]
+
+export const SetupContextSectionStatusEnumApi = {
+    Ok: 'ok',
+    Skipped: 'skipped',
+    TimedOut: 'timed_out',
+    Error: 'error',
+} as const
+
+export interface ExperimentSetupTeamDefaultsApi {
+    /**
+     * Default statistical method for new experiments: 'bayesian' or 'frequentist'.
+     * @nullable
+     */
+    stats_method: string | null
+    /**
+     * Default confidence level for new experiments, for example 0.95. Null when unset.
+     * @nullable
+     */
+    confidence_level: number | null
+    /**
+     * The team's default minimum detectable effect, as a percentage. Null when the team has not set one; product_default_minimum_detectable_effect applies then.
+     * @nullable
+     */
+    minimum_detectable_effect: number | null
+    /** The minimum detectable effect, as a percentage, that applies when the team has no default. */
+    product_default_minimum_detectable_effect: number
+    /** The statistical method that applies when the team has no default. */
+    product_default_stats_method: string
+    /** The confidence level that applies when the team has no default. Both methods use the same one. */
+    product_default_confidence_level: number
+    /** Default for counting only users whose metric window has fully passed. */
+    only_count_matured_users: boolean
+    /** Default for CUPED variance reduction on new experiments. */
+    cuped_enabled: boolean
+    /** Default for sequential testing. Applies only to the frequentist method. */
+    sequential_testing_enabled: boolean
+    /** Default for persisting flag values across authentication steps on new flags. It becomes the flag's ensure_experience_continuity. */
+    flags_persistence_default: boolean
+    /** How many filters the team uses to identify internal and test users. */
+    test_account_filter_count: number
+    /** A new experiment filters test accounts this way unless its own exposure criteria say otherwise. It does not follow the project's insight default. */
+    new_experiments_filter_test_accounts: boolean
+    /** The exposure event a new experiment launched now counts by default: '$experiment_exposure' or '$feature_flag_called'. */
+    default_exposure_event: string
+}
+
+export interface ExperimentSetupTeamDefaultsSectionApi {
+    /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+     *
+     * * `ok` - Ok
+     * * `skipped` - Skipped
+     * * `timed_out` - Timed Out
+     * * `error` - Error */
+    status: SetupContextSectionStatusEnumApi
+    /** The team's experiment defaults. */
+    data: ExperimentSetupTeamDefaultsApi | null
+}
+
+/**
+ * * `web` - Web
+ * * `mobile` - Mobile
+ * * `server` - Server
+ * * `other` - Other
+ */
+export type SdkLibCategoryEnumApi = (typeof SdkLibCategoryEnumApi)[keyof typeof SdkLibCategoryEnumApi]
+
+export const SdkLibCategoryEnumApi = {
+    Web: 'web',
+    Mobile: 'mobile',
+    Server: 'server',
+    Other: 'other',
+} as const
+
+export interface ExperimentSetupSdkLibApi {
+    /**
+     * The $lib value of the SDK, for example 'web'.
+     * @nullable
+     */
+    lib: string | null
+    /** 'web' for the JavaScript web SDK, 'mobile', 'server', or 'other' for libraries not classified.
+     *
+     * * `web` - Web
+     * * `mobile` - Mobile
+     * * `server` - Server
+     * * `other` - Other */
+    category: SdkLibCategoryEnumApi
+    /** Multivariate flag calls this SDK sent in the window. */
+    calls: number
+    /** Distinct ids that sent those calls. */
+    distinct_ids: number
+    /** Share of calls that carry a $device_id. 0 when this SDK never sends one, as server SDKs don't. */
+    device_id_share: number
+    /**
+     * Share of calls evaluated locally in the SDK instead of by the flags service. Null when no call from this SDK reported it, as the web SDK doesn't.
+     * @nullable
+     */
+    locally_evaluated_share: number | null
+    /**
+     * Share of distinct ids that were anonymous, among those that report whether they are identified. Null when no call from this SDK reported it.
+     * @nullable
+     */
+    anonymous_share: number | null
+}
+
+export interface ExperimentSetupLibActivityApi {
+    /**
+     * The $lib value of the SDK, for example 'web'.
+     * @nullable
+     */
+    lib: string | null
+    /** 'web', 'mobile', 'server', or 'other'.
+     *
+     * * `web` - Web
+     * * `mobile` - Mobile
+     * * `server` - Server
+     * * `other` - Other */
+    category: SdkLibCategoryEnumApi
+    /** Events this SDK sent in the window, of any kind. */
+    events: number
+    /** Distinct ids that sent those events. */
+    distinct_ids: number
+}
+
+export interface ExperimentSetupSdkProfileApi {
+    /** Days of flag calls read, ending now. */
+    window_days: number
+    /** The event read: '$experiment_exposure' when the project receives it, otherwise '$feature_flag_called'. Only one is read, because one copies the other, and only multivariate responses count either way. This says what the project's events carry today, so it can differ from team_defaults.default_exposure_event, which says what a new experiment would count. */
+    source_event: string
+    /** When the numbers were computed. They are cached for hours. */
+    computed_at: string
+    /** One row per SDK, most calls first. */
+    libs: ExperimentSetupSdkLibApi[]
+    /** True when more SDKs sent flag calls than libs lists. */
+    libs_truncated: boolean
+    /** Distinct multivariate flag keys called in the window. */
+    flags_seen: number
+    /** How many of those flag keys were called by both a server SDK and the web SDK. */
+    flags_evaluated_on_server_and_web: number
+    /** True when at least one flag key was called by both a server SDK and the web SDK. The same flag decided on the server and read in the browser can bucket one user into two variants. */
+    evaluated_on_server_and_web: boolean
+    /**
+     * Up to 10 SDKs seen on any event over the last day, most events first. Set only when libs is empty, so a project creating its first experiment still says which platforms it sends from. Null when flag calls exist, and null when this extra read timed out.
+     * @nullable
+     */
+    libs_on_any_event: ExperimentSetupLibActivityApi[] | null
+    /** True when more SDKs sent events than libs_on_any_event lists. False when it is null. */
+    libs_on_any_event_truncated: boolean
+}
+
+export interface ExperimentSetupSdkProfileSectionApi {
+    /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+     *
+     * * `ok` - Ok
+     * * `skipped` - Skipped
+     * * `timed_out` - Timed Out
+     * * `error` - Error */
+    status: SetupContextSectionStatusEnumApi
+    /** Which SDKs send multivariate flag calls, across the whole project. */
+    data: ExperimentSetupSdkProfileApi | null
+}
+
+export interface ExperimentHealthInputsProjectApi {
+    /** The project's experiment defaults. */
+    team_defaults: ExperimentSetupTeamDefaultsSectionApi
+    /** Which SDKs call feature flags and where flags are evaluated, across the whole project. Skipped for a reader who may not query events. */
+    sdk_profile: ExperimentSetupSdkProfileSectionApi
+}
+
+export interface ExperimentHealthInputsApi {
+    /** Whether the experiment has a start date. */
+    is_launched: boolean
+    /** Whether the experiment is launched and not ended. */
+    is_running: boolean
+    /** Whether the experiment has an end date. */
+    has_ended: boolean
+    /** Whether the experiment is paused. */
+    is_paused: boolean
+    /** Whether the experiment is archived. */
+    archived: boolean
+    /**
+     * The baseline set in the experiment's settings. Null when unset.
+     * @nullable
+     */
+    baseline_variant_key: string | null
+    /** The variants the analysis leaves out of the results. The forced-variant check ignores pins to them. */
+    excluded_variant_keys: string[]
+    /** Single-use primary metrics plus shared metrics linked as primary. */
+    primary_metric_count: number
+    /** Single-use secondary metrics plus shared metrics linked as secondary. */
+    secondary_metric_count: number
+    /** The experiment's feature flag. Null when it has none. */
+    flag: ExperimentHealthInputsFlagApi | null
+    /**
+     * The flag's latest recorded call, which a periodic sync of the flag call events sets. Null when the experiment has no flag, or the flag has no recorded call.
+     * @nullable
+     */
+    flag_last_called_at: string | null
+    /**
+     * Whether PostHog has recorded any call of the flag. The flag traffic check reads it on a draft. Null when the experiment has no flag, or the organization's flag calls are stored where the checks can't read them.
+     * @nullable
+     */
+    flag_called: boolean | null
+    /**
+     * Whether PostHog has recorded a call of the flag between launch and the end, or until now. The zero exposures check reads it to say whether the flag is called. Null before launch, after a latest call that came after the end, or when the organization's flag calls can't be read.
+     * @nullable
+     */
+    flag_called_during_run: boolean | null
+    /**
+     * Whether PostHog has recorded a call of the flag after the end. The flag state check reads it on an ended experiment whose flag is still active with multiple variants. False only after 3 days without a recorded call. Null before the end, before those 3 days are over, or when the organization's flag calls can't be read.
+     * @nullable
+     */
+    flag_called_after_end: boolean | null
+    /** The events the exposure criteria count. Null when the stored exposure criteria don't parse. */
+    exposure_events: ExperimentHealthInputsExposureEventsApi | null
+    /** Whether the project has received each event that the metrics and the exposure criteria name, by event name. A name that ingestion keeps no record of is absent. */
+    events_received: ExperimentHealthInputsApiEventsReceived
+    /** The compile of each metric's query without running it, as the reader, which the metric queries check reads. A metric that compiles is cached per reader for a day, and a failing metric compiles again on every request. Null when the compile itself failed. */
+    metric_compiles: ExperimentHealthInputsMetricCompilesApi | null
+    /** The changes of the flag since launch that can move exposed people. Null when the experiment is not running, is archived, its flag is missing or deleted, or the read failed. */
+    flag_history: ExperimentHealthInputsFlagHistoryApi | null
+    /** Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the experiment is launched and some but not all release conditions pin a variant that has a share of the split and is not excluded from the analysis. The release-condition check needs it when such an override was removed after launch.
+     *
+     * * `read` - Read
+     * * `not_needed` - Not Needed
+     * * `no_query_access` - No Query Access
+     * * `denied_properties` - Denied Properties
+     * * `no_flag_version` - No Flag Version
+     * * `unknown` - Unknown */
+    condition_set_traffic_status: ExperimentHealthInputsTrafficStatusEnumApi
+    /** The flag's recent calls by condition set. Null unless condition_set_traffic_status is 'read'. */
+    condition_set_traffic: ExperimentHealthInputsConditionSetTrafficApi | null
+    /** What the reader may read, which decides what the checks can load. */
+    reader_access: ExperimentHealthInputsReaderAccessApi
+    /** The exposure query's answer that the exposure checks read, from the cache. */
+    exposures: ExperimentHealthInputsExposuresApi
+    /** Facts about the project that no check reads yet, from the same providers as the setup context. */
+    project: ExperimentHealthInputsProjectApi
+}
+
+/**
  * How the recordings tab's in-session exposure scope reads on this experiment.
  */
 export interface ExperimentInSessionExposureApi {
@@ -2148,6 +3744,7 @@ export interface ExperimentInSessionExposureApi {
  * * `manual` - Manual
  * * `manual_retry` - Manual Retry
  * * `cold_run` - Cold Run
+ * * `stale_refresh` - Stale Refresh
  * * `heal_latest_run` - Heal Latest Run
  * * `experiment_config_change` - Experiment Config Change
  * * `metric_config_change` - Metric Config Change
@@ -2159,6 +3756,7 @@ export const ExperimentMetricsRecalculationRequestTriggerEnumApi = {
     Manual: 'manual',
     ManualRetry: 'manual_retry',
     ColdRun: 'cold_run',
+    StaleRefresh: 'stale_refresh',
     HealLatestRun: 'heal_latest_run',
     ExperimentConfigChange: 'experiment_config_change',
     MetricConfigChange: 'metric_config_change',
@@ -2173,6 +3771,7 @@ export interface RecalculateMetricsRequestApi {
      * * `manual` - Manual
      * * `manual_retry` - Manual Retry
      * * `cold_run` - Cold Run
+     * * `stale_refresh` - Stale Refresh
      * * `heal_latest_run` - Heal Latest Run
      * * `experiment_config_change` - Experiment Config Change
      * * `metric_config_change` - Metric Config Change */
@@ -2417,6 +4016,49 @@ export interface ExperimentMetricsRecalculationLatestApi {
      * * `recalculation` - recalculation
      * * `timeseries_fallback` - timeseries_fallback */
     readonly result_source: ResultSourceEnumApi
+}
+
+export interface DetectableEffectCheckpointApi {
+    /** The week mark, in whole weeks since launch. */
+    weeks_since_launch: number
+    /** The smallest relative change, as a percentage, that the exposures by this week mark can detect. */
+    detectable_effect: number
+}
+
+/**
+ * What the experiment can detect over time, at its exposure rate so far.
+ */
+export interface RunningTimeOutlookApi {
+    /** Days since the experiment launched, with fractions. */
+    days_since_launch: number
+    /** Exposures that count toward the target, per day from launch to the end of the window the current results cover. */
+    exposures_per_day: number
+    /** The smallest relative change, as a percentage, that the exposures so far can detect. */
+    detectable_effect_now: number
+    /** Up to three week marks after today, out of weeks 1, 2, 4, 6, 8, 12, 16, 26 and 52, with the change each can detect at the exposure rate so far. */
+    upcoming_checkpoints: DetectableEffectCheckpointApi[]
+    /** The smallest relative change, as a percentage, that the experiment can detect within four weeks from today. A target for a smaller change is out of reach. */
+    reachable_effect: number
+}
+
+/**
+ * The target sample of the experiment's running time estimate.
+ */
+export interface RunningTimeTargetApi {
+    /** The relative change, as a percentage, that the target sample is sized to detect. */
+    minimum_detectable_effect: number
+    /**
+     * Exposures needed across the analyzed variants, so that the comparison of each variant with the control can detect the minimum detectable effect at the analysis's confidence level and 80% power. In manual running time mode, the saved target. Otherwise sized from the first primary metric's current result, with the variance the analysis uses and the flag's traffic split. Null when no result can size it yet. The variances come from the result and don't depend on the effect, so the sample scales with 1 / effect²: the target for another effect is recommended_sample_size × (minimum_detectable_effect / effect)².
+     * @nullable
+     */
+    recommended_sample_size: number | null
+    /**
+     * Exposures so far that count toward the target: the control's and those of the variants that get traffic. A variant at 0% does not count. Null in manual mode, and when no result can size the target.
+     * @nullable
+     */
+    current_sample_size: number | null
+    /** What the experiment can detect over time, on the same curve the target is sized on. Null in manual mode, before launch, when the current results cover less than 0.1 days, and when no result can size the target. */
+    outlook: RunningTimeOutlookApi | null
 }
 
 /**
@@ -2784,7 +4426,7 @@ export interface RunningTimeBaselineStatsApi {
     number_of_samples: number
     /** Sum of the metric values across the control group (for funnels, the numerator/conversions). */
     sum: number
-    /** Sum of squared metric values. Required for ratio/retention variance. */
+    /** Sum of squared metric values. Mean metrics read their variance from it, and ratio/retention metrics need it. Without it, a mean metric's variance is approximated from the baseline value. */
     sum_squares?: number
     /**
      * Sum of the denominator values. Required for ratio/retention metrics.
@@ -2823,8 +4465,9 @@ export interface RunningTimeCalculationInputApi {
      */
     minimum_detectable_effect: number
     /**
-     * Total number of variants including control (default 2).
+     * Total number of variants including control (default 2, at most 100).
      * @minimum 2
+     * @maximum 100
      */
     number_of_variants?: number
     /**
@@ -2839,7 +4482,7 @@ export interface RunningTimeCalculationInputApi {
      */
     baseline_value?: number | null
     /**
-     * Pre-computed variance for ratio/retention metrics. Provide this or baseline_stats when metric_type is ratio/retention and baseline_value is given directly.
+     * Pre-computed variance per user. Provide this or baseline_stats when metric_type is ratio/retention and baseline_value is given directly. When given, it replaces the variance the calculator derives for any metric type, including p(1-p) for funnels.
      * @nullable
      */
     variance?: number | null
@@ -3094,175 +4737,6 @@ export interface ExperimentSetupContextInputApi {
      * @maximum 25
      */
     shared_metrics_limit?: number
-}
-
-/**
- * * `ok` - Ok
- * * `skipped` - Skipped
- * * `timed_out` - Timed Out
- * * `error` - Error
- */
-export type SetupContextSectionStatusEnumApi =
-    (typeof SetupContextSectionStatusEnumApi)[keyof typeof SetupContextSectionStatusEnumApi]
-
-export const SetupContextSectionStatusEnumApi = {
-    Ok: 'ok',
-    Skipped: 'skipped',
-    TimedOut: 'timed_out',
-    Error: 'error',
-} as const
-
-export interface ExperimentSetupTeamDefaultsApi {
-    /**
-     * Default statistical method for new experiments: 'bayesian' or 'frequentist'.
-     * @nullable
-     */
-    stats_method: string | null
-    /**
-     * Default confidence level for new experiments, for example 0.95. Null when unset.
-     * @nullable
-     */
-    confidence_level: number | null
-    /**
-     * The team's default minimum detectable effect, as a percentage. Null when the team has not set one; product_default_minimum_detectable_effect applies then.
-     * @nullable
-     */
-    minimum_detectable_effect: number | null
-    /** The minimum detectable effect, as a percentage, that applies when the team has no default. */
-    product_default_minimum_detectable_effect: number
-    /** The statistical method that applies when the team has no default. */
-    product_default_stats_method: string
-    /** The confidence level that applies when the team has no default. Both methods use the same one. */
-    product_default_confidence_level: number
-    /** Default for counting only users whose metric window has fully passed. */
-    only_count_matured_users: boolean
-    /** Default for CUPED variance reduction on new experiments. */
-    cuped_enabled: boolean
-    /** Default for sequential testing. Applies only to the frequentist method. */
-    sequential_testing_enabled: boolean
-    /** Default for persisting flag values across authentication steps on new flags. It becomes the flag's ensure_experience_continuity. */
-    flags_persistence_default: boolean
-    /** How many filters the team uses to identify internal and test users. */
-    test_account_filter_count: number
-    /** A new experiment filters test accounts this way unless its own exposure criteria say otherwise. It does not follow the project's insight default. */
-    new_experiments_filter_test_accounts: boolean
-    /** The exposure event a new experiment launched now counts by default: '$experiment_exposure' or '$feature_flag_called'. */
-    default_exposure_event: string
-}
-
-export interface ExperimentSetupTeamDefaultsSectionApi {
-    /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
-     *
-     * * `ok` - Ok
-     * * `skipped` - Skipped
-     * * `timed_out` - Timed Out
-     * * `error` - Error */
-    status: SetupContextSectionStatusEnumApi
-    /** The team's experiment defaults. */
-    data: ExperimentSetupTeamDefaultsApi | null
-}
-
-/**
- * * `web` - Web
- * * `mobile` - Mobile
- * * `server` - Server
- * * `other` - Other
- */
-export type SdkLibCategoryEnumApi = (typeof SdkLibCategoryEnumApi)[keyof typeof SdkLibCategoryEnumApi]
-
-export const SdkLibCategoryEnumApi = {
-    Web: 'web',
-    Mobile: 'mobile',
-    Server: 'server',
-    Other: 'other',
-} as const
-
-export interface ExperimentSetupSdkLibApi {
-    /**
-     * The $lib value of the SDK, for example 'web'.
-     * @nullable
-     */
-    lib: string | null
-    /** 'web' for the JavaScript web SDK, 'mobile', 'server', or 'other' for libraries not classified.
-     *
-     * * `web` - Web
-     * * `mobile` - Mobile
-     * * `server` - Server
-     * * `other` - Other */
-    category: SdkLibCategoryEnumApi
-    /** Multivariate flag calls this SDK sent in the window. */
-    calls: number
-    /** Distinct ids that sent those calls. */
-    distinct_ids: number
-    /** Share of calls that carry a $device_id. 0 when this SDK never sends one, as server SDKs don't. */
-    device_id_share: number
-    /**
-     * Share of calls evaluated locally in the SDK instead of by the flags service. Null when no call from this SDK reported it, as the web SDK doesn't.
-     * @nullable
-     */
-    locally_evaluated_share: number | null
-    /**
-     * Share of distinct ids that were anonymous, among those that report whether they are identified. Null when no call from this SDK reported it.
-     * @nullable
-     */
-    anonymous_share: number | null
-}
-
-export interface ExperimentSetupLibActivityApi {
-    /**
-     * The $lib value of the SDK, for example 'web'.
-     * @nullable
-     */
-    lib: string | null
-    /** 'web', 'mobile', 'server', or 'other'.
-     *
-     * * `web` - Web
-     * * `mobile` - Mobile
-     * * `server` - Server
-     * * `other` - Other */
-    category: SdkLibCategoryEnumApi
-    /** Events this SDK sent in the window, of any kind. */
-    events: number
-    /** Distinct ids that sent those events. */
-    distinct_ids: number
-}
-
-export interface ExperimentSetupSdkProfileApi {
-    /** Days of flag calls read, ending now. */
-    window_days: number
-    /** The event read: '$experiment_exposure' when the project receives it, otherwise '$feature_flag_called'. Only one is read, because one copies the other, and only multivariate responses count either way. This says what the project's events carry today, so it can differ from team_defaults.default_exposure_event, which says what a new experiment would count. */
-    source_event: string
-    /** When the numbers were computed. They are cached for hours. */
-    computed_at: string
-    /** One row per SDK, most calls first. */
-    libs: ExperimentSetupSdkLibApi[]
-    /** True when more SDKs sent flag calls than libs lists. */
-    libs_truncated: boolean
-    /** Distinct multivariate flag keys called in the window. */
-    flags_seen: number
-    /** How many of those flag keys were called by both a server SDK and the web SDK. */
-    flags_evaluated_on_server_and_web: number
-    /** True when at least one flag key was called by both a server SDK and the web SDK. The same flag decided on the server and read in the browser can bucket one user into two variants. */
-    evaluated_on_server_and_web: boolean
-    /**
-     * Up to 10 SDKs seen on any event over the last day, most events first. Set only when libs is empty, so a project creating its first experiment still says which platforms it sends from. Null when flag calls exist, and null when this extra read timed out.
-     * @nullable
-     */
-    libs_on_any_event: ExperimentSetupLibActivityApi[] | null
-    /** True when more SDKs sent events than libs_on_any_event lists. False when it is null. */
-    libs_on_any_event_truncated: boolean
-}
-
-export interface ExperimentSetupSdkProfileSectionApi {
-    /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
-     *
-     * * `ok` - Ok
-     * * `skipped` - Skipped
-     * * `timed_out` - Timed Out
-     * * `error` - Error */
-    status: SetupContextSectionStatusEnumApi
-    /** Which SDKs send multivariate flag calls, across the whole project. */
-    data: ExperimentSetupSdkProfileApi | null
 }
 
 export interface ExperimentSetupLibReachApi {
@@ -3608,7 +5082,7 @@ export interface ExperimentSetupPreviousExperimentApi {
     stats_method: string
     /** Whether the experiment uses a holdout group. */
     has_holdout: boolean
-    /** From the completed result that covers the latest data in the experiment's current run. A funnel or a mean primary metric is chosen over a retention or a ratio one, because only its samples are the analyzed population. Null when no result exists for that run, which is also the case for older metric definitions that results are never stored for. */
+    /** From the completed result that covers the latest data under the experiment's current configuration. A funnel or a mean primary metric is chosen over a retention or a ratio one, because only its samples are the analyzed population. Null when no result exists for that configuration, for example after a relaunch or a settings edit until the results are recalculated, and for older metric definitions that results are never stored for. */
     outcome: ExperimentSetupOutcomeApi | null
 }
 
@@ -3806,7 +5280,7 @@ export type ExperimentsListParams = {
      */
     prompt_name?: string
     /**
-     * Free-text search applied to the experiment name (case-insensitive).
+     * Free-text search applied to the experiment name and its feature flag key (case-insensitive).
      */
     search?: string
     /**
@@ -3843,6 +5317,25 @@ export type ExperimentsActivityRetrieveParams = {
      */
     page?: number
 }
+
+export type ExperimentsRunningTimeTargetRetrieveParams = {
+    /**
+     * The running time mode to size the target for. Defaults to the experiment's saved mode. 'automatic' sizes it from the results, also for an experiment saved in manual mode.
+     *
+     * * `automatic` - Sized from the results
+     * * `manual` - Saved from a baseline the user entered
+     * @minLength 1
+     */
+    mode?: ExperimentsRunningTimeTargetRetrieveMode
+}
+
+export type ExperimentsRunningTimeTargetRetrieveMode =
+    (typeof ExperimentsRunningTimeTargetRetrieveMode)[keyof typeof ExperimentsRunningTimeTargetRetrieveMode]
+
+export const ExperimentsRunningTimeTargetRetrieveMode = {
+    Automatic: 'automatic',
+    Manual: 'manual',
+} as const
 
 export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**
@@ -3885,7 +5378,7 @@ export type ExperimentsMatchingIdsRetrieveParams = {
      */
     prompt_name?: string
     /**
-     * Free-text search applied to the experiment name (case-insensitive).
+     * Free-text search applied to the experiment name and its feature flag key (case-insensitive).
      */
     search?: string
     /**

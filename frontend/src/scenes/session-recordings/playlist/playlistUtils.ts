@@ -8,7 +8,7 @@ import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/u
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { genericOperatorMap } from 'lib/utils/operators'
-import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/legacyFilters'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -34,6 +34,12 @@ export function stripSessionIds<T extends Partial<RecordingUniversalFilters> | u
     }
     const { session_ids: _session_ids, ...rest } = filters
     return rest as T
+}
+
+// The list writes recommended_only false back. A saved filter never holds it.
+export function comparableRecordingFilters<T extends Partial<RecordingUniversalFilters>>(filters: T): T {
+    const { recommended_only, ...rest } = stripSessionIds(filters)
+    return (recommended_only ? { ...rest, recommended_only } : rest) as T
 }
 
 function getOperatorSymbol(operator: PropertyOperator | null): string {
@@ -143,7 +149,7 @@ export async function createPlaylist(
 
 export async function deletePlaylist(
     playlist: SessionRecordingPlaylistType,
-    undoCallback?: () => void
+    undoCallback?: (undo: boolean) => void
 ): Promise<SessionRecordingPlaylistType> {
     await deleteWithUndo({
         object: playlist,
@@ -155,7 +161,7 @@ export async function deletePlaylist(
             } else {
                 deleteFromTree('session_recording_playlist', playlist.short_id)
             }
-            undoCallback?.()
+            undoCallback?.(undo)
         },
     })
     return playlist

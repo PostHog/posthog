@@ -1,3 +1,7 @@
+from datetime import datetime
+from typing import cast
+
+from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
@@ -24,12 +28,19 @@ class WizardRunPagination(LimitOffsetPagination):
             )
         except ValueError as error:
             raise ValidationError({"status": "Invalid run status."}) from error
+        raw_created_after = request.query_params.get("created_after")
+        created_after = (
+            cast(datetime, serializers.DateTimeField().run_validation(raw_created_after))
+            if raw_created_after is not None
+            else None
+        )
         page = wizard_facade.list_runs(
             ListWizardRunsInput(
                 team_id=team_id,
                 offset=offset,
                 limit=limit,
                 statuses=statuses,
+                created_after=created_after,
             )
         )
         self.request = request

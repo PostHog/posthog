@@ -1,15 +1,18 @@
 import { IconPlus, IconShortcut } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
-import { UserBasicType } from '~/types'
+import { fileSystemTypes } from '~/products'
+import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
+import { ProjectTreeRef, UserBasicType } from '~/types'
 
 import { getCustomIcon } from './customIconRegistry'
-import { ProductIconWrapper, getSidebarProduct, iconForType } from './defaultTree'
+import { ProductIconWrapper, getFileSystemIconType, getSidebarProduct, iconForType } from './defaultTree'
 import { FolderState } from './types'
 
 // Hardcoded category order - categories not in this list will be sorted alphabetically after these
@@ -198,9 +201,7 @@ export function convertFileSystemEntryToTreeDataItem({
         // A link to a sidebar product, such as a starred one, shows that product's icon and color.
         // Shortcuts store only a type, which can predate the product's current icon.
         const iconType =
-            sidebarProduct?.iconType ||
-            ('iconType' in item ? item.iconType : undefined) ||
-            (item.type as FileSystemIconType)
+            sidebarProduct?.iconType || ('iconType' in item ? item.iconType : undefined) || getFileSystemIconType(item)
         const iconColor = sidebarProduct?.iconColor ?? ('iconColor' in item ? item.iconColor : undefined)
         // Check for custom icon component first (e.g., badges), then fall back to static icon
         const CustomIcon = getCustomIcon(item.type, item.href)
@@ -216,7 +217,14 @@ export function convertFileSystemEntryToTreeDataItem({
             name: itemName,
             displayName,
             icon: item._loading ? <Spinner /> : item.shortcut || allShortcuts ? wrapWithShortcutIcon(icon) : icon,
-            record: { ...item, user },
+            record: {
+                ...item,
+                href:
+                    getFileSystemIconType(item) === 'insight/hog' && item.ref
+                        ? urls.sqlEditor({ insightShortId: item.ref })
+                        : item.href,
+                user,
+            },
             checked: checkedItems[nodeId],
             visualOrder: item.visualOrder,
         }
@@ -469,6 +477,32 @@ export function convertFileSystemEntryToTreeDataItem({
  *   - splitPath("a")              => ["a"]
  *   - splitPath("")               => []
  */
+/**
+ * Whether a row's type is open to this person. A file system type can carry a feature flag; its rows
+ * come from the API regardless, so the tree drops them while the flag is off.
+ */
+// The backend files Today-only types under these folders; without the flag they would show empty.
+const TODAY_UNFILED_FOLDERS: ReadonlySet<string> = new Set(['Unfiled/Canvases'])
+
+/**
+ * Whether a row's type belongs in the tree for this person. Only the types the Today navigation brings into
+ * the file system hide behind its flag: other flagged types kept their rows before, and their pages gate
+ * themselves, so hiding them here would change the tree for everyone.
+ */
+export function isFileSystemEntryTypeEnabled(
+    entry: Pick<FileSystemEntry, 'type'> & { path?: string },
+    featureFlags: Record<string, unknown>
+): boolean {
+    if (entry.type === 'folder') {
+        return !TODAY_UNFILED_FOLDERS.has(entry.path ?? '') || !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
+    }
+    const baseType = entry.type?.split('/')[0] ?? ''
+    const flag = Object.hasOwn(fileSystemTypes, baseType)
+        ? (fileSystemTypes[baseType as keyof typeof fileSystemTypes] as { flag?: string }).flag
+        : undefined
+    return flag !== FEATURE_FLAGS.TODAY_RAIL_NAV || !!featureFlags[flag]
+}
+
 export function splitPath(path: string | null | undefined): string[] {
     if (!path) {
         return []
@@ -523,6 +557,44 @@ export function parentPath(path: string | null | undefined): string {
  */
 export function matchesRefType(rowType: string | undefined, type: string): boolean {
     return type.endsWith('/') ? !!rowType?.startsWith(type) : rowType === type
+}
+
+export function isProjectTreeItemActive(
+    item: TreeDataItem,
+    currentPath: string,
+    projectTreeRef: ProjectTreeRef | null
+): boolean {
+    if (
+        projectTreeRef?.ref &&
+        item.record?.ref === projectTreeRef.ref &&
+        matchesRefType(item.record?.type, projectTreeRef.type)
+    ) {
+        return true
+    }
+
+    if (!item.record?.href) {
+        return false
+    }
+
+    const itemHref = typeof item.record.href === 'string' ? item.record.href : ''
+    if (currentPath === itemHref) {
+        return true
+    }
+
+    // Current path is a sub-path of item (e.g., /insights/new under /insights)
+    if (currentPath.startsWith(itemHref + '/')) {
+        return true
+    }
+
+    // Special handling for products with child pages on distinct paths (e.g., /replay/home and /replay/playlists)
+    if (item.name === 'Session replay' && currentPath.startsWith('/replay/')) {
+        return true
+    }
+    if (item.name === 'Workflows' && currentPath.startsWith('/workflows')) {
+        return true
+    }
+
+    return false
 }
 
 export function refTypeParams(type: string): { type?: string; type__startswith?: string } {

@@ -25,6 +25,11 @@ class AirwallexEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     partition_key: Optional[str] = "created_at"
     page_size: int = 500
+    # Most list endpoints take `page_size`; payment disputes take `size`.
+    page_size_param: str = "page_size"
+    supports_incremental: bool = True
+    # Parent endpoint whose `id` fills the `{id}` placeholder in `path`, for per-parent child lists.
+    fanout_parent: Optional[str] = None
     # Fields stripped from every row before it lands in the warehouse (e.g. a live client secret).
     drop_fields: tuple[str, ...] = ()
 
@@ -121,10 +126,37 @@ AIRWALLEX_ENDPOINTS: dict[str, AirwallexEndpointConfig] = {
         path="/api/v1/billing/billing_customers",
         pagination="cursor",
     ),
+    # Disputes move through stages and statuses long after creation, so the cursor tracks
+    # `updated_at` to pick those changes up.
+    "PaymentDisputes": AirwallexEndpointConfig(
+        name="PaymentDisputes",
+        path="/api/v1/pa/payment_disputes",
+        pagination="cursor",
+        start_param="from_updated_at",
+        cursor_field="updated_at",
+        page_size_param="size",
+    ),
+    "CreditNotes": AirwallexEndpointConfig(
+        name="CreditNotes",
+        path="/api/v1/billing/credit_notes",
+        pagination="cursor",
+    ),
+    # Items are listed per subscription and take no time filter, so this is full refresh only.
+    # Item ids are only documented within their subscription, so the key carries the parent id.
+    "SubscriptionItems": AirwallexEndpointConfig(
+        name="SubscriptionItems",
+        path="/api/v1/billing/subscriptions/{id}/items",
+        pagination="cursor",
+        primary_keys=["subscription_id", "id"],
+        supports_incremental=False,
+        fanout_parent="Subscriptions",
+    ),
 }
 
 ENDPOINTS = tuple(AIRWALLEX_ENDPOINTS.keys())
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    name: _incremental_field(config.cursor_field) for name, config in AIRWALLEX_ENDPOINTS.items()
+    name: _incremental_field(config.cursor_field)
+    for name, config in AIRWALLEX_ENDPOINTS.items()
+    if config.supports_incremental
 }

@@ -39,4 +39,4 @@ shipping anything broad.
 - [ ] Add a filter inside Replay's universal filter bar
 - [ ] Add a cohort field condition
 - [ ] Open the property selector inside Web analytics conversion goal
-- [ ] Check all three surfaces (`legacy-control`, `legacy-pill`, `rebuild-menu`) if you touched tab rendering. Reach the rebuild via a call site that goes through `TaxonomicPopover` or `TaxonomicPropertyFilter` with `TAXONOMIC_FILTER_MENU_REBUILD` on — call sites with their own popover (e.g. `ActionFilterRow`) never render it
+- [ ] Check both surfaces (`legacy-pill`, `rebuild-menu`) if you touched tab rendering. Reach the rebuild via a call site that goes through `TaxonomicPopover` or `TaxonomicPropertyFilter` with `TAXONOMIC_FILTER_MENU_REBUILD` on. `ActionFilterRow` goes through `TaxonomicPopover`, so it reaches the rebuild too; only a call site with a fully separate popover implementation never renders it

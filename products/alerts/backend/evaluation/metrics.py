@@ -1,6 +1,6 @@
 from typing import Any
 
-from posthog.schema import InsightThreshold, MetricsAlertConfig, MetricsQuery
+from posthog.schema import InsightThreshold, MetricsAlertConfig, MetricsQuery, MetricsQueryLanguage
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -40,7 +40,7 @@ class MetricsExtractor:
     def extract(
         self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
     ) -> ExtractionResult:
-        MetricsQuery.model_validate(query)
+        metrics_query = MetricsQuery.model_validate(query)
         if not (alert.config and alert.config.get("type") == "MetricsAlertConfig"):
             raise ValueError(f"Unsupported alert config type: {alert.config}")
         config = MetricsAlertConfig.model_validate(alert.config)
@@ -71,6 +71,9 @@ class MetricsExtractor:
             calculation_result.result,
             anchor_last_point=check_ongoing_interval,
             is_current_interval=check_ongoing_interval,
+            # The builder engine fills an empty bucket with 0. PromQL and SQL results leave it empty
+            # (a gap on the chart), so count it as 0 here, or a lower bound never fires when a metric stops.
+            zero_fill=metrics_query.language in (MetricsQueryLanguage.PROMQL, MetricsQueryLanguage.SQL),
         )
         if not series:
             # No observed buckets at all: the metric is genuinely absent, evaluated as 0 so a
@@ -93,13 +96,20 @@ class MetricsExtractor:
         *,
         anchor_last_point: bool,
         is_current_interval: bool,
+        zero_fill: bool,
     ) -> list[ComparableSeries]:
         series: list[ComparableSeries] = []
         for row in results:
             if not isinstance(row, dict):
                 continue
             raw_points = row.get("points") or []
-            points = [SeriesPoint(date=point.get("time"), value=point.get("value")) for point in raw_points]
+            points = [
+                SeriesPoint(
+                    date=point.get("time"),
+                    value=0.0 if zero_fill and point.get("value") is None else point.get("value"),
+                )
+                for point in raw_points
+            ]
             if not points:
                 continue
             # Anchor on the last observed bucket (ongoing mode) or the one before it. A single-point

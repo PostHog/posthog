@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT p.id::bigint AS \"id!\"\n            FROM posthog_person p\n            JOIN UNNEST($2::bigint[], $3::bigint[]) AS bound(id, max_version) ON bound.id = p.id\n            WHERE p.team_id = $1 AND p.id = ANY($2) AND p.is_deleted\n              AND COALESCE(p.version, 0) <= bound.max_version\n            ORDER BY p.id\n            FOR UPDATE OF p\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "21af309261930520ef74c10cc6ee26721d39975c56d1e8889390e318abac895e"
+}

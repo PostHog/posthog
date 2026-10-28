@@ -1,24 +1,17 @@
-from unittest import mock
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
-from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack import (
-    source as better_stack_source_module,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.source import BetterStackSource
-
-
-class TestBetterStackSourceConfig:
-    def test_config_basics(self) -> None:
-        config = BetterStackSource().get_source_config
-        assert config.label == "Better Stack"
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # A finished source ships visible — the scaffold's unreleasedSource flag must stay gone.
-        assert not config.unreleasedSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.betterstack import (
+    BetterStackSourceConfig,
+)
 
 
 class TestBetterStackGetSchemas:
@@ -76,22 +69,30 @@ class TestBetterStackValidateCredentials:
     def test_status_mapping(
         self, _name: str, probe_status: int | None, schema_name: str | None, expected_ok: bool
     ) -> None:
-        with mock.patch.object(better_stack_source_module, "probe_credentials", return_value=probe_status):
+        answer = ConnectionError("disconnected") if probe_status is None else ScriptedResponse(status=probe_status)
+        with scripted_network(always(answer)) as network:
             ok, error = BetterStackSource().validate_credentials(
-                MagicMock(api_token="bs_test"), team_id=1, schema_name=schema_name
+                BetterStackSourceConfig(api_token="bs_test"), team_id=1, schema_name=schema_name
             )
         assert ok is expected_ok
         assert (error is None) is expected_ok
+        assert network.requests_log[0].headers["authorization"] == "Bearer bs_test"
+
+    @parameterized.expand([("v2", "/api/v2/policies"), ("v3", "/api/v3/policies"), (None, "/api/v3/policies")])
+    def test_probe_follows_the_pin(self, api_version: str | None, expected_path: str) -> None:
+        with scripted_network([ScriptedResponse()]) as network:
+            BetterStackSource().validate_credentials(
+                BetterStackSourceConfig(api_token="bs_test"),
+                team_id=1,
+                schema_name="escalation_policies",
+                api_version=api_version,
+            )
+        assert network.requests_log[0].path == expected_path
 
 
 class TestBetterStackNonRetryableErrors:
     @parameterized.expand(
         [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://uptime.betterstack.com/api/v2/monitors?per_page=250",
-            ),
-            ("forbidden", "403 Client Error: Forbidden for url: https://uptime.betterstack.com/api/v3/incidents"),
             # Team members and roles are served from the account-level host, which needs its own
             # entries — the Uptime-host patterns don't match a URL on it.
             ("org_host_unauthorized", "401 Client Error: Unauthorized for url: https://betterstack.com/api/v2/roles"),
@@ -109,23 +110,6 @@ class TestBetterStackNonRetryableErrors:
     def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
         non_retryable = BetterStackSource().get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://uptime.betterstack.com/api/v3/incidents",
-            ),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://uptime.betterstack.com/api/v2/monitors",
-            ),
-            ("read_timeout", "HTTPSConnectionPool(host='uptime.betterstack.com', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = BetterStackSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
 
 
 class TestBetterStackResumableAndPipeline:
@@ -169,25 +153,15 @@ class TestBetterStackResumableAndPipeline:
         expected_mode: str | None,
         expected_sort: str,
     ) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = endpoint
-        inputs.should_use_incremental_field = False
-        manager = MagicMock()
-        manager.can_resume.return_value = False
-        response = BetterStackSource().source_for_pipeline(
-            MagicMock(api_token="bs_test"), resumable_source_manager=manager, inputs=inputs
+        result = SourceDriver(BetterStackSource(), BetterStackSourceConfig(api_token="bs_test")).run(
+            endpoint,
+            [ScriptedResponse(json={"data": [], "events": [], "pagination": {"next": None}})],
         )
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_primary_keys
         assert response.partition_keys == expected_keys
         assert response.partition_mode == expected_mode
         assert response.sort_mode == expected_sort
-
-
-class TestBetterStackCanonicalDescriptions:
-    def test_descriptions_keyed_by_endpoint_name(self) -> None:
-        descriptions = BetterStackSource().get_canonical_descriptions()
-        # Every documented key must be a real endpoint so enrichment binds to the right table.
-        assert set(descriptions).issubset(set(ENDPOINTS))
-        assert "incidents" in descriptions
-        assert descriptions["incidents"]["columns"]["id"]

@@ -8,30 +8,25 @@ import {
     IconCopy,
     IconExpand,
     IconInfo,
+    IconLetter,
     IconRefresh,
     IconSend,
     IconTrash,
-    IconUpload,
     IconWarning,
 } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonDialog,
-    LemonDivider,
-    LemonFileInput,
-    LemonSnack,
-    LemonTabs,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonSnack, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { cohortReadsFlagCalls } from 'lib/components/FlagCalledRebuildBanner/flagCalledDependencies'
+import { FlagCalledRebuildBanner } from 'lib/components/FlagCalledRebuildBanner/FlagCalledRebuildBanner'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { TZLabel } from 'lib/components/TZLabel'
 import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -41,6 +36,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
+import { pluralize } from 'lib/utils/strings'
 import { StaticCohortMode, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
@@ -60,16 +56,32 @@ import {
 } from '~/layout/scenes/SceneLayout'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
-import { ActivityScope, CohortType, InsightShortId, SidePanelTab } from '~/types'
+import { ActivityScope, CohortType, SidePanelTab } from '~/types'
 
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
 import { CohortRealtimeStatus } from 'products/cohorts/frontend/realtime/CohortRealtimeStatus'
+import {
+    captureMessageAudienceClicked,
+    messageAudienceAccessDisabledReason,
+} from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { MessageAudienceButton } from 'products/workflows/frontend/MessageAudience/MessageAudienceButton'
+import { messageAudienceOpenLogic } from 'products/workflows/frontend/MessageAudience/messageAudienceOpenLogic'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
+import { CohortBlockingWorkflowsModal } from './CohortBlockingWorkflowsModal'
 import { cohortCountWarningLogic } from './cohortCountWarningLogic'
+import { COHORT_CSV_HELP, CohortCsvDropzone } from './CohortCsvDropzone'
 import { CohortSceneMenuBar } from './CohortSceneMenuBar'
-import { createCohortDataNodeLogicKey, urlForCohortWorkflow } from './cohortUtils'
+import { cohortUsedInSections } from './cohortUsedIn'
+import { CohortUsedInList } from './CohortUsedInList'
+import {
+    cohortBroadcastAudience,
+    cohortBroadcastDisabledReason,
+    createCohortDataNodeLogicKey,
+    urlForCohortWorkflow,
+} from './cohortUtils'
+import { openDeleteCohortDialog } from './DeleteCohortDialog'
 import { PersonSelectList } from './PersonSelectList'
 import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
 
@@ -87,45 +99,14 @@ interface UsedInSummaryProps {
 }
 
 function UsedInSummary({ usedIn, isExpanded, setIsExpanded }: UsedInSummaryProps): JSX.Element | null {
-    const sections = [
-        {
-            title: 'Feature flags',
-            noun: 'feature flag',
-            block: usedIn.feature_flags,
-            items: usedIn.feature_flags.results.map((flag) => ({
-                key: `flag-${flag.id}`,
-                url: urls.featureFlag(flag.id),
-                label: flag.name || flag.key,
-            })),
-        },
-        {
-            title: 'Insights',
-            noun: 'insight',
-            block: usedIn.insights,
-            items: usedIn.insights.results.map((insight) => ({
-                key: `insight-${insight.id}`,
-                url: urls.insightView(insight.short_id as InsightShortId),
-                label: insight.name,
-            })),
-        },
-        {
-            title: 'Cohorts',
-            noun: 'cohort',
-            block: usedIn.cohorts,
-            items: usedIn.cohorts.results.map((c) => ({
-                key: `cohort-${c.id}`,
-                url: urls.cohort(c.id),
-                label: c.name,
-            })),
-        },
-    ].filter((section) => section.items.length > 0)
+    const sections = cohortUsedInSections(usedIn)
 
     if (sections.length === 0) {
         return null
     }
 
-    // `total` counts every use, while `results` stops at the API's truncation cap.
-    const counts = sections.map(({ block, noun }) => `${block.total} ${noun}${block.total === 1 ? '' : 's'}`)
+    // `total` counts every use, while the section's items stop at the API's truncation cap.
+    const counts = sections.map(({ total, noun }) => pluralize(total, noun))
     const summary = counts.length > 1 ? `${counts.slice(0, -1).join(', ')} and ${counts[counts.length - 1]}` : counts[0]
 
     return (
@@ -142,22 +123,8 @@ function UsedInSummary({ usedIn, isExpanded, setIsExpanded }: UsedInSummaryProps
                 Used in {summary}
             </LemonButton>
             {isExpanded && (
-                <div className="max-h-60 overflow-y-auto flex flex-col gap-y-2 pl-2">
-                    {sections.map(({ title, block, items }) => (
-                        <div key={title}>
-                            <h5 className="text-xs font-semibold uppercase opacity-60 mb-0">
-                                {title}
-                                {block.has_more && ` (${block.results.length} of ${block.total} shown)`}
-                            </h5>
-                            <ul className="list-disc pl-4 mb-0">
-                                {items.map(({ key, url, label }) => (
-                                    <li key={key}>
-                                        <Link to={url}>{label}</Link>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    ))}
+                <div className="max-h-60 overflow-y-auto pl-2">
+                    <CohortUsedInList sections={sections} />
                 </div>
             )}
         </div>
@@ -216,6 +183,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         setStaticCohortMode,
         setActiveTab,
         setUsedInExpanded,
+        openBlockingWorkflowsModal,
         submitCohort,
     } = useActions(logic)
     const modalLogic = addPersonToCohortModalLogic(logicProps)
@@ -238,8 +206,14 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
+    const accessDisabledReason = messageAudienceAccessDisabledReason()
+    const broadcastDisabledReason = cohortBroadcastDisabledReason(cohort) ?? accessDisabledReason
+    const broadcastLogic = messageAudienceOpenLogic({ audience: cohortBroadcastAudience(cohort) })
+    const { opening: openingBroadcast } = useValues(broadcastLogic)
+    const { open: openBroadcast } = useActions(broadcastLogic)
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
     const warningLogic = cohortCountWarningLogic({ cohort, query: effectiveQuery, dataNodeLogicKey })
     const { shouldShowCountWarning } = useValues(warningLogic)
@@ -280,6 +254,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         <BindLogic logic={cohortEditLogic} props={logicProps}>
             <div className="cohort">
                 <AddPersonToCohortModal id={id} />
+                <CohortBlockingWorkflowsModal />
                 <CohortSceneMenuBar id={id} />
 
                 <ScenePanel>
@@ -291,15 +266,32 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
 
                     <ScenePanelActionsSection>
                         <ButtonPrimitive
-                            onClick={() => router.actions.push(urlForCohortWorkflow(cohort))}
+                            onClick={() => openBroadcast('broadcast')}
                             disabledReasons={{
-                                'Save the cohort first': isNewCohort,
+                                ...(broadcastDisabledReason ? { [broadcastDisabledReason]: true } : {}),
+                                'Checking whether this email can go out': openingBroadcast,
                             }}
-                            data-attr={`${RESOURCE_TYPE}-message-with-workflow`}
-                            tooltip="Start a workflow that emails everyone in this cohort"
+                            data-attr={`${RESOURCE_TYPE}-send-broadcast`}
+                            tooltip="Send a one-time email to everyone in this cohort"
                             menuItem
                         >
-                            <IconSend /> Message this cohort
+                            <IconLetter /> Email this cohort
+                        </ButtonPrimitive>
+
+                        <ButtonPrimitive
+                            onClick={() => {
+                                captureMessageAudienceClicked('cohort', 'workflow')
+                                router.actions.push(urlForCohortWorkflow(cohort))
+                            }}
+                            disabledReasons={{
+                                'Save the cohort first': isNewCohort,
+                                ...(accessDisabledReason ? { [accessDisabledReason]: true } : {}),
+                            }}
+                            data-attr={`${RESOURCE_TYPE}-message-with-workflow`}
+                            tooltip="Open a workflow for this cohort to add delays, branches, or more steps"
+                            menuItem
+                        >
+                            <IconSend /> Build a custom workflow
                         </ButtonPrimitive>
 
                         <SceneAddToNotebookDropdownMenu
@@ -359,20 +351,10 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             <ScenePanelActionsSection>
                                 <ButtonPrimitive
                                     onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Delete cohort?',
-                                            description: `Are you sure you want to delete "${cohort.name}"?`,
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                status: 'danger',
-                                                onClick: () => deleteCohort(),
-                                                size: 'small',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'tertiary',
-                                                size: 'small',
-                                            },
+                                        openDeleteCohortDialog({
+                                            cohortId: cohort.id,
+                                            cohortName: cohort.name,
+                                            onConfirm: () => deleteCohort(),
                                         })
                                     }}
                                     variant="danger"
@@ -410,32 +392,59 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                 canEdit
                                 forceEdit={isNewCohort}
                                 actions={
-                                    <>
-                                        {isNewCohort ? (
-                                            <LemonButton
-                                                data-attr="cancel-cohort"
-                                                type="secondary"
-                                                onClick={() => {
-                                                    router.actions.push(urls.cohorts())
-                                                }}
-                                                size="small"
-                                                disabled={cohortLoading}
+                                    todayRailNav ? (
+                                        <>
+                                            {isNewCohort ? (
+                                                <Button
+                                                    data-attr="cancel-cohort"
+                                                    variant="outline"
+                                                    onClick={() => {
+                                                        router.actions.push(urls.cohorts())
+                                                    }}
+                                                    disabled={cohortLoading}
+                                                >
+                                                    Cancel
+                                                </Button>
+                                            ) : null}
+                                            <Button
+                                                variant="primary"
+                                                data-attr="save-cohort"
+                                                type="submit"
+                                                loading={cohortLoading}
+                                                disabledReason={cohortLoading ? 'Saving cohort...' : undefined}
+                                                form="cohort"
                                             >
-                                                Cancel
+                                                Save
+                                            </Button>
+                                        </>
+                                    ) : (
+                                        <>
+                                            {isNewCohort ? (
+                                                <LemonButton
+                                                    data-attr="cancel-cohort"
+                                                    type="secondary"
+                                                    onClick={() => {
+                                                        router.actions.push(urls.cohorts())
+                                                    }}
+                                                    size="small"
+                                                    disabled={cohortLoading}
+                                                >
+                                                    Cancel
+                                                </LemonButton>
+                                            ) : null}
+                                            <LemonButton
+                                                type="primary"
+                                                data-attr="save-cohort"
+                                                htmlType="submit"
+                                                loading={cohortLoading}
+                                                disabledReason={cohortLoading ? 'Saving cohort...' : undefined}
+                                                form="cohort"
+                                                size="small"
+                                            >
+                                                Save
                                             </LemonButton>
-                                        ) : null}
-                                        <LemonButton
-                                            type="primary"
-                                            data-attr="save-cohort"
-                                            htmlType="submit"
-                                            loading={cohortLoading}
-                                            disabledReason={cohortLoading ? 'Saving cohort...' : undefined}
-                                            form="cohort"
-                                            size="small"
-                                        >
-                                            Save
-                                        </LemonButton>
-                                    </>
+                                        </>
+                                    )
                                 }
                             />
                         </LemonField>
@@ -499,6 +508,24 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 <Tooltip title="Create a new cohort to use a different type of cohort.">
                                                     <IconInfo className="text-secondary text-base" />
                                                 </Tooltip>
+                                                {usedIn && usedIn.workflows.total > 0 && (
+                                                    <>
+                                                        <span className="text-secondary">·</span>
+                                                        <Link
+                                                            className="text-sm"
+                                                            onClick={() =>
+                                                                openBlockingWorkflowsModal({
+                                                                    action: 'view',
+                                                                    workflows: usedIn.workflows,
+                                                                })
+                                                            }
+                                                            data-attr="cohort-used-in-workflows"
+                                                        >
+                                                            Used in {usedIn.workflows.total}{' '}
+                                                            {usedIn.workflows.total === 1 ? 'workflow' : 'workflows'}
+                                                        </Link>
+                                                    </>
+                                                )}
                                             </div>
                                         )}
 
@@ -677,26 +704,13 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                     <SceneDivider />
                                     <SceneSection
                                         title={isNewCohort ? 'Upload users' : 'Add users'}
-                                        description={
-                                            isNewCohort
-                                                ? `Upload a CSV file to add users to your cohort. For single-column files, include
-                                        one distinct ID per row (all rows will be processed as data). For multi-column
-                                        files, include a header row with a 'person_id', 'distinct_id', or 'email' column
-                                        containing the user identifiers.`
-                                                : undefined
-                                        }
+                                        description={isNewCohort ? COHORT_CSV_HELP : undefined}
                                         className={cn('ph-ignore-input')}
                                     >
                                         {!isNewCohort && (
                                             <div className="flex flex-col gap-y-0 flex-1 justify-center">
                                                 <h3 className="text-sm">Upload a CSV</h3>
-                                                <span className="max-w-prose">
-                                                    Upload a CSV file to add users to your cohort. For single-column
-                                                    files, include one distinct ID per row (all rows will be processed
-                                                    as data). For multi-column files, include a header row with a
-                                                    'person_id', 'distinct_id', or 'email' column containing the user
-                                                    identifiers.
-                                                </span>
+                                                <span className="max-w-prose">{COHORT_CSV_HELP}</span>
                                             </div>
                                         )}
                                         {/* TODO: @adamleithp Allow users to download a template CSV file */}
@@ -704,48 +718,9 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                         {/* TODO: @adamleithp Render the csv file and validate it */}
                                         <LemonField name="csv" data-attr="cohort-csv">
                                             {({ onChange }) => (
-                                                <LemonFileInput
-                                                    accept=".csv"
-                                                    multiple={false}
-                                                    value={cohort.csv ? [cohort.csv] : []}
-                                                    onChange={(files) => onChange(files[0])}
-                                                    showUploadedFiles={false}
-                                                    callToAction={
-                                                        <div
-                                                            className={cn(
-                                                                'flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-3000 deprecated-space-y-1',
-                                                                'text-primary mt-0 bg-transparent border border-dashed border-primary hover:border-secondary p-8',
-                                                                cohort.csv?.name && 'border-success'
-                                                            )}
-                                                        >
-                                                            {cohort.csv ? (
-                                                                <>
-                                                                    <IconUpload
-                                                                        style={{
-                                                                            fontSize: '3rem',
-                                                                            color: 'var(--color-text-primary)',
-                                                                        }}
-                                                                    />
-                                                                    <div>{cohort.csv?.name ?? 'File chosen'}</div>
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <IconUpload
-                                                                        style={{
-                                                                            fontSize: '3rem',
-                                                                            color: 'var(--color-text-primary)',
-                                                                        }}
-                                                                    />
-                                                                    <div>
-                                                                        Drag a file here or click to browse for a file
-                                                                    </div>
-                                                                    <div className="text-secondary text-xs">
-                                                                        Accepts .csv files only
-                                                                    </div>
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                    }
+                                                <CohortCsvDropzone
+                                                    value={cohort.csv ?? null}
+                                                    onChange={(file) => onChange(file ?? undefined)}
                                                 />
                                             )}
                                         </LemonField>
@@ -822,6 +797,17 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             ) : (
                                 <>
                                     <SceneDivider />
+                                    {!isNewCohort && (
+                                        <FlagCalledRebuildBanner
+                                            artifactType="cohort"
+                                            readsFlagCalls={cohortReadsFlagCalls(cohort)}
+                                        >
+                                            This cohort has a criterion on Feature flag called, directly or through an
+                                            action. That criterion won't see flag calls made after your organization's
+                                            flag calls move out of the events table, so the cohort can include or leave
+                                            out the wrong people. Remove that criterion.
+                                        </FlagCalledRebuildBanner>
+                                    )}
                                     {!isNewCohort && cohort.experiment_set && cohort.experiment_set.length > 0 && (
                                         <LemonBanner type="info">
                                             This cohort manages exposure for an experiment. Editing this cohort may
@@ -906,6 +892,21 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                         fileNameForExport: cohort.name,
                                                         cohortId: cohortId,
                                                         dataNodeLogicKey: dataNodeLogicKey,
+                                                        customActions: (
+                                                            <MessageAudienceButton
+                                                                key="email-cohort"
+                                                                audience={{
+                                                                    ...cohortBroadcastAudience(cohort),
+                                                                    source: 'cohort_persons_table',
+                                                                }}
+                                                                destinations={['broadcast']}
+                                                                label="Email this cohort"
+                                                                disabledReason={broadcastDisabledReason}
+                                                            />
+                                                        ),
+                                                        dataTableExpectedTotalRows: shouldShowCountWarning
+                                                            ? (cohort.count ?? undefined)
+                                                            : undefined,
                                                         columns: canRemovePersonFromCohort
                                                             ? {
                                                                   'person.$delete': {

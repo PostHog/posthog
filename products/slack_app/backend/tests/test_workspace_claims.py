@@ -136,7 +136,7 @@ class TestSlackWorkspaceClaimsView(TestCase):
 
 
 @override_settings(DEBUG=False)
-class TestDoesOtherRegionClaimWorkspace(TestCase):
+class TestDoesOtherRegionClaimWorkspace(SimpleTestCase):
     """The caller-side helper. Constructs and signs the request, parses the response, and
     deliberately returns None on any transport / format failure so the caller falls back to
     local handling instead of silently dropping the event.

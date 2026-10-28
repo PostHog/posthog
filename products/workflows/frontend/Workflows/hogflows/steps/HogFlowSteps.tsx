@@ -8,6 +8,7 @@ import {
     IconClock,
     IconDay,
     IconDecisionTree,
+    IconEye,
     IconFilter,
     IconHourglass,
     IconLeave,
@@ -244,9 +245,13 @@ const HogFlowStepConfigs: Partial<{
                 return <IconNotification />
             }
 
+            if (action.config.template_id === 'template-posthog-replay-vision') {
+                return <IconEye />
+            }
+
             const template = hogFunctionTemplatesById[action.config.template_id]
             return template?.icon_url ? (
-                <img className="LemonIcon rounded !object-contain" src={template.icon_url} alt={template.name} />
+                <img className="LemonIcon !object-contain" src={template.icon_url} alt={template.name} />
             ) : (
                 <IconBolt />
             )

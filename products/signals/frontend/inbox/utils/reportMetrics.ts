@@ -85,7 +85,8 @@ export interface ReportMetricValueParts {
 
 export function formatReportMetricParts(
     metric: ReportMetricFormatting,
-    value: number | null | undefined
+    value: number | null | undefined,
+    precision?: 'exact'
 ): ReportMetricValueParts | null {
     if (value === null || value === undefined || !Number.isFinite(value)) {
         return null
@@ -93,6 +94,16 @@ export function formatReportMetricParts(
 
     const valueFormat = metric.value_format ?? 'number'
     const unit = metric.unit ?? null
+
+    if (precision === 'exact') {
+        if (valueFormat === 'percentage' || valueFormat === 'percentage_scaled') {
+            return {
+                value: `${valueFormat === 'percentage_scaled' ? value * 100 : value}%`,
+                unit: unit === '%' ? null : unit,
+            }
+        }
+        return { value: String(value), unit }
+    }
 
     switch (valueFormat) {
         case 'count':
@@ -126,9 +137,10 @@ export function formatReportMetricParts(
 
 export function formatReportMetricValue(
     metric: ReportMetricFormatting,
-    value: number | null | undefined
+    value: number | null | undefined,
+    precision?: 'exact'
 ): string | null {
-    const parts = formatReportMetricParts(metric, value)
+    const parts = formatReportMetricParts(metric, value, precision)
     return parts ? withUnit(parts.value, parts.unit) : null
 }
 
@@ -440,4 +452,19 @@ export function mergeReportMetricSnapshots<T extends { id: string; metrics?: Rep
         return { ...metric, value: snapshot.value, value_at: snapshot.value_at, series: snapshot.series }
     })
     return changed ? { ...report, metrics } : report
+}
+
+export function selectReportCardImpactMetric(metrics?: ReportMetricApi[]): ReportMetricApi | null {
+    if (!metrics?.length) {
+        return null
+    }
+
+    const hasSnapshot = (metric: ReportMetricApi): boolean =>
+        metric.value !== null && Number.isFinite(metric.value) && formatReportMetricValue(metric, metric.value) !== null
+
+    return (
+        metrics.find((metric) => metric.kind === 'affected_users' && hasSnapshot(metric)) ??
+        metrics.find((metric) => metric.role === 'primary' && hasSnapshot(metric)) ??
+        null
+    )
 }

@@ -255,8 +255,7 @@ def _query_status_timings(status: Any) -> dict[str, float]:
 
     `queued_s` is enqueue -> Celery pickup (slot/queue wait); `clickhouse_s` is pickup ->
     completion — HogQL compile plus the ClickHouse execution, the closest server-side
-    proxy for "how long the query itself took". Both are the decomposition fields
-    sql_v2_observability.md gap 1 called for.
+    proxy for "how long the query itself took".
     """
     timings: dict[str, float] = {}
     start_time = getattr(status, "start_time", None)

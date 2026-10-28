@@ -452,12 +452,18 @@ def prepare_capture_internal_batch(
             ev, process_person_profile=process_person_profile, event_source=event_source
         )
 
+        properties = parts.properties
+        if not properties.get("$ip"):
+            # capture-rs gives internal events a loopback IP. GeoIP would turn it into a placeholder
+            # location and write that over the person's real location.
+            properties = {"$geoip_disable": True, **properties}
+
         entry: dict[str, Any] = {
             "event": identity.event_name,
             "uuid": event_uuid,
             "distinct_id": identity.distinct_id,
             "timestamp": timestamp_str,
-            "properties": parts.properties,
+            "properties": properties,
         }
         if parts.session_id is not None:
             entry["session_id"] = parts.session_id

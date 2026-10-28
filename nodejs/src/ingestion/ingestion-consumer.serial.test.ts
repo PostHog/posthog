@@ -12,14 +12,12 @@ import { template as geoipTemplate } from '~/cdp/templates/_transformations/geoi
 import { compileHog } from '~/cdp/templates/compiler'
 import { HogFunctionType } from '~/cdp/types'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import { COOKIELESS_SENTINEL_VALUE } from '~/common/persons/person-utils'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
-import {
-    COOKIELESS_MODE_FLAG_PROPERTY,
-    COOKIELESS_SENTINEL_VALUE,
-} from '~/ingestion/common/cookieless/cookieless-manager'
+import { COOKIELESS_MODE_FLAG_PROPERTY } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
 import { createProcessGroupsStep } from '~/ingestion/common/steps/event-processing/process-groups-step'

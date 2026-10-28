@@ -32,12 +32,14 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 import {
+    ApprovalDecisionStatus,
     Conversation,
     ConversationDetail,
     ConversationStatus,
     ConversationType,
     OrganizationType,
     InsightShortId,
+    PendingApproval,
 } from '~/types'
 
 import { attachedContextLogic, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
@@ -1469,7 +1471,7 @@ describe('maxThreadLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.processNotebookUpdate('test-notebook-id', { type: 'doc', content: [] } as any)
-            }).toDispatchActions(['processNotebookUpdate'])
+            }).toFinishAllListeners()
 
             expect(openNotebookSpy).toHaveBeenCalledWith('test-notebook-id', NotebookTarget.Scene, expect.any(Function))
             expect(router.values.location.pathname).toContain(urls.notebook('test-notebook-id'))
@@ -1490,7 +1492,7 @@ describe('maxThreadLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.processNotebookUpdate(notebookId, { type: 'doc', content: [] } as any)
-            }).toDispatchActions(['processNotebookUpdate'])
+            }).toFinishAllListeners()
 
             expect(findMountedSpy).toHaveBeenCalledWith({ shortId: notebookId })
             expect(routerActionsSpy).not.toHaveBeenCalled()
@@ -1508,7 +1510,7 @@ describe('maxThreadLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.processNotebookUpdate(notebookId, { type: 'doc', content: [] } as any)
-            }).toDispatchActions(['processNotebookUpdate'])
+            }).toFinishAllListeners()
 
             expect(notebookLogicFindMountedSpy).toHaveBeenCalledWith({ shortId: notebookId })
             expect(routerActionsSpy).not.toHaveBeenCalled()
@@ -1766,7 +1768,15 @@ describe('maxThreadLogic', () => {
         it('replays logs/ then opens SSE for a non-terminal sandbox run, never reconnecting LangGraph', async () => {
             logic.unmount()
             jest.spyOn(api.conversations, 'get').mockResolvedValue(sandboxConversation(SANDBOX_RUN_ID))
-            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogPage').mockResolvedValue({
+                entries: [],
+                offset: 0,
+                count: 0,
+                preamble: 0,
+                turnsBefore: 0,
+                origin: '',
+                indexed: false,
+            })
             const runSpy = jest
                 .spyOn(tasksApi, 'tasksRunsRetrieve')
                 .mockResolvedValue({ status: 'in_progress' } as TaskRunDetailDTOApi)
@@ -1784,10 +1794,11 @@ describe('maxThreadLogic', () => {
 
             // bootstrapRun replayed logs/ and refetched the run, then opened SSE — and the LangGraph
             // stream was never touched (coexistence).
-            expect(logsSpy).toHaveBeenCalledWith(SANDBOX_TASK_ID, SANDBOX_RUN_ID, {
-                signal: expect.any(AbortSignal),
-                projectId: 997,
-            })
+            expect(logsSpy).toHaveBeenCalledWith(
+                SANDBOX_TASK_ID,
+                SANDBOX_RUN_ID,
+                expect.objectContaining({ signal: expect.any(AbortSignal), projectId: 997 })
+            )
             expect(runSpy).toHaveBeenCalledWith('997', SANDBOX_TASK_ID, SANDBOX_RUN_ID, {
                 signal: expect.any(AbortSignal),
             })
@@ -1798,7 +1809,7 @@ describe('maxThreadLogic', () => {
             logic.unmount()
             const conversation = sandboxConversation(SANDBOX_RUN_ID, TaskRuntimeEnumApi.Pi)
             jest.spyOn(api.conversations, 'get').mockResolvedValue(conversation)
-            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries')
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogPage')
             const streamSpy = mockStream()
 
             logic = maxThreadLogic({
@@ -1816,7 +1827,7 @@ describe('maxThreadLogic', () => {
         it('does not bootstrap a sandbox run without a latest_run', async () => {
             logic.unmount()
             jest.spyOn(api.conversations, 'get').mockResolvedValue(sandboxConversation(null))
-            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries')
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogPage')
             const streamSpy = mockStream()
 
             logic = maxThreadLogic({
@@ -3142,6 +3153,54 @@ describe('maxThreadLogic', () => {
         })
     })
 
+    describe('pending approval selection', () => {
+        const approval = (proposal_id: string, decision_status: ApprovalDecisionStatus): PendingApproval => ({
+            proposal_id,
+            decision_status,
+            tool_name: 'create_insight',
+            preview: `Update insight ${proposal_id}`,
+            payload: {},
+        })
+        const visibleProposal = (): string | undefined => logic.values.activeDangerousOperationApproval?.proposalId
+
+        it('keeps a streamed approval visible after the turn ends and moves past resolved ones', () => {
+            logic.actions.setConversation({
+                ...MOCK_IN_PROGRESS_CONVERSATION,
+                pending_approvals: [approval('stale', 'pending')],
+            })
+            logic.actions.addPendingApprovalData(approval('stale', 'pending'))
+            logic.actions.setResolvedApprovalStatus('stale', 'approved')
+
+            logic.actions.addPendingApprovalData(approval('new', 'pending'))
+            logic.actions.setPendingApproval('new')
+            expect(visibleProposal()).toBe('new')
+
+            logic.actions.completeThreadGeneration()
+            expect(visibleProposal()).toBe('new')
+
+            logic.actions.setPendingApproval('stale')
+            logic.actions.setConversation({
+                ...MOCK_CONVERSATION,
+                pending_approvals: [approval('new', 'pending'), approval('stale', 'auto_rejected')],
+            })
+            expect(visibleProposal()).toBe('new')
+        })
+
+        it('follows the server for approvals it returns and selects none at turn end without a selection', () => {
+            logic.actions.addPendingApprovalData(approval('other', 'pending'))
+            logic.actions.completeThreadGeneration()
+            expect(visibleProposal()).toBeUndefined()
+
+            logic.actions.setConversation({
+                ...MOCK_CONVERSATION,
+                pending_approvals: [approval('other', 'auto_rejected')],
+            })
+            logic.actions.setConversation({ ...MOCK_CONVERSATION, pending_approvals: [approval('other', 'pending')] })
+            expect(logic.values.pendingApprovalsData['other'].decision_status).toBe('pending')
+            expect(visibleProposal()).toBe('other')
+        })
+    })
+
     describe('retryCount', () => {
         it('starts at 0', () => {
             expect(logic.values.retryCount).toBe(0)
@@ -3578,6 +3637,19 @@ describe('maxThreadLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setConversation(conversationWithAgentMode)
+            }).toMatchValues({
+                agentMode: AgentMode.ProductAnalytics,
+            })
+        })
+
+        it('setConversation falls back to the default mode for a retired agent mode', async () => {
+            const conversationWithRetiredMode: Conversation = {
+                ...MOCK_CONVERSATION,
+                agent_mode: AgentMode.UserInterview,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setConversation(conversationWithRetiredMode)
             }).toMatchValues({
                 agentMode: AgentMode.ProductAnalytics,
             })

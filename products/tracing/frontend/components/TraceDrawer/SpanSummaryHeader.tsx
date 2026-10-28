@@ -28,7 +28,7 @@ function ServiceDot({ colorIndex }: { colorIndex: number | undefined }): JSX.Ele
 // A labelled, copyable identifier. Trace/parent IDs live here (not just the span ID) because the
 // summary header replaces the old "Span details" table — they're the only copyable home for the
 // correlation handles a user needs to pivot across distributed-trace tooling.
-function CopyableId({ label, value }: { label: string; value: string }): JSX.Element {
+export function CopyableId({ label, value }: { label: string; value: string }): JSX.Element {
     return (
         <span>
             {label}:{' '}

@@ -11,8 +11,10 @@ import psycopg
 import structlog
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import cdc_error_info
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import tls_options
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.errors import (
     classify_postgres_cdc_error,
@@ -122,7 +124,7 @@ class PostgresCDCAdapter:
         )
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
-        inputs = source.job_inputs or {}
+        inputs = SourceInputsStore.load(source)
         cdc_config = self.parse_cdc_config(source)
         # Two-arg form honors the SSH-tunnel `require_tls` opt-out, matching the management
         # path (slot_manager.cdc_pg_connection) so a tunnelled source that opted out of TLS
@@ -135,6 +137,7 @@ class PostgresCDCAdapter:
             user=inputs.get("user", ""),
             password=inputs.get("password", ""),
             require_ssl=source_requires_ssl(source, config),
+            tls=tls_options(config),
             slot_name=cdc_config.slot_name,
             publication_name=cdc_config.publication_name,
         )
@@ -245,9 +248,7 @@ class PostgresCDCAdapter:
             _recreate, _retry_logger, is_retryable=_is_dropped_or_connect_timeout
         )
 
-        # No code on this release reads the ingest mode. A worker on a release that reads it treats a
-        # source without it as legacy and empties its buffer, so a rollback needs the value.
-        return {"cdc_consistent_point": consistent_point, "cdc_ingest_mode": "buffered"}
+        return {"cdc_consistent_point": consistent_point}
 
     def setup_resources(
         self,
@@ -273,8 +274,6 @@ class PostgresCDCAdapter:
             "cdc_management_mode": management_mode,
             "cdc_slot_name": slot_name,
             "cdc_publication_name": pub_name,
-            # A rollback needs it, as in `recreate_slot`.
-            "cdc_ingest_mode": "buffered",
         }
 
         if management_mode == "posthog":
@@ -419,5 +418,5 @@ class PostgresCDCAdapter:
         return cdc_config.publication_name
 
     def _resolve_schema(self, source: ExternalDataSource) -> str:
-        raw = (source.job_inputs or {}).get("schema")
+        raw = SourceInputsStore.load_settings(source).get("schema")
         return raw.strip() if isinstance(raw, str) and raw.strip() else "public"

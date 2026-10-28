@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KatanaSource(ResumableSource[KatanaSourceConfig, KatanaResumeConfig]):
+    codebase_detection = detect(env=("^KATANA_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -48,7 +51,7 @@ class KatanaSource(ResumableSource[KatanaSourceConfig, KatanaResumeConfig]):
             name=ExternalDataSourceType.KATANA,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Katana",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["katana", "mrp", "erp", "inventory", "manufacturing"],
             caption="""Enter your Katana API key to sync your Katana Cloud Inventory (MRP) data into the PostHog Data warehouse.
 

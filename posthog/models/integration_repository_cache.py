@@ -17,7 +17,7 @@ import base64
 import asyncio
 import contextlib
 from collections.abc import AsyncIterator, Awaitable, Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
@@ -28,7 +28,9 @@ from django.utils import timezone
 import structlog
 
 from posthog import redis as posthog_redis
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.limiter import github_installation_pace_seconds
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.helpers.async_concurrency import run_parallel_with_backoff
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, Integration
@@ -45,6 +47,15 @@ logger = structlog.get_logger(__name__)
 # GITHUB_REPOSITORY_CACHE_TTL_SECONDS semantics (see `Integration.repository_cache`).
 # Past the TTL we still do a cheap SHA check before deciding to refetch the tree.
 GITHUB_REPOSITORY_FULL_CACHE_TTL_SECONDS = 60 * 60
+
+# A push to the default branch moves the repository's `pushed_at`, so a repository whose listed
+# `pushed_at` is older than its row's last sync still has the commit the row holds. The margin
+# covers a push that landed while that sync ran.
+UNPUSHED_SYNC_MARGIN = timedelta(minutes=5)
+# The listing only shows pushes made before it was fetched, so the push check needs a recent one.
+LISTING_MAX_AGE_SECONDS = 10 * 60
+
+MAX_BUDGET_WAIT_SECONDS = 60.0
 
 # Single-flight lock for `sync_full_cache`. First caller (leader) acquires the lock and runs;
 # concurrent callers (followers) poll until released, then read the warm cache and effectively no-op.
@@ -134,8 +145,10 @@ class IntegrationRepositoryCacheEntry(UUIDModel):
 class GitHubRepositoryFullCache:
     """Owns the heavy per-repo cache (README + tree + metadata) for a GitHub integration."""
 
-    def __init__(self, github: GitHubIntegrationBase, *, team_id: int | None = None) -> None:
+    def __init__(self, github: GitHubIntegrationBase, *, priority: Priority, team_id: int | None = None) -> None:
         self.github = github
+        # The egress lane for every GitHub call the cache makes, whatever lane the client carries.
+        self.priority = priority
         if isinstance(github, GitHubIntegration):
             # Team-level integration is bound to one team
             if team_id is not None and team_id != github.integration.team_id:
@@ -158,6 +171,35 @@ class GitHubRepositoryFullCache:
         age = timezone.now() - entry.updated_at
         return age < timedelta(seconds=GITHUB_REPOSITORY_FULL_CACHE_TTL_SECONDS)
 
+    @staticmethod
+    def _unpushed_since_sync(entry: IntegrationRepositoryCacheEntry, listed: dict | None) -> bool:
+        """Whether the repository listing shows no push since the row last synced.
+
+        `listed` is the repository's entry in the light cache, which already carries `pushed_at` and
+        `default_branch`, so this answers without a GitHub call. A missing or unreadable `pushed_at`
+        answers no, and the row syncs as before.
+        """
+        if listed is None or listed.get("default_branch") != entry.default_branch:
+            return False
+        pushed_at = listed.get("pushed_at")
+        if not isinstance(pushed_at, str):
+            return False
+        try:
+            pushed = datetime.fromisoformat(pushed_at)
+        except ValueError:
+            return False
+        if pushed.tzinfo is None:
+            return False
+        return pushed < entry.updated_at - UNPUSHED_SYNC_MARGIN
+
+    def _save_listed_archived(self, entry: IntegrationRepositoryCacheEntry, listed: dict) -> None:
+        # Archiving does not move `pushed_at`, and repository selection drops archived rows, so the flag
+        # follows the listing. A queryset update keeps `updated_at`, which marks the last real sync.
+        archived = listed.get("archived")
+        if isinstance(archived, bool) and archived != entry.archived:
+            IntegrationRepositoryCacheEntry.objects.filter(pk=entry.pk).update(archived=archived)
+            entry.archived = archived
+
     def _get_existing_entry(self, full_name: str) -> IntegrationRepositoryCacheEntry | None:
         # Defer the heavy blob columns: the freshness/SHA decision and light-path metadata save
         # never read them, and bulk sync would otherwise drag MBs of `tree_paths` per repo through
@@ -170,12 +212,15 @@ class GitHubRepositoryFullCache:
 
     def _fetch_repo_meta(self, owner: str, repo: str, full_name: str) -> tuple[dict, str, str]:
         """Pure-network: repo metadata + default-branch SHA. No DB I/O when token is fresh."""
-        repo_data = self.github._gh_api_get(f"/repos/{owner}/{repo}", endpoint="/repos/{owner}/{repo}")
+        repo_data = self.github._gh_api_get(
+            f"/repos/{owner}/{repo}", endpoint="/repos/{owner}/{repo}", priority=self.priority
+        )
         default_branch = repo_data.get("default_branch") or "main"
-        # Quote the ref so branches like `release/1.0` hit the right endpoint (precedent: products/visual_review/backend/logic.py).
+        # Quote the ref so branches like `release/1.0` hit the right endpoint (precedent: products/visual_review/backend/logic/github_api.py).
         branch_data = self.github._gh_api_get(
             f"/repos/{owner}/{repo}/branches/{quote(default_branch, safe='')}",
             endpoint="/repos/{owner}/{repo}/branches/{branch}",
+            priority=self.priority,
         )
         commit = branch_data.get("commit") or {}
         default_branch_sha = commit.get("sha")
@@ -213,6 +258,7 @@ class GitHubRepositoryFullCache:
             readme_data = self.github._gh_api_get(
                 f"/repos/{owner}/{repo}/readme?ref={default_branch_sha}",
                 endpoint="/repos/{owner}/{repo}/readme",
+                priority=self.priority,
             )
             encoded = readme_data.get("content")
             if isinstance(encoded, str):
@@ -226,6 +272,7 @@ class GitHubRepositoryFullCache:
         tree_data = self.github._gh_api_get(
             f"/repos/{owner}/{repo}/git/trees/{default_branch_sha}?recursive=1",
             endpoint="/repos/{owner}/{repo}/git/trees/{sha}",
+            priority=self.priority,
         )
         tree_entries = tree_data.get("tree") or []
         tree_paths = "\n".join(
@@ -276,9 +323,12 @@ class GitHubRepositoryFullCache:
         return entry
 
     async def sync_full_cache_entry_async(
-        self, full_name: str, *, path_log: list[str] | None = None
+        self, full_name: str, *, path_log: list[str] | None = None, listed: dict | None = None
     ) -> IntegrationRepositoryCacheEntry:
-        """Fetch one repo's heavy metadata + README + file tree, upsert the cache row, without blocking DB"""
+        """Fetch one repo's heavy metadata + README + file tree, upsert the cache row, without blocking DB.
+
+        `listed` is the repo's entry in the light cache. With it, a row whose repo got no push since
+        its last sync stays as it is, without a GitHub call."""
         # 1. Validate input.
         if "/" not in full_name:
             raise ValueError(f"full_name must be in 'owner/repo' format, got {full_name!r}")
@@ -290,6 +340,11 @@ class GitHubRepositoryFullCache:
         if existing and existing.default_branch_sha and self._is_fresh(existing):
             if path_log is not None:
                 path_log.append("ttl_hit")
+            return existing
+        if existing and existing.default_branch_sha and listed and self._unpushed_since_sync(existing, listed):
+            await database_sync_to_async(self._save_listed_archived)(existing, listed)
+            if path_log is not None:
+                path_log.append("unpushed")
             return existing
 
         # 3. Network: repo metadata + branch SHA.
@@ -335,6 +390,16 @@ class GitHubRepositoryFullCache:
         deleted, _ = qs.delete()
         return deleted
 
+    def _retry_delay(self, exc: BaseException) -> float | None:
+        """Seconds until a rate-limited or shed call may try again, or None for the default backoff."""
+        if isinstance(exc, GitHubRateLimitError):
+            return exc.retry_after
+        if isinstance(exc, GitHubEgressBudgetExhausted) and exc.scope:
+            pace = github_installation_pace_seconds(exc.scope, priority=self.priority)
+            if pace > 0:
+                return min(pace, MAX_BUDGET_WAIT_SECONDS)
+        return None
+
     async def sync_full_cache(self, *, concurrency: int = 10) -> list[IntegrationRepositoryCacheEntry | BaseException]:
         """Bulk heavy sync for all repos this integration sees.
 
@@ -350,9 +415,20 @@ class GitHubRepositoryFullCache:
     async def _sync_full_cache_locked(
         self, *, concurrency: int
     ) -> list[IntegrationRepositoryCacheEntry | BaseException]:
-        # 1. Source of truth: the light cache. This also refreshes it from GitHub if >1h stale.
-        repos = await self.github.list_all_cached_repositories_async()
-        valid_full_names = {r["full_name"].lower() for r in repos if isinstance(r.get("full_name"), str)}
+        # 1. Source of truth: the light cache, refreshed when older than the push check allows.
+        try:
+            repos = await database_sync_to_async(self.github.sync_repository_cache, thread_sensitive=False)(
+                min_refresh_interval_seconds=LISTING_MAX_AGE_SECONDS, priority=self.priority
+            )
+            listing_is_recent = True
+        except Exception:
+            logger.warning(
+                "github_full_cache.listing_refresh_failed", integration_id=self.integration.id, exc_info=True
+            )
+            repos = await self.github.list_all_cached_repositories_async()
+            listing_is_recent = False
+        listed_by_name = {r["full_name"].lower(): r for r in repos if isinstance(r.get("full_name"), str)}
+        valid_full_names = set(listed_by_name)
         # 2. Evict orphans — heavy cache is always a subset of the light cache.
         evicted = await self._evict_orphans(valid_full_names)
         if evicted:
@@ -373,7 +449,9 @@ class GitHubRepositoryFullCache:
 
         def make_fn(full_name: str) -> Callable[[], Awaitable[IntegrationRepositoryCacheEntry]]:
             async def run() -> IntegrationRepositoryCacheEntry:
-                return await self.sync_full_cache_entry_async(full_name, path_log=path_log)
+                return await self.sync_full_cache_entry_async(
+                    full_name, path_log=path_log, listed=listed_by_name[full_name] if listing_is_recent else None
+                )
 
             return run
 
@@ -382,8 +460,8 @@ class GitHubRepositoryFullCache:
         results = await run_parallel_with_backoff(
             [make_fn(name) for name in valid_full_names],
             concurrency=concurrency,
-            is_retryable=lambda exc: isinstance(exc, GitHubRateLimitError),
-            get_retry_delay=lambda exc: getattr(exc, "retry_after", None),
+            is_retryable=lambda exc: isinstance(exc, GitHubRateLimitError | GitHubEgressBudgetExhausted),
+            get_retry_delay=self._retry_delay,
         )
         # 4. Single summary line — distinguishes "warm cache, all hits" from "did real work".
         errors = sum(1 for r in results if isinstance(r, BaseException))
@@ -392,6 +470,7 @@ class GitHubRepositoryFullCache:
             integration_id=self.integration.id,
             total=len(results),
             ttl_hits=path_log.count("ttl_hit"),
+            unpushed=path_log.count("unpushed"),
             sha_unchanged=path_log.count("sha_unchanged"),
             heavy=path_log.count("heavy"),
             errors=errors,

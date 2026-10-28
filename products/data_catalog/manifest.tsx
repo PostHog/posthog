@@ -20,15 +20,22 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Metric',
         },
+        DataCatalogNewMetric: {
+            import: () => import('./frontend/DataCatalogNewMetricScene'),
+            projectBased: true,
+            name: 'New metric',
+        },
     },
     routes: {
         '/data-catalog': ['DataCatalog', 'dataCatalog'],
         '/data-catalog/metrics/:name': ['DataCatalogMetric', 'dataCatalogMetric'],
+        '/data-catalog/new-metric': ['DataCatalogNewMetric', 'dataCatalogNewMetric'],
     },
     redirects: {},
     urls: {
         dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
-        dataCatalogMetric: (name: string, tab?: 'definition' | 'tests' | 'lineage'): string =>
+        dataCatalogNewMetric: (): string => '/data-catalog/new-metric',
+        dataCatalogMetric: (name: string, tab?: 'definition' | 'data-quality' | 'lineage'): string =>
             `/data-catalog/metrics/${name}${tab && tab !== 'definition' ? `?tab=${tab}` : ''}`,
     },
     fileSystemTypes: {},
@@ -41,7 +48,11 @@ export const manifest: ProductManifest = {
             iconType: 'data_catalog',
             iconColor: ['var(--color-product-data-catalog-light)', 'var(--color-product-data-catalog-dark)'],
             href: urls.dataCatalog(),
-            tags: ['beta'],
+            searchKeywords: ['semantic layer', 'metrics', 'data dictionary', 'glossary', 'governance'],
+            searchTabs: [
+                { name: 'Relationships', href: urls.dataCatalog('relationships') },
+                { name: 'Certifications', href: urls.dataCatalog('certifications') },
+            ],
             sceneKey: 'DataCatalog',
         },
     ],

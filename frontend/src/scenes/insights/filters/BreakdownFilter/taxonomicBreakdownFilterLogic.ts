@@ -10,6 +10,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -562,18 +563,28 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             const propertyFilterType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             const breakdownType = isBreakdownType(propertyFilterType) ? propertyFilterType : undefined
             const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(breakdownType)
-            const isHistogramable =
-                !!values.getPropertyDefinition(breakdown, propertyDefinitionType)?.is_numerical && props.isTrends
+            const propertyDefinition =
+                breakdownType === 'element' ? null : values.getPropertyDefinition(breakdown, propertyDefinitionType)
+            const isHistogramable = !!propertyDefinition?.is_numerical && props.isTrends
 
-            if (!props.updateBreakdownFilter || !breakdownType) {
+            if (!props.updateBreakdownFilter) {
+                return
+            }
+
+            if (!breakdownType) {
+                // propertyFilterType resolving means the group is pickable elsewhere, so a quiet
+                // return leaves the user with no feedback. Only report the case that used to drop silently.
+                if (propertyFilterType) {
+                    lemonToast.error(
+                        `Breakdowns by ${taxonomicGroup.name.toLowerCase()} are not supported here. Pick an event or person property instead.`
+                    )
+                }
                 return
             }
 
             // If property definitions are not loaded when this runs then a normalizeable URL will not be normalized.
             // For now, it is safe to fall back to `breakdown` instead of the property definition.
-            const isNormalizeable = isURLNormalizeable(
-                values.getPropertyDefinition(breakdown, propertyDefinitionType)?.name || (breakdown as string)
-            )
+            const isNormalizeable = isURLNormalizeable(propertyDefinition?.name || (breakdown as string))
 
             const { breakdownFilter } = values
 
@@ -720,23 +731,33 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             const breakdownValue = newBreakdown.value
 
             const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(breakdownType)
-            const isHistogramable =
-                !!values.getPropertyDefinition(breakdownValue, propertyDefinitionType)?.is_numerical && props.isTrends
+            const propertyDefinition =
+                breakdownType === 'element'
+                    ? null
+                    : values.getPropertyDefinition(breakdownValue, propertyDefinitionType)
+            const isHistogramable = !!propertyDefinition?.is_numerical && props.isTrends
 
             if (
                 !props.updateBreakdownFilter ||
-                !breakdownType ||
                 (breakdownType === previousBreakdown.type && breakdownValue === previousBreakdown.value) ||
-                checkBreakdownExists(values.breakdownFilter.breakdowns, breakdownValue, breakdownType)
+                (breakdownType != null &&
+                    checkBreakdownExists(values.breakdownFilter.breakdowns, breakdownValue, breakdownType))
             ) {
+                return
+            }
+
+            if (!breakdownType) {
+                if (newBreakdownPropertyFilterType) {
+                    lemonToast.error(
+                        `Breakdowns by ${newBreakdown.group.name.toLowerCase()} are not supported here. Pick an event or person property instead.`
+                    )
+                }
                 return
             }
 
             // If property definitions are not loaded when this runs then a normalizeable URL will not be normalized.
             // For now, it is safe to fall back to `breakdown` instead of the property definition.
-            const isNormalizeable = isURLNormalizeable(
-                values.getPropertyDefinition(breakdownValue, propertyDefinitionType)?.name || (breakdownValue as string)
-            )
+            const isNormalizeable = isURLNormalizeable(propertyDefinition?.name || (breakdownValue as string))
 
             if (
                 values.isMultipleBreakdownsEnabled &&

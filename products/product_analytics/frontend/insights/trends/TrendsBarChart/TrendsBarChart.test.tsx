@@ -6,7 +6,7 @@ import { dimensions, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/test
 
 import { ExportType } from '~/exporter/types'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { buildTrendsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
+import { buildTrendsQuery, chart, getChart, personsModal, renderInsight } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope, ChartDisplayType } from '~/types'
 
@@ -101,6 +101,24 @@ describe('TrendsBarChart (ActionsBar)', () => {
         expect(tooltip.row('Pageview')).toContain('134')
         expect(tooltip.row('Napped')).toContain('5')
         expect(tooltip.row('Napped')).not.toContain('139')
+        expect(chart.getTooltip()?.querySelector('[data-attr="hog-chart-tooltip-total"]')).toBeNull()
+    })
+
+    it('stacked breakdown tooltip shows the total of the stack', async () => {
+        // Napped by hedgehog at index 3: Spike=4, Bramble=1, Thistle=2, Conker=0, Prickles=1.
+        renderInsight({
+            query: trendsBar({
+                series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+            }),
+        })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
+
+        await chart.hoverTooltip(3)
+
+        expect(chart.getTooltip()?.querySelector('[data-attr="hog-chart-tooltip-total"]')).toHaveTextContent(
+            /^Total\s*8$/
+        )
     })
 
     it('opens the persons modal on click for a single series', async () => {
@@ -209,6 +227,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
         const tooltip = await chart.hoverTooltip(2)
 
         expect(tooltip.row('Pageview')).toMatch(/%/)
+        expect(chart.getTooltip()?.querySelector('[data-attr="hog-chart-tooltip-total"]')).toBeNull()
     })
 })
 
@@ -234,10 +253,10 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         // Axis titles are a layout-dependent overlay that commits a tick after the
         // chart's aria-label appears, so read them through waitFor rather than synchronously.
         await waitFor(() => {
-            expect(getHogChart().xAxisLabel()).toBe('Total events')
-            expect(getHogChart().yAxisLabel()).toBe('Series')
+            expect(getChart().xAxisLabel()).toBe('Total events')
+            expect(getChart().yAxisLabel()).toBe('Series')
             expect(
-                getHogChart()
+                getChart()
                     .element.querySelector<SVGTextElement>('[data-attr="hog-chart-axis-title-y"]')
                     ?.getAttribute('transform')
             ).toContain('rotate(-90')
@@ -275,7 +294,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
 
         await waitFor(
             () => {
-                const ticks = getHogChart().yTicks()
+                const ticks = getChart().yTicks()
                 expect(ticks).toHaveLength(expectedTicks)
                 if (containsTick) {
                     expect(ticks).toEqual(expect.arrayContaining([containsTick]))
@@ -299,11 +318,11 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
 
         await waitFor(
             () => {
-                expect(getHogChart().valueLabels().length).toBeGreaterThan(1)
+                expect(getChart().valueLabels().length).toBeGreaterThan(1)
             },
             { timeout: 5000 }
         )
-        const pillColors = getHogChart()
+        const pillColors = getChart()
             .valueLabels()
             .map((l) => l.color)
         expect(new Set(pillColors).size).toBeGreaterThan(1)
@@ -347,7 +366,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
 
         await waitFor(
             () => {
-                const ticks = getHogChart().yTicks()
+                const ticks = getChart().yTicks()
                 if (expectAllRows) {
                     expect(ticks).toHaveLength(totalRows)
                 } else {
@@ -505,11 +524,11 @@ describe('TrendsBarChart overlays', () => {
         await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
         await waitFor(
             () => {
-                expect(getHogChart().valueLabels().length).toBeGreaterThan(0)
+                expect(getChart().valueLabels().length).toBeGreaterThan(0)
             },
             { timeout: 5000 }
         )
-        const labels = getHogChart()
+        const labels = getChart()
             .valueLabels()
             .map((l) => l.text)
         // Pageview series peaks at 210 — it should appear among the rendered labels.
@@ -535,7 +554,7 @@ describe('TrendsBarChart overlays', () => {
         await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
         await waitFor(
             () => {
-                expect(getHogChart().annotationBadges().length).toBeGreaterThan(0)
+                expect(getChart().annotationBadges().length).toBeGreaterThan(0)
             },
             { timeout: 5000 }
         )
@@ -573,7 +592,7 @@ describe('TrendsBarChart overlays', () => {
             await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
             await waitFor(
                 () => {
-                    const lines = getHogChart().referenceLines()
+                    const lines = getChart().referenceLines()
                     expect(lines.map((l) => l.label)).toEqual(['Target'])
                     expect(lines[0].orientation).toBe(expectedOrientation)
                 },

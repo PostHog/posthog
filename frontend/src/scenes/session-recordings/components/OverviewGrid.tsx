@@ -4,6 +4,8 @@ import { ReactNode } from 'react'
 import { IconFilter } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+
 import { PropertyFilterType } from '~/types'
 
 interface OverviewItemBase {
@@ -48,6 +50,7 @@ export function OverviewGridItem({
     showFilter,
     filterDisabledReason,
     filterState,
+    copyValue,
 }: {
     children?: ReactNode
     description: ReactNode
@@ -59,6 +62,7 @@ export function OverviewGridItem({
     showFilter?: boolean
     filterDisabledReason?: string
     filterState?: 'active' | 'replace' | 'inactive'
+    copyValue?: string
 }): JSX.Element {
     const getFilterTooltip = (): string => {
         if (filterDisabledReason) {
@@ -75,7 +79,7 @@ export function OverviewGridItem({
 
     return (
         <div className="group flex flex-1 w-full justify-between items-center deprecated-space-x-4">
-            <div className={clsx('text-sm', fadeLabel && 'font-light')}>
+            <div className={clsx('text-sm shrink-0 truncate max-w-[60%]', fadeLabel && 'font-light')}>
                 <Tooltip title={itemKeyTooltip}>
                     {icon} {label}
                 </Tooltip>
@@ -84,6 +88,16 @@ export function OverviewGridItem({
                 <div className="truncate min-w-0">
                     <Tooltip title={description}>{children}</Tooltip>
                 </div>
+                {copyValue !== undefined && (
+                    <CopyToClipboardInline
+                        explicitValue={copyValue}
+                        description={typeof label === 'string' ? label : 'value'}
+                        tooltipMessage="Copy value"
+                        iconSize="xsmall"
+                        iconMargin={false}
+                        data-attr="player-overview-copy-property-value"
+                    />
+                )}
                 {showFilter && onFilterClick && (
                     <Tooltip title={getFilterTooltip()}>
                         <div

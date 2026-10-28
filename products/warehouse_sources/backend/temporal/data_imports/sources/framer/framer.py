@@ -14,7 +14,7 @@ import time
 import socket
 import http.client
 from collections.abc import Callable, Iterator
-from typing import Any, Optional, Protocol
+from typing import Any, Optional, Protocol, TypedDict
 from urllib.parse import unquote, urlencode, urljoin, urlsplit
 
 from structlog.types import FilteringBoundLogger
@@ -30,10 +30,31 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.framer imp
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer.settings import (
     DEPLOYMENTS_MAX_PAGES,
     DEPLOYMENTS_PAGE_SIZE,
+    LOCALIZATION_GROUPS_MAX,
     PRIMARY_KEYS,
 )
 
 FRAMER_HEADLESS_WS_URL = "wss://api.framer.com/channel/headless-plugin"
+
+FRAMER_SDK_VERSION_0_1_29 = "0.1.29"
+FRAMER_SDK_VERSION_5_1_0 = "5.1.0"
+
+
+class CollectionMethods(TypedDict):
+    fields: str
+    items: str
+
+
+# framer-api 5.x reads CMS collections through the `3` RPCs, whose array fields can nest
+# any scalar field type, not just images.
+COLLECTION_METHODS_BY_VERSION: dict[str, CollectionMethods] = {
+    FRAMER_SDK_VERSION_0_1_29: {"fields": "getCollectionFields2", "items": "getCollectionItems2"},
+    FRAMER_SDK_VERSION_5_1_0: {"fields": "getCollectionFields3", "items": "getCollectionItems3"},
+}
+
+# framer-api 5.x streams localization groups one at a time through a server-side cursor,
+# so a large project never arrives as one response. Older versions only have the bulk read.
+LOCALIZATION_GROUPS_STREAMED_VERSIONS = {FRAMER_SDK_VERSION_5_1_0}
 
 # The server boots a headless instance of the project on connect, which can take a while
 # for large projects — the official SDK allows 90s, so we do too.
@@ -150,6 +171,10 @@ class FramerClient:
         self._next_invocation_id = 0
         self._chunk_buffers: dict[str, list[str]] = {}
 
+    @property
+    def protocol_version(self) -> str:
+        return self._protocol_version
+
     def __enter__(self) -> "FramerClient":
         self.connect()
         return self
@@ -189,6 +214,13 @@ class FramerClient:
             # The server accepted the TCP/TLS connection but closed it before sending a
             # parseable HTTP response (e.g. an EOF while reading the status line) — a
             # headless-pool hiccup on Framer's side, not a credential or config problem.
+            raise FramerAPIError(
+                f"Connection closed during handshake: {e}", code="CONNECTION_CLOSED", retryable=True
+            ) from e
+        except ConnectionClosed as e:
+            # The TLS/TCP connection can also drop mid-handshake (e.g. a transient SSL error)
+            # after the HTTP upgrade succeeds, which `websockets` surfaces as ConnectionClosed
+            # rather than InvalidMessage. Same transient condition as the _receive() case below.
             raise FramerAPIError(
                 f"Connection closed during handshake: {e}", code="CONNECTION_CLOSED", retryable=True
             ) from e
@@ -333,6 +365,13 @@ def validate_credentials(project: str, api_key: str, protocol_version: str) -> t
         return False, "Couldn't connect to Framer. Check the project URL and API key, then try again."
 
 
+def _collection_methods(protocol_version: str) -> CollectionMethods:
+    methods = COLLECTION_METHODS_BY_VERSION.get(protocol_version)
+    if methods is None:
+        raise ValueError(f"Unsupported Framer SDK version: {protocol_version}")
+    return methods
+
+
 def _without_class_marker(node: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in node.items() if key != "__class"}
 
@@ -364,9 +403,10 @@ def _pages_rows(client: FramerClient) -> Iterator[list[dict[str, Any]]]:
 
 
 def _collections_rows(client: FramerClient) -> Iterator[list[dict[str, Any]]]:
+    methods = _collection_methods(client.protocol_version)
     rows = []
     for collection in _as_dict_rows(client.call("getCollections")):
-        fields = _as_dict_rows(client.call("getCollectionFields2", collection["id"], True))
+        fields = _as_dict_rows(client.call(methods["fields"], collection["id"], True))
         rows.append({**collection, "fields": fields})
     if rows:
         yield rows
@@ -414,11 +454,12 @@ def _collection_item_row(
 
 
 def _collection_items_rows(client: FramerClient) -> Iterator[list[dict[str, Any]]]:
+    methods = _collection_methods(client.protocol_version)
     for collection in _as_dict_rows(client.call("getCollections")):
         collection_id = collection["id"]
-        fields = _as_dict_rows(client.call("getCollectionFields2", collection_id, True))
+        fields = _as_dict_rows(client.call(methods["fields"], collection_id, True))
         field_names = {field.get("id"): str(field.get("name")) for field in fields if field.get("name")}
-        items = _as_dict_rows(client.call("getCollectionItems2", collection_id))
+        items = _as_dict_rows(client.call(methods["items"], collection_id))
         rows = [_collection_item_row(item, collection, field_names) for item in items]
         if rows:
             yield rows
@@ -457,6 +498,46 @@ def _deployments_rows(client: FramerClient, logger: Optional[FilteringBoundLogge
         logger.warning("Framer deployments page cap reached", max_pages=DEPLOYMENTS_MAX_PAGES)
 
 
+def _streamed_localization_groups_rows(
+    client: FramerClient, logger: Optional[FilteringBoundLogger]
+) -> Iterator[list[dict[str, Any]]]:
+    # The cursor belongs to this connection's session, which closes after the endpoint, so
+    # there is no releaseLocalizationGroupsCursor call.
+    cursor: Optional[str] = None
+    for _group_number in range(LOCALIZATION_GROUPS_MAX):
+        result = client.call("listLocalizationGroupsNext", {"cursor": cursor})
+        if not isinstance(result, dict) or "group" not in result:
+            raise FramerAPIError("Localization group response is missing its group", code="INVALID_RESPONSE")
+        group = result["group"]
+        if group is None:
+            return
+        if not isinstance(group, dict):
+            raise FramerAPIError("Localization group response has an invalid group", code="INVALID_RESPONSE")
+        cursor = result.get("cursor")
+        if not cursor:
+            raise FramerAPIError("Localization group response is missing its cursor", code="INVALID_RESPONSE")
+        yield [group]
+    if logger:
+        logger.warning("Framer localization groups cap reached", max_groups=LOCALIZATION_GROUPS_MAX)
+
+
+def _localization_groups_rows(
+    client: FramerClient, logger: Optional[FilteringBoundLogger]
+) -> Iterator[list[dict[str, Any]]]:
+    if client.protocol_version in LOCALIZATION_GROUPS_STREAMED_VERSIONS:
+        yield from _streamed_localization_groups_rows(client, logger)
+        return
+    rows = _as_dict_rows(client.call("getLocalizationGroups"))
+    if rows:
+        yield rows
+
+
+def _unpublished_page_changes_rows(client: FramerClient) -> Iterator[list[dict[str, Any]]]:
+    rows = _as_dict_rows(client.call("getUnpublishedPageChanges"))
+    if rows:
+        yield rows
+
+
 def _endpoint_rows(
     client: FramerClient, endpoint: str, logger: Optional[FilteringBoundLogger]
 ) -> Iterator[list[dict[str, Any]]]:
@@ -474,6 +555,10 @@ def _endpoint_rows(
         yield from _redirects_rows(client)
     elif endpoint == "Deployments":
         yield from _deployments_rows(client, logger)
+    elif endpoint == "LocalizationGroups":
+        yield from _localization_groups_rows(client, logger)
+    elif endpoint == "UnpublishedPageChanges":
+        yield from _unpublished_page_changes_rows(client)
     else:
         raise FramerAPIError(f"Unknown endpoint: {endpoint}", code="INVALID_REQUEST")
 

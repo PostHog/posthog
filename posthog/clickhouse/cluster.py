@@ -371,7 +371,13 @@ class ClickhouseCluster:
             )
 
         if self.__retry_policy is not None:
-            fn = self.__retry_policy(fn)
+            retry_policy = self.__retry_policy
+            credential_provider = self.__connection_overrides.get("credential_provider")
+            if credential_provider is not None:
+                # A task can hold its client for hours, so a reconnect would otherwise resend an expired token.
+                fn = _FreshCredential(callable=fn, credential_provider=credential_provider)
+                retry_policy = retry_policy.also_retrying(_is_authentication_failure)
+            fn = retry_policy(fn)
 
         def task():
             with pool.get_client() as client:
@@ -638,22 +644,28 @@ def get_cluster(
     retry_policy: RetryPolicy | None = None,
     host: str = settings.CLICKHOUSE_HOST,
     connection_overrides: Mapping[str, Any] | None = None,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ) -> ClickhouseCluster:
     extra_hosts = []
     for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
         extra_hosts.append(ConnectionInfo(host_config.pop("host"), None))
         assert len(host_config) == 0, f"unexpected values: {host_config!r}"
 
-    creds = get_clickhouse_creds(ClickHouseUser.DEFAULT)
+    creds = get_clickhouse_creds(ch_user)
     overrides = dict(connection_overrides or {})
+    caller_owns_credential = bool(overrides.keys() & {"user", "password", "credential_provider"})
     bootstrap_credential_provider: Callable[[], str] | None = None
-    if is_file_backed_user(creds, Workload.DEFAULT, creds.user):
+    if is_file_backed_user(creds, creds.user):
         bootstrap_credential_provider = creds.read_password
-        bootstrap_client = default_client(host=host, password=creds.read_password())
-        if not overrides.keys() & {"user", "password", "credential_provider"}:
-            overrides["credential_provider"] = creds.read_password
+        bootstrap_client = default_client(host=host, user=creds.user, password=creds.read_password())
+        if not caller_owns_credential:
+            overrides.update(user=creds.user, credential_provider=creds.read_password)
+    elif creds.user != settings.CLICKHOUSE_USER:
+        bootstrap_client = default_client(host=host, user=creds.user, password=creds.password)
+        if not caller_owns_credential:
+            overrides.update(user=creds.user, password=creds.password)
     else:
-        bootstrap_client = default_client(host=host)
+        bootstrap_client = default_client(host=host, user=creds.user, password=creds.password)
 
     return ClickhouseCluster(
         bootstrap_client,
@@ -767,8 +779,28 @@ class Retryable(Generic[T]):  # note: this class exists primarily to allow a rea
         raise RuntimeError("unexpected fallthrough")
 
 
+@frozen
+class _FreshCredential(Generic[T]):
+    callable: Callable[[Client], T]
+    credential_provider: Callable[[], str] = field(repr=False)
+
+    def __call__(self, client: Client) -> T:
+        client.connection.password = self.credential_provider()
+        return self.callable(client)
+
+
 class MutationNotFound(Exception):
     pass
+
+
+# The other replicas of a shard fetch a patch part asynchronously, so a read straight after a
+# patch-part sweep can still see the rows on a replica that has not fetched it. This is a grace
+# period before such a read, not a guarantee: a replica that lags longer still shows the rows.
+PATCH_PART_REPLICATION_GRACE_SECONDS = 0 if settings.TEST else 60
+
+
+def wait_for_patch_part_replication() -> None:
+    time.sleep(PATCH_PART_REPLICATION_GRACE_SECONDS)
 
 
 # not present in clickhouse_driver.errors.ErrorCodes; see ClickHouse src/Common/ErrorCodes.cpp
@@ -875,6 +907,10 @@ class MutationRunner(abc.ABC):
     # system.mutations, and adopting that finished mutation deletes nothing while reporting done.
     # None keeps the unbounded match, which is right only where the command text pins the data.
     reuse_since: datetime | None = field(default=None, kw_only=True)
+    # Run the statement as a lightweight update or delete, which writes a patch part and returns once
+    # it is written. There is no mutation in system.mutations to adopt, wait for capacity on, or poll.
+    # The table needs enable_block_number_column and enable_block_offset_column.
+    patch_parts: bool = field(default=False, kw_only=True)
 
     @abc.abstractmethod
     def get_all_commands(self) -> Set[str]:
@@ -896,6 +932,17 @@ class MutationRunner(abc.ABC):
         that can be used to check the status of the mutation and wait for it to be finished.
         """
         expected_commands = self.get_all_commands()
+
+        if self.patch_parts:
+            # lightweight_force fails the statement where a patch part is not possible, rather than
+            # running a mutation this runner would never wait for.
+            settings = {
+                **self.settings,
+                "lightweight_delete_mode": "lightweight_update_force",
+                "alter_update_mode": "lightweight_force",
+            }
+            client.execute(self.get_statement(expected_commands), self.parameters, settings=settings)
+            return MutationWaiter(self.table, set())
 
         if self.force:
             logger.info(
@@ -1004,6 +1051,12 @@ class MutationRunner(abc.ABC):
         # value containing the heredoc delimiter would close it early and the rest would parse as
         # SQL. Mutation parameters carry third-party strings (a person's distinct_id), so that is
         # reachable input, and the injection is silent because the surrounding array keeps its length.
+        # Render with this connection's context so datetimes are converted to the server timezone exactly
+        # as `client.execute` does when the mutation is submitted. A fresh pooled client has not connected
+        # yet and has no `server_info`, so connect first. Use a query rather than `force_connect()`, which
+        # leaves the connection marked mid-query and makes the next execute raise PartiallyConsumedQueryError.
+        if client.connection.context.server_info is None:
+            client.execute("SELECT 1")
         rendered_commands = [
             client.substitute_params(f"{alter_prefix}{cmd}", self.parameters, client.connection.context)
             for cmd in command_list

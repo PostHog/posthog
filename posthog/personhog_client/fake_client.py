@@ -22,6 +22,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID, uuid4
 
 from unittest.mock import patch
 
@@ -48,6 +49,12 @@ def _order_identified_first(
 
 # The replica's row budget when a request leaves max_rows at 0.
 DELETE_TOMBSTONED_DEFAULT_ROWS = 1000
+
+# The replica's cap on keys per version floor request.
+VERSION_RPC_MAX_KEYS = 250
+
+# The replica's cap on distinct ids across all persons in one restore request.
+RESTORE_MAX_DISTINCT_IDS = 1000
 
 
 class FakePersonHogClient:
@@ -89,7 +96,7 @@ class FakePersonHogClient:
         # keyed by (cohort_id, person_id) -> True
         self._cohort_members: dict[tuple[int, int], bool] = {}
 
-        # synthetic ids for persons created by split_person
+        # synthetic ids for persons created by split_person and ensure_person_version_floors
         self._next_split_person_id = 1_000_000_000
 
         # monotonic counter for distinct ID row IDs
@@ -491,6 +498,10 @@ class FakePersonHogClient:
 
     def create_group(self, request: group_pb2.CreateGroupRequest) -> group_pb2.CreateGroupResponse:
         self.calls.append(_Call("create_group", request))
+        key = (request.team_id, request.group_type_index, request.group_key)
+        existing = self._groups.get(key)
+        if existing is not None:
+            return group_pb2.CreateGroupResponse(group=existing)
         next_id = max((g.id for g in self._groups.values()), default=0) + 1
         group = group_pb2.Group(
             id=next_id,
@@ -501,7 +512,7 @@ class FakePersonHogClient:
             created_at=request.created_at,
             version=0,
         )
-        self._groups[(request.team_id, request.group_type_index, request.group_key)] = group
+        self._groups[key] = group
         response = group_pb2.CreateGroupResponse(group=group)
         return response
 
@@ -643,15 +654,14 @@ class FakePersonHogClient:
         self, request: person_pb2.DeletePersonsRequest, timeout: float | None = None
     ) -> person_pb2.DeletePersonsResponse:
         self.calls.append(_Call("delete_persons", request))
-        tombstone = request.mode == person_pb2.DELETE_PERSONS_MODE_TOMBSTONE
-        response = person_pb2.DeletePersonsResponse(tombstoned=tombstone)
+        if request.mode == person_pb2.DELETE_PERSONS_MODE_HARD:
+            raise ValueError("DELETE_PERSONS_MODE_HARD is not supported")
+        if request.mode not in (person_pb2.DELETE_PERSONS_MODE_UNSPECIFIED, person_pb2.DELETE_PERSONS_MODE_TOMBSTONE):
+            raise ValueError(f"Unknown DeletePersonsMode {request.mode}")
+        response = person_pb2.DeletePersonsResponse(tombstoned=True)
         for uuid in request.person_uuids:
             person = self._persons_by_uuid.get((request.team_id, uuid))
             if person is None:
-                continue
-            if not tombstone:
-                response.deleted_count += 1
-                self._remove_person(request.team_id, person)
                 continue
             tombstoned = response.tombstones.add(person_uuid=person.uuid)
             if person.is_deleted:
@@ -742,15 +752,25 @@ class FakePersonHogClient:
         # Mirrors the server, in person id order: a tombstoned person whose distinct ids fit the
         # leftover budget goes whole unless one is live (blocked); the first that does not fit
         # gives up as many as the leftover allows and stays pending; the rest stay pending untouched.
-        response = person_pb2.DeleteTombstonedPersonsResponse()
+        if request.person_uuids and request.bounded_persons:
+            raise ValueError("Set either person_uuids or bounded_persons, not both")
+        response = person_pb2.DeleteTombstonedPersonsResponse(version_guard_applied=bool(request.bounded_persons))
         budget = max(1, min(request.max_rows or DELETE_TOMBSTONED_DEFAULT_ROWS, self.tombstoned_delete_max_rows))
+        bounds: dict[str, int] = {}
+        for bounded in request.bounded_persons:
+            if bounded.max_version < 0:
+                raise ValueError("max_version must not be negative")
+            bounds[bounded.person_uuid] = min(bounds.get(bounded.person_uuid, bounded.max_version), bounded.max_version)
         candidates: list[tuple[str, person_pb2.Person]] = []
-        for uuid in dict.fromkeys(request.person_uuids):
+        for uuid in dict.fromkeys([*request.person_uuids, *bounds]):
             person = self._persons_by_uuid.get((request.team_id, uuid))
             if person is None:
                 continue
             if not person.is_deleted:
                 response.skipped_live_count += 1
+                continue
+            if request.bounded_persons and person.version > bounds[uuid]:
+                response.skipped_version_count += 1
                 continue
             candidates.append((uuid, person))
         candidates.sort(key=lambda candidate: candidate[1].id)
@@ -810,9 +830,10 @@ class FakePersonHogClient:
         self, request: person_pb2.SplitPersonRequest, timeout: float | None = None
     ) -> person_pb2.SplitPersonResponse:
         """Stateful mirror of the real RPC: validates ownership, creates new
-        persons with deterministic UUIDv5s (preserving created_at for
-        pre-existing ones), moves the distinct_ids, and bumps versions by 101.
-        Results are returned in request order, like the real service.
+        persons with deterministic UUIDv5s (a random UUID when a live person
+        holds it; a tombstone there is revived with its created_at), moves the
+        distinct_ids, and bumps versions by 101. Results are returned in
+        request order, like the real service.
         """
         self.calls.append(_Call("split_person", request))
 
@@ -835,8 +856,12 @@ class FakePersonHogClient:
             new_uuid = str(uuidFromDistinctId(request.team_id, did))
 
             existing = self._persons_by_uuid.get((request.team_id, new_uuid))
+            if existing is not None and not existing.is_deleted:
+                new_uuid = str(uuid4())
+                existing = None
             if existing is not None:
-                existing.version = new_person_version
+                existing.is_deleted = False
+                existing.version = max(existing.version + 1, new_person_version)
                 new_person = existing
             else:
                 self._next_split_person_id += 1
@@ -859,7 +884,7 @@ class FakePersonHogClient:
                 person_pb2.SplitResult(
                     distinct_id=did,
                     new_person_uuid=new_uuid,
-                    new_person_version=new_person_version,
+                    new_person_version=new_person.version,
                     pdi_version=pdi_version,
                     new_person_created_at_ms=new_person.created_at,
                 )
@@ -896,6 +921,291 @@ class FakePersonHogClient:
 
         person.version = request.min_version
         return person_pb2.SetPersonVersionFloorResponse(updated=True)
+
+    # ── Version floors ─────
+
+    @staticmethod
+    def _check_version_rpc_batch(keys: list[str]) -> None:
+        """Mirror the server's INVALID_ARGUMENT checks."""
+        if len(keys) > VERSION_RPC_MAX_KEYS:
+            raise ValueError(f"Maximum {VERSION_RPC_MAX_KEYS} keys per request")
+        if len(set(keys)) != len(keys):
+            raise ValueError("Duplicate key in request")
+
+    def _insert_person_tombstone(self, team_id: int, uuid: str, version: int) -> person_pb2.Person:
+        self._next_split_person_id += 1
+        return self.add_person(
+            team_id=team_id,
+            person_id=self._next_split_person_id,
+            uuid=uuid,
+            version=version,
+            is_deleted=True,
+            created_at=int(time.time() * 1000),
+        )
+
+    @staticmethod
+    def _floor_outcome(is_deleted: bool, version: int, min_version: int) -> person_pb2.VersionFloorOutcome:
+        if not is_deleted:
+            return person_pb2.VERSION_FLOOR_OUTCOME_LIVE
+        if version < min_version:
+            return person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_RAISED
+        return person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_AT_FLOOR
+
+    def ensure_person_version_floors(
+        self, request: person_pb2.EnsurePersonVersionFloorsRequest, timeout: float | None = None
+    ) -> person_pb2.EnsurePersonVersionFloorsResponse:
+        self.calls.append(_Call("ensure_person_version_floors", request))
+        self._check_version_rpc_batch([f.person_uuid for f in request.floors])
+        if any(f.min_version < 0 for f in request.floors):
+            raise ValueError("min_version must not be negative")
+        response = person_pb2.EnsurePersonVersionFloorsResponse()
+        for floor in request.floors:
+            person = self._persons_by_uuid.get((request.team_id, floor.person_uuid))
+            if person is None:
+                self._insert_person_tombstone(request.team_id, floor.person_uuid, floor.min_version)
+                response.results.add(
+                    person_uuid=floor.person_uuid,
+                    outcome=person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_INSERTED,
+                    version=floor.min_version,
+                )
+                continue
+            outcome = self._floor_outcome(person.is_deleted, person.version, floor.min_version)
+            if person.is_deleted:
+                person.version = max(person.version, floor.min_version)
+            response.results.add(person_uuid=floor.person_uuid, outcome=outcome, version=person.version)
+        return response
+
+    # ── Consistency scan reads ───────────────────────────────────────
+
+    def get_distinct_id_rows(
+        self, request: person_pb2.GetDistinctIdRowsRequest, timeout: float | None = None
+    ) -> person_pb2.GetDistinctIdRowsResponse:
+        """Mapping rows, live or tombstoned, for mappings the fake tracks per person."""
+        self.calls.append(_Call("get_distinct_id_rows", request))
+        if len(request.distinct_ids) > 1000:
+            raise ValueError("Maximum 1000 distinct ids per request")
+        wanted = set(request.distinct_ids)
+        response = person_pb2.GetDistinctIdRowsResponse()
+        rows = []
+        for (team_id, person_id), mappings in self._distinct_ids.items():
+            if team_id != request.team_id:
+                continue
+            person = self._persons_by_id.get((team_id, person_id))
+            for mapping in mappings:
+                if mapping.distinct_id not in wanted:
+                    continue
+                row = person_pb2.DistinctIdRow(
+                    distinct_id=mapping.distinct_id,
+                    person_id=person_id,
+                    version=mapping.version or 0,
+                    is_deleted=(team_id, mapping.distinct_id) in self._tombstoned_distinct_ids,
+                )
+                if person is not None:
+                    row.person_uuid = person.uuid
+                    row.person_is_deleted = person.is_deleted
+                rows.append(row)
+        response.rows.extend(sorted(rows, key=lambda r: r.distinct_id))
+        return response
+
+    def list_persons_for_team(
+        self, request: person_pb2.ListPersonsForTeamRequest, timeout: float | None = None
+    ) -> person_pb2.ListPersonsForTeamResponse:
+        self.calls.append(_Call("list_persons_for_team", request))
+        limit = request.limit or 1000
+        if not 1 <= limit <= 10_000:
+            raise ValueError("limit must be between 1 and 10000")
+        persons = sorted(
+            (
+                p
+                for (team_id, person_id), p in self._persons_by_id.items()
+                if team_id == request.team_id
+                and person_id > request.after_person_id
+                and (not request.HasField("before_person_id") or person_id < request.before_person_id)
+            ),
+            key=lambda p: p.id,
+        )[:limit]
+        response = person_pb2.ListPersonsForTeamResponse()
+        for person in persons:
+            response.persons.add(
+                id=person.id,
+                uuid=person.uuid,
+                version=person.version,
+                is_deleted=person.is_deleted,
+                has_live_distinct_ids=any(
+                    (request.team_id, d.distinct_id) not in self._tombstoned_distinct_ids
+                    for d in self._distinct_ids.get((request.team_id, person.id), [])
+                ),
+                created_at_ms=person.created_at,
+            )
+        if len(persons) == limit:
+            response.next_after_person_id = persons[-1].id
+        return response
+
+    # ── Consistency repair writes ────────────────────────────────────
+    # Mirror the replica's outcomes; the fake has no lifecycle marks or row locks.
+
+    def _check_repair_batch(self, keys: list[str], versions: list[int], *, uuid_keys: bool) -> None:
+        """Mirror the server's INVALID_ARGUMENT checks, which reject the whole request before any write."""
+        self._check_version_rpc_batch(keys)
+        if any(v < 0 for v in versions):
+            raise ValueError("versions must not be negative")
+        if uuid_keys:
+            parsed = [UUID(k) for k in keys]
+            if len(set(parsed)) != len(parsed):
+                raise ValueError("Duplicate key in request")
+
+    def raise_person_version_floors(
+        self, request: person_pb2.RaisePersonVersionFloorsRequest, timeout: float | None = None
+    ) -> person_pb2.RaisePersonVersionFloorsResponse:
+        self.calls.append(_Call("raise_person_version_floors", request))
+        self._check_repair_batch(
+            [f.person_uuid for f in request.floors], [f.min_version for f in request.floors], uuid_keys=True
+        )
+        response = person_pb2.RaisePersonVersionFloorsResponse()
+        for floor in request.floors:
+            person = self._persons_by_uuid.get((request.team_id, floor.person_uuid))
+            if person is None:
+                outcome, version = person_pb2.RAISE_OUTCOME_MISSING, 0
+            elif person.is_deleted:
+                outcome, version = person_pb2.RAISE_OUTCOME_NOT_LIVE, person.version
+            elif person.version >= floor.min_version:
+                outcome, version = person_pb2.RAISE_OUTCOME_AT_OR_ABOVE, person.version
+            else:
+                person.version = floor.min_version
+                outcome, version = person_pb2.RAISE_OUTCOME_RAISED, person.version
+            response.results.add(person_uuid=floor.person_uuid, outcome=outcome, version=version)
+        return response
+
+    def restore_persons(
+        self, request: person_pb2.RestorePersonsRequest, timeout: float | None = None
+    ) -> person_pb2.RestorePersonsResponse:
+        self.calls.append(_Call("restore_persons", request))
+        self._check_repair_batch(
+            [p.person_uuid for p in request.persons], [p.version for p in request.persons], uuid_keys=True
+        )
+        parsed_properties = [json.loads(p.properties) for p in request.persons]
+        if not all(isinstance(props, dict) for props in parsed_properties):
+            raise ValueError("properties must be a JSON object")
+        listed = [d for p in request.persons for d in p.distinct_ids]
+        if len(listed) > RESTORE_MAX_DISTINCT_IDS:
+            raise ValueError(f"At most {RESTORE_MAX_DISTINCT_IDS} distinct ids per restore, got {len(listed)}")
+        if len({d.distinct_id for d in listed}) != len(listed) or any(
+            not d.distinct_id or d.version < 0 for d in listed
+        ):
+            raise ValueError("distinct_ids must be unique, non-empty and at non-negative versions")
+        response = person_pb2.RestorePersonsResponse()
+        for restored, properties in zip(request.persons, parsed_properties):
+            existing = self._persons_by_uuid.get((request.team_id, restored.person_uuid))
+            if existing is not None:
+                outcome = (
+                    person_pb2.RESTORE_OUTCOME_EXISTS_TOMBSTONED
+                    if existing.is_deleted
+                    else person_pb2.RESTORE_OUTCOME_EXISTS_LIVE
+                )
+                response.results.add(
+                    person_uuid=restored.person_uuid, outcome=outcome, person_id=existing.id, version=existing.version
+                )
+                continue
+            free = [
+                d
+                for d in restored.distinct_ids
+                if (request.team_id, d.distinct_id) not in self._persons_by_distinct_id
+                and (request.team_id, d.distinct_id) not in self._tombstoned_distinct_ids
+            ]
+            if restored.distinct_ids and not free:
+                response.results.add(
+                    person_uuid=restored.person_uuid, outcome=person_pb2.RESTORE_OUTCOME_NO_DISTINCT_ID
+                )
+                continue
+            self._next_split_person_id += 1
+            person = self.add_person(
+                team_id=request.team_id,
+                person_id=self._next_split_person_id,
+                uuid=restored.person_uuid,
+                properties=properties,
+                created_at=restored.created_at_ms,
+                version=restored.version,
+                is_identified=restored.is_identified,
+                distinct_ids=[d.distinct_id for d in free],
+                distinct_id_versions={d.distinct_id: d.version for d in free},
+            )
+            response.results.add(
+                person_uuid=restored.person_uuid,
+                outcome=person_pb2.RESTORE_OUTCOME_INSERTED,
+                person_id=person.id,
+                version=person.version,
+                restored_distinct_ids=[d.distinct_id for d in free],
+            )
+        return response
+
+    def _mapping_row(self, team_id: int, distinct_id: str) -> person_pb2.DistinctIdRow | None:
+        owner = self._persons_by_distinct_id.get((team_id, distinct_id))
+        if owner is None:
+            return None
+        mapping = next(
+            (m for m in self._distinct_ids.get((team_id, owner.id), []) if m.distinct_id == distinct_id), None
+        )
+        if mapping is None:
+            return None
+        return person_pb2.DistinctIdRow(
+            distinct_id=distinct_id,
+            person_id=owner.id,
+            person_uuid=owner.uuid,
+            version=mapping.version or 0,
+            is_deleted=(team_id, distinct_id) in self._tombstoned_distinct_ids,
+            person_is_deleted=owner.is_deleted,
+        )
+
+    def write_distinct_ids(
+        self, request: person_pb2.WriteDistinctIdsRequest, timeout: float | None = None
+    ) -> person_pb2.WriteDistinctIdsResponse:
+        self.calls.append(_Call("write_distinct_ids", request))
+        self._check_repair_batch(
+            [w.distinct_id for w in request.writes], [w.min_version for w in request.writes], uuid_keys=False
+        )
+        for write in request.writes:
+            UUID(write.person_uuid)
+            if write.action not in (
+                person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT,
+                person_pb2.DISTINCT_ID_WRITE_ACTION_RAISE,
+            ):
+                raise ValueError(f"Unknown action {write.action} for {write.distinct_id}")
+        response = person_pb2.WriteDistinctIdsResponse()
+        team_id = request.team_id
+        for write in request.writes:
+            outcome = self._apply_distinct_id_write(team_id, write)
+            result = response.results.add(distinct_id=write.distinct_id, outcome=outcome)
+            row = self._mapping_row(team_id, write.distinct_id)
+            if row is not None:
+                result.row.CopyFrom(row)
+        return response
+
+    def _apply_distinct_id_write(
+        self, team_id: int, write: person_pb2.DistinctIdWrite
+    ) -> person_pb2.DistinctIdWriteOutcome:
+        person = self._persons_by_uuid.get((team_id, write.person_uuid))
+        if person is None or person.is_deleted:
+            return person_pb2.DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE
+        row = self._mapping_row(team_id, write.distinct_id)
+        exists = row is not None or (team_id, write.distinct_id) in self._tombstoned_distinct_ids
+        if write.action == person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT:
+            if exists:
+                return person_pb2.DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED
+            self._persons_by_distinct_id[(team_id, write.distinct_id)] = person
+            self._distinct_ids.setdefault((team_id, person.id), []).append(
+                person_pb2.DistinctIdWithVersion(distinct_id=write.distinct_id, version=write.min_version)
+            )
+            return person_pb2.DISTINCT_ID_WRITE_OUTCOME_APPLIED
+        expected_ok = not write.HasField("expected_version") or (
+            row is not None and row.version == write.expected_version
+        )
+        if row is None or row.is_deleted or row.person_id != person.id or not expected_ok:
+            return person_pb2.DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED
+        mapping = next(m for m in self._distinct_ids[(team_id, person.id)] if m.distinct_id == write.distinct_id)
+        if (mapping.version or 0) >= write.min_version:
+            return person_pb2.DISTINCT_ID_WRITE_OUTCOME_UNCHANGED
+        mapping.version = write.min_version
+        return person_pb2.DISTINCT_ID_WRITE_OUTCOME_APPLIED
 
     # ── Assertion helpers ────────────────────────────────────────────
 

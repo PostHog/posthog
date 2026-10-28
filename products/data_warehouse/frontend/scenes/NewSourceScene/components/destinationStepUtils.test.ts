@@ -1,4 +1,9 @@
-import { defaultDestinationIds, shouldShowDestinationStep, toggleDestinationId } from './destinationStepUtils'
+import {
+    defaultDestinationIds,
+    destinationStepBlockReason,
+    shouldShowDestinationStep,
+    toggleDestinationId,
+} from './destinationStepUtils'
 
 const WAREHOUSE = { id: 'wh', is_posthog_warehouse: true }
 const POSTGRES = { id: 'pg', is_posthog_warehouse: false }
@@ -57,6 +62,16 @@ describe('destination step', () => {
 
         it('selects nothing when the team has no warehouse destination row yet', () => {
             expect(defaultDestinationIds([POSTGRES], [])).toEqual([])
+        })
+    })
+
+    describe('destinationStepBlockReason', () => {
+        it.each([
+            ['every destination is turned off', 2, [], 'Pick at least one destination'],
+            ['one destination is on', 2, ['wh'], null],
+            ['the team has no destinations to pick from', 0, [], null],
+        ])('reports %s', (_label, availableCount, selectedIds, expected) => {
+            expect(destinationStepBlockReason(availableCount as number, selectedIds as string[])).toEqual(expected)
         })
     })
 

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DynamoDBSource(ResumableSource[DynamoDBSourceConfig, DynamoDBResumeConfig]):
+    codebase_detection = detect(
+        npm=("@aws-sdk/client-dynamodb", "@aws-sdk/lib-dynamodb", "@aws-sdk/util-dynamodb", "dynamoose"),
+        pypi=("pynamodb",),
+        cargo=("aws-sdk-dynamodb",),
+        go=("github.com/aws/aws-sdk-go-v2/service/dynamodb",),
+        maven=(
+            "software.amazon.awssdk:dynamodb",
+            "software.amazon.awssdk:dynamodb-enhanced",
+            "software.amazon.awssdk:dynamodbdocument-v1",
+            "software.amazon.awssdk:dynamodbmapper-v1",
+        ),
+        rubygems=("aws-sdk-dynamodb",),
+    )
+
     supported_versions = (DYNAMODB_API_VERSION,)
     default_version = DYNAMODB_API_VERSION
     api_docs_url = "https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/Welcome.html"
@@ -62,7 +77,7 @@ class DynamoDBSource(ResumableSource[DynamoDBSourceConfig, DynamoDBResumeConfig]
 Create an IAM user whose policy allows `dynamodb:ListTables`, `dynamodb:DescribeTable` and `dynamodb:Scan`, then paste its access key below. Tables are read with a full table scan, so every sync uses read capacity on the table.""",
             iconPath="/static/services/dynamodb.png",
             docsUrl="https://posthog.com/docs/cdp/sources/dynamodb",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["aws", "nosql"],
             fields=cast(
                 list[FieldType],

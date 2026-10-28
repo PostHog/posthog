@@ -62,8 +62,9 @@ export interface Series<Meta = unknown> {
     /** Bar charts only: per-bar ceiling (in value-axis units) of the bar's interactive extent. The
      *  region beyond the ceiling is a blank, fully inert gap — no hover, tooltip, highlight, or
      *  click (`onPointClick` passes through). On grouped charts with `bars.track`, the hatched
-     *  "share of a whole" track also fills only up to `trackData[i]` instead of the whole axis; on
-     *  stacked charts no track is drawn — the ceiling only bounds interactivity. Used by funnel
+     *  "share of a whole" track also fills only up to `trackData[i]` instead of the whole axis. With
+     *  `bars.track: 'solid'`, the band's track stops at its largest ceiling. On stacked charts
+     *  without a solid track, the ceiling only bounds interactivity. Used by funnel
      *  compare to show a shorter period's volume gap as empty space rather than drop-off. Omit (or
      *  leave an entry undefined) for the default full-axis extent. */
     trackData?: number[]
@@ -79,7 +80,7 @@ export interface Series<Meta = unknown> {
      *  Defaults to `unknown` so the library is meta-agnostic internally; adapters narrow it
      *  via `Series<MyMeta>` to get typed reads in their tooltip/click handlers. */
     meta?: Meta
-    /** Point markers configuration. Omit for no dots. */
+    /** Point markers configuration. Omit to dot only the points with no line through them. A radius of 0 hides every dot. */
     points?: {
         /** Radius in CSS pixels. */
         radius: number
@@ -250,11 +251,13 @@ export interface ChartConfig {
     yScaleType?: 'linear' | 'log'
     // — Axis formatting —
 
-    /** Custom x-axis tick label formatter. Return null to skip a tick. Called with (label, index). */
+    /** Custom x-axis tick label formatter. Return null to skip a tick. Called with (label, index).
+     *  On a horizontal bar chart it formats the category labels on the left axis. */
     xTickFormatter?: (value: string, index: number) => string | null
     /** Fixed x-axis tick-label rotation in degrees, clamped to -90..90. Defaults to 0. */
     xTickLabelRotation?: number
-    /** Custom y-axis tick label formatter. Overrides the built-in auto-precision formatter. */
+    /** Custom y-axis tick label formatter. Overrides the built-in auto-precision formatter.
+     *  On a horizontal bar chart it formats the value axis along the bottom. */
     yTickFormatter?: (value: number) => string
     /** Hide the x-axis labels and reduce bottom margin. */
     hideXAxis?: boolean
@@ -293,7 +296,9 @@ export interface ChartConfig {
     margins?: Partial<ChartMargins>
     /** Max pixel width for category (band) tick labels before they're truncated with an ellipsis,
      *  with the full value revealed on hover. Also clamps the axis margin to this width so a long
-     *  label can't push the plot off screen. Omit (default) to render labels untruncated. */
+     *  label can't push the plot off screen. Horizontal charts raise the cap to 30% of the chart
+     *  width when that is wider, so a wider chart shows more of each label. Omit (default) to
+     *  render labels untruncated. */
     maxCategoryLabelWidth?: number
     /** Per-axis config for multi-axis (dual y-axis) charts — one entry per distinct
      *  {@link Series.yAxisId}. When set, each axis formats ticks, labels, and scales independently;
@@ -437,8 +442,11 @@ export interface BarsConfig {
      *  `barLayout: 'grouped'`; ignored for stacked/percent (the "share of a whole"
      *  semantics don't apply when bars share a band). Defaults to `false`. `true` also
      *  highlights the track region on hover; pass `{ hover: false }` to draw the track
-     *  but leave it inert (no highlight when the cursor is over the empty remainder). */
-    track?: boolean | { hover?: boolean }
+     *  but leave it inert (no highlight when the cursor is over the empty remainder).
+     *  `'solid'` draws one neutral track per band instead, in `theme.gridColor`, behind every bar
+     *  in the band. It works on every layout, stops at the largest `trackData` ceiling in the band,
+     *  and has no hover highlight. */
+    track?: boolean | 'solid' | { hover?: boolean }
     /** Drop shadow under each bar so it reads as layered over a `track`. */
     shadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }
     /** Bar fill treatment. `flat` (default) is a solid color. `gradient` is a smooth diagonal
@@ -451,7 +459,8 @@ export interface BarsConfig {
      *  still span the full width — useful for few-category funnel-style charts. */
     maxBandRange?: number
     /** Inner gap between bars as a fraction of the band slot (0–1). Outer padding is half this
-     *  value, so `step = range / N`. Defaults to `DEFAULT_BAND_PADDING` in `scales.ts`. */
+     *  value, so `step = range / N`. Zero also removes spacing within grouped bars.
+     *  Defaults to `DEFAULT_BAND_PADDING` in `scales.ts`. */
     bandPadding?: number
     /** Floor (px) on a bar's thickness along the value axis, so a present-but-tiny value stays
      *  visible instead of collapsing to a sub-pixel sliver — e.g. a single error in a volume bucket
@@ -518,6 +527,8 @@ export interface LineChartConfig extends ChartConfig {
 /** Config for {@link ComboChart}, which draws bar, line, and area series together. `axisOrientation`
  *  is omitted on purpose — bars require a band x-axis, so combo charts are vertical-only. */
 export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
+    /** Gap between bar bands (0–1, default 0.2). Zero also removes within-group spacing. */
+    bandPadding?: number
     /** Type used for series that don't set {@link Series.type}. Defaults to `'line'`. */
     defaultSeriesType?: SeriesType
     /** Layout applied to *bar* series only — lines and areas never stack or group. Defaults to

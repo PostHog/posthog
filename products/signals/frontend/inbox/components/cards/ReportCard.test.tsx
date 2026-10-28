@@ -23,7 +23,7 @@ import { ReportCard } from './ReportCard'
 
 jest.mock('posthog-js')
 jest.mock('lib/components/TZLabel', () => ({
-    TZLabel: ({ time }: { time: string }) => <span>{time}</span>,
+    TZLabel: ({ time, title }: { time: string; title?: string }) => <span title={title}>{time}</span>,
 }))
 
 function makeReport(id: string, overrides: Partial<SignalReport> = {}): SignalReport {
@@ -59,9 +59,8 @@ function makeMetric(overrides: Partial<ReportMetricApi> = {}): ReportMetricApi {
     }
 }
 
-function enableRedesign(enabled = true): void {
-    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN, FEATURE_FLAGS.SIGNALS_REPORT_METRICS], {
-        [FEATURE_FLAGS.INBOX_REDESIGN]: enabled,
+function enableImpactColumn(enabled = true): void {
+    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_METRICS], {
         [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: enabled,
     })
 }
@@ -224,24 +223,89 @@ describe('ReportCard', () => {
         expect(logic.values.selectedReportIds).toEqual([])
     })
 
-    it('locks the selection while a bulk action is running', () => {
-        const setState = jest.spyOn(api.signalReports, 'setState').mockReturnValue(new Promise<never>(() => {}))
+    it.each([
+        ['hides', 'a report without a pull request', null, 'control', false],
+        ['shows', 'a pull request in the control variant', 'https://github.com/example/repo/pull/123', 'control', true],
+        ['hides', 'a pull request in the test variant', 'https://github.com/example/repo/pull/123', 'test', false],
+    ])('%s a conventional commit tag for %s', (_verb, _name, implementationPrUrl, titleVariant, showsTag) => {
+        cleanup()
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.SIGNALS_PLAIN_REPORT_TITLES]: titleVariant,
+        })
+        render(
+            <ReportCard
+                report={makeReport('r-2', {
+                    title: 'note(example): Example report title',
+                    implementation_pr_url: implementationPrUrl,
+                })}
+            />
+        )
+
+        expect(screen.getByText('Example report title')).toBeInTheDocument()
+        expect(screen.queryByText('note(example)') !== null).toBe(showsTag)
+    })
+
+    test.each([
+        [
+            "a person's reason",
+            { suppression_source: 'dismissed', dismissal_reason: 'analysis_wrong' },
+            "Agent's analysis is wrong",
+        ],
+        [
+            'the safety verdict',
+            { suppression_source: 'safety_judge', suppression_explanation: 'Asks to disable a check.' },
+            'Held back by safety check',
+        ],
+        ['the actionability verdict', { suppression_source: 'not_actionable' }, 'Judged not actionable'],
+        ['a system suppression', { suppression_source: 'system' }, 'Held back automatically'],
+    ] as const)('labels a suppressed row with %s', (_name, overrides, label) => {
+        cleanup()
+        render(<ReportCard report={makeReport('r-2', { status: SignalReportStatus.SUPPRESSED, ...overrides })} />)
+
+        expect(screen.getByText(label)).toBeInTheDocument()
+    })
+
+    it('shows no reason chip on a dismissed row without a reason', () => {
+        cleanup()
+        render(
+            <ReportCard
+                report={makeReport('r-2', { status: SignalReportStatus.SUPPRESSED, suppression_source: 'dismissed' })}
+            />
+        )
+
+        expect(screen.queryByText(/Held back|Judged not actionable/)).not.toBeInTheDocument()
+    })
+
+    it.each([
+        {
+            action: 'dismiss',
+            hold: () => jest.spyOn(api.signalReports, 'setState').mockReturnValue(new Promise<never>(() => {})),
+            start: () => logic.actions.bulkDismiss({ reason: 'other', note: '', correctedRepository: null }),
+        },
+        {
+            action: 'unassign',
+            hold: () => jest.spyOn(api, 'delete').mockReturnValue(new Promise<never>(() => {})),
+            start: () => logic.actions.bulkUnassignMe(['r-1']),
+        },
+    ])('locks the selection while a bulk $action is running', ({ hold, start }) => {
+        const pending = hold()
         act(() => {
             logic.actions.setSelectedReportIds(['r-1'])
-            logic.actions.bulkDismiss({ reason: 'other', note: '', correctedRepository: null })
+            start()
         })
 
         expect(fireEvent.click(cardLink(), { metaKey: true })).toBe(true)
         expect(fireEvent.click(cardLink(), { ctrlKey: true })).toBe(true)
         expect(fireEvent.click(cardLink())).toBe(false)
+        expect(fireEvent.click(cardLink(), { shiftKey: true })).toBe(false)
         expect(logic.values.selectedReportIds).toEqual(['r-1'])
-        setState.mockRestore()
+        pending.mockRestore()
     })
 
-    it('shows the affected-user snapshot in a redesigned row and prefers it over the primary metric', async () => {
+    it('shows the affected-user snapshot in a row and prefers it over the primary metric', async () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
+        enableImpactColumn()
         const user = userEvent.setup()
         const report = makeReport('r-2', {
             metrics: [
@@ -288,7 +352,7 @@ describe('ReportCard', () => {
     it.each(rowPartCases)('prints %s as a figure above its unit word', (_label, metric, figure, unitWord) => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
+        enableImpactColumn()
         const { container } = render(<ReportCard report={makeReport('r-2', { metrics: [metric] })} />)
 
         const block = container.querySelector('[data-attr="report-card-impact-metric"]')
@@ -300,7 +364,7 @@ describe('ReportCard', () => {
     it('draws a rate strip as a line instead of bars', () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
+        enableImpactColumn()
         const { container } = render(
             <ReportCard
                 report={makeReport('r-2', {
@@ -325,7 +389,7 @@ describe('ReportCard', () => {
     it('draws no strip for a single-bucket series but keeps the figure', () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
+        enableImpactColumn()
         const { container } = render(
             <ReportCard report={makeReport('r-2', { metrics: [makeMetric({ series: [9] })] })} />
         )
@@ -334,20 +398,30 @@ describe('ReportCard', () => {
         expect(screen.getByText('42')).toBeInTheDocument()
     })
 
-    it('keeps the timestamp on a redesigned row that has no figure', () => {
+    it.each([
+        ['the update time by default', true, undefined, '2026-07-01T10:00:00Z', 'Last updated'],
+        ['the creation time under a created sort', true, 'created_at', '2026-06-11T10:00:00Z', 'Created'],
+        ['the update time under an updated sort', false, 'updated_at', '2026-07-01T10:00:00Z', 'Last updated'],
+        ['the creation time without the impact column', false, 'created_at', '2026-06-11T10:00:00Z', 'Created'],
+    ] as const)('shows %s', (_name, impactColumn, timestampField, time, title) => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
-        const { container } = render(<ReportCard report={makeReport('r-2', { metrics: [] })} />)
+        enableImpactColumn(impactColumn)
+        const { container } = render(
+            <ReportCard
+                report={makeReport('r-2', { metrics: [], updated_at: '2026-07-01T10:00:00Z' })}
+                timestampField={timestampField}
+            />
+        )
 
         expect(container.querySelector('[data-attr="report-card-impact-metric"]')).toBeNull()
-        expect(screen.getByText('2026-06-11T10:00:00Z')).toBeInTheDocument()
+        expect(screen.getByText(time)).toHaveAttribute('title', title)
     })
 
     it('uses the primary snapshot when there is no affected-user snapshot', () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
+        enableImpactColumn()
         const report = makeReport('r-2', {
             metrics: [
                 makeMetric({
@@ -370,7 +444,7 @@ describe('ReportCard', () => {
     })
 
     it.each([
-        ['with the impact column', true, 'ranking_pr_merged', '2.7x merge'],
+        ['with the impact column', true, 'ranking_fix', '2.7x more likely'],
         [
             'without the impact column, falling back to the probability for a head with no lift',
             false,
@@ -380,18 +454,17 @@ describe('ReportCard', () => {
     ] as const)('shows the active head lift in the meta row %s', (_name, impactColumn, sortField, tagText) => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign(impactColumn)
+        enableImpactColumn(impactColumn)
         const report = makeReport('r-2', {
             metrics: [makeMetric()],
             ranking: {
-                served_key: 'report_embeddings@2026-09-30',
-                model_name: 'report_embeddings',
-                model_version: '2026-09-30',
-                manifest_version: 'manifest',
+                status: 'scored',
+                model: 'report_embeddings@2026-09-30',
                 scored_at: '2026-09-30T12:00:00Z',
-                scores: { pr_merged: 0.41, action: 0.062 },
-                lifts: { pr_merged: 2.7 },
-                readable_heads: ['action', 'pr_merged'],
+                predictions: [
+                    { outcome: 'action', probability: 0.062, lift: null, readable: true },
+                    { outcome: 'fix', probability: 0.41, lift: 2.7, readable: true },
+                ],
             },
         })
         const { container } = render(<ReportCard report={report} rankingSortField={sortField} />)
@@ -405,37 +478,36 @@ describe('ReportCard', () => {
     it('marks an unscored report under a model sort and adds no tag under a time sort', () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
-        const { rerender } = render(<ReportCard report={makeReport('r-2')} rankingSortField="ranking_pr_merged" />)
-        expect(screen.getByText('Not scored')).toBeInTheDocument()
+        enableImpactColumn()
+        const { rerender } = render(<ReportCard report={makeReport('r-2')} rankingSortField="ranking_fix" />)
+        expect(screen.getByText('Not scored yet')).toBeInTheDocument()
+
+        const stale = makeReport('r-2', {
+            ranking: {
+                status: 'stale',
+                model: 'report_embeddings@2026-09-30',
+                scored_at: '2026-09-30T12:00:00Z',
+                predictions: [{ outcome: 'fix', probability: 0.41, lift: 2.7, readable: true }],
+            },
+        })
+        rerender(<ReportCard report={stale} rankingSortField="ranking_fix" />)
+        expect(screen.getByText('Score out of date')).toBeInTheDocument()
+        expect(screen.queryByText('2.7x more likely')).not.toBeInTheDocument()
 
         rerender(<ReportCard report={makeReport('r-2')} />)
-        expect(screen.queryByText('Not scored')).not.toBeInTheDocument()
+        expect(screen.queryByText('Not scored yet')).not.toBeInTheDocument()
     })
 
-    it('does not show a list metric without a stored snapshot, under the legacy design, or with the metrics flag off', () => {
+    it('does not show a list metric without a stored snapshot or with the metrics flag off', () => {
         const report = makeReport('r-2', { metrics: [makeMetric({ value: null, value_at: null })] })
 
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
+        enableImpactColumn()
         const { container, rerender } = render(<ReportCard report={report} />)
         expect(container.querySelector('[data-attr="report-card-impact-metric"]')).toBeNull()
 
-        enableRedesign(false)
-        rerender(
-            <ReportCard
-                report={makeReport('r-2', {
-                    metrics: [{ ...report.metrics![0], value: 42 }],
-                })}
-            />
-        )
-        expect(container.querySelector('[data-attr="report-card-impact-metric"]')).toBeNull()
-
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN, FEATURE_FLAGS.SIGNALS_REPORT_METRICS], {
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
-            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: false,
-        })
+        enableImpactColumn(false)
         rerender(
             <ReportCard
                 report={makeReport('r-2', {

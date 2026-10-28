@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class QontoSourceConfig(config.Config):
-    pass
+    login: str
+    secret_key: str

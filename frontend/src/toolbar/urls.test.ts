@@ -19,8 +19,6 @@ describe('toolbar urls duplicate', () => {
         productTour: [['tour-id'], ['tour-id', 'step=2'], ['tour-id', '?step=2']],
         sessionProfile: [['session-uuid']],
         settings: [[], ['project'], ['environment-customization', 'date-and-time'], ['user']],
-        survey: [['survey-uuid'], ['new']],
-        surveys: [[], ['archived']],
         webAnalyticsWebVitals: [[]],
     }
 

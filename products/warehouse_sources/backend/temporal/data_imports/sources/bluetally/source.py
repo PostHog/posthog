@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BluetallySource(ResumableSource[BluetallySourceConfig, BluetallyResumeConfig]):
+    codebase_detection = detect(env=("^BLUETALLY_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -53,7 +56,7 @@ class BluetallySource(ResumableSource[BluetallySourceConfig, BluetallyResumeConf
             name=ExternalDataSourceType.BLUETALLY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="BlueTally",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your BlueTally API key to sync your IT asset management data into the PostHog Data warehouse.
 
 Create an API key in BlueTally under **Settings → API Keys**, then paste it here.

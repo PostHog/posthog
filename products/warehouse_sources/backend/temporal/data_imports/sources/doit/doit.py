@@ -1,7 +1,8 @@
 import hashlib
 import datetime
-from typing import Any, Optional
-from urllib.parse import urlencode
+from collections.abc import Callable
+from typing import Any, Optional, cast
+from urllib.parse import quote, urlencode
 
 import pyarrow as pa
 import structlog
@@ -16,7 +17,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     DEFAULT_RETRY,
     make_tracked_session,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_chained_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.doit.settings import DOIT_ENDPOINTS, DoItEndpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.doit import DoItSourceConfig
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -40,7 +54,8 @@ REPORT_TIMEOUT_SECONDS = (DOIT_CONNECT_TIMEOUT_SECONDS, 300)
 # Key under a schema's persisted `schema_metadata` holding the DoIt report id.
 REPORT_ID_METADATA_KEY = "report_id"
 
-DOIT_REPORTS_URL = "https://api.doit.com/analytics/v1/reports"
+DOIT_BASE_URL = "https://api.doit.com"
+DOIT_REPORTS_URL = f"{DOIT_BASE_URL}/analytics/v1/reports"
 
 # The listing endpoint paginates at 50 reports per page by default, signalling more pages via a
 # `pageToken` in the response body. The cap is a safety valve against a server that keeps returning
@@ -245,3 +260,94 @@ def doit_source(
         yield table_from_iterator((append_primary_key(dict(zip(column_names, row))) for row in rows), arrow_schema)
 
     return SourceResponse(name=report_name, items=lambda: get_rows(report_id), primary_keys=["id"])
+
+
+def _endpoint_resource(name: str, settings: DoItEndpoint) -> EndpointResource:
+    return {
+        "name": name,
+        "table_name": name.lower(),
+        "write_disposition": "replace",
+        "endpoint": {
+            "path": settings.path,
+            "params": dict(settings.params),
+            "data_selector": settings.data_selector,
+            "data_selector_required": True,
+            "paginator": {
+                "type": "cursor",
+                "cursor_path": settings.cursor_path,
+                "cursor_param": "pageToken",
+                "param_location": "query",
+                "raise_on_repeated_cursor": True,
+            },
+        },
+        "table_format": "delta",
+    }
+
+
+def _path_segment_field(field: str) -> str:
+    return f"{field}_path_segment"
+
+
+def _add_path_segments(fields: list[str]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    # The fan-out binds parent values into the path with no escaping, and DoiT insight keys are free
+    # strings that can hold `/`, `?` or `#`. The raw values still go into the child columns.
+    def _mapper(row: dict[str, Any]) -> dict[str, Any]:
+        for field in fields:
+            if row.get(field) is not None:
+                row[_path_segment_field(field)] = quote(str(row[field]), safe="")
+        return row
+
+    return _mapper
+
+
+def doit_endpoint_source(config: DoItSourceConfig, endpoint: str, team_id: int, job_id: str) -> SourceResponse:
+    settings = DOIT_ENDPOINTS[endpoint]
+    client_config: ClientConfig = {
+        "base_url": DOIT_BASE_URL,
+        "auth": {"type": "bearer", "token": config.api_key},
+    }
+
+    if settings.parent is None:
+        rest_config: RESTAPIConfig = {
+            "client": client_config,
+            "resource_defaults": {},
+            "resources": [_endpoint_resource(endpoint, settings)],
+        }
+        resource = rest_api_resource(rest_config, team_id, job_id, None)
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: resource,
+            primary_keys=settings.primary_keys,
+            column_hints=resource.column_hints,
+        )
+
+    parent = settings.parent
+    child = _endpoint_resource(endpoint, settings)
+    child["include_from_parent"] = list(parent.include_fields)
+    child_endpoint = cast(Endpoint, child["endpoint"])
+    child_endpoint["params"] = {
+        **(child_endpoint.get("params") or {}),
+        **{
+            param: {"type": "resolve", "resource": parent.name, "field": _path_segment_field(field)}
+            for param, field in parent.resolve_fields.items()
+        },
+    }
+    # An insight that DoiT drops between the insights listing and this fetch must not sink the run.
+    child_endpoint["response_actions"] = [{"status_code": 404, "action": "ignore"}]
+
+    parent_resource = _endpoint_resource(parent.name, DOIT_ENDPOINTS[parent.name])
+    parent_resource["data_map"] = _add_path_segments(list(parent.resolve_fields.values()))
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: build_chained_resource(
+            resources=[parent_resource, child],
+            child_name=endpoint,
+            parent_name=parent.name,
+            parent_field_renames=parent.include_fields,
+            client_config=client_config,
+            team_id=team_id,
+            job_id=job_id,
+        ),
+        primary_keys=settings.primary_keys,
+    )

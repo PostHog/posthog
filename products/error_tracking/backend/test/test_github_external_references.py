@@ -114,7 +114,7 @@ class TestErrorTrackingGitHubWebhook(SimpleTestCase):
         ]
     )
     @patch("products.error_tracking.backend.tasks.github.process_github_external_reference.delay")
-    @patch("posthog.ingress.github.provider.get_instance_setting", return_value="webhook-secret")
+    @patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value="webhook-secret")
     def test_verified_delivery_enqueues_supported_events(
         self,
         _name: str,
@@ -142,7 +142,6 @@ class TestErrorTrackingGitHubWebhook(SimpleTestCase):
 
         with (
             patch("products.conversations.backend.facade.api.accept_github_event"),
-            patch("products.tasks.backend.facade.api.accept_github_event_for_loops"),
             patch("products.tasks.backend.facade.api.accept_github_pull_request"),
             patch("products.workflows.backend.facade.api.accept_github_event"),
         ):
@@ -213,7 +212,7 @@ class TestGitHubExternalReferences(BaseTest):
 
         body = "\n".join(
             [
-                f"https://app.example.com/project/{self.team.id}/error_tracking/{direct_issue.id}",
+                f"https://app.example.com/project/{self.team.id}/error-tracking/{direct_issue.id}",
                 (
                     f"https://app.example.com/project/{self.team.id}/error_tracking/fingerprint/"
                     f"{quote(fingerprint, safe='')}"

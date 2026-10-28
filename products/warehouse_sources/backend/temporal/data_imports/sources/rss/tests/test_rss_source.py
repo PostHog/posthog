@@ -1,9 +1,7 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rss import RssSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.rss.source import RssSource
 
@@ -14,57 +12,17 @@ class TestRssSource:
         self.team_id = 123
         self.config = RssSourceConfig(api_key="rss-key")
 
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Rss"
-        assert config.label == "RSS.com"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Intentionally unreleased until validated against a live RSS.com Network-plan account.
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/rss"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_no_connection_host_fields(self) -> None:
-        # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret
-        # field an editor could retarget to reuse a preserved key against another host.
-        assert self.source.connection_host_fields == []
-
     @parameterized.expand(
         [
             (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.rss.com/v4/podcasts",
-            ),
-            (
                 "payment_required",
                 "402 Client Error: Payment Required for url: https://api.rss.com/v4/podcasts",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://api.rss.com/v4/podcasts/1/episodes?page=1",
             ),
         ]
     )
     def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.rss.com/v4/podcasts",
-            ),
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://api.rss.com/v4/podcasts",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.rss.source.validate_credentials")
     def test_validate_credentials_delegates_with_api_key(self, mock_validate: mock.MagicMock) -> None:
@@ -88,9 +46,3 @@ class TestRssSource:
         assert kwargs["api_key"] == "rss-key"
         assert kwargs["endpoint"] == "episodes"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown RSS.com schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

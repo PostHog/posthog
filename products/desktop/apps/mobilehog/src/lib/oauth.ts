@@ -25,9 +25,12 @@ const SCOPES = [
   "task:write",
   "integration:read",
   "conversation:write",
+  "insight:read",
   "query:read",
   "llm_skill:read",
 ];
+
+export const OAUTH_SCOPE_VERSION = 1;
 
 export interface OAuthTokens {
   access_token: string;

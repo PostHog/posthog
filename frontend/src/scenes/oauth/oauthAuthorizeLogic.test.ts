@@ -2,19 +2,14 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { decodeParams, router } from 'kea-router'
 
-import { DEFAULT_OAUTH_SCOPES, getScopeGroupLabel } from 'lib/scopes'
+import { DEFAULT_OAUTH_SCOPES, getScopeGroupLabel, scopeGroupLevel, scopeGroupTooltip } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
-import {
-    describeOAuthError,
-    oauthAuthorizeLogic,
-    scopeGroupAccessLevel,
-    scopeGroupLevelTooltip,
-} from './oauthAuthorizeLogic'
+import { describeOAuthError, oauthAuthorizeLogic } from './oauthAuthorizeLogic'
 
 describe('oauthAuthorizeLogic', () => {
     let logic: ReturnType<typeof oauthAuthorizeLogic.build>
@@ -118,7 +113,9 @@ describe('oauthAuthorizeLogic', () => {
         // Privileged/hidden objects are never grantable via /authorize; including them
         // would make the server reject the whole submit.
         expect(scopes).not.toContain('llm_gateway:read')
-        expect(scopes).not.toContain('metrics:read')
+        expect(scopes).not.toContain('wizard_session:read')
+        // metrics is OAuth-grantable, so the fallback keeps it.
+        expect(scopes).toContain('metrics:read')
     })
 
     it('uses the server-computed read set when expanding the wildcard', () => {
@@ -517,16 +514,30 @@ describe('oauthAuthorizeLogic', () => {
         })
 
         it('sets every row of a group with one group action, clamped to each ceiling', () => {
+            logic.actions.loadOAuthApplicationSuccess({
+                name: 'Test app',
+                client_id: 'test-client',
+                is_verified: true,
+                logo_uri: null,
+            })
             logic.actions.setScopes(['openid', 'session_recording:write', 'session_recording_playlist:read'])
             logic.actions.setScopeGroupAccess(['session_recording', 'session_recording_playlist'], 'none')
             expect(logic.values.effectiveScopes).toEqual(['openid'])
-            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBe('none')
-            expect(scopeGroupLevelTooltip(logic.values.adjustableScopeRows, 'none', 'Test app')).toBeUndefined()
+            expect(scopeGroupLevel(logic.values.adjustableScopeRows)).toBe('none')
+            expect(scopeGroupTooltip(logic.values.adjustableScopeRows, 'none')).toBeUndefined()
             const [recordingRow, playlistRow] = logic.values.adjustableScopeRows
-            const requiredRows = [{ ...recordingRow, minLevel: 'read' as const, value: 'read' as const }, playlistRow]
-            expect(scopeGroupAccessLevel(requiredRows)).toBe('none')
-            expect(scopeGroupLevelTooltip(requiredRows, 'none', 'Test app')).toBe(
-                '1 of these permissions stays on. Test app requires it.'
+            const requiredRows = [
+                {
+                    ...recordingRow,
+                    minLevel: 'read' as const,
+                    value: 'read' as const,
+                    disabledReasons: { none: 'Test app requires at least read access' },
+                },
+                playlistRow,
+            ]
+            expect(scopeGroupLevel(requiredRows)).toBe('none')
+            expect(scopeGroupTooltip(requiredRows, 'none')).toBe(
+                '1 of these permissions stays at read: Test app requires at least read access.'
             )
             logic.actions.setScopeGroupAccess(['session_recording', 'session_recording_playlist'], 'write')
             expect(logic.values.effectiveScopes).toEqual([
@@ -534,14 +545,14 @@ describe('oauthAuthorizeLogic', () => {
                 'session_recording:write',
                 'session_recording_playlist:read',
             ])
-            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBe('write')
-            expect(scopeGroupLevelTooltip(logic.values.adjustableScopeRows, 'write', 'Test app')).toBe(
-                '1 of these permissions stays at read. Test app did not request write access.'
+            expect(scopeGroupLevel(logic.values.adjustableScopeRows)).toBe('write')
+            expect(scopeGroupTooltip(logic.values.adjustableScopeRows, 'write')).toBe(
+                '1 of these permissions stays at read: Not requested by Test app.'
             )
             logic.actions.setScopeAccess('session_recording', 'read')
-            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBe('read')
+            expect(scopeGroupLevel(logic.values.adjustableScopeRows)).toBe('read')
             logic.actions.setScopeAccess('session_recording_playlist', 'none')
-            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBeUndefined()
+            expect(scopeGroupLevel(logic.values.adjustableScopeRows)).toBeUndefined()
         })
     })
 })

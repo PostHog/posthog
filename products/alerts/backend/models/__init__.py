@@ -1,13 +1,11 @@
 from .alert import Alert, AlertCheck, AlertConfiguration, AlertSubscription, Threshold
-from .platform_alert import PlatformAlert, PlatformAlertConfiguration, PlatformAlertThread
+from .investigation import InsightAlertInvestigation
 
 __all__ = [
     "Alert",
     "AlertCheck",
     "AlertConfiguration",
     "AlertSubscription",
-    "PlatformAlert",
-    "PlatformAlertConfiguration",
-    "PlatformAlertThread",
+    "InsightAlertInvestigation",
     "Threshold",
 ]

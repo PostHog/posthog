@@ -8,6 +8,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.views import APIView
 
+from posthog.api.ordering import StableOrderingFilter
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.permissions import APIScopePermission, IsStaffUser
 
@@ -281,7 +282,7 @@ class BatchImportSupportViewSet(viewsets.ReadOnlyModelViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
     queryset = BatchImport.objects.select_related("team").order_by("-created_at")
     serializer_class = BatchImportSupportListSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, StableOrderingFilter]
     filterset_fields = ["status", "team_id"]
     # No `id` search (icontains is unsupported on a native Postgres uuid column) - exact id
     # lookups are what `retrieve` is for.

@@ -3,6 +3,8 @@ import Papa from 'papaparse'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { ensureStringIsNotBlank } from 'lib/utils/strings'
+import { getResultSeries } from 'scenes/insights/utils/resultSeries'
 
 import {
     EventsHeatMapColumnAggregationResult,
@@ -224,11 +226,27 @@ export class TrendsAdapter implements ExportAdapter {
     ) {}
 
     private getSeriesLabel(series: Record<string, any>): string {
-        // Use breakdown value if available, otherwise use action name or label
+        // Use breakdown value if available, otherwise use the series rename or label
         const breakdownValue = series.breakdown_value
-        const baseName = breakdownValue ?? series.action?.custom_name ?? series.label ?? 'Series'
+        const baseName = breakdownValue ?? this.getSeriesRename(series) ?? series.label ?? 'Series'
         const compareLabel = series.compare_label
         return compareLabel ? `${baseName} (${compareLabel})` : String(baseName)
+    }
+
+    /**
+     * The rename the trends runner reports for a series: its `custom_name`, or a `name` other than the series' raw
+     * label. Mirrors `resolve_series_custom_name` in `query_runner.py`. A row without a breakdown carries the raw
+     * label as its `label`, and a breakdown row is named by its breakdown value instead.
+     */
+    private getSeriesRename(series: Record<string, any>): string | null {
+        const source = this.query?.kind === NodeKind.InsightVizNode ? (this.query as InsightVizNode).source : null
+        const node = getResultSeries(isTrendsQuery(source) ? source : null, series).node
+        const customName = ensureStringIsNotBlank(node?.custom_name)
+        if (customName) {
+            return customName
+        }
+        const name = ensureStringIsNotBlank(node?.name)
+        return name && name !== series.label ? name : null
     }
 
     // Value-aggregated displays (bold number, pie, total value bar) return a single number per

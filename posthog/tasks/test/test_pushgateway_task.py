@@ -1,138 +1,103 @@
 from collections.abc import Generator
-from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from celery import shared_task
+from celery.exceptions import Ignore, Reject, Retry, SoftTimeLimitExceeded
 from prometheus_client import CollectorRegistry, Gauge
+from pytest_django import Settings
 
-from posthog.tasks.utils import PushGatewayTask
+from posthog.tasks.utils import FAILURE_PUSH_TIMEOUT_SECONDS, PushGatewayTask
+
+TASK_GAUGE = "sample_task_rows_processed"
+
+
+# Celery keeps the first task registered under a name. A second definition with the same name runs the first body.
+# The cases pass the error to one task as an argument instead of defining a task for each case.
+@shared_task(bind=True, base=PushGatewayTask, name="test.pushgateway.sample_task")
+def sample_task(self: PushGatewayTask, error: Exception | None = None) -> str:
+    Gauge(TASK_GAUGE, "Rows the task processed", registry=self.metrics_registry).set(42)
+    if error is not None:
+        raise error
+    return "done"
+
+
+def _pushed_registry(push: MagicMock) -> CollectorRegistry:
+    push.assert_called_once()
+    assert push.call_args.kwargs["job"] == "celery_sample_task"
+    registry = push.call_args.kwargs["registry"]
+    assert isinstance(registry, CollectorRegistry)
+    return registry
 
 
 class TestPushGatewayTask:
-    @pytest.fixture
-    def mock_registry(self) -> CollectorRegistry:
-        return CollectorRegistry()
+    @pytest.fixture(autouse=True)
+    def pushgateway_address(self, settings: Settings) -> None:
+        settings.PROM_PUSHGATEWAY_ADDRESS = "http://pushgateway.example.com:9091"
 
     @pytest.fixture
-    def mock_push_context(self, mock_registry: CollectorRegistry) -> Generator[MagicMock]:
-        with patch("posthog.tasks.utils.pushed_metrics_registry") as mock:
-            mock_context = MagicMock()
-            mock_context.__enter__ = MagicMock(return_value=mock_registry)
-            mock_context.__exit__ = MagicMock(return_value=False)
-            mock.return_value = mock_context
+    def push_to_gateway(self) -> Generator[MagicMock]:
+        with patch("posthog.metrics.push_to_gateway") as mock:
             yield mock
 
-    def test_success_metrics_set_on_successful_task(
-        self, mock_push_context: MagicMock, mock_registry: CollectorRegistry
-    ) -> None:
-        @shared_task(bind=True, base=PushGatewayTask, name="test.successful_task")
-        def successful_task(self: Any) -> str:
-            return "done"
+    @pytest.fixture
+    def pushadd_to_gateway(self) -> Generator[MagicMock]:
+        with patch("posthog.metrics.pushadd_to_gateway") as mock:
+            yield mock
 
-        result = successful_task()
+    @pytest.fixture
+    def run_duration(self) -> Generator[float]:
+        with patch("posthog.tasks.utils.time") as mock_time:
+            mock_time.monotonic.side_effect = [100.0, 107.5]
+            yield 7.5
+
+    def test_completed_run_puts_its_metrics_and_returns_despite_a_push_error(
+        self, run_duration: float, push_to_gateway: MagicMock, pushadd_to_gateway: MagicMock
+    ) -> None:
+        push_to_gateway.side_effect = OSError("pushgateway unreachable")
+
+        result = sample_task()
 
         assert result == "done"
-        success_sample = mock_registry.get_sample_value("posthog_celery_successful_task_success")
-        assert success_sample == 1
-        duration_sample = mock_registry.get_sample_value("posthog_celery_successful_task_duration_seconds")
-        assert duration_sample is not None
-        assert duration_sample >= 0
+        registry = _pushed_registry(push_to_gateway)
+        assert registry.get_sample_value("posthog_celery_sample_task_success") == 1
+        assert registry.get_sample_value("posthog_celery_sample_task_duration_seconds") == run_duration
+        assert registry.get_sample_value(TASK_GAUGE) == 42
+        pushadd_to_gateway.assert_not_called()
 
-    def test_failure_metrics_set_on_failed_task(
-        self, mock_push_context: MagicMock, mock_registry: CollectorRegistry
+    @pytest.mark.parametrize(
+        "error",
+        [ValueError("boom"), SoftTimeLimitExceeded()],
+        ids=["value_error", "soft_time_limit"],
+    )
+    def test_failed_run_posts_only_failure_and_duration_and_reraises_despite_a_push_error(
+        self, error: Exception, run_duration: float, push_to_gateway: MagicMock, pushadd_to_gateway: MagicMock
     ) -> None:
-        @shared_task(bind=True, base=PushGatewayTask, name="test.failing_task")
-        def failing_task(self: Any) -> None:
-            raise ValueError("test error")
+        pushadd_to_gateway.side_effect = OSError("pushgateway unreachable")
 
-        with pytest.raises(ValueError, match="test error"):
-            failing_task()
+        with pytest.raises(type(error)) as exc_info:
+            sample_task(error)
 
-        success_sample = mock_registry.get_sample_value("posthog_celery_failing_task_success")
-        assert success_sample == 0
-        duration_sample = mock_registry.get_sample_value("posthog_celery_failing_task_duration_seconds")
-        assert duration_sample is not None
-        assert duration_sample >= 0
+        assert exc_info.value is error
+        registry = _pushed_registry(pushadd_to_gateway)
+        assert pushadd_to_gateway.call_args.kwargs["timeout"] == FAILURE_PUSH_TIMEOUT_SECONDS
+        assert registry.get_sample_value("posthog_celery_sample_task_success") == 0
+        assert registry.get_sample_value("posthog_celery_sample_task_duration_seconds") == run_duration
+        assert registry.get_sample_value(TASK_GAUGE) is None
+        push_to_gateway.assert_not_called()
 
-    def test_custom_metrics_can_be_added(self, mock_push_context: MagicMock, mock_registry: CollectorRegistry) -> None:
-        @shared_task(bind=True, base=PushGatewayTask, name="test.task_with_custom_metric")
-        def task_with_custom_metric(self: Any) -> str:
-            custom = Gauge("custom_metric", "Custom", registry=self.metrics_registry)
-            custom.set(42)
-            return "done"
-
-        task_with_custom_metric()
-
-        custom_sample = mock_registry.get_sample_value("custom_metric")
-        assert custom_sample == 42
-
-    def test_exception_is_reraised(self, mock_push_context: MagicMock, mock_registry: CollectorRegistry) -> None:
-        @shared_task(bind=True, base=PushGatewayTask, name="test.exception_task")
-        def exception_task(self: Any) -> None:
-            raise RuntimeError("specific error")
-
-        with pytest.raises(RuntimeError, match="specific error"):
-            exception_task()
-
-    def test_duration_is_recorded_even_on_failure(
-        self, mock_push_context: MagicMock, mock_registry: CollectorRegistry
+    @pytest.mark.parametrize(
+        "predicate",
+        [Retry(), Ignore(), Reject("reason", requeue=False)],
+        ids=["retry", "ignore", "reject"],
+    )
+    def test_task_predicate_is_reraised_and_pushes_nothing(
+        self, predicate: Exception, push_to_gateway: MagicMock, pushadd_to_gateway: MagicMock
     ) -> None:
-        @shared_task(bind=True, base=PushGatewayTask, name="test.duration_on_failure_task")
-        def duration_on_failure_task(self: Any) -> None:
-            raise ValueError("failure")
+        with pytest.raises(type(predicate)) as exc_info:
+            sample_task(predicate)
 
-        with pytest.raises(ValueError):
-            duration_on_failure_task()
-
-        duration_sample = mock_registry.get_sample_value("posthog_celery_duration_on_failure_task_duration_seconds")
-        assert duration_sample is not None
-        assert duration_sample >= 0
-
-    def test_task_name_extracted_correctly(
-        self, mock_push_context: MagicMock, mock_registry: CollectorRegistry
-    ) -> None:
-        @shared_task(bind=True, base=PushGatewayTask, name="products.feature_flags.backend.tasks.my_complex_task")
-        def my_complex_task(self: Any) -> str:
-            return "done"
-
-        my_complex_task()
-
-        mock_push_context.assert_called_once_with("celery_my_complex_task")
-
-    def test_pushgateway_failure_does_not_fail_task(self) -> None:
-        """
-        Verify that failures in the pushgateway (during metrics push) don't cause
-        the task itself to fail. The real pushed_metrics_registry catches push
-        exceptions internally, so we simulate that by having __exit__ return False
-        (normal exit, no exception suppression needed).
-        """
-        with patch("posthog.tasks.utils.pushed_metrics_registry") as mock:
-            mock_context = MagicMock()
-            mock_context.__enter__ = MagicMock(return_value=CollectorRegistry())
-            mock_context.__exit__ = MagicMock(return_value=False)
-            mock.return_value = mock_context
-
-            @shared_task(bind=True, base=PushGatewayTask, name="test.task_with_push_failure")
-            def task_with_push_failure(self: Any) -> str:
-                return "completed"
-
-            result = task_with_push_failure()
-
-            assert result == "completed"
-
-    def test_registry_accessible_during_execution(
-        self, mock_push_context: MagicMock, mock_registry: CollectorRegistry
-    ) -> None:
-        registry_during_execution: list[CollectorRegistry | None] = []
-
-        @shared_task(bind=True, base=PushGatewayTask, name="test.registry_access_task")
-        def registry_access_task(self: Any) -> str:
-            registry_during_execution.append(self.metrics_registry)
-            return "done"
-
-        registry_access_task()
-
-        assert len(registry_during_execution) == 1
-        assert registry_during_execution[0] is mock_registry
+        assert exc_info.value is predicate
+        push_to_gateway.assert_not_called()
+        pushadd_to_gateway.assert_not_called()

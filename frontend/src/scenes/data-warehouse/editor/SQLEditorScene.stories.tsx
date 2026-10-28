@@ -1,18 +1,39 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { Decorator, Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
 import { BindLogic } from 'kea'
+import { delay } from 'msw'
 import { useEffect, useRef } from 'react'
 
+import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import type { DataWarehouseSavedQuery } from '~/types'
+import type { MockResolverInfo, Mocks } from '~/mocks/utils'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { IMAGE_QUERY, IMAGE_RESULTS } from '~/queries/nodes/HogQLX/image.fixtures'
+import { BIConfig, BIField } from '~/queries/schema/schema-business-intelligence'
+import {
+    DatabaseSchemaMaterializedViewTable,
+    DatabaseSchemaTableCertificationStatus,
+    NodeKind,
+} from '~/queries/schema/schema-general'
+import type { DataWarehouseSavedQuery, InsightShortId } from '~/types'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
-import { expect, userEvent, waitFor, within } from 'storybook/test'
+import {
+    buildBIQuery,
+    getBIResultDimensions,
+    getBIResultMeasureColumns,
+} from 'products/business_intelligence/frontend/biEditorTypes'
+import { biSceneLogic } from 'products/business_intelligence/frontend/biSceneLogic'
 
-import { BIConfig, BIField, buildBIQuery } from './bi/biEditorTypes'
+import { expect, userEvent } from 'storybook/test'
+
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
@@ -71,6 +92,26 @@ const SQL_RESULTS = {
         ['filesystem', 'exec', 5200, 2290, 208],
         ['filesystem', 'read-file', 980, 180, 3],
         ['filesystem', 'write-file', 420, 240, 11],
+    ],
+}
+
+const HARNESS_SQL = `SELECT properties.$virt_mcp_harness AS harness, count() AS calls
+FROM events
+WHERE event = '$mcp_tool_call'
+GROUP BY harness
+ORDER BY calls DESC`
+
+const HARNESS_RESULTS = {
+    columns: ['harness', 'calls'],
+    column_formats: ['mcp_harness', null],
+    types: [
+        ['harness', 'String'],
+        ['calls', 'UInt64'],
+    ],
+    results: [
+        ['Claude Code', 12],
+        ['OpenAI Codex', 7],
+        ['Other', 2],
     ],
 }
 
@@ -139,6 +180,27 @@ const BI_EVENTS_FIELDS = Object.fromEntries(
         ] as const
     ).map(([name, type]) => [name, { name, hogql_value: name, type, schema_valid: true }])
 )
+const BI_WORKSHEET_RESULTS = {
+    columns: ['bi_row_timestamp', 'bi_column_event', 'sum_revenue'],
+    types: [
+        ['bi_row_timestamp', 'DateTime'],
+        ['bi_column_event', 'String'],
+        ['sum_revenue', 'Float64'],
+    ],
+    results: [
+        ['2026-06-01', 'purchase', 120],
+        ['2026-06-02', 'purchase', 180],
+        ['2026-06-03', 'purchase', 150],
+    ],
+    hasMore: false,
+}
+const pinQueryTimer = (): (() => void) => {
+    const originalNow = performance.now
+    performance.now = () => 0
+    return () => {
+        performance.now = originalNow
+    }
+}
 
 const meta: Meta = {
     component: App,
@@ -148,6 +210,9 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/environments/:team_id/external_data_sources/wizard': () => [200, AVAILABLE_SOURCES],
+                '/api/:scope/:team_id/external_data_sources/connections/': [],
+                '/api/:scope/:team_id/external_data_sources/direct_connection_options/': [],
+                '/api/projects/:team_id/query_tab_state/user': [200, { tabs: [] }],
             },
             post: {
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
@@ -158,6 +223,12 @@ const meta: Meta = {
                     }
                     if (kind === 'HogQLMetadata') {
                         return [200, { errors: [], warnings: [], notices: [], isValid: true }]
+                    }
+                    if (body?.query?.query === 'SELECT category, revenue FROM example_sales') {
+                        return [200, CHART_EXPERIMENT_RESULTS]
+                    }
+                    if (JSON.stringify(body?.query ?? {}).includes('$virt_mcp_harness')) {
+                        return [200, HARNESS_RESULTS]
                     }
                     return [200, SQL_RESULTS]
                 },
@@ -182,6 +253,107 @@ export default meta
 
 type Story = StoryObj<{}>
 export const TopToolsPerServer: Story = {}
+
+export const CustomerImages: Story = {
+    tags: ['hogqlx-images'],
+    parameters: {
+        pageUrl: urls.sqlEditor({ query: IMAGE_QUERY }),
+        testOptions: { waitForSelector: 'img[alt="Custom SVG"]', viewport: { width: 1600, height: 900 } },
+        msw: {
+            mocks: {
+                post: {
+                    '/api/environments/:team_id/query/HogQLQuery/': IMAGE_RESULTS,
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const editor = sqlEditorLogic({ tabId: 'default' })
+        await waitFor(() => {
+            expect(editor.values.queryInput).toBe(IMAGE_QUERY)
+            expect(dataNodeLogic.findMounted({ key: editor.values.dataLogicKey })).toBeDefined()
+        })
+        const runButton = canvasElement.querySelector('[data-attr="sql-editor-run-button"]')
+        expect(runButton).not.toBeNull()
+        await userEvent.click(runButton!)
+        await waitFor(() => {
+            const image = canvasElement.querySelector('img[alt="Custom SVG"]')
+            expect(image).not.toBeNull()
+            expect(image!.getBoundingClientRect().height).toBeLessThanOrEqual(24)
+            const labels = canvasElement.querySelectorAll('[data-attr="hogqlx-brand-mark-label"]')
+            expect(Array.from(labels, (label) => label.textContent)).toEqual(['true', 'false'])
+        })
+        const dataLogic = dataNodeLogic.findMounted({ key: editor.values.dataLogicKey })!
+        dataLogic.actions.setElapsedTime(180)
+    },
+}
+
+export const HostedTrino: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.MANAGED_TRINO_QUERY],
+        pageUrl: `${urls.sqlEditor({ query: 'SELECT event FROM events' })}#engine=managed_trino`,
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/environments/:team_id/warehouse_expressions/': { results: [] },
+                },
+            },
+        },
+    },
+}
+
+export const HarnessLogoInResults: Story = {
+    tags: ['harness-result-visual'],
+    parameters: {
+        pageUrl: urls.sqlEditor({ query: HARNESS_SQL }),
+        testOptions: {
+            waitForSelector: '.rdg [data-attr="hogqlx-brand-mark-label"]',
+            viewport: { width: 1600, height: 900 },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(
+            () => {
+                const logic = sqlEditorLogic({ tabId: 'default' })
+                expect(logic.values.queryInput).toBe(HARNESS_SQL)
+                expect(dataNodeLogic.findMounted({ key: logic.values.dataLogicKey })).toBeTruthy()
+            },
+            { timeout: 15000 }
+        )
+        const runButton = await canvas.findByRole('button', { name: 'Run' }, { timeout: 15000 })
+        await waitFor(() => expect(runButton).toHaveAttribute('aria-disabled', 'false'), { timeout: 15000 })
+        mcpHintLogic.actions.recordShown(Date.now())
+        await userEvent.click(runButton)
+        await expect(
+            await canvas.findByText('Claude Code', { selector: '.rdg span' }, { timeout: 15000 })
+        ).toBeVisible()
+        await expect(canvas.getByText('OpenAI Codex')).toBeVisible()
+    },
+}
+
+export const LoadingInsight: Story = {
+    parameters: {
+        pageUrl: `${urls.sqlEditor()}?open_insight=loading1`,
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr="hogql-query-editor"] ~ [role="status"]',
+        },
+        msw: {
+            mocks: {
+                get: {
+                    '/api/:scope/:team_id/insights/': async () => {
+                        await delay('infinite')
+                        return [200, { results: [] }]
+                    },
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/environments/:team_id/warehouse_expressions/': { results: [] },
+                },
+            },
+        },
+    },
+}
 
 // Selecting the managed warehouse puts its long name in the sidebar's connection selector, where it
 // has to ellipsize on one line rather than wrap or overflow into the Run button's toolbar.
@@ -227,7 +399,7 @@ const discardMocks = {
     get: {
         '/api/projects/:team_id/warehouse_saved_queries/': [200, { results: [DISCARD_VIEW] }],
         '/api/:scope/:team_id/warehouse_saved_queries/:id/': [200, DISCARD_VIEW],
-        '/api/environments/:team_id/insights/': [200, { results: [DISCARD_INSIGHT] }],
+        '/api/:scope/:team_id/insights/': [200, { results: [DISCARD_INSIGHT] }],
         '/api/projects/:team_id/warehouse_expressions/': [200, { results: [] }],
         '/api/projects/:team_id/data_modeling_nodes/lineage/': [200, { nodes: [], edges: [] }],
         '/api/projects/:team_id/query_tab_state/user/': [200, { state: {} }],
@@ -282,7 +454,7 @@ export const EditedInsight: Story = {
         await waitFor(() =>
             expect(canvas.getByRole('button', { name: 'Discard changes' })).toHaveAttribute('aria-disabled', 'false')
         )
-        await expect(canvas.getByText('Edited')).toBeVisible()
+        await waitFor(() => expect(canvas.getByText('Edited')).toBeVisible())
         await expect(canvas.getByRole('button', { name: 'Update insight' })).toHaveAttribute('aria-disabled', 'false')
         await userEvent.click(canvasElement.querySelector('[data-attr="sql-editor-save-options-button"]')!)
         const menu = within(canvasElement.ownerDocument.body)
@@ -294,7 +466,11 @@ export const EditedInsight: Story = {
             'aria-disabled',
             'true'
         )
-        await userEvent.keyboard('{Escape}')
+        await expect(canvas.queryByRole('button', { name: /^close$/ })).not.toBeInTheDocument()
+        await userEvent.click(menu.getByText('Reset view'))
+        await waitFor(() => expect(canvas.queryByRole('button', { name: 'Update insight' })).not.toBeInTheDocument())
+        await expect(canvas.getByRole('button', { name: 'Save as insight' })).toBeVisible()
+        await expect(sqlEditorLogic({ tabId: 'default' }).values.queryInput).toEqual('SELECT 2')
     },
 }
 
@@ -333,7 +509,6 @@ export const MaterializationSettings: StoryObj = {
                                 id: 'source',
                                 name: 'orders',
                                 type: 'table',
-                                dag: 'dag-1',
                                 upstream_count: 0,
                                 downstream_count: 1,
                             },
@@ -342,14 +517,11 @@ export const MaterializationSettings: StoryObj = {
                                 name: 'revenue_summary',
                                 type: 'matview',
                                 saved_query_id: 'settings-view',
-                                dag: 'dag-1',
                                 upstream_count: 1,
                                 downstream_count: 0,
                             },
                         ],
-                        edges: [
-                            { id: 'edge-1', source_id: 'source', target_id: 'summary', dag: 'dag-1', properties: {} },
-                        ],
+                        edges: [{ id: 'edge-1', source_id: 'source', target_id: 'summary', properties: {} }],
                     },
                 ],
             },
@@ -357,11 +529,113 @@ export const MaterializationSettings: StoryObj = {
     ],
 }
 
+const sidebarStatusView = (
+    id: string,
+    name: string,
+    status: string,
+    latestError: string | null,
+    suspended: DataWarehouseSavedQuery['suspended'] = {}
+): Partial<DataWarehouseSavedQuery> => ({
+    id,
+    name,
+    is_materialized: true,
+    status,
+    latest_error: latestError,
+    suspended,
+    columns: [],
+    managed_viewset_kind: null,
+    user_access_level: AccessControlLevel.Editor,
+})
+
+const sidebarSchemaView = (
+    name: string,
+    certification: DatabaseSchemaTableCertificationStatus
+): DatabaseSchemaMaterializedViewTable => ({
+    type: 'materialized_view',
+    id: name,
+    name,
+    fields: {},
+    query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+    certification: { status: certification },
+})
+
+export const SidebarMaterializationStatus: Story = {
+    parameters: {
+        testOptions: {
+            waitForSelector: ['.monaco-editor', '[data-attr="menu-item-weekly_revenue"]'],
+            viewport: { width: 1600, height: 900 },
+        },
+        msw: {
+            mocks: {
+                post: {
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': [
+                        200,
+                        {
+                            tables: {
+                                daily_signups: sidebarSchemaView('daily_signups', 'certified'),
+                                orders_by_region: sidebarSchemaView('orders_by_region', 'deprecated'),
+                                weekly_revenue: sidebarSchemaView('weekly_revenue', 'certified'),
+                            },
+                        },
+                    ],
+                },
+                get: {
+                    '/api/projects/:team_id/warehouse_expressions/': [200, { results: [] }],
+                    '/api/projects/:team_id/warehouse_saved_queries/': [
+                        200,
+                        {
+                            results: [
+                                sidebarStatusView('healthy-view', 'daily_signups', 'Completed', null),
+                                sidebarStatusView(
+                                    'failed-view',
+                                    'orders_by_region',
+                                    'Failed',
+                                    'QueryError: Unable to resolve field: region_code'
+                                ),
+                                sidebarStatusView(
+                                    'paused-view',
+                                    'weekly_revenue',
+                                    'Failed',
+                                    'This model has been suspended after 5 consecutive failed materializations. Error: QueryError: Unable to resolve field: net_amount',
+                                    {
+                                        clickhouse: {
+                                            at: '2026-06-06T12:00:00Z',
+                                            reason: 'QueryError: Unable to resolve field: net_amount',
+                                            job_id: 'job-paused',
+                                        },
+                                    }
+                                ),
+                            ],
+                        },
+                    ],
+                },
+            },
+        },
+    },
+}
+
+const BI_MODE_WORKSHEET_MOCKS = {
+    get: {
+        '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+        '/api/environments/:team_id/warehouse_expressions/': { results: [] },
+    },
+    post: {
+        // The specific path wins over the catch-all query mock on the meta
+        '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
+            tables: {
+                events: { id: 'events', name: 'events', type: 'posthog', fields: BI_EVENTS_FIELDS },
+            },
+        },
+        '/api/environments/:team_id/query/HogQLQuery/': BI_WORKSHEET_RESULTS,
+    },
+} satisfies Mocks
+
 export const BIModeWorksheet: Story = {
+    beforeEach: pinQueryTimer,
     parameters: {
         featureFlags: [FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
         // The editor restores BI state only alongside the query it generated
-        pageUrl: `${urls.sqlEditor()}#${new URLSearchParams({
+        pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({
             q: buildBIQuery(BI_WORKSHEET_CONFIG)?.query ?? '',
             mode: 'bi',
             bi: JSON.stringify(BI_WORKSHEET_CONFIG),
@@ -371,19 +645,235 @@ export const BIModeWorksheet: Story = {
             viewport: { width: 1600, height: 900 },
         },
         msw: {
+            mocks: BI_MODE_WORKSHEET_MOCKS,
+        },
+    },
+}
+
+export const BIEmptyWorksheet: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        // An explicit empty query prevents restoring another story's persisted worksheet.
+        pageUrl: `${urls.businessIntelligence()}#q=`,
+        testOptions: { waitForSelector: '[data-attr="bi-editor-data-source"]' },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(canvas.findByText('Select a table to list its fields.')).resolves.toBeVisible()
+        await userEvent.click(canvas.getByRole('button', { name: 'Hide fields panel' }))
+        expect(canvas.queryByText('Select a table to list its fields.')).not.toBeInTheDocument()
+        await userEvent.click(canvas.getByRole('button', { name: /^Fields$/ }))
+        await expect(canvas.findByText('Select a table to list its fields.')).resolves.toBeVisible()
+    },
+}
+
+const BI_SAVED_QUERY = {
+    ...buildBIQuery(BI_WORKSHEET_CONFIG)!.node,
+    kind: NodeKind.BIVisualizationNode as const,
+    config: BI_WORKSHEET_CONFIG,
+}
+BI_SAVED_QUERY.chartSettings!.yAxis![0].settings = { formatting: { prefix: '$', suffix: '' } }
+BI_SAVED_QUERY.tableSettings = {
+    columns: ['bi_row_timestamp', 'bi_column_event', 'sum_revenue'].map((column) => ({
+        column,
+        settings: { formatting: { prefix: '', suffix: '' } },
+    })),
+}
+
+const BI_SAVED_INSIGHT = {
+    ...DISCARD_INSIGHT,
+    short_id: 'bisaved1',
+    name: 'Revenue by event',
+    query: BI_SAVED_QUERY,
+}
+
+export const BISavedInsight: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: urls.insightView('bisaved1' as InsightShortId),
+        testOptions: { waitForSelector: '[data-attr="insight-edit-button"]', viewport: { width: 1600, height: 900 } },
+        msw: {
             mocks: {
+                ...BI_MODE_WORKSHEET_MOCKS,
                 get: {
-                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    ...BI_MODE_WORKSHEET_MOCKS.get,
+                    '/api/:scope/:team_id/insights/': [200, { results: [BI_SAVED_INSIGHT] }],
+                    '/api/environments/:team_id/insights/:id/': [200, BI_SAVED_INSIGHT],
+                    '/api/projects/:team_id/events_retention/': [200, { retention_months: null, retained_from: null }],
                 },
+            },
+        },
+    },
+}
+
+export const BIEditSavedInsight: Story = {
+    ...BISavedInsight,
+    parameters: {
+        ...BISavedInsight.parameters,
+        pageUrl: urls.businessIntelligence({ insightShortId: 'bisaved1' }),
+        testOptions: BIModeWorksheet.parameters?.testOptions,
+    },
+    play: async ({ canvasElement }) => {
+        await waitFor(() =>
+            expect(canvasElement.querySelector('[data-attr="bi-editor-data-pane-measure"]')).not.toBeNull()
+        )
+        await waitFor(() =>
+            expect(within(canvasElement).queryByText('Edited', { exact: true })).not.toBeInTheDocument()
+        )
+    },
+}
+
+export const BICalculatedMeasureEditor: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        testOptions: {
+            waitForSelector: '[data-attr="bi-calculated-measure-modal"] .monaco-editor',
+            viewport: { width: 1050, height: 900 },
+        },
+        msw: {
+            mocks: {
+                ...BI_MODE_WORKSHEET_MOCKS,
                 post: {
-                    // The specific path wins over the catch-all query mock on the meta
-                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
-                        tables: {
-                            events: { id: 'events', name: 'events', type: 'posthog', fields: BI_EVENTS_FIELDS },
-                        },
+                    ...BI_MODE_WORKSHEET_MOCKS.post,
+                    '/api/projects/:team_id/query/HogQLAutocomplete/': {
+                        suggestions: [{ kind: 'Variable', label: 'event', insertText: 'event', detail: 'String' }],
+                        incomplete_list: false,
                     },
                 },
             },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const addMeasure = await canvas.findByRole('button', { name: 'Add calculated field' }, { timeout: 15000 })
+        await waitFor(() => expect(addMeasure).toBeEnabled())
+        await userEvent.click(addMeasure)
+        const modal = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await modal.findByLabelText('Calculated field role'))
+        await userEvent.click(await modal.findByText('Measure · aggregate each group'))
+        await userEvent.type(await modal.findByLabelText('Name'), 'ARPU')
+        const expression = await modal.findByRole('textbox', { name: 'Calculated field expression' })
+        expression.focus()
+        // Monaco resolves keybindings from keyCode, and userEvent.keyboard sends keyCode 0
+        const pressInEditor = (init: KeyboardEventInit & { keyCode: number }): void => {
+            expression.dispatchEvent(new KeyboardEvent('keydown', { ...init, bubbles: true, cancelable: true }))
+        }
+        pressInEditor({ key: ' ', code: 'Space', keyCode: 32, ctrlKey: true })
+        await waitFor(
+            () => {
+                const suggestions = canvasElement.ownerDocument.querySelector('.suggest-widget.visible')
+                expect(suggestions).not.toBeNull()
+                expect(within(suggestions as HTMLElement).getByText('event', { exact: true })).toBeVisible()
+            },
+            { timeout: 5000 }
+        )
+        // A keyCode 0 Escape skips Monaco and reaches the modal, which then closes
+        pressInEditor({ key: 'Escape', code: 'Escape', keyCode: 27 })
+        await waitFor(() => expect(canvasElement.ownerDocument.querySelector('.suggest-widget.visible')).toBeNull())
+    },
+}
+
+const BI_QUICK_FILTERS_CONFIG: BIConfig = {
+    ...BI_WORKSHEET_CONFIG,
+    chartType: ChartDisplayType.ActionsTable,
+    columns: [],
+    values: [
+        {
+            field: biEventsField('revenue', 'float'),
+            aggregation: 'custom',
+            label: 'ARPU',
+            customExpression: 'sum(revenue) / nullIf(count(DISTINCT user_id), 0)',
+        },
+    ],
+    filters: [
+        { field: biEventsField('event', 'string'), operator: 'in', value: '', values: ['purchase', 'renewal'] },
+        {
+            field: biEventsField('timestamp', 'datetime'),
+            operator: 'between',
+            value: '2026-06-01 00:00:00',
+            valueTo: '2026-06-07 23:59:59',
+        },
+    ],
+}
+
+export const BIQuickFilters: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({ q: buildBIQuery(BI_QUICK_FILTERS_CONFIG)?.query ?? '', mode: 'bi', bi: JSON.stringify(BI_QUICK_FILTERS_CONFIG) })}`,
+        msw: {
+            mocks: {
+                ...BI_MODE_WORKSHEET_MOCKS,
+                post: {
+                    ...BI_MODE_WORKSHEET_MOCKS.post,
+                    '/api/environments/:team_id/query/HogQLQuery/': async ({ request }: { request: Request }) => {
+                        const { query } = await request.json()
+                        return [
+                            200,
+                            query.query.startsWith('SELECT DISTINCT')
+                                ? {
+                                      columns: ['value'],
+                                      types: ['String'],
+                                      results: [['purchase'], ['renewal'], ['refund'], ['trial_started']],
+                                      hasMore: false,
+                                  }
+                                : {
+                                      columns: ['toStartOfDay(timestamp)', 'ARPU'],
+                                      types: ['DateTime', 'Float64'],
+                                      hasMore: false,
+                                      results: [24, 28, 26, 31, 35, 33, 38].map((value, index) => [
+                                          `2026-06-0${index + 1} 00:00:00`,
+                                          value,
+                                      ]),
+                                  },
+                        ]
+                    },
+                },
+            },
+        },
+    },
+}
+
+export const BIQuickFiltersNarrow: Story = {
+    ...BIQuickFilters,
+    parameters: {
+        ...BIQuickFilters.parameters,
+        pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({
+            mode: 'bi',
+            bi: JSON.stringify({
+                ...BI_QUICK_FILTERS_CONFIG,
+                filters: [
+                    ...BI_QUICK_FILTERS_CONFIG.filters,
+                    {
+                        field: biEventsField('properties.region', 'string'),
+                        operator: 'in',
+                        value: '',
+                        values: ['North', 'West'],
+                    },
+                    {
+                        field: biEventsField('properties.device', 'string'),
+                        operator: 'in',
+                        value: '',
+                        values: ['Desktop'],
+                    },
+                    {
+                        field: biEventsField('properties.channel', 'string'),
+                        operator: 'not_in',
+                        value: '',
+                        values: ['Internal'],
+                    },
+                    { field: biEventsField('revenue', 'float'), operator: 'between', value: '0', valueTo: '1000' },
+                    { field: biEventsField('duration_ms', 'integer'), operator: 'less_than', value: '5000' },
+                    { field: biEventsField('distinct_id', 'string'), operator: 'is_set', value: '' },
+                ],
+            } satisfies BIConfig),
+        })}`,
+        testOptions: {
+            waitForSelector: '[data-attr="bi-editor-filters-pill"]',
+            viewport: { width: 1050, height: 900 },
         },
     },
 }
@@ -398,6 +888,7 @@ export const LazySchema: Story = {
             mocks: {
                 get: {
                     '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/environments/:team_id/warehouse_expressions/': { results: [] },
                     '/api/projects/:team_id/warehouse_saved_queries/': {
                         results: [
                             {
@@ -530,5 +1021,946 @@ export const LazySchema: Story = {
                 },
             },
         },
+    },
+}
+
+export const BIDataSourcePicker: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        testOptions: {
+            waitForSelector: '[data-attr="bi-editor-data-source-picker"]',
+            viewport: { width: 1280, height: 800 },
+        },
+        msw: {
+            mocks: {
+                ...BI_MODE_WORKSHEET_MOCKS,
+                post: {
+                    ...BI_MODE_WORKSHEET_MOCKS.post,
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
+                        tables: {
+                            events: { id: 'events', name: 'events', type: 'posthog', fields: BI_EVENTS_FIELDS },
+                            persons: { id: 'persons', name: 'persons', type: 'posthog', fields: {} },
+                            stripe_customers: {
+                                id: 'stripe_customers',
+                                name: 'stripe_customers',
+                                type: 'data_warehouse',
+                                fields: {},
+                                source: { id: 'example-stripe', source_type: 'Stripe', prefix: 'stripe_' },
+                            },
+                            stripe_invoices: {
+                                id: 'stripe_invoices',
+                                name: 'stripe_invoices',
+                                type: 'data_warehouse',
+                                fields: {},
+                                source: { id: 'example-stripe', source_type: 'Stripe', prefix: 'stripe_' },
+                            },
+                            postgres_orders: {
+                                id: 'postgres_orders',
+                                name: 'postgres_orders',
+                                type: 'data_warehouse',
+                                fields: {},
+                                source: { id: 'example-postgres', source_type: 'Postgres', prefix: 'postgres_' },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')).toBeVisible(), {
+            timeout: 15000,
+        })
+        await waitFor(() => expect(canvas.queryByText('Locate')).not.toBeInTheDocument())
+        await userEvent.click(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')!)
+        const page = within(canvasElement.ownerDocument.body)
+        await waitFor(() => expect(page.getByRole('searchbox', { name: 'Search tables' })).toBeVisible())
+    },
+}
+
+const CHART_EXPERIMENT_RESULTS = {
+    columns: ['category', 'revenue'],
+    types: [
+        ['category', 'String'],
+        ['revenue', 'Float64'],
+    ],
+    results: [
+        ['Books', 120],
+        ['Games', 240],
+        ['Music', 180],
+    ],
+    hasMore: false,
+}
+
+const chartExperimentParameters = (approved: boolean, decisionDelay = 0, queryDelay = 0): Record<string, unknown> => ({
+    featureFlags: ['ml-inference-decisions'],
+    pageUrl: urls.sqlEditor({ query: 'SELECT category, revenue FROM example_sales' }),
+    msw: {
+        mocks: {
+            get: {
+                '/api/organizations/@current/': {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    is_ai_data_processing_approved: approved,
+                },
+                '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                '/api/environments/:team_id/warehouse_expressions/': { results: [] },
+            },
+            post: {
+                '/api/environments/:team_id/query/HogQLMetadata': async ({ request }: MockResolverInfo) => {
+                    const body = (await request.json()) as { query: { includeOutputTypes?: boolean } }
+                    return [
+                        200,
+                        {
+                            isValid: true,
+                            errors: [],
+                            warnings: [],
+                            notices: [],
+                            output_columns: body.query.includeOutputTypes
+                                ? [
+                                      { name: 'category', type: 'String' },
+                                      { name: 'revenue', type: 'Float64' },
+                                  ]
+                                : undefined,
+                        },
+                    ]
+                },
+                '/api/environments/:team_id/query/HogQLQuery': async () => {
+                    await delay(queryDelay)
+                    return [200, CHART_EXPERIMENT_RESULTS]
+                },
+                '/api/projects/:team_id/ml_inference/decisions/decide/': async () => {
+                    await delay(decisionDelay)
+                    return [
+                        200,
+                        {
+                            model: 'test',
+                            input_tokens: 1,
+                            latency_ms: 1,
+                            answers: Object.fromEntries(
+                                Object.entries({
+                                    chart: 'ActionsBar',
+                                    layout: 'both',
+                                    x: 'c0',
+                                    value: 'c1',
+                                    dimension: 'none',
+                                }).map(([id, choice]) => [
+                                    id,
+                                    {
+                                        type: 'choice',
+                                        choice,
+                                        confidence: 1,
+                                        probability: null,
+                                        probabilities: {},
+                                        score: null,
+                                    },
+                                ])
+                            ),
+                        },
+                    ]
+                },
+            },
+        },
+    },
+})
+
+const withAIConsent = (approved: boolean): Decorator =>
+    function AIConsentStory(Story): JSX.Element {
+        useEffect(() => {
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: approved,
+            })
+        }, [])
+        return <Story />
+    }
+
+export const JevChartAndTable: Story = {
+    // These interactive scenarios need Run; automatic snapshots only capture the same idle editor.
+    tags: ['test-skip'],
+    parameters: chartExperimentParameters(true),
+    decorators: [withAIConsent(true)],
+}
+
+export const JevWithoutConsent: Story = {
+    tags: ['test-skip'],
+    parameters: chartExperimentParameters(false),
+    decorators: [withAIConsent(false)],
+}
+
+export const JevChoosingChart: Story = {
+    tags: ['test-skip'],
+    parameters: chartExperimentParameters(true, 3000),
+    decorators: [withAIConsent(true)],
+}
+
+export const JevChartTimeout: Story = {
+    tags: ['test-skip'],
+    parameters: chartExperimentParameters(true, 6000),
+    decorators: [withAIConsent(true)],
+}
+
+export const JevEarlySelection: Story = {
+    tags: ['test-skip'],
+    parameters: chartExperimentParameters(true, 100, 3000),
+    decorators: [withAIConsent(true)],
+}
+const BI_CONNECTIONS_CONFIG: BIConfig = {
+    ...BI_WORKSHEET_CONFIG,
+    chartType: ChartDisplayType.ActionsTable,
+    rows: [],
+    columns: [],
+    filters: [],
+}
+
+export const BIConnections: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({
+            q: buildBIQuery(BI_CONNECTIONS_CONFIG)?.query ?? '',
+            mode: 'bi',
+            bi: JSON.stringify(BI_CONNECTIONS_CONFIG),
+        })}`,
+        testOptions: {
+            waitForSelector: '[data-attr="bi-editor-connection-fields"] [data-attr="bi-editor-connection-fields"]',
+            viewport: { width: 1280, height: 900 },
+        },
+        msw: {
+            mocks: {
+                ...BI_MODE_WORKSHEET_MOCKS,
+                post: {
+                    ...BI_MODE_WORKSHEET_MOCKS.post,
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
+                        tables: {
+                            events: {
+                                id: 'events',
+                                name: 'events',
+                                type: 'posthog',
+                                fields: {
+                                    event: BI_EVENTS_FIELDS.event,
+                                    revenue: BI_EVENTS_FIELDS.revenue,
+                                    person: {
+                                        name: 'person',
+                                        type: 'lazy_table',
+                                        table: 'persons',
+                                        schema_valid: true,
+                                        hogql_value: 'person',
+                                    },
+                                },
+                            },
+                            persons: {
+                                id: 'persons',
+                                name: 'persons',
+                                type: 'posthog',
+                                fields: {
+                                    email: { name: 'email', type: 'string', schema_valid: true, hogql_value: 'email' },
+                                    lifetime_value: {
+                                        name: 'lifetime_value',
+                                        type: 'float',
+                                        schema_valid: true,
+                                        hogql_value: 'lifetime_value',
+                                    },
+                                    company: {
+                                        name: 'company',
+                                        type: 'lazy_table',
+                                        table: 'companies',
+                                        schema_valid: true,
+                                        hogql_value: 'company',
+                                    },
+                                },
+                            },
+                            companies: {
+                                id: 'companies',
+                                name: 'companies',
+                                type: 'data_warehouse',
+                                fields: {
+                                    name: { name: 'name', type: 'string', schema_valid: true, hogql_value: 'name' },
+                                    annual_revenue: {
+                                        name: 'annual_revenue',
+                                        type: 'decimal',
+                                        schema_valid: true,
+                                        hogql_value: 'annual_revenue',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')).toBeVisible(), {
+            timeout: 15000,
+        })
+        const autoUpdate = canvasElement.querySelector('[data-attr="bi-editor-auto-update"]')!
+        if (autoUpdate.getAttribute('aria-checked') === 'true') {
+            await userEvent.click(autoUpdate)
+        }
+        await userEvent.click(await canvas.findByRole('button', { name: 'person' }))
+        await userEvent.click(await canvas.findByRole('button', { name: 'person.company' }))
+        await waitFor(() => expect(canvas.getByText('annual_revenue')).toBeVisible())
+    },
+}
+
+const BI_ANALYSIS_CONFIG: BIConfig = {
+    ...BI_WORKSHEET_CONFIG,
+    chartType: ChartDisplayType.ActionsTable,
+    values: [
+        { field: biEventsField('revenue', 'float'), aggregation: 'sum', tableCalculation: { type: 'running_total' } },
+        { field: biEventsField('revenue', 'float'), aggregation: 'average' },
+    ],
+    topN: { fieldId: biEventsField('event', 'string').id, count: 5, measureIndex: 0, includeOther: true },
+    totals: { rows: true, subtotals: true },
+}
+
+async function stabilizeQueryElapsedTime(): Promise<void> {
+    const { dataNodeKey } = biSceneLogic({ tabId: 'bi-default' }).values
+    const logic = dataNodeLogic.findMounted({ key: dataNodeKey })
+    await waitFor(() => {
+        expect(logic).toBeDefined()
+        expect(logic?.values.responseLoading).toBe(false)
+        expect(logic?.values.response).toBeTruthy()
+    })
+    // MSW fixes the response, but the query timer still measures real browser time.
+    logic!.actions.setElapsedTime(180)
+}
+
+const BI_TABLE_ANALYSIS_MOCKS = {
+    ...BI_MODE_WORKSHEET_MOCKS,
+    post: {
+        ...BI_MODE_WORKSHEET_MOCKS.post,
+        '/api/environments/:team_id/query/HogQLQuery/': {
+            columns: ['bi_row_timestamp', 'bi_column_event', 'sum_revenue', 'average_revenue_2'],
+            types: [
+                ['bi_row_timestamp', 'String'],
+                ['bi_column_event', 'String'],
+                ['sum_revenue', 'Nullable(Float64)'],
+                ['average_revenue_2', 'Float64'],
+            ],
+            results: [
+                ['Total', 'Total', null, 14.2],
+                ['2026-06-01', 'purchase', 120, 12],
+                ['2026-06-02', 'purchase', 300, 15],
+                ['2026-06-01', 'Other', 40, 10],
+            ],
+            hasMore: false,
+        },
+    },
+} satisfies Mocks
+
+export const BITableAnalysis: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({
+            q: buildBIQuery(BI_ANALYSIS_CONFIG)!.query,
+            mode: 'bi',
+            bi: JSON.stringify(BI_ANALYSIS_CONFIG),
+        })}`,
+        msw: {
+            mocks: BI_TABLE_ANALYSIS_MOCKS,
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')).toBeVisible())
+        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await waitFor(() => expect(canvas.getAllByText('Total').length).toBeGreaterThan(0))
+        await stabilizeQueryElapsedTime()
+    },
+}
+
+const BI_COMBO_CONFIG: BIConfig = {
+    ...BI_WORKSHEET_CONFIG,
+    chartType: ChartDisplayType.ActionsBar,
+    columns: [],
+    values: [
+        {
+            field: biEventsField('revenue', 'float'),
+            aggregation: 'sum',
+            formatting: { style: 'number', prefix: '$', decimalPlaces: 2 },
+            display: { label: 'Revenue', displayType: 'bar', yAxisPosition: 'left' },
+        },
+        {
+            field: biEventsField('revenue', 'float'),
+            aggregation: 'average',
+            formatting: { style: 'number', prefix: '$', decimalPlaces: 2 },
+            display: { label: 'Average order', displayType: 'line', yAxisPosition: 'right' },
+        },
+    ],
+}
+
+const BI_COMBINED_MEASURES_MOCKS = {
+    ...BI_MODE_WORKSHEET_MOCKS,
+    post: {
+        ...BI_MODE_WORKSHEET_MOCKS.post,
+        '/api/environments/:team_id/query/HogQLQuery/': {
+            columns: ['toStartOfDay(timestamp)', 'sum_revenue', 'average_revenue_2'],
+            types: [
+                ['toStartOfDay(timestamp)', 'DateTime'],
+                ['sum_revenue', 'Float64'],
+                ['average_revenue_2', 'Float64'],
+            ],
+            results: [
+                ['2026-06-01', 1200, 12.5],
+                ['2026-06-02', 2100, 15.2],
+                ['2026-06-03', 1800, 13.4],
+                ['2026-06-04', 2450, 16.8],
+            ],
+            hasMore: false,
+        },
+    },
+} satisfies Mocks
+
+export const BICombinedMeasures: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({ q: buildBIQuery(BI_COMBO_CONFIG)!.query, mode: 'bi', bi: JSON.stringify(BI_COMBO_CONFIG) })}`,
+        msw: {
+            mocks: BI_COMBINED_MEASURES_MOCKS,
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')).toBeVisible())
+        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await waitFor(() => expect(canvasElement.querySelector('canvas')).not.toBeNull())
+        await stabilizeQueryElapsedTime()
+    },
+}
+
+export const BIMeasureDisplay: Story = {
+    ...BICombinedMeasures,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: /^Charts$/ }))
+        await userEvent.click((await canvas.findAllByRole('button', { name: 'Format and display' }))[0])
+    },
+}
+
+export const BIDrilldown: Story = {
+    ...BITableAnalysis,
+    parameters: {
+        ...BITableAnalysis.parameters,
+        // The dialog is portaled outside main, so a scene-only capture clips it.
+        testOptions: { ...BITableAnalysis.parameters?.testOptions, includeNavigationInSnapshot: true },
+        msw: {
+            mocks: {
+                ...BI_TABLE_ANALYSIS_MOCKS,
+                post: {
+                    ...BI_TABLE_ANALYSIS_MOCKS.post,
+                    '/api/environments/:team_id/query/HogQLQuery/': async ({ request }: MockResolverInfo) => {
+                        const { query } = (await request.json()) as { query: { query: string } }
+                        return query.query.startsWith('SELECT *')
+                            ? {
+                                  columns: ['event', 'timestamp', 'revenue'],
+                                  types: [
+                                      ['event', 'String'],
+                                      ['timestamp', 'DateTime'],
+                                      ['revenue', 'Float64'],
+                                  ],
+                                  results: [
+                                      ['purchase', '2026-06-01 12:00:00', 20],
+                                      ['purchase', '2026-06-01 15:00:00', 100],
+                                  ],
+                                  hasMore: false,
+                              }
+                            : BI_TABLE_ANALYSIS_MOCKS.post['/api/environments/:team_id/query/HogQLQuery/']
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await userEvent.click(await canvas.findByText('120', { exact: true }))
+        await userEvent.click(await within(document.body).findByRole('button', { name: 'View underlying rows' }))
+        await waitFor(() => expect(within(document.body).getByText('2026-06-01 12:00:00')).toBeVisible())
+        await stabilizeQueryElapsedTime()
+    },
+}
+
+const BI_COMPARISON_CONFIG: BIConfig = {
+    ...BI_COMBO_CONFIG,
+    dateRange: { date_from: '-7d' },
+    compareFilter: { compare: true },
+    values: [BI_COMBO_CONFIG.values[0]],
+}
+
+export const BIOneClickComparison: Story = {
+    ...BICombinedMeasures,
+    parameters: {
+        ...BICombinedMeasures.parameters,
+        pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({ q: buildBIQuery(BI_COMPARISON_CONFIG)!.query, mode: 'bi', bi: JSON.stringify(BI_COMPARISON_CONFIG) })}`,
+        msw: {
+            mocks: {
+                ...BI_COMBINED_MEASURES_MOCKS,
+                post: {
+                    ...BI_COMBINED_MEASURES_MOCKS.post,
+                    '/api/environments/:team_id/query/HogQLQuery/': {
+                        columns: ['bi_row_timestamp', 'sum_revenue', 'bi_comparison'],
+                        types: [
+                            ['bi_row_timestamp', 'DateTime'],
+                            ['sum_revenue', 'Float64'],
+                            ['bi_comparison', 'String'],
+                        ],
+                        results: [
+                            ['2026-06-01', 120, 'Current period'],
+                            ['2026-06-02', 210, 'Current period'],
+                            ['2026-06-03', 180, 'Current period'],
+                            ['2026-06-04', 245, 'Current period'],
+                            ['2026-06-01', 100, 'Previous period'],
+                            ['2026-06-02', 150, 'Previous period'],
+                            ['2026-06-03', 120, 'Previous period'],
+                            ['2026-06-04', 220, 'Previous period'],
+                        ],
+                        hasMore: false,
+                    },
+                },
+            },
+        },
+    },
+}
+
+const BI_PIVOT_TOTALS_CONFIG: BIConfig = {
+    ...BI_ANALYSIS_CONFIG,
+    chartType: ChartDisplayType.TwoDimensionalHeatmap,
+    values: [BI_COMBO_CONFIG.values[0]],
+    totals: { rows: true, columns: true },
+}
+
+export const BIPivotTotals: Story = {
+    ...BITableAnalysis,
+    parameters: {
+        ...BITableAnalysis.parameters,
+        pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({ q: buildBIQuery(BI_PIVOT_TOTALS_CONFIG)!.query, mode: 'bi', bi: JSON.stringify(BI_PIVOT_TOTALS_CONFIG) })}`,
+        msw: {
+            mocks: {
+                ...BI_TABLE_ANALYSIS_MOCKS,
+                post: {
+                    ...BI_TABLE_ANALYSIS_MOCKS.post,
+                    '/api/environments/:team_id/query/HogQLQuery/': {
+                        columns: ['bi_row_timestamp', 'bi_column_event', 'sum_revenue'],
+                        types: [
+                            ['bi_row_timestamp', 'String'],
+                            ['bi_column_event', 'String'],
+                            ['sum_revenue', 'Float64'],
+                        ],
+                        results: [
+                            ['Total', 'Total', 340],
+                            ['Total', 'purchase', 300],
+                            ['Total', 'Other', 40],
+                            ['2026-06-01', 'Total', 160],
+                            ['2026-06-02', 'Total', 180],
+                            ['2026-06-01', 'purchase', 120],
+                            ['2026-06-02', 'purchase', 180],
+                            ['2026-06-01', 'Other', 40],
+                        ],
+                        hasMore: false,
+                    },
+                },
+            },
+        },
+    },
+}
+
+const BI_GEOGRAPHY_FIELDS: BIField[] = ['Country', 'State', 'City'].map((name) => ({
+    ...biEventsField(name, 'string'),
+    expression: `properties.${name.toLowerCase()}`,
+}))
+const BI_HIERARCHY_CONFIG: BIConfig = {
+    ...BI_WORKSHEET_CONFIG,
+    chartType: ChartDisplayType.ActionsTable,
+    rows: [BI_GEOGRAPHY_FIELDS[0]],
+    columns: [],
+    filters: [],
+    hierarchies: [{ id: 'geography', name: 'Geography', levels: BI_GEOGRAPHY_FIELDS }],
+}
+const BI_HIERARCHY_WORKSHEET = {
+    ...buildBIQuery(BI_HIERARCHY_CONFIG)!.node,
+    kind: NodeKind.BIVisualizationNode,
+    config: BI_HIERARCHY_CONFIG,
+}
+
+export const BINamedHierarchy: Story = {
+    ...BITableAnalysis,
+    parameters: {
+        ...BITableAnalysis.parameters,
+        pageUrl: `${urls.businessIntelligence()}#q=${encodeURIComponent(JSON.stringify(BI_HIERARCHY_WORKSHEET))}`,
+        testOptions: { ...BITableAnalysis.parameters?.testOptions, includeNavigationInSnapshot: true },
+        msw: {
+            mocks: {
+                ...BI_MODE_WORKSHEET_MOCKS,
+                get: {
+                    ...BI_MODE_WORKSHEET_MOCKS.get,
+                    '/api/projects/:team_id/insights/': {
+                        results: [
+                            {
+                                id: 910,
+                                short_id: 'exampleGeo',
+                                name: 'Example geography',
+                                query: BI_HIERARCHY_WORKSHEET,
+                            },
+                        ],
+                        next: null,
+                        count: 1,
+                    },
+                    '/api/projects/:team_id/insights/910/': {
+                        id: 910,
+                        short_id: 'exampleGeo',
+                        name: 'Example geography',
+                        query: BI_HIERARCHY_WORKSHEET,
+                    },
+                },
+                post: {
+                    ...BI_MODE_WORKSHEET_MOCKS.post,
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
+                        tables: {
+                            events: {
+                                id: 'events',
+                                name: 'events',
+                                type: 'posthog',
+                                fields: {
+                                    ...BI_EVENTS_FIELDS,
+                                    ...Object.fromEntries(
+                                        BI_GEOGRAPHY_FIELDS.map((field) => [
+                                            field.name,
+                                            {
+                                                name: field.name,
+                                                hogql_value: field.expression,
+                                                type: field.type,
+                                                schema_valid: true,
+                                            },
+                                        ])
+                                    ),
+                                },
+                            },
+                        },
+                    },
+                    '/api/environments/:team_id/query/HogQLQuery/': async ({ request }: MockResolverInfo) => {
+                        const { query } = (await request.json()) as { query: { query: string } }
+                        const level =
+                            BI_GEOGRAPHY_FIELDS.find((field) =>
+                                query.query.split('FROM')[0].includes(field.expression)
+                            ) ?? BI_GEOGRAPHY_FIELDS[0]
+                        const column = getBIResultDimensions({ ...BI_HIERARCHY_CONFIG, rows: [level] })[0].column
+                        return [
+                            200,
+                            {
+                                columns: [column, 'sum_revenue'],
+                                types: [
+                                    [column, 'String'],
+                                    ['sum_revenue', 'Float64'],
+                                ],
+                                results: [[`Example ${level.name.toLowerCase()}`, 120]],
+                                hasMore: false,
+                            },
+                        ]
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await userEvent.click(await canvas.findByText('120', { exact: true }))
+        await userEvent.click(
+            await within(document.body).findByRole('button', {
+                name: 'Geography: filters this worksheet to the selection',
+            })
+        )
+        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await waitFor(() => expect(canvas.getByText('Example state', { exact: true })).toBeVisible())
+        await stabilizeQueryElapsedTime()
+    },
+}
+
+export const BICategoryGroups: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        testOptions: { waitForSelector: '[data-attr="bi-local-field-modal"]', viewport: { width: 1050, height: 900 } },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByLabelText('Options for event', {}, { timeout: 15000 }))
+        const body = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await body.findByText('Group categories', { exact: true }))
+        await userEvent.type(await body.findByLabelText('Group 1 name'), 'Purchases')
+    },
+}
+
+export const BINumericBins: Story = {
+    ...BIModeWorksheet,
+    parameters: { ...BICategoryGroups.parameters },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByLabelText('Options for revenue', {}, { timeout: 15000 }))
+        const body = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await body.findByText('Create numeric bins', { exact: true }))
+    },
+}
+export const BICatalogSource: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/projects/:team_id/data_catalog/relationship_proposals/': {
+                        count: 1,
+                        next: null,
+                        results: [
+                            {
+                                id: 'proposal-example',
+                                source_table_name: 'events',
+                                source_table_key: 'account_id',
+                                joining_table_name: 'accounts',
+                                joining_table_key: 'id',
+                                field_name: 'account',
+                                status: 'proposed',
+                                reasoning: 'Connect each event to its account.',
+                            },
+                        ],
+                    },
+                },
+                post: {
+                    '/api/environments/:team_id/query/HogQLQuery/': {
+                        columns: [
+                            ...getBIResultDimensions(BI_WORKSHEET_CONFIG).map(({ column }) => column),
+                            ...getBIResultMeasureColumns(BI_WORKSHEET_CONFIG).map(({ column }) => column),
+                        ],
+                        types: ['DateTime', 'String', 'Float64'],
+                        results: [
+                            ['2026-06-01', 'purchase', 120],
+                            ['2026-06-02', 'purchase', 180],
+                            ['2026-06-03', 'purchase', 150],
+                        ],
+                        hasMore: false,
+                    },
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
+                        tables: {
+                            events: {
+                                id: 'events',
+                                name: 'events',
+                                type: 'posthog',
+                                fields: BI_EVENTS_FIELDS,
+                                certification: {
+                                    status: 'certified',
+                                    notes: 'Use this source for product activity worksheets.',
+                                },
+                            },
+                        },
+                        joins: [],
+                    },
+                },
+            },
+        },
+    },
+}
+
+export const BICatalogSnapshot: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: `${urls.businessIntelligenceNew()}?metric=weekly_revenue`,
+        testOptions: { waitForSelector: '[data-attr="bi-catalog-snapshot"]' },
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/data_catalog/metrics/weekly_revenue/': {
+                        name: 'weekly_revenue',
+                        display_name: 'Weekly revenue',
+                        definition: {
+                            kind: NodeKind.HogQLQuery,
+                            query: "SELECT sum(revenue) AS revenue FROM events WHERE timestamp >= toDateTime('2026-06-01') AND timestamp < toDateTime('2026-06-08')",
+                        },
+                    },
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                },
+                post: {
+                    '/api/environments/:team_id/query/HogQLQuery/': {
+                        columns: ['revenue'],
+                        types: ['Float64'],
+                        results: [[450]],
+                        hasMore: false,
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByRole('link', { name: 'View catalog definition' }, { timeout: 15000 })
+        await userEvent.click(await canvas.findByRole('button', { name: 'Run worksheet' }))
+        await expect(canvas.findByText('450', { exact: true })).resolves.toBeVisible()
+    },
+}
+
+export const BISourcePreviewLargeSample: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        msw: {
+            mocks: {
+                ...BI_MODE_WORKSHEET_MOCKS,
+                get: {
+                    ...BI_MODE_WORKSHEET_MOCKS.get,
+                    '/api/projects/:team_id/data_catalog/relationship_proposals/': {
+                        count: 0,
+                        next: null,
+                        results: [],
+                    },
+                },
+                post: {
+                    ...BI_MODE_WORKSHEET_MOCKS.post,
+                    '/api/projects/:team_id/file_system/home_folder/': { id: 'example-home', path: 'Users/Example' },
+                    '/api/environments/:team_id/query/HogQLQuery/': async ({ request }: MockResolverInfo) => {
+                        const { query } = (await request.json()) as { query: { query: string } }
+                        if (query.query.startsWith('SELECT *')) {
+                            const limit = Number(query.query.match(/LIMIT (\d+)/)?.[1] ?? 1000)
+                            return {
+                                columns: [
+                                    'row_number',
+                                    'description',
+                                    ...Array.from({ length: 8 }, (_, index) => `quantity_${index + 1}`),
+                                ],
+                                types: [
+                                    ['row_number', 'Int64'],
+                                    ['description', 'String'],
+                                    ...Array.from({ length: 8 }, (_, index) => [`quantity_${index + 1}`, 'Int64']),
+                                ],
+                                results: Array.from({ length: limit }, (_, index) => [
+                                    index + 1,
+                                    `Example source row ${index + 1}`,
+                                    ...Array.from({ length: 8 }, (_, column) => (index + column) % 17),
+                                ]),
+                                hasMore: false,
+                            }
+                        }
+                        return {
+                            columns: [
+                                ...getBIResultDimensions(BI_WORKSHEET_CONFIG).map(({ column }) => column),
+                                ...getBIResultMeasureColumns(BI_WORKSHEET_CONFIG).map(({ column }) => column),
+                            ],
+                            types: ['DateTime', 'String', 'Float64'],
+                            results: [['2026-06-01', 'purchase', 120]],
+                            hasMore: false,
+                        }
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const openPreview = await canvas.findByText('View source data', {}, { timeout: 15000 })
+        await waitFor(() => expect(openPreview.closest('button')).toHaveAttribute('aria-disabled', 'false'), {
+            timeout: 15000,
+        })
+        await userEvent.click(openPreview)
+        const body = within(canvasElement.ownerDocument.body)
+        await body.findByText('Example source row 1', {}, { timeout: 15000 })
+        const table = canvasElement.ownerDocument.querySelector<HTMLElement>('[data-attr="bi-source-preview-table"]')!
+        expect(table.querySelectorAll('tbody tr[data-row-key]').length).toBeLessThan(50)
+        const scroll = table.querySelector<HTMLElement>('.ScrollableShadows__inner')!
+        scroll.scrollTop = scroll.scrollHeight
+        await body.findByText('Example source row 500')
+        await userEvent.click(within(table).getByLabelText('Next page'))
+        await body.findByText('Example source row 501')
+        expect(scroll.scrollTop).toBe(0)
+        expect(table.querySelectorAll('tbody tr[data-row-key]').length).toBeLessThan(50)
+        scroll.scrollTop = scroll.scrollHeight
+        await body.findByText('Example source row 1000')
+        await userEvent.click(within(table).getByLabelText('Previous page'))
+        await body.findByText('Example source row 1')
+    },
+}
+
+const BI_WIDE_TABLE_CONFIG: BIConfig = {
+    ...BI_WORKSHEET_CONFIG,
+    chartType: ChartDisplayType.ActionsTable,
+    rows: [],
+    columns: [{ ...biEventsField('timestamp', 'datetime'), dateBucket: 'day' }],
+    values: [{ field: biEventsField('revenue', 'float'), aggregation: 'sum', shelf: 'rows' }],
+    filters: [],
+    limit: 10000,
+}
+
+export const BIWideTransposedResults: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: `${urls.businessIntelligenceNew()}#${new URLSearchParams({
+            q: JSON.stringify({
+                ...buildBIQuery(BI_WIDE_TABLE_CONFIG)!.node,
+                kind: NodeKind.BIVisualizationNode,
+                config: BI_WIDE_TABLE_CONFIG,
+            }),
+        })}`,
+        testOptions: {
+            waitForSelector: '.DataVisualizationTable [aria-colcount="1801"]',
+            viewport: { width: 1280, height: 900 },
+        },
+        msw: {
+            mocks: {
+                ...BI_MODE_WORKSHEET_MOCKS,
+                get: {
+                    ...BI_MODE_WORKSHEET_MOCKS.get,
+                    '/api/projects/:team_id/data_catalog/relationship_proposals/': {
+                        count: 0,
+                        next: null,
+                        results: [],
+                    },
+                },
+                post: {
+                    ...BI_MODE_WORKSHEET_MOCKS.post,
+                    '/api/projects/:team_id/file_system/home_folder/': { id: 'example-home', path: 'Users/Example' },
+                    '/api/environments/:team_id/query/HogQLQuery/': {
+                        columns: [
+                            ...getBIResultDimensions(BI_WIDE_TABLE_CONFIG).map(({ column }) => column),
+                            ...getBIResultMeasureColumns(BI_WIDE_TABLE_CONFIG).map(({ column }) => column),
+                        ],
+                        types: ['DateTime', 'Float64'],
+                        results: Array.from({ length: 1800 }, (_, index) => [
+                            new Date(Date.UTC(2020, 0, index + 1)).toISOString(),
+                            10000 + index,
+                        ]),
+                        hasMore: false,
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await canvas.findByText('10000', { exact: true }, { timeout: 15000 })
+        await userEvent.click(await canvas.findByRole('button', { name: 'Visualization settings' }))
+        const transpose = await canvas.findByLabelText('Transpose results')
+        await userEvent.click(transpose)
+        const table = canvasElement.querySelector<HTMLElement>('.DataVisualizationTable')!
+        await waitFor(() => expect(table.querySelector('table')).toHaveAttribute('aria-colcount', '1801'))
+        expect(table.querySelectorAll('tbody td:not([aria-hidden])').length).toBeLessThan(40)
+        const scroll = table.querySelector<HTMLElement>('.ScrollableShadows__inner')!
+        scroll.scrollLeft = scroll.scrollWidth
+        await within(table).findByText('11799', { exact: true })
+        expect(table.querySelectorAll('tbody td:not([aria-hidden])').length).toBeLessThan(40)
+        await userEvent.click(transpose)
+        await waitFor(() => expect(table.querySelector('table')).not.toHaveAttribute('aria-colcount'))
+        await within(table).findByText('10000', { exact: true })
+        await userEvent.click(transpose)
+        scroll.scrollLeft = 0
+        await within(table).findByText('10000', { exact: true })
+        await userEvent.click(canvas.getByRole('button', { name: 'Visualization settings' }))
+        await stabilizeQueryElapsedTime()
     },
 }

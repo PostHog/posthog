@@ -1,6 +1,7 @@
 import dataclasses
+from collections.abc import Callable
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import urlparse
 
 from requests import PreparedRequest, Response
@@ -11,26 +12,38 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_chained_resource,
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.e_conomic.settings import E_CONOMIC_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.e_conomic.settings import (
+    E_CONOMIC_ENDPOINTS,
+    E_CONOMIC_FANOUT_PARENTS,
+    PAGE_SIZE,
+)
 
 E_CONOMIC_BASE_URL = "https://restapi.e-conomic.com"
 E_CONOMIC_HOST = urlparse(E_CONOMIC_BASE_URL).netloc
 
-# Max page size the API allows for classic offset pagination.
-PAGE_SIZE = 1000
 
-
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class EConomicResumeConfig:
     # Full URL of the next page to fetch. The API's pagination links already carry pagesize, sort and
     # filter, so resuming is just "GET this URL".
     next_url: str | None = None
+    # Fan-out endpoints instead checkpoint which parents finished and where the current one stopped.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _headers() -> dict[str, str]:
@@ -104,6 +117,140 @@ class EConomicNextPagePaginator(JSONResponsePaginator):
             _assert_trusted_url(self._next_url)
 
 
+RowMap = Callable[[dict[str, Any]], dict[str, Any]]
+
+
+def _add_link_path(link: str) -> RowMap:
+    # Accounting years spanning two calendar years use a different form in URLs than their `year`, so
+    # child paths come from the links the API returns.
+    def _mapper(row: dict[str, Any]) -> dict[str, Any]:
+        row[f"{link}_path"] = urlparse(row[link]).path
+        return row
+
+    return _mapper
+
+
+def _add_period_fields(row: dict[str, Any]) -> dict[str, Any]:
+    row["totals_path"] = urlparse(row["totals"]).path
+    row["year"] = row["accountingYear"]["year"]
+    return row
+
+
+def _add_account_number(row: dict[str, Any]) -> dict[str, Any]:
+    row["accountNumber"] = row["account"]["accountNumber"]
+    return row
+
+
+def _flatten_accounting_year(row: dict[str, Any]) -> dict[str, Any]:
+    row["accountingYear"] = row["accountingYear"]["year"]
+    return row
+
+
+_PARENT_DATA_MAPS: dict[str, RowMap] = {
+    "accounting_year_entries": _add_link_path("entries"),
+    "accounting_year_totals": _add_link_path("totals"),
+}
+
+# Lift the ids out of nested reference objects so they can be primary keys.
+_CHILD_DATA_MAPS: dict[str, RowMap] = {
+    "accounting_year_totals": _add_account_number,
+    "accounting_period_totals": _add_account_number,
+    "journal_vouchers": _flatten_accounting_year,
+}
+
+
+def _client_config(app_secret_token: str, agreement_grant_token: str) -> ClientConfig:
+    return {
+        "base_url": E_CONOMIC_BASE_URL,
+        "headers": _headers(),
+        "auth": EConomicTokenAuth(app_secret_token, agreement_grant_token),
+        "paginator": EConomicNextPagePaginator(),
+        # Pin every request — including next-page and seeded resume URLs — to the API host, and
+        # refuse redirects, so the credential headers can never be carried off-host.
+        "allowed_hosts": [E_CONOMIC_HOST],
+        "allow_redirects": False,
+    }
+
+
+def _resolve(resource: str, field: str) -> dict[str, Any]:
+    return {"type": "resolve", "resource": resource, "field": field}
+
+
+def _period_totals_resource(
+    endpoint: str,
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
+) -> Resource:
+    """Build accounting_years -> periods -> totals. A two-hop chain carries no resume state."""
+    config = E_CONOMIC_ENDPOINTS[endpoint]
+    fanout = config.fanout
+    assert fanout is not None
+    periods = E_CONOMIC_FANOUT_PARENTS[fanout.parent_name]
+    periods_fanout = periods.fanout
+    assert periods_fanout is not None
+    years = E_CONOMIC_ENDPOINTS[periods_fanout.parent_name]
+
+    resources: list[EndpointResource] = [
+        {
+            "name": years.name,
+            "table_name": years.name,
+            "write_disposition": "replace",
+            "endpoint": {
+                "path": years.path,
+                "params": {"pagesize": years.page_size, **periods_fanout.parent_params},
+                "data_selector": "collection",
+            },
+            "data_map": _add_link_path("periods"),
+            "table_format": "delta",
+        },
+        {
+            "name": periods.name,
+            "table_name": periods.name,
+            "write_disposition": "replace",
+            "endpoint": {
+                "path": periods.path,
+                "params": {
+                    "pagesize": periods.page_size,
+                    periods_fanout.resolve_param: _resolve(years.name, periods_fanout.resolve_field),
+                },
+                "data_selector": "collection",
+                "paginator": EConomicNextPagePaginator(),
+            },
+            "data_map": _add_period_fields,
+            "table_format": "delta",
+        },
+        {
+            "name": endpoint,
+            "table_name": endpoint,
+            "write_disposition": "replace",
+            "include_from_parent": fanout.include_from_parent,
+            "endpoint": {
+                "path": config.path,
+                "params": {
+                    "pagesize": config.page_size,
+                    fanout.resolve_param: _resolve(periods.name, fanout.resolve_field),
+                },
+                "data_selector": "collection",
+                "paginator": EConomicNextPagePaginator(),
+            },
+            "table_format": "delta",
+        },
+    ]
+    return cast(
+        Resource,
+        build_chained_resource(
+            resources=resources,
+            child_name=endpoint,
+            parent_name=periods.name,
+            parent_field_renames=fanout.parent_field_renames,
+            client_config=client_config,
+            team_id=team_id,
+            job_id=job_id,
+        ),
+    )
+
+
 def e_conomic_source(
     app_secret_token: str,
     agreement_grant_token: str,
@@ -116,6 +263,52 @@ def e_conomic_source(
     incremental_field: str | None = None,
 ) -> SourceResponse:
     config = E_CONOMIC_ENDPOINTS[endpoint]
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    if config.fanout is not None:
+        client_config = _client_config(app_secret_token, agreement_grant_token)
+        if config.fanout.parent_name in E_CONOMIC_FANOUT_PARENTS:
+            child = _period_totals_resource(endpoint, client_config, team_id, job_id)
+        else:
+
+            def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+                if state:
+                    resumable_source_manager.save_state(EConomicResumeConfig(fanout_state=state))
+
+            child = cast(
+                Resource,
+                build_dependent_resource(
+                    endpoint_configs=E_CONOMIC_ENDPOINTS,
+                    child_endpoint=endpoint,
+                    fanout=config.fanout,
+                    client_config=client_config,
+                    parent_data_map=_PARENT_DATA_MAPS.get(endpoint),
+                    parent_endpoint_extra={"data_selector": "collection"},
+                    # Explicit, because the framework treats a path ending in a placeholder ("{entries_path}") as a
+                    # single-entity lookup and would otherwise fetch only its first page.
+                    child_endpoint_extra={"data_selector": "collection", "paginator": EConomicNextPagePaginator()},
+                    page_size_param="pagesize",
+                    path_format_values={},
+                    team_id=team_id,
+                    job_id=job_id,
+                    db_incremental_field_last_value=None,
+                    resume_hook=save_fanout_checkpoint,
+                    initial_paginator_state=resume.fanout_state if resume else None,
+                ),
+            )
+
+        child_map = _CHILD_DATA_MAPS.get(endpoint)
+        if child_map is not None:
+            child.add_map(child_map)
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: child,
+            primary_keys=config.primary_keys,
+            sort_mode=None,
+            partition_mode="datetime" if config.partition_key else None,
+            partition_format="month" if config.partition_key else None,
+            partition_keys=[config.partition_key] if config.partition_key else None,
+        )
 
     params: dict[str, Any] = {"pagesize": PAGE_SIZE}
     if config.sort:
@@ -129,16 +322,7 @@ def e_conomic_source(
         params["filter"] = f"{incremental_field}$gte:{formatted}"
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": E_CONOMIC_BASE_URL,
-            "headers": _headers(),
-            "auth": EConomicTokenAuth(app_secret_token, agreement_grant_token),
-            "paginator": EConomicNextPagePaginator(),
-            # Pin every request — including next-page and seeded resume URLs — to the API host, and
-            # refuse redirects, so the credential headers can never be carried off-host.
-            "allowed_hosts": [E_CONOMIC_HOST],
-            "allow_redirects": False,
-        },
+        "client": _client_config(app_secret_token, agreement_grant_token),
         "resource_defaults": {},
         "resources": [
             {
@@ -155,10 +339,8 @@ def e_conomic_source(
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None and resume.next_url:
-            initial_paginator_state = {"next_url": resume.next_url}
+    if resume is not None and resume.next_url:
+        initial_paginator_state = {"next_url": resume.next_url}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist only when a next page remains; saved AFTER a page is yielded so a crash re-yields the

@@ -243,6 +243,27 @@ describe('clusterDetailLogic', () => {
 
                 expect(series[0].shape).toBe('cross')
             })
+
+            it.each([
+                ['a subset', ['trace-2'], true],
+                ['nothing', [], false],
+            ])(
+                'plots only items that match active filters when they match %s',
+                async (_name, matchedIds, hasCentroid) => {
+                    logic.actions.loadClusterDataSuccess({
+                        cluster: mockCluster,
+                        runTimestamp: '2025-01-05T00:00:00Z',
+                        windowStart: '2025-01-01T00:00:00Z',
+                        windowEnd: '2025-01-05T00:00:00Z',
+                        clusteringLevel: 'trace',
+                    })
+                    logic.actions.loadFilteredItemIdsSuccess(new Set(matchedIds))
+
+                    const series = logic.values.scatterPlotSeries
+                    expect(series[0].points.map((point) => point.meta?.traceId)).toEqual(matchedIds)
+                    expect(series.some((s) => s.key === 'centroid')).toBe(hasCentroid)
+                }
+            )
         })
 
         describe('sortedTraceIds', () => {

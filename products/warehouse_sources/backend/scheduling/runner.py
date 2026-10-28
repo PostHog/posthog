@@ -1,7 +1,9 @@
 """Shadow-scheduler tick loop: leader election, refresh, due scan, decisions.
 
 Every pod runs the same loop; the tick sentinel single-flights each tick across
-the fleet, so followers only heartbeat. The scheduler writes decisions and
+the fleet, so followers only heartbeat. The fleet-wide refresh runs in a
+separate loop with its own sentinel and connection, so a slow refresh never
+delays the drain of due schedules. The scheduler writes decisions and
 metrics but starts no syncs — Temporal schedules stay the only thing that runs
 work while shadow mode is compared against them.
 """
@@ -10,6 +12,7 @@ from __future__ import annotations
 
 import time
 import asyncio
+import contextlib
 from collections.abc import Callable
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -29,9 +32,10 @@ from products.warehouse_sources.backend.scheduling.shadow import (
     SKIP_REASONS,
     SYNC_EXTRACT_KIND,
     TICK_SLOT_KEY,
+    InScopeSchema,
     SchemaCadence,
     evaluate_due,
-    fetch_in_scope_schemas,
+    fetch_in_scope_schema_page,
     next_due_after,
     schedule_offset,
 )
@@ -39,7 +43,7 @@ from products.warehouse_sources_queue.backend.sdk import DueSchedule, JobsTable,
 
 logger = structlog.get_logger(__name__)
 
-UPSERT_BATCH_SIZE = 1000
+REFRESH_PAGE_SIZE = 1000
 
 WOULD_FIRE_TOTAL = Counter(
     "warehouse_pg_scheduler_would_fire_total",
@@ -72,7 +76,7 @@ SCHEMAS_IN_SCOPE = Gauge(
 DUE_PER_TICK = Histogram(
     "warehouse_pg_scheduler_due_per_tick",
     "Number of due schemas claimed per leader tick",
-    buckets=(0, 1, 5, 10, 25, 50, 100, 250, 500, 1000),
+    buckets=(0, 1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000),
 )
 
 FIRE_LATENESS_SECONDS = Histogram(
@@ -92,6 +96,11 @@ TICKS_TOTAL = Counter(
     labelnames=["outcome"],
 )
 
+REFRESH_FAILURES_TOTAL = Counter(
+    "warehouse_pg_scheduler_refresh_failures_total",
+    "Refresh loop iterations that raised",
+)
+
 
 @frozen
 class ShadowSchedulerConfig:
@@ -100,6 +109,20 @@ class ShadowSchedulerConfig:
     refresh_interval_seconds: float = 300.0
     claim_limit: int = 1000
     decision_retention_days: int = 30
+    refresh_page_size: int = REFRESH_PAGE_SIZE
+    # Just under the tick interval, so a backlog drain yields to the next tick
+    # and to shutdown.
+    drain_budget_seconds: float = 55.0
+
+
+@frozen
+class DrainBatchOutcome:
+    """Counts from one claim/evaluate/advance transaction of the due scan."""
+
+    due: int
+    decisions_inserted: int
+    duplicate_windows: int
+    missed_windows: int
 
 
 class ShadowScheduler:
@@ -116,22 +139,58 @@ class ShadowScheduler:
             claim_limit=self._config.claim_limit,
             decision_retention_days=self._config.decision_retention_days,
         )
+        refresh_task = asyncio.create_task(self._refresh_loop(shutdown))
+        try:
+            while not shutdown.is_set():
+                started = time.monotonic()
+                try:
+                    await self._tick(health_reporter)
+                except Exception:
+                    # No health report on a failed tick: a pod that cannot complete
+                    # ticks should trip the liveness timeout and restart.
+                    TICKS_TOTAL.labels(outcome="error").inc()
+                    logger.exception("scheduler_tick_failed")
+                await self._wait_for_next_cycle(shutdown, started)
+        finally:
+            # A refresh can run for minutes. Stopping it part way is safe because
+            # the upserts are idempotent and the stale-row delete runs last.
+            refresh_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await refresh_task
+        logger.info("scheduler_stopped", owner_token=self._owner_token)
+
+    async def _wait_for_next_cycle(self, shutdown: asyncio.Event, started: float) -> None:
+        remainder = self._config.tick_interval_seconds - (time.monotonic() - started)
+        if remainder > 0:
+            try:
+                await asyncio.wait_for(shutdown.wait(), timeout=remainder)
+            except TimeoutError:
+                pass
+
+    async def _refresh_loop(self, shutdown: asyncio.Event) -> None:
+        # This loop does not report health. Liveness follows the tick loop only,
+        # so a pod whose ticks stop still restarts while its refresh keeps paging.
         while not shutdown.is_set():
             started = time.monotonic()
             try:
-                await self._tick(health_reporter)
+                await self._refresh_if_due()
             except Exception:
-                # No health report on a failed tick: a pod that cannot complete
-                # ticks should trip the liveness timeout and restart.
-                TICKS_TOTAL.labels(outcome="error").inc()
-                logger.exception("scheduler_tick_failed")
-            remainder = self._config.tick_interval_seconds - (time.monotonic() - started)
-            if remainder > 0:
-                try:
-                    await asyncio.wait_for(shutdown.wait(), timeout=remainder)
-                except TimeoutError:
-                    pass
-        logger.info("scheduler_stopped", owner_token=self._owner_token)
+                REFRESH_FAILURES_TOTAL.inc()
+                logger.exception("scheduler_refresh_failed")
+            await self._wait_for_next_cycle(shutdown, started)
+
+    async def _refresh_if_due(self) -> bool:
+        async with await psycopg.AsyncConnection.connect(self._config.database_url, autocommit=True) as conn:
+            refresh_won = await JobsTable.try_acquire_sentinel_slot(
+                conn,
+                lane=SCHEDULER_LANE,
+                group_key=REFRESH_SLOT_KEY,
+                owner_token=self._owner_token,
+                ttl_seconds=self._config.refresh_interval_seconds,
+            )
+            if refresh_won:
+                await self._refresh(conn)
+            return refresh_won
 
     async def _tick(self, health_reporter: Callable[[], None]) -> None:
         async with await psycopg.AsyncConnection.connect(self._config.database_url, autocommit=True) as conn:
@@ -147,77 +206,105 @@ class ShadowScheduler:
                 health_reporter()
                 return
 
-            # Refresh before the due scan so a schema created or re-cadenced
-            # moments ago is judged on this tick, not the next refresh.
-            refresh_won = await JobsTable.try_acquire_sentinel_slot(
-                conn,
-                lane=SCHEDULER_LANE,
-                group_key=REFRESH_SLOT_KEY,
-                owner_token=self._owner_token,
-                ttl_seconds=self._config.refresh_interval_seconds,
-            )
-            if refresh_won:
-                await self._refresh(conn)
+            # Drain the backlog in claim_limit batches, one transaction each, so
+            # a backlog larger than one claim does not make every fire late.
+            drain_started = time.monotonic()
+            batches = 0
+            due = 0
+            decisions_inserted = 0
+            duplicate_windows = 0
+            missed_windows = 0
+            lease_lost = False
+            while True:
+                outcome = await self._drain_batch(conn)
+                health_reporter()
+                if outcome is None:
+                    lease_lost = True
+                    break
+                batches += 1
+                due += outcome.due
+                decisions_inserted += outcome.decisions_inserted
+                duplicate_windows += outcome.duplicate_windows
+                missed_windows += outcome.missed_windows
+                if outcome.due < self._config.claim_limit:
+                    break
+                if time.monotonic() - drain_started >= self._config.drain_budget_seconds:
+                    break
 
-            now_epoch = int(time.time())
-            async with conn.transaction():
-                due = await SchedulerStateTable.claim_due(conn, kind=SYNC_EXTRACT_KIND, limit=self._config.claim_limit)
-                result = await evaluate_due(due, now_epoch)
-                inserted_records, refused = await SchedulerStateTable.insert_decisions(conn, list(result.records))
-
-                advances = []
-                for row in due:
-                    cadence = SchemaCadence(interval_seconds=row.interval_seconds, offset_seconds=row.offset_seconds)
-                    advances.append((row, datetime.fromtimestamp(next_due_after(now_epoch, cadence), tz=UTC)))
-                await SchedulerStateTable.advance_states(conn, advances)
-
-                out_of_scope = [r.schedule_key for r in result.records if r.decision == DECISION_SKIP_OUT_OF_SCOPE]
-                if out_of_scope:
-                    await SchedulerStateTable.delete_states(conn, SYNC_EXTRACT_KIND, out_of_scope)
-
-            DUE_PER_TICK.observe(len(due))
-            for record in inserted_records:
-                FIRE_LATENESS_SECONDS.observe(record.late_seconds)
-                if record.decision == DECISION_WOULD_FIRE:
-                    WOULD_FIRE_TOTAL.inc()
-                    logger.info(
-                        "scheduler_would_fire",
-                        schema_id=record.schedule_key,
-                        team_id=record.team_id,
-                        due_at=record.due_at.isoformat(),
-                        late_seconds=record.late_seconds,
-                    )
-                else:
-                    SKIPS_TOTAL.labels(reason=SKIP_REASONS[record.decision]).inc()
-                    logger.info(
-                        "scheduler_skip",
-                        schema_id=record.schedule_key,
-                        team_id=record.team_id,
-                        due_at=record.due_at.isoformat(),
-                        reason=SKIP_REASONS[record.decision],
-                    )
-            if refused:
-                DUPLICATE_WINDOWS_TOTAL.inc(refused)
-            due_by_schema = {row.schedule_key: row for row in due}
-            inserted_missed_windows = 0
-            for record in inserted_records:
-                row = due_by_schema[record.schedule_key]
-                inserted_missed_windows += max(
-                    0, (int(record.due_at.timestamp()) - int(row.next_due_at.timestamp())) // row.interval_seconds
-                )
-            if inserted_missed_windows:
-                MISSED_WINDOWS_TOTAL.inc(inserted_missed_windows)
-
-            TICKS_TOTAL.labels(outcome="leader").inc()
+            DUE_PER_TICK.observe(due)
+            TICKS_TOTAL.labels(outcome="leader_lease_lost" if lease_lost else "leader").inc()
             logger.info(
                 "scheduler_tick",
-                due=len(due),
-                decisions_inserted=len(inserted_records),
-                duplicate_windows=refused,
-                missed_windows=inserted_missed_windows,
-                refreshed=refresh_won,
+                due=due,
+                decisions_inserted=decisions_inserted,
+                duplicate_windows=duplicate_windows,
+                missed_windows=missed_windows,
+                batches=batches,
+                lease_lost=lease_lost,
             )
-            health_reporter()
+
+    async def _drain_batch(self, conn: psycopg.AsyncConnection) -> DrainBatchOutcome | None:
+        """Run one claim/evaluate/advance transaction. None means the tick slot is no longer ours."""
+        async with conn.transaction():
+            # The lock holds off a new leader until this batch commits, so two pods
+            # never drain at the same time, also when this batch outlives the slot.
+            if not await JobsTable.lock_live_lease(
+                conn, lane=SCHEDULER_LANE, group_key=TICK_SLOT_KEY, owner_token=self._owner_token
+            ):
+                return None
+            now_epoch = int(time.time())
+            due = await SchedulerStateTable.claim_due(conn, kind=SYNC_EXTRACT_KIND, limit=self._config.claim_limit)
+            result = await evaluate_due(conn, due, now_epoch)
+            inserted_records, refused = await SchedulerStateTable.insert_decisions(conn, list(result.records))
+
+            advances = []
+            for row in due:
+                cadence = SchemaCadence(interval_seconds=row.interval_seconds, offset_seconds=row.offset_seconds)
+                advances.append((row, datetime.fromtimestamp(next_due_after(now_epoch, cadence), tz=UTC)))
+            await SchedulerStateTable.advance_states(conn, advances)
+
+            out_of_scope = [r.schedule_key for r in result.records if r.decision == DECISION_SKIP_OUT_OF_SCOPE]
+            if out_of_scope:
+                await SchedulerStateTable.delete_states(conn, SYNC_EXTRACT_KIND, out_of_scope)
+
+        for record in inserted_records:
+            FIRE_LATENESS_SECONDS.observe(record.late_seconds)
+            if record.decision == DECISION_WOULD_FIRE:
+                WOULD_FIRE_TOTAL.inc()
+                logger.info(
+                    "scheduler_would_fire",
+                    schema_id=record.schedule_key,
+                    team_id=record.team_id,
+                    due_at=record.due_at.isoformat(),
+                    late_seconds=record.late_seconds,
+                )
+            else:
+                SKIPS_TOTAL.labels(reason=SKIP_REASONS[record.decision]).inc()
+                logger.info(
+                    "scheduler_skip",
+                    schema_id=record.schedule_key,
+                    team_id=record.team_id,
+                    due_at=record.due_at.isoformat(),
+                    reason=SKIP_REASONS[record.decision],
+                )
+        if refused:
+            DUPLICATE_WINDOWS_TOTAL.inc(refused)
+        due_by_schema = {row.schedule_key: row for row in due}
+        inserted_missed_windows = 0
+        for record in inserted_records:
+            row = due_by_schema[record.schedule_key]
+            inserted_missed_windows += max(
+                0, (int(record.due_at.timestamp()) - int(row.next_due_at.timestamp())) // row.interval_seconds
+            )
+        if inserted_missed_windows:
+            MISSED_WINDOWS_TOTAL.inc(inserted_missed_windows)
+
+        return DrainBatchOutcome(
+            due=len(due),
+            decisions_inserted=len(inserted_records),
+            duplicate_windows=refused,
+            missed_windows=inserted_missed_windows,
+        )
 
     async def _refresh(self, conn: psycopg.AsyncConnection) -> None:
         started = time.monotonic()
@@ -230,25 +317,49 @@ class ShadowScheduler:
             refresh_start = row[0]
 
         now_epoch = int(time.time())
-        rows = await database_sync_to_async_pool(fetch_in_scope_schemas)()
-        upserts: list[DueSchedule] = []
-        for schema_row in rows:
-            schema_id, team_id, interval, sync_time_of_day = (
-                schema_row.schema_id,
-                schema_row.team_id,
-                schema_row.interval,
-                schema_row.sync_time_of_day,
+        in_scope = 0
+        after_id: str | None = None
+        # One page in memory at a time: fleet size must not set the pod's RSS.
+        while True:
+            page = await database_sync_to_async_pool(fetch_in_scope_schema_page)(
+                after_id, self._config.refresh_page_size
             )
-            interval_seconds = int(interval.total_seconds())
+            if not page:
+                break
+            after_id = page[-1].schema_id
+            upserts = self._build_upserts(page, now_epoch)
+            await SchedulerStateTable.upsert_states(conn, upserts)
+            in_scope += len(upserts)
+
+        deleted = await SchedulerStateTable.delete_states_not_refreshed_since(conn, SYNC_EXTRACT_KIND, refresh_start)
+        pruned = await SchedulerStateTable.prune_decisions(
+            conn, kind=SYNC_EXTRACT_KIND, older_than_days=self._config.decision_retention_days
+        )
+
+        SCHEMAS_IN_SCOPE.set(in_scope)
+        SCAN_DURATION_SECONDS.observe(time.monotonic() - started)
+        logger.info(
+            "scheduler_refresh",
+            in_scope=in_scope,
+            stale_deleted=deleted,
+            decisions_pruned=pruned,
+            duration_seconds=round(time.monotonic() - started, 3),
+        )
+
+    @staticmethod
+    def _build_upserts(page: list[InScopeSchema], now_epoch: int) -> list[DueSchedule]:
+        upserts: list[DueSchedule] = []
+        for schema_row in page:
+            interval_seconds = int(schema_row.interval.total_seconds())
             if interval_seconds <= 0:
                 continue
-            offset_seconds = schedule_offset(schema_id, interval, sync_time_of_day)
+            offset_seconds = schedule_offset(schema_row.schema_id, schema_row.interval, schema_row.sync_time_of_day)
             cadence = SchemaCadence(interval_seconds=interval_seconds, offset_seconds=offset_seconds)
             upserts.append(
                 DueSchedule(
                     kind=SYNC_EXTRACT_KIND,
-                    schedule_key=schema_id,
-                    team_id=team_id,
+                    schedule_key=schema_row.schema_id,
+                    team_id=schema_row.team_id,
                     interval_seconds=interval_seconds,
                     offset_seconds=offset_seconds,
                     # Only lands for new or re-cadenced rows; a schema is never
@@ -256,20 +367,4 @@ class ShadowScheduler:
                     next_due_at=datetime.fromtimestamp(next_due_after(now_epoch, cadence), tz=UTC),
                 )
             )
-
-        for start in range(0, len(upserts), UPSERT_BATCH_SIZE):
-            await SchedulerStateTable.upsert_states(conn, upserts[start : start + UPSERT_BATCH_SIZE])
-        deleted = await SchedulerStateTable.delete_states_not_refreshed_since(conn, SYNC_EXTRACT_KIND, refresh_start)
-        pruned = await SchedulerStateTable.prune_decisions(
-            conn, kind=SYNC_EXTRACT_KIND, older_than_days=self._config.decision_retention_days
-        )
-
-        SCHEMAS_IN_SCOPE.set(len(upserts))
-        SCAN_DURATION_SECONDS.observe(time.monotonic() - started)
-        logger.info(
-            "scheduler_refresh",
-            in_scope=len(upserts),
-            stale_deleted=deleted,
-            decisions_pruned=pruned,
-            duration_seconds=round(time.monotonic() - started, 3),
-        )
+        return upserts

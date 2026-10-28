@@ -23,7 +23,10 @@ class BigeyeEndpointConfig:
     # True for the `POST .../fetch` endpoints that page via a `pageCursor` in the JSON body.
     # False for the small GET endpoints that return their full result in one response.
     paginated: bool
-    primary_key: str = "id"
+    primary_keys: tuple[str, ...] = ("id",)
+    # True for endpoints scoped to one metric. They fan out over the Metrics list, and each row
+    # carries the parent's id as `metric_id`.
+    per_metric: bool = False
 
 
 # Bigeye's v1 API has no documented "updated since" filter on any list endpoint (see
@@ -72,7 +75,7 @@ BIGEYE_ENDPOINTS: dict[str, BigeyeEndpointConfig] = {
         paginated=False,
         # Rows nest their id under `collectionConfiguration.id`; `_flatten_collection` copies it
         # to the top level before this primary key is applied.
-        primary_key="id",
+        primary_keys=("id",),
     ),
     "Issues": BigeyeEndpointConfig(
         name="Issues",
@@ -83,7 +86,49 @@ BIGEYE_ENDPOINTS: dict[str, BigeyeEndpointConfig] = {
         data_selector="issue",
         paginated=True,
     ),
+    "SchemaChanges": BigeyeEndpointConfig(
+        name="SchemaChanges",
+        table_name="schema_changes",
+        path="/api/v1/schema-changes/fetch",
+        method="post",
+        data_selector="schemaChanges",
+        paginated=True,
+    ),
+    "MetricRuns": BigeyeEndpointConfig(
+        name="MetricRuns",
+        table_name="metric_runs",
+        path="/api/v1/metrics/runs",
+        method="post",
+        data_selector="metricRuns",
+        paginated=True,
+        per_metric=True,
+        primary_keys=("metric_id", "id"),
+    ),
+    "MetricRevisions": BigeyeEndpointConfig(
+        name="MetricRevisions",
+        table_name="metric_revisions",
+        path="/api/v1/metrics/{metricId}/revisions",
+        method="get",
+        data_selector="revisions",
+        paginated=False,
+        per_metric=True,
+        # Revisions have no id of their own. `_flatten_revision` lifts these out of `revisionInfo`.
+        primary_keys=("metric_id", "revision_epoch_seconds", "revision_type"),
+    ),
+    "MetricScorecard": BigeyeEndpointConfig(
+        name="MetricScorecard",
+        table_name="metric_scorecard",
+        path="/api/v1/metrics/scorecard",
+        method="post",
+        data_selector="scorecards",
+        paginated=False,
+        # `_explode_scorecard` emits one row per metric category per day.
+        primary_keys=("metric_category", "run_at_epoch_seconds"),
+    ),
 }
+
+# The scorecard API's documented maximum history window.
+SCORECARD_DAYS_OF_HISTORY = 90
 
 ENDPOINTS = tuple(BIGEYE_ENDPOINTS.keys())
 

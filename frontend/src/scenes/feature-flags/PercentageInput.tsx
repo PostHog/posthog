@@ -6,13 +6,16 @@ import { useEffect, useRef, useState } from 'react'
 export function PercentageInput({
     value,
     onChange,
+    id,
     className,
     ...rest
 }: {
     value: number
     onChange: (value: number) => void
+    id?: string
     step?: number
     className?: string
+    'aria-label'?: string
     'data-attr'?: string
 }): JSX.Element {
     const [localValue, setLocalValue] = useState(String(value))
@@ -28,6 +31,7 @@ export function PercentageInput({
     return (
         <span className="LemonInput input-like LemonInput--type-number LemonInput--medium LemonInput--full-width">
             <input
+                id={id}
                 className={`LemonInput__input ${className ?? ''}`}
                 type="text"
                 inputMode="decimal"
@@ -59,6 +63,7 @@ export function PercentageInput({
                         setLocalValue(String(clamped))
                     }
                 }}
+                aria-label={rest['aria-label']}
                 data-attr={rest['data-attr']}
             />
             <span className="LemonInput__suffix">%</span>

@@ -1,4 +1,6 @@
-import type { YAxisFormat } from '@posthog/quill-charts'
+import type { PieChartConfig, YAxisFormat, YFormatterConfig } from '@posthog/quill-charts'
+
+import { trendsFilterToYFormatterConfig } from 'products/product_analytics/frontend/insights/trends/shared/trendsAxisFormat'
 
 import type { ChartDisplayType, TrendsFilter } from './types'
 
@@ -46,6 +48,31 @@ export function chartConfigFromTrendsFilter(trendsFilter: TrendsFilter | undefin
     }
 }
 
+// Matches DONUT_INNER_RADIUS_RATIO in TrendsPieChart.tsx so the MCP donut looks like the insight donut.
+const DONUT_INNER_RADIUS_RATIO = 0.6
+
+export interface PieView {
+    config: PieChartConfig
+    valueFormat: YFormatterConfig
+}
+
+// Applies the same slice label rules as TrendsPieChart.tsx, so the preview shows the numbers the saved insight shows.
+export function pieViewFromTrendsFilter(trendsFilter: TrendsFilter | undefined, isDonut: boolean): PieView {
+    const showValue = !!trendsFilter?.showValuesOnSeries
+    const showPercent = !!trendsFilter?.showPercentStackView
+    return {
+        config: {
+            showValueOnSlice: showValue || showPercent,
+            sliceValueDisplay: showValue && showPercent ? 'both' : showPercent ? 'percent' : 'value',
+            isPercent: showPercent,
+            innerRadiusRatio: isDonut ? DONUT_INNER_RADIUS_RATIO : undefined,
+            legend: { show: true, position: 'bottom' },
+        },
+        // PieChart converts slices to percentages itself, so the value format keeps the value's own units.
+        valueFormat: trendsFilterToYFormatterConfig(trendsFilter, false),
+    }
+}
+
 export function defaultChartType(displayType: ChartDisplayType): ChartType {
     if (displayType === 'SlopeGraph') {
         return 'slope'
@@ -61,6 +88,18 @@ export function defaultChartType(displayType: ChartDisplayType): ChartType {
         return 'stacked-bar'
     }
     return 'line'
+}
+
+const DISPLAY_FOR_CHART_TYPE: Record<ChartType, ChartDisplayType> = {
+    line: 'ActionsLineGraph',
+    area: 'ActionsAreaGraph',
+    bar: 'ActionsUnstackedBar',
+    'stacked-bar': 'ActionsBar',
+    slope: 'SlopeGraph',
+}
+
+export function displayForChartType(chartType: ChartType): ChartDisplayType {
+    return DISPLAY_FOR_CHART_TYPE[chartType]
 }
 
 export function isBarFamily(chartType: ChartType): boolean {

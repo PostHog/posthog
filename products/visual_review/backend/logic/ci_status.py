@@ -6,7 +6,7 @@ import structlog
 
 from ..facade.enums import RunPurpose
 from ..models import Repo, Run
-from . import comment_markdown, github_api
+from . import app_urls, github_api
 
 logger = structlog.get_logger(__name__)
 
@@ -129,7 +129,7 @@ def _post_commit_status(
         logger.debug("visual_review.status_check_skipped", run_id=str(run.id), reason="no_github_integration")
         return
 
-    target_url = comment_markdown._run_url(run, repo)
+    target_url = app_urls.run_url(run, repo)
 
     try:
         response = github.api_request(

@@ -21,7 +21,7 @@ import {
     IconWarning,
 } from '@posthog/icons'
 
-import { IconBracketsChart } from 'lib/lemon-ui/icons'
+import { IconSQL } from 'lib/lemon-ui/icons'
 
 import { NotebookNodeType } from './types'
 
@@ -33,7 +33,7 @@ export const NODE_ICONS: Partial<Record<NotebookNodeType, JSX.Element>> = {
     [NotebookNodeType.Dashboard]: <IconPieChart />,
     [NotebookNodeType.Action]: <IconList />,
     [NotebookNodeType.Workflow]: <IconUserPaths />,
-    [NotebookNodeType.SQLV2]: <IconBracketsChart />,
+    [NotebookNodeType.SQLV2]: <IconSQL />,
     [NotebookNodeType.PythonV2]: <IconPython />,
     [NotebookNodeType.GeneratedWidget]: <IconAI />,
     [NotebookNodeType.Latex]: <IconSquareRoot />,

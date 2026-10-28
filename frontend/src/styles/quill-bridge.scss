@@ -54,6 +54,9 @@
     --quill-z-modal: var(--z-modal);
     --quill-z-overlay: var(--z-modal);
     --quill-z-toast: var(--z-bottom-notice);
+
+    /* PostHog's icons draw thinner lines than lucide's, so quill's selection check matches their weight. */
+    --quill-indicator-stroke-width: 1.5;
 }
 
 [data-quill] {
@@ -87,9 +90,9 @@
     --color-text-secondary: var(--muted-foreground);
     --color-border-primary: var(--border);
     --color-border-secondary: var(--border);
-    --color-accent: var(--accent);
-    --color-accent-hover: var(--accent);
-    --color-accent-active: var(--accent);
+    --color-accent: var(--primary);
+    --color-accent-hover: var(--primary);
+    --color-accent-active: var(--primary);
 }
 
 /*
@@ -130,10 +133,6 @@
 
 [data-quill] .bg-input {
     background-color: var(--input);
-}
-
-[data-quill] .bg-accent {
-    background-color: var(--accent);
 }
 
 [data-quill] .bg-fill-hover {
@@ -183,6 +182,10 @@
     color: var(--muted-foreground);
 }
 
+[data-quill] .text-subtle-foreground {
+    color: var(--subtle-foreground);
+}
+
 [data-quill] .text-card-foreground {
     color: var(--card-foreground);
 }
@@ -193,6 +196,10 @@
 
 [data-quill] .text-primary-foreground {
     color: var(--primary-foreground);
+}
+
+[data-quill] .text-primary-on-foreground {
+    color: var(--primary-on-foreground);
 }
 
 [data-quill] .text-destructive-foreground {
@@ -337,4 +344,13 @@
 [data-quill] [data-not-quill] * {
     --success: #388600;
     --warning: #f7a501;
+}
+
+/*
+ * Icon size. `.LemonIcon { width: 1em }` in icons.scss sits outside any layer, so it beats quill's layered icon size
+ * and leaves a PostHog icon in a quill button narrower than it is tall. That shifts the label off the column the other
+ * rows use. Inside a quill button, the width goes back to quill, which sets width and height together.
+ */
+.quill-button .LemonIcon:not([class*='size-']) {
+    width: revert-layer;
 }

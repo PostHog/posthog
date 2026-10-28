@@ -4,7 +4,7 @@
 import { canvasMutation } from 'posthog-js/rrweb'
 import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 
-import { CanvasReplayerPlugin } from './canvas-plugin'
+import { CanvasMutationError, CanvasReplayerPlugin } from './canvas-plugin'
 
 // Mock rrweb canvasMutation function
 jest.mock('posthog-js/rrweb', () => ({
@@ -558,6 +558,59 @@ describe('CanvasReplayerPlugin', () => {
             const call = (canvasMutation as jest.Mock).mock.calls.at(-1)[0]
             expect(call.target.width).toBe(500)
             expect(call.target.height).toBe(400)
+        })
+    })
+
+    describe('canvas mutation error reporting', () => {
+        const reportCanvasMutationFailure = async (thrown: unknown): Promise<jest.Mock> => {
+            const canvas = document.createElement('canvas')
+            const event = {
+                type: EventType.IncrementalSnapshot as const,
+                data: {
+                    source: IncrementalSource.CanvasMutation as const,
+                    id: 7,
+                    type: 1,
+                    commands: [{ property: 'drawArrays', args: [0, 0, 3] }],
+                },
+                timestamp: 1000,
+            }
+            const onError = jest.fn()
+            // rrweb calls errorHandler from a catch after an await, never synchronously.
+            const handled = new Promise<void>((resolve) => {
+                ;(canvasMutation as jest.Mock).mockImplementationOnce(async ({ mutation, errorHandler }) => {
+                    await Promise.resolve()
+                    errorHandler(mutation, thrown)
+                    resolve()
+                })
+            })
+
+            const plugin = CanvasReplayerPlugin([event], onError)
+            const replayer = { getMirror: () => ({ getNode: (id: number) => (id === 7 ? canvas : null) }) }
+            plugin.onBuild?.(canvas, { id: 7, replayer } as any)
+            plugin.handler!(event, false, { replayer } as any)
+            await handled
+            return onError
+        }
+
+        it('reports the error rrweb passes, not the mutation', async () => {
+            const thrown = new TypeError('drawImage failed')
+
+            const onError = await reportCanvasMutationFailure(thrown)
+
+            expect(onError).toHaveBeenCalledTimes(1)
+            const [reported, context] = onError.mock.calls[0]
+            expect(reported).toBe(thrown)
+            expect(context).toEqual({ canvas_node_id: 7, canvas_context: 'WebGL' })
+        })
+
+        it('wraps a non-Error value with the canvas context', async () => {
+            const onError = await reportCanvasMutationFailure('context lost')
+
+            expect(onError).toHaveBeenCalledTimes(1)
+            const [reported, context] = onError.mock.calls[0]
+            expect(reported).toBeInstanceOf(CanvasMutationError)
+            expect(reported.message).toBe('Canvas mutation failed in WebGL context: context lost')
+            expect(context).toEqual({ canvas_node_id: 7, canvas_context: 'WebGL' })
         })
     })
 })

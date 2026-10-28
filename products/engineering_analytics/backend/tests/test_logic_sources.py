@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -19,6 +20,7 @@ from products.engineering_analytics.backend.logic.sources import (
     JobSourceTables,
     TeamMembershipTable,
     list_github_sources,
+    resolve_ci_data_freshness,
     resolve_github_tables,
     resolve_job_source_tables,
     resolve_team_membership_table,
@@ -38,6 +40,8 @@ from products.engineering_analytics.backend.tests._logic_helpers import _ago, _W
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
+_SYNCED_AT = datetime(2026, 3, 2, 12, tzinfo=UTC)
+
 
 class TestResolveGitHubTables(BaseTest):
     """The per-team table resolver over the warehouse models (ORM only, no object storage).
@@ -50,6 +54,7 @@ class TestResolveGitHubTables(BaseTest):
         schemas: list[tuple[str, bool, bool]],
         source_type: ExternalDataSourceType = ExternalDataSourceType.GITHUB,
         team: Team | None = None,
+        repository: str = "",
     ) -> ExternalDataSource:
         # schemas: (endpoint name, should_sync, has a backing table)
         team = team or self.team
@@ -60,6 +65,7 @@ class TestResolveGitHubTables(BaseTest):
             status=ExternalDataSource.Status.COMPLETED,
             source_type=source_type,
             prefix=prefix,
+            job_inputs={"repository": repository} if repository else None,
         )
         for name, should_sync, has_table in schemas:
             table = (
@@ -94,6 +100,37 @@ class TestResolveGitHubTables(BaseTest):
         tables = resolve_github_tables(team=self.team)
 
         assert (tables.issue_events, tables.issue_events_team_requests) == ("flaggithub_issue_events", expected)
+
+    @parameterized.expand(
+        [
+            ("github_only", None, False, _SYNCED_AT),
+            ("depot_synced_earlier", _SYNCED_AT - timedelta(hours=2), True, _SYNCED_AT - timedelta(hours=2)),
+            ("depot_synced_later", _SYNCED_AT + timedelta(hours=2), True, _SYNCED_AT),
+            ("depot_never_synced", None, True, None),
+        ]
+    )
+    def test_ci_data_freshness_is_the_older_of_the_github_and_depot_syncs(
+        self, _name: str, depot_synced_at: datetime | None, has_depot: bool, expected: datetime | None
+    ) -> None:
+        source = self._connect(
+            prefix="fresh",
+            schemas=[*self._BOTH_SYNCED, (WORKFLOW_JOBS_SCHEMA, True, True)],
+            repository="PostHog/posthog",
+        )
+        ExternalDataSchema.objects.filter(source=source).update(last_synced_at=_SYNCED_AT)
+        if has_depot:
+            depot = create_depot_source(self.team, prefix="ci", repository="posthog/PostHog")
+            schema = link_schema(
+                self.team,
+                depot,
+                name=DEPOT_JOB_ATTEMPTS_SCHEMA,
+                table=create_warehouse_table_row(self.team, name="cidepot_job_attempts", source=depot),
+            )
+            ExternalDataSchema.objects.filter(id=schema.id).update(last_synced_at=depot_synced_at)
+
+        freshness = resolve_ci_data_freshness(team=self.team, tables=resolve_github_tables(team=self.team))
+
+        assert (freshness.runs_synced_at, freshness.jobs_synced_at) == (expected, expected)
 
     @parameterized.expand(
         [

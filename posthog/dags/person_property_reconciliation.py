@@ -100,7 +100,7 @@ class SkipReason:
 
 # Properties that should NOT trigger a person update on their own.
 # These change frequently but aren't valuable enough to update the person record for.
-# Keep in sync with: nodejs/src/worker/ingestion/persons/person-property-utils.ts
+# Keep in sync with: nodejs/src/common/persons/person-property-utils.ts
 FILTERED_PERSON_UPDATE_PROPERTIES = frozenset(
     [
         # URL/navigation properties - change on every page view

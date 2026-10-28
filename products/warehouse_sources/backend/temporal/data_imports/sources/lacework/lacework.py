@@ -7,9 +7,12 @@ from urllib.parse import urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.lacework.settings import (
@@ -154,7 +157,7 @@ class LaceworkClient:
         # sample scrubbers, so keep auth calls out of HTTP sample capture entirely.
         self._auth_session = make_tracked_session(redact_values=(secret_key,), capture=False)
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((LaceworkRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRIES),
         wait=_retry_wait,
@@ -272,7 +275,35 @@ def _first_page_request(
     body: dict[str, Any] = {"timeFilter": {"startTime": start, "endTime": end}}
     if config.dataset:
         body["dataset"] = config.dataset
+    if config.csp:
+        body["csp"] = config.csp
     return "POST", f"{api_base_url}{config.path}", body
+
+
+def _redact_row(config: LaceworkEndpointConfig, row: dict[str, Any]) -> dict[str, Any]:
+    nested = row.get("data")
+    if not config.redacted_data_keys or not isinstance(nested, dict):
+        return row
+    return {**row, "data": {k: v for k, v in nested.items() if k not in config.redacted_data_keys}}
+
+
+def _get_unwindowed_rows(
+    client: LaceworkClient,
+    config: LaceworkEndpointConfig,
+    api_base_url: str,
+    account_name: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    url: str | None = f"{api_base_url}{config.path}"
+    while url is not None:
+        data = client.fetch(config.method, url)
+        rows = data.get("data") or []
+        url = ((data.get("paging") or {}).get("urls") or {}).get("nextPage")
+        if url is not None and not _is_same_host(url, account_name):
+            logger.warning("Lacework: stopping pagination, next URL host does not match the configured account")
+            url = None
+        if rows:
+            yield [_redact_row(config, row) for row in rows]
 
 
 def get_rows(
@@ -287,9 +318,15 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = LACEWORK_ENDPOINTS[endpoint]
     # One session reused across every page and window so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # Endpoints that strip credentials from rows must not have the raw response sampled either: the
+    # name-based sample scrubbers don't recognise Lacework's camelCase credential keys.
+    session = make_tracked_session(capture=not config.redacted_data_keys)
     client = LaceworkClient(session, account_name, key_id, secret_key, logger)
     api_base_url = base_url(account_name)
+
+    if not config.windowed:
+        yield from _get_unwindowed_rows(client, config, api_base_url, account_name, logger)
+        return
 
     now = datetime.now(UTC)
 

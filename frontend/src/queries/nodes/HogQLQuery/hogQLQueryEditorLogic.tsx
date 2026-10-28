@@ -70,11 +70,13 @@ export interface hogQLQueryEditorLogicActions {
         types: string[][]
     } // dataWarehouseSettingsSceneLogic
     createDataWarehouseSavedQuery: (
-        view: Partial<DataWarehouseSavedQuery> & {
+        payload: Partial<DataWarehouseSavedQuery> & {
+            deferCreatedToast?: boolean
             folder_id?: string | null
             types: string[][]
         }
     ) => Partial<DataWarehouseSavedQuery> & {
+        deferCreatedToast?: boolean
         folder_id?: string | null
         types: string[][]
     } // dataWarehouseViewsLogic

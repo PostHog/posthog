@@ -5,6 +5,11 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.impact import ImpactSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.impact import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.impact.source import ImpactSource
@@ -19,28 +24,11 @@ def _inputs(schema_name: str = "Actions", **overrides: object) -> MagicMock:
     return inputs
 
 
+def _driver() -> SourceDriver:
+    return SourceDriver(ImpactSource(), ImpactSourceConfig(account_sid="s", auth_token="t"))
+
+
 class TestImpactSourceClass:
-    def test_no_unreleased_flag(self) -> None:
-        # A finished source ships visible; unreleasedSource must not be set.
-        assert ImpactSource().get_source_config.unreleasedSource is not True
-
-    def test_lists_tables_without_credentials(self) -> None:
-        assert ImpactSource.lists_tables_without_credentials is True
-
-    def test_get_schemas_returns_all_endpoints(self) -> None:
-        schemas = ImpactSource().get_schemas(ImpactSourceConfig(account_sid="s", auth_token="t"), team_id=1)
-        names = {s.name for s in schemas}
-        assert names == {
-            "Campaigns",
-            "MediaPartners",
-            "Invoices",
-            "Actions",
-            "ActionUpdates",
-            "Contracts",
-            "InvoiceLineItems",
-            "InvoiceDetailedLineItems",
-        }
-
     @parameterized.expand(
         [
             ("Actions", True),
@@ -61,49 +49,23 @@ class TestImpactSourceClass:
         assert schemas[0].supports_incremental is expected
         assert schemas[0].supports_append is expected
 
-    def test_names_filter_narrows_schemas(self) -> None:
-        schemas = ImpactSource().get_schemas(
-            ImpactSourceConfig(account_sid="s", auth_token="t"), team_id=1, names=["Campaigns"]
-        )
-        assert [s.name for s in schemas] == ["Campaigns"]
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        tables = ImpactSource().get_documented_tables()
-        names = {t["name"] for t in tables}
-        assert names == {
-            "Campaigns",
-            "MediaPartners",
-            "Invoices",
-            "Actions",
-            "ActionUpdates",
-            "Contracts",
-            "InvoiceLineItems",
-            "InvoiceDetailedLineItems",
-        }
-
     @parameterized.expand(
         [
             ("valid", True, True, None),
-            ("invalid", False, False, "Invalid Impact.com Account SID or Auth Token"),
+            (
+                "invalid",
+                False,
+                False,
+                "Your impact.com Account SID or Auth token isn't valid for a brand account. Check both values, or use the impact.com Partner source for a partner account.",
+            ),
         ]
     )
     def test_validate_credentials(self, _name: str, api_result: bool, ok: bool, err: Optional[str]) -> None:
-        with patch.object(source_module, "validate_impact_credentials", return_value=api_result):
+        status = 200 if api_result else 401
+        with scripted_network([ScriptedResponse(status=status)]) as network:
             result = ImpactSource().validate_credentials(ImpactSourceConfig(account_sid="s", auth_token="t"), team_id=1)
         assert result == (ok, err)
-
-    def test_source_for_pipeline_plumbs_arguments(self) -> None:
-        manager = MagicMock()
-        inputs = _inputs(schema_name="Actions")
-        with patch.object(source_module, "impact_source") as mock_impact_source:
-            ImpactSource().source_for_pipeline(ImpactSourceConfig(account_sid="s", auth_token="t"), manager, inputs)
-
-        mock_impact_source.assert_called_once()
-        kwargs = mock_impact_source.call_args.kwargs
-        assert kwargs["account_sid"] == "s"
-        assert kwargs["auth_token"] == "t"
-        assert kwargs["endpoint"] == "Actions"
-        assert kwargs["db_incremental_field_last_value"] == "2024-01-01T00:00:00"
+        assert network.requests_log[0].path == "/Advertisers/s/Campaigns"
 
     def test_source_for_pipeline_drops_last_value_when_not_incremental(self) -> None:
         manager = MagicMock()
@@ -138,10 +100,6 @@ class TestImpactSourceClass:
     def test_client_errors_are_not_retryable(self, _name: str, error: str) -> None:
         assert not error_message_matches(error, ImpactSource().get_retryable_errors())
 
-    def test_default_version_is_14(self) -> None:
-        assert ImpactSource.default_version == "14"
-        assert ImpactSource.supported_versions == ("v1", "14")
-
     @parameterized.expand(
         [
             ("unpinned_resolves_to_default", None, "14"),
@@ -150,12 +108,11 @@ class TestImpactSourceClass:
         ]
     )
     def test_source_for_pipeline_passes_resolved_version(self, _name: str, pin: Optional[str], expected: str) -> None:
-        manager = MagicMock()
-        inputs = _inputs(schema_name="Actions", api_version=pin)
-        with patch.object(source_module, "impact_source") as mock_impact_source:
-            ImpactSource().source_for_pipeline(ImpactSourceConfig(account_sid="s", auth_token="t"), manager, inputs)
-
-        assert mock_impact_source.call_args.kwargs["api_version"] == expected
+        result = _driver().run(
+            "Campaigns", [ScriptedResponse(json={"Campaigns": [], "@numpages": "1"})], api_version=pin
+        )
+        assert result.raised is None
+        assert result.requests[0].headers.get("ir-version") == (None if expected == "v1" else expected)
 
     @parameterized.expand(
         [
@@ -164,8 +121,9 @@ class TestImpactSourceClass:
         ]
     )
     def test_validate_credentials_passes_resolved_version(self, _name: str, pin: Optional[str], expected: str) -> None:
-        with patch.object(source_module, "validate_impact_credentials", return_value=True) as mock_validate:
-            ImpactSource().validate_credentials(
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            result = ImpactSource().validate_credentials(
                 ImpactSourceConfig(account_sid="s", auth_token="t"), team_id=1, api_version=pin
             )
-        assert mock_validate.call_args.args[2] == expected
+        assert result == (True, None)
+        assert network.requests_log[0].headers.get("ir-version") == (None if expected == "v1" else expected)

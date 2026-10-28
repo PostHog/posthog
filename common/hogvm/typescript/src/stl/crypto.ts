@@ -85,3 +85,18 @@ export function sha1HmacChain(
 ): string {
     return hmacChain('sha1', 'sha1HmacChainHex', data, encoding, options)
 }
+
+// HMAC-SHA256 with a base64 encoded binary key. Svix-style webhook secrets are random bytes, which a
+// string key would corrupt.
+export function sha256HmacBase64Key(
+    key: string,
+    data: string,
+    encoding: 'hex' | 'base64' | 'base64url' | 'binary' = 'hex',
+    options?: ExecOptions
+): string {
+    const crypto = options?.external?.crypto
+    if (!crypto) {
+        throw new HogVMException('The crypto module is required for "sha256HmacBase64Key" to work.', 'contract')
+    }
+    return crypto.createHmac('sha256', Buffer.from(key, 'base64')).update(data).digest(encoding)
+}

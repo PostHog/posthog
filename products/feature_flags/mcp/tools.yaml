@@ -1,12 +1,10 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product feature_flags
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product feature_flags
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Feature flags
 feature: flags
-url_prefix: /feature_flags
+url_prefix: /feature-flags
 ui_apps:
     feature-flag:
         type: detail
@@ -72,6 +70,7 @@ tools:
                 description:
                     Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the
                     default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.
+        hooks: featureFlags/conditionIdHooks
     delete-feature-flag:
         operation: feature_flags_destroy
         enabled: true
@@ -92,6 +91,7 @@ tools:
                     - flag_id
                     - feature_flag_id
                     - featureFlagId
+        hooks: featureFlags/conditionIdHooks
         soft_delete: true
     feature-flag-archive:
         operation: feature_flags_archive_create
@@ -165,7 +165,12 @@ tools:
 
 
             Sets `active` to false and changes nothing else. This tool never accepts or replaces the `filters` object,
-            so targeting, rollout percentages, variants and payloads cannot change. There is no request body.
+            so targeting, rollout percentages, variants and payloads cannot change.
+
+
+            Pass `version` from the flag you read. A flag whose `filters.version` is 2 requires it, so read the flag
+            first and send its current `version`; never guess it. With `version`, a change made after that read returns
+            409: read the flag again and decide against its current state.
 
 
             A disabled flag stops evaluating everywhere, so every caller falls back to its own default. Tell the user
@@ -218,13 +223,19 @@ tools:
 
 
             Sets `active` to true and changes nothing else. This tool never accepts or replaces the `filters` object, so
-            targeting, rollout percentages, variants and payloads cannot change. There is no request body. To change who
-            the flag is served to, use `update-feature-flag`.
+            targeting, rollout percentages, variants and payloads cannot change. To change who the flag is served to,
+            use `update-feature-flag`.
 
 
-            Returns 400 when the flag is archived (call `feature-flag-unarchive` first) or when a flag it depends on is
-            disabled. Returns 409 when an approval policy gates enabling. Enabling an already-enabled flag succeeds and
-            changes nothing, so retrying is safe.
+            Pass `version` from the flag you read. A flag whose `filters.version` is 2 requires it, so read the flag
+            first and send its current `version`; never guess it. With `version`, a change made after that read returns
+            409: read the flag again and decide against its current state.
+
+
+            Returns 400 when the flag is archived (call `feature-flag-unarchive` first), when a flag it depends on is
+            disabled, or when a release condition targets a deleted cohort (remove that condition with
+            `update-feature-flag`). Returns 409 when an approval policy gates enabling. Enabling an already-enabled flag
+            succeeds and changes nothing, so retrying is safe.
 
 
             `feature-flag-get-definition-by-key` also finds archived flags. `feature-flag-get-all` hides archived flags
@@ -318,9 +329,7 @@ tools:
                     - flag_id
                     - feature_flag_id
                     - featureFlagId
-    feature-flag-request-usage-list:
-        operation: feature_flag_request_usage_list
-        enabled: false
+        hooks: featureFlags/conditionIdHooks
     feature-flag-roll-out-to-everyone:
         operation: feature_flags_roll_out_to_everyone_create
         enabled: true
@@ -400,6 +409,7 @@ tools:
                     - flag_id
                     - feature_flag_id
                     - featureFlagId
+        hooks: featureFlags/conditionIdHooks
         response:
             include:
                 - id
@@ -407,6 +417,55 @@ tools:
                 - active
                 - archived
                 - status
+                - version
+                - filters
+    feature-flag-rules-update:
+        operation: feature_flags_partial_update
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        input_schema: FlagRulesV2UpdateInputSchema
+        enrich_url: '{id}'
+        title: Replace feature flag rules
+        description: >
+            Replace the rules of a feature flag whose `filters.version` is 2. Requires the flag's numeric ID; use
+            `feature-flag-get-definition-by-key` to get it from a key. For a flag without `filters.version` 2, use
+            `update-feature-flag` instead; this tool cannot convert a flag between the two formats.
+
+
+            Read the flag first with `feature-flag-get-definition` or `feature-flag-get-definition-by-key`. Build the
+            new `filters` from what you read and send the whole document: `version` 2, the same `return_type`,
+            `default_value` and the complete ordered `rules` list. The server replaces the stored `filters` with what
+            you send, so a rule you leave out is deleted. Rules are evaluated in order and the first rule that returns a
+            value wins.
+
+
+            Each rule you read has an `id`, and randomized rules (`percentage_rollout`, `experiment`) have a `seed`.
+            Send both unchanged on every rule you keep, edit or move, so the rule keeps its identity and nobody is
+            reassigned. Leave `id` and `seed` off a new rule; the server assigns them. Never invent an `id` or change a
+            `seed`: the write is refused.
+
+
+            Send the flag's top-level `version` from your read (not `filters.version`). Returns 409 when the flag
+            changed after that version, and writes nothing. Read the flag again, rebuild the change on the current rules
+            and send it with the new `version`. Do not retry with the same `version`.
+
+
+            Returns 400 naming the first invalid field when the document is invalid. Fix it and send the document again;
+            the next attempt can name another field. Returns 400 with code `reserved_config_version` ("filters.version
+            is reserved") when this project or this flag does not accept version 2 rule changes. Do not remove
+            `filters.version`. Report that to the user; do not work around it with `update-feature-flag`. This tool
+            changes only `filters`. Use `feature-flag-enable` and `feature-flag-disable` to turn the flag on or off.
+        feature_flag: feature-flag-rules-v2-mcp
+        response:
+            include:
+                - id
+                - key
+                - active
                 - version
                 - filters
     feature-flag-set-release-condition-rollout:
@@ -460,6 +519,7 @@ tools:
                     - flag_id
                     - feature_flag_id
                     - featureFlagId
+        hooks: featureFlags/conditionIdHooks
         response:
             include:
                 - id
@@ -491,6 +551,10 @@ tools:
 
             The flag stays turned off. Call `feature-flag-enable` when the user also wants it serving again. Unarchiving
             a flag that is not archived succeeds and changes nothing, so retrying is safe.
+
+
+            Returns 400 when a release condition targets a deleted cohort. Remove that condition with
+            `update-feature-flag` first.
         param_overrides:
             id:
                 cast: string-int
@@ -528,9 +592,6 @@ tools:
                     - flag_id
                     - feature_flag_id
                     - featureFlagId
-    feature-flags-all-activity-retrieve:
-        operation: feature_flags_all_activity_retrieve
-        enabled: false
     feature-flags-bulk-delete-create:
         operation: feature_flags_bulk_delete_create
         enabled: true
@@ -620,9 +681,6 @@ tools:
             existing active same-key dependencies in target projects are reused, disabled same-key dependencies are left
             untouched, and warnings explain any dependencies or schedules that could not be copied. Returns lists of
             successful and failed copies.
-    feature-flags-create-static-cohort-for-flag-create:
-        operation: feature_flags_create_static_cohort_for_flag_create
-        enabled: false
     feature-flags-dependent-flags-retrieve:
         operation: feature_flags_dependent_flags_list
         enabled: true
@@ -660,9 +718,6 @@ tools:
             no_condition_match, disabled). Pass flag_keys to scope the response to specific flags. This is strongly
             recommended on projects with many flags, since omitting it returns an entry for every flag and can produce a
             very large payload.
-    feature-flags-matching-ids-retrieve:
-        operation: feature_flags_matching_ids_retrieve
-        enabled: false
     feature-flags-my-flags-retrieve:
         operation: feature_flags_my_flags_retrieve
         enabled: true
@@ -681,45 +736,7 @@ tools:
             specific flags. This is strongly recommended on projects with many flags, since omitting it returns an entry
             for every flag and can produce a very large payload. Optionally pass `groups` as a JSON object to evaluate
             group-based flags.
-    feature-flags-remote-config-retrieve:
-        operation: feature_flags_remote_config_retrieve
-        enabled: false
-    feature-flags-roll-out-to-everyone-create:
-        operation: feature_flags_roll_out_to_everyone_create
-        enabled: false
-    feature-flags-set-release-condition-rollout-create:
-        operation: feature_flags_set_release_condition_rollout_create
-        enabled: false
-    feature-flags-staff-cache-clear-create:
-        operation: feature_flags_staff_cache_clear_create
-        enabled: false
-    feature-flags-staff-cache-entry-retrieve:
-        operation: feature_flags_staff_cache_entry_retrieve
-        enabled: false
-    feature-flags-staff-cache-list:
-        operation: feature_flags_staff_cache_list
-        enabled: false
-    feature-flags-staff-cache-rebuild-create:
-        operation: feature_flags_staff_cache_rebuild_create
-        enabled: false
-    feature-flags-staff-cache-warm-run-cancel-create:
-        operation: feature_flags_staff_cache_warm_run_cancel_create
-        enabled: false
-    feature-flags-staff-cache-warm-run-retrieve:
-        operation: feature_flags_staff_cache_warm_run_retrieve
-        enabled: false
-    feature-flags-staff-team-config-list:
-        operation: feature_flags_staff_team_config_list
-        enabled: false
-    feature-flags-staff-team-config-set-create:
-        operation: feature_flags_staff_team_config_set_create
-        enabled: false
-    feature-flags-staff-team-config-set-flag-evaluations-mode-create:
-        operation: feature_flags_staff_team_config_set_flag_evaluations_mode_create
-        enabled: false
-    feature-flags-staff-teams-list:
-        operation: feature_flags_staff_teams_list
-        enabled: false
+        hooks: featureFlags/conditionIdHooks
     feature-flags-status-retrieve:
         operation: feature_flags_status_retrieve
         enabled: true
@@ -774,9 +791,6 @@ tools:
         validators:
             - validateDistinctIdPersonIdExclusive
         ui_app: feature-flag-testing
-    feature-flags-update:
-        operation: feature_flags_update
-        enabled: false
     feature-flags-user-blast-radius-create:
         operation: feature_flags_user_blast_radius_create
         enabled: true
@@ -790,24 +804,6 @@ tools:
         description: >
             Assess the impact of a feature flag release condition before applying it. Provide a condition object and
             optionally a group_type_index to see how many users would be affected relative to the total user count.
-    feature-flags-versions-retrieve:
-        operation: feature_flags_versions_retrieve
-        enabled: false
-    flag-value-values-retrieve:
-        operation: flag_value_values_retrieve
-        enabled: false
-    org-feature-flags-keys:
-        operation: org_feature_flags_keys
-        enabled: false
-    org-feature-flags-retrieve:
-        operation: org_feature_flags_retrieve
-        enabled: false
-    organizations-projects-evaluation-context-suggestions-create:
-        operation: organizations_projects_evaluation_context_suggestions_create
-        enabled: false
-    organizations-projects-evaluation-context-suggestions-destroy:
-        operation: organizations_projects_evaluation_context_suggestions_destroy
-        enabled: false
     scheduled-changes-create:
         operation: scheduled_changes_create
         enabled: true
@@ -886,9 +882,6 @@ tools:
             settings. Cannot change the target record (record_id) or model type (model_name).
         exclude_params:
             - executed_at
-    scheduled-changes-update-full:
-        operation: scheduled_changes_update
-        enabled: false
     update-feature-flag:
         operation: feature_flags_partial_update
         enabled: true
@@ -922,12 +915,23 @@ tools:
 
 
             Rollout conditions, variants, and payloads live in the structured `filters` param, and sending `filters`
-            replaces the whole object, so read the flag first and merge your change. When the flag targets groups, keep
-            `type: "group"`, `group_type_index`, and `filters.aggregation_group_type_index` in what you send; if you
-            omit them this tool restores them from the existing flag so group targeting is not silently converted to
-            person targeting. Use `feature-flag-get-definition-by-key` when you have the string key: it returns the
-            numeric ID and the full definition in one call. Use `feature-flag-get-definition` when you already have the
-            ID. To apply a change at a future time instead, use `scheduled-changes-create`.
+            replaces the whole object, so read the flag first and merge your change. Each release condition you read has
+            a `condition_id`. Send it unchanged on every condition you keep, edit, or move, and leave it off a new
+            condition. A `condition_id` belongs to the flag you read it from, so leave it off a condition copied from a
+            different flag. Once any condition has a `condition_id`, a condition without one is treated as new. This
+            tool uses the ID to restore each condition's property types and targeting, so a reorder, deletion, or edit
+            keeps every condition on the persons or group type it targeted. If a `condition_id` matches no condition on
+            the flag, the flag may have changed after your read, and the update is refused. Read the flag again and
+            rebuild the update. When the flag targets groups, keep `type: "group"`, `group_type_index`, and
+            `filters.aggregation_group_type_index` in what you send; if you omit them this tool restores them from the
+            existing flag so group targeting is not silently converted to person targeting. When the flag's conditions
+            don't all target the same thing (some target persons and others a group type, or they target different group
+            types), set `aggregation_group_type_index` on every new condition. Use null for persons. If you send no
+            `condition_id` values, set `aggregation_group_type_index` on every condition whenever you add, remove,
+            reorder, or change the properties of conditions. Otherwise this tool can't tell which target each condition
+            keeps, and it refuses the update. Use `feature-flag-get-definition-by-key` when you have the string key: it
+            returns the numeric ID and the full definition in one call. Use `feature-flag-get-definition` when you
+            already have the ID. To apply a change at a future time instead, use `scheduled-changes-create`.
         include_params:
             - key
             - name
@@ -949,11 +953,7 @@ tools:
                     - feature_flag_id
                     - featureFlagId
             filters:
-                description: >
-                    Full release-condition object (replaces filters at the API). For group flags set
-                    aggregation_group_type_index and property type "group" + group_type_index. Omitted type /
-                    group_type_index / aggregation_group_type_index are filled from the existing flag to prevent silent
-                    person demotion (see #46501).
+                input_schema: UpdateFeatureFlagFiltersSchema
             is_remote_configuration:
                 description:
                     Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the
@@ -972,3 +972,4 @@ tools:
                 description:
                     Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the
                     default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.
+        hooks: featureFlags/updateFeatureFlagHooks

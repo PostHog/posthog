@@ -1,5 +1,5 @@
 // Captures the stills of a UI flow for reel-render.mjs.
-// Drives a Storybook story (or any page that needs no login) with real mouse input,
+// Drives a Storybook story, or a page of the local app in a new demo workspace, with real mouse input,
 // takes a screenshot before each step and one at the end, and records where each step points.
 //
 // Usage: node reel-capture.mjs <shot-list.json> <out-dir>
@@ -29,6 +29,10 @@ const FIRST_LOAD_TIMEOUT_MS = 300_000
 const STEP_TIMEOUT_MS = 20_000
 const QUIET_MS = 1500
 const SETTLE_MS = 600
+// Workspace setup generates demo data, which takes seconds on a healthy stack.
+const SETUP_TIMEOUT_MS = 120_000
+// setup_test creates users and a full-scope API key, so it must never reach another instance.
+const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]']
 
 function locate(page, target) {
     let scope = page.locator('body')
@@ -88,6 +92,49 @@ async function act(page, action, point) {
     }
 }
 
+// The run-posthog recipe: create a workspace with generated demo data, then log in from the page,
+// so Django's CSRF check sees the page's cookies. Works only on a local stack with DEBUG.
+async function logInToTestWorkspace(page, origin) {
+    await page.goto(`${origin}/login`, { timeout: FIRST_LOAD_TIMEOUT_MS })
+    const result = await page.evaluate(async (timeoutMs) => {
+        const post = (path, body) =>
+            fetch(path, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+                signal: AbortSignal.timeout(timeoutMs),
+            })
+        let setup
+        try {
+            // Current time keeps the demo data inside the default date ranges of scenes such as replay.
+            setup = await post('/api/setup_test/organization_with_team/', {
+                skip_onboarding: true,
+                use_current_time: true,
+            })
+        } catch (error) {
+            return { error: `setup_test failed: ${error.name}` }
+        }
+        if (!setup.ok) {
+            return { error: `setup_test returned ${setup.status}` }
+        }
+        const workspace = (await setup.json()).result
+        let login
+        try {
+            login = await post('/api/login/', { email: workspace.user_email, password: '12345678' })
+        } catch (error) {
+            return { error: `login failed: ${error.name}` }
+        }
+        if (!login.ok) {
+            return { error: `login returned ${login.status}` }
+        }
+        return { teamId: workspace.team_id }
+    }, SETUP_TIMEOUT_MS)
+    if (result.error) {
+        throw new Error(`Could not create the test workspace: ${result.error}. Is this a local stack with DEBUG?`)
+    }
+    return result.teamId
+}
+
 async function main() {
     const [shotListPath, outDir] = process.argv.slice(2)
     if (!shotListPath || !outDir) {
@@ -101,13 +148,26 @@ async function main() {
             throw new Error(`Unknown action "${step.action}". Use ${ACTIONS.join(', ')}.`)
         }
     }
+    if (shotList.testWorkspace) {
+        if (!LOOPBACK_HOSTS.includes(new URL(shotList.url).hostname)) {
+            throw new Error('testWorkspace needs a url on localhost, so setup never reaches another instance.')
+        }
+        if (!shotList.url.includes('{team_id}')) {
+            throw new Error('testWorkspace needs {team_id} in the url, so the reel opens the demo workspace.')
+        }
+    }
     mkdirSync(outDir, { recursive: true })
 
     const browser = await chromium.launch()
     const context = await browser.newContext({ viewport, deviceScaleFactor: CAPTURE_SCALE, reducedMotion: 'reduce' })
     const page = await context.newPage()
+    let url = shotList.url
+    if (shotList.testWorkspace) {
+        const teamId = await logInToTestWorkspace(page, new URL(url).origin)
+        url = url.replace('{team_id}', String(teamId))
+    }
     // A cold Vite dev server compiles each lazy chunk on its first request, which can take minutes.
-    await page.goto(shotList.url, { timeout: FIRST_LOAD_TIMEOUT_MS })
+    await page.goto(url, { timeout: FIRST_LOAD_TIMEOUT_MS })
     await settle(page, FIRST_LOAD_TIMEOUT_MS)
 
     const frames = []

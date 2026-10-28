@@ -1,22 +1,41 @@
 import re
 import json
+import threading
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
 import structlog
 from requests.exceptions import ChunkedEncodingError
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity.nap import sleep as retry_sleep
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
+    default_request_timeout,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import ValidatedRowFilter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import ID, resolve_schema_name
+from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
+    CREATED_AT,
+    ID,
+    resolve_schema_name,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.parallel import (
+    FetchedPage,
+    ReadWindow,
+    read_windows,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.utils import (
     ShopifyGraphQLObject,
@@ -31,9 +50,12 @@ from .constants import (
     SHOPIFY_ACCESS_TOKEN_URL,
     SHOPIFY_API_URL,
     SHOPIFY_API_VERSION_2026_07,
+    SHOPIFY_COST_LIMITED_START_PAGE_SIZES,
     SHOPIFY_DEFAULT_PAGE_SIZE,
     SHOPIFY_GRAPHQL_OBJECTS,
-    SHOPIFY_PAGE_SIZE_OVERRIDES,
+    SHOPIFY_MAX_PAGE_SIZE,
+    SHOPIFY_MAX_QUERY_COST,
+    SHOPIFY_PARALLEL_READ_TIME_FIELDS,
 )
 
 logger = structlog.get_logger(__name__)
@@ -43,6 +65,11 @@ logger = structlog.get_logger(__name__)
 PHASE_ALL = "all"
 PHASE_EARLIEST = "earliest"
 PHASE_LATEST = "latest"
+# The "all" read split into `updated_at` windows that are read at once.
+PHASE_PARALLEL = "parallel"
+
+# The start of the first window of a parallel read, before any Shopify store existed.
+_PARALLEL_READ_EARLIEST = datetime(2000, 1, 1, tzinfo=UTC)
 
 # Raised when Shopify's OAuth token endpoint returns a 4xx that we can't attribute to a more
 # specific cause below. The app credentials are invalid or revoked, so re-entering them is the
@@ -180,10 +207,12 @@ SHOPIFY_CREDENTIALS_CHECK_ERROR = (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ShopifyResumeConfig:
     phase: str
     cursor: str
+    # Set only in the parallel phase: the state of every window (see `ReadWindow.to_state`).
+    windows: list[dict[str, Any]] | None = None
 
 
 class ShopifyPermissionError(Exception):
@@ -294,19 +323,86 @@ def _shopify_retry_wait(retry_state: RetryCallState) -> float:
     return backoff
 
 
-def _make_paginated_shopify_request(
+# The share of Shopify's single-query cost limit that a resized page aims for.
+_SHOPIFY_QUERY_COST_TARGET = 0.9
+# The share of the store's cost bucket that one request can ask for. Shopify throttles a request
+# when the bucket holds less than its requested cost, and every table of the source uses the bucket.
+_SHOPIFY_COST_BUCKET_SHARE = 0.5
+
+_SHOPIFY_MAX_COST_EXCEEDED_CODE = "MAX_COST_EXCEEDED"
+_SHOPIFY_MAX_COST_EXCEEDED_MESSAGE = "exceeds the single query max cost limit"
+
+
+class ShopifyQueryCostExceededError(Exception):
+    """Shopify rejected the query because its requested cost is above the single-query limit."""
+
+
+class ShopifyReadStopped(Exception):
+    """Raised inside a paged read whose caller stopped wanting rows, to end it without more requests."""
+
+
+def _is_max_cost_exceeded(errors: Any) -> bool:
+    if not isinstance(errors, list):
+        return False
+    for error in errors:
+        if not isinstance(error, dict):
+            continue
+        extensions = error.get("extensions")
+        if isinstance(extensions, dict) and extensions.get("code") == _SHOPIFY_MAX_COST_EXCEEDED_CODE:
+            return True
+        if _SHOPIFY_MAX_COST_EXCEEDED_MESSAGE in str(error.get("message", "")):
+            return True
+    return False
+
+
+def _page_size_for_cost(page_size: int, payload: Any) -> int:
+    """The page size that brings the requested cost of this query near Shopify's single-query limit.
+
+    Shopify sizes the requested cost from the `first` arguments, not from the rows it returns, so
+    the cost of one page predicts the cost of a larger one. Returns `page_size` when the response
+    has no usable cost.
+    """
+    requested, ok = safe_unwrap(payload, path="extensions.cost.requestedQueryCost")
+    if not ok or isinstance(requested, bool) or not isinstance(requested, int | float) or requested <= 0:
+        return page_size
+    target = SHOPIFY_MAX_QUERY_COST * _SHOPIFY_QUERY_COST_TARGET
+    bucket_size, ok = safe_unwrap(payload, path="extensions.cost.throttleStatus.maximumAvailable")
+    if ok and not isinstance(bucket_size, bool) and isinstance(bucket_size, int | float) and bucket_size > 0:
+        target = min(target, bucket_size * _SHOPIFY_COST_BUCKET_SHARE)
+    return min(SHOPIFY_MAX_PAGE_SIZE, int(page_size * target / requested))
+
+
+@frozen
+class ShopifyPage:
+    rows: list[Any]
+    # The cursor of the page after this one, or None when this is the last page.
+    next_cursor: str | None
+
+
+def iter_shopify_pages(
     url: str,
     sess: requests.Session,
     graphql_object: ShopifyGraphQLObject,
     logger: FilteringBoundLogger,
     query: str | None = None,
-    phase: str = PHASE_ALL,
     initial_cursor: str | None = None,
-    resumable_source_manager: ResumableSourceManager[ShopifyResumeConfig] | None = None,
-) -> Iterator[list[Any]]:
+    stop: threading.Event | None = None,
+) -> Iterator[ShopifyPage]:
+    """Yield the pages of one query.
+
+    `stop`, when given, ends the read: no request or retry starts once it is set, and a backoff
+    already waiting gives up as soon as it is. A read that only the caller abandons keeps spending
+    the store's query budget for as long as its retries last, which a parallel read cannot afford.
+    """
     endpoint_config = ENDPOINT_CONFIGS.get(graphql_object.name)
 
-    @retry(
+    def wait_unless_stopped(seconds: float) -> None:
+        if stop is None:
+            retry_sleep(seconds)
+        else:
+            stop.wait(seconds)
+
+    @retry_with_deadline(
         # Transient network failures (proxy/egress hiccups, connect/read timeouts) surface from
         # `sess.post` as requests ConnectionError/Timeout — e.g. a 504 from the egress proxy tunnel.
         # They're retryable like a 5xx, so reissue the request with backoff instead of failing the
@@ -316,13 +412,18 @@ def _make_paginated_shopify_request(
         ),
         stop=stop_after_attempt(5),
         wait=_shopify_retry_wait,
+        sleep=wait_unless_stopped,
         reraise=True,
     )
     def execute(vars: dict[str, Any]):
+        if stop is not None and stop.is_set():
+            raise ShopifyReadStopped(f"Shopify: read of {graphql_object.name} stopped")
         # `post` reads the body eagerly (stream=False), so a connection dropped mid-stream
         # surfaces here as ChunkedEncodingError. It's transient — retry it like a 5xx below.
         try:
-            response = sess.post(url, json={"query": graphql_object.query, "variables": vars})
+            response = sess.post(
+                url, json={"query": graphql_object.query, "variables": vars}, timeout=default_request_timeout()
+            )
         except ChunkedEncodingError as e:
             raise ShopifyRetryableError(f"Shopify: connection broken while reading response: {e}") from e
         if response.status_code >= 500:
@@ -339,6 +440,8 @@ def _make_paginated_shopify_request(
         if "errors" in payload:
             error_messages = [e.get("message", "") for e in payload["errors"]]
             joined = "; ".join(error_messages)
+            if _is_max_cost_exceeded(payload["errors"]):
+                raise ShopifyQueryCostExceededError(f"Shopify GraphQL error: {joined}")
             raise Exception(f"Shopify GraphQL error: {joined}")
 
         if "data" not in payload:
@@ -346,8 +449,9 @@ def _make_paginated_shopify_request(
 
         return payload
 
-    pageSize = SHOPIFY_PAGE_SIZE_OVERRIDES.get(graphql_object.name, SHOPIFY_DEFAULT_PAGE_SIZE)
-    vars: dict[str, Any] = {"pageSize": pageSize}
+    starting_page_size = SHOPIFY_COST_LIMITED_START_PAGE_SIZES.get(graphql_object.name, SHOPIFY_DEFAULT_PAGE_SIZE)
+    size_page_from_cost = graphql_object.name in SHOPIFY_COST_LIMITED_START_PAGE_SIZES
+    vars: dict[str, Any] = {"pageSize": starting_page_size}
     logger.debug(f"Using page size {vars['pageSize']} for object {graphql_object.name}")
     if query:
         vars.update({"query": query})
@@ -356,26 +460,137 @@ def _make_paginated_shopify_request(
     has_next_page = True
     while has_next_page:
         logger.debug(f"Querying shopify endpoint {graphql_object.name} with vars: {vars}")
-        payload = execute(vars)
+        try:
+            payload = execute(vars)
+        except (
+            ShopifyQueryCostExceededError,
+            ShopifyRetryableError,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+        ) as e:
+            if not size_page_from_cost or vars["pageSize"] <= starting_page_size:
+                raise
+            # A grown page can be too costly or too slow for Shopify to answer. The starting size
+            # is known to work, so read the same cursor again at that size and stop growing.
+            logger.debug(
+                f"Shopify could not serve page size {vars['pageSize']} for {graphql_object.name}, "
+                f"using {starting_page_size}. {e}"
+            )
+            size_page_from_cost = False
+            vars["pageSize"] = starting_page_size
+            continue
+        if size_page_from_cost:
+            # A size Shopify answered is known to fit, so the cost only ever grows the page. The
+            # requested cost is not linear in the page size, and shrinking on it made the size swing.
+            next_page_size = max(vars["pageSize"], _page_size_for_cost(vars["pageSize"], payload))
+            if next_page_size != vars["pageSize"]:
+                logger.debug(
+                    f"Changing page size for {graphql_object.name} from {vars['pageSize']} to {next_page_size}. "
+                    f"Query cost: {payload['extensions']['cost']}"
+                )
+                vars["pageSize"] = next_page_size
         data = unwrap(payload, path=f"data.{graphql_object.name}.nodes")
         if endpoint_config is not None:
             if endpoint_config.incremental_field_resolver:
                 data = [endpoint_config.incremental_field_resolver(row) for row in data if row.get("discount")]
             if endpoint_config.partition_key_resolver:
                 data = [endpoint_config.partition_key_resolver(row) for row in data if row.get("discount")]
-        yield data
         page_info = unwrap(payload, path=f"data.{graphql_object.name}.pageInfo")
         has_next_page = page_info.get("hasNextPage", False)
-        if has_next_page:
-            # this is intentionally an unsafe lookup so errors surface if expectations aren't met
-            next_cursor = page_info["endCursor"]
+        # this is intentionally an unsafe lookup so errors surface if expectations aren't met
+        next_cursor = page_info["endCursor"] if has_next_page else None
+        yield ShopifyPage(rows=data, next_cursor=next_cursor)
+        if next_cursor is not None:
             vars.update({"cursor": next_cursor})
+
+
+def _make_paginated_shopify_request(
+    url: str,
+    sess: requests.Session,
+    graphql_object: ShopifyGraphQLObject,
+    logger: FilteringBoundLogger,
+    query: str | None = None,
+    phase: str = PHASE_ALL,
+    initial_cursor: str | None = None,
+    resumable_source_manager: ResumableSourceManager[ShopifyResumeConfig] | None = None,
+) -> Iterator[list[Any]]:
+    for page in iter_shopify_pages(url, sess, graphql_object, logger, query=query, initial_cursor=initial_cursor):
+        yield page.rows
+        if page.next_cursor is not None:
             # Checkpoint points to the NEXT unfetched page. Because this save happens
             # only after the generator is resumed past `yield data`, a shutdown/crash
             # after yielding can still cause the last yielded page to be re-fetched on
             # resume; primary-key merge semantics dedupe if that happens.
             if resumable_source_manager is not None:
-                resumable_source_manager.save_state(ShopifyResumeConfig(phase=phase, cursor=next_cursor))
+                resumable_source_manager.save_state(ShopifyResumeConfig(phase=phase, cursor=page.next_cursor))
+
+
+def _parallel_read_windows(
+    schema_name: str,
+    resume_config: ShopifyResumeConfig | None,
+    should_use_incremental_field: bool,
+    use_parallel_read: Callable[[], bool] | None,
+) -> list[ReadWindow] | None:
+    """The windows of a parallel read, or None when the read is paged.
+
+    A read in progress stays on the path that started it, because the cursor of one path means
+    nothing to the other. Only a new read asks the flag.
+    """
+    if resume_config is not None:
+        if resume_config.phase != PHASE_PARALLEL or resume_config.windows is None:
+            return None
+        return [ReadWindow.from_state(state) for state in resume_config.windows]
+    # A full refresh is excluded: its windows end at the start time, so a row that changes during
+    # the read would be missing from the table until the next run. An incremental run reads it next.
+    if (
+        not should_use_incremental_field
+        or schema_name not in SHOPIFY_PARALLEL_READ_TIME_FIELDS
+        or use_parallel_read is None
+        or not use_parallel_read()
+    ):
+        return None
+    started_at = datetime.now(UTC).replace(microsecond=0)
+    return [ReadWindow(lo=_PARALLEL_READ_EARLIEST, query_hi=started_at, stop_hi=started_at)]
+
+
+def _read_in_parallel(
+    url: str,
+    make_session: Callable[[], requests.Session],
+    graphql_object: ShopifyGraphQLObject,
+    logger: FilteringBoundLogger,
+    windows: list[ReadWindow],
+    filter_terms: list[str],
+    resumable_source_manager: ResumableSourceManager[ShopifyResumeConfig],
+) -> Iterator[list[Any]]:
+    endpoint_config = ENDPOINT_CONFIGS[graphql_object.name]
+    time_field = SHOPIFY_PARALLEL_READ_TIME_FIELDS[graphql_object.name]
+
+    def fetch_pages(window: ReadWindow, stop: threading.Event) -> Iterator[FetchedPage]:
+        query = " AND ".join(
+            [
+                f"{endpoint_config.query_filter}:>='{window.lo.isoformat()}'",
+                f"{endpoint_config.query_filter}:<'{window.query_hi.isoformat()}'",
+                *filter_terms,
+            ]
+        )
+        # Each window runs on its own thread, and a `requests` session is not safe to share.
+        with make_session() as window_sess:
+            for page in iter_shopify_pages(
+                url, window_sess, graphql_object, logger, query=query, initial_cursor=window.cursor, stop=stop
+            ):
+                yield FetchedPage(rows=page.rows, next_cursor=page.next_cursor)
+
+    def save_windows(state: list[dict[str, Any]]) -> None:
+        resumable_source_manager.save_state(ShopifyResumeConfig(phase=PHASE_PARALLEL, cursor="", windows=state))
+
+    logger.debug(f"Shopify: reading {graphql_object.name} in parallel windows of {endpoint_config.query_filter}")
+    yield from read_windows(
+        windows,
+        fetch_pages,
+        row_time=lambda row: datetime.fromisoformat(row[time_field]),
+        save_windows=save_windows,
+        safe_point=resumable_source_manager.safe_point,
+    )
 
 
 # A Shopify store subdomain is lowercase alphanumerics and hyphens.
@@ -453,7 +668,7 @@ def _access_token_auth_error_message(error_code: str | None) -> str:
     return SHOPIFY_ACCESS_TOKEN_AUTH_ERROR
 
 
-@retry(
+@retry_with_deadline(
     # A transient TLS/connection drop on the token endpoint (e.g. SSL EOF, proxy/egress hiccup,
     # connect/read timeout) surfaces from `post` as requests ConnectionError/Timeout — SSLError
     # is a ConnectionError. A connection dropped mid-response surfaces as ChunkedEncodingError,
@@ -554,6 +769,37 @@ def _get_granted_scopes(store_id: str, sess: requests.Session) -> set[str] | Non
     return {scope["handle"] for scope in scopes if isinstance(scope, dict) and "handle" in scope}
 
 
+# The comparisons Shopify's search syntax has for a date field.
+CREATED_AT_FILTER_OPERATORS = (">", ">=", "<", "<=")
+
+
+def row_filter_search_terms(schema_name: str, row_filters: list[ValidatedRowFilter] | None) -> list[str]:
+    """Shopify search terms for the row filters of one resource.
+
+    Raises on a filter that has no search term. A filter that is dropped here would sync every
+    row while the schema still shows the filter.
+    """
+    if not row_filters:
+        return []
+    endpoint_config = ENDPOINT_CONFIGS.get(schema_name)
+    search_field = endpoint_config.created_at_search_field if endpoint_config else None
+    terms: list[str] = []
+    for row_filter in row_filters:
+        if (
+            search_field is None
+            or row_filter.column != CREATED_AT
+            or row_filter.operator not in CREATED_AT_FILTER_OPERATORS
+            or not isinstance(row_filter.value, datetime)
+        ):
+            raise ValueError(
+                f"Shopify cannot apply the row filter on {row_filter.column!r} to {schema_name}. "
+                "Remove the row filter in the schema's configuration to resume syncing."
+            )
+        value = row_filter.value if row_filter.value.tzinfo else row_filter.value.replace(tzinfo=UTC)
+        terms.append(f"{search_field}:{row_filter.operator}'{value.isoformat()}'")
+    return terms
+
+
 def shopify_source(
     shopify_store_id: str,
     shopify_client_id: str | None,
@@ -566,17 +812,23 @@ def shopify_source(
     api_version: str = SHOPIFY_API_VERSION_2026_07,
     should_use_incremental_field: bool = False,
     shopify_access_token: str | None = None,
+    row_filters: list[ValidatedRowFilter] | None = None,
+    use_parallel_read: Callable[[], bool] | None = None,
 ):
     store_id = normalize_store_id(shopify_store_id)
     api_url = SHOPIFY_API_URL.format(store_id, api_version)
     access_token = _resolve_access_token(store_id, shopify_client_id, shopify_client_secret, shopify_access_token)
     schema_name = resolve_schema_name(graphql_object_name)
+    filter_terms = row_filter_search_terms(schema_name, row_filters)
 
-    def get_rows():
-        sess = make_tracked_session(
+    def make_session() -> requests.Session:
+        return make_tracked_session(
             headers={"X-Shopify-Access-Token": access_token, "Content-Type": "application/json"},
             redact_values=(access_token,),
         )
+
+    def get_rows():
+        sess = make_session()
         graphql_object = SHOPIFY_GRAPHQL_OBJECTS.get(schema_name)
         if not graphql_object:
             raise Exception(f"Shopify object does not exist: {schema_name}")
@@ -607,6 +859,20 @@ def shopify_source(
             db_incremental_field_last_value is None and db_incremental_field_earliest_value is None
         ):
             logger.debug(f"Shopify: iterating all objects from source for {schema_name}")
+            windows = _parallel_read_windows(
+                schema_name, resume_config, should_use_incremental_field, use_parallel_read
+            )
+            if windows is not None:
+                yield from _read_in_parallel(
+                    api_url,
+                    make_session,
+                    graphql_object,
+                    logger,
+                    windows,
+                    filter_terms,
+                    resumable_source_manager,
+                )
+                return
             initial_cursor = (
                 resume_config.cursor if resume_config is not None and resume_config.phase == PHASE_ALL else None
             )
@@ -615,6 +881,7 @@ def shopify_source(
                 sess,
                 graphql_object,
                 logger,
+                query=" AND ".join(filter_terms) or None,
                 phase=PHASE_ALL,
                 initial_cursor=initial_cursor,
                 resumable_source_manager=resumable_source_manager,
@@ -633,7 +900,7 @@ def shopify_source(
             logger.debug(
                 f"Shopify: iterating earliest objects from source: {query_filter} < {db_incremental_field_earliest_value}"
             )
-            query = f"{query_filter}:<'{db_incremental_field_earliest_value}'"
+            query = " AND ".join([f"{query_filter}:<'{db_incremental_field_earliest_value}'", *filter_terms])
             initial_cursor = (
                 resume_config.cursor if resume_config is not None and resume_config.phase == PHASE_EARLIEST else None
             )
@@ -653,7 +920,7 @@ def shopify_source(
             logger.debug(
                 f"Shopify: iterating latest objects from source: {query_filter} > {db_incremental_field_last_value}"
             )
-            query = f"{query_filter}:>'{db_incremental_field_last_value}'"
+            query = " AND ".join([f"{query_filter}:>'{db_incremental_field_last_value}'", *filter_terms])
             initial_cursor = (
                 resume_config.cursor if resume_config is not None and resume_config.phase == PHASE_LATEST else None
             )

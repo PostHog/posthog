@@ -15,7 +15,7 @@ use cymbal::{
         native::NativeProvider,
         proguard::ProguardProvider,
         sourcemap::{OwnedSourceMapCache, SourcemapProvider},
-        Catalog, Fetcher, Parser,
+        Catalog, Fetcher, ParsePermit, Parser,
     },
     types::{RawExceptionProperties, Stacktrace},
 };
@@ -64,8 +64,12 @@ where
     type Set = P::Set;
     type Err = P::Err;
 
-    async fn parse(&self, source: Self::Source) -> Result<Self::Set, Self::Err> {
-        self.inner.parse(source).await
+    async fn parse(
+        &self,
+        source: Self::Source,
+        permit: ParsePermit,
+    ) -> Result<Self::Set, Self::Err> {
+        self.inner.parse(source, permit).await
     }
 }
 

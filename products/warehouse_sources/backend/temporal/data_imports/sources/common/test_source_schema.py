@@ -71,12 +71,13 @@ class TestBuildDefaultSchemas:
 
     @parameterized.expand(
         [
-            ("no_incremental_support", False, False, []),
-            ("incremental_support_but_no_field", True, True, []),
+            ("no_incremental_support", False, False, [], False),
+            ("incremental_support_but_no_field", True, True, [], False),
+            ("source_prefers_full_refresh", True, True, [_field("updated_at")], True),
         ]
     )
     def test_full_refresh_fallback(
-        self, _name: str, supports_incremental: bool, supports_append: bool, fields: list
+        self, _name: str, supports_incremental: bool, supports_append: bool, fields: list, prefers_full_refresh: bool
     ) -> None:
         schemas = build_default_schemas(
             [
@@ -85,6 +86,7 @@ class TestBuildDefaultSchemas:
                     supports_incremental=supports_incremental,
                     supports_append=supports_append,
                     incremental_fields=fields,
+                    prefers_full_refresh=prefers_full_refresh,
                 )
             ]
         )
@@ -237,3 +239,12 @@ class TestBuildEndpointSchemas:
         assert schemas["contacts"].description is None
         assert (schemas["events"].should_sync_default, schemas["campaigns"].should_sync_default) == (False, True)
         assert (schemas["contacts"].supports_webhooks, schemas["campaigns"].supports_webhooks) == (True, False)
+
+    def test_default_incremental_lookback_seconds_reaches_the_schema(self) -> None:
+        # Endpoints whose recent rows get restated upstream (e.g. a billing report whose latest
+        # days can still change) set a per-endpoint default lookback; dropping it here would
+        # freeze those rows at their first-imported value on every later incremental run.
+        schemas = {s.name: s for s in self._build(default_incremental_lookback_seconds={"contacts": 86400})}
+
+        assert schemas["contacts"].default_incremental_lookback_seconds == 86400
+        assert schemas["campaigns"].default_incremental_lookback_seconds is None

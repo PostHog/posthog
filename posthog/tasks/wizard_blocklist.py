@@ -1,4 +1,6 @@
-"""Revoke the gateway credentials a blocklisted identity already holds.
+"""Revoke the gateway credentials a blocked identity already holds.
+
+An identity is blocked when an access rule refuses it while the AI gateway is enforced.
 
 Consent refuses a banned user a new grant, but a ban still has to reach the
 credentials issued before it. This is what closes the legacy gateway, which
@@ -20,22 +22,25 @@ from celery import shared_task
 
 from posthog.celery_queues import CeleryQueue
 from posthog.dataclasses import frozen
-from posthog.llm.wizard_blocklist import (
-    GATEWAY_BEARING_SCOPES,
-    blocklist_flag_defined,
-    record_blocklist_outcome,
-    wizard_identity_blocked,
-)
+from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES
 from posthog.models.oauth import OAuthAccessToken, oauth_scope_tokens_expression, revoke_oauth_session
+from posthog.models.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
+
+from products.security.backend.facade.api import (
+    gateway_credentials_revoked as security_gateway_credentials_revoked,
+    is_enforced as security_is_enforced,
+)
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 
 logger = structlog.get_logger(__name__)
 
 _CHUNK_SIZE = 1000
 
 # One tick's ceiling. Each revocation is a locked transaction plus cascading
-# deletes, and a condition group with no properties matches every identity at
-# once; the next tick continues the backlog.
+# deletes, and one broad rule, such as one on an organization or an email domain,
+# can match many identities at once. The next tick continues the backlog.
 _MAX_REVOCATIONS_PER_RUN = 200
 
 
@@ -49,10 +54,11 @@ class SweepResult:
 
 
 def sweep_blocklisted_gateway_credentials() -> SweepResult:
-    """Revoke every gateway-bearing session held by a blocklisted user."""
+    """Revoke every gateway-bearing session held by a blocked user."""
     verdicts: dict[tuple[int, tuple[str, ...], tuple[int, ...]], bool] = {}
     revoked_pairs: set[tuple[int, uuid.UUID]] = set()
     blocked_user_ids: set[int] = set()
+    team_organizations: dict[int, str] = {}
 
     candidates = (
         OAuthAccessToken.objects.alias(scope_tokens=oauth_scope_tokens_expression())
@@ -76,13 +82,12 @@ def sweep_blocklisted_gateway_credentials() -> SweepResult:
         question = (user.pk, _organization_ids(token), _team_ids(token))
         blocked = verdicts.get(question)
         if blocked is None:
-            blocked = wizard_identity_blocked(
-                distinct_id=str(user.distinct_id),
-                email=user.email,
-                surface="revoke_sweep",
-                user_uuid=str(user.uuid),
-                organization_ids=question[1],
-                team_ids=question[2],
+            blocked = security_gateway_credentials_revoked(
+                SecuritySubject(
+                    email=user.email,
+                    user_uuid=str(user.uuid),
+                    organization_ids=_rule_organization_ids(question[1], question[2], team_organizations),
+                )
             )
             verdicts[question] = blocked
             if blocked:
@@ -124,15 +129,29 @@ def _team_ids(token: OAuthAccessToken) -> tuple[int, ...]:
     return tuple(token.scoped_teams or [])
 
 
+def _rule_organization_ids(
+    organization_ids: tuple[str, ...], team_ids: tuple[int, ...], team_organizations: dict[int, str]
+) -> tuple[str, ...]:
+    """The credential's organizations plus the ones that own its teams.
+
+    Access rules have no team target, and a team-scoped credential carries no organizations of
+    its own, so an organization rule reaches it only through its teams. `team_organizations`
+    caches the lookup across one sweep.
+    """
+    missing = [team_id for team_id in team_ids if team_id not in team_organizations]
+    if missing:
+        for team_id, organization_id in Team.objects.filter(id__in=missing).values_list("id", "organization_id"):
+            team_organizations[team_id] = str(organization_id)
+    owners = {team_organizations[team_id] for team_id in team_ids if team_id in team_organizations}
+    return tuple(sorted({*organization_ids, *owners}))
+
+
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 @skip_team_scope_audit
 def revoke_blocklisted_gateway_credentials() -> None:
-    if not blocklist_flag_defined():
-        # Also true when the SDK lost its definitions: a 401, a quota limit or a
-        # missing personal API key all reset them to empty. Recorded so a sweep
-        # that checked nothing is not silence.
-        record_blocklist_outcome("revoke_sweep", "unconfigured")
-        logger.info("wizard_blocklist: no blocklist flag defined, skipping the sweep")
+    # A rule in shadow mode revokes nothing, so skip the scan until the gateway is enforced.
+    if not security_is_enforced(SecuritySurface.AI_GATEWAY):
+        logger.info("wizard_blocklist: AI gateway not enforced, skipping the sweep")
         return
     result = sweep_blocklisted_gateway_credentials()
     logger.info(

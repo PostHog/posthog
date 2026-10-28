@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
+from django.db.models import Case, IntegerField, Q, QuerySet, Subquery, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 from django.http.response import HttpResponseBase
@@ -44,12 +44,14 @@ from posthog.renderers import ServerSentEventRenderer
 from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.exports.backend.facade.api import get_export_asset_content_response
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum, split_csv
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
 from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE, is_ai_data_processing_approved
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
+from products.replay_vision.backend.experiment_variants import UNATTRIBUTED_VARIANT
 from products.replay_vision.backend.models.replay_observation import (
     IN_FLIGHT_STATUSES,
     ObservationStatus,
@@ -58,13 +60,23 @@ from products.replay_vision.backend.models.replay_observation import (
     annotate_output_number,
     hydrate_for_serialization,
     jsonb_typeof,
+    watch_group_root,
+)
+from products.replay_vision.backend.models.replay_observation_feed_dismissal import (
+    FeedDismissalReason,
+    ReplayObservationFeedDismissal,
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin, ScannerType
+from products.replay_vision.backend.models.replay_scanner import (
+    PromptValence,
+    ReplayScanner,
+    ScannerOrigin,
+    ScannerType,
+)
 from products.replay_vision.backend.observation_formatting import summarize_observation
-from products.replay_vision.backend.prompt_questions import question_for_snapshot
+from products.replay_vision.backend.prompt_questions import question_for_snapshot, valence_for_snapshot
 from products.replay_vision.backend.scanner_access import (
     accessible_observations,
     can_read_targeted_experiment,
@@ -94,6 +106,7 @@ from products.replay_vision.backend.search_suggestions import (
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
+from products.replay_vision.backend.watch_rank import ANCHOR_VERSION, ISSUE_CATEGORIES
 from products.signals.backend.facade.api import get_reports_for_signal_source_slice
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -135,30 +148,15 @@ class ScannerSnapshotSerializer(serializers.Serializer):
     scanner_config = serializers.JSONField(
         help_text="Scanner-type-specific configuration at run time (prompt, tags, scale, etc.).",
     )
-    verify_positives = serializers.CharField(
-        help_text="How a monitor `yes` was re-checked at run time: `off` (one pass, the default), `shadow` (second draw recorded only), or `enforce` (the `yes` stands only when the second draw agrees).",
-    )
-
-
-class VerificationRecordSerializer(serializers.Serializer):
-    """Mirrors `temporal.types.VerificationRecord` for OpenAPI generation."""
-
-    mode = serializers.CharField(
-        help_text="Verify-positives mode the scan ran with: `shadow` records the second draw only, `enforce` serves the settled verdict.",
-    )
-    draws = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="Monitor verdicts in draw order: the pass that triggered verification, then the second draw when it ran.",
-    )
-    resolved_verdict = serializers.CharField(
-        help_text="The verdict verification settled on: the first pass when the second draw agrees, else the dissent.",
-    )
-    served_verdict = serializers.CharField(
-        help_text="The verdict `model_output` carries: the resolved one under `enforce`, the first draw under `shadow`.",
-    )
-    skipped_reason = serializers.CharField(
+    variant_sampling_rates = serializers.DictField(
+        child=serializers.FloatField(),
+        required=False,
         allow_null=True,
-        help_text="Why verification stopped early (`no_cache`, `no_budget`, `draw_failed`), leaving the first pass in place. Null when every draw ran.",
+        help_text=(
+            "Experiment scanners with balanced sampling: the 0..1 rate each watched variant was sampled at "
+            "by the tick that dispatched this scan. Null otherwise, so even per-variant counts can be read "
+            "against the rates that produced them."
+        ),
     )
 
 
@@ -172,9 +170,18 @@ class ScannerResultSerializer(serializers.Serializer):
         min_value=0,
         help_text="Number of PostHog Signals emitted from this observation.",
     )
-    verification = VerificationRecordSerializer(
+    experiment_variant = serializers.CharField(
+        required=False,
         allow_null=True,
-        help_text="Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one.",
+        help_text=(
+            "Experiment scanners only: the variant the exposure data attributes this session's person to. "
+            "Null on the other types and on rows scanned before variant attribution shipped."
+        ),
+    )
+    session_duration_s = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Experiment scanners only: the scanned session's duration in seconds.",
     )
 
 
@@ -196,8 +203,20 @@ class ReplayObservationLabelSerializer(serializers.Serializer):
     )
 
 
+class ObservationFeedDismissalSerializer(serializers.Serializer):
+    """Why the calling user marked an observation not useful in What to watch."""
+
+    reason = serializers.ChoiceField(
+        choices=FeedDismissalReason.choices,
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Optional reason the observation was not useful. Omit or send null when the user gave none.",
+    )
+
+
 class ReplayObservationMediaSerializer(serializers.Serializer):
-    """One thumbnail or clip illustrating an observation."""
+    """One frame illustrating an observation."""
 
     id = serializers.UUIDField(read_only=True, help_text="Id of this media entry.")
     kind = serializers.ChoiceField(
@@ -205,7 +224,7 @@ class ReplayObservationMediaSerializer(serializers.Serializer):
         read_only=True,
         help_text=(
             "`thumbnail` for the single frame that illustrates the observation, `chapter` for the frame of one "
-            "summary chapter, `clip` for a short video."
+            "summary chapter."
         ),
     )
     position = serializers.IntegerField(
@@ -216,19 +235,22 @@ class ReplayObservationMediaSerializer(serializers.Serializer):
         read_only=True,
         help_text="Export asset holding the bytes; fetch it from the export content endpoint.",
     )
-    description = serializers.CharField(
-        read_only=True,
-        allow_null=True,
-        help_text="One sentence saying what the clip shows. Null for thumbnails.",
-    )
     video_start_ms = serializers.IntegerField(
         read_only=True,
         help_text="Where this media starts in the analysis video, in milliseconds.",
     )
-    video_end_ms = serializers.IntegerField(
-        read_only=True,
-        allow_null=True,
-        help_text="Where a clip ends in the analysis video, in milliseconds. Null for thumbnails.",
+
+
+_THUMBNAIL_REDIRECT_MAX_AGE_S = 600
+
+
+def _is_servable(asset: ExportedAsset | None) -> bool:
+    # The prefetch joins the asset row directly, so the manager's TTL filter does not apply
+    # and an expired frame would serve until the sweep deletes it.
+    return (
+        asset is not None
+        and bool(asset.content_location)
+        and not (asset.expires_after is not None and asset.expires_after <= now())
     )
 
 
@@ -239,6 +261,15 @@ class ObservationThumbnailQuerySerializer(serializers.Serializer):
         help_text=(
             "Index into the summary's `model_output.chapters`. Serves that chapter's frame instead of the "
             "observation's thumbnail."
+        ),
+    )
+    size = serializers.ChoiceField(
+        choices=ReplayObservationMedia.Size.choices,
+        required=False,
+        default=ReplayObservationMedia.Size.LARGE,
+        help_text=(
+            "`large` is up to 1280px wide, for detail views. `small` is up to 480px wide, for lists and grids. "
+            "A frame rendered before small copies existed serves the large image for both."
         ),
     )
 
@@ -358,7 +389,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
     viewed = serializers.BooleanField(read_only=True, help_text="Whether the calling user has opened this observation.")
 
     media = serializers.SerializerMethodField(
-        help_text="Thumbnails and clips illustrating this observation, in order. Empty until the media render finishes.",
+        help_text="Frames illustrating this observation, in order. Empty until the media render finishes.",
     )
 
     @extend_schema_field(ReplayObservationMediaSerializer(many=True))
@@ -369,9 +400,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
                 "kind": media.kind,
                 "position": media.position,
                 "asset_id": media.asset_id,
-                "description": media.description,
                 "video_start_ms": media.video_start_ms,
-                "video_end_ms": media.video_end_ms,
             }
             for media in obj.media.all()
             # No content location means the render has not landed yet, so there is nothing to fetch.
@@ -392,6 +421,24 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
         return question_for_snapshot(
             snapshot_config=(obj.scanner_snapshot or {}).get("scanner_config"),
             question=getattr(obj, "scanner_prompt_question", "") or "",
+            source=getattr(obj, "scanner_prompt_question_source", "") or "",
+        )
+
+    prompt_valence = serializers.SerializerMethodField(
+        help_text=(
+            "For a monitor or scorer: `good` when a yes or a high score is good news for the team, `bad` when it "
+            "is a problem, `neutral` when neither. Judged by AI from the prompt. Null for other scanner types, "
+            "when not judged, or when the prompt has changed since this observation was scanned."
+        ),
+    )
+
+    @extend_schema_field(serializers.ChoiceField(choices=PromptValence.choices, allow_null=True))
+    def get_prompt_valence(self, obj: ReplayObservation) -> PromptValence | None:
+        snapshot = obj.scanner_snapshot or {}
+        return valence_for_snapshot(
+            snapshot_config=snapshot.get("scanner_config"),
+            scanner_type=snapshot.get("scanner_type"),
+            valence=getattr(obj, "scanner_prompt_valence", "") or "",
             source=getattr(obj, "scanner_prompt_question_source", "") or "",
         )
 
@@ -421,6 +468,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             "scanner_snapshot",
             "scanner_result",
             "prompt_question",
+            "prompt_valence",
             "triggered_by",
             "triggered_by_user",
             "backfill_id",
@@ -715,6 +763,13 @@ class ReplayObservationFilter(django_filters.FilterSet):
             "(comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`."
         ),
     )
+    variant = django_filters.CharFilter(
+        method="_filter_variant",
+        help_text=(
+            "Experiment scanners only: filter to observations attributed to any of the given variant keys "
+            f"(comma-separated). `{UNATTRIBUTED_VARIANT}` matches observations with no attributed variant."
+        ),
+    )
     session_id = MultiChoiceFilter(
         field_name="session_id",
         help_text="Filter to observations of one or more session recordings. Accepts a comma-separated list.",
@@ -723,6 +778,13 @@ class ReplayObservationFilter(django_filters.FilterSet):
         field_name="recording_subject_email",
         lookup_expr="icontains",
         help_text="Filter to observations whose person email contains this value (case-insensitive).",
+    )
+    watch_group = django_filters.UUIDFilter(
+        method="_filter_watch_group",
+        help_text=(
+            "Only observations the watch feed groups with this observation as near duplicates, including itself. "
+            "Pair it with the feed's `date_from` to list the sessions a feed card counts."
+        ),
     )
     date_from = django_filters.CharFilter(
         method="_filter_date_from",
@@ -838,6 +900,41 @@ class ReplayObservationFilter(django_filters.FilterSet):
             q |= Q(scanner_result__model_output__tags__contains=[tag])
             q |= Q(scanner_result__model_output__tags_freeform__contains=[tag])
         return queryset.filter(q)
+
+    def _filter_watch_group(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: uuid.UUID
+    ) -> QuerySet[ReplayObservation]:
+        if self._team is None:
+            return queryset.none()
+        root = watch_group_root()
+        current = Q(
+            status=ObservationStatus.SUCCEEDED, watch_rank__isnull=False, watch_rank__anchor_version=ANCHOR_VERSION
+        )
+        # The asked row's root comes from a subquery, so the filter adds no statement of its own.
+        asked_root = Subquery(
+            ReplayObservation.objects.filter(current, id=value, team_id=self._team.id)
+            .annotate(_root=root)
+            .values("_root")[:1]
+        )
+        # Matches the rows the feed counts for a card, which leaves out routine rows.
+        return (
+            queryset.alias(_watch_group_root=root, _watch_category=KeyTextTransform("category", "watch_rank"))
+            .filter(current, _watch_category__in=ISSUE_CATEGORIES)
+            .filter(_watch_group_root=asked_root)
+        )
+
+    def _filter_variant(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: str
+    ) -> QuerySet[ReplayObservation]:
+        keys = set(split_csv(value))
+        if not keys:
+            return queryset
+        named = keys - {UNATTRIBUTED_VARIANT}
+        q = Q(_variant__in=named) if named else Q(pk__in=[])
+        if UNATTRIBUTED_VARIANT in keys:
+            q |= Q(_variant__isnull=True)
+        # `->>` reads a missing key and a JSON null alike as SQL NULL, so both count as unattributed.
+        return queryset.alias(_variant=KeyTextTransform("experiment_variant", "scanner_result")).filter(q)
 
 
 # OrderingFilter renders as an array by default, which the MCP client serializes as a JSON-bracketed
@@ -1174,6 +1271,46 @@ class ReplayObservationViewSet(
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
+        methods=["POST"],
+        request=ObservationFeedDismissalSerializer,
+        responses={204: None},
+        description=(
+            "Mark this observation not useful for the calling user, with an optional reason. What to watch stops "
+            "showing it to that user. Sending it again replaces the reason."
+        ),
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        request=None,
+        responses={204: None},
+        description="Undo the calling user's not-useful mark, so What to watch can show the observation again.",
+    )
+    @action(
+        detail=True,
+        methods=["post", "delete"],
+        url_path="feed_dismissal",
+        # Per-user state, like `viewed`, so read scope is enough.
+        required_scopes=["replay_scanner:read", "session_recording:read"],
+    )
+    def feed_dismissal(self, request: Request, **kwargs: Any) -> Response:
+        observation = self.get_object()
+        user = cast(User, request.user)
+        if request.method == "DELETE":
+            ReplayObservationFeedDismissal.objects.filter(
+                team_id=observation.team_id, observation=observation, user=user
+            ).delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        input_serializer = ObservationFeedDismissalSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        ReplayObservationFeedDismissal.objects.update_or_create(
+            team_id=observation.team_id,
+            observation=observation,
+            user=user,
+            defaults={"reason": input_serializer.validated_data["reason"]},
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
         request=None,
         parameters=[ObservationThumbnailQuerySerializer],
         responses={
@@ -1206,12 +1343,7 @@ class ReplayObservationViewSet(
             (
                 entry
                 for entry in observation.media.all()
-                if entry.kind == kind
-                and entry.position == position
-                and entry.asset.content_location
-                # The prefetch joins the asset row directly, so the manager's TTL filter does not apply
-                # and an expired frame would serve until the sweep deletes it.
-                and not (entry.asset.expires_after is not None and entry.asset.expires_after <= now())
+                if entry.kind == kind and entry.position == position and _is_servable(entry.asset)
             ),
             None,
         )
@@ -1229,9 +1361,13 @@ class ReplayObservationViewSet(
             raise NotFound()
         # Served from here, not through the export content endpoint: that one authorizes a recording
         # export by the recording alone, which would let a reader denied this scanner fetch its frames.
-        response = get_export_asset_content_response(asset=media.asset, download=False)
-        # The response redirects to a signed, expiring URL, so a cached redirect outlives its target.
-        response["Cache-Control"] = "no-store"
+        asset = media.asset
+        if query.validated_data["size"] == ReplayObservationMedia.Size.SMALL and _is_servable(media.small_asset):
+            asset = media.small_asset
+        response = get_export_asset_content_response(asset=asset, download=False)
+        # The redirect target is signed for an hour, so a browser keeps the redirect well inside that and a page
+        # of posters does not come back through here on every visit.
+        response["Cache-Control"] = f"private, max-age={_THUMBNAIL_REDIRECT_MAX_AGE_S}"
         return response
 
     @extend_schema(
@@ -1368,7 +1504,7 @@ class ReplayObservationViewSet(
             )
         verdict_changed = previous is None or previous["is_correct"] != label.is_correct
         feedback_changed = previous is None or previous["feedback"] != label.feedback
-        # The core calibration signal: thumbs up/down on whether the scanner got the session right.
+        # The core rating signal: thumbs up/down on whether the scanner got the session right.
         # The feedback box autosaves while the user types and resends the whole label each time, so a save
         # that changes nothing reaches here often. Reporting those counts one rated session many times over.
         if verdict_changed or feedback_changed:

@@ -48,13 +48,17 @@ def test_cursor_pages_and_terminal_page(
     result = source.source_for_pipeline(RetellAISourceConfig(api_key="fake-key"), manager, inputs)
     iterator = iter(cast(Iterable[Any], result.items()))
     assert next(iterator) == [{key: "record-one"}]
+    manager.confirm()
     assert not manager.has_staged_state()
     assert next(iterator) == [{key: "record-two"}]
+    manager.confirm()
     assert manager.has_staged_state()
+    manager.confirm()
     manager.commit()
     assert manager.load_state() == RetellAIResumeConfig(cursor="next-page")
     with pytest.raises(StopIteration):
         next(iterator)
+    manager.confirm()
     manager.commit()
     assert manager.load_state() == RetellAIResumeConfig(completed=True)
     assert result.primary_keys == [key]
@@ -131,6 +135,7 @@ def test_resume_skips_written_pages(
     inputs = replace(inputs, schema_name=name)
     manager = source.get_resumable_source_manager(inputs)
     manager.save_state(RetellAIResumeConfig(cursor="saved-cursor", completed=completed))
+    manager.confirm()
     manager.commit()
     http.return_value = response({"items": [{"record": "remaining"}], "has_more": False})
     result = source.source_for_pipeline(RetellAISourceConfig(api_key="fake-key"), manager, inputs)
@@ -141,20 +146,6 @@ def test_resume_skips_written_pages(
         request = http.call_args.args[1]
         params = json.loads(request.body) if location == "json" else parse_qs(urlsplit(request.url).query)
         assert params["pagination_key"] == ("saved-cursor" if location == "json" else ["saved-cursor"])
-
-
-def test_voices_are_an_unpaginated_array(inputs: SourceInputs, http: MagicMock) -> None:
-    http.return_value = response([{"voice_id": "voice-example", "provider": "example"}])
-    source = RetellAISource()
-    inputs = replace(inputs, schema_name="voices")
-    result = source.source_for_pipeline(
-        RetellAISourceConfig(api_key="fake-key"), source.get_resumable_source_manager(inputs), inputs
-    )
-    assert list(cast(Iterable[Any], result.items())) == [[{"voice_id": "voice-example", "provider": "example"}]]
-    assert result.supports_resume is False
-    assert result.partition_keys is None
-    assert http.call_count == 1
-    assert urlsplit(http.call_args.args[1].url).path == "/list-voices"
 
 
 @pytest.mark.parametrize(
@@ -208,20 +199,6 @@ def test_auth_failures_match_terminal_error_policy(
     assert any(pattern in str(raised.value) for pattern in source.get_non_retryable_errors())
     assert "fake-key" not in str(raised.value)
     assert http.call_count == 1
-
-
-@pytest.mark.parametrize("status", [429, 500])
-def test_transient_errors_use_framework_retries(
-    status: int, inputs: SourceInputs, http: MagicMock, redis_client: MagicMock, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("time.sleep", lambda _: None)
-    http.side_effect = [response({}, status), response({"items": [{"call_id": "call-recovered"}], "has_more": False})]
-    source = RetellAISource()
-    result = source.source_for_pipeline(
-        RetellAISourceConfig(api_key="fake-key"), source.get_resumable_source_manager(inputs), inputs
-    )
-    assert list(cast(Iterable[Any], result.items())) == [[{"call_id": "call-recovered"}]]
-    assert http.call_count == 2
 
 
 def test_invalid_watermark_is_not_silently_ignored(

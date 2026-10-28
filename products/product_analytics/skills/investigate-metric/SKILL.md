@@ -3,16 +3,17 @@ name: investigate-metric
 description: >
   Diagnose why a product metric changed (dropped, spiked, or plateaued) by
   orchestrating breakdowns, actors, paths, lifecycle, retention, and annotations
-  queries. Use when the user reports an anomaly, asks "why did X change?", or
-  needs root-cause analysis for a trend, funnel, retention, stickiness, or
-  lifecycle metric.
+  queries. Use when the user reports an anomaly, asks "why did X change?", asks
+  to explain or walk them through a chart, or needs root-cause analysis for a
+  trend, funnel, retention, stickiness, or lifecycle metric.
 ---
 
 # Investigating a metric change
 
-For "why did X change?" questions about a saved insight, dashboard tile, or pasted query.
-Don't load this skill for plain "what is X?" questions — only when there's an observed
-change to explain.
+For "why did X change?" questions about a saved insight, dashboard tile, or pasted query,
+and for "explain this chart" or "walk me through this" when the user names no change.
+Don't load this skill for plain "what is X?" questions — only when there's a chart or an
+observed change to explain.
 
 ## Tools
 
@@ -31,6 +32,7 @@ Targets PostHog MCP v2. Typed query tools accept the query body directly — pas
 | `posthog:execute-sql`            | Existing SQL insights and custom analysis        |
 | `posthog:read-data-schema`       | Discover events, properties, sample values       |
 | `posthog:insight-get` / `-query` | Fetch a saved insight's metadata / data          |
+| `posthog:explain-chart`          | Walk the user through a trends chart (Step 5)    |
 
 Plus the standard PostHog tools the playbooks reference by name (`feature-flag-get-all`,
 `experiment-list`, `annotations-list`, `query-error-tracking-issues-list`, `query-logs`,
@@ -80,12 +82,34 @@ playbook's steps. See **HogQL insights** in shared-patterns.md.
 
 If the user's question spans multiple kinds, run the playbooks in sequence.
 
+### Choose how you will show the findings
+
+Decide this now, before the investigation, because it changes which queries you keep.
+
+The findings go in a walkthrough when the chart is a `TrendsQuery` over time (not a box plot, 2D heatmap or scatter plot) and `posthog:explain-chart` exists in this session.
+It exists when `posthog:render-ui` lists `explain-chart` in its `tool_name`, or when `info explain-chart` works through `exec`.
+Without `render-ui`, only some hosts draw the walkthrough from `exec`, so Step 5 checks that it appeared and falls back to the written report when it did not.
+Otherwise the findings go in a written report.
+
+When it is a walkthrough:
+
+- Read the `explain-chart` schema now.
+- Add "Show the walkthrough (Step 5)" as the last item of your plan or to-do list.
+- Keep the `TrendsQuery` behind each finding, such as an event count with a breakdown or a property filter.
+  The walkthrough draws a `TrendsQuery` as a chart beside the finding, and any other query only as a link.
+  Use SQL for the findings that a `TrendsQuery` cannot express.
+
 ## Step 2 — Common opening moves
 
 ### 2.1 Confirm the anomaly
 
 Run the primary tool. Record baseline, current, delta (absolute and %), and the start
 of the anomaly window.
+
+When the user asked you to explain a trends chart over time and named no change, find what
+stands out first with [what-stands-out.md](./references/what-stands-out.md). Each moment it
+finds becomes its own anomaly to run through the rest of the steps, most striking first.
+For funnels, retention, paths and other kinds, use that kind's playbook to choose what to look into.
 
 ### 2.2 Variance check
 
@@ -121,9 +145,40 @@ in the control = strong hypothesis; moved too = expand the investigation. Skip w
 
 ## Step 5 — Write findings
 
-Use the format below. Offer to save key charts via `posthog:insight-create`. If a
-cause is found and no annotation marks it, offer `posthog:annotation-create`. See
-[common-causes.md](./references/common-causes.md) for the cause taxonomy.
+Use the format you chose in Step 1: the walkthrough when `explain-chart` exists and the chart is a `TrendsQuery` over time, and the written report otherwise.
+
+### The walkthrough
+
+It draws the chart with each moment highlighted and lets the user step through them.
+Map the investigation onto it:
+
+- **Anomaly** → one chapter per moment, with `start` and `end` copied exactly from the
+  chart's `days`. The app works out each chapter's numbers from the chart, so leave them out
+  of `summary`.
+- **Likely cause** and **Confidence** → `cause`, `confidence` and `confidence_reason`.
+- **Evidence** → `evidence`, each finding with the `query` that produced it, or a `url`
+  for a commit or a deploy. Pass the `TrendsQuery` you ran where you have one: the
+  walkthrough draws it as a chart, while any other query only becomes a link.
+- A **headline** of one sentence with no numbers sums up the whole chart.
+  Wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in `**double asterisks**` so the walkthrough highlights it.
+  Do the same in each `cause`.
+
+Call `posthog:explain-chart` first. It reports any chapter whose dates match no point on the
+chart, so fix those dates and call it again.
+When its response says the user already sees the result, the walkthrough is on screen, and you are done.
+Otherwise call `posthog:render-ui` with `tool_name` `explain-chart` and the same input as `tool_input`.
+When `render-ui` does not exist either, the user sees nothing, so write the written report instead.
+
+Then reply in at most three short sentences: which chapter to look at first, one caveat
+about the data if the walkthrough cannot show it, and one offer from below. The walkthrough
+already holds the chart, the chapters, their causes and their evidence, so the reply has no
+bullet points, no description of the chart and no list of the moments.
+
+### The written report
+
+Without the walkthrough, use the format below. Offer to save key charts via `posthog:insight-create`.
+If a cause is found and no annotation marks it, offer `posthog:annotation-create`.
+See [common-causes.md](./references/common-causes.md) for the cause taxonomy.
 
 ```markdown
 # Investigation: <metric>

@@ -544,6 +544,14 @@ describe('requireSpecialCost()', () => {
         expect(requireSpecialCost('gemini-2.5-pro-preview')).toBe(true)
     })
 
+    it.each(['gemini-2.5-pro-preview-tts', 'google/gemini-2.5-pro-preview-tts', 'GEMINI-2.5-PRO-PREVIEW-TTS'])(
+        'keeps %s out of the text-model context threshold rewrite',
+        (model) => {
+            expect(requireSpecialCost(model)).toBe(false)
+            expect(getNewModelName(model, 200001)).toBe(model)
+        }
+    )
+
     it('returns true for gemini-2.5-pro-preview variants', () => {
         expect(requireSpecialCost('gemini-2.5-pro-preview-0514')).toBe(true)
     })

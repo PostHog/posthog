@@ -10,8 +10,13 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { ScoutRubricCriterionApi, ScoutRubricDocumentApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    ScoutRubricCriterionApi,
+    ScoutRubricDocumentApi,
+    ScoutRubricSaveApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
+import { scoutRubricReferenceFixture } from '../components/config/scouts/scoutRubricFixtures'
 import { MAX_SCOUT_RUBRICS, scoutRubricsLogic } from './scoutRubricsLogic'
 
 const RUBRICS_URL = '/api/projects/:team_id/signals/scout/rubrics/:config_id/'
@@ -42,6 +47,8 @@ function makeDocument(overrides: Partial<ScoutRubricDocumentApi> = {}): ScoutRub
         revision: 0,
         criteria: [criterion],
         generation: null,
+        reference_context: null,
+        reference_generation_id: null,
         ...overrides,
     }
 }
@@ -60,6 +67,7 @@ function makeGeneration(
         error: status === 'failed' ? 'Generation failed. Try again.' : null,
         suggestions: status === 'completed' ? [suggestion] : [],
         summary: '',
+        reference_context: status === 'completed' ? scoutRubricReferenceFixture : null,
     }
 }
 
@@ -142,6 +150,8 @@ describe('scoutRubricsLogic', () => {
                         revision: 4,
                         generation,
                         criteria: [{ ...criterion, enabled: false }, editedSuggestion],
+                        reference_context: scoutRubricReferenceFixture,
+                        reference_generation_id: makeGeneration('completed').id,
                     })
                     return [200, document]
                 },
@@ -177,6 +187,7 @@ describe('scoutRubricsLogic', () => {
         expect(logic.values.newCriteriaCount).toBe(1)
         logic.actions.addCriterion()
         expect(logic.values.newCriteriaCount).toBe(2)
+        expect(logic.values.expandedCriterionId).toBe(logic.values.draftCriteria[1].id)
         logic.actions.removeCriterion(logic.values.draftCriteria[logic.values.draftCriteria.length - 1].id)
         expect(logic.values.newCriteriaCount).toBe(1)
         await expectLogic(logic, () => logic.actions.generateSuggestions()).toFinishAllListeners()
@@ -184,9 +195,14 @@ describe('scoutRubricsLogic', () => {
 
         await expectLogic(logic, () => logic.actions.saveRubrics()).toFinishAllListeners()
 
-        expect(submitted).toEqual({ revision: 3, criteria: [{ ...criterion, enabled: false }, editedSuggestion] })
+        expect(submitted).toEqual({
+            revision: 3,
+            criteria: [{ ...criterion, enabled: false }, editedSuggestion],
+            adopt_generation_id: makeGeneration('completed').id,
+        })
         expect(logic.values.draftRevision).toBe(4)
         expect(logic.values.hasUnsavedChanges).toBe(false)
+        expect(logic.values.draftAdoptGenerationId).toBeNull()
         expect(logic.values.newCriteriaCount).toBe(0)
         expect(logic.values.selectedSuggestionIds).toEqual([])
         expect(logic.values.availableSuggestions).toEqual([editedUnselectedSuggestion])
@@ -206,6 +222,49 @@ describe('scoutRubricsLogic', () => {
         expect(logic.values.availableSuggestions).toEqual([unselectedSuggestion])
         expect(logic.values.selectedSuggestionIds).toEqual([])
     })
+
+    it.each([false, true])(
+        'adopts a captured reference only when selected, without adding criteria (saved reference: %s)',
+        async (hasSavedReference) => {
+            const generation = { ...makeGeneration('completed'), suggestions: [] }
+            document = makeDocument({
+                revision: 2,
+                generation,
+                reference_context: hasSavedReference ? { ...scoutRubricReferenceFixture, skill_version: 2 } : null,
+                reference_generation_id: hasSavedReference ? 'previous-generation' : null,
+            })
+            const submissions: unknown[] = []
+            useMocks({
+                put: {
+                    [RUBRICS_URL]: async ({ request }) => {
+                        const data = (await request.json()) as ScoutRubricSaveApi
+                        submissions.push(data)
+                        document = { ...document, criteria: data.criteria, revision: document.revision + 1 }
+                        return [200, document]
+                    },
+                },
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.hasUnsavedChanges).toBe(false)
+
+            logic.actions.updateCriterion(criterion.id, { title: 'Reviewed evidence criterion' })
+            await expectLogic(logic, () => logic.actions.saveRubrics()).toFinishAllListeners()
+            expect(submissions[0]).toEqual({
+                revision: 2,
+                criteria: [{ ...criterion, title: 'Reviewed evidence criterion' }],
+            })
+
+            logic.actions.adoptGenerationReference()
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+            await expectLogic(logic, () => logic.actions.saveRubrics()).toFinishAllListeners()
+            expect(submissions[1]).toEqual({
+                revision: 3,
+                criteria: [{ ...criterion, title: 'Reviewed evidence criterion' }],
+                adopt_generation_id: generation.id,
+            })
+        }
+    )
 
     it.each([409, 503])('preserves edits after a %s save failure and recovers explicitly', async (status) => {
         document = makeDocument({ generation: makeGeneration('completed') })
@@ -316,46 +375,59 @@ describe('scoutRubricsLogic', () => {
         expect(logic.values.generationActive).toBe(true)
     })
 
-    it.each(['an incomplete manual criterion', 'an incomplete edited suggestion', 'too many selected criteria'])(
-        'blocks saving %s',
-        async (invalidInput) => {
-            if (invalidInput === 'too many selected criteria') {
-                document = makeDocument({
-                    criteria: Array.from(
-                        { length: MAX_SCOUT_RUBRICS },
-                        (_, index): ScoutRubricCriterionApi => ({
-                            ...criterion,
-                            id: `custom-existing-${index}`,
-                            source: 'custom',
-                        })
-                    ),
-                    generation: makeGeneration('completed'),
-                })
-            } else if (invalidInput === 'an incomplete edited suggestion') {
-                document = makeDocument({ generation: makeGeneration('completed') })
-            }
-            let saves = 0
-            useMocks({
-                put: {
-                    [RUBRICS_URL]: () => {
-                        saves += 1
-                        return [200, document]
-                    },
-                },
+    it.each([
+        'an incomplete manual criterion',
+        'an incomplete edited suggestion',
+        'too many selected criteria',
+        'suggestions without a captured reference',
+        'edited suggestions without a captured reference',
+        'all suggestions without a captured reference',
+    ])('blocks saving %s', async (invalidInput) => {
+        if (invalidInput === 'too many selected criteria') {
+            document = makeDocument({
+                criteria: Array.from(
+                    { length: MAX_SCOUT_RUBRICS },
+                    (_, index): ScoutRubricCriterionApi => ({
+                        ...criterion,
+                        id: `custom-existing-${index}`,
+                        source: 'custom',
+                    })
+                ),
+                generation: makeGeneration('completed'),
             })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-            if (invalidInput === 'an incomplete manual criterion') {
-                logic.actions.addCriterion()
-                expect(logic.values.expandedCriterionId).toBe(logic.values.draftCriteria[1].id)
-            } else if (invalidInput === 'an incomplete edited suggestion') {
-                logic.actions.updateSuggestion(suggestion.id, { pass_condition: '' })
-            } else {
-                logic.actions.toggleSuggestion(suggestion.id, true)
-            }
-            await expectLogic(logic, () => logic.actions.saveRubrics()).toFinishAllListeners()
-            expect(saves).toBe(0)
-            expect(logic.values.validationError).not.toBe(null)
+        } else if (invalidInput === 'an incomplete edited suggestion') {
+            document = makeDocument({ generation: makeGeneration('completed') })
+        } else if (invalidInput.includes('without a captured reference')) {
+            document = makeDocument({
+                generation: { ...makeGeneration('completed'), reference_context: null },
+                reference_context: scoutRubricReferenceFixture,
+                reference_generation_id: 'previous-generation',
+            })
         }
-    )
+        let saves = 0
+        useMocks({
+            put: {
+                [RUBRICS_URL]: () => {
+                    saves += 1
+                    return [200, document]
+                },
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        if (invalidInput === 'an incomplete manual criterion') {
+            logic.actions.addCriterion()
+        } else if (invalidInput === 'an incomplete edited suggestion') {
+            logic.actions.updateSuggestion(suggestion.id, { pass_condition: '' })
+        } else if (invalidInput === 'edited suggestions without a captured reference') {
+            logic.actions.updateSuggestion(suggestion.id, { title: 'Edited suggestion' })
+        } else if (invalidInput === 'all suggestions without a captured reference') {
+            logic.actions.toggleAllSuggestions(true)
+        } else {
+            logic.actions.toggleSuggestion(suggestion.id, true)
+        }
+        await expectLogic(logic, () => logic.actions.saveRubrics()).toFinishAllListeners()
+        expect(saves).toBe(0)
+        expect(logic.values.validationError).not.toBe(null)
+    })
 })

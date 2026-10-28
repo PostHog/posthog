@@ -7,6 +7,7 @@
 //! publishes through a slot shares its one producer.
 
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -17,7 +18,7 @@ use rdkafka::ClientConfig;
 use tracing::log::{debug, info};
 
 use crate::sinks::kafka::KafkaContext;
-use crate::sinks::producer::RdKafkaProducer;
+use crate::sinks::producer::{KafkaProducer, RdKafkaProducer};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ProducerName {
@@ -37,6 +38,20 @@ impl ProducerName {
     // Slot names are single words, so no prefix is a prefix of another.
     fn env_prefix(&self) -> String {
         format!("KAFKA_{}_PRODUCER_", self.as_str())
+    }
+}
+
+impl FromStr for ProducerName {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::ALL
+            .into_iter()
+            .find(|name| name.as_str() == s)
+            .ok_or_else(|| {
+                let known: Vec<&str> = Self::ALL.iter().map(|name| name.as_str()).collect();
+                anyhow::anyhow!("unknown producer {s:?}, expected one of {known:?}")
+            })
     }
 }
 
@@ -214,6 +229,14 @@ impl ProducerRegistry {
     pub fn get(&self, name: ProducerName) -> ProducerHandle {
         Arc::clone(&self.producers[&name])
     }
+
+    /// Blocks until every producer's queue drains or times out.
+    pub fn flush(&self) -> anyhow::Result<()> {
+        for producer in self.producers.values() {
+            producer.flush()?;
+        }
+        Ok(())
+    }
 }
 
 pub fn load_all(
@@ -344,5 +367,17 @@ mod tests {
         .unwrap_err();
 
         assert!(err.to_string().contains("INGESTION"), "{err}");
+    }
+
+    #[test]
+    fn producer_name_parses_only_declared_slots() {
+        assert_eq!(
+            "INGESTION".parse::<ProducerName>().unwrap(),
+            ProducerName::Ingestion
+        );
+        for unknown in ["ingestion", "WARPSTREAM", ""] {
+            let err = unknown.parse::<ProducerName>().unwrap_err();
+            assert!(err.to_string().contains("INGESTION"), "{err}");
+        }
     }
 }

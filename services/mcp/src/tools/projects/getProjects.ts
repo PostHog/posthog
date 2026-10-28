@@ -1,4 +1,5 @@
 import type { Schemas } from '@/api/generated'
+import { wrapError } from '@/lib/errors'
 import { ProjectGetAllSchema } from '@/schema/tool-inputs'
 import { omitResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
@@ -24,7 +25,7 @@ export const getProjectsHandler: ToolBase<typeof schema, PublicProject[]>['handl
     const projectsResult = await context.api.organizations().projects({ orgId }).list()
 
     if (!projectsResult.success) {
-        throw new Error(`Failed to get projects: ${projectsResult.error.message}`)
+        throw wrapError(`Failed to get projects: ${projectsResult.error.message}`, projectsResult.error)
     }
 
     return projectsResult.data.map(

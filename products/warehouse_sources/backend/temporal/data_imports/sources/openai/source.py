@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -18,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openai import OpenAISourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai.openai import (
     OPENAI_BASE_URL,
+    PROJECT_KEY_MISSING_MESSAGE,
     OpenAIResumeConfig,
     openai_source,
     validate_credentials as validate_openai_credentials,
@@ -26,12 +28,79 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openai.set
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     OPENAI_ENDPOINTS,
+    PROJECT_KEY_PATHS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class OpenAISource(ResumableSource[OpenAISourceConfig, OpenAIResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^OPENAI_",
+            "^CODEX_API_KEY$",
+            "^NEXT_PUBLIC_CHATKIT_WORKFLOW_ID$",
+        ),
+        script_hosts=("cdn.platform.openai.com",),
+        npm=(
+            "openai",
+            "@ai-sdk/openai",
+            "@langchain/openai",
+            "@openai/agents",
+            "@openai/agents-core",
+            "@openai/agents-openai",
+            "@openai/agents-realtime",
+            "@openai/agents-extensions",
+            "@openai/chatkit",
+            "@openai/chatkit-react",
+            "@openai/codex-sdk",
+            "@openai/codex",
+            "@openai/guardrails",
+            "@llamaindex/openai",
+            "openai-edge",
+        ),
+        pypi=(
+            "openai",
+            "langchain-openai",
+            "openai-agents",
+            "openai-guardrails",
+            "openai-chatkit",
+            "openai-codex",
+            "llama-index-llms-openai",
+            "llama-index-embeddings-openai",
+        ),
+        cargo=("async-openai", "openai-api-rs"),
+        composer=("openai-php/client", "openai-php/laravel", "openai-php/symfony", "orhanerday/open-ai"),
+        go=(
+            "github.com/openai/openai-go",
+            "github.com/sashabaranov/go-openai",
+        ),
+        hex=("openai_ex", "openai"),
+        maven=(
+            "com.openai:openai-java",
+            "com.openai:openai-java-core",
+            "com.openai:openai-java-client-okhttp",
+            "com.openai:openai-java-spring-boot-starter",
+            "com.openai:openai-java-bedrock",
+            "com.aallam.openai:openai-client",
+            "com.aallam.openai:openai-client-bom",
+            "com.theokanning.openai-gpt3-java:service",
+            "com.theokanning.openai-gpt3-java:api",
+            "com.theokanning.openai-gpt3-java:client",
+            "org.springframework.ai:spring-ai-openai",
+            "org.springframework.ai:spring-ai-openai-spring-boot-starter",
+            "org.springframework.ai:spring-ai-starter-model-openai",
+            "dev.langchain4j:langchain4j-open-ai",
+            "dev.langchain4j:langchain4j-open-ai-spring-boot-starter",
+            "dev.langchain4j:langchain4j-open-ai-official",
+            "io.cequence:openai-scala-client_2.13",
+            "io.cequence:openai-scala-client_3",
+        ),
+        pub=("dart_openai", "openai_dart", "langchain_openai"),
+        rubygems=("openai", "ruby-openai"),
+        swiftpm=("github.com/macpaw/openai", "github.com/dylanshine/openai-kit"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://platform.openai.com/docs/api-reference"
 
@@ -45,10 +114,12 @@ class OpenAISource(ResumableSource[OpenAISourceConfig, OpenAIResumeConfig]):
             name=ExternalDataSourceType.OPENAI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="OpenAI",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your OpenAI Admin API key to pull your organization's API usage, cost, and admin data into the PostHog Data warehouse.
 
-Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization settings](https://platform.openai.com/settings/organization/admin-keys). Only organization owners can create one; a regular project API key cannot read organization usage or costs.""",
+Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization settings](https://platform.openai.com/settings/organization/admin-keys). Only organization owners can create one; a regular project API key cannot read organization usage or costs.
+
+To also sync models, batches, stored chat completions, and evals, add a [project API key](https://platform.openai.com/api-keys). OpenAI doesn't accept Admin API keys for these tables, and they only include data from the key's project. A restricted key needs read access to each of them.""",
             iconPath="/static/services/openai.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/openai",
             keywords=["llm", "gpt", "chatgpt", "ai usage", "cost"],
@@ -63,6 +134,14 @@ Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization se
                         placeholder="sk-admin...",
                         secret=True,
                     ),
+                    SourceFieldInputConfig(
+                        name="project_api_key",
+                        label="Project API key (optional)",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=False,
+                        placeholder="sk-proj-...",
+                        secret=True,
+                    ),
                 ],
             ),
         )
@@ -75,9 +154,23 @@ Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization se
         return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        project_key_errors: dict[str, str | None] = {}
+        for path in PROJECT_KEY_PATHS:
+            project_key_errors[f"401 Client Error: Unauthorized for url: {OPENAI_BASE_URL}{path}"] = (
+                "Your OpenAI project API key is invalid or has been revoked. Create a new project API key, then update it in the source settings."
+            )
+            project_key_errors[f"403 Client Error: Forbidden for url: {OPENAI_BASE_URL}{path}"] = (
+                "Your OpenAI project API key can't read this table. Give the key read access to it in your OpenAI project, or stop syncing this table."
+            )
         return {
+            # Platform tables authenticate with the project API key, so their auth failures point
+            # at that key. Listed first because the organization messages below also match them.
+            **project_key_errors,
+            PROJECT_KEY_MISSING_MESSAGE: None,
             "401 Client Error: Unauthorized for url: https://api.openai.com": "Your OpenAI Admin API key is invalid or has been revoked. Create a new Admin API key in your OpenAI organization settings, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.openai.com": "Your OpenAI API key does not have organization admin access. Use an Admin API key (prefixed sk-admin) created by an organization owner, then reconnect.",
+            # Reached only after every later start time in the source's fallback was rejected too.
+            "code=reporting_lookback_exceeded": "OpenAI doesn't report data this far back for this table, and PostHog couldn't find a start date that OpenAI accepts. Contact support so we can fix the sync.",
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -126,7 +219,22 @@ Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization se
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_openai_credentials(config.api_key)
+        return validate_openai_credentials(config.api_key, config.project_api_key)
+
+    def get_endpoint_permissions(
+        self,
+        config: OpenAISourceConfig,
+        team_id: int,
+        endpoints: list[str],
+        api_version: str | None = None,
+    ) -> dict[str, str | None]:
+        missing_key_reason = None if config.project_api_key else "Add a project API key to sync this table."
+        return {
+            name: missing_key_reason
+            if name in OPENAI_ENDPOINTS and OPENAI_ENDPOINTS[name].requires_project_key
+            else None
+            for name in endpoints
+        }
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[OpenAIResumeConfig]:
         return ResumableSourceManager[OpenAIResumeConfig](inputs, OpenAIResumeConfig)
@@ -143,6 +251,7 @@ Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization se
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            project_api_key=config.project_api_key,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,

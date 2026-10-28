@@ -50,6 +50,7 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response, usage_limit_response
 
 from .serializers import (
+    AgentModelOptionsSerializer,
     ArtifactContentSerializer,
     ArtifactDeleteResultSerializer,
     ArtifactListSerializer,
@@ -66,6 +67,8 @@ from .serializers import (
     CreateSuggestionSerializer,
     MaterializeFeaturesRequestSerializer,
     MaterializeFeaturesResponseSerializer,
+    OnlinePerformanceQuerySerializer,
+    OnlinePerformanceSerializer,
     OpenTrainingRunSerializer,
     RecordIterationSerializer,
     ResolvedTemplateSerializer,
@@ -212,7 +215,15 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     uuid_path_parameters = {"id": "A UUID string identifying this autoresearch pipeline."}
     scope_object = "autoresearch"
     # The HogQL actions also carry their own `required_scopes`, so a scoped token needs `query:read` too.
-    scope_object_read_actions = ["list", "retrieve", "validate_definition", "list_templates", "resolve_template"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "validate_definition",
+        "list_templates",
+        "resolve_template",
+        "online_performance",
+        "agent_models",
+    ]
     scope_object_write_actions = [
         "create",
         "update",
@@ -244,6 +255,20 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         # user-driven sandbox, such as a PostHog AI task, can do what its user can do.
         if _is_training_agent_sandbox(request, self.team_id):
             raise PermissionDenied("Pipelines cannot be changed from inside a sandbox.")
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # Scores on persons and the cleanup's $unset are person writes, so any request that turns
+        # them on or off, or archives or deletes a pipeline that writes them, needs person:write
+        # like /score does.
+        if self.action in ("create", "update", "partial_update"):
+            # A JSON null or list body is not a dict, so let the serializer reject it with a 400.
+            writes_persons = isinstance(request.data, dict) and "write_person_property" in request.data
+        elif self.action in ("archive", "destroy") and not getattr(self, "swagger_fake_view", False):
+            # Schema generation has no pipeline to read, so it documents the base scopes.
+            writes_persons = api.pipeline_writes_person_property(self.team_id, self.kwargs["pk"])
+        else:
+            writes_persons = False
+        return ["autoresearch:write", "person:write"] if writes_persons else None
 
     def get_throttles(self) -> list[BaseThrottle]:
         # Several unsampled ClickHouse scans per call, so a personal API key gets the ClickHouse budget.
@@ -289,6 +314,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         headers = self.get_success_headers(output.data)
         return Response(output.data, status=201, headers=headers)
 
+    @extend_schema(request=AutoresearchPipelineCreateSerializer, responses={200: AutoresearchPipelineSerializer})
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         partial = kwargs.pop("partial", False)
         context = {**self.get_serializer_context(), "pipeline_id": self.kwargs["pk"]}
@@ -301,6 +327,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
                 self.team_id,
                 self.kwargs["pk"],
                 fields=_pipeline_write_fields(_validated_with_sentinels(serializer)),
+                user_id=request.user.pk,
             )
         except PipelineNotFound:
             raise NotFound("Pipeline not found.")
@@ -308,6 +335,8 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             raise ValidationError(str(exc)) from exc
         return Response(AutoresearchPipelineSerializer(instance=pipeline).data)
 
+    # Both respond with the read serializer, so the generated client keeps `id` for `enrich_url`.
+    @extend_schema(request=AutoresearchPipelineCreateSerializer, responses={200: AutoresearchPipelineSerializer})
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         kwargs["partial"] = True
         return self.update(request, *args, **kwargs)
@@ -321,7 +350,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     )
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
-            api.delete_pipeline(self.team_id, self.kwargs["pk"])
+            api.delete_pipeline(self.team_id, self.kwargs["pk"], user_id=self.request.user.pk)
         except PipelineNotFound:
             raise NotFound("Pipeline not found.")
         except AutoresearchConflict as exc:
@@ -342,6 +371,19 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     @action(detail=False, methods=["get"], url_path="templates", pagination_class=None)
     def list_templates(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response(TemplateInfoSerializer(instance=api.list_templates(), many=True).data)
+
+    @extend_schema(
+        responses={200: AgentModelOptionsSerializer},
+        summary="List training agent models",
+        description=(
+            "Return the models a pipeline's training agent may run on, with the reasoning efforts each supports "
+            "and its relative token cost, plus the model and effort a pipeline with blank settings uses. "
+            "Pass a model id as agent_model and an effort as agent_reasoning_effort on create or update."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="agent_models", pagination_class=None)
+    def agent_models(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return Response(AgentModelOptionsSerializer(instance=api.list_agent_model_options()).data)
 
     @validated_request(
         request_serializer=ResolveTemplateRequestSerializer,
@@ -589,6 +631,34 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             raise ValidationError(str(exc)) from exc
         return Response(AutoresearchRunSerializer(instance=runs, many=True).data)
 
+    @validated_request(
+        query_serializer=OnlinePerformanceQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=OnlinePerformanceSerializer,
+                description="Realized metrics per model per validated prediction date, newest date first.",
+            ),
+            404: OpenApiResponse(description="The pipeline does not exist."),
+        },
+        summary="Read realized performance history",
+        description=(
+            "Return the realized metrics online validation recorded for each model on each validated "
+            "prediction date, newest date first. Each row has realized AUC with a 95% interval, Brier score, "
+            "calibration error, quantile calibration bins, mean predicted probability against the base rate, "
+            "lift, and the model's role when it emitted and now. The rows come from the validation runs, so a "
+            "former champion that a promotion archived keeps its history. Read-only; it runs no queries."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="online_performance", pagination_class=None)
+    def online_performance(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            performance = api.online_performance(
+                self.team_id, self.kwargs["pk"], limit=request.validated_query_data["limit"]
+            )
+        except PipelineNotFound:
+            raise NotFound("Pipeline not found.")
+        return Response(OnlinePerformanceSerializer(instance=performance).data)
+
     @extend_schema(
         request=None,
         responses={
@@ -602,6 +672,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         summary="Archive a pipeline",
         description=(
             "Soft-delete a pipeline. Stops daily scoring and training. Predictions and metrics are preserved. "
+            "When write_person_property is on, a cleanup run removes output_person_property from the people it scored. "
             "Refused while a training run is in progress."
         ),
     )
@@ -649,7 +720,9 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
 
     def _set_status(self, status: str) -> Response:
         try:
-            pipeline = api.set_pipeline_status(self.team_id, self.kwargs["pk"], status=status)
+            pipeline = api.set_pipeline_status(
+                self.team_id, self.kwargs["pk"], status=status, user_id=self.request.user.pk
+            )
         except PipelineNotFound:
             raise NotFound("Pipeline not found.")
         except AutoresearchConflict as exc:
@@ -943,6 +1016,9 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
                 recommended_next=data.get("recommended_next") or "",
                 distillation=data.get("distillation") or "",
                 report_notebook_short_id=data.get("report_notebook_short_id") or "",
+                reader_summary=data.get("reader_summary"),
+                headline=data.get("headline"),
+                next_steps=data.get("next_steps"),
             )
         except TrainingRunNotFound:
             raise NotFound("Training run not found.")

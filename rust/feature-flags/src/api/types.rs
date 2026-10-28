@@ -5,14 +5,18 @@ use crate::flags::evaluate_v2::EvaluationDetail;
 use crate::flags::flag_group_type_mapping::GroupTypeIndex;
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching::FeatureFlagMatch;
-use crate::flags::flag_matching_utils::match_flag_value_to_flag_filter;
+use crate::flags::flag_matching_utils::{failed_flag_dependency, match_flag_value_to_flag_filter};
 use crate::flags::flag_models::{FeatureFlag, FeatureFlagId, FlagFilters, Holdout};
 use crate::properties::property_matching::{match_property, PropertyMatchingContext};
 use crate::properties::property_models::OperatorType;
 use chrono_tz::Tz;
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use std::{collections::HashMap, fmt, str::FromStr};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+    str::FromStr,
+};
 use uuid::Uuid;
 
 fn format_operator_explanation(key: &str, op_label: &str, value: &Option<Value>) -> String {
@@ -130,7 +134,7 @@ pub struct FlagsQueryParams {
 pub enum ServiceResponse {
     Default(LegacyFlagsResponse),
     V2(FlagsResponse),
-    V3(FlagsResponseV3),
+    V4(FlagsResponseV4),
     DecideV1(DecideV1Response),
     DecideV2(DecideV2Response),
 }
@@ -220,7 +224,7 @@ pub struct FlagsResponse {
     /// Set to `true` when the team is gated into slim `$feature_flag_called` events
     /// (TeamFeatureFlagsConfig.minimal_flag_called_events). Omitted otherwise, so SDKs
     /// that see no field at all fall back to full events, same as legacy teams.
-    /// Only reaches the wire on this v2 shape and on `FlagsResponseV3`: `LegacyFlagsResponse`,
+    /// Only reaches the wire on this v2 shape and on `FlagsResponseV4`: `LegacyFlagsResponse`,
     /// `DecideV1Response`, and `DecideV2Response` intentionally never carry it over. SDKs old
     /// enough to hit those response shapes predate this field and have no code path that reads
     /// it, so there's nothing gained by sending it to them.
@@ -363,6 +367,27 @@ impl FlagsResponse {
         }
     }
 
+    /// Empty flags with the minimal config that `posthog-js` needs to boot. Served to GET
+    /// requests and to requests the service refuses to evaluate (bots, blocked callers).
+    pub fn minimal(request_id: Uuid) -> Self {
+        let mut config = ConfigResponse::new();
+        config.set(
+            "supportedCompression",
+            serde_json::json!(["gzip", "gzip-js"]),
+        );
+        config.set(
+            "config",
+            serde_json::json!({"enable_collect_everything": true}),
+        );
+        config.set("toolbarParams", serde_json::json!({}));
+        config.set("isAuthenticated", serde_json::json!(false));
+        config.set("sessionRecording", serde_json::json!(false));
+
+        let mut response = Self::new(false, HashMap::new(), None, request_id);
+        response.config = config;
+        response
+    }
+
     /// Test helper to create a FlagsResponse with a specific evaluated_at timestamp
     #[cfg(test)]
     pub fn with_evaluated_at(
@@ -447,7 +472,7 @@ pub struct FlagDetails {
     pub config_outcome: ConfigOutcome,
 }
 
-/// The config format and, for a v2 flag that evaluated, the typed outcome the v3 record needs.
+/// The config format and, for a v2 flag that evaluated, the typed outcome the v4 record needs.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ConfigOutcome {
     #[default]
@@ -467,9 +492,9 @@ impl ConfigOutcome {
 
 #[derive(Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FlagsResponseV3 {
+pub struct FlagsResponseV4 {
     pub errors_while_computing_flags: bool,
-    pub flags: HashMap<String, FlagDetailsV3>,
+    pub flags: HashMap<String, FlagDetailsV4>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>,
     pub request_id: Uuid,
@@ -480,14 +505,14 @@ pub struct FlagsResponseV3 {
     pub config: ConfigResponse,
 }
 
-impl FlagsResponseV3 {
+impl FlagsResponseV4 {
     pub fn from_response(response: FlagsResponse) -> Self {
         Self {
             errors_while_computing_flags: response.errors_while_computing_flags,
             flags: response
                 .flags
                 .into_iter()
-                .map(|(key, flag)| (key, FlagDetailsV3::from(flag)))
+                .map(|(key, flag)| (key, FlagDetailsV4::from(flag)))
                 .collect(),
             quota_limited: response.quota_limited,
             request_id: response.request_id,
@@ -498,22 +523,22 @@ impl FlagsResponseV3 {
     }
 }
 
-/// `/flags?v=3` record: one typed `value` instead of `enabled` and `variant`.
+/// `/flags?v=4` record: one typed `value` instead of `enabled` and `variant`.
 #[derive(Debug, PartialEq, Deserialize, Serialize)]
-pub struct FlagDetailsV3 {
+pub struct FlagDetailsV4 {
     pub key: String,
     /// `null` is a null flag default or a failed record.
     pub value: Value,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub failed: bool,
     pub reason: FlagEvaluationReason,
-    pub metadata: FlagDetailsMetadataV3,
+    pub metadata: FlagDetailsMetadataV4,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conditions: Option<Vec<ConditionAnalysis>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
-pub struct FlagDetailsMetadataV3 {
+pub struct FlagDetailsMetadataV4 {
     pub id: i32,
     pub version: i32,
     pub config_version: u8,
@@ -528,7 +553,7 @@ pub struct FlagDetailsMetadataV3 {
     pub variant_key: Option<String>,
 }
 
-impl From<FlagDetails> for FlagDetailsV3 {
+impl From<FlagDetails> for FlagDetailsV4 {
     fn from(flag: FlagDetails) -> Self {
         let legacy_value = match flag.to_value() {
             FlagValue::Boolean(enabled) => Value::Bool(enabled),
@@ -559,7 +584,14 @@ impl From<FlagDetails> for FlagDetailsV3 {
                     condition_index: rule.map(|rule| rule.index as i32),
                     description: Some(evaluation.description),
                 };
-                (evaluation.value, reason, rule, 2, None, None)
+                (
+                    evaluation.value,
+                    reason,
+                    rule,
+                    2,
+                    None,
+                    evaluation.variant_key,
+                )
             }
             ConfigOutcome::V2(None) => {
                 let reason = FlagEvaluationReason {
@@ -575,7 +607,7 @@ impl From<FlagDetails> for FlagDetailsV3 {
             value,
             failed: flag.failed,
             reason,
-            metadata: FlagDetailsMetadataV3 {
+            metadata: FlagDetailsMetadataV4 {
                 id: flag.metadata.id,
                 version: flag.metadata.version,
                 config_version,
@@ -639,6 +671,7 @@ pub trait FromFeatureAndMatch {
         property_values: Option<&HashMap<String, Value>>,
         group_property_values: Option<&HashMap<GroupTypeIndex, HashMap<String, Value>>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
+        failed_flag_ids: Option<&HashSet<FeatureFlagId>>,
         cohort_matches: Option<&HashMap<CohortId, CohortMembership>>,
         matching_context: PropertyMatchingContext,
     ) -> Self;
@@ -657,6 +690,7 @@ impl FromFeatureAndMatch for FlagDetails {
             None,
             None,
             None,
+            None,
             PropertyMatchingContext::new(Tz::UTC, false),
         )
     }
@@ -668,6 +702,7 @@ impl FromFeatureAndMatch for FlagDetails {
         property_values: Option<&HashMap<String, Value>>,
         group_property_values: Option<&HashMap<GroupTypeIndex, HashMap<String, Value>>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
+        failed_flag_ids: Option<&HashSet<FeatureFlagId>>,
         cohort_matches: Option<&HashMap<CohortId, CohortMembership>>,
         matching_context: PropertyMatchingContext,
     ) -> Self {
@@ -699,6 +734,7 @@ impl FromFeatureAndMatch for FlagDetails {
                         property_values,
                         group_property_values,
                         flag_evaluation_results,
+                        failed_flag_ids,
                         cohort_matches,
                         matching_context,
                     )
@@ -765,12 +801,14 @@ impl FromFeatureAndMatch for FlagDetails {
 }
 
 impl FlagDetails {
+    #[allow(clippy::too_many_arguments)]
     fn build_condition_analysis(
         flag: &FeatureFlag,
         flag_match: &FeatureFlagMatch,
         property_values: Option<&HashMap<String, Value>>,
         group_property_values: Option<&HashMap<GroupTypeIndex, HashMap<String, Value>>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
+        failed_flag_ids: Option<&HashSet<FeatureFlagId>>,
         cohort_matches: Option<&HashMap<CohortId, CohortMembership>>,
         matching_context: PropertyMatchingContext,
     ) -> Vec<ConditionAnalysis> {
@@ -824,16 +862,21 @@ impl FlagDetails {
                     // Resolve them against the actual flag evaluation results instead.
                     if property.depends_on_feature_flag() {
                         let empty = HashMap::new();
-                        let property_matched = match_flag_value_to_flag_filter(
-                            property,
-                            flag_evaluation_results.unwrap_or(&empty),
-                        );
+                        let results = flag_evaluation_results.unwrap_or(&empty);
+                        let property_matched = match_flag_value_to_flag_filter(property, results);
                         // Do not expose the dependency flag's evaluated value here. The caller is
                         // only authorized for the flag under test, not necessarily the dependency
                         // flag, so serializing its raw value would leak it. `matched` reflects the
                         // tested flag's own condition outcome, which the caller may already see.
                         let expected = property.value.clone().unwrap_or(Value::Null);
-                        let explanation = if property_matched {
+                        // A failed dependency has no entry in `results`.
+                        // `match_flag_value_to_flag_filter` returns false for a missing entry.
+                        let dependency_failed = failed_flag_ids
+                            .and_then(|failed| failed_flag_dependency(property, results, failed))
+                            .is_some();
+                        let explanation = if dependency_failed {
+                            format!("Flag dependency '{}' failed to evaluate", property.key)
+                        } else if property_matched {
                             format!(
                                 "Flag dependency '{}' satisfied the required value {}",
                                 property.key, expected
@@ -1701,6 +1744,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
@@ -1806,6 +1850,7 @@ mod tests {
             Some(&group_props),
             None,
             None,
+            None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
@@ -1889,6 +1934,7 @@ mod tests {
             Some(&group_props),
             None,
             None,
+            None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
@@ -1954,6 +2000,7 @@ mod tests {
             None,
             Some(&flag_results),
             None,
+            None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
@@ -1988,6 +2035,7 @@ mod tests {
             Some(&HashMap::new()),
             None,
             Some(&flag_results),
+            None,
             None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
@@ -2024,6 +2072,7 @@ mod tests {
             Some(&HashMap::new()),
             None,
             None, // empty — dependency flag 42 absent
+            None,
             None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
@@ -2089,6 +2138,7 @@ mod tests {
             &flag,
             &flag_match,
             Some(&HashMap::new()),
+            None,
             None,
             None,
             None, // membership never resolved
@@ -2172,6 +2222,7 @@ mod tests {
             Some(&HashMap::new()),
             None,
             None,
+            None,
             Some(&HashMap::from([(12345, membership)])),
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
@@ -2241,6 +2292,7 @@ mod tests {
             &flag,
             &flag_match,
             Some(&property_values),
+            None,
             None,
             None,
             None,
@@ -2321,6 +2373,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
@@ -2363,6 +2416,7 @@ mod tests {
             &flag,
             &flag_match,
             Some(&property_values),
+            None,
             None,
             None,
             None,
@@ -2411,6 +2465,7 @@ mod tests {
             &flag,
             &flag_match,
             Some(&property_values),
+            None,
             None,
             None,
             None,
@@ -2473,6 +2528,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
@@ -2493,7 +2549,7 @@ mod tests {
     }
 
     #[test]
-    fn test_v3_record_of_a_failed_v1_flag_has_a_null_value() {
+    fn test_v4_record_of_a_failed_v1_flag_has_a_null_value() {
         let flag = FlagDetails {
             key: "v1-failed".to_string(),
             enabled: false,
@@ -2515,7 +2571,7 @@ mod tests {
             config_outcome: ConfigOutcome::V1,
         };
 
-        let record = FlagDetailsV3::from(flag);
+        let record = FlagDetailsV4::from(flag);
 
         assert_eq!(record.value, Value::Null);
         assert!(record.failed);

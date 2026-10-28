@@ -63,8 +63,13 @@ export type LogsIngestionConsumerConfig = {
     LOGS_METRICS_RULES_EXPORT_URL: string
     /** Comma-separated team IDs, or `*` for all teams, or empty to disable per-row retention rule evaluation entirely. */
     LOGS_RETENTION_ENABLED_TEAMS: string
+    /** Comma-separated team IDs, or `*` for all teams. A `backfill_days` message from any other team is dropped. */
+    LOGS_BACKFILL_ENABLED_TEAMS: string
     /** When `true`, retention rules are never evaluated (rows keep the team default via the batch header). */
     LOGS_RETENTION_KILLSWITCH: boolean
+    /** Comma-separated team IDs, or `*` for all teams. A `posthog-internal` batch from any other team is billed as normal. */
+    LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: string
+    LOGS_INTERNAL_INGESTION_SIGNING_KEYS: string
     /** Comma-separated team IDs, or `*` for all teams, or empty (default) to disable measure-only pattern masking. */
     LOGS_PATTERN_MASKING_ENABLED_TEAMS: string
     LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS: string
@@ -119,7 +124,10 @@ export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerCo
         LOGS_METRICS_RULES_EXPORT_URL: '',
         // Off in prod until per-team rollout; on in dev for local end-to-end testing.
         LOGS_RETENTION_ENABLED_TEAMS: isProdEnv() ? '' : '*',
+        LOGS_BACKFILL_ENABLED_TEAMS: isProdEnv() ? '' : '*',
         LOGS_RETENTION_KILLSWITCH: false,
+        LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: '',
+        LOGS_INTERNAL_INGESTION_SIGNING_KEYS: '',
         // Off by default: enabling forces decode+re-encode for allowlisted teams.
         LOGS_PATTERN_MASKING_ENABLED_TEAMS: '',
         LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS: '',

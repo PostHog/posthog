@@ -27,8 +27,10 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
+from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.utils import get_machine_id
 
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     CDC_SNAPSHOT_LANE_KEY,
@@ -104,22 +106,17 @@ SLOT_INVALIDATION_RECOVERY_MESSAGE = (
 )
 
 
-def _merge_pending_reset(
-    config: dict[str, typing.Any], *, clear_deferred_runs: bool, awaiting_slot: bool
-) -> dict[str, typing.Any]:
+def _merge_pending_reset(config: dict[str, typing.Any], *, awaiting_slot: bool) -> None:
     """Merge a reset into the table's pending one. Read under the row lock, so a request's fields survive.
 
-    `clear_deferred_runs` accumulates: a reset that owes the drop keeps owing it until one happens.
     `awaiting_slot` is this reset's own answer, because only the reset that is waiting for a slot
     holds the table back, and slot recovery clears the wait.
     """
     current = config.get(CDC_RESET_PENDING_KEY)
     fields = dict(current) if isinstance(current, dict) else {}
-    fields["clear_deferred_runs"] = clear_deferred_runs or bool(fields.get("clear_deferred_runs"))
     fields["awaiting_slot"] = awaiting_slot
     fields["generation"] = next_reset_generation(fields)
     config[CDC_RESET_PENDING_KEY] = fields
-    return fields
 
 
 # The sweeper's auto-drop must fire below the engine's own retention cap, otherwise the
@@ -185,8 +182,11 @@ class CDCExtractActivity:
     level steps; private methods implement individual phases.
     """
 
-    def __init__(self, inputs: CDCExtractInput) -> None:
+    def __init__(self, inputs: CDCExtractInput, should_stop: Callable[[], bool] | None = None) -> None:
         self.inputs = inputs
+        # Asks the read to stop at the next page boundary, for example because the worker shuts down.
+        self._should_stop = should_stop
+        self.stopped_before_backlog_drained: bool = False
         self.log: structlog.types.FilteringBoundLogger = logger.bind(
             team_id=inputs.team_id, source_id=str(inputs.source_id)
         )
@@ -641,7 +641,7 @@ class CDCExtractActivity:
     def _catalog_names(self, table_names: list[str]) -> dict[str, dict[str, str]]:
         """Group schema names by source namespace, mapping each bare relation name back to its schema name."""
         assert self.source is not None
-        default_namespace = (self.source.job_inputs or {}).get("schema", "public")
+        default_namespace = SourceInputsStore.load_settings(self.source).get("schema", "public")
         names_by_namespace: dict[str, dict[str, str]] = {}
         for name in table_names:
             namespace, dot, relation = name.partition(".")
@@ -697,7 +697,7 @@ class CDCExtractActivity:
         return (removed, dataclasses.replace(current, operation="I"))
 
     def _qualified_table_name(self, schema: ExternalDataSchema) -> str:
-        default_schema = (self.source.job_inputs or {}).get("schema") if self.source else None
+        default_schema = SourceInputsStore.load_settings(self.source).get("schema") if self.source else None
         return cdc_qualified_table_name(schema, default_schema)
 
     def _build_event_name_map(self) -> dict[str, str]:
@@ -840,7 +840,20 @@ class CDCExtractActivity:
             # page that returns rows always commits something and advances. Were that ever to not
             # hold, grow the window so an oversized single transaction can complete in one peek (or
             # trip the decoder's MAX_TX_BUFFER_EVENTS guard) instead of re-peeking the same page.
-            if not self._drain_and_advance_page():
+            advanced = self._drain_and_advance_page()
+
+            # Checked after the page advance, so the slot is already past every change this run wrote
+            # to the buffer and the next run starts at the first unread change.
+            if self._should_stop is not None and self._should_stop():
+                self.stopped_before_backlog_drained = True
+                self.log.info(
+                    "cdc_read_stopped_for_worker_shutdown",
+                    events_so_far=self.event_count,
+                    position=self.last_confirmed_lsn,
+                )
+                return
+
+            if not advanced:
                 limit = min(limit * 2, CDC_MAX_CHANGES_LIMIT_CAP)
 
     def _drain_and_advance_page(self) -> bool:
@@ -942,9 +955,7 @@ class CDCExtractActivity:
             return None
         return pending if isinstance(pending, dict) else {}
 
-    def _reset_schema_to_snapshot(
-        self, schema: ExternalDataSchema, *, clear_deferred_runs: bool = False, awaiting_slot: bool = False
-    ) -> bool:
+    def _reset_schema_to_snapshot(self, schema: ExternalDataSchema, *, awaiting_slot: bool = False) -> bool:
         """Put a schema back into snapshot mode so its own schedule re-syncs it from scratch.
 
         Returns False when a sync of the table could still hand over, which leaves the reset pending.
@@ -957,12 +968,7 @@ class CDCExtractActivity:
         self._pause_schema_schedule(schema)
         stopping = cancel_running_sync(schema)
         if stopping is not None or has_queued_batches(schema):
-            self._defer_reset(
-                schema,
-                clear_deferred_runs=clear_deferred_runs,
-                awaiting_slot=awaiting_slot,
-                stopping_workflow_id=stopping,
-            )
+            self._defer_reset(schema, awaiting_slot=awaiting_slot, stopping_workflow_id=stopping)
             return False
         # The re-seeding snapshot starts after this run, so it covers every change this run read.
         # Pending changes go too, because a change from before a TRUNCATE would bring back rows.
@@ -976,9 +982,7 @@ class CDCExtractActivity:
 
         # Pending until the schedule is unpaused, so a failed unpause repeats on the next run.
         def _merge_pending(config: dict[str, typing.Any]) -> None:
-            merged = _merge_pending_reset(config, clear_deferred_runs=clear_deferred_runs, awaiting_slot=awaiting_slot)
-            if merged["clear_deferred_runs"]:
-                config.pop("cdc_deferred_runs", None)
+            _merge_pending_reset(config, awaiting_slot=awaiting_slot)
 
         # reset_pipeline forces the batch import to wipe the table first (handle_reset_or_full_refresh),
         # preventing pre-truncate rows from surviving a TRUNCATE or lost-slot re-snapshot. Later runs
@@ -995,12 +999,7 @@ class CDCExtractActivity:
         return True
 
     def _defer_reset(
-        self,
-        schema: ExternalDataSchema,
-        *,
-        clear_deferred_runs: bool,
-        awaiting_slot: bool,
-        stopping_workflow_id: str | None,
+        self, schema: ExternalDataSchema, *, awaiting_slot: bool, stopping_workflow_id: str | None
     ) -> None:
         """Leave the table out of capture until a later run can reset it."""
         if self.batcher is not None:
@@ -1008,7 +1007,7 @@ class CDCExtractActivity:
         self._tables_awaiting_reset.add(schema.name)
 
         def _merge_pending(config: dict[str, typing.Any]) -> None:
-            _merge_pending_reset(config, clear_deferred_runs=clear_deferred_runs, awaiting_slot=awaiting_slot)
+            _merge_pending_reset(config, awaiting_slot=awaiting_slot)
 
         self._update_schema_sync_type_config(schema, mutate=_merge_pending)
         self._schema_log(schema).info("cdc_reset_waits_for_running_sync", stopping_workflow_id=stopping_workflow_id)
@@ -1220,7 +1219,7 @@ class CDCExtractActivity:
         # free to start a snapshot before capture has a point to resume from.
         reset_schemas = []
         for schema in self.cdc_schemas:
-            if self._reset_schema_to_snapshot(schema, clear_deferred_runs=True, awaiting_slot=True):
+            if self._reset_schema_to_snapshot(schema, awaiting_slot=True):
                 reset_schemas.append(schema)
             schema.status = ExternalDataSchema.Status.FAILED
             schema.latest_error = SLOT_INVALIDATION_RECOVERY_MESSAGE
@@ -1231,8 +1230,7 @@ class CDCExtractActivity:
             self.source, tables=[self._qualified_table_name(s) for s in self.cdc_schemas]
         )
 
-        self.source.job_inputs = {**(self.source.job_inputs or {}), **resource_fields}
-        self.source.save(update_fields=["job_inputs", "updated_at"])
+        SourceInputsStore.update_runtime(self.source, resource_fields)
 
         # Unpause only after the new slot exists, so no snapshot can run before change
         # capture has a consistent point to resume from. Same for the resets still pending: the
@@ -1490,7 +1488,14 @@ class CDCExtractActivity:
 @activity.defn
 def cdc_extract_activity(inputs: CDCExtractInput) -> None:
     """Core CDC extraction activity. Thin wrapper around CDCExtractActivity."""
-    CDCExtractActivity(inputs).run()
+    with ShutdownMonitor() as shutdown_monitor:
+        extraction = CDCExtractActivity(inputs, should_stop=shutdown_monitor.is_worker_shutdown)
+        extraction.run()
+        # The run ended cleanly at a page boundary with its position saved, but with backlog left.
+        # Raise so that Temporal continues the read on another worker now. Without a retry left the
+        # raise would fail the workflow, so the next scheduled run reads the remaining backlog.
+        if extraction.stopped_before_backlog_drained and activity.info().attempt < CDC_MAX_EXTRACTION_ATTEMPTS:
+            raise WorkerShuttingDownError.from_activity_context()
 
 
 @activity.defn

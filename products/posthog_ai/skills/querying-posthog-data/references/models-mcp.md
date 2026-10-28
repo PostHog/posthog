@@ -201,6 +201,7 @@ FROM (
             startsWith(h, 'linear'), 'Linear',
             position(h, 'librechat') > 0, 'LibreChat',
             startsWith(h, 'pi-client'), 'Pi',
+            startsWith(h, 'kimchi'), 'Kimchi',
             startsWith(h, 'antigravity'), 'Antigravity',
             h = 'poke', 'Poke',
             h = 'opencode', 'opencode',
@@ -233,6 +234,10 @@ FROM (
                     -- grok.com Connectors carries `grok-` only in the UA; its clientInfo.name
                     -- is the generic "connectors-manager", so promote the grok UA above it.
                     if(startsWith(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')), 'grok'),
+                       trim(concat(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'), ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)'))),
+                       NULL),
+                    -- Kimchi likewise names itself only in the UA (clientInfo.name is pi-mcp's generic one).
+                    if(startsWith(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')), 'kimchi'),
                        trim(concat(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'), ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)'))),
                        NULL),
                     nullIf(nullIf(toString(properties.$mcp_client_name), ''), 'mcp'),

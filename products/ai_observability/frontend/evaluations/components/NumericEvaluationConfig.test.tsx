@@ -15,7 +15,7 @@ describe('NumericEvaluationConfig', () => {
             )
             getByLabelText('Minimum')
             getByLabelText('Maximum')
-            getByText('System One numeric evaluations require a minimum score below the maximum score.')
+            getByText('Numeric evaluations with decision models require a minimum score below the maximum score.')
             expect(numericOutputConfigError(config)).toBeNull()
             expect(numericOutputConfigError({ min: -2, max: 4 }, true)).toBeNull()
         }

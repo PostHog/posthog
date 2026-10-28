@@ -2,6 +2,7 @@ import uuid
 import socket
 import dataclasses
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from typing import Any, Literal
 
 from django.conf import settings
@@ -39,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     verify_delete_enrichment,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
+    PostLoadResult,
     run_post_load_operations,
     supports_partial_data_loading,
 )
@@ -51,15 +53,23 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.aut
     maybe_schedule_auto_widen_resync,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import get_governor
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.rss_sampler import RssPeakSampler
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import (
     DeltaWriter,
     commit_members_tag,
+    dedupe_incremental_batch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     append_partition_key_to_table,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.post_load_phases import (
+    post_load_phase,
+    record_post_load_phases,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
     validate_schema_and_update_table,
@@ -69,6 +79,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     runs_in_order,
     set_violation,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.append_rollback import (
+    UnfinishedAppendRuns,
+    clear_append_run_marker,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.batch_steps import (
+    BatchStepTimer,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import (
     is_batch_already_processed,
     mark_batch_as_processed,
@@ -76,26 +93,43 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
     CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL,
     CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL,
+    DELTA_COMPACT_DURING_REBUILD_TOTAL,
     DELTA_ROWS_WRITTEN_TOTAL,
     DELTA_WRITE_DURATION_SECONDS,
     IDEMPOTENCY_HIT_TOTAL,
+    INCOMPLETE_RUN_COMPLETIONS_REFUSED_TOTAL,
+    LOADED_PREFIX_PROMOTION_TOTAL,
     PARQUET_READ_DURATION_SECONDS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.replace_rows import (
+    apply_replace_scope,
+    replace_scope_applies,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
+    GROUP_TABLE_HANDLES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import (
     ExportSignalMessage,
     SyncTypeLiteral,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import read_parquet
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.replace_scope import ReplaceScopeRun
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import (
+    read_parquet,
+    read_parquet_first_values,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     release_v3_pipeline_lock,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.table_rebuild import TableRebuildRun
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking
+from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_schema_flag_enabled
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import merge_cursor_payloads
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase, workload_reporting
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 from products.warehouse_sources_queue.backend.core.batch_consumer import CoalescingDeclined, OwnershipLostError
+from products.warehouse_sources_queue.backend.core.jobs_db import BatchQueue
 
 logger = structlog.get_logger(__name__)
 
@@ -103,6 +137,23 @@ logger = structlog.get_logger(__name__)
 # show a table fragmenting over a multi-hundred-batch load, rare enough that the listing it needs
 # stays off the per-batch path.
 FILE_COUNT_LOG_SAMPLE_EVERY = 100
+# The check lists the add-file sizes of the open snapshot, O(files in table), so it skips most batches.
+REBUILD_COMPACT_CHECK_EVERY = 10
+REBUILD_COMPACTION_FLAG = "warehouse-rebuild-run-compaction"
+
+# Shown to the customer verbatim as latest_error. The consumer also matches it to fail the run
+# without retries, because the earlier batches cannot load on a later attempt of this run.
+INCOMPLETE_RUN_ERROR = (
+    "Some batches of this sync run did not load, so the sync did not complete. "
+    "The next scheduled sync retries automatically. No action is needed."
+)
+
+
+class IncompleteRunError(Exception):
+    """A final batch arrived while earlier batches of its run had not loaded."""
+
+    def __init__(self) -> None:
+        super().__init__(INCOMPLETE_RUN_ERROR)
 
 
 def _get_write_type(sync_type: SyncTypeLiteral) -> Literal["incremental", "full_refresh", "append"]:
@@ -145,7 +196,6 @@ def _enrich_cdc_rows(
     existing_delta_table: deltalake.DeltaTable | None,
     batch_index: int,
     verify_deletes: bool = False,
-    team_id: str = "",
 ) -> pa.Table:
     """Cross-batch CDC enrichment against the existing DeltaLake state.
 
@@ -225,9 +275,7 @@ def _enrich_cdc_rows(
                 if verify_deletes and delete_key_set:
                     report = verify_delete_enrichment(pa_table, present_pks, existing_rows)
                     if not report.ok:
-                        CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL.labels(team_id=team_id).inc(
-                            report.rows_with_nulled_columns
-                        )
+                        CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL.inc(report.rows_with_nulled_columns)
                         logger.warning(
                             "cdc_delete_enrichment_violation",
                             delete_rows_checked=report.delete_rows_checked,
@@ -248,7 +296,6 @@ def _resolve_cdc_positions(
     *,
     primary_keys: list[str],
     cdc_write_mode: str | None,
-    team_id: str,
 ) -> pa.Table:
     """Collapse a merge batch to one row per key — the write engine rejects duplicates."""
     if not has_engine_seq(pa_table):
@@ -260,7 +307,7 @@ def _resolve_cdc_positions(
         cdc_write_mode=cdc_write_mode,
     )
     if stats.duplicate_key:
-        CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL.labels(team_id=team_id, reason="duplicate_key").inc(stats.duplicate_key)
+        CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL.labels(reason="duplicate_key").inc(stats.duplicate_key)
 
     return pa_table
 
@@ -323,6 +370,34 @@ def _apply_partitioning(
     return pa_table
 
 
+def _dedupe_before_write(pa_table: pa.Table, primary_keys: list[str]) -> pa.Table:
+    """Drop the rows that `DeltaWriter.write` would drop, before the batch goes to the writer.
+
+    The writer deduplicates too, but its caller holds the batch until the write returns. If only
+    the writer deduplicated, the batch as read and its deduplicated copy would both stay in memory
+    for the whole upsert. The caller rebinds its batch to this result, so the batch as read is freed
+    first, and a set holds one Arrow copy of its rows through the write (see `_ARROW_COPIES_HELD`).
+
+    This keys on the partition column whenever the batch has one. The writer keys on it only when
+    the table is partitioned by it, so these keys are never fewer than the keys of the writer. The
+    last row of each writer key is also the last row of its key here, so the rows that land do not
+    change. When both use the same keys, the pass in the writer finds no repeated key and makes no
+    copy.
+    """
+    deduped, dedupe_keys = dedupe_incremental_batch(
+        pa_table, primary_keys, use_partitioning=PARTITION_KEY in pa_table.column_names
+    )
+    dropped = pa_table.num_rows - deduped.num_rows
+    if dropped > 0:
+        logger.warning(
+            "dropped_duplicate_primary_key_rows",
+            dropped=dropped,
+            dedupe_keys=dedupe_keys,
+            batch_rows=pa_table.num_rows,
+        )
+    return deduped
+
+
 def _partial_data_loading_applies(export_signal: ExportSignalMessage, schema: ExternalDataSchema) -> bool:
     """Whether this batch feeds partial data loading (first-ever sync, Stripe only).
 
@@ -330,6 +405,27 @@ def _partial_data_loading_applies(export_signal: ExportSignalMessage, schema: Ex
     feature, and collecting it means listing every file in the table.
     """
     return export_signal.is_first_ever_sync and supports_partial_data_loading(schema)
+
+
+def _rebuild_compaction_due(
+    export_signal: ExportSignalMessage, schema: ExternalDataSchema, members: list[tuple[str, int]]
+) -> bool:
+    """Whether this write of a rebuild run checks the table for compaction (see `compact_during_rebuild`).
+
+    A rebuild run (first sync, reset, full refresh) loads the table from empty, so a compaction
+    rewrites only files of the same run. A run that adds to an existing table would compact files
+    from before it, which the rollback of an unfinished append run restores.
+    Not for CDC: each CDC run is short and ends with its own post-load pass.
+    Not for partial data loading: it publishes the files of each batch, and a compaction replaces them.
+    """
+    return (
+        (export_signal.is_first_ever_sync or export_signal.sync_type == "full_refresh")
+        and export_signal.cdc_write_mode is None
+        and not _partial_data_loading_applies(export_signal, schema)
+        and all(run_uuid == export_signal.run_uuid for run_uuid, _ in members)
+        and any(index > 0 and index % REBUILD_COMPACT_CHECK_EVERY == 0 for _, index in members)
+        and is_schema_flag_enabled(schema, REBUILD_COMPACTION_FLAG)
+    )
 
 
 async def _handle_partial_data_loading(
@@ -398,7 +494,27 @@ async def _handle_partial_data_loading(
     )
 
 
-def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> str | None:
+def _file_count_after_write(
+    delta_table: deltalake.DeltaTable, delta_table_ref: DeltaTableRef, deltalite_file_count_change: int | None
+) -> int | None:
+    """The table's file count after the write, from memory, or None when the handle cannot give it.
+
+    A handle at the newest known version has the count. A handle one commit behind is behind by the
+    deltalite commit of this write, whose added and removed files give the difference. Any other
+    distance means a commit this process did not make, so the caller must read the log.
+    """
+    try:
+        commits_behind = delta_table_ref.latest_known_version(delta_table) - delta_table.version()
+    except Exception:
+        return None
+    if commits_behind == 0:
+        return len(delta_table.file_uris())
+    if commits_behind == 1 and isinstance(deltalite_file_count_change, int):
+        return len(delta_table.file_uris()) + deltalite_file_count_change
+    return None
+
+
+def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> PostLoadResult:
     """Run post-load operations for a final batch whose data was already written to Delta Lake.
 
     Two deliveries land here: a redelivered final row whose earlier attempt committed the write
@@ -409,10 +525,10 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
     All async operations are run within a single async_to_sync call to avoid
     event loop lifecycle issues with aiohttp/s3fs clients.
 
-    Returns the prepared queryable_folder, or None if post-load couldn't run.
+    Returns the post-load result, with no queryable folder if post-load couldn't run.
     """
 
-    async def _run() -> str | None:
+    async def _run() -> PostLoadResult:
         job = await ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").aget(
             id=export_signal.job_id
         )
@@ -433,16 +549,16 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
                 external_data_job_id=export_signal.job_id,
                 batch_index=export_signal.batch_index,
             )
-            return None
+            return PostLoadResult(queryable_folder=None)
 
-        pa_table = read_parquet(export_signal.s3_path)
+        # The batch only decides which string columns hold JSON, and the first non-null value of a
+        # column decides that. The rows are already in the table, so they are not read again.
         internal_schema = HogQLSchema()
         internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(delta_table.schema()))
-        internal_schema.add_pyarrow_table(pa_table)
+        internal_schema.add_pyarrow_table(read_parquet_first_values(export_signal.s3_path))
         table_schema_dict = internal_schema.to_hogql_types()
-        del pa_table
 
-        prepared_queryable_folder = await run_post_load_operations(
+        post_load_result = await run_post_load_operations(
             job=job,
             schema=schema,
             source=schema.source,
@@ -455,7 +571,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         )
 
         logger.debug("post_load_operations_complete_for_already_processed_batch")
-        return prepared_queryable_folder
+        return post_load_result
 
     return async_to_sync(_run)()
 
@@ -481,7 +597,77 @@ def _release_pipeline_lock_for_job(export_signal: ExportSignalMessage) -> None:
         capture_exception(e)
 
 
+def _refuse_incomplete_run(export_signal: ExportSignalMessage) -> None:
+    """Raise when an earlier batch of the run did not load, before the job completes.
+
+    The claim gates do not see a batch that aged out of the claim window, so the later batches of
+    its run can still load. Completing such a run would promote the staged cursor past rows that
+    never loaded, and the next sync would never read them again. A failed job keeps the committed
+    cursor, so the next sync extracts those rows again.
+
+    ``batch_index`` is the first batch this write loaded for the run, so every batch of the run
+    below it loaded in an earlier write.
+    """
+    unfinished = BatchQueue.get_unfinished_earlier_batches_sync(
+        settings.WAREHOUSE_SOURCES_DATABASE_URL,
+        team_id=export_signal.team_id,
+        schema_id=export_signal.schema_id,
+        run_uuid=export_signal.run_uuid,
+        before_batch_index=export_signal.batch_index,
+    )
+    if unfinished.count == 0:
+        _refuse_unloaded_continued_jobs(export_signal)
+        return
+
+    INCOMPLETE_RUN_COMPLETIONS_REFUSED_TOTAL.inc()
+    logger.error(
+        "run_completion_refused_unfinished_batches",
+        team_id=export_signal.team_id,
+        external_data_schema_id=export_signal.schema_id,
+        external_data_job_id=export_signal.job_id,
+        run_uuid=export_signal.run_uuid,
+        before_batch_index=export_signal.batch_index,
+        unfinished_batches=unfinished.count,
+        first_unfinished_batch_index=unfinished.first_batch_index,
+        unfinished_states=list(unfinished.states),
+    )
+    raise IncompleteRunError()
+
+
+def _refuse_unloaded_continued_jobs(export_signal: ExportSignalMessage) -> None:
+    """Raise when a batch of a job whose cursor this run continues did not load.
+
+    Those batches hold the rows before the continued cursor, and no later run reads them again
+    once this run completes. A failed job keeps the committed cursor, and the next job does not
+    continue it, so that job reads those rows again.
+    """
+    if not export_signal.continued_job_ids:
+        return
+    unfinished = BatchQueue.get_unfinished_batches_of_jobs_sync(
+        settings.WAREHOUSE_SOURCES_DATABASE_URL,
+        team_id=export_signal.team_id,
+        schema_id=export_signal.schema_id,
+        job_ids=export_signal.continued_job_ids,
+    )
+    if unfinished.count == 0:
+        return
+
+    INCOMPLETE_RUN_COMPLETIONS_REFUSED_TOTAL.inc()
+    logger.error(
+        "run_completion_refused_unfinished_continued_job_batches",
+        team_id=export_signal.team_id,
+        external_data_schema_id=export_signal.schema_id,
+        external_data_job_id=export_signal.job_id,
+        continued_job_ids=export_signal.continued_job_ids,
+        unfinished_batches=unfinished.count,
+        unfinished_states=list(unfinished.states),
+    )
+    raise IncompleteRunError()
+
+
 def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
+    _refuse_incomplete_run(export_signal)
+
     # Reconnect stale connections before the transaction; close_old_connections must never
     # run inside an atomic block since it can drop the connection mid-transaction.
     close_old_connections()
@@ -504,6 +690,15 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
             # Failed) after the final batch passed should_process_batch, the staged incremental
             # cursor must not advance past data that was never fully loaded.
             _promote_staged_cursor(export_signal)
+            if export_signal.sync_type == "append":
+                # In the same transaction as the cursor, so a later run never finds the marker of
+                # a run whose watermark already covers its rows.
+                clear_append_run_marker(
+                    export_signal.schema_id,
+                    export_signal.team_id,
+                    export_signal.job_id,
+                    export_signal.run_uuid,
+                )
 
     if job_completed:
         async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
@@ -634,7 +829,7 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
         capture_exception(e)
 
 
-def _trigger_post_import_workflow(export_signal: ExportSignalMessage) -> None:
+def _trigger_post_import_workflow(export_signal: ExportSignalMessage, table_size_written: bool = False) -> None:
     """Fire-and-forget start of `data-import-post-import` after a V3 final batch lands.
 
     V2 starts the same workflow from `external-data-job` after the COMPLETED status
@@ -679,6 +874,7 @@ def _trigger_post_import_workflow(export_signal: ExportSignalMessage) -> None:
                     job_id=export_signal.job_id,
                     schema_id=export_signal.schema_id,
                     source_id=export_signal.source_id,
+                    table_size_written=table_size_written,
                 ),
                 id=build_post_import_workflow_id(export_signal.job_id),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
@@ -712,6 +908,10 @@ def _trigger_post_import_workflow(export_signal: ExportSignalMessage) -> None:
 
 def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
     # Runs inside the completion transaction; failures roll it back so the batch retries.
+    # A descending source stages the newest value of its run from the first batch, so a resumed
+    # attempt can start from it. That staged `last_value` sits above rows that are not loaded yet,
+    # so it must be promoted only here, when the final batch completes the job. A run that completes
+    # outside the loader (a run with zero batches) must not promote it.
     schema = ExternalDataSchema.objects.get(id=export_signal.schema_id, team_id=export_signal.team_id)
 
     def merge_source_cursors(current: Any, candidate: Any) -> dict[str, Any]:
@@ -739,6 +939,78 @@ def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
             external_data_job_id=export_signal.job_id,
             external_data_schema_id=export_signal.schema_id,
         )
+
+
+def _promote_loaded_prefixes(
+    signals: list[ExportSignalMessage], finals: list[ExportSignalMessage], schema: ExternalDataSchema
+) -> None:
+    """Move the watermark over the loaded prefix of each run in this write that does not complete here.
+
+    A run that completes here promotes its full staged cursor in its completion instead. A failed
+    promotion only leaves the watermark lower, so it never fails the batch, which already landed.
+    """
+    if not settings.DATA_WAREHOUSE_IMPORT_PREFIX_WATERMARK_ENABLED:
+        return
+    completed = {signal.run_uuid for signal in finals}
+    signals_by_run: dict[str, list[ExportSignalMessage]] = {}
+    for signal in signals:
+        if signal.sync_type == "incremental" and signal.cdc_write_mode is None and not signal.is_first_ever_sync:
+            signals_by_run.setdefault(signal.run_uuid, []).append(signal)
+    for run_uuid, run_signals in signals_by_run.items():
+        if run_uuid in completed:
+            continue
+        try:
+            outcome = _promote_loaded_prefix(run_signals, schema)
+        except Exception as e:
+            outcome = "error"
+            capture_exception(e)
+            logger.warning(
+                "loaded_prefix_promotion_failed",
+                team_id=run_signals[0].team_id,
+                external_data_schema_id=run_signals[0].schema_id,
+                run_uuid=run_uuid,
+                exc_info=True,
+            )
+        if outcome is not None:
+            LOADED_PREFIX_PROMOTION_TOTAL.labels(outcome=outcome).inc()
+
+
+def _promote_loaded_prefix(run_signals: list[ExportSignalMessage], schema: ExternalDataSchema) -> str | None:
+    """Promote the watermark that the last batch of this write recorded, when every earlier batch is loaded.
+
+    Returns the metric outcome, or None for a batch that recorded no watermark.
+    """
+    head = run_signals[0]
+    prefix = BatchQueue.get_loaded_prefix_sync(
+        settings.WAREHOUSE_SOURCES_DATABASE_URL,
+        team_id=head.team_id,
+        schema_id=head.schema_id,
+        run_uuid=head.run_uuid,
+        first_batch_index=min(signal.batch_index for signal in run_signals),
+        last_batch_index=max(signal.batch_index for signal in run_signals),
+    )
+    cursor = prefix.cursor
+    if not isinstance(cursor, dict):
+        return None
+    field, value, job_rows_synced = cursor.get("field"), cursor.get("value"), cursor.get("job_rows_synced")
+    if not isinstance(field, str) or value is None or not isinstance(job_rows_synced, int):
+        return None
+    if not prefix.is_complete:
+        return "incomplete"
+    moved = schema.promote_loaded_prefix_value(
+        run_uuid=head.run_uuid, job_id=head.job_id, field=field, value=value, job_rows_synced=job_rows_synced
+    )
+    if not moved:
+        return "kept"
+    logger.info(
+        "loaded_prefix_cursor_promoted",
+        team_id=head.team_id,
+        external_data_schema_id=head.schema_id,
+        external_data_job_id=head.job_id,
+        run_uuid=head.run_uuid,
+        last_batch_index=max(signal.batch_index for signal in run_signals),
+    )
+    return "promoted"
 
 
 def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> None:
@@ -776,6 +1048,43 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
     _release_pipeline_lock_for_job(export_signal)
 
 
+def _post_load_rss_sampler() -> RssPeakSampler | None:
+    try:
+        return get_governor().rss_sampler
+    except Exception:
+        logger.debug("post_load_rss_sampler_unavailable", exc_info=True)
+        return None
+
+
+def _record_post_load_phases(run_signal: ExportSignalMessage) -> AbstractContextManager[Any]:
+    return record_post_load_phases(
+        logger,
+        _post_load_rss_sampler(),
+        team_id=run_signal.team_id,
+        external_data_schema_id=run_signal.schema_id,
+        external_data_job_id=run_signal.job_id,
+        source_id=run_signal.source_id,
+        resource_name=run_signal.resource_name,
+        run_uuid=run_signal.run_uuid,
+        batch_index=run_signal.batch_index,
+        sync_type=run_signal.sync_type,
+    )
+
+
+def _complete_run(run_signal: ExportSignalMessage, post_load_result: PostLoadResult) -> None:
+    """Mark the job completed, then start the DuckLake registration and post-import workflows."""
+    report_phase("finalize")
+    with post_load_phase("job_completion"):
+        _mark_job_completed(run_signal)
+
+    if post_load_result.queryable_folder:
+        with post_load_phase("ducklake_trigger"):
+            _trigger_ducklake_register_data_imports(run_signal, post_load_result.queryable_folder)
+
+    with post_load_phase("post_import_trigger"):
+        _trigger_post_import_workflow(run_signal, post_load_result.table_size_written)
+
+
 def _load_job(job_id: str) -> ExternalDataJob:
     return ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").get(id=job_id)
 
@@ -810,31 +1119,26 @@ def _finalize_run(
     if verify_ownership is not None:
         verify_ownership()
 
-    report_phase("post_load")
-    prepared_queryable_folder = async_to_sync(run_post_load_operations)(
-        job=job,
-        schema=schema,
-        source=schema.source,
-        delta_table_ref=delta_table_ref,
-        row_count=run_signal.total_rows or 0,
-        table_schema_dict=internal_schema.to_hogql_types(),
-        resource_name=run_signal.resource_name,
-        logger=logger,
-        cdc_write_mode=run_signal.cdc_write_mode,
-    )
+    with _record_post_load_phases(run_signal):
+        report_phase("post_load")
+        post_load_result = async_to_sync(run_post_load_operations)(
+            job=job,
+            schema=schema,
+            source=schema.source,
+            delta_table_ref=delta_table_ref,
+            row_count=run_signal.total_rows or 0,
+            table_schema_dict=internal_schema.to_hogql_types(),
+            resource_name=run_signal.resource_name,
+            logger=logger,
+            cdc_write_mode=run_signal.cdc_write_mode,
+        )
 
-    # Post-load can run minutes (compaction, S3 prep) — re-check before
-    # completion promotes the cursor and releases the lock under a new owner.
-    if verify_ownership is not None:
-        verify_ownership()
+        # Post-load can run minutes (compaction, S3 prep) — re-check before
+        # completion promotes the cursor and releases the lock under a new owner.
+        if verify_ownership is not None:
+            verify_ownership()
 
-    report_phase("finalize")
-    _mark_job_completed(run_signal)
-
-    if prepared_queryable_folder:
-        _trigger_ducklake_register_data_imports(run_signal, prepared_queryable_folder)
-
-    _trigger_post_import_workflow(run_signal)
+        _complete_run(run_signal, post_load_result)
 
     logger.debug("post_load_operations_complete", external_data_job_id=run_signal.job_id)
 
@@ -994,6 +1298,19 @@ def _read_constituents(constituents: list[ExportSignalMessage]) -> pa.Table:
         raise CoalescingDeclined(f"batch schemas do not concatenate: {e}") from e
 
 
+def _compact_during_rebuild(
+    delta_table_ref: DeltaTableRef, verify_ownership: Callable[[], None] | None, timer: BatchStepTimer
+) -> None:
+    if verify_ownership is not None:
+        verify_ownership()
+    report_phase("compact_during_rebuild")
+    with timer.step("compact_during_rebuild"):
+        outcome = async_to_sync(DeltaMaintenance(delta_table_ref).compact_during_rebuild)(
+            settings.DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES
+        )
+    DELTA_COMPACT_DURING_REBUILD_TOTAL.labels(outcome=outcome).inc()
+
+
 def _process_message_reported(
     message: Any,
     export_signal: "ExportSignalMessage",
@@ -1012,6 +1329,10 @@ def _process_message_reported(
     # Reconnect stale app-DB connections up front so the ORM queries below don't burn all batch attempts.
     close_old_connections()
 
+    timer = BatchStepTimer()
+    # Taken before any step that can raise, so a batch that fails leaves no handle for its retry.
+    retained_table = GROUP_TABLE_HANDLES.take(export_signal, attempt=attempt)
+
     # Imported here, not at module scope: `load/__init__` imports this module, and delivery
     # imports `load.idempotency`, so a module-level import closes the cycle.
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.delivery import (  # noqa: PLC0415
@@ -1020,14 +1341,12 @@ def _process_message_reported(
     )
 
     try:
-        team_id_str = str(export_signal.team_id)
-        schema_id_str = str(export_signal.schema_id)
-
         # Build the helper early so the idempotency check can use it as a
         # delta-history fallback when the Redis dedup flag is missing — the case
         # where the writer crashed between `DeltaWriter.write` committing and
         # `mark_batch_as_processed` being called.
-        job = _load_job(export_signal.job_id)
+        with timer.step("job_load"):
+            job = _load_job(export_signal.job_id)
         schema = job.schema
         if schema is None:
             raise ValueError(f"ExternalDataJob {export_signal.job_id} has no schema")
@@ -1037,6 +1356,8 @@ def _process_message_reported(
             job=job,
             logger=logger,
             is_first_sync=export_signal.is_first_ever_sync,
+            # Batch 0 of a first sync writes the table, so only that batch expects to find none.
+            expect_missing=export_signal.is_first_ever_sync and export_signal.batch_index == 0,
         )
 
         if not warehouse_is_a_destination(export_signal):
@@ -1045,39 +1366,73 @@ def _process_message_reported(
             _process_external_destinations_only(export_signal, verify_ownership)
             return
 
-        if constituents is not None:
-            # A set is all-or-nothing: a member that already landed means the others must be checked
-            # and written one at a time, which the single-batch path knows how to do.
-            for run_uuid, index in members:
-                if is_batch_already_processed(
+        append_runs = (
+            UnfinishedAppendRuns(schema, delta_table_ref)
+            if export_signal.sync_type == "append" and export_signal.cdc_write_mode is None
+            else None
+        )
+        if append_runs is not None and any(append_runs.is_replaced_attempt(run_uuid) for run_uuid, _ in members):
+            if constituents is not None:
+                raise CoalescingDeclined("a batch belongs to an attempt that a later attempt replaced")
+            logger.info(
+                "append_batch_of_replaced_attempt_skipped",
+                team_id=export_signal.team_id,
+                external_data_schema_id=export_signal.schema_id,
+                run_uuid=export_signal.run_uuid,
+                batch_index=export_signal.batch_index,
+            )
+            return
+
+        if export_signal.sync_type == "incremental" and export_signal.cdc_write_mode is None:
+            rebuild = TableRebuildRun(schema.sync_type_config)
+            replace_run = ReplaceScopeRun(schema.sync_type_config)
+            if any(rebuild.replaces(run_uuid) or replace_run.replaces(run_uuid) for run_uuid, _ in members):
+                if constituents is not None:
+                    raise CoalescingDeclined("a batch belongs to an attempt that a later attempt replaced")
+                logger.info(
+                    "rebuild_batch_of_replaced_attempt_skipped",
+                    team_id=export_signal.team_id,
+                    external_data_schema_id=export_signal.schema_id,
+                    run_uuid=export_signal.run_uuid,
+                    batch_index=export_signal.batch_index,
+                )
+                return
+
+        with timer.step("idempotency_check"):
+            if constituents is not None:
+                # A set is all-or-nothing: a member that already landed means the others must be checked
+                # and written one at a time, which the single-batch path knows how to do.
+                for run_uuid, index in members:
+                    if is_batch_already_processed(
+                        export_signal.team_id,
+                        export_signal.schema_id,
+                        run_uuid,
+                        index,
+                        delta_table_ref=delta_table_ref,
+                        is_first_attempt=attempt <= 1,
+                    ):
+                        raise CoalescingDeclined(f"batch {index} of run {run_uuid} was already processed")
+                already_processed = False
+            else:
+                already_processed = is_batch_already_processed(
                     export_signal.team_id,
                     export_signal.schema_id,
-                    run_uuid,
-                    index,
+                    export_signal.run_uuid,
+                    export_signal.batch_index,
                     delta_table_ref=delta_table_ref,
                     is_first_attempt=attempt <= 1,
-                ):
-                    raise CoalescingDeclined(f"batch {index} of run {run_uuid} was already processed")
-            already_processed = False
-        else:
-            already_processed = is_batch_already_processed(
-                export_signal.team_id,
-                export_signal.schema_id,
-                export_signal.run_uuid,
-                export_signal.batch_index,
-                delta_table_ref=delta_table_ref,
-                is_first_attempt=attempt <= 1,
-            )
+                )
 
         # The warehouse having this batch says nothing about the other destinations, so
         # delivery runs on every path and decides for itself what is left to do. Gating it on
         # the warehouse's marker would strand a destination that failed, and gating publication
         # on the write marker would leave a full refresh staged and never swapped in.
         report_phase("deliver")
-        deliver_batch_to_destinations(export_signal)
+        with timer.step("deliver"):
+            deliver_batch_to_destinations(export_signal)
 
         if already_processed and not export_signal.is_final_batch:
-            IDEMPOTENCY_HIT_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc()
+            IDEMPOTENCY_HIT_TOTAL.inc()
             logger.info(
                 "batch_already_processed",
                 team_id=export_signal.team_id,
@@ -1097,18 +1452,29 @@ def _process_message_reported(
             )
             if verify_ownership is not None:
                 verify_ownership()
-            report_phase("post_load")
-            prepared_queryable_folder = _run_post_load_for_already_processed_batch(export_signal)
-            # Post-load can run minutes (compaction, S3 prep) — re-check before
-            # completion promotes the cursor and releases the lock under a new owner.
+            with _record_post_load_phases(export_signal):
+                report_phase("post_load")
+                post_load_result = _run_post_load_for_already_processed_batch(export_signal)
+                # Post-load can run minutes (compaction, S3 prep) — re-check before
+                # completion promotes the cursor and releases the lock under a new owner.
+                if verify_ownership is not None:
+                    verify_ownership()
+                _complete_run(export_signal, post_load_result)
+            return
+
+        if append_runs is not None:
+            # Before the table is read, so the batch is fitted to the schema that the restore leaves.
             if verify_ownership is not None:
                 verify_ownership()
-            report_phase("finalize")
-            _mark_job_completed(export_signal)
-            if prepared_queryable_folder:
-                _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
-            _trigger_post_import_workflow(export_signal)
-            return
+            append_runs.start_run(export_signal)
+
+        if replace_scope_applies(export_signal):
+            # Before the table is read, so the batch is fitted to the table that the deletes leave.
+            if verify_ownership is not None:
+                verify_ownership()
+            report_phase("replace_rows")
+            with timer.step("replace_rows"):
+                apply_replace_scope(export_signal, schema, delta_table_ref, verify_ownership)
 
         logger.debug(
             "message_received",
@@ -1122,8 +1488,11 @@ def _process_message_reported(
             sync_type=export_signal.sync_type,
         )
 
+        primary_keys = export_signal.primary_keys
+        cdc_write_mode = export_signal.cdc_write_mode
+
         report_phase("read")
-        with PARQUET_READ_DURATION_SECONDS.time():
+        with timer.step("parquet_read"), PARQUET_READ_DURATION_SECONDS.time():
             if constituents is not None:
                 pa_table = _read_constituents(constituents)
             else:
@@ -1138,9 +1507,30 @@ def _process_message_reported(
             column_names=pa_table.column_names,
         )
 
-        existing_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
+        table_handle_reused = False
+        if retained_table is not None and cdc_write_mode is None:
+            with timer.step("table_refresh"):
+                table_handle_reused = async_to_sync(delta_table_ref.adopt_open_table)(retained_table)
+        retained_table = None
+        if table_handle_reused:
+            existing_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
+        else:
+            with timer.step("table_open"):
+                existing_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
 
-        pa_table = _apply_partitioning(export_signal, pa_table, existing_delta_table, schema)
+        # A run whose source read no rows sends one empty batch only to carry its replace scope.
+        is_scope_carrier = export_signal.replace_scope is not None and pa_table.num_rows == 0
+        if is_scope_carrier and existing_delta_table is None:
+            # Writing the carrier would create a table that holds only the scope column.
+            raise ValueError(
+                f"The Delta table of schema {export_signal.schema_id} is missing, so the empty batch of "
+                f"run {export_signal.run_uuid} cannot apply its replace scope"
+            )
+        skips_write = is_scope_carrier
+
+        if not skips_write:
+            with timer.step("partition"):
+                pa_table = _apply_partitioning(export_signal, pa_table, existing_delta_table, schema)
 
         # Capture file URIs before write for partial data loading. The listing is O(files in
         # table), so skip it entirely when no consumer wants it — during a long first sync the
@@ -1151,8 +1541,7 @@ def _process_message_reported(
             else []
         )
 
-        primary_keys = export_signal.primary_keys
-        cdc_write_mode = export_signal.cdc_write_mode
+        deltalite_file_count_change: int | None = None
 
         # Tag every delta commit with (run_uuid, batch_index) so that a redelivery after a writer
         # crash can detect "already committed" even when the Redis dedup flag is missing. A set
@@ -1170,43 +1559,47 @@ def _process_message_reported(
 
         resolution_enabled = cdc_write_mode is not None
 
-        pa_table = _enrich_cdc_rows(
-            pa_table,
-            primary_keys=primary_keys,
-            cdc_write_mode=cdc_write_mode,
-            existing_delta_table=existing_delta_table,
-            batch_index=export_signal.batch_index,
-            verify_deletes=resolution_enabled,
-            team_id=team_id_str,
-        )
-
-        if resolution_enabled:
-            pa_table = _resolve_cdc_positions(
+        with timer.step("cdc_resolve"):
+            pa_table = _enrich_cdc_rows(
                 pa_table,
-                primary_keys=primary_keys or [],
+                primary_keys=primary_keys,
                 cdc_write_mode=cdc_write_mode,
-                team_id=team_id_str,
+                existing_delta_table=existing_delta_table,
+                batch_index=export_signal.batch_index,
+                verify_deletes=resolution_enabled,
             )
 
-        if existing_delta_table is not None:
-            try:
-                pa_table = evolve_pyarrow_schema(
+            if resolution_enabled:
+                pa_table = _resolve_cdc_positions(
                     pa_table,
-                    existing_delta_table.schema(),
-                    merge_key_columns=[*(primary_keys or []), *(export_signal.partition_keys or [])],
+                    primary_keys=primary_keys or [],
+                    cdc_write_mode=cdc_write_mode,
                 )
-            except SchemaColumnTypeChangedException as e:
-                # A safe numeric widening is mechanically recoverable: stamp reset_pipeline so the
-                # next scheduled sync resets and re-syncs the table, and reword the failure so
-                # latest_error stops telling the customer to reset manually. Unsafe transitions
-                # (and everything with the flag off) re-raise unchanged.
-                amended_message = maybe_schedule_auto_widen_resync(schema=schema, job=job, error=e)
-                if amended_message is not None:
-                    e.args = (amended_message,)
-                raise
+
+        if existing_delta_table is not None:
+            with timer.step("schema_evolve"):
+                try:
+                    pa_table = evolve_pyarrow_schema(
+                        pa_table,
+                        existing_delta_table.schema(),
+                        merge_key_columns=[*(primary_keys or []), *(export_signal.partition_keys or [])],
+                    )
+                except SchemaColumnTypeChangedException as e:
+                    # A safe numeric widening is mechanically recoverable: stamp reset_pipeline so the
+                    # next scheduled sync resets and re-syncs the table, and reword the failure so
+                    # latest_error stops telling the customer to reset manually. Unsafe transitions
+                    # (and everything with the flag off) re-raise unchanged.
+                    amended_message = maybe_schedule_auto_widen_resync(schema=schema, job=job, error=e)
+                    if amended_message is not None:
+                        e.args = (amended_message,)
+                    raise
 
         if verify_ownership is not None:
-            verify_ownership()
+            with timer.step("ownership_check"):
+                verify_ownership()
+
+        # The row metrics count the batch as read, before the dedupe below drops repeated keys.
+        source_rows = pa_table.num_rows
 
         # The writer narrows this to `merge` for an upsert; an append stays `write` to its commit.
         report_phase("write")
@@ -1217,9 +1610,10 @@ def _process_message_reported(
                 batch_index=export_signal.batch_index,
             )
 
-            with DELTA_WRITE_DURATION_SECONDS.labels(
-                team_id=team_id_str, schema_id=schema_id_str, write_type="scd2_append"
-            ).time():
+            with (
+                timer.step("write"),
+                DELTA_WRITE_DURATION_SECONDS.labels(write_type="scd2_append").time(),
+            ):
                 scd2_writer = Scd2DeltaWriter(
                     delta_table_ref,
                     valid_from_column=SCD2_VALID_FROM_COLUMN,
@@ -1230,8 +1624,16 @@ def _process_message_reported(
                     primary_keys=primary_keys or [],
                     commit_metadata=commit_metadata,
                 )
+        elif skips_write and existing_delta_table is not None:
+            delta_table = existing_delta_table
         else:
-            write_type = _get_write_type(export_signal.sync_type)
+            # The scope already removed every row this run brings again, so its batches only add rows.
+            # A first sync or a reset keeps the incremental load, whose batch 0 overwrites the table.
+            write_type: Literal["incremental", "full_refresh", "append"] = (
+                "append"
+                if export_signal.replace_scope is not None and not export_signal.is_first_ever_sync
+                else _get_write_type(export_signal.sync_type)
+            )
 
             # First batch should overwrite the table, but only if not resuming
             should_overwrite_table = export_signal.batch_index == 0 and not export_signal.is_resume
@@ -1244,10 +1646,14 @@ def _process_message_reported(
                 batch_index=export_signal.batch_index,
             )
 
-            with DELTA_WRITE_DURATION_SECONDS.labels(
-                team_id=team_id_str, schema_id=schema_id_str, write_type=write_type
-            ).time():
-                delta_table = async_to_sync(DeltaWriter(delta_table_ref).write)(
+            with (
+                timer.step("write"),
+                DELTA_WRITE_DURATION_SECONDS.labels(write_type=write_type).time(),
+            ):
+                if write_type == "incremental" and primary_keys:
+                    pa_table = _dedupe_before_write(pa_table, primary_keys)
+                delta_writer = DeltaWriter(delta_table_ref)
+                delta_table = async_to_sync(delta_writer.write)(
                     data=pa_table,
                     write_type=write_type,
                     should_overwrite_table=should_overwrite_table,
@@ -1255,40 +1661,57 @@ def _process_message_reported(
                     progress_callback=progress_callback,
                     commit_metadata=commit_metadata,
                 )
+                deltalite_file_count_change = delta_writer.deltalite_file_count_change
 
-        DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)
+        DELTA_ROWS_WRITTEN_TOTAL.inc(source_rows)
 
         # Marked as soon as the commit lands, before post-load: the final row of a run carries its own
         # data now, so a post-load failure must send the retry down the post-load-only path rather
         # than through the write again.
-        for run_uuid, index in members:
-            mark_batch_as_processed(export_signal.team_id, export_signal.schema_id, run_uuid, index)
+        with timer.step("mark_processed"):
+            for run_uuid, index in members:
+                mark_batch_as_processed(export_signal.team_id, export_signal.schema_id, run_uuid, index)
 
         # file_count is the signal that shows a table fragmenting during a long load, so it stays —
         # but listing every file costs O(files in table), which is the very thing it measures. Sample
         # it instead: the trend is what matters, and the version is cheap enough to log every batch.
         sample_file_count = export_signal.batch_index % FILE_COUNT_LOG_SAMPLE_EVERY == 0
+        file_count = (
+            _file_count_after_write(delta_table, delta_table_ref, deltalite_file_count_change)
+            if sample_file_count
+            else None
+        )
 
         # The handle `write` returns can be one deltalite commit behind the log. Column names and
         # types cannot differ across that commit, so the schema below reads it as is; a file list
-        # can, so the readers of one go through the ref, which catches the handle up first.
-        if sample_file_count or _partial_data_loading_applies(export_signal, schema):
-            current_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
-            if current_delta_table is not None:
-                delta_table = current_delta_table
+        # can, so the readers of one go through the ref, which catches the handle up first. The
+        # sampled count needs that read only when the commit's own numbers cannot give it: batch 0
+        # is a sample, so the read would otherwise cost each run a log listing.
+        with timer.step("post_write"):
+            if (sample_file_count and file_count is None) or _partial_data_loading_applies(export_signal, schema):
+                current_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
+                if current_delta_table is not None:
+                    delta_table = current_delta_table
+                if sample_file_count and file_count is None:
+                    file_count = len(delta_table.file_uris())
 
-        internal_schema = HogQLSchema()
-        # Build from the Delta table schema first to cover all columns from
-        # all batches, then overlay the current batch for JSON detection.
-        internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(delta_table.schema()))
-        internal_schema.add_pyarrow_table(pa_table)
+            internal_schema = HogQLSchema()
+            # Build from the Delta table schema first to cover all columns from
+            # all batches, then overlay the current batch for JSON detection.
+            internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(delta_table.schema()))
+            internal_schema.add_pyarrow_table(pa_table)
 
         logger.debug(
             "batch_written_to_delta_lake",
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
             batch_index=export_signal.batch_index,
+            rows_written=source_rows,
             batch_count=len(members),
             delta_version=delta_table_ref.latest_known_version(delta_table),
-            file_count=len(delta_table.file_uris()) if sample_file_count else None,
+            file_count=file_count,
+            table_handle="reused" if table_handle_reused else "opened",
+            **timer.log_fields(),
         )
 
         async_to_sync(_handle_partial_data_loading)(
@@ -1309,6 +1732,9 @@ def _process_message_reported(
             finals = final_run_signals(constituents)
         else:
             finals = [export_signal] if export_signal.is_final_batch else []
+        if not finals and _rebuild_compaction_due(export_signal, schema, members):
+            _compact_during_rebuild(delta_table_ref, verify_ownership, timer)
+        _promote_loaded_prefixes(constituents if constituents is not None else [export_signal], finals, schema)
         for run_signal in finals:
             run_job = job if run_signal.job_id == export_signal.job_id else _load_job(run_signal.job_id)
             run_schema = run_job.schema
@@ -1322,6 +1748,15 @@ def _process_message_reported(
                 internal_schema=internal_schema,
                 verify_ownership=verify_ownership,
             )
+
+        # A run that completed here ran its post-load maintenance, and the next run can reset the
+        # table, so only a write that stays inside one unfinished run hands its handle on.
+        if not finals and cdc_write_mode is None and all(run_uuid == export_signal.run_uuid for run_uuid, _ in members):
+            open_table = delta_table_ref.pop_cached_table()
+            if open_table is not None:
+                GROUP_TABLE_HANDLES.retain(
+                    export_signal, open_table, last_batch_index=max(index for _, index in members)
+                )
     except OwnershipLostError:
         # Benign fencing abandon: the engine re-raises this without writing a
         # failure status, so it must not count as a load failure in analytics either.

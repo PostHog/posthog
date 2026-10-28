@@ -10,6 +10,8 @@ from structlog.testing import capture_logs
 
 from posthog.schema import HogQLQuery
 
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.transforms.trino.manifest import (
     TrinoCatalogManifest,
     TrinoManifestColumn,
@@ -20,7 +22,6 @@ from posthog.hogql.transforms.trino.manifest import (
 from posthog.models import Organization, Team
 from posthog.schema_enums import DatabaseSerializedFieldType
 
-from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTableNames,
@@ -34,7 +35,12 @@ from products.managed_warehouse.backend.trino_compiler import (
     get_ready_trino_catalog_name,
     prepare_hogql_to_trino_compiler,
 )
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
@@ -48,6 +54,7 @@ def _membership(*, team_id: int, organization_id: str) -> ManagedWarehouseTeamMe
         table_names=ManagedWarehouseTableNames(
             events_table="events_production",
             persons_table="persons_production",
+            groups_table="groups_production",
             data_imports_schema="posthog_data_imports_production",
         ),
         earliest_event_date=None,
@@ -200,6 +207,109 @@ class TestReadyTrinoCatalogName:
 
 
 class TestCompileHogQLToTrinoSQL:
+    @pytest.mark.django_db
+    def test_requires_an_alias_before_a_source_credential_can_enter_an_output_name(self) -> None:
+        organization = Organization.objects.create(name="trino-sensitive-output-name")
+        team = Team.objects.create(organization=organization)
+        membership = _membership(team_id=team.pk, organization_id=str(organization.pk))
+        access_key = "example-access-key"
+        access_secret = "example-access-secret"
+        credential = DataWarehouseCredential.objects.create(
+            team=team,
+            access_key=access_key,
+            access_secret=access_secret,
+        )
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id="source-id",
+            connection_id="connection-id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="",
+        )
+        table = DataWarehouseTable.objects.create(
+            team=team,
+            name="orders",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="https://example.com/orders/",
+            credential=credential,
+            external_data_source=source,
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True}},
+        )
+        ExternalDataSchema.objects.create(team=team, name="orders", source=source, table=table, should_sync=True)
+
+        with (
+            mock.patch("products.managed_warehouse.backend.cp_teams.list_org_teams", return_value=[]),
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_ready_trino_catalog_name",
+                return_value="org_catalog",
+            ),
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_org_team_membership",
+                return_value=membership,
+            ),
+        ):
+            with pytest.raises(QueryError, match="explicit alias"):
+                compile_hogql_to_trino_sql(
+                    team.pk,
+                    HogQLQuery(query="SELECT (SELECT max(id) FROM orders)"),
+                    team=team,
+                    expansion_mode=TrinoExpansionMode.DJANGO,
+                    bypass_warehouse_access_control=True,
+                    preserve_clickhouse_output_names=True,
+                )
+
+            compiled = compile_hogql_to_trino_sql(
+                team.pk,
+                HogQLQuery(query="SELECT (SELECT max(id) FROM orders) AS max_order_id"),
+                team=team,
+                expansion_mode=TrinoExpansionMode.DJANGO,
+                bypass_warehouse_access_control=True,
+                preserve_clickhouse_output_names=True,
+            )
+
+        assert 'AS "max_order_id"' in compiled.sql
+        assert access_key not in compiled.sql
+        assert access_secret not in compiled.sql
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        "query, needs_probe",
+        [
+            ("SELECT 1 AS id, 'x' AS name", False),
+            ("SELECT [1, 2] AS ids, 'x' AS name", False),
+            ("SELECT tuple(1, 'x') AS tag", True),
+            ("SELECT 1 AS id, [tuple(1, 'x')] AS tags", True),
+            ("SELECT map('a', tuple(1)) AS pairs", True),
+        ],
+    )
+    def test_flags_output_columns_that_may_hold_anonymous_rows(self, query: str, needs_probe: bool) -> None:
+        organization = Organization.objects.create(name="trino-row-type-probe")
+        team = Team.objects.create(organization=organization)
+        membership = _membership(team_id=team.pk, organization_id=str(organization.pk))
+
+        with (
+            mock.patch("products.managed_warehouse.backend.cp_teams.list_org_teams", return_value=[]),
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_ready_trino_catalog_name",
+                return_value="org_catalog",
+            ),
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_org_team_membership",
+                return_value=membership,
+            ),
+        ):
+            compiled = compile_hogql_to_trino_sql(
+                team.pk,
+                HogQLQuery(query=query),
+                team=team,
+                expansion_mode=TrinoExpansionMode.DJANGO,
+                bypass_warehouse_access_control=True,
+                preserve_clickhouse_output_names=True,
+            )
+
+        assert compiled.needs_row_type_probe is needs_probe
+
     @pytest.mark.parametrize(
         "limit_clause, trino_limit_clause",
         [
@@ -262,8 +372,9 @@ class TestCompileHogQLToTrinoSQL:
             (" LIMIT 75000 OFFSET 3", " OFFSET 3 ROWS LIMIT 75000"),
         ],
     )
+    @pytest.mark.parametrize("interactive", [False, True])
     def test_populates_core_table_locators_from_control_plane_state(
-        self, include_hogql: bool, limit_clause: str, trino_limit_clause: str
+        self, include_hogql: bool, limit_clause: str, trino_limit_clause: str, interactive: bool
     ) -> None:
         organization = Organization.objects.create(name="trino-core-locators")
         team = Team.objects.create(organization=organization)
@@ -286,13 +397,22 @@ class TestCompileHogQLToTrinoSQL:
                 team=team,
                 include_hogql=include_hogql,
                 expansion_mode=TrinoExpansionMode.DJANGO,
+                limit_top_select=interactive,
+                limit_context=LimitContext.QUERY,
             )
+
+        if interactive:
+            if not limit_clause:
+                trino_limit_clause = " LIMIT 50000"
+            trino_limit_clause = trino_limit_clause.replace("75000", "50000")
 
         assert compiled.sql == (
             'SELECT "org_catalog"."posthog"."events_production"."event" '
             'FROM "org_catalog"."posthog"."events_production"' + trino_limit_clause
         )
         assert compiled.values == {}
+        if interactive:
+            limit_clause = (limit_clause or " LIMIT 50000").replace("75000", "50000")
         assert compiled.hogql == ("SELECT event FROM events" + limit_clause if include_hogql else None)
 
     @pytest.mark.django_db
@@ -414,6 +534,8 @@ class TestPreparedTrinoCompiler:
             compiler = prepare_hogql_to_trino_compiler(team.pk, team=team)
             first = compiler.compile(HogQLQuery(query="SELECT {value}", values={"value": "first"}))
             second = compiler.compile(HogQLQuery(query="SELECT {value}", values={"value": "second"}))
+            groups = compiler.compile(HogQLQuery(query="SELECT index, key, properties.name FROM groups"))
+            raw_groups = compiler.compile(HogQLQuery(query="SELECT key, updated_at FROM raw_groups"))
 
         get_catalog.assert_called_once_with(str(team.organization_id))
         get_membership.assert_called_once_with(str(team.organization_id), team.pk)
@@ -423,6 +545,11 @@ class TestPreparedTrinoCompiler:
         assert compiler.catalog_name == "org_catalog"
         assert first.values == {"hogql_val_0": "first"}
         assert second.values == {"hogql_val_0": "second"}
+        for result in (groups, raw_groups):
+            assert '"org_catalog"."posthog"."groups_production"' in result.sql
+            assert "group_key" in result.sql
+        assert "group_properties" in groups.sql
+        assert "_timestamp" in raw_groups.sql
 
     def test_rejects_a_team_object_for_another_project(self) -> None:
         team = _team()
@@ -496,18 +623,13 @@ def test_build_trino_table_locators_uses_provisioned_names_and_canonical_source_
         url_pattern="https://bucket.s3.amazonaws.com/models/orders/*.parquet",
     )
     saved_query_id = UUID("32345678-1234-5678-1234-567812345678")
-    saved_query = DataWarehouseSavedQuery.objects.create(
+    DataWarehouseSavedQuery.objects.create(
         id=saved_query_id,
         team=team,
         name="orders_model",
         query={"query": "SELECT 1", "kind": "HogQLQuery"},
         table=model_table,
         is_materialized=True,
-    )
-    DataWarehouseModelPath.objects.create(
-        team=team,
-        saved_query=saved_query,
-        path=["legacy_orders_model"],
     )
     source = ExternalDataSource.objects.create(
         team=team,
@@ -534,6 +656,7 @@ def test_build_trino_table_locators_uses_provisioned_names_and_canonical_source_
     table_names = ManagedWarehouseTableNames(
         events_table="events_production",
         persons_table="persons_production",
+        groups_table="groups_production",
         data_imports_schema="imports_production",
     )
     database = mock.Mock()
@@ -553,10 +676,12 @@ def test_build_trino_table_locators_uses_provisioned_names_and_canonical_source_
     assert locators == {
         "events": ("org_catalog", "posthog", "events_production"),
         "persons": ("org_catalog", "posthog", "persons_production"),
+        "groups": ("org_catalog", "posthog", "groups_production"),
+        "raw_groups": ("org_catalog", "posthog", "groups_production"),
         "orders_model": (
             "org_catalog",
             f"posthog_data_modeling_team_{team.pk}",
-            "legacy_orders_model",
+            f"model_{saved_query_id.hex}",
         ),
         "myprefix_stripe_customers": ("org_catalog", "imports_production", "stripe_myprefix_customers"),
         "stripe.myprefix.customers": ("org_catalog", "imports_production", "stripe_myprefix_customers"),

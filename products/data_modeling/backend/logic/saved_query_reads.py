@@ -1,18 +1,39 @@
 """Contract-shaped reads of saved queries for consumers outside this product."""
 
 from collections.abc import Collection, Iterable
+from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.conf import settings
+from django.db.models import Max
 
-from ..facade.contracts import SavedQuerySummary
+from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.functions.prompt_jev import DECISION_FUNCTIONS, PromptJevFinder
+from posthog.hogql.parser import parse_select
+
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.uuidt import UUIDT
+
+from ..facade.contracts import SavedQueryDefinition, SavedQuerySummary, UpstreamTableRef
+from ..models.data_modeling_job import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataModelingJobRunMode,
+    DataModelingJobStatus,
+)
 from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from ..models.edge import Edge
 from ..models.node import Node, NodeType
+from .incremental import get_incremental_config
 from .saved_query_freshness import saved_query_materialized_at
+from .tier_run_report import MATERIALIZING_TYPES
 
 POSTHOG_TABLE_ORIGIN = "posthog"
+WAREHOUSE_TABLE_ID_PROPERTY = "warehouse_table_id"
+SAVED_QUERY_ACTIVITY_SCOPE = "DataWarehouseSavedQuery"
+UPDATED_ACTIVITY = "updated"
+QUERY_FIELD = "query"
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
@@ -91,6 +112,82 @@ def all_saved_query_names(team_id: int) -> dict[str, str]:
     """The current name of every saved query in this team that still resolves. One query."""
     rows = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True).values_list("id", "name")
     return {str(saved_query_id): name for saved_query_id, name in rows}
+
+
+def saved_query_definitions(team_id: int, *, ids: Collection[UUID] | None = None) -> list[SavedQueryDefinition]:
+    """Every saved query in this team that still resolves, with its HogQL and whether its DAG node materializes.
+
+    ``ids`` narrows the result to those saved queries.
+    """
+    saved_queries_in_team = DataWarehouseSavedQuery.objects.filter(team_id=team_id)
+    if ids is not None:
+        saved_queries_in_team = saved_queries_in_team.filter(id__in=ids)
+    saved_queries = list(
+        saved_queries_in_team.exclude(deleted=True)
+        .only(
+            "id",
+            "name",
+            "query",
+            "is_test",
+            "managed_viewset_id",
+            "origin",
+            "created_at",
+            "created_by_id",
+            "incremental_config",
+        )
+        .order_by("created_at", "id")
+    )
+    materializing_ids = set(
+        Node.objects.filter(
+            team_id=team_id,
+            saved_query_id__in=[saved_query.id for saved_query in saved_queries],
+            type__in=MATERIALIZING_TYPES,
+        ).values_list("saved_query_id", flat=True)
+    )
+    return [_definition(saved_query, materializes=saved_query.id in materializing_ids) for saved_query in saved_queries]
+
+
+def _definition(saved_query: DataWarehouseSavedQuery, *, materializes: bool) -> SavedQueryDefinition:
+    hogql = (saved_query.query or {}).get("query") or ""
+    return SavedQueryDefinition(
+        id=saved_query.id,
+        name=saved_query.name,
+        hogql=hogql,
+        materializes=materializes,
+        is_test=saved_query.is_test,
+        is_managed=saved_query.managed_viewset_id is not None,
+        origin=saved_query.origin,
+        created_at=saved_query.created_at,
+        refreshes_incrementally=get_incremental_config(saved_query) is not None,
+        calls_decision_functions=calls_decision_functions(hogql),
+        created_by_id=saved_query.created_by_id,
+    )
+
+
+def calls_decision_functions(hogql: str) -> bool:
+    """Whether the query calls `jev()` or `decide()`, assuming it does when the query does not parse."""
+    lowered = hogql.lower()
+    if not any(name in lowered for name in DECISION_FUNCTIONS):
+        return False
+    try:
+        return PromptJevFinder.contains(parse_select(hogql))
+    except BaseHogQLError:
+        return True
+
+
+def saved_query_ids_created_by(team_id: int, user_id: int, *, ids: Collection[str] | None = None) -> frozenset[UUID]:
+    """The saved queries this user created, soft-deleted ones included. One query.
+
+    ``ids`` narrows the lookup to those saved queries; ``None`` asks about every one. An id that is
+    not a UUID matches nothing.
+    """
+    candidates = DataWarehouseSavedQuery.objects.filter(team_id=team_id, created_by_id=user_id)
+    if ids is not None:
+        valid_ids = [UUID(value) for value in ids if UUIDT.is_valid_uuid(value)]
+        if not valid_ids:
+            return frozenset()
+        candidates = candidates.filter(id__in=valid_ids)
+    return frozenset(candidates.values_list("id", flat=True))
 
 
 def allowed_saved_query_ids(
@@ -245,3 +342,118 @@ def dependent_saved_query_ids(team_id: int, saved_query_ids: Collection[UUID]) -
     for source_id, target_id in edges:
         dependents[source_id].add(target_id)
     return {saved_query_id: frozenset(ids) for saved_query_id, ids in dependents.items()}
+
+
+def saved_query_node_ids(team_id: int, saved_query_id: UUID | str) -> set[str]:
+    """The DAG nodes that stand for this saved query."""
+    return _node_ids_standing_for(team_id, {str(saved_query_id)})
+
+
+def _node_ids_standing_for(team_id: int, saved_query_ids: set[str]) -> set[str]:
+    return {
+        str(node_id)
+        for node_id in Node.objects.filter(team_id=team_id, saved_query_id__in=saved_query_ids).values_list(
+            "id", flat=True
+        )
+    }
+
+
+def reachable_node_ids(team_id: int, start_node_ids: set[str], *, upstream: bool, max_depth: int | None) -> set[str]:
+    """Node ids reachable from `start_node_ids` within `max_depth` hops, the start nodes excluded.
+
+    One query per hop, each reading the frontier's edges off the `Edge` foreign-key indexes, so
+    the work is bounded by the cone that is reached rather than by every edge the team owns.
+    Upstream follows edges into the frontier back to their sources; downstream follows edges
+    out of it to their targets.
+    """
+    edges = Edge.objects.filter(team_id=team_id)
+
+    reached: set[str] = set()
+    frontier = set(start_node_ids)
+    depth = 0
+    while frontier and (max_depth is None or depth < max_depth):
+        if upstream:
+            neighbor_ids = edges.filter(target_id__in=frontier).values_list("source_id", flat=True)
+        else:
+            neighbor_ids = edges.filter(source_id__in=frontier).values_list("target_id", flat=True)
+        frontier = {str(neighbor_id) for neighbor_id in neighbor_ids} - reached - start_node_ids
+        reached |= frontier
+        depth += 1
+    return reached
+
+
+def upstream_table_refs(team_id: int, saved_query_id: UUID | str) -> frozenset[UpstreamTableRef]:
+    """The tables this saved query reads from, directly or through other views in any DAG."""
+    return frozenset(
+        UpstreamTableRef(
+            name=name,
+            warehouse_table_id=_warehouse_table_id(properties),
+            is_posthog_table=properties.get("origin") == POSTHOG_TABLE_ORIGIN,
+        )
+        for name, properties in _upstream_table_nodes(team_id, str(saved_query_id))
+    )
+
+
+def _upstream_table_nodes(team_id: int, saved_query_id: str) -> list[tuple[str, dict[str, object]]]:
+    start_node_ids = _node_ids_standing_for(team_id, {saved_query_id})
+    reached = reachable_node_ids(team_id, start_node_ids, upstream=True, max_depth=None)
+    return [
+        (name, properties or {})
+        for name, properties in Node.objects.filter(team_id=team_id, id__in=reached, type=NodeType.TABLE).values_list(
+            "name", "properties"
+        )
+    ]
+
+
+def _warehouse_table_id(properties: dict[str, object]) -> str | None:
+    warehouse_table_id = properties.get(WAREHOUSE_TABLE_ID_PROPERTY)
+    return str(warehouse_table_id) if warehouse_table_id else None
+
+
+def upstream_saved_query_ids(team_id: int, saved_query_id: UUID | str) -> frozenset[UUID]:
+    """The saved queries this saved query reads from, directly or through other views in any DAG."""
+    start_node_ids = _node_ids_standing_for(team_id, {str(saved_query_id)})
+    reached = reachable_node_ids(team_id, start_node_ids, upstream=True, max_depth=None)
+    return frozenset(
+        Node.objects.filter(team_id=team_id, id__in=reached, saved_query_id__isnull=False)
+        .exclude(saved_query_id=saved_query_id)
+        .values_list("saved_query_id", flat=True)
+    )
+
+
+def unbuilt_upstream_saved_query_ids(
+    team_id: int, saved_query_id: UUID | str, *, engine: DataModelingJobEngine
+) -> frozenset[UUID]:
+    """The upstream saved queries of this one that have never completed a build on ``engine``."""
+    upstream_ids = upstream_saved_query_ids(team_id, saved_query_id)
+    built_ids = DataModelingJob.objects.filter(
+        team_id=team_id,
+        saved_query_id__in=upstream_ids,
+        engine=engine,
+        status=DataModelingJobStatus.COMPLETED,
+    ).values_list("saved_query_id", flat=True)
+    return upstream_ids - frozenset(built_ids)
+
+
+def last_query_change_at(team_id: int, saved_query_ids: Collection[UUID]) -> datetime | None:
+    """When someone last changed the query of any of these saved queries, per the activity log."""
+    return ActivityLog.objects.filter(
+        team_id=team_id,
+        scope=SAVED_QUERY_ACTIVITY_SCOPE,
+        item_id__in=[str(saved_query_id) for saved_query_id in saved_query_ids],
+        activity=UPDATED_ACTIVITY,
+        detail__changes__contains=[{"field": QUERY_FIELD}],
+    ).aggregate(changed_at=Max("created_at"))["changed_at"]
+
+
+def completed_full_refresh_workflow_ids(team_id: int, saved_query_id: UUID | str, *, since: datetime) -> frozenset[str]:
+    """The workflow ids of this saved query's ClickHouse full refreshes that completed and started at or after ``since``."""
+    workflow_ids = DataModelingJob.objects.filter(
+        team_id=team_id,
+        saved_query_id=saved_query_id,
+        engine=DataModelingJobEngine.CLICKHOUSE,
+        status=DataModelingJobStatus.COMPLETED,
+        run_mode=DataModelingJobRunMode.FULL_REFRESH,
+        created_at__gte=since,
+    ).values_list("workflow_id", flat=True)
+    return frozenset(workflow_id for workflow_id in workflow_ids if workflow_id is not None)

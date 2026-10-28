@@ -1,8 +1,13 @@
 import time
 import asyncio
+import decimal
 import datetime
+import functools
 import contextlib
+from collections.abc import AsyncGenerator, AsyncIterator
 from typing import TYPE_CHECKING, Any, Generic
+
+from django.conf import settings
 
 import pyarrow as pa
 import posthoganalytics
@@ -11,31 +16,39 @@ from temporalio import activity
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.sync import database_sync_to_async_pool
-from posthog.temporal.common.activity_context import (
-    current_activity_attempt,
-    current_workflow_id,
-    current_workflow_run_id,
-)
-from posthog.temporal.common.shutdown import ShutdownMonitor
+from posthog.temporal.common.activity_context import current_workflow_id, current_workflow_run_id
+from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.models import DataWarehouseTable
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
+    attempt_run_uuid,
     process_incremental_value,
+    staged_run_last_value,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
+from products.warehouse_sources.backend.temporal.data_imports.import_attempt import (
+    current_import_attempt,
+    current_import_attempt_cause,
+)
+from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+    get_import_finished_during_shutdown_metric,
+    get_shutdown_handoff_delay_metric,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     cleanup_memory,
     commit_source_cursor,
     finalize_desc_sort_incremental_value,
     handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
+    is_young_first_attempt,
     persist_primary_keys,
     reset_rows_synced_if_needed,
+    resets_table_before_extraction,
     resolve_primary_keys,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
@@ -43,8 +56,22 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     update_row_tracking_after_batch,
     validate_incremental_sync,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import (
+    PreemptionConfig,
+    PreemptionDecision,
+    ShutdownStopwatch,
+    SourcePreemptedError,
+    SourcePreemptor,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.ride_out import (
+    DurableProgress,
+    HandoffGate,
+    RideOutConfig,
+    activity_execution_age_seconds,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.safe_point import (
     PipelineSafePointHandler,
+    framework_cursor_covers_buffered_rows,
     source_items_are_framework_output,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -63,12 +90,20 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.bat
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    append_cursor_partition_keys,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.sinks import (
     PipelineSinks,
     build_pipeline_sinks,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import record_source_item_stats
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.handoff_checkpoint import (
+    IncrementalBatchRangeReader,
+    IncrementalHandoffCheckpoint,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ReplaceScopeRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_batches_produced_metric,
     get_pipeline_run_duration_metric,
@@ -84,6 +119,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     S3BatchWriter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer import ParquetCompression
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.table_rebuild import TableRebuildRun
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import (
     ResumableSourceManager,
@@ -102,6 +138,9 @@ if TYPE_CHECKING:
 
 PARQUET_COMPRESSION: ParquetCompression = "zstd"
 
+# How long a preemption waits for a write of the source's resume state that is in progress.
+SOURCE_FENCE_TIMEOUT_SECONDS = 5.0
+
 
 def should_coalesce_tables(*, resume_manager: ResumableSourceManager[Any] | None, is_webhook: bool) -> bool:
     """Whether the batcher may merge small Arrow tables before staging a batch.
@@ -117,6 +156,10 @@ def should_coalesce_tables(*, resume_manager: ResumableSourceManager[Any] | None
     switch coalescing off for every run of every such class, most of which never checkpoint.
     """
     return resume_manager is None and not is_webhook
+
+
+class StagedSchemeWithoutResetError(Exception):
+    """The attempt took the partition scheme of a new table, and then did not delete the old table."""
 
 
 class PipelineV3(Generic[ResumableData]):
@@ -140,6 +183,36 @@ class PipelineV3(Generic[ResumableData]):
     _pg_producer: PostgresProducer
     _accumulated_pa_schema: pa.Schema | None
     _batch_results: list[BatchWriteResult]
+    # Set only for a run that can continue from its last queued batch after an interruption.
+    _handoff_checkpoint: IncrementalHandoffCheckpoint | None = None
+    _batch_range_reader: IncrementalBatchRangeReader
+    _staged_handoff_resume_value: Any = None
+    _staged_handoff_resume_owner: str | None = None
+    # True once this attempt has queued a batch of its own, rather than only inheriting the
+    # resume value an earlier attempt recorded. Decides who owns the queue rows the value describes.
+    _queued_own_batch: bool = False
+    # True when this attempt reads the source after a value an earlier attempt of the run recorded.
+    _continues_incremental_handoff: bool = False
+    # The manager the source holds, also when this run cannot resume from it.
+    _source_resume_manager: ResumableSourceManager[ResumableData] | None = None
+    # None when the pipeline waits for the source for as long as the source takes.
+    _preemption: PreemptionConfig | None = None
+    _shutdown_stopwatch: ShutdownStopwatch | None = None
+    # None when an import without durable progress hands off at once, as it always did.
+    _ride_out: RideOutConfig | None = None
+    _progress: DurableProgress | None = None
+    _handoff_gate: HandoffGate | None = None
+    # The grace of the run's `ShutdownMonitor`. The age checks of a hand-off leave it out.
+    _shutdown_grace_seconds: float = 0.0
+    _resumed_incremental_run_uuid: str | None = None
+    _sent_resumed_run_finalization: bool = False
+    _writes_staged_repartition_scheme: bool = False
+    # Set only for a run whose batches record the watermark that each loaded prefix covers.
+    _prefix_checkpoint: IncrementalHandoffCheckpoint | None = None
+    _job_rows_synced_through_batch: int = 0
+    _kept_rows_synced: int | None = None
+    # Set once the run handed its replace scope to the loader.
+    _replace_scope_ref: ReplaceScopeRef | None = None
 
     def __init__(
         self,
@@ -152,15 +225,32 @@ class PipelineV3(Generic[ResumableData]):
         *,
         models: "ImportJobModels",
         source_cursor_manager: SourceCursorManager[Any] | None = None,
+        incremental_checkpoints_allowed: bool = False,
+        resumed_incremental_run_uuid: str | None = None,
+        resumed_incremental_value: Any = None,
+        preemption: PreemptionConfig | None = None,
+        kept_rows_synced: int | None = None,
+        continued_workflow_run_id: str | None = None,
+        continued_job_ids: tuple[str, ...] = (),
+        ride_out: RideOutConfig | None = None,
+        progress: DurableProgress | None = None,
+        shutdown_grace_seconds: float = 0.0,
     ) -> None:
         self._resource = source_response
+        self._kept_rows_synced = kept_rows_synced
+        self._ride_out = ride_out
+        self._progress = progress
+        self._shutdown_grace_seconds = shutdown_grace_seconds
         self._source_cursor_manager = source_cursor_manager
         self._resource_name = source_response.name
 
         # Persisted PK (user override or earlier detection) > live-detected > `id` fallback. Keeps
         # the merge key stable across runs when live detection (e.g. Snowflake SHOW PRIMARY KEYS)
         # intermittently returns nothing.
-        self._resource.primary_keys = resolve_primary_keys(models.schema, self._resource)
+        # A replace scope loads as appends, so a key persisted by an earlier mode must not come back.
+        self._resource.primary_keys = (
+            None if source_response.replace_scope is not None else resolve_primary_keys(models.schema, self._resource)
+        )
 
         self._job = models.job
         self._reset_pipeline = reset_pipeline
@@ -180,11 +270,13 @@ class PipelineV3(Generic[ResumableData]):
             or source_response.cdc_write_mode is not None
         )
 
-        self._delta_table_ref = DeltaTableRef(self._resource_name, self._job, self._logger)
+        self._delta_table_ref = DeltaTableRef(
+            self._resource_name, self._job, self._logger, expect_missing=models.table is None
+        )
 
-        attempt = current_activity_attempt()
+        attempt = current_import_attempt()
         self._attempt = attempt
-        self._run_uuid = f"{self._job.workflow_run_id}-a{attempt}" if self._job.workflow_run_id else None
+        self._run_uuid = attempt_run_uuid(self._job.workflow_run_id, attempt) if self._job.workflow_run_id else None
         self._s3_batch_writer = self._build_s3_writer(self._run_uuid)
 
         sync_type: SyncTypeLiteral = "full_refresh"
@@ -195,28 +287,15 @@ class PipelineV3(Generic[ResumableData]):
         elif self._schema.is_append:
             sync_type = "append"
 
-        # Operator-pinned overrides (admin repartition action) win over the auto-detected
-        # persisted value and the source-computed value. See setup_partitioning in the v2
-        # pipeline for the same precedence and rationale.
-        partition_count = (
-            self._schema.partition_count_override or self._schema.partition_count or self._resource.partition_count
-        )
-        partition_size = (
-            self._schema.partition_size_override or self._schema.partition_size or self._resource.partition_size
-        )
-        partition_keys = (
-            self._schema.partitioning_keys_override
-            or self._schema.partitioning_keys
-            or self._resource.partition_keys
-            or self._resource.primary_keys
-        )
-        partition_format = self._schema.partition_format or self._resource.partition_format
-        partition_mode = (
-            self._schema.partition_mode_override or self._schema.partition_mode or self._resource.partition_mode
-        )
+        # The earlier attempts of this run queued every row up to the value this attempt reads after,
+        # and this attempt does not extract those rows again. The queue must therefore treat it as a
+        # resume: a fresh run replaces the queue rows of earlier attempts and overwrites on batch 0.
+        self._continues_incremental_handoff = resumed_incremental_value is not None
 
-        # Determine if this is the first-ever sync (no DWH table exists yet)
-        is_first_ever_sync = self._schema.table is None
+        # No DWH table exists yet, so the loader appends each batch. An attempt that continues reads
+        # again the queued rows that hold the newest queued value, and an append keeps both copies.
+        # The loader must merge the batches of that attempt on the primary key.
+        is_first_ever_sync = self._schema.table is None and not self._continues_incremental_handoff
 
         # SQL sources project enabled_columns in their SELECT and own schema_metadata via
         # introspection; managed-schema sources don't allow selection. Everything else gets the
@@ -224,8 +303,87 @@ class PipelineV3(Generic[ResumableData]):
         self._uses_delta_write_column_selection = source_uses_delta_write_column_selection(models.source.source_type)
         self._observed_columns: dict[str, dict[str, Any]] = {}
 
+        self._source_resume_manager = resumable_source_manager
         self._resumable_source_manager = resolve_resume_manager(resumable_source_manager, self._resource)
-        is_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
+        if self._resumable_source_manager is not None and source_response.replace_scope is not None:
+            # A resumed attempt skips the rows before its cursor, and stages no scope, so its keyless
+            # batches would merge. Each attempt of a scoped run must read from the start.
+            raise ValueError("A source that resumes from its own cursor cannot send a replace scope")
+        self._preemption = preemption
+        self._resumed_incremental_run_uuid = resumed_incremental_run_uuid
+        self._sent_resumed_run_finalization = False
+        is_resume = self._continues_incremental_handoff or (
+            self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
+        )
+        if incremental_checkpoints_allowed and self._tracks_handoff_checkpoint(source_response, reset_pipeline):
+            self._handoff_checkpoint = IncrementalHandoffCheckpoint(resumed_incremental_value)
+            self._batch_range_reader = IncrementalBatchRangeReader(self._schema)
+        # A continuing attempt or a source with its own cursor does not read from the watermark, and
+        # a first sync appends, so the loaded batches of such a run say nothing about the watermark.
+        # A file destination publishes the batches of a run only when the run completes, so a loaded
+        # warehouse prefix does not prove that an external destination has the rows.
+        if (
+            settings.DATA_WAREHOUSE_IMPORT_PREFIX_WATERMARK_ENABLED
+            and incremental_checkpoints_allowed
+            and self._tracks_handoff_checkpoint(source_response, reset_pipeline)
+            and not is_resume
+            and source_cursor_manager is None
+            and self._resource.primary_keys
+            and not is_first_ever_sync
+            and not models.external_destination_ids
+        ):
+            self._prefix_checkpoint = IncrementalHandoffCheckpoint()
+            self._batch_range_reader = IncrementalBatchRangeReader(self._schema)
+
+        # A queued repartition target is the scheme of the table when this attempt deletes the table
+        # and loads it again. The reset then stages that target (see `handle_reset_or_full_refresh`),
+        # so no rewrite of the old table is necessary.
+        replaces_table = attempt <= 1 and resets_table_before_extraction(
+            reset_pipeline, is_resume, self._schema, self._resource.webhook_only
+        )
+        staged_scheme = self._schema.pending_scheme_for_table_replacement if replaces_table else None
+        self._writes_staged_repartition_scheme = staged_scheme is not None
+        if staged_scheme is not None:
+            partition_count = staged_scheme.get("partition_count") or self._resource.partition_count
+            partition_size = staged_scheme.get("partition_size") or self._resource.partition_size
+            partition_keys = staged_scheme["partition_keys"]
+            partition_format = (
+                staged_scheme.get("partition_format")
+                or self._schema.partition_format
+                or self._resource.partition_format
+            )
+            partition_mode = staged_scheme.get("partition_mode") or self._resource.partition_mode
+        else:
+            # Operator-pinned overrides (admin repartition action) win over the auto-detected
+            # persisted value and the source-computed value. See setup_partitioning in the v2
+            # pipeline for the same precedence and rationale.
+            partition_count = (
+                self._schema.partition_count_override or self._schema.partition_count or self._resource.partition_count
+            )
+            partition_size = (
+                self._schema.partition_size_override or self._schema.partition_size or self._resource.partition_size
+            )
+            partition_keys = (
+                self._schema.partitioning_keys_override
+                or self._schema.partitioning_keys
+                or self._resource.partition_keys
+                or self._resource.primary_keys
+            )
+            partition_format = self._schema.partition_format or self._resource.partition_format
+            partition_mode = (
+                self._schema.partition_mode_override or self._schema.partition_mode or self._resource.partition_mode
+            )
+            # The reset clears the saved layout only after this point, so a table that this attempt
+            # replaces must not inherit the mode of the table it deletes.
+            saved_mode = None if replaces_table else self._schema.partition_mode
+            if not (self._schema.partition_mode_override or saved_mode or self._resource.partition_mode):
+                cursor_keys = append_cursor_partition_keys(self._schema, table_is_replaced=replaces_table)
+                if cursor_keys:
+                    partition_keys, partition_mode = cursor_keys, "datetime"
+
+        # Resolved in `_get_models`, not here: the pipeline is built inside an async activity,
+        # so the query that tells the warehouse from an external destination cannot run here.
+        self._external_destination_ids: list[str] = list(models.external_destination_ids)
 
         self._producer_kwargs: dict[str, Any] = {
             "sync_type": sync_type,
@@ -236,6 +394,7 @@ class PipelineV3(Generic[ResumableData]):
             "partition_format": partition_format,
             "partition_mode": partition_mode,
             "is_first_ever_sync": is_first_ever_sync,
+            "continued_job_ids": list(continued_job_ids),
         }
         self._pg_producer = self._build_producer(
             self._s3_batch_writer, resource_name=self._resource_name, cdc_write_mode=self._resource.cdc_write_mode
@@ -266,9 +425,47 @@ class PipelineV3(Generic[ResumableData]):
         self._accumulated_pa_schema = None
         self._batch_results = []
         self._shutdown_monitor = shutdown_monitor
+        self._shutdown_stopwatch = ShutdownStopwatch(shutdown_monitor)
         self._last_incremental_field_value: Any = None
+        if is_resume and source_response.sort_mode != "asc":
+            # A resumed attempt of a descending or unordered source can skip the rows that held the newest
+            # value of the earlier attempts of this run. Without their newest value, the run promotes the
+            # largest value of its own rows as the watermark, and the next run reads every newer row again.
+            # `models.schema` is loaded when this attempt starts, so it holds what the earlier attempts staged.
+            staged_config = models.schema.sync_type_config or {}
+            self._last_incremental_field_value = staged_run_last_value(staged_config, self._job.workflow_run_id)
+            if self._last_incremental_field_value is None and continued_workflow_run_id is not None:
+                # The first attempt of a job that continues the cursor of an interrupted job has the same
+                # gap: the interrupted run read the newest rows. A later attempt of this run staged that
+                # value again, so the lookup above finds it.
+                self._last_incremental_field_value = staged_run_last_value(staged_config, continued_workflow_run_id)
+            if self._last_incremental_field_value is None and self._schema.should_use_incremental_field:
+                self._logger.warning(
+                    "V3 Pipeline: Resumed non-ascending extract found no staged last value of this run",
+                    workflow_run_id=self._job.workflow_run_id,
+                )
         self._earliest_incremental_field_value: Any = process_incremental_value(
             models.schema.incremental_field_earliest_value, models.schema.incremental_field_type
+        )
+
+    def _tracks_handoff_checkpoint(self, source_response: SourceResponse, reset_pipeline: bool) -> bool:
+        """Whether a later attempt of this run can continue from the batches this attempt queues.
+
+        The source must promise ascending order, and nothing else may own the restart point: a
+        source that resumes from its own cursor reads that cursor, and a reset reloads the table.
+        A run that writes several tables keeps one queue per table, which one value cannot cover.
+        A replace scope makes each attempt delete every file it reads again, so it must read from the start.
+        """
+        return (
+            self._schema.is_incremental
+            and bool(self._schema.incremental_field)
+            and source_response.sort_mode == "asc"
+            and not reset_pipeline
+            and self._resumable_source_manager is None
+            and not source_response.lanes
+            and source_response.cdc_write_mode is None
+            and source_response.replace_scope is None
+            and self._run_uuid is not None
         )
 
     # The seams below are where a run that writes several tables from one read plugs in (see
@@ -296,6 +493,7 @@ class PipelineV3(Generic[ResumableData]):
             # Snapshotted on the job when the run started. Empty for every run before
             # destinations, and every run of a team the flag is off for.
             "destination_ids": list(self._job.destination_ids or []),
+            "external_destination_ids": list(self._external_destination_ids),
             **self._producer_kwargs,
         }
 
@@ -311,15 +509,67 @@ class PipelineV3(Generic[ResumableData]):
         batch_result = await asyncio.to_thread(self._s3_batch_writer.write_batch, pa_table, batch_index)
         self._batch_results.append(batch_result)
 
-        self._pg_producer.hold_batch(batch_result, cumulative_row_count=row_count)
+        # `hold_batch` only inserts the batch this attempt is already holding, not the one it is
+        # about to hold. A row from this attempt exists in the queue only once this call flushes one.
+        flushes_a_held_batch = self._pg_producer.has_held_batch
+        loaded_prefix_cursor = self._loaded_prefix_cursor(pa_table)
+        try:
+            self._pg_producer.hold_batch(
+                batch_result, cumulative_row_count=row_count, loaded_prefix_cursor=loaded_prefix_cursor
+            )
+        except Exception:
+            # The insert that failed belongs to the batch before this one. The checkpoint already
+            # counts that batch, so no later value of it is safe. The value staged earlier stays valid.
+            self._handoff_checkpoint = None
+            raise
+        if flushes_a_held_batch:
+            # This attempt now owns an inserted queue row, so any resume value it stages from here
+            # describes rows it holds, not rows an earlier attempt queued.
+            self._queued_own_batch = True
         return pa_table.num_rows
+
+    def _loaded_prefix_cursor(self, pa_table: pa.Table) -> dict[str, Any] | None:
+        """The watermark that this batch and every earlier batch of the run cover once loaded.
+
+        The value is below the newest value seen so far, because rows that hold the newest value can
+        still be in the next batch. A batch out of ascending order voids it for the rest of the run.
+        """
+        self._job_rows_synced_through_batch += pa_table.num_rows
+        checkpoint = self._prefix_checkpoint
+        if checkpoint is None or not self._schema.incremental_field:
+            return None
+        if pa_table.num_rows > 0:
+            checkpoint.observe(self._batch_range_reader.read(pa_table))
+        value = checkpoint.resume_value
+        if value is None:
+            return None
+        serialized = self._schema.serialize_incremental_value(value)
+        if isinstance(value, decimal.Decimal) and isinstance(serialized, int | float) and serialized > value:
+            # Numeric values are stored as integers, so a negative decimal rounds up, past rows the
+            # run has not read. Record nothing rather than a value above the loaded rows.
+            return None
+        return {
+            "field": self._schema.incremental_field,
+            "value": serialized,
+            "job_rows_synced": self._job_rows_synced_through_batch,
+        }
+
+    async def _drop_prefix_checkpoint_for_active_sinks(self) -> None:
+        """Stop recording prefix values for a table that has an active chunk sink.
+
+        A retry after a prefix promotion skips rows that this job already staged for a sink, and
+        clearing the sinks at the start of an attempt deletes those staged files. The skipped rows
+        would never reach the sink, so such a table keeps its watermark until the run completes.
+        """
+        if self._prefix_checkpoint is not None and any([await sink.should_run() for sink in self._sinks.all]):
+            self._prefix_checkpoint = None
 
     def _total_batches(self) -> int:
         return len(self._batch_results)
 
     def _consumer_finalizes_this_run(self) -> bool:
         """Whether the load consumer will finalize THIS job, so the workflow must not."""
-        return self._total_batches() > 0
+        return self._total_batches() > 0 or self._sent_resumed_run_finalization
 
     async def _send_final_batches(self, total_batches: int, row_count: int) -> str | None:
         schema_path = await asyncio.to_thread(self._s3_batch_writer.write_schema)
@@ -335,10 +585,42 @@ class PipelineV3(Generic[ResumableData]):
 
     def _release_held_batches(self) -> None:
         """Put every held queue row into the queue now, as a non-final row."""
-        self._pg_producer.release_held_batch()
+        if self._pg_producer.release_held_batch():
+            # The row this attempt was holding is inserted now, so it owns a queue row of its own.
+            self._queued_own_batch = True
 
     def _mark_first_ever_sync(self) -> None:
         self._pg_producer.is_first_ever_sync = True
+        self._prefix_checkpoint = None
+
+    async def _stage_replace_scope(self, sync_type: SyncTypeLiteral) -> None:
+        """Hand the source's replace scope to the loader, before the first batch is queued.
+
+        Not called for a first sync or a reset: the table starts empty, so no row needs to go.
+        """
+        scope = self._resource.replace_scope
+        if scope is None:
+            return
+        if sync_type != "incremental" or self._resource.lanes:
+            await self._logger.awarning("V3 Pipeline: Ignoring a replace scope on a run that does not merge one table")
+            return
+        manifest_path = await asyncio.to_thread(self._s3_batch_writer.write_replace_scope, scope)
+        self._replace_scope_ref = ReplaceScopeRef(column=scope.column, manifest_path=manifest_path)
+        self._pg_producer.replace_scope = self._replace_scope_ref
+
+    async def _stage_empty_replace_scope_batch(self, scope: ReplaceScopeRef) -> None:
+        """Queue one batch with no rows, so a scope that only removes rows still reaches the loader."""
+        await self._stage_batch(pa.table({scope.column: pa.array([], pa.string())}), batch_index=0, row_count=0)
+
+    async def _record_table_rebuild(self, run_uuid: str) -> None:
+        """Record that this attempt loads the table from empty (see `TableRebuildRun`).
+
+        A failure only costs speed: a later attempt of the run then merges each batch.
+        """
+        try:
+            await database_sync_to_async_pool(TableRebuildRun.record)(self._schema, run_uuid)
+        except Exception:
+            await self._logger.aexception("V3 Pipeline: Failed to record the table rebuild")
 
     def _maintains_companion_table(self) -> bool:
         """Whether this run's own table is a `_cdc` history table, keyed under its own watermark.
@@ -349,6 +631,29 @@ class PipelineV3(Generic[ResumableData]):
         """
         return self._resource.cdc_write_mode == SCD2_APPEND_MODE
 
+    async def _first_batch_restores_table(self, should_resume: bool) -> bool:
+        """Whether the loader restores the table to undo an unfinished append run before this attempt loads.
+
+        The restore undoes a pre-write compaction too, so the compaction is wasted work that also makes the
+        restore commit larger. A pre-write vacuum can delete files that the restore needs, once they were
+        removed longer ago than `VACUUM_RETENTION`, and a failed restore leaves the unfinished run's rows in
+        the table. The post-load pass of a run that completes maintains the table instead.
+        """
+        if should_resume or self._run_uuid is None or self._pg_producer.sync_type != "append":
+            return False
+        # Deferred: the `load` package imports the load processor, which imports the facade that imports this module.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.append_rollback import (  # noqa: PLC0415
+            UnfinishedAppendRuns,
+        )
+
+        append_runs = UnfinishedAppendRuns(self._schema, self._delta_table_ref)
+        try:
+            return await database_sync_to_async_pool(append_runs.restores_before_first_batch)(self._run_uuid)
+        except Exception:
+            # Pre-write maintenance never fails an attempt, so a failed read must not either.
+            await self._logger.awarning("V3 Pipeline: Could not check for a pending append restore", exc_info=True)
+            return False
+
     def _close_producers(self) -> None:
         self._pg_producer.close()
 
@@ -356,16 +661,109 @@ class PipelineV3(Generic[ResumableData]):
         scope = contextlib.ExitStack()
         if self._resumable_source_manager is not None:
             handler = PipelineSafePointHandler(
-                shutdown_monitor=self._shutdown_monitor,
+                raise_if_should_hand_off=self._open_handoff_gate().raise_if_should_hand_off,
                 resumable_source_manager=self._resumable_source_manager,
                 has_unwritten_rows=lambda: (
                     self._batcher.should_yield(include_incomplete_chunk=True) or self._pg_producer.has_held_batch
                 ),
             )
+            # The gate, not the raw signal: a source wait that ended early during a ride-out would
+            # skip every backoff and Retry-After for as long as the gate keeps the run here.
             scope.enter_context(
-                activate_safe_point(handler, covers_framework_checkpoints=source_items_are_framework_output(items))
+                activate_safe_point(
+                    handler,
+                    covers_framework_checkpoints=source_items_are_framework_output(items),
+                    is_shutting_down=self._open_handoff_gate().should_hand_off_now,
+                )
             )
         return scope
+
+    def _preemption_decision(self) -> PreemptionDecision:
+        """Whether another worker can continue this run from now without losing or duplicating rows."""
+        if self._schema.is_webhook:
+            # The webhook path deletes its staged files after it yields them, so a row that is only
+            # in the batcher exists nowhere else.
+            return PreemptionDecision(eligible=False, reason="webhook")
+        if self._resource.lanes:
+            return PreemptionDecision(eligible=False, reason="multiple_tables")
+        if self._resumable_source_manager is not None:
+            return PreemptionDecision(eligible=True, reason="resumable")
+        checkpoint = self._handoff_checkpoint
+        carry_over_enabled = self._preemption is not None and self._preemption.watermark_carry_over_enabled
+        if checkpoint is not None and not checkpoint.is_void and carry_over_enabled:
+            return PreemptionDecision(eligible=True, reason="watermark_carry_over")
+        if is_young_first_attempt(self._shutdown_grace_seconds):
+            return PreemptionDecision(eligible=True, reason="young_first_attempt")
+        if checkpoint is not None and not checkpoint.is_void:
+            return PreemptionDecision(
+                eligible=False, reason="watermark_carry_over_disabled", restarts_from_scratch=True
+            )
+        if self._schema.should_use_incremental_field:
+            return PreemptionDecision(eligible=False, reason="no_watermark_carry_over", restarts_from_scratch=True)
+        return PreemptionDecision(eligible=False, reason="non_resumable_full_refresh", restarts_from_scratch=True)
+
+    async def _fence_abandoned_source(self) -> bool:
+        if self._source_resume_manager is None:
+            return True
+        return await asyncio.to_thread(self._source_resume_manager.revoke_writes, SOURCE_FENCE_TIMEOUT_SECONDS)
+
+    def _open_handoff_gate(self) -> HandoffGate:
+        """Build the gate once per run, from the monitor and stopwatch the run has at that point."""
+        if self._handoff_gate is not None:
+            return self._handoff_gate
+        if self._progress is None:
+            self._progress = DurableProgress()
+        if self._shutdown_stopwatch is None:
+            self._shutdown_stopwatch = ShutdownStopwatch(self._shutdown_monitor)
+        progress = self._progress
+        if self._resumable_source_manager is not None:
+            self._resumable_source_manager.on_commit(lambda: progress.mark("resume_commit"))
+        self._handoff_gate = HandoffGate(
+            shutdown_monitor=self._shutdown_monitor,
+            stopwatch=self._shutdown_stopwatch,
+            progress=progress,
+            # A hand-off retires a laned run's companion jobs, so that run keeps the legacy rule.
+            config=None if self._resource.lanes else self._ride_out,
+            legacy_wants_handoff=lambda: should_check_shutdown(
+                self._schema,
+                self._resource,
+                self._reset_pipeline,
+                self._resumable_source_manager is not None,
+                shutdown_grace_seconds=self._shutdown_grace_seconds,
+            ),
+            restarts_from_scratch=self._restarts_from_scratch,
+            logger=self._logger,
+            execution_age_seconds=functools.partial(
+                activity_execution_age_seconds, shutdown_grace_seconds=self._shutdown_grace_seconds
+            ),
+        )
+        return self._handoff_gate
+
+    def _restarts_from_scratch(self) -> bool:
+        return self._preemption_decision().restarts_from_scratch
+
+    def _source_items(self, items: Any, source_type: str) -> AsyncIterator[Any]:
+        if self._preemption is None or self._shutdown_stopwatch is None:
+            return async_iterate(items)
+        return SourcePreemptor(
+            config=self._preemption,
+            shutdown_monitor=self._shutdown_monitor,
+            stopwatch=self._shutdown_stopwatch,
+            decide=self._preemption_decision,
+            fence_source=self._fence_abandoned_source,
+            source_type=source_type,
+            logger=self._logger,
+            gate=self._open_handoff_gate(),
+        ).iterate(items)
+
+    def _record_handoff_delay(self, error: WorkerShuttingDownError, source_type: str) -> None:
+        if self._shutdown_stopwatch is None or not activity.in_activity():
+            return
+        delay = self._shutdown_stopwatch.elapsed_seconds()
+        if delay is not None:
+            mode = "preempted" if isinstance(error, SourcePreemptedError) else "cooperative"
+            reason = (self._progress.handoff_reason if self._progress is not None else None) or "unknown"
+            get_shutdown_handoff_delay_metric(source_type, mode, reason).record(delay)
 
     async def _commit_resume_state(self) -> None:
         if self._resumable_source_manager is None:
@@ -377,14 +775,72 @@ class PipelineV3(Generic[ResumableData]):
             self._release_held_batches()
         await asyncio.to_thread(self._resumable_source_manager.commit)
 
+    def _confirm_resume_state(self) -> None:
+        """Make the cursors the source saved so far ready to commit.
+
+        Call it only while the source cannot hold a row that those cursors skip: it is suspended at
+        the `yield` of an item, or it has ended.
+        """
+        if self._resumable_source_manager is not None:
+            self._resumable_source_manager.confirm()
+
+    async def _stage_handoff_resume_value(self, *, force: bool = False) -> None:
+        """Persist the checkpoint's value. Call it only when every observed batch has its queue row.
+
+        Until this attempt queues a batch of its own, the value is still inherited from an earlier
+        attempt and describes rows that attempt's queue holds. The owner recorded alongside it
+        stays that earlier attempt's run until this one actually queues a row, so a later zero-batch
+        continuation finalizes whichever run truly holds the queued rows.
+        """
+        if self._handoff_checkpoint is None:
+            return
+        resume_value = self._handoff_checkpoint.resume_value
+        # None (the common case) means "whichever run stages this", resolved against `run_uuid` on
+        # the model side. Only the inheritance window - before this attempt has queued a batch of
+        # its own - needs an explicit owner, so a zero-batch continuation still finalizes the run
+        # that holds the rows instead of this one, which holds none yet.
+        owner_run_uuid = None if self._queued_own_batch else self._resumed_incremental_run_uuid
+        if (
+            not force
+            and resume_value == self._staged_handoff_resume_value
+            and owner_run_uuid == self._staged_handoff_resume_owner
+        ):
+            return
+        await database_sync_to_async_pool(self._schema.stage_handoff_resume_value)(
+            self._s3_batch_writer.get_run_uuid(), resume_value, owner_run_uuid
+        )
+        self._staged_handoff_resume_value = resume_value
+        self._staged_handoff_resume_owner = owner_run_uuid
+        # A value inherited from an earlier attempt, or a void one, is not progress of this execution.
+        if resume_value is not None and self._queued_own_batch and self._progress is not None:
+            self._progress.mark("carry_over_staged")
+
+    async def _advance_handoff_checkpoint(self, pa_table: pa.Table) -> None:
+        if self._handoff_checkpoint is None:
+            return
+        # Staging this batch inserted the queue row of the batch before it, so the value from before
+        # this batch is safe now. The row of this batch is still held back.
+        await self._stage_handoff_resume_value()
+        if pa_table.num_rows > 0:
+            self._handoff_checkpoint.observe(self._batch_range_reader.read(pa_table))
+        if self._handoff_checkpoint.resume_value is None:
+            # The checkpoint became void. The next attempt must not use the value staged earlier.
+            await self._stage_handoff_resume_value()
+
     async def run(self) -> PipelineResult:
         pa_memory_pool = pa.default_memory_pool()
 
-        should_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
+        resumes_source_cursor = (
+            self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
+        )
+        should_resume = resumes_source_cursor or self._continues_incremental_handoff
         source_is_resumable = self._resumable_source_manager is not None
+        handoff_gate = self._open_handoff_gate()
 
-        if should_resume:
+        if resumes_source_cursor:
             await self._logger.ainfo("V3 Pipeline: Resumable source detected - attempting to resume previous import")
+        elif self._continues_incremental_handoff:
+            await self._logger.ainfo("V3 Pipeline: Continuing the incremental import after its last queued batch")
 
         team_id_str = str(self._job.team_id)
         schema_id_str = str(self._schema.id)
@@ -395,7 +851,7 @@ class PipelineV3(Generic[ResumableData]):
         # work. A rising distribution means runs are restarting and re-extracting what earlier
         # attempts already staged.
         if activity.in_activity():
-            get_run_attempt_metric(source_type).record(self._attempt)
+            get_run_attempt_metric(source_type, current_import_attempt_cause()).record(self._attempt)
 
         start_time = time.perf_counter()
         status = "success"
@@ -413,15 +869,13 @@ class PipelineV3(Generic[ResumableData]):
         try:
             await self._sinks.clear()
 
+            await self._drop_prefix_checkpoint_for_active_sinks()
+
             # v3 stages the incremental cursor until job completion, so a retried attempt
-            # re-extracts from batch 0 and the previous attempt's count must not be kept.
-            await reset_rows_synced_if_needed(
-                self._job,
-                self._is_incremental,
-                self._reset_pipeline,
-                should_resume,
-                incremental_cursor_staged=True,
-            )
+            # re-extracts from batch 0 and the previous attempt's count must not be kept. Only the
+            # rows below a watermark that a loaded prefix of this job moved stay counted.
+            await reset_rows_synced_if_needed(self._job, should_resume, kept_rows_synced=self._kept_rows_synced)
+            self._job_rows_synced_through_batch = self._job.rows_synced or 0
 
             validate_incremental_sync(
                 self._is_incremental,
@@ -447,10 +901,26 @@ class PipelineV3(Generic[ResumableData]):
             # On retry (attempt > 1) skip reset_table() - the consumer-side batch-0
             # overwrite handles it. Wiping the delta table mid-retry while the consumer
             # is loading the previous attempt's batches causes data loss.
+            table_will_be_reset = self._attempt <= 1 and resets_table_before_extraction(
+                self._reset_pipeline, should_resume, self._schema, self._resource.webhook_only
+            )
+            if self._writes_staged_repartition_scheme and not table_will_be_reset:
+                # The batches of this attempt carry a scheme that is only correct for a new table.
+                # The next attempt reads the scheme of the table that stays.
+                raise StagedSchemeWithoutResetError(
+                    "The run was built to replace the table, but the table stays. Retrying."
+                )
+
             if self._attempt <= 1:
                 # Revive a corrupt-`_delta_log` table before extraction so it self-heals in this run
                 # instead of looping forever (an interrupted repartition swap or OOM-crashed merge).
-                await handle_corrupted_delta_log(self._schema, self._job, self._delta_table_ref, self._logger)
+                await handle_corrupted_delta_log(
+                    self._schema,
+                    self._job,
+                    self._delta_table_ref,
+                    self._logger,
+                    table_will_be_reset=table_will_be_reset,
+                )
 
                 await handle_reset_or_full_refresh(
                     self._reset_pipeline,
@@ -462,17 +932,30 @@ class PipelineV3(Generic[ResumableData]):
                 )
 
             is_fresh_sync = self._delta_table_ref.is_first_sync or self._schema.table is None
+            if not is_fresh_sync and self._attempt > 1 and not should_resume:
+                # Only the first attempt deletes the table for a reset, and only that attempt holds
+                # the flag the delete sets. This attempt reads the source from the start again, so
+                # it must load the way the first attempt did: its first batch overwrites the table
+                # and the later batches append. Without this, every batch is a merge into a table
+                # that holds no key of the batch, and that merge reads each file of the table.
+                is_fresh_sync = TableRebuildRun(self._schema.sync_type_config).started_in(self._job.workflow_run_id)
             if is_fresh_sync:
-                self._mark_first_ever_sync()
+                if not self._continues_incremental_handoff:
+                    self._mark_first_ever_sync()
+                # No pre-write maintenance runs, so nothing here reads the handle that the corruption
+                # check opened. Release it before extraction.
+                self._delta_table_ref.pop_cached_table()
 
             # Defensive pre-write compaction so a sync that arrived at a fragmented Delta
             # target cleans up before adding more small files; see DeltaMaintenance.run_scheduled.
-            if not is_fresh_sync:
+            if not is_fresh_sync and not await self._first_batch_restores_table(should_resume):
                 await DeltaMaintenance(self._delta_table_ref).run_scheduled(
                     self._schema,
                     is_cdc_companion=self._maintains_companion_table(),
-                    partition_count_fallback=self._resource.partition_count,
                 )
+
+            if not is_fresh_sync and not should_resume:
+                await self._stage_replace_scope(sync_type)
 
             async def stage_remaining_rows() -> None:
                 nonlocal chunk_index, row_count
@@ -490,14 +973,31 @@ class PipelineV3(Generic[ResumableData]):
                         get_batches_produced_metric(team_id_str, schema_id_str).add(1)
 
                     chunk_index += 1
-                # Every yielded row is staged now, so whatever the source staged last is safe.
+                # Every yielded row is staged now, so the cursor confirmed last is safe.
                 await self._commit_resume_state()
+
+            if self._attempt > 1:
+                # Written before this attempt can replace the queue rows of an earlier attempt, so the
+                # attempt after this one never reads a value that describes rows which are gone.
+                await self._stage_handoff_resume_value(force=True)
+
+            # Not for a webhook schema: an attempt of it does not read again the events that an
+            # earlier attempt took, so the batches of the earlier attempt must still load.
+            if (
+                is_fresh_sync
+                and not should_resume
+                and sync_type == "incremental"
+                and not self._schema.is_webhook
+                and self._run_uuid is not None
+            ):
+                await self._record_table_rebuild(self._run_uuid)
 
             items = self._resource.items()
             safe_point_scope = self._activate_safe_point(items)
+            source_items = self._source_items(items, source_type)
             awaiting_source = True
             try:
-                async for item in async_iterate(items):
+                async for item in source_items:
                     awaiting_source = False
                     py_table = None
 
@@ -509,6 +1009,7 @@ class PipelineV3(Generic[ResumableData]):
                         schema_name=self._schema.name,
                     )
 
+                    self._confirm_resume_state()
                     self._batcher.batch(item)
 
                     # A single batched table may be split into several when a string/binary/list
@@ -539,13 +1040,37 @@ class PipelineV3(Generic[ResumableData]):
                     if wrote_chunk:
                         await self._commit_resume_state()
 
-                    if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
+                    if handoff_gate.may_hand_off():
+                        if self._shutdown_monitor.is_worker_shutdown() and (
+                            self._handoff_checkpoint is not None
+                            or (source_is_resumable and framework_cursor_covers_buffered_rows(items))
+                        ):
+                            # Only when the confirmed cursor already covers the buffered rows; otherwise
+                            # the resume would load them twice. The cursor is not committed when the
+                            # staging fails, so the next attempt reads the rows again; a chunk staged
+                            # before the failure still loads. The hand-off happens either way.
+                            try:
+                                await stage_remaining_rows()
+                            except Exception:
+                                await self._logger.aexception("Failed to stage the rows buffered before the hand-off")
                         self._shutdown_monitor.raise_if_is_worker_shutdown()
                     awaiting_source = True
+            except SourcePreemptedError:
+                # The source is still inside a call, so the cursor it staged can cover rows it did
+                # not yield yet. That cursor must not commit, and the buffered rows of a source with
+                # its own cursor stay unwritten: the committed cursor is behind them, so the next
+                # attempt reads them again. A run that continues after its last staged batch has no
+                # such cursor, so its buffered rows are staged.
+                if self._handoff_checkpoint is not None:
+                    await stage_remaining_rows()
+                raise
             except Exception:
-                # A resumable source that ends its own attempt (a page or time budget) has staged a
-                # cursor for rows the batcher still holds. Staging them lets that cursor commit, so the
-                # next attempt continues from it instead of restarting the sweep.
+                # The source raised, so a cursor it saved after its last yield is not confirmed: it can
+                # skip rows that the source fetched and did not hand on. The cursor confirmed at that
+                # yield covers rows the batcher still holds. Staging them lets that cursor commit, so
+                # the next attempt continues from it instead of restarting the sweep. A source that
+                # ends its own attempt (a page or time budget) reaches a safe point first to keep its
+                # last cursor.
                 if awaiting_source and source_is_resumable:
                     try:
                         await stage_remaining_rows()
@@ -554,9 +1079,25 @@ class PipelineV3(Generic[ResumableData]):
                 raise
             finally:
                 safe_point_scope.close()
+                if isinstance(source_items, AsyncGenerator) and self._preemption is not None:
+                    # Stops the thread of the source now. A loop that ended early left it waiting.
+                    await source_items.aclose()
 
+            # The source ended, so it holds no rows and its last cursor is safe.
+            self._confirm_resume_state()
             await stage_remaining_rows()
+            if chunk_index == 0 and self._replace_scope_ref is not None:
+                await self._stage_empty_replace_scope_batch(self._replace_scope_ref)
+                chunk_index += 1
             await self._finalize(row_count=row_count)
+
+            # The signal, not the monitor: an import that finished inside the shutdown grace counts too.
+            if activity.in_activity() and activity.is_worker_shutdown():
+                get_import_finished_during_shutdown_metric(
+                    source_type,
+                    handoff_gate.rode_out,
+                    within_grace=not self._shutdown_monitor.is_worker_shutdown(),
+                ).add(1)
 
             # With zero batches, `_finalize` sent no final-batch notification, so the load
             # consumer will never hear about this run and cannot finalize it — the workflow must.
@@ -573,7 +1114,7 @@ class PipelineV3(Generic[ResumableData]):
                 except Exception:
                     await self._logger.aexception("Failed to clean up completed source state")
             return result
-        except Exception:
+        except Exception as error:
             status = "error"
             self._logger.exception("V3 Pipeline: Extraction failed")
             # Same queue state a failed run has always left: every staged batch has a row, so an
@@ -582,6 +1123,14 @@ class PipelineV3(Generic[ResumableData]):
                 self._release_held_batches()
             except Exception:
                 self._logger.exception("V3 Pipeline: Failed to enqueue the held batch after the extraction error")
+            else:
+                # Every staged batch has its queue row now, so the next attempt can continue after them.
+                try:
+                    await self._stage_handoff_resume_value()
+                except Exception:
+                    self._logger.exception("V3 Pipeline: Failed to record where the next attempt can continue")
+            if isinstance(error, WorkerShuttingDownError):
+                self._record_handoff_delay(error, source_type)
             raise
         finally:
             duration = time.perf_counter() - start_time
@@ -613,18 +1162,23 @@ class PipelineV3(Generic[ResumableData]):
 
     async def _process_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> None:
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
-        pa_table = normalize_table_column_names(pa_table)
+        if not self._resource.preserve_column_names:
+            pa_table = normalize_table_column_names(pa_table)
 
         if self._uses_delta_write_column_selection:
+            # The loader deletes rows by the replace scope's column, so a column selection must keep it.
+            replace_scope = self._resource.replace_scope
             pa_table = await observe_and_project_table(
                 pa_table,
                 self._schema.enabled_columns,
-                self._resource.primary_keys,
+                [*(self._resource.primary_keys or []), *([replace_scope.column] if replace_scope else [])],
                 self._schema.incremental_field,
                 [
                     *(self._schema.partitioning_keys_override or []),
                     *(self._schema.partitioning_keys or []),
                     *(self._resource.partition_keys or []),
+                    # The loader deletes by this column, so a row without it could never be replaced.
+                    *([self._resource.replace_scope.column] if self._resource.replace_scope else []),
                 ],
                 self._observed_columns,
                 self._logger,
@@ -664,6 +1218,7 @@ class PipelineV3(Generic[ResumableData]):
         )
         self._last_incremental_field_value = incremental_values.last_value
         self._earliest_incremental_field_value = incremental_values.earliest_value
+        await self._advance_handoff_checkpoint(pa_table)
 
         await update_row_tracking_after_batch(
             str(self._job.id), self._job.team_id, self._schema.id, tracked_rows, self._logger
@@ -705,6 +1260,15 @@ class PipelineV3(Generic[ResumableData]):
         total_batches = self._total_batches()
 
         if total_batches == 0:
+            if self._continues_incremental_handoff:
+                if self._resumed_incremental_run_uuid is None:
+                    raise RuntimeError("A resumed incremental import has no queue run to finalize")
+                await asyncio.to_thread(
+                    self._pg_producer.send_final_batch_for_resumed_run, self._resumed_incremental_run_uuid
+                )
+                self._sent_resumed_run_finalization = True
+                return
+
             # A zero-batch run still ran the full extraction, which is what the fast-return
             # valve counts. Post-load stamps this on every other path but never runs here: with
             # no batches the load consumer is never notified. Without this a v3 schema whose

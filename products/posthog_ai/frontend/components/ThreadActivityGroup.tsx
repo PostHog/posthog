@@ -1,3 +1,5 @@
+import { memo } from 'react'
+
 import { IconChevronRight, IconSpinner } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -8,9 +10,9 @@ import { QuillActivityGroup } from './quill/QuillActivityGroup'
 import { useQuillThread } from './quill/quillThreadContext'
 import { type ActivityGroupProps, useActivityGroup } from './useActivityGroup'
 
-export function ThreadActivityGroup(props: ActivityGroupProps): JSX.Element {
+export const ThreadActivityGroup = memo(function ThreadActivityGroup(props: ActivityGroupProps): JSX.Element {
     return useQuillThread() ? <QuillActivityGroup {...props} /> : <LemonThreadActivityGroup {...props} />
-}
+})
 
 function LemonThreadActivityGroup(props: ActivityGroupProps): JSX.Element {
     const { group, toolInvocations, active, waitingForInput = false, renderItem } = props

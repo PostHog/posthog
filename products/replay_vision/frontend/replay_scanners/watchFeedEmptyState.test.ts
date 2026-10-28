@@ -9,8 +9,10 @@ const quota = (exhausted: boolean): VisionQuotaApi => ({ exhausted }) as unknown
 describe('resolveWatchFeedEmptyReason', () => {
     // The precedence between these is the behavior under test: a reader told to clear their filters
     // while every scanner is off would clear them and still face an empty feed.
-    it.each<[string, ReplayScannerApi[], VisionQuotaApi | null, boolean, WatchFeedEmptyReason]>([
+    it.each<[string, ReplayScannerApi[], VisionQuotaApi | null, boolean, WatchFeedEmptyReason, (boolean | null)?]>([
         ['no scanners at all', [], quota(false), false, 'no-scanners'],
+        ['recording turned off, even with no scanners', [], quota(false), false, 'replay-off', false],
+        ['recording turned off, even with an exhausted budget', [scanner()], quota(true), false, 'replay-off', false],
         [
             'an exhausted budget, even with every scanner off',
             [scanner({ enabled: false })],
@@ -53,7 +55,9 @@ describe('resolveWatchFeedEmptyReason', () => {
         ],
         // Falls through rather than claiming a block it cannot see.
         ['a quiet window when the quota snapshot never answered', [scanner()], null, false, 'quiet-window'],
-    ])('blames %s', (_name, scanners, quotaValue, hasFeedFilters, expected) => {
-        expect(resolveWatchFeedEmptyReason({ scanners, quota: quotaValue, hasFeedFilters })).toBe(expected)
+    ])('blames %s', (_name, scanners, quotaValue, hasFeedFilters, expected, sessionRecordingOptIn = null) => {
+        expect(
+            resolveWatchFeedEmptyReason({ scanners, quota: quotaValue, sessionRecordingOptIn, hasFeedFilters })
+        ).toBe(expected)
     })
 })

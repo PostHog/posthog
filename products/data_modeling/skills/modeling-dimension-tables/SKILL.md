@@ -47,12 +47,15 @@ in **dbt** (which has no equivalent), or if you need a rate provider PostHog doe
 
 1. **One row per entity, unique key.** A dimension with duplicate keys silently fan-outs every fact it joins.
    Test uniqueness (PostHog: verify in the shaping query; dbt: `unique` + `not_null`).
-2. **Alias to clean, stable names** — `country_code`, `region`, `plan_tier`. These names become the join
+2. **Drop NULL keys when you derive a dimension from events.** HogQL keeps a row whose property is
+   missing when the filter only compares it to `''`, so add `isNotNull(...)` as well. A NULL key becomes a
+   dimension row of its own and it matches nothing on the fact side.
+3. **Alias to clean, stable names** — `country_code`, `region`, `plan_tier`. These names become the join
    surface everything else depends on.
-3. **Materialize static dimensions on a slow schedule**; don't leave a constantly-read lookup virtual.
-4. **Register and certify.** Annotate the dimension and, if it's load-bearing, certify it in the catalog
+4. **Materialize static dimensions on a slow schedule**; don't leave a constantly-read lookup virtual.
+5. **Register and certify.** Annotate the dimension and, if it's load-bearing, certify it in the catalog
    (foundations `governance.md`) so other models discover it and don't build a rival copy.
-5. **Prefer built-in currency** (`convertCurrency`) over a hand-rolled FX table on PostHog.
+6. **Prefer built-in currency** (`convertCurrency`) over a hand-rolled FX table on PostHog.
 
 ## Build it
 

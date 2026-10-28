@@ -228,6 +228,44 @@ export function buildPosthogPropertiesHeaderLines(
  */
 export const POSTHOG_SESSION_ID_HEADER = "X-PostHog-Session-Id";
 
+export function buildPosthogSessionHeaderRecord(
+  sessionId: string | null | undefined,
+): Record<string, string> {
+  return sessionId
+    ? { [POSTHOG_SESSION_ID_HEADER]: sanitizeHeaderValue(sessionId) }
+    : {};
+}
+
+export function buildPosthogSessionHeaderLines(
+  sessionId: string | null | undefined,
+): string {
+  return Object.entries(buildPosthogSessionHeaderRecord(sessionId))
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("\n");
+}
+
+/** Span name header the Go gateway reads, for the same reason. */
+export const POSTHOG_SPAN_NAME_HEADER = "X-PostHog-Span-Name";
+
+const RESERVED_PROPERTY_HEADERS: ReadonlyArray<[string, string]> = [
+  ["$ai_session_id", POSTHOG_SESSION_ID_HEADER],
+  ["$ai_span_name", POSTHOG_SPAN_NAME_HEADER],
+];
+
+/** Go gateway headers for the reserved `$ai_*` keys the blob drops. */
+export function buildAiGatewayReservedHeaders(
+  properties: PosthogProperties,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, header] of RESERVED_PROPERTY_HEADERS) {
+    const raw = properties[key];
+    if (raw === null || raw === undefined || raw === "") continue;
+    const value = sanitizeHeaderValue(String(raw));
+    if (value) out[header] = value;
+  }
+  return out;
+}
+
 const PROPERTY_HEADER_PREFIX = "x-posthog-property-";
 
 function parsePropertiesBlob(raw: string): PosthogProperties {
@@ -259,15 +297,18 @@ export function collapsePropertyHeadersForAiGateway(
   const out: Record<string, string> = {};
   const fromHeaders: PosthogProperties = {};
   let fromBlob: PosthogProperties = {};
-  let sessionId: string | undefined;
+  const reserved: PosthogProperties = {};
   for (const [key, value] of Object.entries(headers)) {
     const lower = key.toLowerCase();
+    const reservedKey = RESERVED_PROPERTY_HEADERS.find(
+      ([, header]) => header.toLowerCase() === lower,
+    )?.[0];
     if (lower.startsWith(PROPERTY_HEADER_PREFIX)) {
       fromHeaders[lower.slice(PROPERTY_HEADER_PREFIX.length)] = value;
     } else if (lower === POSTHOG_PROPERTIES_HEADER.toLowerCase()) {
       fromBlob = parsePropertiesBlob(value);
-    } else if (lower === POSTHOG_SESSION_ID_HEADER.toLowerCase()) {
-      sessionId = value;
+    } else if (reservedKey) {
+      reserved[reservedKey] = value;
     } else {
       out[key] = value;
     }
@@ -294,10 +335,15 @@ export function collapsePropertyHeadersForAiGateway(
   if (lostTrusted) blob = buildPosthogPropertiesBlob(trusted);
   if (blob) out[POSTHOG_PROPERTIES_HEADER] = blob;
 
-  const session = sessionId ?? merged.$ai_session_id;
-  if (session !== null && session !== undefined && session !== "") {
-    const value = sanitizeHeaderValue(String(session));
-    if (value) out[POSTHOG_SESSION_ID_HEADER] = value;
-  }
-  return out;
+  // A dedicated header wins over the same key sent as a property.
+  return {
+    ...out,
+    ...buildAiGatewayReservedHeaders({
+      $ai_session_id: merged.$ai_session_id,
+      $ai_span_name: merged.$ai_span_name,
+      ...Object.fromEntries(
+        Object.entries(reserved).filter(([, v]) => v !== ""),
+      ),
+    }),
+  };
 }

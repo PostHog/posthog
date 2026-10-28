@@ -9,16 +9,14 @@ from posthog.models.utils import UUIDModel
 class HogFlowOptimization(TeamScopedRootMixin, UUIDModel):
     """One row per workflow whose owner asked PostHog to suggest improvements to it.
 
-    `enabled` is the opt-in: no row, or a disabled one, means nothing reads the workflow, so a
-    producer costs nothing for workflows nobody asked about. Turning it off keeps the row, so
+    `enabled` is the opt-in: no row, or a disabled one, means no suggestion can be filed for the
+    workflow, and the producer's work list leaves it out. Turning it off keeps the row, so
     "tried it and turned it off" stays answerable - that is the question a rollout has to answer,
     and a deleted row cannot.
 
     Who flipped it and when is in the workflow's activity log, next to the rest of that workflow's
     history, rather than as a pair of columns here that could only remember the last flip. Cadence
     and "when did it last look" belong to whoever schedules the producer, a Signals scout today.
-
-    Behind the `self-optimising-workflows` flag.
     """
 
     # db_constraint=False on team: a real FK to a hot table takes a parent-table lock on creation;

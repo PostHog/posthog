@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BigeyeSource(ResumableSource[BigeyeSourceConfig, BigeyeResumeConfig]):
+    codebase_detection = detect(env=("^BIGEYE_",), pypi=("bigeye-sdk", "bigeye-cli"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     # Bigeye's REST API has no dated or numbered version token (see docs.bigeye.com/reference) —
@@ -110,7 +113,7 @@ class BigeyeSource(ResumableSource[BigeyeSourceConfig, BigeyeResumeConfig]):
             name=ExternalDataSourceType.BIGEYE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Bigeye",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter a Bigeye API key to pull your data observability metadata into the PostHog Data warehouse.
 
 Generate a Personal or Agent API key from **Advanced Settings** in your Bigeye workspace. The key inherits your Bigeye role's access (view, edit, or manage).""",

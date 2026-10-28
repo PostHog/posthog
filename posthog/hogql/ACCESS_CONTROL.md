@@ -89,6 +89,10 @@ For these, denied objects are filtered out of the results.
 
 At print time the printer appends a guard that excludes the user's denied object IDs by primary key — effectively `WHERE <id> NOT IN (<denied ids>)`.
 Child tables filter on the parent's FK — e.g. `system.dashboard_tiles` uses `access_control_id_field="dashboard_id"`.
+A table whose rows can also be denied by a rule on another object overrides `PostgresTable.blocked_object_ids`.
+`system.data_warehouse_tables` does this: it resolves each table through its source, as described in [how a table's access level resolves](#how-a-tables-access-level-resolves), so denying a source also hides its tables there.
+A child table drops the creator exemption by default, because its rows carry no creator of the parent.
+A child table that must keep it overrides `PostgresTable.creator_owned_object_ids`: `system.data_modeling_jobs` returns the views the reader created, so the creator of a denied view still sees its jobs.
 
 When rows are filtered, the response carries a warning: "Results may exclude {resources} you don't have access to".
 
@@ -154,7 +158,7 @@ Without a user, warehouse access control denies every warehouse table and view, 
    Cache warming runs as the insight's creator, on the assumption that their access is the one most viewers of that insight share.
    Warming without access control would more often end in a cache miss.
 
-3. **Trusted internal job with no user at all:** pass `bypass_warehouse_access_control=True` explicitly. Materialization workflows (`posthog/temporal/data_modeling/`), insight cache warming, and ducklake compilation (`posthog/ducklake/client.py`) use this path. Add a bypass only when the job has no acting user and its output has a separate access boundary.
+3. **Trusted internal job with no user at all:** pass `bypass_warehouse_access_control=True` explicitly. Materialization workflows (`posthog/temporal/data_modeling/`), insight cache warming, ducklake compilation (`posthog/ducklake/client.py`), and the web analytics team digest and team achievements sweep (`products/web_analytics/backend/weekly_digest.py`, `products/web_analytics/backend/achievements/evaluators.py`) use this path. Add a bypass only when the job has no acting user and its output has a separate access boundary.
 
 ```python
 # Background materialization job: no user exists, so bypass explicitly.
@@ -177,6 +181,7 @@ Hides sensitive event, person, and group properties (e.g. `email`) from query re
 Rules live in the `PropertyAccessControl` model (`products/access_control/backend/models/property_access_control.py`).
 
 Property access control is a paid feature, available on the Scale and Enterprise plans: it needs the `PROPERTY_ACCESS_CONTROL` entitlement, and without it resolution short-circuits to no restrictions.
+Rules that target a role also need the `ROLE_BASED_ACCESS` entitlement. Without it the resolver loads no roles for the user, so role rules are skipped.
 
 ### Enforcement: masking, not errors
 
@@ -184,7 +189,8 @@ Unlike levels 1 and 2, restricted properties do not error.
 They're masked when the query is printed to ClickHouse SQL, so a restricted read is indistinguishable from a property that was never set (anti-enumeration):
 
 - **Explicit reads** (`properties.email`) are replaced with `NULL`, and the resolver refuses to back them with a materialized column — `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
-- **Whole-blob reads** (`SELECT properties` or `SELECT *`) have the restricted keys stripped from the returned JSON via `JSONDropKeys(...)` — `ClickHousePrinter._maybe_apply_json_drop_keys()` in `posthog/hogql/printer/clickhouse.py`.
+- **Whole-blob reads** (`SELECT properties` or `SELECT *`) have the restricted keys stripped from the returned JSON via `JSONDropKeysPool(...)` — `ClickHousePrinter._maybe_apply_json_drop_keys()` in `posthog/hogql/printer/clickhouse.py`.
+- **Unrestricted key reads** (`properties.$browser`, `JSONExtractString(properties, '$browser')`) read the stored String blob without `JSONDropKeysPool`, because dropping keys cannot change their value. A read keeps the mask when its key overlaps a restricted key by dot segment (`customer` against a restricted `customer.ssn`), or when the key is an integer position — `key_read_overlaps_restriction()` in `posthog/hogql/restricted_properties.py`.
 
 Group restrictions retain their group type index, so a same-named property on another group type stays readable. The masking also applies to the Postgres-backed `system.groups.group_properties` field.
 
@@ -222,6 +228,7 @@ Several catalog tables expose such columns because reading them scans far less d
 
 `events`' mirror columns are not masked: restricting the property they mirror masks the blob read and leaves the column readable.
 `flag_evaluations` and `ai_events` mirror columns are masked through `mirrored_property_for_column()` in `posthog/hogql/restricted_properties.py`, consulted by `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
+The mapping is keyed by the stored column name, not the HogQL field name, so an expression field that reads a mirror column masks too: `flag_evaluations.response` reads the stored `response` column through `nullIf`, and the hidden `flag_evaluation_response` reads it bare, and both mask.
 For AI columns, `AI_PROPERTY_TO_COLUMN` in `posthog/hogql/database/schema/ai_events.py` is shared with the query rewriter.
 One rule for `$ai_input` masks both `events.properties.$ai_input` and `ai_events.input`, including nested reads such as `input[1].content`.
 The same rule applies when a filter or an aggregate reads the column.

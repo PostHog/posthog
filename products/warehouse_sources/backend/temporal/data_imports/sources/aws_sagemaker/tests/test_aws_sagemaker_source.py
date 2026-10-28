@@ -1,7 +1,6 @@
 import json
 
 import pytest
-from unittest.mock import patch
 
 import requests
 
@@ -9,6 +8,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_sagema
     error_for_response,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_sagemaker.source import AwsSagemakerSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awssagemaker import (
     AwsSagemakerSourceConfig,
 )
@@ -35,11 +38,11 @@ def test_aws_errors_have_actionable_validation_and_sync_messages(code: str, hint
         aws_access_key_id="AKIAEXAMPLE", aws_secret_access_key="fake-secret", region="us-east-1"
     )
     source = AwsSagemakerSource()
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.aws_sagemaker.aws_sagemaker.make_tracked_session"
-    ) as factory:
-        factory.return_value.post.return_value = response
+    with scripted_network(
+        [ScriptedResponse(status=400, json={"__type": f"com.amazonaws.sagemaker#{code}"})]
+    ) as network:
         valid, message = source.validate_credentials(config, 1, schema_name="models")
+    assert len(network.requests_log) == 1
     assert valid is False
     assert message
     if code == "AccessDeniedException":

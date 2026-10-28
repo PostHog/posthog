@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SavvyCalSource(ResumableSource[SavvyCalSourceConfig, SavvyCalResumeConfig]):
+    codebase_detection = detect(env=("^(SAVVY_CAL|SAVVYCAL)_",), script_hosts=("embed.savvycal.com",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://developers.savvycal.com"
@@ -51,7 +54,7 @@ class SavvyCalSource(ResumableSource[SavvyCalSourceConfig, SavvyCalResumeConfig]
             name=ExternalDataSourceType.SAVVYCAL,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="SavvyCal",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your SavvyCal personal access token to pull your scheduling data into the PostHog Data warehouse.
 
 You can create a token under [Developer Settings](https://savvycal.com/developers) in SavvyCal — click **Create a token** and give it a name. The token carries your account's full read access, covering events, scheduling links, webhooks, and workflows.

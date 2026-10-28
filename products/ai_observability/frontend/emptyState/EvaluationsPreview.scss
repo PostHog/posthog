@@ -109,21 +109,6 @@
     }
 
     // "Running" only lights up on the selected row; the others stay muted.
-    &__running {
-        display: flex;
-        gap: 0.3125rem;
-        align-items: center;
-        font-size: 0.625rem;
-        color: var(--color-text-tertiary);
-    }
-
-    &__running-dot {
-        width: 6px;
-        height: 6px;
-        background: var(--color-border-primary);
-        border-radius: 50%;
-    }
-
     &__hint {
         padding: 0 0.75rem 0.625rem;
         font-size: 0.6875rem;
@@ -217,16 +202,6 @@
 #evaluations-preview-sentiment:checked ~ .EvaluationsPreview__list .EvaluationsPreview__row--sentiment {
     background: color-mix(in oklab, var(--evaluations-preview-accent) 8%, transparent);
     border-color: color-mix(in oklab, var(--evaluations-preview-accent) 40%, transparent);
-
-    // "Running" lights up on the selected row only.
-    .EvaluationsPreview__running {
-        color: var(--color-green-700);
-    }
-
-    .EvaluationsPreview__running-dot {
-        background: var(--color-green-500);
-        animation: EvaluationsPreview__pulse 1.6s ease-in-out infinite;
-    }
 }
 
 #evaluations-preview-accuracy:checked ~ .EvaluationsPreview__list .EvaluationsPreview__vradio--accuracy::after,
@@ -260,17 +235,6 @@
 
     50% {
         box-shadow: 0 0 0 4px color-mix(in oklab, var(--evaluations-preview-accent) 20%, transparent);
-    }
-}
-
-@keyframes EvaluationsPreview__pulse {
-    0%,
-    100% {
-        box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-green-500) 45%, transparent);
-    }
-
-    50% {
-        box-shadow: 0 0 0 4px color-mix(in oklab, var(--color-green-500) 0%, transparent);
     }
 }
 

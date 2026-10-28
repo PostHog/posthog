@@ -1,8 +1,9 @@
 import { Button, Host, Image, Menu } from "@expo/ui/swift-ui";
 import { frame } from "@expo/ui/swift-ui/modifiers";
+import { isSafeGitHubPullRequestUrl } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useNavigation, useRouter } from "expo-router";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Linking, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Glass, GlassCircleButton } from "@/components/Glass";
 import { MenuIcon } from "@/components/Icons";
@@ -22,6 +23,11 @@ export function ChatHeader({ showNewChat = true, task }: ChatHeaderProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { rename, setArchived } = useTaskActions(task);
+  const prUrl = task?.latest_run?.output?.pr_url;
+  const safePrUrl =
+    typeof prUrl === "string" && isSafeGitHubPullRequestUrl(prUrl)
+      ? prUrl
+      : null;
   return (
     <View
       style={[styles.root, { paddingTop: insets.top + 6 }]}
@@ -59,6 +65,13 @@ export function ChatHeader({ showNewChat = true, task }: ChatHeaderProps) {
                   }
                   modifiers={[frame({ width: BUTTON, height: BUTTON })]}
                 >
+                  {safePrUrl ? (
+                    <Button
+                      label="Open pull request"
+                      systemImage="arrow.triangle.pull"
+                      onPress={() => Linking.openURL(safePrUrl).catch(() => {})}
+                    />
+                  ) : null}
                   <Button
                     label="Rename"
                     systemImage="pencil"

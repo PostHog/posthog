@@ -50,10 +50,13 @@
         opacity 100ms ease,
         transform 100ms ease;
 
+    // Shrink to the popover height, so that only .LemonModal__content scrolls
     .LemonModal {
+        flex: 1 1 auto;
         min-width: var(--annotations-popover-width);
         max-width: var(--annotations-popover-width);
-        min-height: 100%;
+        min-height: 0;
+        max-height: 100%;
         margin: 0;
         border: none;
         box-shadow: none;
@@ -61,6 +64,13 @@
 }
 
 .AnnotationCard {
+    // TextContent scrolls by default. In the popover, only .LemonModal__content scrolls.
+    .RichMarkdownEditor,
+    .LemonMarkdown {
+        overflow: visible;
+        overflow-wrap: anywhere;
+    }
+
     .profile-package {
         vertical-align: bottom;
     }

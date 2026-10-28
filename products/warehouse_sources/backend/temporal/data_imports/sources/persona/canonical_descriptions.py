@@ -86,4 +86,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "Timestamp when the template was last updated.",
         },
     },
+    "inquiry_template_versions": {
+        "description": "A published or draft version of an inquiry template. Each publish of a template creates a new version.",
+        "docs_url": "https://docs.withpersona.com/api-reference/inquiry-templates/list-all-inquiry-template-versions",
+        "columns": {
+            "id": "Unique identifier for the inquiry template version (prefixed `itmplv_`).",
+            "inquiry_template_id": "The inquiry template this version belongs to (prefixed `itmpl_`).",
+            "name_display": "The display name of the template in this version.",
+            "description": "A description of the changes in this version.",
+            "status": "Whether the version is `published` or a `draft`.",
+            "live": "Whether this is the template's current live published version.",
+            "last_updater": "The email address of the user who last updated this version.",
+            "enabled_locales": "The locales enabled in this version.",
+            "created_at": "Timestamp when the version was created.",
+            "updated_at": "Timestamp when the version was last updated.",
+            "published_at": "Timestamp when the version was published. Null for drafts.",
+        },
+    },
 }

@@ -14,10 +14,13 @@ from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.tasks.backend.models import Task, UserTasksConfig
 
-DEFAULTS = {
-    "start_in_plan_mode": False,
-    "auto_publish_cloud_runs": False,
+UNSET = {
+    "start_in_plan_mode": None,
+    "auto_publish_cloud_runs": None,
+    "default_cloud_target": None,
 }
+
+ENVIRONMENT_TARGET = "environment:0190c8b2-1d2e-7a3b-8c4d-5e6f7a8b9c0d"
 
 
 class TestTaskDefaultsAPI(APIBaseTest):
@@ -29,8 +32,14 @@ class TestTaskDefaultsAPI(APIBaseTest):
         assert response.status_code == 200, response.content
         return response.json()["task_defaults"]
 
-    def test_returns_defaults_when_nothing_is_stored(self):
-        assert self._read() == DEFAULTS
+    def test_returns_null_for_values_nobody_set(self):
+        assert self._read() == UNSET
+
+    def test_saving_one_value_leaves_the_other_unset(self):
+        response = self.client.post(self._url(), {"start_in_plan_mode": False}, format="json")
+
+        assert response.json() == {**UNSET, "start_in_plan_mode": False}
+        assert self._read() == response.json()
 
     @parameterized.expand([("json",), ("multipart",)])
     def test_partial_updates_keep_the_other_stored_values(self, body_format: str):
@@ -38,8 +47,18 @@ class TestTaskDefaultsAPI(APIBaseTest):
         response = self.client.post(self._url(), {"start_in_plan_mode": True}, format=body_format)
 
         assert response.status_code == 200
-        assert response.json() == {"start_in_plan_mode": True, "auto_publish_cloud_runs": True}
+        assert response.json() == {**UNSET, "start_in_plan_mode": True, "auto_publish_cloud_runs": True}
         assert self._read() == response.json()
+
+    def test_a_cloud_target_saves_and_clears_without_touching_other_defaults(self):
+        self.client.post(self._url(), {"start_in_plan_mode": True}, format="json")
+        saved = self.client.post(self._url(), {"default_cloud_target": ENVIRONMENT_TARGET}, format="json")
+        assert saved.json() == {**UNSET, "start_in_plan_mode": True, "default_cloud_target": ENVIRONMENT_TARGET}
+
+        cleared = self.client.post(self._url(), {"default_cloud_target": None}, format="json")
+
+        assert cleared.status_code == 200
+        assert self._read() == {**UNSET, "start_in_plan_mode": True}
 
     def test_update_keeps_the_stored_model_preference_and_instructions(self):
         UserTasksConfig.objects.for_team(self.team.id).create(
@@ -54,7 +73,7 @@ class TestTaskDefaultsAPI(APIBaseTest):
         config = UserTasksConfig.objects.for_team(self.team.id).get(user=self.user)
         assert config.ai_run_preferences == {"runtime_adapter": "claude", "model": "m"}
         assert config.agent_instructions == "Use pnpm."
-        assert config.task_defaults == {"start_in_plan_mode": True, "auto_publish_cloud_runs": False}
+        assert config.task_defaults == {"start_in_plan_mode": True}
 
     def test_another_users_defaults_do_not_leak(self):
         other = User.objects.create_and_join(self.organization, "other@example.com", "password")
@@ -62,18 +81,24 @@ class TestTaskDefaultsAPI(APIBaseTest):
             team=self.team, user=other, task_defaults={"start_in_plan_mode": True}
         )
 
-        assert self._read() == DEFAULTS
+        assert self._read() == UNSET
 
     @parameterized.expand(
         [
             ("a_flag_that_is_not_a_boolean", {"start_in_plan_mode": "sometimes"}),
+            ("null_to_clear_a_value", {"start_in_plan_mode": None}),
+            ("a_cloud_target_without_a_kind", {"default_cloud_target": "0190c8b2-1d2e-7a3b-8c4d-5e6f7a8b9c0d"}),
+            (
+                "a_cloud_target_with_an_unknown_kind",
+                {"default_cloud_target": "repo:0190c8b2-1d2e-7a3b-8c4d-5e6f7a8b9c0d"},
+            ),
         ]
     )
     def test_rejects_invalid_values(self, _name: str, payload: dict):
         response = self.client.post(self._url(), payload, format="json")
 
         assert response.status_code == 400
-        assert self._read() == DEFAULTS
+        assert self._read() == UNSET
 
     def test_a_task_agent_token_cannot_change_defaults(self):
         task = Task.objects.create(
@@ -108,4 +133,4 @@ class TestTaskDefaultsAPI(APIBaseTest):
         response = client.post(self._url(), {"auto_publish_cloud_runs": True}, format="json")
 
         assert response.status_code == 403, response.content
-        assert self._read(client) == DEFAULTS
+        assert self._read(client) == UNSET

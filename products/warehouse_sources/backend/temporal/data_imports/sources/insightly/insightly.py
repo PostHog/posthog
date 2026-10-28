@@ -8,16 +8,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
+    rest_api_resources,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     OffsetPaginator,
+    SinglePagePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.settings import INSIGHTLY_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.settings import (
+    INSIGHTLY_ENDPOINTS,
+    InsightlyEndpointConfig,
+)
 
 API_VERSION = "v3.1"
 # Insightly caps list pages at 500 items (default is 100).
@@ -71,6 +79,84 @@ def _format_updated_after(value: Any) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _client_config(pod: str, api_key: str) -> ClientConfig:
+    return {
+        "base_url": base_url(pod),
+        "headers": {"Accept": "application/json"},
+        # HTTP Basic auth with the API key as the username and a blank password. Using the
+        # framework auth keeps the key out of raised error messages / logged URLs.
+        "auth": {"type": "http_basic", "username": api_key, "password": ""},
+        # Pin every request (including resume URLs) to api.<pod>.insightly.com — reinforces the
+        # pod normalization guard so credentials can never be sent off-host.
+        "allowed_hosts": [],
+    }
+
+
+def _offset_paginator() -> OffsetPaginator:
+    # Offset pagination with Insightly's `top`/`skip`; a short (< top) page is the last one.
+    return OffsetPaginator(limit=PAGE_SIZE, offset_param="skip", limit_param="top", total_path=None)
+
+
+def _source_response(endpoint: str, config: InsightlyEndpointConfig, items: Any) -> SourceResponse:
+    return SourceResponse(
+        name=endpoint,
+        items=items,
+        primary_keys=config.primary_keys,
+        # Insightly paginates in record-id (creation) order, so rows for a given sync arrive roughly
+        # oldest-first; DATE_UPDATED_UTC is not strictly monotonic across pages. We keep the same
+        # `updated_after_utc` filter on every page (offset pagination reuses the query), so an
+        # incremental sync never walks unbounded history — and if Insightly ever ignored the filter,
+        # the sync degrades to full-refresh cost, never incorrect data (merge dedupes on the id).
+        sort_mode="asc",
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="week" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+    )
+
+
+def _fanout_source(pod: str, api_key: str, endpoint: str, team_id: int, job_id: str) -> SourceResponse:
+    config = INSIGHTLY_ENDPOINTS[endpoint]
+    assert config.fanout_parent is not None and config.parent_id_field is not None
+    parent_config = INSIGHTLY_ENDPOINTS[config.fanout_parent]
+
+    rest_config: RESTAPIConfig = {
+        "client": _client_config(pod, api_key),
+        "resources": [
+            {
+                "name": config.fanout_parent,
+                "endpoint": {
+                    "path": parent_config.path,
+                    # Only the id is needed from each parent row.
+                    "params": {"brief": "true"},
+                    "paginator": _offset_paginator(),
+                    "data_selector_required": True,
+                },
+            },
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {
+                        "id": {"type": "resolve", "resource": config.fanout_parent, "field": config.parent_id_field}
+                    },
+                    "paginator": SinglePagePaginator(),
+                    "data_selector_required": True,
+                    # A parent deleted between the parent listing and its child fetch has no history left.
+                    "response_actions": [{"status_code": 404, "action": "ignore"}],
+                },
+            },
+        ],
+    }
+
+    # The parent listing is re-read every run and the fan-out resume state does not fit
+    # InsightlyResumeConfig, so this endpoint restarts from the first opportunity.
+    resources = rest_api_resources(rest_config, team_id, job_id, None)
+    child = next(r for r in resources if r.name == endpoint)
+    return _source_response(endpoint, config, lambda: child)
+
+
 def insightly_source(
     pod: str,
     api_key: str,
@@ -82,25 +168,23 @@ def insightly_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = INSIGHTLY_ENDPOINTS[endpoint]
-
-    endpoint_config: Endpoint = {
-        "path": config.path,
-        # Offset pagination with Insightly's `top`/`skip`; a short (< top) page is the last one.
-        "paginator": OffsetPaginator(
-            limit=PAGE_SIZE,
-            offset_param="skip",
-            limit_param="top",
-            total_path=None,
-        ),
-        # Insightly list endpoints return a bare JSON array. A non-list 200 body (a 2xx error
-        # envelope, an HTML gateway page) must fail loud instead of silently syncing 0 rows.
-        "data_selector_required": True,
-    }
+    if config.fanout_parent is not None:
+        return _fanout_source(pod, api_key, endpoint, team_id, job_id)
 
     # Only incremental endpoints expose `updated_after_utc`, and only when the job supplies a cursor.
     use_incremental = bool(
         config.supports_incremental and should_use_incremental_field and db_incremental_field_last_value
     )
+
+    endpoint_config: Endpoint = {
+        "path": config.incremental_path if use_incremental and config.incremental_path else config.path,
+        "paginator": _offset_paginator(),
+        # Insightly list endpoints return a bare JSON array. A non-list 200 body (a 2xx error
+        # envelope, an HTML gateway page) must fail loud instead of silently syncing 0 rows.
+        "data_selector_required": True,
+    }
+    if config.params:
+        endpoint_config["params"] = dict(config.params)
     if use_incremental:
         endpoint_config["incremental"] = {
             "start_param": UPDATED_AFTER_PARAM,
@@ -108,16 +192,7 @@ def insightly_source(
         }
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": base_url(pod),
-            "headers": {"Accept": "application/json"},
-            # HTTP Basic auth with the API key as the username and a blank password. Using the
-            # framework auth keeps the key out of raised error messages / logged URLs.
-            "auth": {"type": "http_basic", "username": api_key, "password": ""},
-            # Pin every request (including resume URLs) to api.<pod>.insightly.com — reinforces the
-            # pod normalization guard so credentials can never be sent off-host.
-            "allowed_hosts": [],
-        },
+        "client": _client_config(pod, api_key),
         "resources": [
             {
                 "name": endpoint,
@@ -147,22 +222,7 @@ def insightly_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=[config.primary_key],
-        # Insightly paginates in record-id (creation) order, so rows for a given sync arrive roughly
-        # oldest-first; DATE_UPDATED_UTC is not strictly monotonic across pages. We keep the same
-        # `updated_after_utc` filter on every page (offset pagination reuses the query), so an
-        # incremental sync never walks unbounded history — and if Insightly ever ignored the filter,
-        # the sync degrades to full-refresh cost, never incorrect data (merge dedupes on the id).
-        sort_mode="asc",
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="week" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-    )
+    return _source_response(endpoint, config, lambda: resource)
 
 
 def validate_credentials(pod: str, api_key: str, path: str = "/Contacts") -> Optional[int]:

@@ -5,9 +5,12 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.settings import ROLLBAR_ENDPOINTS
@@ -62,16 +65,28 @@ def _build_url(path: str, params: dict[str, Any]) -> str:
     return f"{ROLLBAR_BASE_URL}{path}?{urlencode(params)}"
 
 
-def validate_credentials(access_token: str) -> bool:
+TOKEN_REJECTED_MESSAGE = (
+    "Rollbar rejected your access token. Use a project access token with read scope from your "
+    "Rollbar project settings, then reconnect."
+)
+UNREACHABLE_MESSAGE = "Couldn't reach Rollbar to check your access token. Try again in a few minutes."
+
+
+def validate_credentials(access_token: str) -> tuple[bool, str | None]:
     """Confirm the project access token is valid with a cheap environments probe."""
     try:
         response = _get_session(access_token).get(
             _build_url("/environments", {}),
             timeout=10,
         )
-        return response.status_code == 200
     except Exception:
-        return False
+        return False, UNREACHABLE_MESSAGE
+    if response.status_code == 200:
+        return True, None
+    # A write-only token (the post_server_item token Rollbar's SDKs use) is refused here just like a bad one.
+    if response.status_code in (401, 403):
+        return False, TOKEN_REJECTED_MESSAGE
+    return False, UNREACHABLE_MESSAGE
 
 
 def get_rows(
@@ -85,7 +100,7 @@ def get_rows(
     config = ROLLBAR_ENDPOINTS[endpoint]
     session = _get_session(access_token)
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((RollbarRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
         wait=wait_exponential_jitter(initial=1, max=60),
@@ -142,8 +157,21 @@ def get_rows(
     if resume_config is not None:
         logger.debug(f"Rollbar: resuming {endpoint} from page {page}")
 
+    is_first_page = True
     while True:
-        body = fetch(_build_url(config.path, {"page": page}))
+        try:
+            body = fetch(_build_url(config.path, {"page": page}))
+        except requests.HTTPError as e:
+            # Rollbar's page-paginated list endpoints (items, deploys, environments) reject a page
+            # past an undocumented depth ceiling with a 422 instead of an empty page. That's
+            # deterministic — retrying never clears it — so once this run has already pulled at
+            # least one page, we treat the 422 as end-of-data rather than failing the whole sync. A
+            # 422 on the first fetch is left to propagate: Rollbar hasn't told us any page works.
+            if not is_first_page and e.response is not None and e.response.status_code == 422:
+                logger.warning(f"Rollbar: pagination ceiling reached on {endpoint}; stopping this sync early")
+                break
+            raise
+        is_first_page = False
         items = _extract_items(body, config.data_key)
 
         if not items:

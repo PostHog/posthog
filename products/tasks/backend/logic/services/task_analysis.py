@@ -247,6 +247,13 @@ def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_
         "reasoning_effort": TASK_ANALYSIS_REASONING_EFFORT,
         **_target_context_state(target_task, target_run),
     }
+    query_context = [
+        query
+        for ancestor in target_run.get_resume_chain()
+        for query in (ancestor.state or {}).get("analytics_query_context", [])
+    ]
+    if query_context:
+        extra_run_state["analytics_query_context"] = query_context
 
     origin_key = _analysis_origin_key(str(target_run.id), attempt)
     try:

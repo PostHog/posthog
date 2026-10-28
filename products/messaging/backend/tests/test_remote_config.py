@@ -4,7 +4,7 @@ from parameterized import parameterized
 
 from posthog.models.integration import Integration
 
-from products.messaging.backend.remote_config import build_push_config
+from products.messaging.backend.facade.api import build_push_config
 
 
 class TestBuildPushConfig(BaseTest):
@@ -30,4 +30,4 @@ class TestBuildPushConfig(BaseTest):
         for kind, config in integrations:
             Integration.objects.create(team=self.team, kind=kind, config=config)
 
-        assert build_push_config(self.team) == {"appIds": expected_app_ids}
+        assert build_push_config(self.team.id) == {"appIds": expected_app_ids}

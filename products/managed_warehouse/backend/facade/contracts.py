@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -45,6 +45,7 @@ __all__ = [
     "ManagedWarehouseTeamMembership",
     "ServiceCredential",
     "ServiceCredentialConnect",
+    "ServiceCredentialTrinoConnect",
     "ServiceCredentialUnavailable",
     "TrinoCompiledQuery",
     "TrinoExpansionMode",
@@ -73,6 +74,15 @@ class ServiceCredentialConnect:
     sslmode: str
 
 
+@frozen
+class ServiceCredentialTrinoConnect:
+    host: str
+    port: int
+    catalog: str
+    username: str
+    http_scheme: Literal["https"]
+
+
 @dataclass(frozen=True)
 class ServiceCredential:
     """An org-scoped per-credential grant minted by the duckgres control
@@ -98,6 +108,7 @@ class ServiceCredential:
     credential_secret: str = field(repr=False)
     expires_at: datetime
     connect: ServiceCredentialConnect
+    trino_connect: ServiceCredentialTrinoConnect | None = None
 
 
 class ServiceCredentialUnavailable(RuntimeError):
@@ -118,13 +129,15 @@ class ManagedWarehousePostgresConnection:
 
 @frozen
 class ManagedWarehouseTrinoConnection:
-    """A ready managed Trino target with the existing organization root secret."""
+    """A minted Trino connection snapshot; use the connection context manager for refresh."""
 
     host: str
     port: int
     catalog: str
     username: str
     password: str = field(repr=False)
+    credential_id: str
+    expires_at: datetime
 
 
 class ManagedWarehouseTrinoConnectionUnavailable(RuntimeError):
@@ -204,6 +217,7 @@ class ManagedWarehouseTableNames:
     events_table: str
     persons_table: str
     data_imports_schema: str
+    groups_table: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -238,6 +252,63 @@ class ManagedWarehouseSourceJobStatus(StrEnum):
     FAILED = "failed"
     SKIPPED = "skipped"
     STALE = "stale"
+
+
+@frozen(kw_only=True)
+class ManagedWarehouseTarget:
+    """The endpoint an organization's managed warehouse answers on, for the host guard.
+
+    `host` is the control plane's own host string, so a comparison against it is a comparison
+    against the value the ingress was provisioned for rather than anything derived locally.
+    `ports` is the listener set this organization's sources may reach, which keeps a Postgres
+    source off the gateway listener and a Trino source off the pgwire one.
+
+    The guard compares a source's host, port and resolved addresses against this to decide
+    whether the private-address check applies. It is not a connection; it is an authorization
+    decision.
+    """
+
+    host: str
+    ports: frozenset[int]
+
+    def accepts(self, host: str, port: int | None, addresses: list[str] | None, ingress_ips: tuple[str, ...]) -> bool:
+        """Whether this target authorizes a dial to `host` on `port` at `addresses`.
+
+        Every condition is required, and a missing one denies. `addresses` must be non-empty
+        because an empty set is a failed lookup, not an approved destination, and it must be a
+        subset of `ingress_ips` so a record that points elsewhere is refused. The caller supplies
+        the ingress set because a contract cannot read settings without importing Django.
+
+        Both hostnames are compared in their normalized form, so a control-plane host that comes
+        back with a capital letter or a root-zone trailing dot still matches the name the guard
+        normalized.
+        """
+        if _normalize_host(host) != _normalize_host(self.host):
+            return False
+        if port is None or port not in self.ports:
+            return False
+        if not addresses or not ingress_ips:
+            return False
+        allowed = {_canonical_ip(ip) for ip in ingress_ips}
+        return all(_canonical_ip(address) in allowed for address in addresses)
+
+
+def _normalize_host(host: str) -> str:
+    """Lowercase a hostname and drop one root-zone trailing dot, as the guard does."""
+    return host.lower().strip().rstrip(".")
+
+
+def _canonical_ip(value: str) -> str:
+    """Compare addresses as numbers, so an IPv4-mapped IPv6 form matches its IPv4 spelling."""
+    import ipaddress  # noqa: PLC0415
+
+    try:
+        parsed = ipaddress.ip_address(value.strip().strip("[]"))
+    except ValueError:
+        return value
+    if isinstance(parsed, ipaddress.IPv6Address) and parsed.ipv4_mapped is not None:
+        return str(parsed.ipv4_mapped)
+    return str(parsed)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -309,6 +380,25 @@ class TrinoCompiledQuery:
     sql: str
     values: dict[str, Any]
     hogql: str | None = None
+    needs_row_type_probe: bool = True
+    """Whether an output column may hold a ROW with anonymous fields.
+
+    False only when every output column resolved to a type without a tuple or an unknown part.
+    """
+
+
+@frozen
+class TrinoIncrementalWrite:
+    """How a Trino model build tracks an incremental view.
+
+    With ``since`` set, the build reads only rows at or after it and merges them into the existing
+    table on ``unique_key``. Without it, the build replaces the table. Both report the highest
+    ``incremental_key`` written, so a full build seeds the next incremental one.
+    """
+
+    incremental_key: str
+    unique_key: tuple[str, ...]
+    since: Any = None
 
 
 class TrinoExpansionMode(StrEnum):
@@ -328,10 +418,13 @@ class DuckLakeQueryResult:
     query_ms: float | None = None
 
 
-@dataclass
+@frozen
 class DuckLakeTableResult:
     schema_name: str
     table_name: str
     row_count: int
     file_size_bytes: int = 0
     file_size_delta_bytes: int = 0
+    # Highest incremental key written, for builds that track one. None when no rows were written.
+    watermark: Any = None
+    merged: bool = False

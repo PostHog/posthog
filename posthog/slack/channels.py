@@ -71,6 +71,10 @@ def context_block(text: str) -> dict[str, Any]:
     return {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}
 
 
+def image_block(url: str, alt_text: str) -> dict[str, Any]:
+    return {"type": "image", "image_url": url, "alt_text": alt_text}
+
+
 def section_block(text: str, button: SlackButton | None = None) -> dict[str, Any]:
     """One mrkdwn section, with a link button on its right when the section has one action."""
     block: dict[str, Any] = {"type": "section", "text": {"type": "mrkdwn", "text": text}}
@@ -160,6 +164,7 @@ def post_message(
     blocks: list[dict[str, Any]],
     text: str,
     thread_ts: str | None = None,
+    reply_broadcast: bool = False,
 ) -> SlackResponse:
     # No unfurls: the text is written over untrusted content, so a prompt-injected URL must not make
     # Slack's unfurler fetch an attacker's server from inside the workspace.
@@ -168,9 +173,21 @@ def post_message(
         blocks=blocks,
         text=text,
         thread_ts=thread_ts,
+        reply_broadcast=reply_broadcast,
         unfurl_links=False,
         unfurl_media=False,
     )
+
+
+def update_message(
+    slack: SlackIntegration,
+    channel_id: str,
+    ts: str,
+    blocks: list[dict[str, Any]],
+    text: str,
+) -> SlackResponse:
+    """Replace a message the app posted. Slack keeps its place in the channel and marks it edited."""
+    return slack.client.chat_update(channel=channel_id, ts=ts, blocks=blocks, text=text)
 
 
 def join_channel(slack: SlackIntegration, channel_id: str) -> str | None:

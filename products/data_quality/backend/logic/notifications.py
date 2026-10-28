@@ -30,7 +30,6 @@ from ..facade.enums import CheckRunStatus, SubjectType
 from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from . import posthog_tables
 from .checks import checks_for_subject
-from .flags import is_data_quality_checks_enabled_for_team_id
 from .subject_access import (
     NoticeReferences,
     ReferenceGate,
@@ -170,7 +169,7 @@ class _WarehouseSubjectResolver(RecipientsResolver):
 
 def _source_url(team_id: int, subject_type: str, subject_name: str) -> str:
     if subject_type == SubjectType.METRIC:
-        return f"/project/{team_id}/data-catalog/metrics/{quote(subject_name, safe='')}?tab=tests"
+        return f"/project/{team_id}/data-catalog/metrics/{quote(subject_name, safe='')}?tab=data-quality"
     if subject_type == SubjectType.POSTHOG_TABLE:
         return f"/project/{team_id}/models?tab=data-quality"
     return ""
@@ -186,7 +185,7 @@ def notify_check_started_failing(
 ) -> int:
     """How many members were told. Best-effort: a failure here must never fail the run behind it."""
     try:
-        if not is_data_quality_checks_enabled_for_team_id(check.team_id) or check.subject_uuid is None:
+        if check.subject_uuid is None:
             return 0
         team = Team.objects.get(id=check.team_id)
         subject = resolve_subject(team.id, check.subject_type, check.subject_uuid)
@@ -233,8 +232,6 @@ def notify_materialization_blocked(
 ) -> None:
     """Tell the team a refresh was not published because its checks failed. Best-effort."""
     try:
-        if not is_data_quality_checks_enabled_for_team_id(team_id):
-            return
         team = Team.objects.get(id=team_id)
         checks = "check" if blocking_failures == 1 else "checks"
         create_notification(

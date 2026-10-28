@@ -7,7 +7,7 @@ from django.conf import settings
 
 import structlog
 
-from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
+from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models import OAuthApplication
 from posthog.models.oauth import mint_oauth_access_token
 from posthog.models.team.team import Team
@@ -21,7 +21,7 @@ from posthog.scopes import (
 )
 from posthog.utils import get_instance_region
 
-from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.api import access_refused as security_access_refused
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
 
@@ -73,17 +73,6 @@ SIGNALS_OAUTH_APP_CLIENT_IDS = frozenset(
     }
 )
 
-# Apps that mint tokens for a cloud task's own coding agent, which is what the task-comment
-# channel is restricted to. Signals joined when its runs moved off the Array app; PostHog AI is
-# deliberately absent, as it was before. The `sandbox_task_id` binding on the token is what
-# actually scopes access to one task — this set only keeps unrelated first-party tokens out.
-TASK_AGENT_OAUTH_APP_CLIENT_IDS = frozenset(
-    {
-        *POSTHOG_CODE_OAUTH_APP_CLIENT_IDS,
-        *SIGNALS_OAUTH_APP_CLIENT_IDS,
-    }
-)
-
 SANDBOX_OAUTH_APP_CLIENT_IDS = frozenset(
     {
         *POSTHOG_CODE_OAUTH_APP_CLIENT_IDS,
@@ -115,6 +104,7 @@ McpScopePreset = Literal[
     "full",
     "signals_scout",
     "signals_scout_reports",
+    "signals_scout_experiment",
     "signals_research",
     "signals_implementation",
 ]
@@ -127,6 +117,8 @@ INTERACTIVE_RUN_SCOPE = "interactive_run:read"
 
 INTERNAL_SCOPES: list[str] = [
     "task:write",
+    # Inbox endpoints move from `task:*` to `inbox:*` scopes, so a run carries both until the move ends.
+    "inbox:write",
     "llm_gateway:read",
     # Provenance marker: proves a token was minted here (server-side), not obtained by a
     # user via the consent flow or a personal API key. `internal_run` is an internal scope,
@@ -165,46 +157,32 @@ SCOUT_REPORT_SCOPES: list[str] = [
     "signal_scout_report:write",
 ]
 
-LOOP_CONTEXT_INTERNAL_SCOPE = "loop_context_internal:write"
 CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 
 
-# A deliberately narrow set of user-facing WRITE scopes granted to the Signals scout
-# sandbox so scouts can produce durable artifacts as part of a finding — e.g. a notebook
-# that documents and illustrates an emitted anomaly. Unlike `SCOUT_INTERNAL_SCOPES` these
-# are ordinary public scopes (also present in the `full` preset), but they are added to the
-# scout posture ONLY on the `signals_scout` branch below, never via the global
-# `INTERNAL_SCOPES`, so `read_only` task tokens stay strictly read-only. Keep this list
-# small: every entry is real write access an autonomous scout can exercise unattended, so
-# add a scope here only when a scout genuinely needs to create that kind of artifact.
-# NOTE: scopes here are object-level, not tool-level. `notebook:write` also exposes the
-# `notebooks-destroy` / `notebooks-partial-update` MCP tools, not just `notebooks-create`,
-# so in principle a scout (or a prompt-injected run) could modify or soft-delete existing
-# notebooks in its own project. Accepted as low-risk for now — the token is scoped to a
-# single team, destroy is a recoverable soft-delete, and emits are rare — and monitored in
-# practice; tool-level (create-only) restriction isn't cheap in the current sandbox wiring.
-SCOUT_USER_WRITE_SCOPES: list[str] = [
-    "notebook:write",
-]
-
-
 # The user-facing WRITE scopes a person may grant to ONE scout from its settings, on top of
-# the fixed posture above. `SCOUT_USER_WRITE_SCOPES` is the fleet-wide floor every scout
-# carries; this set is the ceiling of what a per-scout grant can add to it. Nothing here is
-# granted by default, and a scope outside this set can never be granted at all: a grant is
+# the fixed posture above. The fixed posture carries no user-facing write scope, so this set is
+# the ceiling of everything a scout can change in the project. Only `SCOUT_DEFAULT_WRITE_SCOPES`
+# is granted by default, and a scope outside this set can never be granted at all: a grant is
 # validated against this set where it is stored, and `resolve_scopes` intersects against it
 # again at mint time, so a stale or hand-edited grant cannot widen a token.
 #
-# Every entry is an artifact-shaped write, which is what makes an unattended agent holding one
-# acceptable at all. Kept out on purpose: `hog_function:write` and batch exports, because a
-# destination is arbitrary egress; `feature_flag:write`, `experiment:write` and `survey:write`,
-# because they change what end users see in production; `cohort:write` and `action:write` until
-# a scout needs them; and anything organization, user, member, or role shaped.
+# Every entry but `experiment:write` is an artifact-shaped write, which is what makes an unattended
+# agent holding one acceptable at all. Its entry below says why it is the exception. Kept out on
+# purpose: `hog_function:write` and batch exports, because a destination is arbitrary egress;
+# `feature_flag:write` and `survey:write`, because they change what end users see in production;
+# `cohort:write` and `action:write` until a scout needs them; and anything organization, user,
+# member, or role shaped.
 #
 # These scopes are object-level rather than tool-level, so each one carries update and delete of
 # every matching object the token can reach, not only the objects the scout created. The reach
 # is not the same for all of them, and any surface that offers a grant has to say so plainly:
 #
+#   notebook:write         Every notebook in the scout's project, not only the ones the scout
+#                          created: the `notebooks-*` write tools create, edit, run, and delete.
+#                          Delete is a recoverable soft-delete. Granted by default (see
+#                          `SCOUT_DEFAULT_WRITE_SCOPES`), so a finding can carry a notebook that
+#                          documents it.
 #   dashboard:write        Every dashboard in the scout's project. Delete is a recoverable
 #                          soft-delete.
 #   insight:write          Every saved insight in the scout's project. Delete is a recoverable
@@ -236,12 +214,12 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          recoverable soft-delete that refuses a table a source owns. Deleting
 #                          a data quality check is the one PERMANENT delete in this set, and a
 #                          check is cheap to recreate.
-#   replay_scanner:write   Every Replay vision scanner in the scout's project, plus the prompt
-#                          suggestion loop and the shared rating on observations. Scanning spends
-#                          the organization's credits, and delete is PERMANENT (it takes the
-#                          scanner's observations with it), so this scope alone misses the bar the
-#                          others meet. One scope object covers the whole surface, so the two
-#                          exclusions live in `products/replay_vision/backend/scout_writes.py`
+#   replay_scanner:write   Every Replay vision scanner in the scout's project, plus the shared
+#                          rating on observations. Scanning spends the organization's credits,
+#                          and delete is PERMANENT (it takes the scanner's observations with it),
+#                          so this scope alone misses the bar the others meet. One scope object
+#                          covers the whole surface, so the two exclusions live in
+#                          `products/replay_vision/backend/scout_writes.py`
 #                          instead: a scout cannot delete, and must cap what it creates or enables.
 #   customer_task:write    Every Customer analytics task in the scout's project: create, update
 #                          (status, due date, assignee, linked account) and archive. There is no
@@ -254,8 +232,38 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          person to approve or reject. Deliberately not `hog_flow:write`, which
 #                          also publishes, updates and test-sends a workflow: this scope can put
 #                          nothing in front of anyone. Creates only; a suggestion is resolved by
-#                          a person. The workflows scout declares it in its SKILL.md
-#                          (`scout-write-scopes`), so no other scout holds it unless granted.
+#                          a person. A person grants it in the scout's write access settings, the
+#                          same way as every other scope here, so no scout holds it by default.
+#   ticket:write           Support ticket fields and saved ticket views, plus new private notes.
+#                          The API blocks scouts from public replies, outbound compose, customer
+#                          identity changes, existing-note changes, and generic ticket comments.
+#                          Ticket field changes can still start configured workflows that message
+#                          customers. Ticket delete is outside the scope. Saved view delete is
+#                          permanent and removes member pins; a view is a name and filter set.
+#   canvas:write           Every canvas in a public space of the scout's project, and every canvas
+#                          the acting user created in a space they can see (see
+#                          `authorized_canvases`): publish a new version, patch a grid layout, write
+#                          runtime state, and run the canvas's declared actions where the token also
+#                          holds the action's own scope. Every publish is a new version that records
+#                          the run's task, so a bad one is reverted from version history. Delete is a
+#                          recoverable soft-delete and only reaches canvases the acting user created.
+#                          A scout cannot create a canvas: a sandbox may only file one in its task's
+#                          space, and a scout task has none. It maintains one a person created.
+#   experiment:write       Every experiment in the scout's project, not only the ones the scout
+#                          created: create, update, duplicate, archive, and the lifecycle actions
+#                          launch, pause, resume, end, and reset. Launch and pause turn the linked
+#                          feature flag on and off, so unlike every other entry here this scope
+#                          CHANGES WHAT END USERS SEE. It is grantable because a person turns it on
+#                          for one scout on purpose, and the picker says so.
+#                          `products/experiments/backend/presentation/scout_writes.py` narrows it
+#                          for scouts: no delete (archive instead), no copy to another project, no
+#                          migration (it creates shared metrics), and no flag cleanup PR (a scout
+#                          already holds `task:write`). Without `feature_flag:write` a scout also
+#                          cannot ship a variant or change the variants, rollout, or holdout of a
+#                          launched experiment or a live flag, because each of those rewrites the
+#                          rollout. The extra scopes in `dangerously_get_required_scopes` still
+#                          apply, so the grant alone cannot disable a flag on archive or set the
+#                          team default repository. It can also create an exposure cohort.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -272,6 +280,7 @@ SCOUT_GRANTABLE_INTERNAL_SCOPES: frozenset[str] = frozenset({"hog_flow_proposal:
 
 SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
     {
+        "notebook:write",
         "dashboard:write",
         "insight:write",
         "annotation:write",
@@ -282,8 +291,16 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "warehouse_table:write",
         "replay_scanner:write",
         "hog_flow_proposal:write",
+        "ticket:write",
+        "canvas:write",
+        "experiment:write",
     }
 )
+
+# The grant every new scout config starts with. A person can turn it off for one scout. Unlike the
+# rest of a grant, a run that acts as the team fallback keeps these scopes, because the fleet granted
+# them and not a person, so the fallback bypasses no approval.
+SCOUT_DEFAULT_WRITE_SCOPES: frozenset[str] = frozenset({"notebook:write"})
 
 
 # Derived from posthog.scopes so the token issued to a sandboxed agent cannot
@@ -338,17 +355,18 @@ MCP_SCOPE_PRESETS = (
     "full",
     "signals_scout",
     "signals_scout_reports",
+    "signals_scout_experiment",
     "signals_research",
     "signals_implementation",
 )
 
 # Withheld from `signals_research`, which is otherwise the `read_only` resolution.
-# `task:write` reaches every posture through `INTERNAL_SCOPES`, but it is inert wherever the
-# MCP server runs in read-only mode, which strips every tool not annotated read-only.
+# `task:write` and `inbox:write` reach every posture through `INTERNAL_SCOPES`, but they are inert
+# wherever the MCP server runs in read-only mode, which strips every tool not annotated read-only.
 # `signals_research` turns that mode off so its two scratchpad tools survive, and that alone
-# would hand the research stage the whole task-write toolset — including setting a report's
-# state. The stage reads data and returns findings; the pipeline persists them afterwards.
-RESEARCH_WITHHELD_SCOPES: frozenset[str] = frozenset({"task:write"})
+# would hand the research stage the whole task-write and inbox-write toolset — including setting
+# a report's state. The stage reads data and returns findings; the pipeline persists them afterwards.
+RESEARCH_WITHHELD_SCOPES: frozenset[str] = frozenset({"task:write", "inbox:write"})
 
 
 def scout_scope_posture(
@@ -439,17 +457,32 @@ def resolve_scopes(
             resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal, *scratchpad]
         elif scopes == "signals_research":
             # The report research run: reads, plus durable memory, and nothing else. See
-            # `RESEARCH_WITHHELD_SCOPES` for why `task:write` comes back out.
+            # `RESEARCH_WITHHELD_SCOPES` for why `task:write` and `inbox:write` come back out.
             reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
+            if include_internal_scopes:
+                reads.append("signal_scout_internal:read")
             resolved = [*reads, *scratchpad]
+        elif scopes == "signals_scout_experiment":
+            # Trials use a separate private Go token; their tool credential must not reach the legacy gateway.
+            reads = [
+                scope
+                for scope in (*MCP_READ_SCOPES, *internal)
+                if scope not in RESEARCH_WITHHELD_SCOPES and scope != "llm_gateway:read"
+            ]
+            private_writes = (
+                [*SCOUT_INTERNAL_SCOPES, *SCOUT_REPORT_SCOPES, "scout_experiment_internal:read"]
+                if include_internal_scopes
+                else []
+            )
+            resolved = [*reads, *private_writes]
         elif scopes in SCOUT_SCOPE_PRESETS:
-            # The scout sandbox: reads, the scout's own internal write scope, and a narrow
-            # allowlist of user-facing writes (`SCOUT_USER_WRITE_SCOPES`) for the durable
-            # artifacts a finding can produce (e.g. a notebook). Both extra sets are added
-            # ONLY here (not via the global `INTERNAL_SCOPES`), so unrelated `full`/`read_only`
-            # task tokens never carry them. `has_write_scopes(...)` also reports True so the MCP
-            # server doesn't enable read-only mode, which would otherwise strip the agent's own
-            # internal-write tools (`signal_scout_internal:write` is annotated as not-read-only).
+            # The scout sandbox: reads and the scout's own internal write scope. Every user-facing
+            # write, notebooks included, comes from the per-scout grant on the posture dict above.
+            # The internal scope is added ONLY here (not via the global `INTERNAL_SCOPES`), so
+            # unrelated `full`/`read_only` task tokens never carry it. `has_write_scopes(...)`
+            # also reports True so the MCP server doesn't enable read-only mode, which would
+            # otherwise strip the agent's own internal-write tools (`signal_scout_internal:write`
+            # is annotated as not-read-only).
             #
             # `signals_scout_reports` is the same posture plus the report-channel scope, granted
             # only to a scout whose skill opted into emit_report/edit_report. A baseline scout
@@ -458,7 +491,7 @@ def resolve_scopes(
             scout_report = (
                 list(SCOUT_REPORT_SCOPES) if (scopes == "signals_scout_reports" and include_internal_scopes) else []
             )
-            resolved = [*MCP_READ_SCOPES, *internal, *scout_internal, *scout_report, *SCOUT_USER_WRITE_SCOPES]
+            resolved = [*MCP_READ_SCOPES, *internal, *scout_internal, *scout_report]
         else:
             # "read_only": reads + shared internal scopes only — no scout write scope.
             resolved = [*MCP_READ_SCOPES, *internal]
@@ -480,7 +513,7 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
     if isinstance(scopes, str):
         # `signals_scout` reports True so the MCP server doesn't enable read-only mode for the
         # scout sandbox — the agent IS allowed to call the write tools its preset exists for
-        # (remember/forget/emit_finding + the narrow `SCOUT_USER_WRITE_SCOPES`). Read-only mode
+        # (remember/forget/emit_finding, plus whatever the per-scout grant adds). Read-only mode
         # is a tool-annotation filter, not a scope filter, and would strip those tools
         # categorically without this opt-out. The two pipeline postures need the same opt-out
         # for their scratchpad tools; `signals_research` pays for it by withholding `task:write`
@@ -489,6 +522,7 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
             "full",
             "signals_scout",
             "signals_scout_reports",
+            "signals_scout_experiment",
             "signals_research",
             "signals_implementation",
         )
@@ -642,7 +676,7 @@ def _organization_id_for_team(team_id: int) -> str:
 
 
 class WizardIdentityBlockedError(Exception):
-    """The abuse blocklist refuses this identity a wizard credential. Distinct from
+    """An access rule refuses this identity a wizard credential. Distinct from
     the mint's RuntimeError cases because it is permanent, and a caller that retries
     a transient token failure must not retry this one."""
 
@@ -657,18 +691,8 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     resume reaches with no request in front of it.
     """
     organization_id = _organization_id_for_team(team_id)
-    if wizard_identity_blocked(
-        distinct_id=str(user.distinct_id),
-        email=user.email,
-        surface="wizard_mint",
-        user_uuid=str(user.uuid),
-        organization_ids=[organization_id],
-        team_ids=[team_id],
-    ):
-        raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
-
     try:
-        security_shadow_check(
+        refused = security_access_refused(
             SecuritySubject(
                 email=user.email,
                 user_uuid=str(user.uuid),
@@ -678,7 +702,10 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
             call_site="wizard_mint",
         )
     except Exception:
-        logger.exception("security_shadow_check_site_failed", call_site="wizard_mint")
+        logger.exception("security_access_check_site_failed", call_site="wizard_mint")
+        refused = False
+    if refused:
+        raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
 
     app = get_wizard_app()
 

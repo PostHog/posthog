@@ -21,6 +21,8 @@ def _supported_metric() -> ExperimentMeanMetric:
         ("no_stats_config_team_default_enabled", None, True, True),
         ("empty_cuped_dict_uses_team_default", {"cuped": {}}, True, True),
         ("missing_cuped_key_uses_team_default", {"method": "bayesian"}, True, True),
+        ("null_cuped_uses_team_default", {"cuped": None}, True, True),
+        ("non_object_cuped_uses_team_default", {"cuped": ["enabled"]}, True, True),
         ("experiment_explicit_true_with_team_false", {"cuped": {"enabled": True}}, False, True),
         ("experiment_explicit_false_overrides_team_true", {"cuped": {"enabled": False}}, True, False),
         ("experiment_explicit_true_with_team_true", {"cuped": {"enabled": True}}, True, True),

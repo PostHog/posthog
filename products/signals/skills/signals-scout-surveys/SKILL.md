@@ -17,6 +17,23 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: surveys
+scout-precheck-query: |
+  SELECT * FROM (
+    SELECT JSONExtractString(properties, '$survey_id') AS survey_id,
+           countIf(event = 'survey shown') AS shown,
+           countIf(event = 'survey dismissed') AS dismissed,
+           countIf(event = 'survey sent') AS sent,
+           max(timestamp) AS last_seen
+    FROM events
+    WHERE event IN ('survey shown', 'survey dismissed', 'survey sent')
+      AND timestamp > {since}
+    GROUP BY survey_id
+    UNION ALL
+    SELECT 'backstop', 0, 0, 0, {now}
+    WHERE {since} < {now} - toIntervalMinute(greatest(1440, 2 * {interval_minutes}))
+  )
+  ORDER BY sent DESC, shown DESC
+  LIMIT 20
 ---
 
 # Signals scout: surveys
@@ -37,6 +54,10 @@ When in doubt, write a memory entry instead of filing a report. Surveys are pers
 Activity history is optional. Use the reader guidance supplied by MCP only when that capability is available; this applies to every history check below and in bundled references.
 
 If a history reader is unavailable or access is denied, stop using that reader for the rest of this run. Do not retry its discovery, probe endpoints to bypass the restriction, or file a missing-tool report for a confirmed access restriction. Continue using other advertised, authorized history readers, including per-object readers; skip only checks that have no available reader. Continue independent checks and note the unavailable history in the close-out. Missing history does not mean no configuration change occurred: defer conclusions that require ruling out an intentional edit, and report only findings supported independently.
+
+## Pre-check rows
+
+A scheduled run can start with a `<precheck_result>` block. Each row gives one survey's `shown`, `dismissed`, and `sent` counts since the last run, and when it last saw an event. A row with `survey_id` `backstop` means no survey events arrived, and the run started only because the scout was quiet for too long. When the block is present, use it in place of the quick close-out and the volume ranking below. A block with only the `backstop` row is the same as zero survey events: check for a response-volume drop on the surveys you know, then refresh the `not-in-use:` entry if surveys are not active.
 
 ## Quick close-out: are surveys even active?
 

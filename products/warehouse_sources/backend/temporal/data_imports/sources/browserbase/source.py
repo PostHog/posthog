@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BrowserbaseSource(SimpleSource[BrowserbaseSourceConfig]):
+    codebase_detection = detect(
+        env=("^BROWSERBASE_",),
+        npm=("@browserbasehq/sdk", "@browserbasehq/stagehand"),
+        pypi=("browserbase", "stagehand"),
+        go=("github.com/browserbase/stagehand-go",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -49,7 +57,7 @@ class BrowserbaseSource(SimpleSource[BrowserbaseSourceConfig]):
             name=ExternalDataSourceType.BROWSERBASE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Browserbase",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Browserbase API key to sync your Browserbase sessions and projects into the PostHog Data warehouse.
 
 You can find your project API key in your [Browserbase dashboard](https://www.browserbase.com/settings). API keys are scoped to a single project.""",

@@ -39,15 +39,34 @@ All SQL lives in `core/jobs_db.py`; the polling/retry/recovery engine is `core/b
 - **Claim-or-renew in one statement**: `get_unprocessed_and_lock` selects narrow claim candidates from the denormalized columns (with per-team round-robin fairness, head-of-line gating per run, a failed-run gate, and a schema-busy gate), then claims or renews the group leases for the winners inside a single writable CTE.
   The candidate CTE is `MATERIALIZED` so its `LIMIT` fully resolves before the lease upsert runs, and candidate groups are deduplicated because `INSERT ... ON CONFLICT DO UPDATE` cannot touch the same lease row twice in one statement.
   (The old README's `MATERIALIZED` rationale, preventing `pg_try_advisory_lock` from acquiring phantom locks in a `WHERE` clause, no longer applies: there are no advisory locks.)
+- **A bounded claim window**: one claim does not read the whole claimable set.
+  It reads the next `CLAIM_WINDOW_TEAMS` teams that hold claimable work, in `team_id` order from the consumer's cursor (`ClaimCursor`), and at most `CLAIM_WINDOW_TEAM_DEPTH` candidates per team (or the claim's limit, if larger).
+  Batches of a closed group (executing, or leased by another pod) do not count toward the depth.
+  Batches held by a run gate do not count either: the scan runs in rounds, and each round reads past the runs that the round before found held, up to `CLAIM_WINDOW_GATE_ROUNDS` rounds.
+  Each claim moves the cursor to the end of its window, and the walk wraps, so consecutive claims rotate through every team.
+  A full window that gives no batch does not end the claim call: it reads the next windows, up to `CLAIM_MAX_EMPTY_WINDOWS` or one turn over all teams.
+  A consumer starts at a random team, so pods started together read different windows. A claim that finds no team with work, or that fails, unsets the cursor, and the next claim starts at a new random team.
+  While the queue fits in one window, a claim sees all of it and the order is the same as an unbounded scan: round-robin across teams, oldest first.
+  During a larger backlog the order is oldest first among the teams of the window, not across the queue, and a team outside the window waits for the rotation.
 - **Async consumer**: single asyncio process that polls every ~2s, groups batches by `(team_id, schema_id)`, processes groups concurrently, batches within a group sequentially.
   Each batch renews the lease on entry, heartbeats it (and re-inserts `executing` status) during processing, and verifies ownership before writing `succeeded`.
 - **Three sweeps**, not one:
   - **Recovery sweep** (every 30s, `get_stale_executing`): batches whose latest status is `executing`, older than the 300s grace window, with no live lease over their group.
     The sweep deletes the expired lease first so a resurrecting owner cannot renew it, then re-queues the batch as `waiting_retry` (with a compare-and-swap on the observed `state_changed_at`) or fails the run at max attempts.
+  - **Interruptions are not retries.** A consumer that gets SIGTERM marks each attempt it is still running with an `executing` status row that carries `{"shutdown": true}` (`mark_shutdown_interruptions`), before it drains.
+    The sweep re-queues a marked attempt with `{"interrupted": true}`, and that attempt does not count against `max_attempts`. `max_interruptions` (10) caps it separately.
+    An attempt without a marker lost its consumer without notice, most often to an OOM kill, so it still uses a retry.
+    After SIGTERM, a group task starts no new load. An attempt that wrote `executing` while the shutdown began marks itself.
+    The marker row has the time of the attempt start, so it does not restart the grace clock.
+    If the consumer cannot read the interruption history, only `max_attempts + max_interruptions` deliveries fail the run.
+    The attempt number still goes up on each delivery, because the loader's redelivery checks read it.
   - **Reconcile sweep** (every 300s, `reconcile_failed_runs` + `get_failed_runs`): finds runs with a `failed` queue batch whose `ExternalDataJob` was left non-terminal and marks the job failed.
     It is single-flighted fleet-wide through a sentinel lease row (`try_acquire_reconcile_sweep_slot`, team_id 0 / `__reconcile-sweep__`, 240s slot TTL): the sweeps reconcile global state, so N pods running them concurrently is pure duplicated load, exactly when the queue DB can least afford it.
   - **Stranded-run sweep** (same cadence and connection, `get_stale_stranded_runs`): runs the loader abandoned, meaning non-terminal batches, no live lease, and no loader progress for 6 hours.
     These have no `failed` batch for the reconcile sweep to key on (the extraction died before a final batch), so without this pass they would strand until the retention prune.
+  - **Aged-out run sweep** (same cadence and connection, `get_aged_out_runs`): runs that hold a `pending` or `waiting_retry` batch older than `CLAIM_ELIGIBILITY_INTERVAL`.
+    No claim offers that batch again, but the run gates do not read `pending` rows, so the later batches of the run stay claimable. The sweep fails the run's batches, then the job, then releases the pipeline lock.
+    The stranded-run sweep does not catch these runs, because the group makes progress on the later batches.
 - **Sync producer** (`pipeline_v3/postgres_queue/producer.py`, in warehouse_sources): runs inside Temporal activities, plain `psycopg.Connection` with autocommit. Each queue row is a single INSERT.
   The v3 pipeline holds each batch's row back by one (`hold_batch`): staging batch N inserts the row for batch N-1, and the end of the run inserts the held row with `is_final_batch = true`, so the run's last data row is its own final marker and the loader reads every parquet file once.
   A resumable source releases the held row before it commits a cursor (`release_held_batch`), because the cursor promises that every row before it is loadable; when that leaves nothing held at the end, `send_final_batch` inserts the last batch a second time as a final-only marker, which the loader still accepts (`_run_post_load_for_already_processed_batch`).
@@ -66,6 +85,7 @@ All SQL lives in `core/jobs_db.py`; the polling/retry/recovery engine is `core/b
   The bucket's 8-day lifecycle rule for extraction files also stays above this window, so a claimable batch's parquet still exists.
   `TestClaimEligibilityWindow` in `products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/postgres_queue/test_jobs_db.py` enforces the retention coupling.
   The bucket rule lives in the infrastructure repo, and nothing in this repo checks it.
+  As a second guard, the loader refuses to complete a job when an earlier batch of the final batch's run did not reach `succeeded` (`_refuse_incomplete_run` in `load/processor.py`). The consumer then fails the run, so the staged cursor never moves past rows that did not load.
 - **Partition pruning bounds**: consumer queries include `created_at > now() - interval '14 days'` (2x the retention) so the planner can skip dropped partitions.
 
 ### Query cost scales with the answer, not with history
@@ -79,7 +99,11 @@ Three changes in August 2026 restructured the hot queries after a production loa
 
 A fourth change followed an October 2026 claim stall, after an analyze of the current daily partition:
 
-- The claim query's gates were correlated probes per candidate batch. On a hot partition the partial indexes churn and bloat, so the planner can answer a probe from `sb_run_uuid_idx`, `sb_run_uuid_bi_idx` or `sb_team_schema_idx` instead, and each probe then reads the whole run or group. A backlog of long runs made every poll quadratic. The gates now run once per group (`busy_groups`, `open_groups`) and once per run (`open_runs`), so a bad index choice costs at most one read of each candidate run. The loader also backs off failed polls with full jitter, so the fleet does not retry a struggling claim query in lockstep.
+- The claim query's gates were correlated probes per candidate batch. On a hot partition the partial indexes churn and bloat, so the planner can answer a probe from `sb_run_uuid_idx`, `sb_run_uuid_bi_idx` or `sb_team_schema_idx` instead, and each probe then reads the whole run or group. A backlog of long runs made every poll quadratic. The gates now run once per group (`closed_groups`) and once per scanned run (`gates`), so a bad index choice costs at most one read of each candidate run. The loader also backs off failed polls with full jitter, so the fleet does not retry a struggling claim query in lockstep.
+
+A fifth change followed a backlog that stayed claimable but drained slowly:
+
+- The claim query materialized every claimable batch on every poll, so one claim cost as much as the backlog was deep, and the loaders spent their time in claims while group slots stayed empty. The query now reads a bounded window: a loose index scan over `sb_claimable_idx` finds the next teams with work (one index descent per team and partition), and a per-team scan reads the oldest candidates of those teams only. See "A bounded claim window" above for the ordering rule that comes with it. The planner can price this statement above `jit_above_cost` although it runs in milliseconds, and JIT compilation then costs more than the statement, so the claim does not depend on the session: it runs in its own transaction after `SET LOCAL jit = off`, and the query is written so that the planner's estimate stays below the threshold. The consumer connections also set `jit = off` for the other queue statements.
 
 The shared lesson: every query on these tables must scale with the size of its answer (the claimable set, the candidate runs), never with retained failure history, because failure history is largest exactly when the fleet is least healthy.
 The `core/jobs_db.py` docstrings on `_state_claim_candidates_sql`, `_claim_window_sql`, `get_failed_runs` and `_stranded_candidate_runs_sql` carry the details, and plan-shape tests in `test_jobs_db.py` pin the query shapes.
@@ -95,7 +119,7 @@ The migration must be `atomic = False` and re-runnable (a cancelled `CONCURRENTL
 - **COPY bulk inserts**: the producer inserts one row per batch. At our volume, row-level INSERT is fine. (We can always move to bulk insert if needed)
 - **Compaction**: RudderStack runs a background process to merge/drop completed datasets, it stores tables up to 100k rows and then they roll to the next one. We don't need it at the moment, but if we end up implementing rolling datasets, we will implement this compaction too.
 - **Caching layers**: RudderStack uses "no jobs" caches and active pipeline caches to reduce query load. We have not needed them, but only because the claim path was restructured to run off partial indexes and denormalized state (see above); "proper indexing" alone was not enough.
-- **Recursive CTE loose index scans**: their trick for finding distinct pipeline IDs efficiently. Our claim query gets the same effect from the partial indexes.
+- **Recursive CTE loose index scans**: no longer left out. The claim query uses one over `sb_claimable_idx` to find the teams of its window (`window_teams` in `_claim_window_sql`).
 - **Active Partitions**: RudderStack designs a partition and then it assigns each partition to one processor instance, this is similar to how Kafka partitions work. We don't need this, this will be an overkill as we don't have any specifics for a partition.
 
 ### Architecture
@@ -109,10 +133,15 @@ The overall topology (Temporal producer activity, two tables, a fleet of consume
 
 The consumer engine emits nine `warehouse_pg_consumer_*` metrics (`metrics.py`): `batches_processed_total`, `batch_processing_duration_seconds`, `batch_retry_total`, `runs_failed_total`, `poll_duration_seconds`, `poll_batches_fetched`, `poll_failures_total`, `active_groups`, `recovery_sweeps_total`.
 Other sinks get that nine-metric engine set under their own `{prefix}_pg_consumer_*` names via `make_consumer_metrics`, so dashboards and KEDA queries never conflate two consumers' series.
-Two further counters exist only under the `warehouse_pg_consumer_*` prefix, incremented by the Delta consumer's reconcile sweep (`consumer.py`) rather than by the shared engine: `runs_reconciled_total` and `runs_terminalized_stale_total`.
+Further counters exist only under the `warehouse_pg_consumer_*` prefix, incremented by the Delta consumer's reconcile sweep (`consumer.py`) rather than by the shared engine: `runs_reconciled_total`, `runs_terminalized_stale_total` and `runs_failed_aged_out_total`.
+`recovery_sweeps_total` has three outcomes. `clean` means the sweep found no orphaned batch. `orphans_found_after_shutdown` means every orphan carried the shutdown marker of a graceful stop, such as a deploy. `orphans_found` means at least one orphan had no marker, so a consumer died without notice (an OOM kill or a crash) or lost its lease. Alerts read `orphans_found`.
 
-The headline health signal is `warehouse_pg_queue_oldest_unclaimed_batch_seconds`: the age of the oldest batch no consumer has picked up yet.
+The headline health signal is `warehouse_pg_queue_oldest_unclaimed_batch_seconds`: the age of the oldest batch no consumer has picked up yet that a free loader slot could claim now.
 It is the loader's data-freshness signal and rises whenever loading stalls, regardless of cause, so its alert fires even when every other signal looks green.
+It excludes batches whose `(team_id, schema_id)` group already has a batch executing, because the loader claims one batch per group at a time.
+`warehouse_pg_queue_oldest_serialized_batch_seconds` reports the age of those batches.
+One slow batch or a long full refresh raises the serialized age for hours while slots stay idle, so it is a per-group signal, not a capacity signal.
+`warehouse_pg_queue_backlogged_groups` counts the groups with no batch executing whose oldest pending batch is past the backlog threshold, so it pairs with the slot-wait age.
 Its depth companion `warehouse_pg_queue_claimable_batches` says how much work sits behind that head; a stall and a burst look identical on age alone.
 Four concentration gauges ride the same depth probe and say where that depth sits.
 The loader drains each `(team_id, schema_id)` group one batch at a time by design.
@@ -126,7 +155,16 @@ These gauges are queue-wide, so one pod per fleet samples them on the reconcile 
 The other pods export NaN, which `max()` skips, so aggregate all of these gauges with `max()`; `sum()` and `avg()` return NaN.
 In multiprocess pods each process is exported separately with a `pid` label, and the same `max()` must aggregate over that label too, so one process's NaN cannot hide the elected process's sample during a restart.
 A pod clears its gauges to NaN before each round, so a value from an earlier round never looks fresh.
-Each gauge statement runs with a 5-second server-side `statement_timeout`; a probe that times out skips its sample, except that the age gauge saturates at the probe window.
+Each gauge statement runs with a 5-second server-side `statement_timeout`; a freshness probe that times out skips its sample, except that the age gauge saturates at the probe window.
+The depth gauges do not go blank on a timeout, because a deep queue is exactly when the probe is slowest and a gap or a 0 reads as "the queue cleared".
+The depth probe runs two statements.
+The first counts the claimable set with an index-only walk of `sb_claimable_idx` and sets `warehouse_pg_queue_claimable_batches`.
+The second splits that set per run and per group (failed-run and executing probes) and sets the four concentration gauges.
+If a statement times out, the sampling pod repeats its last good value for the gauges it could not measure.
+`warehouse_pg_queue_depth_sample_age_seconds` is the seconds since the depth gauges were last measured in full; 0 means this round, and it rises while the probe times out.
+It is NaN when the pod has no sample yet.
+`warehouse_pg_queue_depth_probe_timeouts_total{stage="count"|"breakdown"}` counts the timeouts.
+A pod that does not hold the gauge slot drops its sample and exports NaN, never 0, so panels should aggregate with `max()` and not turn NaN into 0 (for example with `or vector(0)`).
 Failed polls record their elapsed time in `poll_duration_seconds`, so degraded polls stay visible in the latency percentiles; `poll_failures_total` carries the reason label and is the alertable poll-health counter.
 The maintenance queries (sweeps, reconcile passes, probes) report through `warehouse_pg_queue_query_duration_seconds` (labeled per query, observed on failure and timeout too) and `warehouse_pg_queue_query_failures_total`; the August 2026 stall came from a query with no latency signal at all.
 
@@ -148,6 +186,18 @@ For ad-hoc inspection (state summaries, active runs, leases, force-release), use
 
 Followers returned by a successful handler (`sdk.Success(followers=...)`) are enqueued in the same transaction as the terminal status write. Dedup of live `(kind, dedup_key)` pairs is enforced by the insert statement's `NOT EXISTS` guard rather than a unique index — a partitioned table cannot carry a unique index that omits the partition key.
 
+An enqueuer can pass an `OverlapPolicy` to `JobsTable.insert`.
+The policy decides if a new job can join a group that has live jobs of the same kind and lane:
+
+- `SKIP` refuses the job while the group has a pending or running job.
+- `BUFFER_ONE` refuses the job only while the group has a pending job. A running job does not block, because the new job waits behind it.
+
+A job is pending when it is in `pending` state and no consumer has claimed it.
+A job is running when it is `executing`, or `waiting_retry` for its next attempt.
+Pending and `waiting_retry` jobs older than the claim eligibility window, terminal jobs, and superseded jobs are not live.
+The policy guard is a `NOT EXISTS` in the insert statement, like the dedup guard, so it is atomic under one enqueuer.
+`JobsTable.get_group_job_states` reads the same live state for many groups in one query, and `overlap_allows` applies a policy to it.
+
 SQL lives in `core/generic_jobs.py`; the SDK wiring (`JobHandler`, `Outcome`, `GenericJobAdapter`, `JobConsumer`) in `sdk/jobs.py`. Nothing produces or consumes these tables yet; the run orchestrator lands on them in later phases.
 
 ## Scheduler state (phase 2, shadow mode)
@@ -158,6 +208,13 @@ The warehouse scheduler uses `sync.extract` as its kind and the schema ID as its
 SQL lives in `core/scheduler_state.py`.
 The tick loop, scope predicate, and due-time math live in `products/warehouse_sources/backend/scheduling/`.
 The `run_warehouse_scheduler` command runs the tick loop.
+Each scheduled kind declares its queue lane and its overlap policy; `sync.extract` uses `SKIP` on lane `extract`.
+The scheduler decides overlap from the live jobs in `queuejob`, never from `ExternalDataJob` rows.
 The scheduler uses sentinel rows in `queuejoblease` (lane `scheduler`) to select one leader across the fleet.
+The tick leader drains due schedules.
+The fleet-wide refresh runs in a separate loop with its own sentinel row, so a slow refresh does not delay the drain.
+Each drain batch locks the tick sentinel row with `JobsTable.lock_live_lease` and stops when the row is no longer this pod's.
+A new leader waits for that lock, so two pods never drain at the same time.
 It starts no syncs.
 The `report_warehouse_scheduler_shadow` command compares decisions with the `ExternalDataJob` rows that Temporal schedules created.
+It counts an unmatched decision as `temporal_overlap_skip`, not `shadow_only`, when a job for that schema was in progress at the due time and was created at most 7 days before it.

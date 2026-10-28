@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import * as path from 'path'
 import { mergeConfig, type Rollup } from 'vite'
 
+import { zodJitlessPlugin } from '../../../frontend/plugins/vite-zod-jitless-plugin.ts'
 import { frontendResolvePlugin } from './plugins/vite-frontend-resolve-plugin.ts'
 import { moduleGraphPlugin } from './plugins/vite-module-graph-plugin.ts'
 import { sqlRawPlugin } from './plugins/vite-sql-raw-plugin.ts'
@@ -30,18 +31,30 @@ const SINGLETON_PACKAGES = [
     'kea-subscriptions',
     'kea-waitfor',
     'kea-window-values',
+    '@testing-library/dom',
 ]
 
-const createStoriesPathFor = (storyPath: string): string => `../../../${storyPath}/**/*.stories.@(js|jsx|ts|tsx)`
+const STORY_FILE = /\.stories\.(js|jsx|ts|tsx)$/
+
+const createStoriesPathFor = (storyPath: string): string =>
+    STORY_FILE.test(storyPath) ? `../../../${storyPath}` : `../../../${storyPath}/**/*.stories.@(js|jsx|ts|tsx)`
+
+const DEFAULT_STORY_ROOTS = [
+    'frontend/src',
+    'products/**/frontend',
+    'products/**/mcp/apps',
+    'services/mcp/src/ui-apps',
+    'packages/quill/packages/charts/src',
+]
+
+// Comma-separated directories or story files, relative to the repo root.
+const storyRootsOverride = (process.env.STORYBOOK_STORIES ?? '')
+    .split(',')
+    .map((storyRoot) => storyRoot.trim().replace(/\/+$/, ''))
+    .filter(Boolean)
 
 const config: StorybookConfig = {
-    stories: [
-        createStoriesPathFor('frontend/src'),
-        createStoriesPathFor('products/**/frontend'),
-        createStoriesPathFor('products/**/mcp/apps'),
-        createStoriesPathFor('services/mcp/src/ui-apps'),
-        createStoriesPathFor('packages/quill/packages/charts/src'),
-    ],
+    stories: (storyRootsOverride.length > 0 ? storyRootsOverride : DEFAULT_STORY_ROOTS).map(createStoriesPathFor),
 
     addons: ['@storybook/addon-docs', '@storybook/addon-links', '@storybook/addon-a11y'],
 
@@ -69,7 +82,13 @@ const config: StorybookConfig = {
 
     viteFinal: (viteConfig) =>
         mergeConfig(viteConfig, {
-            plugins: [frontendResolvePlugin(REPO_ROOT), tailwindcss(), sqlRawPlugin(), moduleGraphPlugin(REPO_ROOT)],
+            plugins: [
+                frontendResolvePlugin(REPO_ROOT),
+                tailwindcss(),
+                sqlRawPlugin(),
+                moduleGraphPlugin(REPO_ROOT),
+                zodJitlessPlugin(),
+            ],
             resolve: {
                 dedupe: SINGLETON_PACKAGES,
                 alias: {
@@ -103,6 +122,14 @@ const config: StorybookConfig = {
                     '@posthog/shared-onboarding': path.resolve(REPO_ROOT, 'docs', 'onboarding'),
                     '@posthog/quill': path.resolve(REPO_ROOT, 'packages', 'quill', 'packages', 'quill', 'src'),
                     '@posthog/quill-charts': path.resolve(REPO_ROOT, 'packages', 'quill', 'packages', 'charts', 'src'),
+                    '@posthog/agent-contracts': path.resolve(
+                        REPO_ROOT,
+                        'packages',
+                        'agent',
+                        'packages',
+                        'agent-contracts',
+                        'src'
+                    ),
                 },
             },
             define: {
@@ -115,6 +142,9 @@ const config: StorybookConfig = {
                 // pure ESM, so serving it unbundled is safe, and Vite's build handles the URL
                 // pattern natively.
                 exclude: ['@posthog/brand'],
+                rolldownOptions: {
+                    plugins: [zodJitlessPlugin()],
+                },
             },
             build: {
                 rollupOptions: {

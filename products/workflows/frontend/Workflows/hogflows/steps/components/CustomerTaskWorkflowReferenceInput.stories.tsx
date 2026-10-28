@@ -1,6 +1,7 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { useState } from 'react'
 
+import { mswDecorator } from '~/mocks/browser'
 import { CyclotronJobInputType } from '~/types'
 
 import { CustomerTaskWorkflowReferenceInput } from './CustomerTaskWorkflowReferenceInput'
@@ -8,20 +9,21 @@ import { CustomerTaskWorkflowReferenceInput } from './CustomerTaskWorkflowRefere
 const meta: Meta<typeof CustomerTaskWorkflowReferenceInput> = {
     title: 'Products/Workflows/Steps/Customer task reference input',
     component: CustomerTaskWorkflowReferenceInput,
-    parameters: {
-        mockDate: '2026-01-01',
-        msw: {
-            mocks: {
-                get: {
-                    '/api/projects/:project_id/accounts/': {
-                        results: [{ id: '11111111-1111-4111-8111-111111111111', name: 'Example account' }],
-                    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:project_id/accounts/': {
+                    results: [{ id: '11111111-1111-4111-8111-111111111111', name: 'Example account' }],
                 },
             },
-        },
-        // Wait for Monaco to mount so raw-mode stories have a stable snapshot layout.
+        }),
+    ],
+    parameters: {
+        mockDate: '2026-01-01',
+        // Wait for the editor itself: `.monaco-editor` also matches Monaco's shared overflow root on
+        // <body>, which exists before any editor mounts.
         testOptions: {
-            waitForSelector: '.monaco-editor',
+            waitForSelector: '.CodeEditor[data-editor-ready="true"]',
         },
     },
 }
@@ -29,8 +31,10 @@ export default meta
 
 const Template: StoryFn<typeof CustomerTaskWorkflowReferenceInput> = (args) => {
     const [input, setInput] = useState<CyclotronJobInputType>(args.input)
+    // A fixed width, not max-w: the snapshot root shrink-wraps its content, so Monaco would take
+    // whatever width the root had at the moment it mounted.
     return (
-        <div className="p-4 max-w-lg">
+        <div className="p-4 w-[32rem]">
             <CustomerTaskWorkflowReferenceInput {...args} input={input} onChange={setInput} />
         </div>
     )

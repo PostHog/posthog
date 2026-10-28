@@ -20,11 +20,8 @@ import type {
     AlertsRetrieveParams,
     InsightsThresholdsListParams,
     PaginatedAlertListApi,
-    PaginatedPlatformAlertConfigurationListApi,
     PaginatedThresholdWithAlertListApi,
     PatchedAlertApi,
-    PlatformAlertConfigurationApi,
-    PlatformAlertsListParams,
     ThresholdWithAlertApi,
 } from './api.schemas'
 
@@ -287,48 +284,6 @@ export const insightsThresholdsRetrieve = async (
     options?: RequestInit
 ): Promise<ThresholdWithAlertApi> => {
     return apiMutator<ThresholdWithAlertApi>(getInsightsThresholdsRetrieveUrl(projectId, insightId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getPlatformAlertsListUrl = (projectId: string, params?: PlatformAlertsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/platform_alerts/?${stringifiedParams}`
-        : `/api/projects/${projectId}/platform_alerts/`
-}
-
-export const platformAlertsList = async (
-    projectId: string,
-    params?: PlatformAlertsListParams,
-    options?: RequestInit
-): Promise<PaginatedPlatformAlertConfigurationListApi> => {
-    return apiMutator<PaginatedPlatformAlertConfigurationListApi>(getPlatformAlertsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getPlatformAlertsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/platform_alerts/${id}/`
-}
-
-export const platformAlertsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<PlatformAlertConfigurationApi> => {
-    return apiMutator<PlatformAlertConfigurationApi>(getPlatformAlertsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

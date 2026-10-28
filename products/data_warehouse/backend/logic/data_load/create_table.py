@@ -114,6 +114,10 @@ async def create_table_from_saved_query(
         table_created.format = table_format
         table_created.url_pattern = url_pattern
         table_created.queryable_folder = queryable_folder
+        # Backing tables created before created_via existed have no value. Without the marker, the
+        # save below rejects a backing table for a model in the models namespace.
+        if table_created.created_via is None:
+            table_created.created_via = DataWarehouseTableCreatedVia.MATERIALIZED_VIEW
 
         # TODO: handle dlt columns schemas. Need to refactor dag pipeline to pass through schema or propagate from upstream tables
         # set_columns records the DESCRIBE column order (which follows the view's SELECT order for

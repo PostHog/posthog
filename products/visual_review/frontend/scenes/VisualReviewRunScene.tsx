@@ -8,20 +8,26 @@ import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CleanQuarantinedSnapshots } from '../components/CleanQuarantinedSnapshots'
+import { CleanQuarantinedToggle } from '../components/CleanQuarantinedToggle'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
 import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
 import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
+import { VisualReviewSceneTitle } from '../components/VisualReviewSceneTitle'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
+import { VisualReviewTrail } from '../components/VisualReviewTrail'
 import type { SnapshotApi } from '../generated/api.schemas'
+import { repoFullNameFromParams, runPath, splitRepoFullName } from '../lib/repoPaths'
+import { QuillFinalizeRunActions } from './QuillFinalizeRunActions'
 import { VisualReviewRunSceneLogicProps, visualReviewRunSceneLogic } from './visualReviewRunSceneLogic'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
@@ -29,9 +35,39 @@ const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 export const scene: SceneExport = {
     component: VisualReviewRunScene,
     logic: visualReviewRunSceneLogic,
-    paramsToProps: ({ params: { runId } }): VisualReviewRunSceneLogicProps => ({
+    paramsToProps: ({ params: { repoOwner, repoName, runId } }): VisualReviewRunSceneLogicProps => ({
         runId: runId || '',
+        repoFullName: repoFullNameFromParams(repoOwner, repoName),
     }),
+}
+
+/** The repository title, the tabs with Runs active, and the trail from the runs list to this run. */
+function RunSceneHeader({
+    repoFullName,
+    branch,
+    actions,
+}: {
+    repoFullName: string | null
+    branch: string | null
+    actions?: JSX.Element
+}): JSX.Element {
+    return (
+        <>
+            {repoFullName && <VisualReviewSceneTitle repoFullName={repoFullName} activeTab="runs" actions={actions} />}
+            {repoFullName && <VisualReviewTabs activeKey="runs" repoFullName={repoFullName} />}
+            <VisualReviewTrail
+                crumbs={[
+                    {
+                        label: 'Runs',
+                        to: repoFullName
+                            ? urls.visualReviewRepoRuns(...splitRepoFullName(repoFullName))
+                            : urls.visualReviewRuns(),
+                    },
+                    ...(branch ? [{ label: branch }] : []),
+                ]}
+            />
+        </>
+    )
 }
 
 function SnapshotThumbnail({
@@ -229,8 +265,14 @@ export function VisualReviewRunScene(): JSX.Element {
         quarantinedIdentifierSet,
         showQuarantinedThumbnails,
         cleanQuarantinedSnapshots,
+        cleanQuarantinedGroups,
+        showCleanQuarantined,
         quarantinedRunSnapshotsLoading,
         quarantinedRunSnapshotsLoadFailed,
+        quarantineLiftsLoading,
+        quarantineLiftsLoadFailed,
+        quarantinedIdentifiersLoading,
+        quarantinedIdentifiersLoadFailed,
         repoFullName,
         isFinalizing,
         isApprovingSnapshot,
@@ -258,8 +300,10 @@ export function VisualReviewRunScene(): JSX.Element {
         recomputeRun,
         markThumbnailFailed,
         toggleQuarantinedThumbnails,
+        toggleCleanQuarantined,
         setAddImagesToComment,
     } = useActions(visualReviewRunSceneLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const quarantinedNavCount = sortedChangedSnapshots.filter((s: SnapshotApi) =>
         quarantinedIdentifierSet.has(s.identifier)
@@ -271,6 +315,12 @@ export function VisualReviewRunScene(): JSX.Element {
         : sortedChangedSnapshots.filter((s: SnapshotApi) => !isHiddenQuarantined(s))
     const hiddenQuarantinedCount = sortedChangedSnapshots.length - visibleNavSnapshots.length
     const showQuarantinedToggle = quarantinedNavCount > 0 && (hiddenQuarantinedCount > 0 || showQuarantinedThumbnails)
+    // Stays out of view until the quarantined stories load, so the footer never offers an empty list.
+    const showCleanQuarantinedToggle =
+        !isReportingOnly &&
+        !quarantinedRunSnapshotsLoading &&
+        (quarantinedRunSnapshotsLoadFailed || cleanQuarantinedSnapshots.length > 0)
+    const showFooterToggles = showQuarantinedToggle || showCleanQuarantinedToggle
 
     // Navigate over what's actually visible — when quarantined items are hidden, next/previous
     // must skip them rather than selecting a hidden quarantined snapshot.
@@ -306,6 +356,7 @@ export function VisualReviewRunScene(): JSX.Element {
     if (!run) {
         return (
             <SceneContent>
+                <RunSceneHeader repoFullName={repoFullName} branch={null} />
                 <div className="space-y-4 py-4">
                     <LemonSkeleton className="h-8 w-1/3" />
                     <div className="flex gap-2">
@@ -323,7 +374,7 @@ export function VisualReviewRunScene(): JSX.Element {
     if (isRunInProgress) {
         return (
             <SceneContent>
-                <SceneTitleSection name={run.branch} resourceType={{ type: 'visual_review' }} />
+                <RunSceneHeader repoFullName={repoFullName} branch={run.branch} />
                 <RunInProgressEmptyState
                     isProcessing={isRunProcessing}
                     createdAt={run.created_at}
@@ -336,7 +387,7 @@ export function VisualReviewRunScene(): JSX.Element {
     if (run.status === 'failed') {
         return (
             <SceneContent>
-                <SceneTitleSection name={run.branch} resourceType={{ type: 'visual_review' }} />
+                <RunSceneHeader repoFullName={repoFullName} branch={run.branch} />
                 <LemonBanner type="error">
                     This run failed to process.{run.error_message ? ` ${run.error_message}` : ''} Check the CI logs for
                     details, or rerun the job to try again.
@@ -398,33 +449,42 @@ export function VisualReviewRunScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <SceneTitleSection
-                name={run.branch}
-                resourceType={{ type: 'visual_review' }}
+            <RunSceneHeader
+                repoFullName={repoFullName}
+                branch={run.branch}
                 actions={
                     !isReportingOnly && !run.approved && !run.is_stale && (reviewPending > 0 || reviewApproved > 0) ? (
-                        <div className="flex items-center gap-2">
-                            <LemonCheckbox
-                                checked={addImagesToComment}
-                                onChange={setAddImagesToComment}
-                                disabledReason={isFinalizing ? 'Finalizing…' : undefined}
-                                label="Add snapshots to the PR comment"
-                                info="The PR comment is always posted; tick this to attach the before/after snapshot images to it. Remembered for next time."
-                                data-attr="visual-review-add-images-to-comment"
+                        todayRailNav ? (
+                            <QuillFinalizeRunActions
+                                addImagesToComment={addImagesToComment}
+                                setAddImagesToComment={setAddImagesToComment}
+                                isFinalizing={isFinalizing}
+                                finalizeRun={finalizeRun}
+                                reviewPending={reviewPending}
                             />
-                            <LemonButton
-                                type="primary"
-                                onClick={finalizeRun}
-                                loading={isFinalizing}
-                                data-attr="visual-review-finalize-run"
-                            >
-                                {reviewPending > 0 ? `Approve ${reviewPending} and finalize` : 'Finalize run'}
-                            </LemonButton>
-                        </div>
+                        ) : (
+                            <div className="flex flex-wrap items-center gap-2">
+                                <LemonCheckbox
+                                    checked={addImagesToComment}
+                                    onChange={setAddImagesToComment}
+                                    disabledReason={isFinalizing ? 'Finalizing…' : undefined}
+                                    label="Add snapshots to the PR comment"
+                                    info="The PR comment is always posted; tick this to attach the before/after snapshot images to it. Remembered for next time."
+                                    data-attr="visual-review-add-images-to-comment"
+                                />
+                                <LemonButton
+                                    type="primary"
+                                    onClick={finalizeRun}
+                                    loading={isFinalizing}
+                                    data-attr="visual-review-finalize-run"
+                                >
+                                    {reviewPending > 0 ? `Approve ${reviewPending} and finalize` : 'Finalize run'}
+                                </LemonButton>
+                            </div>
+                        )
                     ) : undefined
                 }
             />
-            <VisualReviewTabs activeKey="runs" repoId={run.repo_id} />
 
             {isReportingOnly && (
                 <LemonBanner type="info" className="mb-4">
@@ -437,7 +497,7 @@ export function VisualReviewRunScene(): JSX.Element {
                 <LemonBanner type="warning" className="mb-4">
                     This run has been superseded by a newer run.{' '}
                     {run.superseded_by_id && (
-                        <Link to={`/visual_review/runs/${run.superseded_by_id}`} className="font-semibold">
+                        <Link to={runPath(run.superseded_by_id, repoFullName ?? undefined)} className="font-semibold">
                             View latest run
                         </Link>
                     )}
@@ -464,7 +524,7 @@ export function VisualReviewRunScene(): JSX.Element {
             <div className="border rounded-lg overflow-hidden">
                 {/* Header: summary + thumbnail strip */}
                 <div className="bg-bg-light border-b">
-                    <div className="flex items-center justify-between px-3 pt-3 pb-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-3 pb-2">
                         {initialSnapshotsLoading ? (
                             <>
                                 <LemonSkeleton className="h-4 w-40" />
@@ -473,7 +533,7 @@ export function VisualReviewRunScene(): JSX.Element {
                         ) : (
                             <>
                                 {/* Review summary (left) — what humans decided */}
-                                <span className="text-xs text-muted flex items-center gap-1.5">
+                                <span className="text-xs text-muted flex flex-wrap items-center gap-1.5">
                                     <span className="font-semibold text-default">Review</span>
                                     {[
                                         reviewPending > 0 && (
@@ -496,7 +556,7 @@ export function VisualReviewRunScene(): JSX.Element {
                                         )}
                                 </span>
                                 {/* Diff summary (right) — what the system found */}
-                                <span className="text-xs text-muted flex items-center gap-1.5">
+                                <span className="text-xs text-muted flex flex-wrap items-center gap-1.5">
                                     <span className="font-semibold text-default">Diff</span>
                                     {[
                                         diffChanged > 0 && (
@@ -551,18 +611,31 @@ export function VisualReviewRunScene(): JSX.Element {
                     )}
 
                     {/* Pagination — below thumbnails, right-aligned */}
-                    {(showQuarantinedToggle || sortedChangedSnapshots.length > 1) && (
+                    {(showFooterToggles || sortedChangedSnapshots.length > 1) && (
                         <div
-                            className={`flex items-center gap-2 px-3 pb-2 ${
-                                showQuarantinedToggle ? 'justify-between' : 'justify-end'
+                            className={`flex flex-wrap items-center gap-2 px-3 pb-2 ${
+                                showFooterToggles ? 'justify-between' : 'justify-end'
                             }`}
                         >
-                            {showQuarantinedToggle && (
-                                <QuarantinedThumbnailsToggle
-                                    hiddenCount={hiddenQuarantinedCount}
-                                    isExpanded={showQuarantinedThumbnails}
-                                    onClick={toggleQuarantinedThumbnails}
-                                />
+                            {showFooterToggles && (
+                                <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+                                    {showQuarantinedToggle && (
+                                        <QuarantinedThumbnailsToggle
+                                            hiddenCount={hiddenQuarantinedCount}
+                                            isExpanded={showQuarantinedThumbnails}
+                                            onClick={toggleQuarantinedThumbnails}
+                                        />
+                                    )}
+                                    {showQuarantinedToggle && showCleanQuarantinedToggle && <span>·</span>}
+                                    {showCleanQuarantinedToggle && (
+                                        <CleanQuarantinedToggle
+                                            cleanCount={cleanQuarantinedSnapshots.length}
+                                            loadFailed={quarantinedRunSnapshotsLoadFailed}
+                                            isExpanded={showCleanQuarantined}
+                                            onClick={toggleCleanQuarantined}
+                                        />
+                                    )}
+                                </div>
                             )}
                             {visibleNavSnapshots.length > 1 && (
                                 <div className="flex items-center gap-2">
@@ -596,15 +669,21 @@ export function VisualReviewRunScene(): JSX.Element {
                         </div>
                     )}
 
-                    {!isReportingOnly && (
-                        <CleanQuarantinedSnapshots
-                            snapshots={cleanQuarantinedSnapshots}
-                            loading={quarantinedRunSnapshotsLoading}
-                            loadFailed={quarantinedRunSnapshotsLoadFailed}
-                            selectedSnapshotId={selectedSnapshotId}
-                            onSelect={setSelectedSnapshotId}
-                        />
-                    )}
+                    {showCleanQuarantinedToggle &&
+                        showCleanQuarantined &&
+                        // A failed reload keeps the previous rows, which no longer describe this run.
+                        !quarantinedRunSnapshotsLoadFailed &&
+                        run.pr_number != null && (
+                            <CleanQuarantinedSnapshots
+                                groups={cleanQuarantinedGroups}
+                                prNumber={run.pr_number}
+                                // The groups read both lists, so either one still loading or failed leaves them unknown.
+                                liftsLoading={quarantineLiftsLoading || quarantinedIdentifiersLoading}
+                                liftsLoadFailed={quarantineLiftsLoadFailed || quarantinedIdentifiersLoadFailed}
+                                selectedSnapshotId={selectedSnapshotId}
+                                onSelect={setSelectedSnapshotId}
+                            />
+                        )}
                 </div>
 
                 {/* Body: diff viewer */}
@@ -640,7 +719,6 @@ export function VisualReviewRunScene(): JSX.Element {
                             onCancelLiftOnMerge={cancelLiftOnMerge}
                             commitSha={run.commit_sha}
                             prNumber={run.pr_number}
-                            repoId={run.repo_id}
                             repoFullName={repoFullName}
                             runType={run.run_type}
                             githubRunId={(run.metadata?.github_run_id as string) || null}

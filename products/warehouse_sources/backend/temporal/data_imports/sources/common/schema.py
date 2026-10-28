@@ -21,7 +21,7 @@ _INCREMENTAL_FIELD_PREFERENCE = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class SourceSchema:
     name: str
     supports_incremental: bool
@@ -60,6 +60,10 @@ class SourceSchema:
     # The SQL sources' location keys above (source_catalog/source_schema/source_table_name)
     # stay separate: their persistence is gated on column-selection/direct-query paths.
     schema_metadata: dict[str, Any] | None = None
+    # Keeps full refresh as the default sync type for a table that also supports incremental or
+    # append. Sources set it when only a full refresh keeps the table equal to the origin, for
+    # example file imports, where the other sync types keep the rows of files deleted upstream.
+    prefers_full_refresh: bool = False
 
 
 def rank_incremental_fields(incremental_fields: list[IncrementalField]) -> list[IncrementalField]:
@@ -96,12 +100,15 @@ def build_default_sync_settings(source_schema: SourceSchema) -> dict[str, Any]:
     """Default sync settings for one discovered table.
 
     Picks ``incremental`` when the source supports it and a tracking column exists (cheapest
-    ongoing sync), else ``append`` when supported, else ``full_refresh``. Never picks ``cdc``
+    ongoing sync), else ``append`` when supported, else ``full_refresh``. A table that sets
+    ``prefers_full_refresh`` always gets ``full_refresh``. Never picks ``cdc``
     or ``webhook`` — both need prerequisites (Postgres setup, webhook registration) and
     explicit opt-in.
     """
     chosen = _select_incremental_field(source_schema.incremental_fields)
-    if source_schema.supports_incremental and chosen is not None:
+    if source_schema.prefers_full_refresh:
+        sync_type = "full_refresh"
+    elif source_schema.supports_incremental and chosen is not None:
         sync_type = "incremental"
     elif source_schema.supports_append and chosen is not None:
         sync_type = "append"
@@ -172,6 +179,7 @@ def build_endpoint_schemas(
     descriptions: Mapping[str, str] | None = None,
     should_sync_default: Mapping[str, bool] | None = None,
     supports_webhooks: Collection[str] = (),
+    default_incremental_lookback_seconds: Mapping[str, int] | None = None,
 ) -> list[SourceSchema]:
     """Build the ``SourceSchema`` list for a static endpoint-catalog source's ``get_schemas``.
 
@@ -182,11 +190,14 @@ def build_endpoint_schemas(
     - ``append_only``: endpoints that support append but not incremental merge.
     - ``merge_only``: endpoints that support incremental merge but not append.
     - ``descriptions`` / ``should_sync_default`` / ``supports_webhooks``: per-endpoint metadata.
+    - ``default_incremental_lookback_seconds``: per-endpoint default overlap re-read window, for
+      endpoints whose recent rows get restated upstream (see ``SourceSchema``'s field doc).
 
     ``names`` (the schema-picker filter) keeps only the requested endpoints when set.
     """
     descriptions = descriptions or {}
     should_sync_default = should_sync_default or {}
+    default_incremental_lookback_seconds = default_incremental_lookback_seconds or {}
     schemas = []
     for name in endpoints:
         fields = incremental_fields.get(name) or []
@@ -202,6 +213,7 @@ def build_endpoint_schemas(
                 description=descriptions.get(name),
                 should_sync_default=should_sync_default.get(name, True),
                 supports_webhooks=name in supports_webhooks,
+                default_incremental_lookback_seconds=default_incremental_lookback_seconds.get(name),
             )
         )
 

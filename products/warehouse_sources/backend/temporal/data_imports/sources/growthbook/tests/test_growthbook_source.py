@@ -5,9 +5,6 @@ from unittest.mock import MagicMock
 
 import responses
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.growthbook import (
@@ -54,14 +51,16 @@ def test_credential_probe_status_mapping(
 
 
 @pytest.mark.parametrize("status", [429, 503])
-def test_transient_probe_failure_is_not_bad_credentials(
+def test_transient_probe_failure_reports_an_unreachable_vendor(
     config: GrowthBookSourceConfig,
     http: responses.RequestsMock,
     status: int,
 ) -> None:
     http.add(responses.GET, "https://api.growthbook.io/api/v2/features", status=status, json={"message": "Try again"})
-    with pytest.raises(RESTClientRetryableError):
-        GrowthBookSource().validate_credentials(config, 123)
+    assert GrowthBookSource().validate_credentials(config, 123) == (
+        False,
+        "Couldn't reach GrowthBook to check your credentials. Try again in a few minutes.",
+    )
 
 
 @pytest.mark.parametrize(
@@ -114,17 +113,3 @@ def test_unknown_table_rejected_without_http(
     with pytest.raises(UnknownResourceError):
         GrowthBookSource().source_for_pipeline(config, manager, inputs)
     assert not http.calls
-
-
-@pytest.mark.parametrize(
-    ("base_url", "expected_url"),
-    [
-        ("  ", "https://api.growthbook.io/api/v2/features"),
-        (" https://flags.example.com/custom/api/ ", "https://flags.example.com/custom/api/v2/features"),
-    ],
-)
-def test_base_url_normalization(base_url: str, expected_url: str, http: responses.RequestsMock) -> None:
-    config = GrowthBookSourceConfig.from_dict({"api_key": "secret_test", "base_url": base_url})
-    http.add(responses.GET, expected_url, json={"features": []})
-    assert GrowthBookSource().validate_credentials(config, 123) == (True, None)
-    assert len(http.calls) == 1

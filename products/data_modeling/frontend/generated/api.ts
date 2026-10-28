@@ -9,19 +9,20 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    DagApi,
-    DataModelingDagsListParams,
     DataModelingEdgesListParams,
     DataModelingNodesLineageRetrieveParams,
     DataModelingNodesListParams,
+    DataModelingNodesRetrieveParams,
+    DataModelingUsageListParams,
     EdgeApi,
     LineageResponseApi,
+    ModelUsageApi,
     NodeApi,
     NodeResumeApi,
-    PaginatedDAGListApi,
+    NodeRunApi,
+    NodeRunResponseApi,
     PaginatedEdgeListApi,
     PaginatedNodeListApi,
-    PatchedDAGApi,
     PatchedEdgeApi,
     PatchedNodeApi,
 } from './api.schemas'
@@ -42,94 +43,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
-
-export const getDataModelingDagsListUrl = (projectId: string, params?: DataModelingDagsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/data_modeling_dags/?${stringifiedParams}`
-        : `/api/projects/${projectId}/data_modeling_dags/`
-}
-
-export const dataModelingDagsList = async (
-    projectId: string,
-    params?: DataModelingDagsListParams,
-    options?: RequestInit
-): Promise<PaginatedDAGListApi> => {
-    return apiMutator<PaginatedDAGListApi>(getDataModelingDagsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDataModelingDagsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_modeling_dags/`
-}
-
-export const dataModelingDagsCreate = async (
-    projectId: string,
-    dagApi: NonReadonly<DagApi>,
-    options?: RequestInit
-): Promise<DagApi> => {
-    return apiMutator<DagApi>(getDataModelingDagsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dagApi),
-    })
-}
-
-export const getDataModelingDagsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/data_modeling_dags/${id}/`
-}
-
-export const dataModelingDagsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<DagApi> => {
-    return apiMutator<DagApi>(getDataModelingDagsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDataModelingDagsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/data_modeling_dags/${id}/`
-}
-
-export const dataModelingDagsPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedDAGApi?: NonReadonly<PatchedDAGApi>,
-    options?: RequestInit
-): Promise<DagApi> => {
-    return apiMutator<DagApi>(getDataModelingDagsPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDAGApi),
-    })
-}
-
-export const getDataModelingDagsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/data_modeling_dags/${id}/`
-}
-
-export const dataModelingDagsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getDataModelingDagsDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
 
 export const getDataModelingEdgesListUrl = (projectId: string, params?: DataModelingEdgesListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -158,23 +71,6 @@ export const dataModelingEdgesList = async (
     })
 }
 
-export const getDataModelingEdgesCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_modeling_edges/`
-}
-
-export const dataModelingEdgesCreate = async (
-    projectId: string,
-    edgeApi: NonReadonly<EdgeApi>,
-    options?: RequestInit
-): Promise<EdgeApi> => {
-    return apiMutator<EdgeApi>(getDataModelingEdgesCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(edgeApi),
-    })
-}
-
 export const getDataModelingEdgesRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/data_modeling_edges/${id}/`
 }
@@ -197,7 +93,7 @@ export const getDataModelingEdgesUpdateUrl = (projectId: string, id: string) => 
 export const dataModelingEdgesUpdate = async (
     projectId: string,
     id: string,
-    edgeApi: NonReadonly<EdgeApi>,
+    edgeApi?: NonReadonly<EdgeApi>,
     options?: RequestInit
 ): Promise<EdgeApi> => {
     return apiMutator<EdgeApi>(getDataModelingEdgesUpdateUrl(projectId, id), {
@@ -264,33 +160,33 @@ export const dataModelingNodesList = async (
     })
 }
 
-export const getDataModelingNodesCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_modeling_nodes/`
-}
-
-export const dataModelingNodesCreate = async (
+export const getDataModelingNodesRetrieveUrl = (
     projectId: string,
-    nodeApi: NonReadonly<NodeApi>,
-    options?: RequestInit
-): Promise<NodeApi> => {
-    return apiMutator<NodeApi>(getDataModelingNodesCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(nodeApi),
-    })
-}
+    id: string,
+    params?: DataModelingNodesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
 
-export const getDataModelingNodesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/data_modeling_nodes/${id}/`
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_modeling_nodes/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_modeling_nodes/${id}/`
 }
 
 export const dataModelingNodesRetrieve = async (
     projectId: string,
     id: string,
+    params?: DataModelingNodesRetrieveParams,
     options?: RequestInit
 ): Promise<NodeApi> => {
-    return apiMutator<NodeApi>(getDataModelingNodesRetrieveUrl(projectId, id), {
+    return apiMutator<NodeApi>(getDataModelingNodesRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -391,24 +287,19 @@ export const getDataModelingNodesRunCreateUrl = (projectId: string, id: string) 
 }
 
 /**
- * Run this node and its upstream or downstream dependencies.
- *
- * Request body:
- *     direction: "upstream" | "downstream" (required)
- *         - "upstream": Run all ancestors of this node, plus this node
- *         - "downstream": Run this node and all its descendants
+ * Run this node with its upstream dependencies or downstream dependents.
  */
 export const dataModelingNodesRunCreate = async (
     projectId: string,
     id: string,
-    nodeApi: NonReadonly<NodeApi>,
+    nodeRunApi: NodeRunApi,
     options?: RequestInit
-): Promise<NodeApi> => {
-    return apiMutator<NodeApi>(getDataModelingNodesRunCreateUrl(projectId, id), {
+): Promise<NodeRunResponseApi> => {
+    return apiMutator<NodeRunResponseApi>(getDataModelingNodesRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(nodeApi),
+        body: JSON.stringify(nodeRunApi),
     })
 }
 
@@ -443,6 +334,33 @@ export const dataModelingNodesLineageRetrieve = async (
     options?: RequestInit
 ): Promise<LineageResponseApi> => {
     return apiMutator<LineageResponseApi>(getDataModelingNodesLineageRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataModelingUsageListUrl = (projectId: string, params?: DataModelingUsageListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_modeling_usage/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_modeling_usage/`
+}
+
+export const dataModelingUsageList = async (
+    projectId: string,
+    params?: DataModelingUsageListParams,
+    options?: RequestInit
+): Promise<ModelUsageApi> => {
+    return apiMutator<ModelUsageApi>(getDataModelingUsageListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

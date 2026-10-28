@@ -6,22 +6,30 @@ import { useRef, useState } from 'react'
 
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { DISPLAY_TYPES_TO_CATEGORIES, SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { uuid } from 'lib/utils/dom'
 import { alphabet } from 'lib/utils/strings'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { isFilterWithDisplay, isLifecycleFilter } from 'scenes/insights/sharedUtils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { EntityTypes, FilterLogicalOperator, FilterType, InsightLogicProps, InsightType } from '~/types'
+import { AnyEntityNode, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ChartDisplayType,
+    EntityTypes,
+    FilterLogicalOperator,
+    FilterType,
+    InsightLogicProps,
+    InsightType,
+} from '~/types'
 
 import __trendsLineBreakdown from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'
-import { ActionFilter, ActionFilterProps } from './ActionFilter'
+import { ActionFilter, ActionFilterProps, SeriesActionFilter, SeriesActionFilterProps } from './ActionFilter'
 import { MathAvailability } from './ActionFilterRow/types'
+import { SeriesNode } from './seriesNode'
 
-type Story = StoryObj<ActionFilterProps>
-const meta: Meta<ActionFilterProps> = {
+type Story = StoryObj<SeriesActionFilterProps>
+const meta: Meta<SeriesActionFilterProps> = {
     title: 'Filters/Action Filter',
     decorators: [taxonomicFilterMocksDecorator],
 }
@@ -29,59 +37,72 @@ export default meta
 
 let uniqueNode = 0
 
-const renderActionFilter = ({ ...props }: Partial<ActionFilterProps>): JSX.Element => {
+const eventNode = (event: string, extra: Record<string, any> = {}): AnyEntityNode =>
+    ({ kind: NodeKind.EventsNode, event, name: event, ...extra }) as AnyEntityNode
+
+const group = (nodes: AnyEntityNode[], opts: { custom_name?: string; math?: Record<string, any> } = {}): SeriesNode =>
+    ({
+        kind: NodeKind.GroupNode,
+        name: nodes.map((node) => node.name).join(', '),
+        operator: FilterLogicalOperator.Or,
+        nodes,
+        ...opts.math,
+        ...(opts.custom_name && { custom_name: opts.custom_name }),
+    }) as SeriesNode
+
+/** insightLogic only needs something cached to sit in; the editor reads its series from props. */
+function useStoryInsightProps(): InsightLogicProps {
+    const [dashboardItemId] = useState(() => `ActionFilterStory.${uniqueNode++}`)
+    const insight = __trendsLineBreakdown as any
+    return {
+        dashboardItemId,
+        doNotLoad: true,
+        cachedInsight: { ...insight, short_id: dashboardItemId },
+    } as InsightLogicProps
+}
+
+const DEFAULT_SERIES: SeriesNode[] = [
+    eventNode('$pageview', {
+        properties: [
+            {
+                key: '$browser',
+                value: ['Chrome'],
+                operator: 'exact',
+                type: 'person',
+            },
+        ],
+    }),
+]
+
+const renderActionFilter = ({ ...props }: Partial<SeriesActionFilterProps>): JSX.Element => {
     useMountedLogic(cohortsModel)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const id = useRef(uuid())
-
-    const [filters, setFilters] = useState<FilterType>({
-        insight: InsightType.TRENDS,
-        events: [
-            {
-                id: '$pageview',
-                name: '$pageview',
-                order: 0,
-                type: 'events',
-                properties: [
-                    {
-                        key: '$browser',
-                        value: ['Chrome'],
-                        operator: 'exact',
-                        type: 'person',
-                    },
-                ],
-            },
-        ],
-    })
-
-    const [dashboardItemId] = useState(() => `ActionFilterStory.${uniqueNode++}`)
-
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const insight = __trendsLineBreakdown as any
-    const cachedInsight = { ...insight, short_id: dashboardItemId, filters }
-    const insightProps = { dashboardItemId, doNotLoad: true, cachedInsight } as InsightLogicProps
+    const [series, setSeries] = useState<SeriesNode[]>(DEFAULT_SERIES)
+    const [insightType] = useState<InsightType>(InsightType.TRENDS)
+    const [display] = useState<ChartDisplayType>(ChartDisplayType.ActionsLineGraph)
+    const insightProps = useStoryInsightProps()
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
-            <ActionFilter
-                filters={filters}
-                setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
+            <SeriesActionFilter
+                series={series}
+                onChange={setSeries}
                 typeKey={`trends_${id.current}`}
+                insightType={insightType}
+                trendsDisplayCategory={DISPLAY_TYPES_TO_CATEGORIES[display]}
                 buttonCopy="Add graph series"
                 showSeriesIndicator
                 entitiesLimit={
-                    isLifecycleFilter(filters) ||
-                    (isFilterWithDisplay(filters) &&
-                        filters.display &&
-                        SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display))
+                    insightType === InsightType.LIFECYCLE || SINGLE_SERIES_DISPLAY_TYPES.includes(display)
                         ? 1
                         : alphabet.length
                 }
                 mathAvailability={
-                    filters.insight === InsightType.LIFECYCLE
+                    insightType === InsightType.LIFECYCLE
                         ? MathAvailability.None
-                        : filters.insight === InsightType.STICKINESS
+                        : insightType === InsightType.STICKINESS
                           ? MathAvailability.ActorsOnly
                           : MathAvailability.All
                 }
@@ -142,51 +163,39 @@ export const SingleFilter: Story = {
     },
 }
 
-const renderAutocaptureFilter = ({ ...props }: Partial<ActionFilterProps>): JSX.Element => {
+const renderAutocaptureFilter = ({ ...props }: Partial<SeriesActionFilterProps>): JSX.Element => {
     useMountedLogic(cohortsModel)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const id = useRef(uuid())
-
-    const [filters, setFilters] = useState<FilterType>({
-        insight: InsightType.TRENDS,
-        events: [
-            {
-                id: '$autocapture',
-                name: '$autocapture',
-                order: 0,
-                type: 'events',
-                properties: [
-                    {
-                        key: '$el_text',
-                        value: 'Submit',
-                        operator: 'exact',
-                        type: 'event',
-                    },
-                    {
-                        key: 'selector',
-                        value: '.btn-primary',
-                        operator: 'exact',
-                        type: 'element',
-                    },
-                ],
-            },
-        ],
-    })
-
-    const [dashboardItemId] = useState(() => `ActionFilterStory.${uniqueNode++}`)
-
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const insight = __trendsLineBreakdown as any
-    const cachedInsight = { ...insight, short_id: dashboardItemId, filters }
-    const insightProps = { dashboardItemId, doNotLoad: true, cachedInsight } as InsightLogicProps
+    const [series, setSeries] = useState<SeriesNode[]>([
+        eventNode('$autocapture', {
+            properties: [
+                {
+                    key: '$el_text',
+                    value: 'Submit',
+                    operator: 'exact',
+                    type: 'event',
+                },
+                {
+                    key: 'selector',
+                    value: '.btn-primary',
+                    operator: 'exact',
+                    type: 'element',
+                },
+            ],
+        }),
+    ])
+    const insightProps = useStoryInsightProps()
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
-            <ActionFilter
-                filters={filters}
-                setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
+            <SeriesActionFilter
+                series={series}
+                onChange={setSeries}
                 typeKey={`trends_${id.current}`}
+                insightType={InsightType.TRENDS}
+                trendsDisplayCategory={DISPLAY_TYPES_TO_CATEGORIES[ChartDisplayType.ActionsLineGraph]}
                 buttonCopy="Add graph series"
                 showSeriesIndicator
                 mathAvailability={MathAvailability.All}
@@ -226,50 +235,32 @@ export const AutocaptureWithSaveAsAction: Story = {
     },
 }
 
-const groupEvent = (id: string, name: string, order: number, math?: Record<string, any>): Record<string, any> => ({
-    id,
-    type: EntityTypes.EVENTS,
-    name,
-    order,
-    ...math,
-})
-
-const group = (
-    order: number,
-    nestedFilters: any[],
-    opts: { custom_name?: string; math?: Record<string, any> } = {}
-): Record<string, any> => ({
-    id: null,
-    type: EntityTypes.GROUPS,
-    name: nestedFilters.map((f: any) => f.name).join(', '),
-    order,
-    operator: FilterLogicalOperator.Or,
-    nestedFilters,
-    ...opts.math,
-    ...(opts.custom_name && { custom_name: opts.custom_name }),
-})
-
-const renderGroupStory = (initialFilters: FilterType, actionFilterProps: Partial<ActionFilterProps> = {}) => {
-    return ({ ...props }: Partial<ActionFilterProps>): JSX.Element => {
+const renderGroupStory = (
+    initialSeries: SeriesNode[],
+    insightType: InsightType,
+    actionFilterProps: Partial<SeriesActionFilterProps> = {}
+) => {
+    return ({ ...props }: Partial<SeriesActionFilterProps>): JSX.Element => {
         useMountedLogic(cohortsModel)
         const { groupsTaxonomicTypes } = useValues(groupsModel)
         const id = useRef(uuid())
-        const [filters, setFilters] = useState<FilterType>(initialFilters)
-        const [dashboardItemId] = useState(() => `ActionFilterStory.${uniqueNode++}`)
-
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const insight = __trendsLineBreakdown as any
-        const cachedInsight = { ...insight, short_id: dashboardItemId, filters }
-        const insightProps = { dashboardItemId, doNotLoad: true, cachedInsight } as InsightLogicProps
+        const [series, setSeries] = useState<SeriesNode[]>(initialSeries)
+        const insightProps = useStoryInsightProps()
 
         return (
             <BindLogic logic={insightLogic} props={insightProps}>
-                <ActionFilter
+                <SeriesActionFilter
                     {...props}
-                    filters={filters}
-                    setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
+                    series={series}
+                    onChange={setSeries}
                     typeKey={`group_story_${id.current}`}
-                    buttonCopy={filters.insight === InsightType.FUNNELS ? 'Add funnel step' : 'Add graph series'}
+                    insightType={insightType}
+                    trendsDisplayCategory={
+                        insightType === InsightType.TRENDS
+                            ? DISPLAY_TYPES_TO_CATEGORIES[ChartDisplayType.ActionsLineGraph]
+                            : null
+                    }
+                    buttonCopy={insightType === InsightType.FUNNELS ? 'Add funnel step' : 'Add graph series'}
                     showSeriesIndicator
                     entitiesLimit={alphabet.length}
                     propertiesTaxonomicGroupTypes={[
@@ -287,47 +278,37 @@ const renderGroupStory = (initialFilters: FilterType, actionFilterProps: Partial
 }
 
 export const TrendsGroupDefaultName: Story = {
-    render: renderGroupStory({
-        insight: InsightType.TRENDS,
-        groups: [group(0, [groupEvent('$pageview', '$pageview', 0), groupEvent('$exception', '$exception', 1)])],
-    }),
+    render: renderGroupStory([group([eventNode('$pageview'), eventNode('$exception')])], InsightType.TRENDS),
     args: {},
 }
 
 export const TrendsGroupCustomName: Story = {
-    render: renderGroupStory({
-        insight: InsightType.TRENDS,
-        groups: [
-            group(0, [groupEvent('$pageview', '$pageview', 0), groupEvent('$exception', '$exception', 1)], {
-                custom_name: 'My custom name',
-            }),
-        ],
-    }),
+    render: renderGroupStory(
+        [group([eventNode('$pageview'), eventNode('$exception')], { custom_name: 'My custom name' })],
+        InsightType.TRENDS
+    ),
     args: {},
 }
 
 const hogqlMath = { math: 'hogql', math_hogql: 'sum(toInt(properties.$revenue))' }
 
 export const TrendsGroupCustomNameHogQL: Story = {
-    render: renderGroupStory({
-        insight: InsightType.TRENDS,
-        groups: [
-            group(0, [groupEvent('$pageview', '$pageview', 0, hogqlMath)], {
+    render: renderGroupStory(
+        [
+            group([eventNode('$pageview', hogqlMath)], {
                 custom_name: 'My custom name (HogQL)',
                 math: hogqlMath,
             }),
         ],
-    }),
+        InsightType.TRENDS
+    ),
     args: {},
 }
 
 export const FunnelsGroupDefaultName: Story = {
     render: renderGroupStory(
-        {
-            insight: InsightType.FUNNELS,
-            groups: [group(0, [groupEvent('$pageview', '$pageview', 0), groupEvent('$exception', '$exception', 1)])],
-            events: [groupEvent('$pageleave', '$pageleave', 1)],
-        },
+        [group([eventNode('$pageview'), eventNode('$exception')]), eventNode('$pageleave') as SeriesNode],
+        InsightType.FUNNELS,
         {
             seriesIndicatorType: 'numeric',
             sortable: true,
@@ -339,20 +320,57 @@ export const FunnelsGroupDefaultName: Story = {
 
 export const FunnelsGroupCustomName: Story = {
     render: renderGroupStory(
-        {
-            insight: InsightType.FUNNELS,
-            groups: [
-                group(0, [groupEvent('$pageview', '$pageview', 0), groupEvent('$exception', '$exception', 1)], {
-                    custom_name: 'My custom name',
-                }),
-            ],
-            events: [groupEvent('$pageleave', '$pageleave', 1)],
-        },
+        [
+            group([eventNode('$pageview'), eventNode('$exception')], { custom_name: 'My custom name' }),
+            eventNode('$pageleave') as SeriesNode,
+        ],
+        InsightType.FUNNELS,
         {
             seriesIndicatorType: 'numeric',
             sortable: true,
             mathAvailability: MathAvailability.FunnelsOnly,
         }
     ),
+    args: {},
+}
+
+/**
+ * The legacy-persisted surfaces (CDP, workflows, heatmaps, usage metrics, dashboard templates,
+ * retention) keep the `filters`/`setFilters` props through the wrapper.
+ */
+const renderLegacyActionFilter = ({ ...props }: Partial<ActionFilterProps>): JSX.Element => {
+    useMountedLogic(cohortsModel)
+    const id = useRef(uuid())
+    const [filters, setFilters] = useState<FilterType>({
+        insight: InsightType.TRENDS,
+        events: [
+            {
+                id: '$pageview',
+                name: '$pageview',
+                order: 0,
+                type: EntityTypes.EVENTS,
+                properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'person' }],
+            },
+        ],
+    } as FilterType)
+    const insightProps = useStoryInsightProps()
+
+    return (
+        <BindLogic logic={insightLogic} props={insightProps}>
+            <ActionFilter
+                filters={filters}
+                setFilters={(payload: FilterType) => setFilters({ ...filters, ...payload })}
+                typeKey={`legacy_${id.current}`}
+                buttonCopy="Add graph series"
+                showSeriesIndicator
+                mathAvailability={MathAvailability.None}
+                {...props}
+            />
+        </BindLogic>
+    )
+}
+
+export const LegacyFilters: Story = {
+    render: renderLegacyActionFilter as any,
     args: {},
 }

@@ -65,9 +65,9 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query_stats import get_active, record
 
 from posthog.api.services.query import _run_query_runner
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries, tags_context
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, wrap_clickhouse_query_error
 from posthog.event_usage import EventSource
@@ -91,6 +91,7 @@ from posthog.hogql_queries.query_runner import (
     shared_insights_execution_mode,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.event.new_events_schema import get_events_route
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -106,7 +107,6 @@ from posthog.query_cache.failures import (
     BUDGET_EXTENDED,
     BUDGET_INTERACTIVE,
     KIND_POLICIES,
-    QUERY_FAILURE_CACHING_FLAG,
     QueryFailureCache,
     WarmingQueryFailureCache,
 )
@@ -188,6 +188,10 @@ _QUERY_SCAN_FLAG_LOG_ONLY = QueryScanFlag(
 
 def _calculate_recording_clickhouse_stats(_self):
     record(rows_read=12, duration_ms=34.0, workload="ONLINE")
+    stats = get_active()
+    assert stats is not None
+    stats.add_reads(warehouse_table_ids={"table-b", "table-a"}, saved_query_ids={"view-a"})
+    stats.add_direct_source("source-a")
     return TheTestBasicQueryResponse(results=[])
 
 
@@ -222,6 +226,24 @@ class TestQueryRunner(BaseTest):
 
     def setup_test_query_runner_class(self, base: type[QueryRunner] = QueryRunner):
         return setup_test_query_runner_class(base)
+
+    @parameterized.expand([(False,), (True,)])
+    def test_run_pins_its_events_route_for_lookups(self, events_json: bool) -> None:
+        TestQueryRunner = self.setup_test_query_runner_class()
+        routes: list[HogQLQueryModifiers | None] = []
+
+        def calculate(_runner: QueryRunner) -> TheTestBasicQueryResponse:
+            routes.append(get_events_route())
+            return TheTestBasicQueryResponse(results=[])
+
+        runner = TestQueryRunner(
+            query={"some_attr": "bla"}, team=self.team, modifiers=HogQLQueryModifiers(useNewEventsSchema=events_json)
+        )
+        with mock.patch.object(TestQueryRunner, "_calculate", autospec=True, side_effect=calculate):
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        assert routes == [HogQLQueryModifiers(useNewEventsSchema=events_json)]
+        assert get_events_route() is None
 
     def test_sync_warning_attach_preserves_other_warning_kinds(self):
         # The accumulator attach replaces the response's warnings with the collected sync warnings.
@@ -677,7 +699,24 @@ class TestQueryRunner(BaseTest):
 
         self.assertEqual(runner.query, expected_source_query)
 
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_bi_worksheet_state_does_not_change_executed_query_or_cache(self) -> None:
+        source = {"kind": "HogQLQuery", "query": "SELECT 1"}
+        first = get_query_runner(
+            query={"kind": "BIVisualizationNode", "source": source, "config": {"chartType": "ActionsBar"}},
+            team=self.team,
+        )
+        second = get_query_runner(
+            query={"kind": "BIVisualizationNode", "source": source, "config": {"chartType": "ActionsLineGraph"}},
+            team=self.team,
+        )
+        self.assertEqual(first.query, HogQLQuery(query="SELECT 1"))
+        self.assertEqual(first.get_cache_key(), second.get_cache_key())
+
+    @override_settings(
+        PERSON_ON_EVENTS_OVERRIDE=False,
+        PERSON_ON_EVENTS_V2_OVERRIDE=False,
+        CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False,
+    )
     def test_cache_payload(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
@@ -796,8 +835,7 @@ class TestQueryRunner(BaseTest):
 
     def test_cache_payload_week_interval(self):
         TestQueryRunner = self.setup_test_query_runner_class()
-        # set the pk directly as it affects the hash in the _cache_key call
-        team = Team.objects.create(pk=42, organization=self.organization, week_start_day=WeekStartDay.MONDAY)
+        team = Team.objects.create(organization=self.organization, week_start_day=WeekStartDay.MONDAY)
         runner = TestQueryRunner(query={"some_attr": "bla", "tags": {"scene": "foo", "productKey": "bar"}}, team=team)
         runner.query_date_range = QueryDateRange(
             team=team, date_range=None, interval=IntervalType.WEEK, now=datetime.now()
@@ -806,16 +844,28 @@ class TestQueryRunner(BaseTest):
         cache_payload = runner.get_cache_payload()
         assert cache_payload["week_start_day"] == WeekStartDay.MONDAY
 
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
-    def test_cache_key(self):
+    def _cache_key_with_fixed_payload_team_id(self, runner: QueryRunner) -> str:
+        payload = runner.get_cache_payload()
+        payload["team_id"] = 42
+        with mock.patch.object(runner, "get_cache_payload", return_value=payload):
+            return runner.get_cache_key()
+
+    @parameterized.expand([("new_team", False), ("existing_team", True)])
+    @override_settings(
+        PERSON_ON_EVENTS_OVERRIDE=False,
+        PERSON_ON_EVENTS_V2_OVERRIDE=False,
+        CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False,
+    )
+    def test_cache_key(self, _name: str, existing_team: bool) -> None:
         TestQueryRunner = self.setup_test_query_runner_class()
-        # set the pk directly as it affects the hash in the _cache_key call
-        team = Team.objects.create(pk=42, organization=self.organization)
+        team = Team.objects.create(organization=self.organization)
+        if existing_team and not Team.objects.filter(pk=42).exists():
+            Team.objects.create(pk=42, organization=self.organization)
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
-        cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_13361de10d0c3c79451b288eb57ca1147331e86a8b8e63a0a815adf5a2d7bcbb"
+        cache_key = self._cache_key_with_fixed_payload_team_id(runner)
+        assert cache_key == f"cache_{team.pk}_13361de10d0c3c79451b288eb57ca1147331e86a8b8e63a0a815adf5a2d7bcbb"
 
     def test_cache_key_ignores_query_log_tags(self):
         # Query log tags are metadata, so they must never partition the cache. Web
@@ -824,39 +874,46 @@ class TestQueryRunner(BaseTest):
         # reading the same cache entry as the untagged one, or every preset user would
         # miss the cache on every load and the warm set would double.
         TestQueryRunner = self.setup_test_query_runner_class()
-        team = Team.objects.create(pk=42, organization=self.organization)
+        team = Team.objects.create(organization=self.organization)
 
         untagged = TestQueryRunner(query={"some_attr": "bla"}, team=team)
         tagged = TestQueryRunner(query={"some_attr": "bla", "tags": {"presetId": "abc123"}}, team=team)
 
         assert tagged.get_cache_key() == untagged.get_cache_key()
 
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    @override_settings(
+        PERSON_ON_EVENTS_OVERRIDE=False,
+        PERSON_ON_EVENTS_V2_OVERRIDE=False,
+        CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False,
+    )
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
         class TestSubclassQueryRunner(TestQueryRunner):  # type: ignore[misc, valid-type]
             pass
 
-        # set the pk directly as it affects the hash in the _cache_key call
-        team = Team.objects.create(pk=42, organization=self.organization)
+        team = Team.objects.create(organization=self.organization)
 
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
-        cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_9dcfced89edfbfcd1e0fd380380c7a5e4a9957386fc22172c1b83548a9af6d02"
+        cache_key = self._cache_key_with_fixed_payload_team_id(runner)
+        assert cache_key == f"cache_{team.pk}_9dcfced89edfbfcd1e0fd380380c7a5e4a9957386fc22172c1b83548a9af6d02"
 
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    @override_settings(
+        PERSON_ON_EVENTS_OVERRIDE=False,
+        PERSON_ON_EVENTS_V2_OVERRIDE=False,
+        CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False,
+    )
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
-        team = Team.objects.create(pk=42, organization=self.organization)
+        team = Team.objects.create(organization=self.organization)
         team.timezone = "Europe/Vienna"
         team.save()
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
-        cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_580a20072d3930f66666356574843255ba9418ff58cc0fc92d019bf8bf1cf972"
+        cache_key = self._cache_key_with_fixed_payload_team_id(runner)
+        assert cache_key == f"cache_{team.pk}_580a20072d3930f66666356574843255ba9418ff58cc0fc92d019bf8bf1cf972"
 
     def test_query_identity_splits_the_query_from_how_it_is_answered(self) -> None:
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -887,24 +944,36 @@ class TestQueryRunner(BaseTest):
     def test_cache_hit_and_fresh_events_carry_one_identity(self) -> None:
         runner_class = setup_test_query_runner_class()
         with (
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)),
             mock.patch(
                 "posthog.hogql_queries.query_runner.create_default_modifiers_for_user", side_effect=_add_user_modifier
             ),
             mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report,
         ):
             runner_class(query={"some_attr": "bla"}, team=self.team, user=self.user).run(
-                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user
             )
             fresh_props = report.call_args.args[1]
             runner_class(query={"some_attr": "bla"}, team=self.team, user=self.user).run(
-                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, user=self.user
             )
             hit_props = report.call_args.args[1]
 
         assert fresh_props["cache_hit"] is False
         assert hit_props["cache_hit"] is True
+        assert fresh_props["warehouse_tables_referenced"] == []
+        assert hit_props["warehouse_tables_referenced"] is None
+        assert fresh_props["saved_queries_referenced"] == []
+        assert hit_props["saved_queries_referenced"] is None
+        assert fresh_props["direct_connection_source_ids"] == []
+        assert hit_props["direct_connection_source_ids"] is None
         assert fresh_props["query_hash"] == hit_props["query_hash"]
         assert fresh_props["runtime_hash"] == hit_props["runtime_hash"]
+        assert fresh_props["query"] == hit_props["query"] == {"kind": "TestQuery", "some_attr": "bla"}
+        assert fresh_props["modifiers"]["useNewEventsSchema"] is True
+        assert hit_props["modifiers"]["useNewEventsSchema"] is True
+        assert fresh_props["modifiers"]["typeAwareCastSimplification"] is True
+        assert "typeAwareCastSimplification" not in hit_props["modifiers"]
 
     def test_fresh_event_carries_clickhouse_counters_with_the_scan_flag_off(self) -> None:
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -923,6 +992,9 @@ class TestQueryRunner(BaseTest):
         assert props["clickhouse_rows_read"] == 12
         assert props["clickhouse_query_count"] == 1
         assert props["clickhouse_workload"] == "ONLINE"
+        assert props["warehouse_tables_referenced"] == ["table-a", "table-b"]
+        assert props["saved_queries_referenced"] == ["view-a"]
+        assert props["direct_connection_source_ids"] == ["source-a"]
 
     @parameterized.expand(
         [
@@ -949,7 +1021,7 @@ class TestQueryRunner(BaseTest):
             )
         elif where == "limiter":
             failing = mock.patch(
-                "posthog.hogql_queries.query_runner.get_app_org_rate_limiter", side_effect=error_class("over the limit")
+                "posthog.clickhouse.client.limit.get_app_org_rate_limiter", side_effect=error_class("over the limit")
             )
         elif where == "store":
             failing = mock.patch.object(QueryCache, "store_result", side_effect=error_class("cache store failed"))
@@ -966,6 +1038,7 @@ class TestQueryRunner(BaseTest):
         assert props["error_type"] == error_class.__name__
         assert props["cache_key"] == runner.get_cache_key()
         assert props["query_hash"] == runner.get_query_identity().query_hash
+        assert props["query"]["some_attr"] == "bla"
         assert props["failed_after_ms"] >= 0
         if failed_in == "calculate":
             assert (props["clickhouse_rows_read"], props["clickhouse_workload"]) == (90, "ONLINE")
@@ -1284,6 +1357,7 @@ class TestQueryRunner(BaseTest):
         }
         mock_cache_manager.lookup.return_value.entry = mock_entry
         mock_cache_manager.lookup.return_value.failure = None
+        mock_cache_manager.open_failure.return_value = None
         mock_query_cache_cls.return_value = mock_cache_manager
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
@@ -1898,6 +1972,29 @@ class TestSharedInsightsExecutionMode(BaseTest):
         expected = sharing_configuration.pk if is_shared_viewer else None
         assert mock_enqueue.call_args.kwargs["sharing_configuration_id"] == expected
 
+    @mock.patch("posthog.hogql_queries.query_runner.enqueue_process_query_task")
+    def test_async_payload_pins_a_resolved_native_table(self, mock_enqueue: mock.MagicMock) -> None:
+        with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True):
+            direct = HogQLQueryRunner(query=HogQLQuery(query="SELECT 1"), team=self.team)
+            direct.query = direct.query.model_copy(update={"connectionId": "direct"})
+            with mock.patch.object(HogQLQueryRunner, "_validate_direct_connection"):
+                direct.enqueue_async_calculation(cache_manager=mock.MagicMock(), user=self.user)
+                assert mock_enqueue.call_args.kwargs["query_json"] == direct.query.model_dump()
+                assert "useNewEventsSchema" not in direct.get_cache_payload()["hogql_modifiers"]
+            runner = HogQLQueryRunner(query=HogQLQuery(query="SELECT 1"), team=self.team)
+            runner.enqueue_async_calculation(cache_manager=mock.MagicMock(), user=self.user)
+        with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False):
+            worker = HogQLQueryRunner(query=mock_enqueue.call_args.kwargs["query_json"], team=self.team)
+            runner.enqueue_async_calculation(cache_manager=mock.MagicMock(), user=self.user)
+            legacy = HogQLQueryRunner(query=HogQLQuery(query="SELECT 1"), team=self.team)
+            legacy.enqueue_async_calculation(cache_manager=mock.MagicMock(), user=self.user)
+
+        assert worker.modifiers.useNewEventsSchema is True
+        assert worker.get_cache_key() == runner.get_cache_key()
+        assert mock_enqueue.call_args.kwargs["query_json"] == legacy.query.model_dump()
+        assert legacy.get_cache_key() != runner.get_cache_key()
+        assert "useNewEventsSchema" not in legacy.get_cache_payload()["hogql_modifiers"]
+
 
 @pytest.mark.ee
 class TestQueryRunnerAccessControlFingerprint(BaseTest):
@@ -2086,6 +2183,18 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
                 False,
             ),
             ("saved view over a system table", "select * from notebook_view", {"notebook"}, False),
+            (
+                "system table with a warehouse scope",
+                "select * from system.data_modeling_views",
+                {"warehouse_view"},
+                False,
+            ),
+            (
+                "saved view over a system table with a warehouse scope",
+                "select * from tables_view",
+                {"warehouse_table"},
+                False,
+            ),
         ]
     )
     def test_shared_link_viewer_partitions_only_on_scopes_a_table_carries(
@@ -2104,6 +2213,11 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
             team=self.team,
             name="notebook_view",
             query={"kind": "HogQLQuery", "query": "select * from system.notebooks"},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="tables_view",
+            query={"kind": "HogQLQuery", "query": "select name from system.data_warehouse_tables"},
         )
         query = {"kind": "HogQLQuery", "query": sql}
         shared_runner = HogQLQueryRunner(query=query, team=self.team, user=_shared_link_user(self.team))
@@ -2389,10 +2503,6 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         assert runner._user_access_control is None
 
 
-def _failure_caching_flag(key: str, *args: Any, **kwargs: Any) -> bool:
-    return key == QUERY_FAILURE_CACHING_FLAG
-
-
 def _per_query_memory_error() -> ClickHouseQueryMemoryLimitExceeded:
     server_error = ServerException("Memory limit (for query) exceeded: would use 30.1 GiB", code=241)
     error = wrap_clickhouse_query_error(server_error)
@@ -2423,37 +2533,35 @@ class TestQueryFailureCaching(BaseTest):
     def test_open_breaker_serves_remembered_error_without_calculating(self):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
-        with mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag):
-            mock_calculate = self._open_breaker(runner_class, runner)
+        mock_calculate = self._open_breaker(runner_class, runner)
 
-            with mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report:
-                with self.assertRaises(ClickHouseQueryTimeOut) as ctx:
-                    runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-            assert mock_calculate.call_count == KIND_POLICIES["timeout"].open_threshold
-            assert getattr(ctx.exception, "served_from_query_failure_cache", False)
-            assert ctx.exception.status_code == 504
-            assert [call.args[0] for call in report.call_args_list] == ["query execution failed"]
-            refused_props = report.call_args.args[1]
-            assert (refused_props["outcome"], refused_props["error_category"], refused_props["failed_in"]) == (
-                "refused",
-                "query_performance_error",
-                "prepare",
-            )
+        with mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report:
+            with self.assertRaises(ClickHouseQueryTimeOut) as ctx:
+                runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        assert mock_calculate.call_count == KIND_POLICIES["timeout"].open_threshold
+        assert getattr(ctx.exception, "served_from_query_failure_cache", False)
+        assert ctx.exception.status_code == 504
+        assert [call.args[0] for call in report.call_args_list] == ["query execution failed"]
+        refused_props = report.call_args.args[1]
+        assert (refused_props["outcome"], refused_props["error_category"], refused_props["failed_in"]) == (
+            "refused",
+            "query_performance_error",
+            "prepare",
+        )
 
     def test_open_breaker_raises_even_with_stale_cache(self):
         # Stale data is deliberately not served to mask a failing query.
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
-        with mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag):
-            with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen:
-                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)  # seed the cache
-                frozen.shift(timedelta(minutes=15))  # past the harness's 10-minute staleness window
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen:
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)  # seed the cache
+            frozen.shift(timedelta(minutes=15))  # past the harness's 10-minute staleness window
 
-                mock_calculate = self._open_breaker(runner_class, runner)
-                with self.assertRaises(ClickHouseQueryTimeOut) as ctx:
-                    runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-                assert mock_calculate.call_count == KIND_POLICIES["timeout"].open_threshold
-                assert getattr(ctx.exception, "served_from_query_failure_cache", False)
+            mock_calculate = self._open_breaker(runner_class, runner)
+            with self.assertRaises(ClickHouseQueryTimeOut) as ctx:
+                runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+            assert mock_calculate.call_count == KIND_POLICIES["timeout"].open_threshold
+            assert getattr(ctx.exception, "served_from_query_failure_cache", False)
 
     @parameterized.expand(
         [
@@ -2465,14 +2573,13 @@ class TestQueryFailureCaching(BaseTest):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
         error = make_error()
-        with mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag):
-            mock_calculate = self._open_breaker(runner_class, runner, error=error)
-            assert mock_calculate.call_count == 1
+        mock_calculate = self._open_breaker(runner_class, runner, error=error)
+        assert mock_calculate.call_count == 1
 
-            with self.assertRaises(type(error)) as ctx:
-                runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-            assert mock_calculate.call_count == 1
-            assert getattr(ctx.exception, "served_from_query_failure_cache", False)
+        with self.assertRaises(type(error)) as ctx:
+            runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        assert mock_calculate.call_count == 1
+        assert getattr(ctx.exception, "served_from_query_failure_cache", False)
 
     @parameterized.expand(
         [
@@ -2497,7 +2604,6 @@ class TestQueryFailureCaching(BaseTest):
         redis_client = mock.Mock()
         redis_client.get.return_value = json.dumps({"pending": True})
         with (
-            mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag),
             mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis_client),
             mock.patch("posthog.query_scan.trigger._KINDS_A_PERSON_BUILDS", _KINDS_WITH_THE_TEST_KIND),
             mock.patch.object(
@@ -2526,49 +2632,46 @@ class TestQueryFailureCaching(BaseTest):
     def test_forced_blocking_run_respects_open_breaker(self):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
-        with mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag):
-            mock_calculate = self._open_breaker(runner_class, runner)
+        mock_calculate = self._open_breaker(runner_class, runner)
 
-            with self.assertRaises(ClickHouseQueryTimeOut) as ctx:
-                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-            assert mock_calculate.call_count == KIND_POLICIES["timeout"].open_threshold
-            assert getattr(ctx.exception, "served_from_query_failure_cache", False)
+        with self.assertRaises(ClickHouseQueryTimeOut) as ctx:
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert mock_calculate.call_count == KIND_POLICIES["timeout"].open_threshold
+        assert getattr(ctx.exception, "served_from_query_failure_cache", False)
 
     def test_forced_async_dispatch_respects_open_breaker(self):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
-        with mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag):
-            self._open_breaker(runner_class, runner, error=_per_query_memory_error())
+        self._open_breaker(runner_class, runner, error=_per_query_memory_error())
 
-            with mock.patch.object(runner_class, "enqueue_async_calculation", autospec=True) as mock_enqueue:
-                with self.assertRaises(ClickHouseQueryMemoryLimitExceeded) as ctx:
-                    runner.run(execution_mode=ExecutionMode.CALCULATE_ASYNC_ALWAYS)
-            mock_enqueue.assert_not_called()
-            assert getattr(ctx.exception, "served_from_query_failure_cache", False)
+        with mock.patch.object(runner_class, "enqueue_async_calculation", autospec=True) as mock_enqueue:
+            with self.assertRaises(ClickHouseQueryMemoryLimitExceeded) as ctx:
+                runner.run(execution_mode=ExecutionMode.CALCULATE_ASYNC_ALWAYS)
+        mock_enqueue.assert_not_called()
+        assert getattr(ctx.exception, "served_from_query_failure_cache", False)
 
     def test_successful_run_after_backoff_closes_the_breaker(self):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
-        with mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag):
-            with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen:
-                with mock.patch.object(
-                    runner_class, "_calculate", autospec=True, side_effect=ClickHouseQueryTimeOut()
-                ) as mock_calculate:
-                    for _ in range(KIND_POLICIES["timeout"].open_threshold):
-                        with self.assertRaises(ClickHouseQueryTimeOut):
-                            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-                assert QueryFailureCache(runner.get_cache_key()).get_open() is not None
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen:
+            with mock.patch.object(
+                runner_class, "_calculate", autospec=True, side_effect=ClickHouseQueryTimeOut()
+            ) as mock_calculate:
+                for _ in range(KIND_POLICIES["timeout"].open_threshold):
+                    with self.assertRaises(ClickHouseQueryTimeOut):
+                        runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            assert QueryFailureCache(runner.get_cache_key()).get_open() is not None
 
-                # while open, even a forced refresh is refused without touching ClickHouse
-                with self.assertRaises(ClickHouseQueryTimeOut):
-                    runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-                assert mock_calculate.call_count == KIND_POLICIES["timeout"].open_threshold
-
-                # once the backoff elapses, the next run executes (the real harness _calculate),
-                # succeeds, and closes the breaker
-                frozen.shift(BASE_BACKOFF + timedelta(seconds=1))
+            # while open, even a forced refresh is refused without touching ClickHouse
+            with self.assertRaises(ClickHouseQueryTimeOut):
                 runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-                assert QueryFailureCache(runner.get_cache_key()).get_open() is None
+            assert mock_calculate.call_count == KIND_POLICIES["timeout"].open_threshold
+
+            # once the backoff elapses, the next run executes (the real harness _calculate),
+            # succeeds, and closes the breaker
+            frozen.shift(BASE_BACKOFF + timedelta(seconds=1))
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            assert QueryFailureCache(runner.get_cache_key()).get_open() is None
 
     @parameterized.expand([(None,), (EventSource.CACHE_WARMING,)])
     def test_extended_budget_run_ignores_interactive_breaker(self, source: EventSource | None) -> None:
@@ -2581,11 +2684,10 @@ class TestQueryFailureCaching(BaseTest):
             failure_cache.record_failure("timeout", "timed out", budget=BUDGET_INTERACTIVE)
         assert failure_cache.get_open() is not None
 
-        with mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag):
-            response = runner.run(
-                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                analytics_props={"source": source} if source is not None else None,
-            )
+        response = runner.run(
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            analytics_props={"source": source} if source is not None else None,
+        )
         assert response.is_cached is False
         assert failure_cache.get_open() is None  # the success closed the breaker
 
@@ -2606,10 +2708,7 @@ class TestQueryFailureCaching(BaseTest):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team, limit_context=LimitContext.QUERY_ASYNC)
         failure_cache = WarmingQueryFailureCache(runner.get_cache_key())
-        with (
-            time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen,
-            mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag),
-        ):
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen:
             if has_fresh_cache:
                 runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             for _ in range(3):
@@ -2641,10 +2740,7 @@ class TestQueryFailureCaching(BaseTest):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team, limit_context=LimitContext.QUERY_ASYNC)
         start = datetime(2026, 1, 1, tzinfo=UTC)
-        with (
-            time_machine.travel(start, tick=False) as frozen,
-            mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag),
-        ):
+        with time_machine.travel(start, tick=False) as frozen:
 
             def time_out_after_ten_minutes(_runner: QueryRunner) -> None:
                 frozen.shift(timedelta(minutes=10))
@@ -2684,66 +2780,40 @@ class TestQueryFailureCaching(BaseTest):
             failure_cache.record_failure("timeout", "timed out", budget=BUDGET_EXTENDED)
         assert failure_cache.get_open() is not None
 
-        with mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag):
-            with self.assertRaises(ClickHouseQueryTimeOut) as ctx:
-                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        with self.assertRaises(ClickHouseQueryTimeOut) as ctx:
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         assert getattr(ctx.exception, "served_from_query_failure_cache", False)
-
-    @parameterized.expand([(None,), (EventSource.CACHE_WARMING,)])
-    def test_no_behavior_change_when_flag_disabled(self, source: EventSource | None) -> None:
-        runner_class = setup_test_query_runner_class()
-        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
-        failure_cache = QueryFailureCache(runner.get_cache_key())
-        for _ in range(KIND_POLICIES["timeout"].open_threshold):
-            failure_cache.record_failure("timeout", "timed out", budget=BUDGET_EXTENDED)
-        with mock.patch.object(
-            runner_class, "_calculate", autospec=True, side_effect=ClickHouseQueryTimeOut()
-        ) as mock_calculate:
-            for _ in range(KIND_POLICIES["timeout"].open_threshold + 2):
-                with self.assertRaises(ClickHouseQueryTimeOut) as ctx:
-                    runner.run(
-                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-                        analytics_props={"source": source} if source is not None else None,
-                    )
-                assert not getattr(ctx.exception, "served_from_query_failure_cache", False)
-            assert mock_calculate.call_count == KIND_POLICIES["timeout"].open_threshold + 2
 
     def test_interactive_timeout_breaker_spares_extended_budget(self):
         # Interactive attempts run with a 10x smaller execution budget than the async worker, so
         # a breaker opened by sync timeouts must still let async recalculation be enqueued.
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
-        with mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag):
-            self._open_breaker(runner_class, runner)
+        self._open_breaker(runner_class, runner)
 
-            with mock.patch.object(
-                runner_class, "enqueue_async_calculation", autospec=True, return_value=None
-            ) as mock_enqueue:
-                response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
-            mock_enqueue.assert_called_once()
-            assert isinstance(response, CacheMissResponse)
+        with mock.patch.object(
+            runner_class, "enqueue_async_calculation", autospec=True, return_value=None
+        ) as mock_enqueue:
+            response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
+        mock_enqueue.assert_called_once()
+        assert isinstance(response, CacheMissResponse)
 
     def test_memory_limit_breaker_forbids_extended_budget(self):
         # Memory-limit failures don't depend on the execution-time budget, so the breaker covers
         # the async path too.
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
-        with mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag):
-            self._open_breaker(runner_class, runner, error=_per_query_memory_error())
+        self._open_breaker(runner_class, runner, error=_per_query_memory_error())
 
-            with mock.patch.object(runner_class, "enqueue_async_calculation", autospec=True) as mock_enqueue:
-                with self.assertRaises(ClickHouseQueryMemoryLimitExceeded) as ctx:
-                    runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
-            mock_enqueue.assert_not_called()
-            assert getattr(ctx.exception, "served_from_query_failure_cache", False)
+        with mock.patch.object(runner_class, "enqueue_async_calculation", autospec=True) as mock_enqueue:
+            with self.assertRaises(ClickHouseQueryMemoryLimitExceeded) as ctx:
+                runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
+        mock_enqueue.assert_not_called()
+        assert getattr(ctx.exception, "served_from_query_failure_cache", False)
 
 
 def _single_flight_flag(key: str, *args: Any, **kwargs: Any) -> bool:
     return key == QUERY_SINGLE_FLIGHT_FLAG
-
-
-def _single_flight_and_failure_caching_flags(key: str, *args: Any, **kwargs: Any) -> bool:
-    return key in (QUERY_FAILURE_CACHING_FLAG, QUERY_SINGLE_FLIGHT_FLAG)
 
 
 class _LeaderInterrupted(BaseException):
@@ -2769,6 +2839,16 @@ class TestQuerySingleFlightRunner(BaseTest):
         return QuerySingleFlight(
             runner.get_cache_key(), budget_for_limit_context(runner.limit_context), runner.single_flight_variant()
         )
+
+    @parameterized.expand([("tagged", None), ("passed_to_the_runner", ClickHouseUser.ALERTS_PLATFORM_INSIGHT)])
+    def test_runs_as_another_clickhouse_user_do_not_share_a_flight(self, _name, runner_user):
+        runner_class = setup_test_query_runner_class()
+        default = self._flight_of(runner_class(query={"some_attr": "bla"}, team=self.team))
+        other = runner_class(query={"some_attr": "bla"}, team=self.team, ch_user=runner_user or ClickHouseUser.DEFAULT)
+        with tags_context(ch_user=None if runner_user else ClickHouseUser.ALERTS_PLATFORM_INSIGHT):
+            flight = self._flight_of(other)
+
+        assert flight.lock_key != default.lock_key
 
     @parameterized.expand([("success", None), ("failure", ClickHouseQueryTimeOut), ("interrupted", _LeaderInterrupted)])
     def test_leader_releases_the_flight(self, _name, error_class):
@@ -2796,7 +2876,7 @@ class TestQuerySingleFlightRunner(BaseTest):
             recorded_at_release.append(QueryFailureCache(runner.get_cache_key()).get_open() is not None)
             published.append(failure)
 
-        with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_and_failure_caching_flags):
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
             with mock.patch.object(runner_class, "_calculate", autospec=True, side_effect=_per_query_memory_error()):
                 with mock.patch.object(QuerySingleFlight, "fail", autospec=True, side_effect=note_failure):
                     with self.assertRaises(ClickHouseQueryMemoryLimitExceeded):

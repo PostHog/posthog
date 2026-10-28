@@ -5,6 +5,8 @@ import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 import { urls } from 'scenes/urls'
 
 import {
+    ALERT_PAGERDUTY_REGION_OPTIONS,
+    ALERT_PAGERDUTY_SEVERITY_OPTIONS,
     AlertNotificationDestinationEditor,
     AlertNotificationDestinationView,
     PendingAlertNotificationDestinationView,
@@ -12,7 +14,10 @@ import {
 
 import { LOGS_ALERT_NOTIFICATION_TYPE_OPTIONS, logsAlertNotificationLogic } from './logsAlertNotificationLogic'
 import {
+    CUSTOM_MESSAGE_TAG,
     getHogFunctionEventKind,
+    logsAlertEventKindsFor,
+    LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY,
     LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
     LOGS_ALERT_NOTIFICATION_TYPE_TEAMS,
     PendingLogsAlertNotification,
@@ -28,6 +33,14 @@ function getPendingNotificationDestination(
     if (notification.type === LOGS_ALERT_NOTIFICATION_TYPE_TEAMS) {
         return { title: 'Microsoft Teams', detail: notification.webhookUrl }
     }
+    if (notification.type === LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
+        const severity = ALERT_PAGERDUTY_SEVERITY_OPTIONS.find((option) => option.value === notification.severity)
+        const region = ALERT_PAGERDUTY_REGION_OPTIONS.find((option) => option.value === notification.region)
+        return {
+            title: 'PagerDuty',
+            detail: `••••${notification.routingKey.slice(-4)} · ${severity?.label ?? notification.severity} · ${region?.label ?? notification.region}`,
+        }
+    }
     return { title: 'Webhook', detail: notification.webhookUrl }
 }
 
@@ -35,6 +48,7 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
     const {
         existingHogFunctionsLoading,
         destinationGroups,
+        customizedDestinationKeys,
         pendingNotifications,
         integrationsLoading,
         integrationsFailed,
@@ -44,6 +58,9 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
         slackChannelValue,
         webhookUrl,
         urlInput,
+        pagerDutyRoutingKey,
+        pagerDutySeverity,
+        pagerDutyRegion,
         addDisabledReason,
     } = useValues(logsAlertNotificationLogic)
     const {
@@ -53,6 +70,9 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
         setSelectedType,
         setSlackChannelValue,
         setWebhookUrl,
+        setPagerDutyRoutingKey,
+        setPagerDutySeverity,
+        setPagerDutyRegion,
         loadIntegrations,
     } = useActions(logsAlertNotificationLogic)
 
@@ -68,15 +88,21 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
 
     const existingDestinations: AlertNotificationDestinationView[] = destinationGroups.map((group) => {
         const detailHogFunctionId =
-            group.hogFunctions.find((hogFunction) => getHogFunctionEventKind(hogFunction) === 'firing')?.id ??
-            group.hogFunctions[0]?.id
+            group.hogFunctions.find(
+                (hogFunction) => getHogFunctionEventKind(hogFunction) === logsAlertEventKindsFor(group.type)[0]
+            )?.id ?? group.hogFunctions[0]?.id
         const detailUrl =
             alertId && detailHogFunctionId ? urls.logsAlertNotificationDetail(alertId, detailHogFunctionId) : undefined
 
         return {
             key: group.key,
             title: resolveGroupLabel(group, slackChannels),
-            tags: [{ label: group.enabled ? 'Active' : 'Paused', type: group.enabled ? 'success' : 'default' }],
+            tags: [
+                { label: group.enabled ? 'Active' : 'Paused', type: group.enabled ? 'success' : 'default' },
+                ...(customizedDestinationKeys.has(group.key)
+                    ? [{ label: CUSTOM_MESSAGE_TAG.label, tooltip: CUSTOM_MESSAGE_TAG.tooltip }]
+                    : []),
+            ],
             viewAction: {
                 kind: 'button',
                 label: 'View',
@@ -98,7 +124,7 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
 
     return (
         <AlertNotificationDestinationEditor
-            description="Each destination delivers notifications for all alert events: firing, resolved, and broken."
+            description="Each destination gets a notification when the alert fires, resolves, or breaks. PagerDuty gets an incident that opens when the alert fires and resolves when it resolves."
             destinations={{
                 showExisting: true,
                 existingLoading: existingHogFunctionsLoading,
@@ -121,6 +147,18 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
                 onChannelValueChange: setSlackChannelValue,
             }}
             url={urlInput ? { input: urlInput, value: webhookUrl, onChange: setWebhookUrl } : undefined}
+            pagerduty={
+                selectedType === LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY
+                    ? {
+                          routingKey: pagerDutyRoutingKey,
+                          onRoutingKeyChange: setPagerDutyRoutingKey,
+                          severity: pagerDutySeverity,
+                          onSeverityChange: setPagerDutySeverity,
+                          region: pagerDutyRegion,
+                          onRegionChange: setPagerDutyRegion,
+                      }
+                    : undefined
+            }
             add={{ onClick: addSelectedNotification, disabledReason: addDisabledReason }}
         />
     )

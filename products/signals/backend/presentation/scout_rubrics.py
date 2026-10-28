@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    OpenApiTypes,
+    extend_schema,
+    extend_schema_serializer,
+)
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -23,6 +29,7 @@ from products.signals.backend.facade.rubrics import (
     ScoutRubricGenerationStatus,
     ScoutRubricGenerationUnavailable,
     ScoutRubricNotFound,
+    ScoutRubricReportChannel,
     ScoutRubricSource,
     default_criteria,
     generate_scout_rubric,
@@ -48,6 +55,48 @@ class ScoutRubricCriterionSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_serializer(component_name="ScoutRubricReferenceTextDocument")
+class ScoutRubricReferenceTextSerializer(serializers.Serializer):
+    path = serializers.CharField(help_text="Path of the captured reference file.")
+    content_type = serializers.CharField(help_text="Content type of the captured reference file.")
+    content = serializers.CharField(allow_blank=True, help_text="Saved reference text used for judging.")
+
+
+@extend_schema_serializer(component_name="ScoutRubricReferenceLimitsDocument")
+class ScoutRubricReferenceLimitsSerializer(serializers.Serializer):
+    omitted_files = serializers.IntegerField(min_value=0, help_text="Number of files missing from the saved reference.")
+    truncated_files = serializers.ListField(
+        child=serializers.CharField(), help_text="Paths of files truncated in the saved reference."
+    )
+
+
+@extend_schema_serializer(component_name="ScoutRubricReferenceContextDocument")
+class ScoutRubricReferenceContextSerializer(serializers.Serializer):
+    schema_version = serializers.IntegerField(help_text="Version of the saved reference-context format.")
+    skill_id = serializers.CharField(help_text="Exact skill record used for generation.")
+    skill_name = serializers.CharField(help_text="Name of the skill used for generation.")
+    skill_version = serializers.IntegerField(help_text="Skill version used for generation.")
+    description = serializers.CharField(allow_blank=True, help_text="Scout description captured for this reference.")
+    instructions = serializers.CharField(allow_blank=True, help_text="Saved scout instructions used for judging.")
+    instructions_truncated = serializers.BooleanField(help_text="Whether the saved instructions were truncated.")
+    report_channel = serializers.ChoiceField(
+        choices=ScoutRubricReportChannel.choices, help_text="Report capabilities used to select the source rules."
+    )
+    report_disposition_instructions = serializers.CharField(
+        allow_blank=True, help_text="Report-disposition rules captured for this reference."
+    )
+    reference_files = serializers.ListField(
+        child=serializers.CharField(), help_text="Reference-file inventory captured for this reference."
+    )
+    reference_files_truncated = serializers.BooleanField(
+        help_text="Whether the reference-file inventory was truncated."
+    )
+    reference_texts = ScoutRubricReferenceTextSerializer(many=True, help_text="Saved reference texts used for judging.")
+    reference_limits = ScoutRubricReferenceLimitsSerializer(
+        help_text="Missing or truncated text in the saved reference."
+    )
+
+
 class ScoutRubricGenerationSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Identifier for this generation attempt.")
     status = serializers.ChoiceField(
@@ -69,6 +118,9 @@ class ScoutRubricGenerationSerializer(serializers.Serializer):
         many=True, help_text="Draft criteria awaiting review and explicit saving."
     )
     summary = serializers.CharField(allow_blank=True, help_text="Investigation summary and limitations.")
+    reference_context = ScoutRubricReferenceContextSerializer(
+        read_only=True, allow_null=True, help_text="Immutable governing source captured for this generation."
+    )
 
 
 class ScoutRubricDocumentSerializer(serializers.Serializer):
@@ -81,12 +133,23 @@ class ScoutRubricDocumentSerializer(serializers.Serializer):
         many=True, help_text="Saved criteria, or enabled defaults before the first save."
     )
     generation = ScoutRubricGenerationSerializer(allow_null=True, help_text="Latest background generation, if any.")
+    reference_context = ScoutRubricReferenceContextSerializer(
+        read_only=True, allow_null=True, help_text="Governing source explicitly adopted for the saved rubric."
+    )
+    reference_generation_id = serializers.UUIDField(
+        read_only=True, allow_null=True, help_text="Generation whose governing source was adopted for the saved rubric."
+    )
 
 
 class ScoutRubricSaveSerializer(serializers.Serializer):
     revision = serializers.IntegerField(min_value=0, help_text="Revision read by the editor; stale saves return 409.")
     criteria: serializers.ListSerializer[dict[str, str | bool]] = serializers.ListSerializer(
         child=ScoutRubricCriterionSerializer(), max_length=MAX_CRITERIA, help_text="Complete set of criteria to save."
+    )
+    adopt_generation_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Use this completed generation's governing source for the whole saved rubric. Omit to keep its source.",
     )
 
     def validate_criteria(self, value: list[dict[str, str | bool]]) -> list[dict[str, str | bool]]:
@@ -171,11 +234,13 @@ class SignalScoutRubricViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         document = self.get_rubric(id)
         serializer = ScoutRubricSaveSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        adopt_generation_id = serializer.validated_data.get("adopt_generation_id")
         document = save_scout_rubric(
             self.team_id,
             str(document.config_id),
             revision=serializer.validated_data["revision"],
             criteria=[ScoutRubricCriterion.model_validate(item) for item in serializer.validated_data["criteria"]],
+            adopt_generation_id=str(adopt_generation_id) if adopt_generation_id is not None else None,
         )
         return rubric_response(document)
 

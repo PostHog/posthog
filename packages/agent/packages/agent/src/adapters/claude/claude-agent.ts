@@ -78,6 +78,7 @@ import { PostHogAPIClient } from "../../posthog-api";
 import type { PostHogAPIConfig } from "../../types";
 import { text } from "../../utils/acp-content";
 import { unreachable, withAbort, withTimeout } from "../../utils/common";
+import { modelIdForGatewayRoute } from "../../utils/gateway";
 import { Logger } from "../../utils/logger";
 import { Pushable } from "../../utils/streams";
 import { BaseAcpAgent } from "../base-acp-agent";
@@ -123,7 +124,6 @@ import {
   type AssistantUsageLike,
   type BudgetSteerMode,
   type BudgetSteerStage,
-  type BudgetThresholdEvent,
   RunBudgetGuard,
 } from "./session/budget-guard";
 import { getAvailableSlashCommands } from "./session/commands";
@@ -672,10 +672,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   private deliverBudgetSteer(
     session: Session,
     sessionId: string,
-    event: BudgetThresholdEvent,
   ): Promise<void> {
     const run = this.budgetSteerTail.then(() =>
-      this.sendBudgetSteer(session, sessionId, event),
+      this.sendBudgetSteer(session, sessionId),
     );
     this.budgetSteerTail = run.catch(() => undefined);
     return run;
@@ -684,13 +683,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   private async sendBudgetSteer(
     session: Session,
     sessionId: string,
-    event: BudgetThresholdEvent,
   ): Promise<void> {
     const guard = session.budgetGuard;
     if (!guard || this.session !== session) return;
     const stage = guard.takePendingSteer();
     if (!stage) return;
-    const summary = `[BudgetGuard] ${stage}: $${event.spentUsd.toFixed(2)} of $${event.capUsd.toFixed(2)} spent, steering the turn`;
+    const summary = `[BudgetGuard] ${stage}: $${guard.spentUsd.toFixed(2)} of $${guard.capUsd.toFixed(2)} spent, steering the turn`;
     this.logger.warn(summary);
     let delivered = false;
     try {
@@ -1824,6 +1822,18 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             ) {
               session.backgroundTurnActive = true;
             }
+            // The SDK can echo a task notification before the previous
+            // background result, so that result clears the flag first. Model
+            // output with no tracked turn still means a background turn runs.
+            if (
+              message.type === "assistant" &&
+              message.parent_tool_use_id === null &&
+              !session.cancelled &&
+              !session.activeTurn &&
+              !session.turnQueue.some((turn) => !turn.settled)
+            ) {
+              session.backgroundTurnActive = true;
+            }
             // A user echo promotes its queued turn (handing off any still-
             // active one first), then drops from the feed. Runs before the
             // cancelled guard so a turn enqueued after a cancel still starts.
@@ -1886,8 +1896,16 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               const budgetEvent = session.budgetGuard?.recordAssistantMessage(
                 message.message as AssistantUsageLike,
               );
-              if (budgetEvent) {
-                void this.deliverBudgetSteer(session, sessionId, budgetEvent);
+              const ownerTurn =
+                session.activeTurn ??
+                session.turnQueue.find((turn) => !turn.settled);
+              if (
+                budgetEvent ||
+                (message.parent_tool_use_id === null &&
+                  !ownerTurn?.isLocalOnlyCommand &&
+                  session.budgetGuard?.hasRetryableSteer())
+              ) {
+                void this.deliverBudgetSteer(session, sessionId);
               }
               this.stopForBudget(session, sessionId);
               if (message.parent_tool_use_id === null) {
@@ -2560,7 +2578,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             "side",
           );
           if (event) {
-            void this.deliverBudgetSteer(session, sessionId, event);
+            void this.deliverBudgetSteer(session, sessionId);
           }
           this.stopForBudget(session, sessionId);
         }),
@@ -2812,13 +2830,17 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               : [o as { value: string; name?: string; description?: string }],
           )
         : [];
-    let validValue = allValues.find((o) => o.value === params.value);
+    const requestedValue =
+      params.configId === "model"
+        ? this.routedModelId(params.value)
+        : params.value;
+    let validValue = allValues.find((o) => o.value === requestedValue);
 
     // For model options, fall back to alias resolution when exact match fails.
     // This lets callers use human-friendly aliases like "opus" or "sonnet"
     // instead of full model IDs like "claude-opus-4-8".
     if (!validValue && params.configId === "model") {
-      const resolved = resolveModelPreference(params.value, allValues);
+      const resolved = resolveModelPreference(requestedValue, allValues);
       if (resolved) {
         validValue = allValues.find((o) => o.value === resolved);
       }
@@ -3001,6 +3023,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
   }
 
+  private routedModelId<T extends string | undefined>(model: T): T {
+    return modelIdForGatewayRoute(
+      model,
+      this.options?.gatewayEnv?.isAiGateway ?? false,
+    );
+  }
+
   private startupFailure(
     step:
       | "initialization"
@@ -3058,6 +3087,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         await new PostHogAPIClient(config).updateTaskRun(taskId, taskRunId, {
           status,
           ...(status === "failed" && message ? { error_message: message } : {}),
+          ...(status === "failed" ? { error_type: "agent_declined" } : {}),
         });
       } catch (error) {
         this.logger.error("finish tool failed to mark run terminal", error);
@@ -3125,8 +3155,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     // The session's explicit pick outranks the shared claude settings file:
     // that file is cross-session state and must only ever be a fallback.
-    const earlyModelId =
-      meta?.model || settingsManager.getSettings().model || "";
+    const earlyModelId = this.routedModelId(
+      meta?.model || settingsManager.getSettings().model || "",
+    );
 
     // Register the in-process general local-tools MCP server. Tools self-gate
     // via the registry (e.g. signed-commit is cloud-only and needs a GH token),
@@ -3166,7 +3197,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           channelMode,
           spokenNarration,
           background: meta?.mode === "background",
-          peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
           taskOriginProduct,
           endRunWhenDone,
         },
@@ -3283,6 +3313,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       getCurrentModelId: () => this.session?.modelId,
       gatewayEnv: this.options?.gatewayEnv,
       traceparentHookNonce,
+      disableRepoHooks: meta?.disableRepoHooks === true,
       machineAuth: this.options?.machineAuth,
       bedrockGatewayVariant,
       contextWiki: this.options?.contextWiki,
@@ -3360,8 +3391,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     this.session = session;
     this.sessionId = sessionId;
 
-    const requestedModel =
-      meta?.model || settingsManager.getSettings().model || undefined;
+    const requestedModel = this.routedModelId(
+      meta?.model || settingsManager.getSettings().model || undefined,
+    );
 
     if (isResume) {
       const resumeStartedAt = Date.now();
@@ -3521,10 +3553,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       }
     }
 
-    const resolvedModelId = resolveInitialModelId(modelOptions, [
-      meta?.model,
-      settingsManager.getSettings().model,
-    ]);
+    const resolvedModelId = resolveInitialModelId(
+      modelOptions,
+      [meta?.model, settingsManager.getSettings().model].map((model) =>
+        this.routedModelId(model),
+      ),
+    );
     modelOptions.currentModelId = resolvedModelId;
     session.modelId = resolvedModelId;
     session.lastContextWindowSize =
@@ -3541,11 +3575,25 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     try {
       if (isResume || resolvedModelId !== options.model) {
         startupStep = "model switch";
-        await this.awaitStartupControl(
-          startupStep,
-          this.session.query.setModel(resolvedModelId),
-          startupErrorData,
-        );
+        try {
+          await this.awaitStartupControl(
+            startupStep,
+            this.session.query.setModel(resolvedModelId),
+            startupErrorData,
+          );
+        } catch (modelSwitchError) {
+          startupLogger.warn("Session model switch failed; retrying once", {
+            ...startupErrorData,
+            modelId: resolvedModelId,
+            errorDetail: serializeError(modelSwitchError),
+          });
+          await new Promise<void>((resolve) => setTimeout(resolve, 1000));
+          await this.awaitStartupControl(
+            startupStep,
+            this.session.query.setModel(resolvedModelId),
+            startupErrorData,
+          );
+        }
       }
 
       // Keep thinking enabled by default for effort-capable models (see

@@ -1,6 +1,7 @@
 import re
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -43,6 +44,8 @@ _DOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9-]+$")
 
 @SourceRegistry.register
 class FreshserviceSource(ResumableSource[FreshserviceSourceConfig, FreshserviceResumeConfig]):
+    codebase_detection = detect(env=("^FRESHSERVICE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -84,7 +87,7 @@ Your **domain** is the subdomain in your Freshservice URL — e.g. `acme` for `a
 Your **API key** is on your Freshservice profile settings page (click your profile picture → **Profile settings**; the API key is shown in the right sidebar).""",
             iconPath="/static/services/freshservice.png",
             docsUrl="https://posthog.com/docs/cdp/sources/freshservice",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             # Kept hidden while the connector's incremental/ordering behavior is verified against a
             # live Freshservice account. Drop this flag to release the source to users.
             fields=cast(

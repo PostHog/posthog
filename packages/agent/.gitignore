@@ -2,6 +2,7 @@ node_modules/
 .pnpm-store/
 dist/
 .turbo/
+.platform-stamp
 junit.xml
 
 # tsup bundled config artifacts (temporary files left behind when bundling TS configs)

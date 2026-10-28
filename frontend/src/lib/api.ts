@@ -17,7 +17,7 @@ import {
 } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { apiStatusLogic, awaitReauthentication } from 'lib/logic/apiStatusLogic'
+import { apiStatusLogic, awaitReauthentication, isUserActionInProgress } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
@@ -27,7 +27,7 @@ import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagem
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
+import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
@@ -38,7 +38,6 @@ import {
     DashboardFilter,
     DatabaseSerializedFieldType,
     DataWarehouseManagedViewsetKind,
-    DomainConnectProviderName,
     EndpointLastExecutionTimesRequest,
     EndpointRequest,
     EndpointRunRequest,
@@ -68,7 +67,6 @@ import {
     RefreshType,
     SpanTreeNode,
     TileFilters,
-    UserProductListItem,
 } from '~/queries/schema/schema-general'
 import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
@@ -148,7 +146,6 @@ import {
     IntegrationType,
     JiraProjectType,
     LinearTeamType,
-    LinkType,
     LinkedInAdsAccountType,
     LinkedInAdsConversionRuleType,
     ListOrganizationMembersParams,
@@ -204,7 +201,6 @@ import {
     TeamType,
     TwilioPhoneNumberType,
     UserBasicType,
-    UserInterviewType,
     UserType,
     WarehouseTableFileUpload,
     WebAnalyticsFilterPresetType,
@@ -218,13 +214,14 @@ import type {
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
-import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
 import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 import type {
+    EmailDomainConnectCheckApi,
     GitHubBranchesResponseApi,
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
+import type { TasksRunsLogsRetrieveParams } from 'products/logs/frontend/generated/api.schemas'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
@@ -247,7 +244,6 @@ import type {
     ExternalDataSourceTypeEnumApi,
     SourceConfigMapResponseApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
-import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
@@ -488,6 +484,22 @@ export class ApiConfig {
 /** A workflow's type: the surface that owns it, else what it does. */
 export type HogFlowListType = 'messaging' | 'automation' | 'loop' | 'broadcast'
 
+function parseLogEntries(text: string): Record<string, any>[] {
+    const entries: Record<string, any>[] = []
+    for (const line of text.split('\n')) {
+        const trimmed = line.trim()
+        if (!trimmed) {
+            continue
+        }
+        try {
+            entries.push(JSON.parse(trimmed))
+        } catch {
+            // Skip unparseable lines — the stream is best-effort historical replay.
+        }
+    }
+    return entries
+}
+
 export class ApiRequest {
     private pathComponents: string[]
     private queryString: string | undefined
@@ -688,11 +700,6 @@ export class ApiRequest {
         return this.fileSystemShortcut(teamId).addPathComponent('reorder')
     }
 
-    // # User product list
-    public userProductList(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('user_product_list')
-    }
-
     // # Plugins
     public plugins(orgId?: OrganizationType['id']): ApiRequest {
         return this.organizationsDetail(orgId).addPathComponent('plugins')
@@ -732,15 +739,6 @@ export class ApiRequest {
 
     public hogFunctionTemplate(id: HogFunctionTemplateType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.hogFunctionTemplates(teamId).addPathComponent(id)
-    }
-
-    // # Links
-    public links(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('links')
-    }
-
-    public link(id: LinkType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.links(teamId).addPathComponent(id)
     }
 
     // # Actions
@@ -977,13 +975,6 @@ export class ApiRequest {
         return this.dashboards(teamId).addPathComponent(dashboardId)
     }
 
-    public dashboardCollaborators(
-        dashboardId: DashboardType['id'],
-        projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId() // Collaborators endpoint is project-level, not team-level
-    ): ApiRequest {
-        return this.dashboardsDetail(dashboardId, projectId).addPathComponent('collaborators')
-    }
-
     public dashboardSharing(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dashboardsDetail(dashboardId, teamId).addPathComponent('sharing')
     }
@@ -1014,14 +1005,6 @@ export class ApiRequest {
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.dashboardSharingPasswords(dashboardId, teamId).addPathComponent(passwordId)
-    }
-
-    public dashboardCollaboratorsDetail(
-        dashboardId: DashboardType['id'],
-        userUuid: UserType['uuid'],
-        projectId?: ProjectType['id']
-    ): ApiRequest {
-        return this.dashboardCollaborators(dashboardId, projectId).addPathComponent(userUuid)
     }
 
     // # Dashboard templates
@@ -1203,15 +1186,6 @@ export class ApiRequest {
         return this.earlyAccessFeatures(teamId).addPathComponent(id)
     }
 
-    // # User interviews
-    public userInterviews(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('user_interviews')
-    }
-
-    public userInterview(id: UserInterviewType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.userInterviews(teamId).addPathComponent(id)
-    }
-
     // # Users
     public users(email?: string): ApiRequest {
         if (email) {
@@ -1390,14 +1364,6 @@ export class ApiRequest {
 
     public errorTrackingSpikeEvents(teamId?: TeamType['id']): ApiRequest {
         return this.errorTracking(teamId).addPathComponent('spike_events')
-    }
-
-    public errorTrackingRecommendations(teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent('recommendations')
-    }
-
-    public errorTrackingRecommendation(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.errorTrackingRecommendations(teamId).addPathComponent(id)
     }
 
     public quickFilters(teamId?: TeamType['id']): ApiRequest {
@@ -1752,11 +1718,6 @@ export class ApiRequest {
 
     public conversation(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.teamProjectDetail(teamId).addPathComponent('conversations').addPathComponent(id)
-    }
-
-    // Max hands-free mode (ElevenLabs Scribe token proxy)
-    public maxHandsFree(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('max_hands_free')
     }
 
     // Conversations (Support product)
@@ -2386,6 +2347,7 @@ const api = {
             createdAtGt,
             createdAtLt,
             searchNameOnly,
+            includeTags,
             signal,
         }: {
             parent?: string
@@ -2402,6 +2364,7 @@ const api = {
             createdAtGt?: string
             createdAtLt?: string
             searchNameOnly?: boolean
+            includeTags?: boolean
             signal?: AbortSignal
         }): Promise<CountedPaginatedResponseWithUsers<FileSystemEntry>> {
             return await new ApiRequest()
@@ -2421,6 +2384,7 @@ const api = {
                     created_at__gt: createdAtGt,
                     created_at__lt: createdAtLt,
                     search_name_only: searchNameOnly,
+                    include_tags: includeTags,
                 })
                 .get({ signal })
         },
@@ -2500,25 +2464,23 @@ const api = {
             }
             return await request.get({ signal })
         },
-        async create(data: { path: string; href?: string; ref?: string; type?: string }): Promise<FileSystemEntry> {
-            return await new ApiRequest().fileSystemShortcut().create({ data })
+        async create(data: {
+            path: string
+            href?: string
+            ref?: string
+            type?: string
+        }): Promise<{ shortcut: FileSystemEntry; created: boolean }> {
+            const url = new ApiRequest().fileSystemShortcut().assembleFullUrl()
+            const response = await api.createResponse(url, data)
+            const shortcut: FileSystemEntry = await getJSONFromSuccessResponse(response, 'POST', url)
+            // The API answers 200 instead of 201 when the user already has this shortcut.
+            return { shortcut, created: response.status === 201 }
         },
         async delete(id: FileSystemEntry['id']): Promise<void> {
             return await new ApiRequest().fileSystemShortcutDetail(id).delete()
         },
         async reorder(orderedIds: NonNullable<FileSystemEntry['id']>[]): Promise<FileSystemEntry[]> {
             return await new ApiRequest().fileSystemShortcutReorder().create({ data: { ordered_ids: orderedIds } })
-        },
-    },
-
-    userProductList: {
-        async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
-            return await new ApiRequest().userProductList().get()
-        },
-        async bulkUpdate(
-            items: { product_path: string; enabled: boolean }[]
-        ): Promise<{ results: UserProductListItem[] }> {
-            return await new ApiRequest().userProductList().withAction('bulk_update').update({ data: { items } })
         },
     },
 
@@ -2831,6 +2793,8 @@ const api = {
                 after?: string
                 offset?: number
                 prefetchSpans?: number
+                // true (default) only selects traces with a root span.
+                rootSpans?: boolean
                 // false (default) groups by trace_id and returns root spans; true returns every
                 // matching span (root and child) flat. See products/tracing/backend logic.py.
                 flatSpans?: boolean
@@ -2858,7 +2822,7 @@ const api = {
         ): Promise<{ results: Record<string, any>[]; hasMore: boolean; nextOffset?: number | null }> {
             return new ApiRequest()
                 .tracingSpans()
-                .withAction(`trace/${traceId}`)
+                .withAction(`trace/${encodeURIComponent(traceId)}`)
                 .create({ signal, data: { ...query } })
         },
         async sparkline(
@@ -3449,7 +3413,7 @@ const api = {
             } = {},
             onMessage: (data: any) => void,
             onComplete: () => void,
-            onError: (error: any) => void
+            onError: (error: any, willRetry?: boolean) => void
         ): Promise<() => void> {
             const url = new ApiRequest()
                 .dashboardsDetail(id)
@@ -3465,12 +3429,12 @@ const api = {
 
             const abortController = new AbortController()
             let streamFinished = false
-            const handleConnectionError = (error: any): void => {
-                if (isAbortError(error)) {
+            const handleConnectionError = (error: any, willRetry = false): void => {
+                if (abortController.signal.aborted || isAbortError(error)) {
                     return
                 }
                 apiStatusLogic.findMounted()?.actions.onApiResponse(undefined, error)
-                onError(error)
+                onError(error, willRetry)
             }
 
             fetchEventSource(url, {
@@ -3495,16 +3459,18 @@ const api = {
                             onComplete()
                         } else if (data.type === 'error') {
                             streamFinished = true
+                            abortController.abort()
                             onError(new Error(data.error || 'Streaming error'))
                         } else {
                             onMessage(data)
                         }
                     } catch (error) {
+                        abortController.abort()
                         onError(error)
                     }
                 },
                 onerror: (error) => {
-                    handleConnectionError(error)
+                    handleConnectionError(error, true)
                 },
             }).then(() => {
                 if (!abortController.signal.aborted && !streamFinished) {
@@ -4019,32 +3985,6 @@ const api = {
         },
     },
 
-    links: {
-        async list(
-            args: {
-                limit?: number
-                offset?: number
-                search?: string
-            } = {
-                limit: LINK_PAGE_SIZE,
-            }
-        ): Promise<CountedPaginatedResponse<LinkType>> {
-            return await new ApiRequest().links().withQueryString(args).get()
-        },
-        async get(id: LinkType['id']): Promise<LinkType> {
-            return await new ApiRequest().link(id).get()
-        },
-        async create(data: Partial<LinkType>): Promise<LinkType> {
-            return await new ApiRequest().links().create({ data })
-        },
-        async update(id: LinkType['id'], data: Partial<LinkType>): Promise<LinkType> {
-            return await new ApiRequest().link(id).update({ data })
-        },
-        async delete(id: LinkType['id']): Promise<void> {
-            await new ApiRequest().link(id).delete()
-        },
-    },
-
     annotations: {
         async get(annotationId: RawAnnotationType['id']): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).get()
@@ -4217,31 +4157,6 @@ const api = {
 
         async rules(ruleType: ErrorTrackingRuleType): Promise<{ results: ErrorTrackingRule[] }> {
             return await new ApiRequest().errorTrackingRules(ruleType).get()
-        },
-
-        async listRecommendations({ poll = false }: { poll?: boolean } = {}): Promise<{
-            results: ErrorTrackingRecommendation[]
-        }> {
-            return await new ApiRequest().errorTrackingRecommendations().withQueryString({ poll }).get()
-        },
-
-        async dismissRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
-            return await new ApiRequest().errorTrackingRecommendation(id).withAction('dismiss').create()
-        },
-
-        async restoreRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
-            return await new ApiRequest().errorTrackingRecommendation(id).withAction('restore').create()
-        },
-
-        async refreshRecommendation(
-            id: string,
-            { force = true }: { force?: boolean } = {}
-        ): Promise<ErrorTrackingRecommendation> {
-            return await new ApiRequest()
-                .errorTrackingRecommendation(id)
-                .withAction('refresh')
-                .withQueryString({ force })
-                .create()
         },
 
         async createRule(
@@ -4977,21 +4892,6 @@ const api = {
         },
     },
 
-    userInterviews: {
-        async list(): Promise<PaginatedResponse<UserInterviewType>> {
-            return await new ApiRequest().userInterviews().get()
-        },
-        async get(id: UserInterviewType['id']): Promise<UserInterviewType> {
-            return await new ApiRequest().userInterview(id).get()
-        },
-        async update(
-            id: UserInterviewType['id'],
-            data: Pick<UserInterviewType, 'summary'>
-        ): Promise<UserInterviewType> {
-            return await new ApiRequest().userInterview(id).update({ data })
-        },
-    },
-
     users: {
         async list(email?: string): Promise<PaginatedResponse<UserType>> {
             return await new ApiRequest().users(email).get()
@@ -5005,6 +4905,8 @@ const api = {
             status?: string
             search?: string
             ordering?: string
+            /** Inbox sort preset, for example `recommended`. The server ignores it when `ordering` is set. */
+            sort?: string
             /** Comma-separated source products. */
             source_product?: string
             /** Comma-separated P0–P4. */
@@ -5159,20 +5061,58 @@ const api = {
                     .taskRun(taskId, runId, options.projectId)
                     .withAction('logs')
                     .getResponse({ signal: options.signal })
-                const text = await response.text()
-                const entries: Record<string, any>[] = []
-                for (const line of text.split('\n')) {
-                    const trimmed = line.trim()
-                    if (!trimmed) {
-                        continue
-                    }
-                    try {
-                        entries.push(JSON.parse(trimmed))
-                    } catch {
-                        // Skip unparseable lines — the stream is best-effort historical replay.
-                    }
+                return parseLogEntries(await response.text())
+            },
+            /**
+             * Fetch part of a run's resume-chain log. With `tailBytes`, the latest turns (at least `tailBytes`, from a
+             * cut where a user turn starts) that end before entry index `before`, or with `start`, every entry from
+             * that index on. The page starts with `preamble` earlier entries that still set run state; `offset` is
+             * the full-log index of the first entry after them, `count` is the full-log size, and `turnsBefore`
+             * counts the user turns before `offset`. Without `tailBytes`, or for a log the server does not page, the
+             * response is the full log and `indexed` is false.
+             */
+            async getLogPage(
+                taskId: Task['id'],
+                runId: TaskRun['id'],
+                options: {
+                    signal?: AbortSignal
+                    projectId?: TeamType['id']
+                    tailBytes?: number
+                    before?: number
+                    start?: number
+                    view?: TasksRunsLogsRetrieveParams['view']
                 }
-                return entries
+            ): Promise<{
+                entries: Record<string, any>[]
+                offset: number
+                count: number
+                preamble: number
+                turnsBefore: number
+                origin: string
+                indexed: boolean
+            }> {
+                const response = await new ApiRequest()
+                    .taskRun(taskId, runId, options.projectId)
+                    .withAction('logs')
+                    .withQueryString({
+                        ...(options.tailBytes !== undefined ? { tail_bytes: options.tailBytes } : {}),
+                        ...(options.before !== undefined ? { before: options.before } : {}),
+                        ...(options.start !== undefined ? { start: options.start } : {}),
+                        ...(options.view ? { view: options.view } : {}),
+                    })
+                    .getResponse({ signal: options.signal })
+                const entries = parseLogEntries(await response.text())
+                const indexed = response.headers.get('X-Log-Offset') !== null
+                const header = (name: string): number => Number(response.headers.get(name) ?? 0) || 0
+                return {
+                    entries,
+                    offset: header('X-Log-Offset'),
+                    count: indexed ? header('X-Log-Count') : entries.length,
+                    preamble: header('X-Log-Preamble'),
+                    turnsBefore: header('X-Log-Turns-Before'),
+                    origin: response.headers.get('X-Log-Origin') ?? '',
+                    indexed,
+                }
             },
             /**
              * Open the live SSE stream for a run as a `fetch` response (the caller reads it with
@@ -6139,14 +6079,7 @@ const api = {
         ): Promise<IntegrationType> {
             return await new ApiRequest().integrationEmail(integrationId).update({ data })
         },
-        async domainConnectCheck(domain: string): Promise<{
-            supported: boolean
-            provider_name: DomainConnectProviderName | null
-            available_providers: {
-                endpoint: string
-                name: DomainConnectProviderName
-            }[]
-        }> {
+        async domainConnectCheck(domain: string): Promise<EmailDomainConnectCheckApi> {
             return await new ApiRequest()
                 .integrationsDomainConnectCheck()
                 .withQueryString(`domain=${encodeURIComponent(domain)}`)
@@ -6244,8 +6177,11 @@ const api = {
         async delete(id: PersonalAPIKeyType['id']): Promise<void> {
             await new ApiRequest().personalApiKey(id).delete()
         },
-        async roll(id: PersonalAPIKeyType['id']): Promise<PersonalAPIKeyType> {
-            return await new ApiRequest().personalApiKey(id).withAction('roll').create()
+        async roll(
+            id: PersonalAPIKeyType['id'],
+            data: Pick<Partial<PersonalAPIKeyType>, 'expires_at'> = {}
+        ): Promise<PersonalAPIKeyType> {
+            return await new ApiRequest().personalApiKey(id).withAction('roll').create({ data })
         },
     },
 
@@ -6403,6 +6339,8 @@ const api = {
             type?: HogFlowListType[]
             /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
             trigger?: string
+            /** JSON-encoded list of tag names. A workflow matches when it carries at least one. */
+            tags?: string
             limit?: number
             offset?: number
         }): Promise<CountedPaginatedResponse<HogFlow>> {
@@ -6466,16 +6404,6 @@ const api = {
             }
         ): Promise<HogflowTestResult> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
-        },
-        async getBatchTriggerBlastRadius(
-            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters'],
-            dedupeKey?: 'email',
-            sendsEmail?: boolean
-        ): Promise<BlastRadiusApi> {
-            return await new ApiRequest()
-                .hogFlows()
-                .withAction('user_blast_radius')
-                .create({ data: { filters, dedupe_key: dedupeKey ?? null, sends_email: sendsEmail ?? true } })
         },
         async createHogFlowBatchJob(
             hogFlowId: HogFlow['id'],
@@ -6656,23 +6584,6 @@ const api = {
     schema: {
         async queryUpgrade(data: { query: Node }): Promise<{ query: Node }> {
             return await new ApiRequest().queryUpgrade().create({ data })
-        },
-    },
-
-    maxHandsFree: {
-        async token(options?: ApiMethodOptions): Promise<{ token: string }> {
-            return await api.create(
-                new ApiRequest().maxHandsFree().withAction('token').assembleFullUrl(),
-                undefined,
-                options
-            )
-        },
-        async synthesize(text: string, options?: ApiMethodOptions): Promise<Response> {
-            return await api.createResponse(
-                new ApiRequest().maxHandsFree().withAction('synthesize').assembleFullUrl(),
-                { text },
-                options
-            )
         },
     },
 
@@ -7325,7 +7236,8 @@ async function handleFetch(
     url: string,
     method: string,
     fetcher: () => Promise<Response>,
-    isRetry = false
+    isRetry = false,
+    startedByUserAction = isUserActionInProgress()
 ): Promise<Response> {
     const startTime = new Date().getTime()
 
@@ -7337,7 +7249,7 @@ async function handleFetch(
         error = e
     }
 
-    apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error)
+    apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error, startedByUserAction)
 
     if (error || !response) {
         if (error && (error as any).name === 'AbortError') {
@@ -7376,13 +7288,13 @@ async function handleFetch(
     if (response.status === 401 && isOAuthMode() && !isRetry) {
         const refreshed = await refreshAccessToken()
         if (refreshed) {
-            return await handleFetch(url, method, fetcher, true)
+            return await handleFetch(url, method, fetcher, true, startedByUserAction)
         }
     }
 
     if (response.status === 403 && !isRetry && (await isStaleSessionResponse(response))) {
         if (await awaitReauthentication()) {
-            return await handleFetch(url, method, fetcher, true)
+            return await handleFetch(url, method, fetcher, true, startedByUserAction)
         }
     }
 

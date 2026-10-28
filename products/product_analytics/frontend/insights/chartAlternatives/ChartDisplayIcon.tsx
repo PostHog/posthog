@@ -5,6 +5,7 @@ import {
     IconAreaChart,
     IconCumulativeChart,
     IconDonutChart,
+    IconProportionBarChart,
     IconTableChart,
     IconTrendingUp,
 } from 'lib/lemon-ui/icons'
@@ -33,6 +34,8 @@ export function ChartDisplayIcon({ icon }: { icon: ChartDisplayIconKind }): JSX.
             return <Icon123 />
         case 'pie':
             return <IconPieChart />
+        case 'proportionBar':
+            return <IconProportionBarChart />
         case 'table':
             return <IconTableChart />
         case 'worldMap':

@@ -65,6 +65,29 @@ pub fn run_batch_salvaged(
     parallel: bool,
     max_steps: Option<usize>,
 ) -> Vec<HogExecResult> {
+    salvage(events, |ok_events| {
+        run_batch(tokens, ok_events, parallel, max_steps)
+    })
+}
+
+/// Like [`run_batch_salvaged`], but from a program built once by [`build_program`]. A program that
+/// failed to build errors every converted event, and marshal errors keep their own prefix.
+pub fn run_batch_program_salvaged(
+    program: &Result<Program, String>,
+    events: Vec<Result<Value, String>>,
+    parallel: bool,
+    max_steps: Option<usize>,
+) -> Vec<HogExecResult> {
+    salvage(events, |ok_events| match program {
+        Ok(program) => run_batch_program(program, ok_events, parallel, max_steps),
+        Err(e) => ok_events.iter().map(|_| error_result(e, 0.0)).collect(),
+    })
+}
+
+fn salvage(
+    events: Vec<Result<Value, String>>,
+    run: impl FnOnce(&[Value]) -> Vec<HogExecResult>,
+) -> Vec<HogExecResult> {
     let mut ok_events = Vec::with_capacity(events.len());
     let mut slots: Vec<Option<String>> = Vec::with_capacity(events.len());
     for event in events {
@@ -77,14 +100,12 @@ pub fn run_batch_salvaged(
         }
     }
 
-    let mut executed = run_batch(tokens, &ok_events, parallel, max_steps).into_iter();
+    let mut executed = run(&ok_events).into_iter();
     slots
         .into_iter()
         .map(|slot| match slot {
             Some(reason) => error_result(&format!("{MARSHAL_ERROR_PREFIX}{reason}"), 0.0),
-            None => executed
-                .next()
-                .expect("run_batch returns one result per event"),
+            None => executed.next().expect("one result per executed event"),
         })
         .collect()
 }
@@ -158,7 +179,7 @@ fn run_chunk(program: &Program, chunk: &[Value], max_steps: Option<usize>) -> Ve
         .collect()
 }
 
-fn error_result(error: &str, duration_us: f64) -> HogExecResult {
+pub(crate) fn error_result(error: &str, duration_us: f64) -> HogExecResult {
     HogExecResult {
         result: None,
         error: Some(error.to_string()),
@@ -299,6 +320,22 @@ mod tests {
     }
 
     #[test]
+    fn salvaged_batch_keeps_marshal_errors_when_the_program_is_invalid() {
+        let program = build_program(vec![json!("not bytecode")]);
+        let events = vec![Err("nan in globals".to_string()), Ok(json!({}))];
+        let results = run_batch_program_salvaged(&program, events, false, None);
+        assert_eq!(
+            results[0].error.as_deref(),
+            Some("marshal_error:nan in globals")
+        );
+        assert!(results[1]
+            .error
+            .as_deref()
+            .unwrap()
+            .starts_with("invalid program"));
+    }
+
+    #[test]
     fn salvaged_batch_with_all_marshal_errors_executes_nothing() {
         let events = vec![Err("x".to_string()), Err("y".to_string())];
         let results = run_batch_salvaged(&add_program(), events, false, None);
@@ -397,9 +434,10 @@ mod tests {
 
     // Pins the hogvm crate's error formats the Node callers (rust-vm.ts isUnsupportedByRustVm)
     // match on to fall back to the Node VM: `Unknown function <name>` for calling a function the
-    // VM doesn't know, `Unknown Global <chain>` for an unresolvable global chain.
+    // VM doesn't know, `Unknown Global <chain>` for an unresolvable global chain, and
+    // `Not implemented: <what>` for an opcode or input shape the VM has no implementation for.
     #[test]
-    fn unknown_name_error_prefixes_are_the_node_fallback_contract() {
+    fn error_prefixes_are_the_node_fallback_contract() {
         let results = run_batch(
             &call_fn_program("someFunctionNobodyImplements", "x"),
             &[json!({})],
@@ -418,6 +456,26 @@ mod tests {
             .as_deref()
             .unwrap()
             .starts_with("Unknown Global "));
+
+        // extract('year', '2024'): a bare year is an ISO form only luxon reads
+        let extract_bare_year = vec![
+            json!("_H"),
+            json!(1),
+            json!(32),
+            json!("year"),
+            json!(32),
+            json!("2024"),
+            json!(2),
+            json!("extract"),
+            json!(2),
+            json!(38),
+        ];
+        let results = run_batch(&extract_bare_year, &[json!({})], false, None);
+        assert!(results[0]
+            .error
+            .as_deref()
+            .unwrap()
+            .starts_with("Not implemented: "));
     }
 
     #[test]
@@ -511,6 +569,43 @@ mod tests {
             None,
         );
         assert_eq!(results[0].result, Some(json!(false)));
+    }
+
+    #[test]
+    fn parse_user_agent_returns_an_object_for_a_string_and_null_otherwise() {
+        let results = run_batch(
+            &call_fn_program("parseUserAgent", "curl/8.4.0"),
+            &[json!({})],
+            false,
+            None,
+        );
+        assert_eq!(
+            results[0].result,
+            Some(json!({
+                "browser": "curl",
+                "browserVersion": "8.4.0",
+                "os": null,
+                "browserType": "bot-device",
+                "device": "",
+                "deviceType": "Desktop",
+            }))
+        );
+        let results = run_batch(
+            &[
+                json!("_H"),
+                json!(1),
+                json!(33),
+                json!(42),
+                json!(2),
+                json!("parseUserAgent"),
+                json!(1),
+                json!(38),
+            ],
+            &[json!({})],
+            false,
+            None,
+        );
+        assert_eq!(results[0].result, Some(Value::Null));
     }
 
     #[test]

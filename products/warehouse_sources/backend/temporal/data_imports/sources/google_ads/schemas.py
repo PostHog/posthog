@@ -11,6 +11,27 @@ FIELD_ALIASES: dict[str, str] = {
 }
 
 RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
+    "change_event": {
+        "resource_name": "change_event",
+        "primary_key": ["customer.id", "change_event.resource_name"],
+        "should_sync_default": False,
+        "description": "Account changes with old and new field values. Google returns the last 30 days. Use incremental sync to retain imported history.",
+        "filter_field_names": [("change_event.change_date_time", IncrementalFieldType.DateTime)],
+        "field_names": [
+            "customer.id",
+            "customer.time_zone",
+            "change_event.resource_name",
+            "change_event.change_date_time",
+            "change_event.change_resource_type",
+            "change_event.change_resource_name",
+            "change_event.resource_change_operation",
+            "change_event.client_type",
+            "change_event.user_email",
+            "change_event.changed_fields",
+            "change_event.old_resource",
+            "change_event.new_resource",
+        ],
+    },
     "ad": {
         "resource_name": "ad_group_ad",
         "primary_key": ["ad_group_ad.ad.id", "ad_group.id", "campaign.id", "customer.id"],
@@ -379,6 +400,7 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
             "campaign.maximize_conversion_value.target_roas",
             "campaign.name",
             "campaign.percent_cpc.enhanced_cpc_enabled",
+            "campaign.labels",
             "campaign.serving_status",
             "campaign.start_date_time",
             "campaign.status",
@@ -504,8 +526,26 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
             "segments.year",
         ],
     },
+    "campaign_impression_share_stats": {
+        "resource_name": "campaign",
+        "primary_key": ["campaign.id", "customer.id", "segments.date"],
+        "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
+        "should_sync_default": False,
+        "description": "Daily campaign impression share for Search and Display, without click-type segmentation.",
+        "field_names": [
+            "campaign.id",
+            "campaign.name",
+            "campaign.advertising_channel_type",
+            "customer.id",
+            "segments.date",
+            "metrics.impressions",
+            "metrics.search_impression_share",
+            "metrics.content_impression_share",
+        ],
+    },
     "keyword": {
         "resource_name": "keyword_view",
+        "removed_filter": "ad_group_criterion.status != 'REMOVED' AND ad_group.status != 'REMOVED' AND campaign.status != 'REMOVED'",
         "primary_key": ["ad_group_criterion.criterion_id", "ad_group.id", "campaign.id", "customer.id"],
         "field_names": [
             "ad_group_criterion.criterion_id",
@@ -540,6 +580,33 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
             "campaign.bidding_strategy_type",
             "campaign.manual_cpc.enhanced_cpc_enabled",
             "campaign.percent_cpc.enhanced_cpc_enabled",
+        ],
+    },
+    "keyword_placement_stats": {
+        "resource_name": "keyword_view",
+        "should_sync_default": True,
+        "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
+        "primary_key": [
+            "customer.id",
+            "campaign.id",
+            "ad_group.id",
+            "ad_group_criterion.criterion_id",
+            "segments.date",
+            "segments.ad_network_type",
+        ],
+        "field_names": [
+            "customer.id",
+            "customer.currency_code",
+            "campaign.id",
+            "ad_group.id",
+            "ad_group_criterion.criterion_id",
+            "ad_group_criterion.keyword.text",
+            "ad_group_criterion.keyword.match_type",
+            "segments.date",
+            "segments.ad_network_type",
+            "metrics.impressions",
+            "metrics.top_impression_percentage",
+            "metrics.absolute_top_impression_percentage",
         ],
     },
     "keyword_stats": {
@@ -605,6 +672,7 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
     },
     "ad_group_criterion": {
         "resource_name": "ad_group_criterion",
+        "removed_filter": "ad_group_criterion.status != 'REMOVED' AND ad_group.status != 'REMOVED' AND campaign.status != 'REMOVED'",
         "primary_key": ["ad_group_criterion.criterion_id", "ad_group.id", "campaign.id", "customer.id"],
         "should_sync_default": False,
         "description": "Every targeting criterion at ad group level, including negative keywords and other exclusions. Unlike the keyword table (which is backed by keyword_view and only returns positive, servable keywords), this reaches negative and non-keyword criteria. Filter on ad_group_criterion.negative to isolate exclusions.",
@@ -828,6 +896,30 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
             "segments.date",
         ],
     },
+    "performance_max_search_term_stats": {
+        "resource_name": "campaign_search_term_view",
+        "primary_key": [
+            "campaign_search_term_view.search_term",
+            "campaign.id",
+            "customer.id",
+            "segments.date",
+        ],
+        "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
+        "description": "Search terms that triggered Performance Max campaigns. Search campaign terms are in search_term_stats.",
+        # campaign_search_term_view also returns Search and Shopping campaigns, which search_term_stats already covers.
+        "extra_where": "campaign.advertising_channel_type = 'PERFORMANCE_MAX'",
+        "field_names": [
+            "campaign_search_term_view.search_term",
+            "campaign.id",
+            "customer.id",
+            "metrics.clicks",
+            "metrics.impressions",
+            "metrics.cost_micros",
+            "metrics.conversions",
+            "metrics.conversions_value",
+            "segments.date",
+        ],
+    },
     "geographic_stats": {
         "resource_name": "geographic_view",
         "primary_key": [
@@ -1019,6 +1111,7 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
             "label.id",
             "customer.id",
             "label.name",
+            "label.resource_name",
             "label.status",
             "label.text_label.background_color",
             "label.text_label.description",
@@ -1233,7 +1326,7 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
             "segments.ad_network_type",
         ],
         "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
-        "should_sync_default": False,
+        "should_sync_default": True,
         "description": "This table fans out to every landing page URL per campaign and day, so it can get large for accounts with many final URLs.",
         "extra_where": "metrics.impressions > 0",
         "field_names": [

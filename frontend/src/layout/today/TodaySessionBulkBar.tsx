@@ -1,22 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArchive, IconFolder, IconPin, IconPinFilled, IconX } from '@posthog/icons'
-import {
-    Button,
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuTrigger,
-    Text,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from '@posthog/quill'
+import { IconArchive, IconPin, IconPinFilled, IconX } from '@posthog/icons'
+import { Button, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { TodaySessionBulkArchiveDialog } from './TodaySessionBulkArchiveDialog'
 import { sessionsLabel } from './todaySessionSelection'
 import { TodayBulkAction, todaySessionSelectionLogic } from './todaySessionSelectionLogic'
-import { TodaySpaceFileList } from './TodaySpaceFileList'
-import { todaySpacesLogic } from './todaySpacesLogic'
+import { todayShellLogic } from './todayShellLogic'
 
 const BUSY_REASON = 'Wait for the current change to finish'
 
@@ -25,13 +15,11 @@ interface BulkButtonProps {
     action: TodayBulkAction | null
     icon: JSX.Element
     dataAttr: string
-    onClick?: () => void
-    /** Wraps the button before the tooltip does, so it can open a menu. */
-    wrap?: (button: JSX.Element) => JSX.Element
+    onClick: () => void
 }
 
 /** The sidebar is narrow, so each action is an icon button that names itself in its tooltip, like Desktop's bar. */
-function BulkButton({ label, action, icon, dataAttr, onClick, wrap }: BulkButtonProps): JSX.Element {
+function BulkButton({ label, action, icon, dataAttr, onClick }: BulkButtonProps): JSX.Element {
     const { bulkAction } = useValues(todaySessionSelectionLogic)
     const loading = action !== null && bulkAction === action
     const busy = bulkAction !== null && !loading
@@ -47,7 +35,7 @@ function BulkButton({ label, action, icon, dataAttr, onClick, wrap }: BulkButton
     )
     return (
         <Tooltip>
-            <TooltipTrigger delay={0} render={wrap ? wrap(button) : button}>
+            <TooltipTrigger delay={0} render={button}>
                 {icon}
             </TooltipTrigger>
             <TooltipContent side="top">{busy ? BUSY_REASON : label}</TooltipContent>
@@ -58,16 +46,11 @@ function BulkButton({ label, action, icon, dataAttr, onClick, wrap }: BulkButton
 export function TodaySessionBulkBar(): JSX.Element {
     const { selectedSessionIds, bulkPinDirection, bulkArchiveConfirm, bulkAction } =
         useValues(todaySessionSelectionLogic)
-    const {
-        pinSelected,
-        fileSelectedTo,
-        requestBulkArchive,
-        clearSelection,
-        closeBulkArchiveConfirm,
-        archiveSelected,
-    } = useActions(todaySessionSelectionLogic)
-    const { spaces } = useValues(todaySpacesLogic)
+    const { pinSelected, requestBulkArchive, clearSelection, closeBulkArchiveConfirm, archiveSelected } =
+        useActions(todaySessionSelectionLogic)
+    const { phoneLayout } = useValues(todayShellLogic)
     const count = selectedSessionIds.length
+    const minimum = phoneLayout ? 1 : 2
     const sessions = sessionsLabel(count)
     const pin = bulkPinDirection === 'pin'
 
@@ -75,9 +58,9 @@ export function TodaySessionBulkBar(): JSX.Element {
         <>
             {/* The bar is the only sign of a selection and unmounts below two, so the announcement lives outside it. */}
             <span aria-live="polite" className="sr-only">
-                {count > 1 ? `${sessions} selected` : ''}
+                {count >= minimum ? `${sessions} selected` : ''}
             </span>
-            {count > 1 && (
+            {count >= minimum && (
                 <div
                     className="-mx-3 flex items-center justify-between gap-2 border-t border-border px-3 py-1.5"
                     data-attr="today-session-bulk-bar"
@@ -86,9 +69,11 @@ export function TodaySessionBulkBar(): JSX.Element {
                         <Text size="xs" weight="medium" render={<span />} className="shrink-0">
                             {`${count} selected`}
                         </Text>
-                        <Text size="xxs" variant="muted" render={<span />} className="truncate">
-                            Esc to clear
-                        </Text>
+                        {!phoneLayout && (
+                            <Text size="xxs" variant="muted" render={<span />} className="truncate">
+                                Esc to clear
+                            </Text>
+                        )}
                     </div>
                     <div className="flex shrink-0 items-center gap-0.5">
                         <BulkButton
@@ -98,25 +83,6 @@ export function TodaySessionBulkBar(): JSX.Element {
                             onClick={pinSelected}
                             dataAttr="today-session-bulk-pin"
                         />
-                        {spaces.length > 0 && (
-                            <DropdownMenu>
-                                <BulkButton
-                                    label={`File ${sessions} to a space`}
-                                    action="file"
-                                    icon={<IconFolder />}
-                                    wrap={(button) => <DropdownMenuTrigger render={button} />}
-                                    dataAttr="today-session-bulk-file"
-                                />
-                                <DropdownMenuContent align="end" side="top" className="max-h-80 w-64">
-                                    <TodaySpaceFileList
-                                        currentSpaceId={null}
-                                        onSelect={fileSelectedTo}
-                                        itemDataAttr="today-session-bulk-file-space"
-                                        searchDataAttr="today-session-bulk-file-search"
-                                    />
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                        )}
                         <BulkButton
                             label={`Archive ${sessions}`}
                             action="archive"

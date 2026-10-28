@@ -78,6 +78,7 @@ async def steering_filters_signal(
     description: str,
     weight: float,
     extra: dict[str, Any],
+    signal_id: str | None = None,
 ) -> bool:
     """Whether this team's steering says to drop the signal.
 
@@ -97,11 +98,12 @@ async def steering_filters_signal(
             "signals-actionability-direct",
             DIRECT_SOURCE_ACTIONABILITY_PROMPT,
             ACTIONABILITY_SYSTEM_ONE_QUESTION,
-            0.85,
+            0.5,
         )
     )
 
     output = SignalEmitterOutput(
+        signal_id=signal_id,
         source_product=source_product,
         source_type=source_type,
         source_id=source_id,
