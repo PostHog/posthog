@@ -87,7 +87,10 @@ LOGS_PAGE_SIZE = 100
 LOGS_LOOKBACK_DAYS = 30
 # Plans with shorter retention reject a window starting before it with a 400 naming the earliest
 # time the account still holds, so the window is narrowed to that time instead of failing the sync.
-LOGS_RETENTION_ERROR_PATTERN = re.compile(r"before log retention time (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [+-]\d{4})")
+# The time uses Go's default format, which adds fractional seconds only when they are non-zero.
+LOGS_RETENTION_ERROR_PATTERN = re.compile(
+    r"before log retention time (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(\.\d+)? ([+-]\d{4})"
+)
 
 
 class MailgunRetryableError(Exception):
@@ -679,7 +682,13 @@ def _logs_retention_start(error: requests.HTTPError) -> Optional[datetime]:
     match = LOGS_RETENTION_ERROR_PATTERN.search(response.text)
     if match is None:
         return None
-    return datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S %z").astimezone(UTC)
+    whole_seconds, fraction, offset = match.groups()
+    retention_start = datetime.strptime(f"{whole_seconds} {offset}", "%Y-%m-%d %H:%M:%S %z").astimezone(UTC)
+    # The request sends whole seconds, so a fractional retention time rounds up. Rounding down would
+    # send a start just before the retention time, and Mailgun would reject it again.
+    if fraction:
+        retention_start += timedelta(seconds=1)
+    return retention_start
 
 
 def get_logs_rows(
