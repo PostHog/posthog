@@ -694,12 +694,6 @@ jobs:
                   test "$(git rev-parse HEAD^2)" = "$PR_HEAD_SHA"
                   git rev-parse --verify "$TURBO_SCM_BASE^{commit}"
 
-            - name: Fetch PR base for schema cache
-              if: github.event_name == 'pull_request'
-              env:
-                  BASE_REF: ${{ github.event.pull_request.base.ref }}
-              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
-              retry: 2
             - name: Compute schema cache key from PR base
               id: schema-key
               if: github.event_name == 'pull_request'
