@@ -790,6 +790,8 @@ jobs:
                   enable-cache: false
               continue-on-error: true
             - name: Restore test durations from cache
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .test_durations
@@ -817,6 +819,8 @@ jobs:
                   gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
                       || echo "::warning::Timing artifact of run $run_id unavailable, sharding without durations"
             - name: Restore per-segment test durations from cache
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: |
@@ -829,6 +833,8 @@ jobs:
               # The timing workflow rebuilds it from the newest hourly recording. A miss
               # leaves the file absent, and the events_json rows then run every listed test.
               if: github.event_name == 'pull_request'
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: events-schema-prune.json
@@ -861,6 +867,7 @@ jobs:
               # identically. Best-effort (consumers fall back to the floating caches);
               # overwrite lets a "re-run all jobs" attempt re-snapshot.
               continue-on-error: true
+              timeout-minutes: 5
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: test-durations-plan
@@ -929,6 +936,7 @@ jobs:
               # upload failure must not fail this job; the verdict regenerates the selection.
               continue-on-error: true
               if: ${{ always() && steps.select.outcome == 'success' }}
+              timeout-minutes: 5
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: select-tests-output
@@ -952,6 +960,8 @@ jobs:
         steps:
             - name: Look up schema cache
               id: schema-cache
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -1015,6 +1025,8 @@ jobs:
                   gunzip -t schema.sql.gz
             - name: Save schema cache
               if: steps.schema-cache.outputs.cache-matched-key == ''
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -1161,6 +1173,8 @@ jobs:
                     || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' }}
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -1217,6 +1231,8 @@ jobs:
                   bin/wait-for-docker temporal
                   PYTHONFAULTHANDLER=1 timeout --signal=ABRT --kill-after=30s 3m python manage.py register_temporal_search_attributes
             - name: Restore test durations from cache
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .test_durations
@@ -1247,6 +1263,7 @@ jobs:
               # Same pinning as the Django job; falls back to the floating cache.
               id: pinned-plan
               continue-on-error: true
+              timeout-minutes: 5
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   name: test-durations-plan
@@ -1399,6 +1416,8 @@ jobs:
                   done
 
             - name: Upload product test results
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: ${{ always() }}
               with:
@@ -1408,6 +1427,8 @@ jobs:
                   overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
 
             - name: Upload timing data
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               # Only the legacy-schema variant uploads durations — both schema variants run the
               # same test IDs, and two artifacts for the same tests would race in the merge.
@@ -1436,6 +1457,8 @@ jobs:
                   done
 
             - name: Upload product coverage
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               # always(): a failing test shard still has partial coverage worth reporting.
               if: ${{ always() && github.event_name == 'pull_request' }}
@@ -1480,6 +1503,7 @@ jobs:
 
             - name: Upload snapshot patch
               if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+              timeout-minutes: 5
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: snapshot-patch-Products-${{ strategy.job-index }}
@@ -1814,6 +1838,8 @@ jobs:
                   fi
             - name: Restore master schema dump from cache
               if: github.event_name != 'push' && steps.master-schema-key.outputs.key != ''
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -2201,6 +2227,8 @@ jobs:
 
             - name: Upload migration analysis artifact
               if: ${{ always() && github.event_name == 'pull_request' }}
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: migration-analysis
@@ -2280,6 +2308,8 @@ jobs:
                   printf '%s' "$KEY" > schema-cache-key
             - name: Upload migrated schema artifact
               if: ${{ github.event_name == 'push' }}
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: migrated-schema
@@ -2294,12 +2324,16 @@ jobs:
             - name: Save schema to Actions cache for PR shards
               # Kept as the exact PR-base key that every consumer's restore-keys falls back to.
               if: github.event_name == 'push'
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
                   key: posthog-schema-master-${{ github.sha }}
             - name: Save schema to Actions cache (migration-set key)
               if: github.event_name == 'push' && steps.mig-schema-key.outputs.key != ''
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -3138,6 +3172,8 @@ jobs:
             # Restore before setup-python so the tool cache is warm when it starts.
             - name: Restore Python tool cache
               id: python-toolcache
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
@@ -3149,6 +3185,8 @@ jobs:
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             - name: Save Python tool cache
               if: env.IS_MASTER == 'true' && steps.python-toolcache.outputs.cache-hit != 'true'
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
@@ -3287,6 +3325,8 @@ jobs:
                     || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' }}
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -3338,6 +3378,8 @@ jobs:
                       admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" || true
                   fi
             - name: Restore test durations from cache
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .test_durations
@@ -3365,6 +3407,8 @@ jobs:
                   gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
                       || echo "::warning::Timing artifact of run $run_id unavailable, sharding without durations"
             - name: Restore per-segment test durations from cache
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: |
@@ -3395,6 +3439,8 @@ jobs:
                   } >> "$GITHUB_OUTPUT"
             - name: Restore hypothesis constants cache
               id: hyp-constants
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   # Constants only. Do NOT add .hypothesis/examples: the example
@@ -3446,6 +3492,7 @@ jobs:
               # that step); a missing snapshot falls back to the floating caches above.
               id: pinned-plan
               continue-on-error: true
+              timeout-minutes: 5
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   name: test-durations-plan
@@ -3762,6 +3809,7 @@ jobs:
                   !matrix.new-events-schema &&
                   !matrix.compat &&
                   steps.hyp-constants.outputs.cache-hit != 'true'
+              timeout-minutes: 5
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .hypothesis/constants
@@ -3773,6 +3821,8 @@ jobs:
               run: docker compose -f docker-compose.dev.yml logs
 
             - name: Upload test results
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: ${{ always() }}
               with:
@@ -3785,6 +3835,7 @@ jobs:
                       !junit-*-retry-failures.xml
 
             - name: Upload events schema recording
+              timeout-minutes: 5
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: ${{ always() && matrix.json-targets && github.event_name == 'schedule' }}
               with:
@@ -3796,6 +3847,8 @@ jobs:
                   retention-days: 14
 
             - name: Archive email renders
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && !matrix.person-on-events && !matrix.new-events-schema && !matrix.compat }}
               with:
@@ -3804,6 +3857,8 @@ jobs:
                   retention-days: 1
 
             - name: Upload core coverage
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: ${{ always() && github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && matrix.segment == 'Core' && !matrix.json-targets }}
               with:
@@ -3815,6 +3870,8 @@ jobs:
                   overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
 
             - name: Upload updated timing data as artifacts
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               # Upload on master, or on PRs that change timing/sharding scripts (for validation)
               if: ${{ (env.IS_MASTER == 'true' || needs.changes.outputs.timing_scripts == 'true') && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.new-events-schema && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image }}
@@ -3866,6 +3923,7 @@ jobs:
             - name: Upload snapshot patch
               # Only in UPDATE mode
               if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
+              timeout-minutes: 5
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: snapshot-patch-${{ matrix.artifact_key }}
@@ -4169,6 +4227,7 @@ jobs:
             - name: Download shard JUnit results
               if: ${{ always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success') }}
               continue-on-error: true
+              timeout-minutes: 5
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   pattern: '{junit-results-backend,product-junit-results}-*'
@@ -4373,6 +4432,7 @@ jobs:
                   enable-cache: false
 
             - name: Download JUnit artifacts
+              timeout-minutes: 5
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   pattern: junit-results-backend-*
@@ -4400,6 +4460,7 @@ jobs:
             - name: Download selection artifact
               id: download-selection
               continue-on-error: true
+              timeout-minutes: 5
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   name: select-tests-output
@@ -4409,6 +4470,7 @@ jobs:
               # The verdict reports selected seconds per segment from .test_durations,
               # which is not in the repo; use the union turbo-discover snapshotted.
               continue-on-error: true
+              timeout-minutes: 5
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   name: test-durations-plan
@@ -4444,6 +4506,8 @@ jobs:
 
             - name: Upload verdict
               if: always()
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: test-selection-verdict-pr${{ github.event.pull_request.number }}
@@ -4535,6 +4599,7 @@ jobs:
                   version: '0.13.4'
             - name: Download junit artifacts
               if: steps.timing-reporter.outputs.available == 'true'
+              timeout-minutes: 5
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   path: ./junit-artifacts
@@ -4585,6 +4650,7 @@ jobs:
             - name: Download coverage artifacts
               if: steps.reporter.outputs.available == 'true'
               continue-on-error: true
+              timeout-minutes: 5
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   path: ./cov-artifacts
@@ -4592,6 +4658,7 @@ jobs:
             - name: Download core coverage artifacts
               if: steps.reporter.outputs.available == 'true'
               continue-on-error: true
+              timeout-minutes: 5
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   path: ./core-artifacts
@@ -4636,6 +4703,8 @@ jobs:
                   fi
             - name: Upload patch coverage payload
               if: ${{ always() && steps.reporter.outputs.available == 'true' }}
+              timeout-minutes: 5
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: patch-coverage
