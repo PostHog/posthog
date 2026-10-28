@@ -2972,6 +2972,10 @@ snapshots:
         hash: v1.k794b7964.0374c7974dec7e4856f35cc96eb4b5581f6fbd90c60e2141b7f91b6251f4db5d.zFGMI4Evxi3Bq17XxaBxRQhfhr1bkSVt5IxYnDtTOw0
     data-catalog-lifecycle-strip--drifted-selected--light:
         hash: v1.k794b7964.ffe0d2155bc7ca77f345984218ce641ca9747fb40a6bdc65f8cbb2073785986c.XDE9QK2mEGIFM5M9sDeqXJVE4B3S8B8nk_q3Re6rYgw
+    data-catalog-metric-description--clamped--dark:
+        hash: v1.k794b7964.94189c2dd7e3fb15b469cf7eb19f5dc35c0f8f9d71d35d602938e3f07733e280.t8xqMmiX0ceBOMqJIzr1LU9Kq3SZDBS1iuhzohpQWeA
+    data-catalog-metric-description--clamped--light:
+        hash: v1.k794b7964.4380c405fe354b4397f7403340b14b7204574f1a3bef621b36b2b630ec8d80d3.zM6ZRGZdmwZ3QzDZ0ytJMBIN5-HmtPtlZIXLGlKb9c0
     data-catalog-metric-run-result-cell--long-values-collapse--dark:
         hash: v1.k794b7964.dc188a898119faa5dc90aabb8b42f172657e8d18604c5cb4dfecd77f33dcca14.OkK0G4Kc9D5flwW3eKJ24FBFZcaNd7oEQUHyqqLXtqY
     data-catalog-metric-run-result-cell--long-values-collapse--light:
