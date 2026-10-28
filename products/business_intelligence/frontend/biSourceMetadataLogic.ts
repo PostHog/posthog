@@ -79,15 +79,15 @@ export const biSourceMetadataLogic: LogicWrapper<biSourceMetadataLogicType> = ke
     }),
     loaders(({ props }) => ({
         annotations: [
-            {} as Record<string, string>,
+            Object.create(null) as Record<string, string>,
             {
                 loadAnnotations: async (_: void, breakpoint): Promise<Record<string, string>> => {
                     const table = props.table
                     if (!table || !['data_warehouse', 'view', 'materialized_view'].includes(table.type) || !table.id) {
-                        return {}
+                        return Object.create(null) as Record<string, string>
                     }
                     const project = String(teamLogic.values.currentTeamId)
-                    const annotations: Record<string, string> = {}
+                    const annotations = Object.create(null) as Record<string, string>
                     let offset = 0
                     while (true) {
                         const result =
@@ -176,6 +176,5 @@ export const biSourceMetadataLogic: LogicWrapper<biSourceMetadataLogicType> = ke
     })),
     afterMount(({ actions }) => {
         actions.loadAnnotations()
-        actions.loadHealth()
     }),
 ])
