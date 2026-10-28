@@ -231,6 +231,7 @@ Several catalog tables expose such columns because reading them scans far less d
 The mapping is keyed by the stored column name, not the HogQL field name, so an expression field that reads a mirror column masks too: `flag_evaluations.response` reads the stored `response` column through `nullIf`, and the hidden `flag_evaluation_response` reads it bare, and both mask.
 For AI columns, `AI_PROPERTY_TO_COLUMN` in `posthog/hogql/database/schema/ai_events.py` is shared with the query rewriter.
 One rule for `$ai_input` masks both `events.properties.$ai_input` and `ai_events.input`, including nested reads such as `input[1].content`.
+The hidden length fields `input_state_length` and `output_state_length` follow the rule of their state property, so a masked state also hides whether it exists.
 The same rule applies when a filter or an aggregate reads the column.
 Nested keys in an allowed AI payload are not separate event properties: a restriction on the event property `content` does not restrict `input.content`.
 That resolver rewrites a restricted mirror column to the same `Constant(value=None, type=StringType(nullable=True))` the source property lowers to, before the AST reaches the printer — so the mirror column and its source property are one AST node by the time comparisons and nullability are decided, not two independently masked spellings that could drift apart.

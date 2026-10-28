@@ -33,6 +33,7 @@ def make_row(**overrides: Any) -> TraceEventRow:
         "latency": None,
         "is_error": False,
         "error_is_truthy": False,
+        "has_state": False,
         "ingestion_source": None,
     }
     return TraceEventRow(**{**fields, **overrides})

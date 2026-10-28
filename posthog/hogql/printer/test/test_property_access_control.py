@@ -396,10 +396,11 @@ class TestRestrictPropertiesInHogQL(BaseTest):
             ("tokens", "$ai_input_tokens", "a.input_tokens"),
             ("cost", "$ai_total_cost_usd", "a.total_cost_usd"),
             ("error", "$ai_is_error", "a.is_error"),
+            ("state length", "$ai_input_state", "a.input_state_length", "input_state.size"),
         ]
     )
     def test_ai_column_and_nested_reads_use_the_canonical_property_rule(
-        self, _name: str, property_name: str, expression: str
+        self, _name: str, property_name: str, expression: str, printed_column: str | None = None
     ) -> None:
         self.event_prop.name = property_name
         self.event_prop.save()
@@ -415,7 +416,7 @@ class TestRestrictPropertiesInHogQL(BaseTest):
 
         assert "NULL AS restricted_value" in sql
         assert "JSONExtract" not in sql
-        assert expression.split("[")[0] not in sql
+        assert (printed_column or expression.split("[")[0]) not in sql
 
     def test_ai_json_content_is_not_an_event_property(self) -> None:
         PropertyAccessControl.objects.create(

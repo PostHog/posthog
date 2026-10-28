@@ -1,6 +1,6 @@
 import json
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -59,6 +59,7 @@ class TraceEventRow:
     latency: float | None
     is_error: bool
     error_is_truthy: bool
+    has_state: bool
     ingestion_source: str | None
 
 
@@ -130,6 +131,7 @@ _SELECTED: dict[str, ast.Expr] = {
     # The native error column extracts $ai_error as a string, which loses the JSON type that decides truthiness.
     "error_raw": _raw_property("$ai_error"),
     "ingestion_source": ast.Field(chain=["properties", "$ai_ingestion_source"]),
+    "has_state": ast.Placeholder(expr=ast.Field(chain=["has_state"])),
 }
 
 
@@ -220,6 +222,30 @@ def _person_query(distinct_id: str) -> ast.SelectQuery:
     )
 
 
+# SDKs send an empty state as `null`, `""` or `{}`, so a state of at most 4 bytes holds nothing to show.
+_EMPTY_STATE_MAX_BYTES = 4
+
+
+def _has_state(lengths: Iterable[ast.Expr]) -> ast.Expr:
+    return ast.Or(
+        exprs=[
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt, left=length, right=ast.Constant(value=_EMPTY_STATE_MAX_BYTES)
+            )
+            for length in lengths
+        ]
+    )
+
+
+# ClickHouse reads the whole state column for any function of `input_state`, so ai_events checks the length
+# subcolumns, which load no state content.
+_AI_EVENTS_HAS_STATE = _has_state((ast.Field(chain=["input_state_length"]), ast.Field(chain=["output_state_length"])))
+# The events fallback reads the state from the properties JSON, where a missing key is an empty string.
+_EVENTS_HAS_STATE = _has_state(
+    tuple(ast.Call(name="length", args=[ast.Field(chain=[column])]) for column in ("input_state", "output_state"))
+)
+
+
 def _trace_filter(trace_id: str) -> ast.Expr:
     return _equals("trace_id", trace_id)
 
@@ -235,7 +261,7 @@ def _read(
     tag_queries(name=name)
     response = query_ai_events(
         query=query,
-        placeholders={"filter_conditions": _trace_filter(trace_id)},
+        placeholders={"filter_conditions": _trace_filter(trace_id), "has_state": _AI_EVENTS_HAS_STATE},
         team=team,
         user=user,
         query_type=name,
@@ -243,7 +269,8 @@ def _read(
         fallback_placeholders={
             "filter_conditions": events_filter(
                 trace_filter=_trace_filter(trace_id), event_filter=_event_in(TRACE_EVENT_NAMES), window=window
-            )
+            ),
+            "has_state": _EVENTS_HAS_STATE,
         },
         posthog_tables_only=True,
     )
@@ -321,6 +348,7 @@ def _trace_event_row(values: Sequence[Any]) -> TraceEventRow:
         latency=read_number(raw["latency"]),
         is_error=read_flag(raw["is_error"]),
         error_is_truthy=is_truthy_json(raw["error_raw"]),
+        has_state=read_flag(raw["has_state"]),
         ingestion_source=read_text(raw["ingestion_source"]),
     )
 
