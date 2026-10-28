@@ -91,6 +91,16 @@ describe('workflowStepCatalog', () => {
             'Replay Vision',
         ],
         [
+            'a static cohort step',
+            { type: 'function', config: { template_id: 'template-posthog-add-to-static-cohort' } },
+            'Add to static cohort',
+        ],
+        [
+            'an opt-out step',
+            { type: 'function', config: { template_id: 'template-posthog-opt-out-of-messages' } },
+            'Opt out of messages',
+        ],
+        [
             'a destination it does not list',
             { type: 'function', config: { template_id: 'template-hubspot' } },
             undefined,
