@@ -486,8 +486,8 @@ export const VisionObservationsLabelCreateBody = /* @__PURE__ */ zod
     .describe("The team's shared judgement on whether the scanner scored this session correctly.")
 
 /**
- * Record that the Search tab showed suggestions for this scope. The scheduled refresher serves viewed
- * scanners first, so the stamp lives on a CSRF-protected POST rather than the read.
+ * Warm the query vectors for the suggestions the Search tab showed, so a click on one searches at once.
+ * It embeds text, so it is a POST rather than part of the read.
  */
 export const VisionObservationsSearchViewedCreateBody = /* @__PURE__ */ zod.object({
     scanner_id: zod
