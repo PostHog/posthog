@@ -1263,7 +1263,7 @@ class Database(BaseModel):
 
     @property
     def read_flag_calls_from_flag_evaluations(self) -> bool:
-        # A catalog without the table, such as a direct-connection one, cannot read from it.
+        # create_for(include_flag_evaluations_table=False) removes the table after _fetch_sources chose to read from it.
         return self._read_flag_calls_from_flag_evaluations and self.has_table(["posthog", "flag_evaluations"])
 
     @staticmethod

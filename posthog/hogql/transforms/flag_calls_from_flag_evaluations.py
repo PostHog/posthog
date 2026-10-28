@@ -21,6 +21,7 @@ from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts
 from posthog.hogql.flag_called_warnings import FLAG_CALLED_EVENT
+from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 # FLAG_EVALUATIONS_TTL_DAYS - 1. That constant lives in posthog/models/flag_evaluations/sql.py, and importing it
@@ -65,14 +66,10 @@ _START_OF_UNITS = {
     "toStartOfQuarter": "Quarter",
     "toStartOfYear": "Year",
 }
+# Rounding to a week or longer returns a Date. A comparison with a DateTime reads a Date at midnight UTC. In a zone
+# behind UTC, that midnight comes before the local midnight that the rounding chose.
+_DATE_UNITS = frozenset({"Week", "Month", "Quarter", "Year"})
 _TIMEZONE_ARGUMENT = {"toDateTime": 1, "toDateTime64": 2, "now": 0, "now64": 1}
-_COMPARISON_FUNCTIONS = {
-    "equals": ast.CompareOperationOp.Eq,
-    "greater": ast.CompareOperationOp.Gt,
-    "greaterOrEquals": ast.CompareOperationOp.GtEq,
-    "less": ast.CompareOperationOp.Lt,
-    "lessOrEquals": ast.CompareOperationOp.LtEq,
-}
 
 # An alias with one of these names can shadow the column in an unqualified read.
 _SCAN_COLUMNS = frozenset({"event", "timestamp", "properties"})
@@ -88,10 +85,11 @@ def can_read_flag_evaluations(node: ast.SelectQuery, now: datetime, timezone: Zo
        zone reads in `timezone`, the team's zone, wherever the printer reads it that way.
     3. The scan is not sampled, because `flag_evaluations` has no sampling key. Insight runners attach `SAMPLE 1`
        to every events read, and the printer drops it, so it counts as no sampling.
-    4. A top-level conjunct pins the scan's `$feature_flag` property to non-empty strings that no other JSON value
-       prints as. Ingestion writes a call to `flag_evaluations` only when its `$feature_flag` is a non-empty JSON
-       string, and leaves every other call in `events` on every flag_evaluations mode. A literal such as `'100'`
-       also matches the number 100, which stays in `events`.
+    4. The scan's `$feature_flag` property is pinned to non-empty strings that no other JSON value prints as. A
+       top-level conjunct can pin it for the whole scan. Otherwise, each `OR` branch that pins `event` must pin it
+       too, as an action with several steps does. Ingestion writes a call to `flag_evaluations` only when its
+       `$feature_flag` is a non-empty JSON string, and leaves every other call in `events` on every
+       flag_evaluations mode. A literal such as `'100'` also matches the number 100, which stays in `events`.
     5. The select list has no `*` or `COLUMNS(...)`, and the scan has no column aliases. `flag_evaluations` has
        other columns, so either one would change what the query reads.
 
@@ -172,6 +170,8 @@ class _EventsScan:
         return False
 
     def pins_flag_calls(self, conjuncts: list[ast.Expr], needs_flag_key: bool) -> bool:
+        """Whether `conjuncts` pin `event` to flag calls. `needs_flag_key` is true when no enclosing conjunct pins
+        `$feature_flag`. A pin of `event` then counts only where these conjuncts also pin `$feature_flag`."""
         needs_flag_key = needs_flag_key and not any(self._pins_flag_key(conjunct) for conjunct in conjuncts)
         return any(self._pins_flag_calls_in(conjunct, needs_flag_key) for conjunct in conjuncts)
 
@@ -185,17 +185,26 @@ class _EventsScan:
         return False
 
     def _pins_flag_key(self, expr: ast.Expr) -> bool:
-        if _pins(expr, self._reads_flag_key, _is_flag_key):
-            return True
-        if isinstance(expr, ast.Or):
-            return bool(expr.exprs) and all(self._pins_flag_key(branch) for branch in expr.exprs)
-        return False
+        return self._flag_keys_in(expr) is not None
+
+    def _flag_keys_in(self, expr: ast.Expr) -> list[str] | None:
+        """The keys `expr` pins `$feature_flag` to, or None when it does not pin it."""
+        values = _pinned_values(expr, self._reads_flag_key, _is_flag_key)
+        if values is not None:
+            # _is_flag_key accepts only string constants.
+            return [value.value for value in values if isinstance(value, ast.Constant)]
+        if isinstance(expr, ast.Or) and expr.exprs:
+            branches = [self._flag_keys_in(branch) for branch in expr.exprs]
+            if all(keys is not None for keys in branches):
+                return [key for keys in branches if keys is not None for key in keys]
+        return None
 
     def flag_keys(self, conjuncts: list[ast.Expr]) -> list[str]:
         """The keys a top-level conjunct pins `$feature_flag` to, or an empty list when no top-level conjunct does."""
         for conjunct in conjuncts:
-            if self._pins_flag_key(conjunct):
-                return _pinned_values(conjunct)
+            keys = self._flag_keys_in(conjunct)
+            if keys is not None:
+                return keys
         return []
 
     def _reads_event(self, expr: ast.Expr) -> bool:
@@ -244,23 +253,32 @@ def _comparison(expr: ast.Expr) -> tuple[ast.CompareOperationOp, ast.Expr, ast.E
     """`expr` as an operator and its operands, whether it is written `a >= b` or `greaterOrEquals(a, b)`."""
     if isinstance(expr, ast.CompareOperation):
         return expr.op, expr.left, expr.right
-    if isinstance(expr, ast.Call) and expr.name in _COMPARISON_FUNCTIONS and len(expr.args) == 2:
-        return _COMPARISON_FUNCTIONS[expr.name], expr.args[0], expr.args[1]
+    if isinstance(expr, ast.Call) and expr.name in HOGQL_COMPARISON_MAPPING and len(expr.args) == 2:
+        return HOGQL_COMPARISON_MAPPING[expr.name], expr.args[0], expr.args[1]
+    return None
+
+
+def _pinned_values(expr: ast.Expr, reads: _Predicate, accepts: _Predicate) -> list[ast.Expr] | None:
+    """The values `expr` limits what `reads` matches to, or None when they are not all values `accepts` matches."""
+    comparison = _comparison(expr)
+    if comparison is None:
+        return None
+    op, left, right = comparison
+    if op == ast.CompareOperationOp.Eq:
+        if reads(left) and accepts(right):
+            return [right]
+        if reads(right) and accepts(left):
+            return [left]
+        return None
+    if op in (ast.CompareOperationOp.In, ast.CompareOperationOp.GlobalIn):
+        values = right.exprs if isinstance(right, (ast.Tuple, ast.Array)) else [right]
+        return values if reads(left) and values and all(accepts(value) for value in values) else None
     return None
 
 
 def _pins(expr: ast.Expr, reads: _Predicate, accepts: _Predicate) -> bool:
     """Whether `expr` limits what `reads` matches to values that `accepts` matches."""
-    comparison = _comparison(expr)
-    if comparison is None:
-        return False
-    op, left, right = comparison
-    if op == ast.CompareOperationOp.Eq:
-        return (reads(left) and accepts(right)) or (reads(right) and accepts(left))
-    if op in (ast.CompareOperationOp.In, ast.CompareOperationOp.GlobalIn):
-        values = right.exprs if isinstance(right, (ast.Tuple, ast.Array)) else [right]
-        return reads(left) and bool(values) and all(accepts(value) for value in values)
-    return False
+    return _pinned_values(expr, reads, accepts) is not None
 
 
 def _is_constant(expr: ast.Expr, value: str) -> bool:
@@ -280,17 +298,6 @@ def _is_flag_key(expr: ast.Expr) -> bool:
     except ValueError:
         return True
     return False
-
-
-def _pinned_values(expr: ast.Expr) -> list[str]:
-    if isinstance(expr, ast.Or):
-        return [value for branch in expr.exprs for value in _pinned_values(branch)]
-    comparison = _comparison(expr)
-    if comparison is None:
-        return []
-    _, left, right = comparison
-    values = right.exprs if isinstance(right, (ast.Tuple, ast.Array)) else [left, right]
-    return [value.value for value in values if isinstance(value, ast.Constant) and isinstance(value.value, str)]
 
 
 def _conjuncts(expr: ast.Expr | None) -> list[ast.Expr]:
@@ -333,9 +340,9 @@ def _earliest_instant(expr: ast.Expr, now: datetime, timezone: ZoneInfo) -> date
     if day_start is not None:
         return day_start
     if name in _START_OF_UNITS and args:
-        return _shifted(_earliest_instant(args[0], now, timezone), (1, _START_OF_UNITS[name]), -1)
+        return _rounded_down(_earliest_instant(args[0], now, timezone), (1, _START_OF_UNITS[name]))
     if name == "toStartOfInterval" and len(args) >= 2:
-        return _shifted(_earliest_instant(args[0], now, timezone), _interval(args[1]), -1)
+        return _rounded_down(_earliest_instant(args[0], now, timezone), _interval(args[1]))
     return None
 
 
@@ -419,6 +426,14 @@ def _shifted(instant: datetime | None, interval: tuple[int, str] | None, sign: i
     return instant + total * (shortest if total >= 0 else longest) - _DST_MARGIN
 
 
+def _rounded_down(instant: datetime | None, interval: tuple[int, str] | None) -> datetime | None:
+    """The earliest instant that rounding `instant` down to a multiple of `interval` can give."""
+    rounded = _shifted(instant, interval, -1)
+    if rounded is not None and interval is not None and interval[1] in _DATE_UNITS:
+        return rounded - _EARLIEST_UTC_OFFSET
+    return rounded
+
+
 def _integer(expr: ast.Expr) -> int | None:
     if isinstance(expr, ast.Constant) and isinstance(expr.value, int) and not isinstance(expr.value, bool):
         return expr.value
@@ -498,9 +513,10 @@ class _EventsScanSwapper(_SyntaxVisitor):
         # A swapped PREWHERE can read person columns through a join that the printer adds later. ClickHouse
         # rejects a PREWHERE that reads a joined column, and WHERE selects the same rows.
         conditions = [condition for condition in (node.prewhere, node.where) if condition is not None]
-        # flag_key sorts the table, so this predicate lets ClickHouse skip other flags. The pin implies it when no
-        # key holds a backslash, because the stored text of such a key has no JSON escapes.
-        if keys and not any("\\" in key for key in keys):
+        # flag_key sorts the table, so this predicate lets ClickHouse skip other flags. flag_key holds the key's JSON
+        # text, and a JSONExtractString pin compares the decoded key. The pin implies this predicate only when the
+        # JSON text of each key is the key itself.
+        if keys and all(json.dumps(key)[1:-1] == key for key in keys):
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,

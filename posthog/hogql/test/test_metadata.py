@@ -8,7 +8,7 @@ from django.db import DatabaseError, connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
-from parameterized import parameterized
+from parameterized import param, parameterized
 from posthoganalytics import FeatureFlagResult
 
 from posthog.schema import (
@@ -438,38 +438,32 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             ),
             ("malformed_announcement_url", _FLAG_CALLED_QUERY, True, 1, _move_notices("https://[broken")),
             ("read_from_flag_evaluations_while_the_rewrite_is_off", _FLAG_CALLS_FROM_FLAG_EVALUATIONS_QUERY, True, 1),
-            (
+            param(
                 "read_from_flag_evaluations",
                 _FLAG_CALLS_FROM_FLAG_EVALUATIONS_QUERY,
                 True,
                 0,
                 _move_notices("https://example.com/announcement"),
                 "https://example.com/announcement",
-                True,
-                1,
+                rewrite_enabled=True,
+                expected_notices=1,
             ),
-            ("refused_by_the_rewrite", _FLAG_CALLED_QUERY, True, 1, _MOVE_NOTICES_WITHOUT_URL, None, True, 0),
-            (
+            param("refused_by_the_rewrite", _FLAG_CALLED_QUERY, True, 1, rewrite_enabled=True),
+            param(
                 "falls_back_for_a_field_flag_evaluations_lacks",
                 "SELECT $window_id FROM events WHERE event = '$feature_flag_called' "
                 "AND properties.$feature_flag = 'my-flag' AND timestamp >= now() - INTERVAL 7 DAY",
                 True,
                 1,
-                _MOVE_NOTICES_WITHOUT_URL,
-                None,
-                True,
-                0,
+                rewrite_enabled=True,
             ),
-            (
+            param(
                 "falls_back_when_a_name_binds_to_a_flag_evaluations_column",
                 "WITH 'all calls' AS flag_key SELECT flag_key FROM events WHERE event = '$feature_flag_called' "
                 "AND properties.$feature_flag = 'my-flag' AND timestamp >= now() - INTERVAL 7 DAY",
                 True,
                 1,
-                _MOVE_NOTICES_WITHOUT_URL,
-                None,
-                True,
-                0,
+                rewrite_enabled=True,
             ),
         ]
     )

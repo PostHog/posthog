@@ -19,7 +19,7 @@ from django.db import connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
-from parameterized import parameterized
+from parameterized import param, parameterized
 from pydantic import BaseModel
 
 from posthog.schema import (
@@ -485,23 +485,39 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         [
             ("events_mode", FlagEvaluationsMode.EVENTS, True, False),
             # DEBUG puts the table in the catalog on EVENTS, but events still holds every flag call.
-            ("events_mode_under_debug", FlagEvaluationsMode.EVENTS, True, False, False, True),
-            ("events_mode_with_the_table_forced_in", FlagEvaluationsMode.EVENTS, True, False, False, False, True),
+            param("events_mode_under_debug", FlagEvaluationsMode.EVENTS, True, False, debug=True),
+            param(
+                "events_mode_with_the_table_forced_in",
+                FlagEvaluationsMode.EVENTS,
+                True,
+                False,
+                include_flag_evaluations_table=True,
+            ),
             ("read_mode", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, True),
             ("read_mode_with_the_flag_off", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, False),
-            ("read_mode_with_reads_forced_to_events", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, False, True),
+            param(
+                "read_mode_with_reads_forced_to_events",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                True,
+                False,
+                reads_forced_to_events=True,
+            ),
             ("only_mode", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True, True),
             ("only_mode_with_the_flag_off", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False, False),
             # The switch skips FLAG_EVALUATIONS_ONLY, whose flag calls are no longer in events.
-            ("only_mode_with_reads_forced_to_events", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True, True, True),
-            (
+            param(
+                "only_mode_with_reads_forced_to_events",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                True,
+                True,
+                reads_forced_to_events=True,
+            ),
+            param(
                 "only_mode_without_the_table",
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                 True,
                 False,
-                False,
-                False,
-                False,
+                include_flag_evaluations_table=False,
             ),
         ]
     )

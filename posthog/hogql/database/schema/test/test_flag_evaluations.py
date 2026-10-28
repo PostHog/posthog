@@ -703,12 +703,25 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ("number_as_string", "100"),
             ("number", 100),
             ("boolean", True),
+            # flag_key holds the key's JSON text with its escapes, and JSONExtractString decodes them.
+            (
+                "quoted_flag_key_read_through_json_extract_string",
+                "variant-a",
+                'say "hi"',
+                "JSONExtractString(properties, '$feature_flag')",
+            ),
         ]
     )
-    def test_swapped_query_returns_what_events_returns_for_the_same_flag_calls(self, _name: str, response: str | int):
+    def test_swapped_query_returns_what_events_returns_for_the_same_flag_calls(
+        self,
+        _name: str,
+        response: str | int,
+        flag_key: str = "parity-flag",
+        flag_key_read: str = "properties.$feature_flag",
+    ):
         # Mode 1 writes each flag call to both tables, so the two reads must agree row for row.
         row_uuid = uuid.uuid4()
-        properties: dict[str, str | int | None] = {"$feature_flag": "parity-flag", "$feature_flag_response": response}
+        properties: dict[str, str | int | None] = {"$feature_flag": flag_key, "$feature_flag_response": response}
         self._insert_row(row_uuid, properties)
         _create_event(
             team=self.team,
@@ -721,15 +734,17 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
         query = (
             "SELECT uuid, distinct_id, properties.$feature_flag_response FROM events "
-            "WHERE event = '$feature_flag_called' AND properties.$feature_flag = 'parity-flag' "
+            f"WHERE event = '$feature_flag_called' AND {flag_key_read} = '{flag_key}' "
             "AND timestamp >= now() - INTERVAL 7 DAY"
         )
 
         from_events = self._query_events(query, rewrite=False).results
-        from_flag_evaluations = self._query_events(query).results
+        swapped = self._query_events(query)
 
         assert len(from_events) == 1
-        assert from_flag_evaluations == from_events
+        assert swapped.clickhouse is not None
+        assert "FROM flag_evaluations" in swapped.clickhouse
+        assert swapped.results == from_events
 
     @parameterized.expand(
         [

@@ -137,6 +137,7 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
             ("today", _bounded_by("today() - INTERVAL 7 DAY")),
             ("interval_function", _bounded_by("now() - toIntervalDay(7)")),
             ("minus_call", _bounded_by("minus(now(), toIntervalDay(7))")),
+            ("subtract_days", _bounded_by("subtractDays(now(), 7)")),
             ("weeks", _bounded_by("now() - INTERVAL 12 WEEK")),
             ("months", _bounded_by("now() - INTERVAL 2 MONTH")),
             ("hours", _bounded_by("now() - INTERVAL 2000 HOUR")),
@@ -246,6 +247,7 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
                 _bounded_by(f"toDateTime('{_text(COVERAGE_START + timedelta(hours=6))}+14:00')"),
             ),
             ("negative_interval_added", _bounded_by("now() + INTERVAL -100 DAY")),
+            ("subtract_days_past_coverage", _bounded_by(f"subtractDays(now(), {FLAG_EVALUATIONS_COMPLETE_DAYS + 1})")),
             (
                 "start_of_month_before_coverage",
                 _bounded_by(f"toStartOfMonth(now() - INTERVAL {FLAG_EVALUATIONS_COMPLETE_DAYS - 1} DAY)"),
@@ -394,3 +396,11 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
         placeholders: dict[str, ast.Expr] = {"bound": ast.Constant(value=COVERAGE_START.replace(tzinfo=None))}
 
         assert self._can_read(_bounded_by(bound), placeholders, timezone) is expected
+
+    # At this time coverage starts on Monday 2026-07-27. toMonday returns that Monday as a Date, which the comparison
+    # reads at midnight UTC, so the hour subtracted after the rounding moves the bound before coverage.
+    @time_machine.travel(datetime(2026, 10, 24, 12, 0, tzinfo=UTC), tick=False)
+    def test_refuses_a_date_rounding_shifted_before_coverage_in_a_zone_behind_utc(self):
+        bound = "toMonday(toDateTime('2026-08-02 22:00:00')) - INTERVAL 1 HOUR"
+
+        assert self._can_read(_bounded_by(bound), timezone="America/Los_Angeles") is False
