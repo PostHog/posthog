@@ -79,6 +79,10 @@ def _upstream_first(team_id: int, view_ids: set[UUID]) -> list[UUID]:
 
 
 def _refresh_columns(view: DataWarehouseSavedQuery, user: "User | None") -> bool:
+    # Inference uses the team's default modifiers, so a materialized upstream view is read from its backing table.
+    # A query with useMaterializedViews=False reads that view's SQL instead. When the SQL changed and the view has
+    # not materialized again, such a query can still fail on stale columns after this refresh. The refresh that
+    # runs when materialization publishes the new backing table fixes it.
     try:
         columns = view.get_columns(user=user, bypass_warehouse_access_control=user is None)
     except ConcurrencyLimitExceeded:
