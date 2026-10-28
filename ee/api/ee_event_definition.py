@@ -9,7 +9,7 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.event_usage import groups
-from posthog.models import EventDefinition, ObjectMediaPreview, User
+from posthog.models import EventDefinition, ObjectMediaPreview
 from posthog.models.organization import OrganizationMembership
 
 from ee.models.event_definition import EnterpriseEventDefinition
@@ -43,12 +43,6 @@ class EnterpriseEventDefinitionSerializerExtension(OpenApiSerializerExtension):
 
 
 class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
-    owner = serializers.PrimaryKeyRelatedField(
-        queryset=User.objects.all(),
-        allow_null=True,
-        required=False,
-        help_text="ID of the user responsible for the event. Null removes the owner.",
-    )
     updated_by = UserBasicSerializer(read_only=True)
     verified_by = UserBasicSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
@@ -101,6 +95,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "default_columns",
             "media_preview_urls",
         )
+        extra_kwargs = {"owner": {"help_text": "ID of the user responsible for the event. Null removes the owner."}}
         read_only_fields = [
             "id",
             "name",
