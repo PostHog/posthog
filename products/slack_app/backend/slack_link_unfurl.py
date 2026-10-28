@@ -1040,8 +1040,7 @@ def _experiment_results(experiment: Experiment) -> tuple[str, str | None] | None
         or not stats.variants
     ):
         return None
-    increase = stats.goal != "decrease"
-    return _experiment_verdict(stats, increase), _experiment_chart(stats, funnel=stats.metric_type == "funnel")
+    return _experiment_verdict(stats), _experiment_chart(stats)
 
 
 def _variant_delta(stats: StoredPrimaryResult, variant: StoredArmResult) -> float | None:
@@ -1052,34 +1051,34 @@ def _variant_delta(stats: StoredPrimaryResult, variant: StoredArmResult) -> floa
     return variant.mean / stats.baseline.mean - 1
 
 
-def _experiment_verdict(stats: StoredPrimaryResult, increase: bool) -> str:
+def _experiment_verdict(stats: StoredPrimaryResult) -> str:
     control = stats.baseline.key
     if all(variant.interval is None for variant in stats.variants):
         exposed = stats.baseline.number_of_samples + sum(variant.number_of_samples for variant in stats.variants)
         return f"⏳ *Too early to call.* {exposed:,} exposed so far."
-    direction = 1 if increase else -1
-    scored = [(variant, delta) for variant in stats.variants if (delta := _variant_delta(stats, variant)) is not None]
-    winners = [(variant, delta) for variant, delta in scored if variant.significant and delta * direction > 0]
-    if winners:
-        variant, delta = max(winners, key=lambda pair: pair[1] * direction)
-        return f"🏆 *Winner so far: {variant.key}.* {delta:+.1%} vs {control}."
-    losers = [(variant, delta) for variant, delta in scored if variant.significant]
-    if losers:
-        variant, delta = min(losers, key=lambda pair: pair[1] * direction)
-        return f"🔻 *Losing: {variant.key}.* {delta:+.1%} vs {control}."
-    leader = max(scored, key=lambda pair: pair[1] * direction, default=None)
-    if leader and leader[1] * direction > 0:
-        return f"⚖️ *No clear winner yet.* {leader[0].key} leads at {leader[1]:+.1%} vs {control}, but it is not significant."
+    direction = -1 if stats.goal == "decrease" else 1
+    ranked = sorted(
+        ((variant, delta) for variant in stats.variants if (delta := _variant_delta(stats, variant)) is not None),
+        key=lambda pair: pair[1] * direction,
+        reverse=True,
+    )
+    significant = [(variant, delta) for variant, delta in ranked if variant.significant]
+    if significant and significant[0][1] * direction > 0:
+        return f"🏆 *Winner so far: {significant[0][0].key}.* {significant[0][1]:+.1%} vs {control}."
+    if significant:
+        return f"🔻 *Losing: {significant[-1][0].key}.* {significant[-1][1]:+.1%} vs {control}."
+    if ranked and ranked[0][1] * direction > 0:
+        return f"⚖️ *No clear winner yet.* {ranked[0][0].key} leads at {ranked[0][1]:+.1%} vs {control}, but it is not significant."
     return f"⚖️ *No clear winner yet.* No variant beats {control}."
 
 
-def _experiment_chart(stats: StoredPrimaryResult, *, funnel: bool) -> str | None:
+def _experiment_chart(stats: StoredPrimaryResult) -> str | None:
     arms = [stats.baseline, *stats.variants]
     top = max((arm.mean or 0.0) for arm in arms)
     rows = []
     for arm in arms:
         mean = arm.mean or 0.0
-        value = f"{mean:.1%}" if funnel else f"{mean:,.2f}"
+        value = f"{mean:.1%}" if stats.metric_type == "funnel" else f"{mean:,.2f}"
         if arm is not stats.baseline and (delta := _variant_delta(stats, arm)) is not None:
             value += f"  {delta:+.1%}{' ✓' if arm.significant else ''}"
         rows.append(_ChartRow(label=_chart_label(arm.key), bar=_bar(mean / top if top else 0.0), value=value))

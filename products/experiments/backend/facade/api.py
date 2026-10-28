@@ -177,16 +177,14 @@ def get_experiment_health_inputs(
 
 
 def get_stored_primary_result(experiment: ExperimentModel) -> StoredPrimaryResult | None:
-    """The current stored result of the experiment's primary metric. It reads Postgres only and runs no query."""
-    configs = build_primary_calculation_configs(experiment)
-    if not configs:
-        return None
-    stats = MetricResultStore(experiment_id=experiment.pk).current_result(configs[0])
-    if stats is None:
+    """The current stored result of the experiment's primary metric. It reads Postgres only, not ClickHouse."""
+    config = next(iter(build_primary_calculation_configs(experiment)), None)
+    stats = MetricResultStore(experiment_id=experiment.pk).current_result(config) if config else None
+    if config is None or stats is None:
         return None
     return StoredPrimaryResult(
-        metric_type=configs[0].definition.get("metric_type"),
-        goal=configs[0].definition.get("goal"),
+        metric_type=config.definition.get("metric_type"),
+        goal=config.definition.get("goal"),
         baseline=StoredArmResult(
             key=stats.baseline.key, number_of_samples=stats.baseline.number_of_samples, mean=stats.baseline.mean
         ),
