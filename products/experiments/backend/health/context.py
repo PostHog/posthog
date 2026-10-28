@@ -19,6 +19,7 @@ from posthog.schema import (
     PropertyOperator,
 )
 
+from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
 from posthog.hogql.property import operator_is_negative
 
 from posthog.dataclasses import frozen
@@ -26,7 +27,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.event_definitions.backend.models import PropertyDefinition, effective_project_id_expr
+from products.event_definitions.backend.models import EventDefinition, PropertyDefinition, effective_project_id_expr
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthMetricCompileErrorKind,
@@ -168,7 +169,8 @@ class ReachableCondition:
     # The person or group property that the condition matches on alone, when its one value is the pinned variant's
     # key. The variant then comes from whatever sets that property, usually the customer's own assignment.
     variant_property: VariantProperty | None
-    cohort_ids: frozenset[int] = frozenset()
+    # The cohorts whose members the condition matches. A `not_in` cohort filter matches the users outside the cohort.
+    member_cohort_ids: frozenset[int] = frozenset()
 
 
 @frozen
@@ -340,17 +342,36 @@ class ExposurePropertyFilter:
     # The event that the filter applies to. None for an action, which can match several events.
     event: str | None
 
+    @classmethod
+    def of(cls, prop: EventPropertyFilter | PersonPropertyFilter, event: str | None) -> "ExposurePropertyFilter":
+        return cls(
+            type=prop.type,
+            key=prop.key,
+            # The exposure query reads a filter without an operator as `exact`, as `property_to_expr` does.
+            operator=prop.operator or PropertyOperator.EXACT,
+            values=None if prop.value is None else _filter_values(prop.value),
+            event=event,
+        )
+
     @property
     def fails_when_missing(self) -> bool:
-        """Whether no event without the property passes the filter. The query reads a missing property as null, which
-        `property_to_expr` compares as false, except for a negated operator. `flag_evaluates_to` doesn't compile."""
-        if operator_is_negative(self.operator) or self.operator == PropertyOperator.FLAG_EVALUATES_TO:
+        """Whether no event without the property passes the filter, as `property_to_expr` compiles it.
+        `TestFailsWhenMissing` compares this with the compiled filter in ClickHouse for every operator and value shape."""
+        if self.values is None:
+            return self.operator == PropertyOperator.IS_SET
+        if not self.values:
+            # An empty list matches every event, except for `icontains`.
+            return self.operator == PropertyOperator.ICONTAINS
+        if self.operator == PropertyOperator.FLAG_EVALUATES_TO or (
+            self.operator == PropertyOperator.BETWEEN and len(self.values) != 2
+        ):
+            # The filter doesn't compile, so the exposure query fails before it reads a property.
             return False
-        if self.operator == PropertyOperator.IS_SET:
-            # The test ignores a value, but an empty list of values matches every event.
-            return self.values is None or len(self.values) > 0
-        # Without a value, `exact` tests that the property is missing.
-        return bool(self.values)
+        if self.operator == PropertyOperator.SEMVER_NEQ:
+            # The scalar comparison drops a missing value, which isn't a version. The negated test of an exception
+            # array keeps a missing array.
+            return not (self.type == "event" and self.key in EXCEPTION_STRING_ARRAY_PROPERTIES)
+        return not operator_is_negative(self.operator)
 
     @property
     def definition_recorded(self) -> bool:
@@ -390,6 +411,8 @@ class ExposureEvents:
     property_filters: tuple[ExposurePropertyFilter, ...] = ()
     # The filters inside an action's steps are not read.
     cohort_ids: tuple[int, ...] = ()
+    # Of `cohort_ids`, the cohorts whose members the criteria keep. A `not_in` filter leaves the members out.
+    member_cohort_ids: frozenset[int] = frozenset()
 
     @property
     def required_properties(self) -> tuple[ExposurePropertyFilter, ...]:
@@ -435,10 +458,11 @@ class HealthContext:
     # None when the stored exposure criteria don't parse.
     exposure_events: ExposureEvents | None
     # Whether the project has received each event that `metric_events` and `exposure_events` name. A name that
-    # ingestion never writes an event definition for is absent, because its absence proves nothing.
+    # ingestion never writes an event definition for is absent, because its absence proves nothing. So is every name
+    # without a definition when no event of the experiment shows that ingestion records the project.
     events_received: Mapping[str, bool]
     # Whether the project has received each property that `exposure_events.property_filters` name, by type and key. A
-    # property that the definitions can't answer for is absent.
+    # property that the definitions can't answer for is absent, under the same rules as `events_received`.
     exposure_properties_received: Mapping[tuple[ExposurePropertyType, str], bool]
     # The cohorts of `exposure_events.cohort_ids` that exist. The exposure query fails on a deleted or missing cohort.
     exposure_cohorts: tuple[ExposureCohort, ...]
@@ -487,13 +511,16 @@ def parse_flag_state(
     )
 
 
-def _cohort_ids(condition: Mapping[str, Any]) -> frozenset[int]:
+def _member_cohort_ids(condition: Mapping[str, Any]) -> frozenset[int]:
+    # The flag service reads a cohort filter without an operator as `in`, and a filter with an operator other than `in`
+    # or `not_in` as no match. See `cohort_operations.rs` in rust/feature-flags.
     properties = condition.get("properties")
     return frozenset(
         int(prop["value"])
         for prop in (properties if isinstance(properties, list) else [])
         if isinstance(prop, dict)
         and prop.get("type") == "cohort"
+        and prop.get("operator") in (None, PropertyOperator.IN_)
         and (isinstance(prop.get("value"), int) or (isinstance(prop.get("value"), str) and prop["value"].isdecimal()))
     )
 
@@ -506,7 +533,7 @@ def _reachable_condition(
         number=number,
         pinned_variant=pinned,
         variant_property=None if pinned is None else _variant_property(condition, pinned, flag_aggregation),
-        cohort_ids=_cohort_ids(condition),
+        member_cohort_ids=_member_cohort_ids(condition),
     )
 
 
@@ -649,6 +676,7 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
     config, activation = params.exposure_config, params.activation_config
     properties = config.properties if isinstance(config, ExperimentEventExposureConfig) else []
     filters = [(prop, source) for source in (config, activation) if source for prop in source.properties or []]
+    cohorts = [prop for prop, _ in filters if isinstance(prop, CohortPropertyFilter)]
     return ExposureEvents(
         custom_event=event if event is not None and not reads_flag_calls else None,
         required_flag_key=flag_key if reads_flag_calls else None,
@@ -661,17 +689,13 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
         ),
         activation=_activation_name(activation) if activation else None,
         property_filters=tuple(
-            ExposurePropertyFilter(
-                type=prop.type,
-                key=prop.key,
-                operator=prop.operator or PropertyOperator.EXACT,
-                values=None if prop.value is None else _filter_values(prop.value),
-                event=source.event if isinstance(source, ExperimentEventExposureConfig) else None,
-            )
+            ExposurePropertyFilter.of(prop, source.event if isinstance(source, ExperimentEventExposureConfig) else None)
             for prop, source in filters
             if isinstance(prop, EventPropertyFilter | PersonPropertyFilter)
         ),
-        cohort_ids=tuple(dict.fromkeys(prop.value for prop, _ in filters if isinstance(prop, CohortPropertyFilter))),
+        cohort_ids=tuple(dict.fromkeys(prop.value for prop in cohorts)),
+        # `property_to_expr` negates only a `not_in` cohort filter.
+        member_cohort_ids=frozenset(prop.value for prop in cohorts if prop.operator != PropertyOperator.NOT_IN),
     )
 
 
@@ -727,10 +751,6 @@ _PROPERTIES_WITHOUT_DEFINITION: dict[ExposurePropertyType, frozenset[str]] = {
     # Ingestion sets `$creator_event_uuid` when it creates the person, outside `$set`.
     "person": frozenset({"distinct_id", "$creator_event_uuid"}),
 }
-_PROPERTY_DEFINITION_TYPES: dict[ExposurePropertyType, int] = {
-    "event": PropertyDefinition.Type.EVENT,
-    "person": PropertyDefinition.Type.PERSON,
-}
 
 
 def _has_property_definition(property_type: ExposurePropertyType, key: str) -> bool:
@@ -762,21 +782,13 @@ def _exposure_properties_received(
         elif definition_type == PropertyDefinition.Type.PERSON:
             received.add(("person", name))
     missing = checked - received
-    if not missing:
-        return dict.fromkeys(checked, True)
-    # Ingestion can be set to keep no definitions for a project, so a project without any of a type proves nothing.
-    unrecorded_types = {
-        property_type
-        for property_type in {property_type for property_type, _ in missing}
-        if not _property_definitions(project_id, type=_PROPERTY_DEFINITION_TYPES[property_type]).exists()
-    }
     # Ingestion writes a deleted definition again only once the property drops out of its cache, which no time bounds,
     # so a deletion at any time leaves the answer open.
     deleted = _deleted_definition_names(project_id, {key for _, key in missing}, scope="PropertyDefinition", since=None)
     return {
         (property_type, key): (property_type, key) in received
         for property_type, key in checked
-        if (property_type, key) in received or (property_type not in unrecorded_types and key not in deleted)
+        if (property_type, key) in received or key not in deleted
     }
 
 
@@ -808,6 +820,41 @@ def _exposure_cohorts(experiment: Experiment, exposure_events: ExposureEvents | 
 # Ingestion writes a deleted definition again when it next sees the event, which takes up to about an hour for an
 # event that keeps arriving. A margin of a day also covers events that arrive a few times a day.
 _DEFINITION_RECREATION_MARGIN = timedelta(days=1)
+
+
+def _received(
+    experiment: Experiment, metric_events: tuple[MetricEvents, ...], exposure_events: ExposureEvents | None
+) -> tuple[dict[str, bool], dict[tuple[ExposurePropertyType, str], bool]]:
+    events = _events_received(experiment, metric_events, exposure_events)
+    properties = _exposure_properties_received(experiment, exposure_events)
+    if False not in (*events.values(), *properties.values()) or _ingestion_records_project(
+        experiment, metric_events, exposure_events
+    ):
+        return events, properties
+    return {name: True for name, seen in events.items() if seen}, {
+        key: True for key, seen in properties.items() if seen
+    }
+
+
+def _ingestion_records_project(
+    experiment: Experiment, metric_events: tuple[MetricEvents, ...], exposure_events: ExposureEvents | None
+) -> bool:
+    """Whether ingestion writes the project's definitions now, which a missing definition needs to prove anything.
+    Ingestion can be set to skip a team, and then writes no definition at all. It refreshes `last_seen_at` of an event
+    that it sees about once an hour. So a flag call or an event of the experiment seen within the margin shows that it
+    records the project."""
+    names = {DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT, *(event for m in metric_events for event in m.events)}
+    if exposure_events is not None and exposure_events.custom_event is not None:
+        names.add(exposure_events.custom_event)
+    return (
+        EventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+        .filter(
+            effective_project_id=experiment.team.project_id,
+            name__in=names,
+            last_seen_at__gte=timezone.now() - _DEFINITION_RECREATION_MARGIN,
+        )
+        .exists()
+    )
 
 
 def _deletions_since(experiment: Experiment) -> datetime:
@@ -862,6 +909,7 @@ def load_health_context(
     flag_called = _flag_called(experiment)
     metric_events = _metric_events(experiment, links)
     exposure_events = _exposure_events(experiment)
+    events_received, properties_received = _received(experiment, metric_events, exposure_events)
     return HealthContext(
         is_launched=experiment.is_launched,
         is_running=experiment.is_running,
@@ -883,8 +931,8 @@ def load_health_context(
         hours_since_launch=experiment.hours_since_launch,
         metric_events=metric_events,
         exposure_events=exposure_events,
-        events_received=_events_received(experiment, metric_events, exposure_events),
-        exposure_properties_received=_exposure_properties_received(experiment, exposure_events),
+        events_received=events_received,
+        exposure_properties_received=properties_received,
         exposure_cohorts=_exposure_cohorts(experiment, exposure_events),
         exposures=exposures,
         flag_history=flag_history,

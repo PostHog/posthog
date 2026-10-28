@@ -1,4 +1,5 @@
 from dataclasses import replace
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -14,7 +15,7 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.event_definitions.backend.models import PropertyDefinition
+from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
     ExperimentHealthFindingCode,
@@ -51,10 +52,12 @@ def _filters(
     *property_filters: tuple[ExposurePropertyType, str, PropertyOperator],
     cohorts: tuple[ExposureCohort, ...] = (),
     cohort_ids: tuple[int, ...] | None = None,
+    excluded_cohort_ids: frozenset[int] = frozenset(),
     flag_cohort_ids: frozenset[int] = frozenset(),
     forced_variant: str | None = None,
     **changes: Any,
 ) -> HealthContext:
+    ids = tuple(cohort.id for cohort in cohorts) if cohort_ids is None else cohort_ids
     events = ExposureEvents(
         custom_event=None,
         required_flag_key="checkout-test",
@@ -66,10 +69,11 @@ def _filters(
             )
             for property_type, key, operator in property_filters
         ),
-        cohort_ids=tuple(cohort.id for cohort in cohorts) if cohort_ids is None else cohort_ids,
+        cohort_ids=ids,
+        member_cohort_ids=frozenset(ids) - excluded_cohort_ids,
     )
     condition = ReachableCondition(
-        number=1, pinned_variant=forced_variant, variant_property=None, cohort_ids=flag_cohort_ids
+        number=1, pinned_variant=forced_variant, variant_property=None, member_cohort_ids=flag_cohort_ids
     )
     flag = FlagState(active=True, deleted=False, release_groups=(), variants=(), reachable_conditions=(condition,))
     return replace(RUNNING_CONTEXT, exposure_events=events, exposure_cohorts=cohorts, flag=flag, **changes)
@@ -105,6 +109,11 @@ class TestExposureFilters(TestCase):
                 _filters(cohorts=(DYNAMIC,), flag_cohort_ids=frozenset({7}), forced_variant="test"),
                 (Code.EXPOSURE_FILTER_ON_DYNAMIC_COHORT, COHORT_FORCES_VARIANT, Severity.WARNING),
             ),
+            (
+                "dynamic_cohort_left_out_by_the_criteria_and_kept_by_the_release_conditions",
+                _filters(cohorts=(DYNAMIC,), excluded_cohort_ids=frozenset({7}), flag_cohort_ids=frozenset({7})),
+                COHORT_WARNING,
+            ),
             ("dynamic_cohort_after_the_end", _filters(cohorts=(DYNAMIC,), **ENDED), COHORT_WARNING),
             (
                 "dynamic_cohort_before_an_event_exclusion",
@@ -138,8 +147,33 @@ class TestExposureFilters(TestCase):
 
 
 class TestExposureFilterInputs(BaseTest):
-    def test_reads_the_properties_and_cohorts_as_the_exposure_query_does(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "ingestion_records_the_project",
+                timedelta(hours=2),
+                {
+                    ("event", "$current_url"): True,
+                    ("event", "$curent_url"): False,
+                    ("event", "email"): False,
+                    ("person", "email"): True,
+                    ("person", "plan"): False,
+                },
+            ),
+            (
+                "no_event_of_the_experiment_seen_recently",
+                timedelta(days=2),
+                {("event", "$current_url"): True, ("person", "email"): True},
+            ),
+        ]
+    )
+    def test_reads_the_properties_and_cohorts_as_the_exposure_query_does(
+        self, _name: str, last_seen_ago: timedelta, expected_received: dict[tuple[str, str], bool]
+    ) -> None:
         sibling = Team.objects.create(organization=self.organization, project=self.project, name="Sibling")
+        EventDefinition.objects.create(
+            team=sibling, project=self.project, name="$feature_flag_called", last_seen_at=timezone.now() - last_seen_ago
+        )
         PropertyDefinition.objects.create(team=sibling, project=self.project, name="$current_url")
         PropertyDefinition.objects.create(
             team=self.team, project=self.project, name="email", type=PropertyDefinition.Type.PERSON
@@ -164,7 +198,11 @@ class TestExposureFilterInputs(BaseTest):
             created_by=self.user,
             filters={
                 "groups": [
-                    {"properties": [{"type": "cohort", "key": "id", "value": dynamic.pk}], "rollout_percentage": 100}
+                    {"properties": [{"type": "cohort", "key": "id", "value": dynamic.pk}], "rollout_percentage": 100},
+                    {
+                        "properties": [{"type": "cohort", "key": "id", "value": static.pk, "operator": "not_in"}],
+                        "rollout_percentage": 100,
+                    },
                 ]
             },
         )
@@ -185,7 +223,9 @@ class TestExposureFilterInputs(BaseTest):
                         *filters,
                         {"type": "person", "key": "email", "operator": "icontains", "value": "@"},
                         {"type": "person", "key": "plan", "operator": "exact", "value": "pro"},
-                        *({"type": "cohort", "key": "id", "value": c.pk} for c in (dynamic, static, deleted)),
+                        {"type": "cohort", "key": "id", "value": dynamic.pk},
+                        {"type": "cohort", "key": "id", "value": static.pk, "operator": "not_in"},
+                        {"type": "cohort", "key": "id", "value": deleted.pk},
                     ],
                 }
             },
@@ -193,16 +233,7 @@ class TestExposureFilterInputs(BaseTest):
 
         ctx = load_health_context(experiment)
 
-        self.assertEqual(
-            dict(ctx.exposure_properties_received),
-            {
-                ("event", "$current_url"): True,
-                ("event", "$curent_url"): False,
-                ("event", "email"): False,
-                ("person", "email"): True,
-                ("person", "plan"): False,
-            },
-        )
+        self.assertEqual(dict(ctx.exposure_properties_received), expected_received)
         self.assertEqual(
             ctx.exposure_cohorts,
             (
@@ -210,8 +241,9 @@ class TestExposureFilterInputs(BaseTest):
                 ExposureCohort(id=static.pk, name="QA team", is_static=True),
             ),
         )
-        assert ctx.flag is not None
-        self.assertEqual([c.cohort_ids for c in ctx.flag.reachable_conditions], [frozenset({dynamic.pk})])
+        assert ctx.exposure_events is not None and ctx.flag is not None
+        self.assertEqual(ctx.exposure_events.member_cohort_ids, {dynamic.pk, deleted.pk})
+        self.assertEqual([c.member_cohort_ids for c in ctx.flag.reachable_conditions], [{dynamic.pk}, frozenset()])
 
     @parameterized.expand(
         [

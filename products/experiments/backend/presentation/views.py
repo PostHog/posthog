@@ -975,7 +975,9 @@ class EnterpriseExperimentsViewSet(
         definition without `last_seen_at`, such as one Wizard wrote for a planned event, counts as
         not received. A name whose definition was deleted since launch, or in the last day for a
         draft, is not checked, because ingestion writes the definition again only when the event
-        arrives. `metric_event_not_ingested` names each metric that
+        arrives. No missing definition is checked when ingestion saw none of the experiment's events
+        in the last day, because ingestion can be set to skip a team. `metric_event_not_ingested`
+        names each metric that
         reads an event the project never received, in the `evidence` keys `metric_N`,
         `metric_N_role` and `metric_N_events`. `exposure_criteria_cannot_match` reports a custom
         exposure event the project never received (`exposure_event_not_ingested`), a
@@ -994,8 +996,9 @@ class EnterpriseExperimentsViewSet(
         of the activation, not the test account filters. `exposure_filter_on_dynamic_cohort` is a
         warning in every state: the results use the members of a dynamic cohort at the calculation,
         not at exposure. Its subcode is `cohort_forces_variant` when a release condition of the flag
-        gives the cohort one variant, `cohort_in_release_conditions` when the release conditions use
-        it otherwise, and `evidence.cohort_ids` names the cohorts.
+        that matches the cohort's members gives one variant, `cohort_in_release_conditions` when the
+        release conditions match its members otherwise, and `evidence.cohort_ids` names the cohorts.
+        Both subcodes need the exposure criteria to keep the members too, not to leave them out.
         `exposure_filter_excludes_events` is info: a negated filter on an event property leaves out
         events, not users (`evidence.properties`).
 

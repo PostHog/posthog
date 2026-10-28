@@ -1,11 +1,17 @@
 from dataclasses import replace
 from typing import Any
 
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest import TestCase
 
 from parameterized import parameterized
 
-from posthog.schema import PropertyOperator
+from posthog.schema import EventPropertyFilter, PersonPropertyFilter, PropertyOperator
+
+from posthog.hogql import ast
+from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFinding, ExperimentHealthFindingSeverity
 from products.experiments.backend.health.checks.exposure_criteria import (
@@ -97,63 +103,56 @@ NOT_CHECKED_PROPERTY = not_checked(
 )
 
 
-Op = PropertyOperator
-# Every operator in one of the two sets, so that a new operator fails the test until someone reads how
-# `property_to_expr` compiles it for a missing property.
-FAILS_A_MISSING_PROPERTY = {
-    Op.EXACT,
-    Op.ICONTAINS,
-    Op.ICONTAINS_MULTI,
-    Op.STARTS_WITH,
-    Op.ENDS_WITH,
-    Op.REGEX,
-    Op.GT,
-    Op.GTE,
-    Op.LT,
-    Op.LTE,
-    Op.MIN,
-    Op.MAX,
-    Op.IS_SET,
-    Op.IS_DATE_EXACT,
-    Op.IS_DATE_BEFORE,
-    Op.IS_DATE_AFTER,
-    Op.BETWEEN,
-    Op.IN_,
-    Op.IS_CLEANED_PATH_EXACT,
-    Op.SEMVER_EQ,
-    Op.SEMVER_GT,
-    Op.SEMVER_GTE,
-    Op.SEMVER_LT,
-    Op.SEMVER_LTE,
-    Op.SEMVER_TILDE,
-    Op.SEMVER_CARET,
-    Op.SEMVER_WILDCARD,
-}
-PASSES_A_MISSING_PROPERTY = {
-    Op.IS_NOT,
-    Op.NOT_ICONTAINS,
-    Op.NOT_ICONTAINS_MULTI,
-    Op.NOT_STARTS_WITH,
-    Op.NOT_ENDS_WITH,
-    Op.NOT_REGEX,
-    Op.IS_NOT_SET,
-    Op.NOT_BETWEEN,
-    Op.NOT_IN,
-    Op.IS_CLEANED_PATH_NOT_EXACT,
-    Op.SEMVER_NEQ,
-    Op.FLAG_EVALUATES_TO,
-}
+def _values(operator: PropertyOperator) -> tuple[str | float, str | float, str | float]:
+    if operator.value.startswith("semver"):
+        return ("1.2.*", "2.*", "3.*") if operator == PropertyOperator.SEMVER_WILDCARD else ("1.2.3", "2.0.0", "3.0.0")
+    if operator.value.startswith("is_date"):
+        return ("2024-01-01", "2024-02-01", "2024-03-01")
+    if operator in (PropertyOperator.REGEX, PropertyOperator.NOT_REGEX):
+        return ("^pro", "^team", "^free")
+    if operator.value in ("gt", "gte", "lt", "lte", "min", "max", "between", "not_between"):
+        return (1, 5, 9)
+    return ("pro", "team", "free")
 
 
-class TestFailsWhenMissing(TestCase):
-    @parameterized.expand([(operator.value, operator) for operator in PropertyOperator])
-    def test_fails_when_missing(self, _name: str, operator: PropertyOperator) -> None:
-        self.assertIn(operator, FAILS_A_MISSING_PROPERTY | PASSES_A_MISSING_PROPERTY)
-        property_filter = ExposurePropertyFilter(
-            type="event", key="plan", operator=operator, values=("pro",), event="$feature_flag_called"
+class TestFailsWhenMissing(ClickhouseTestMixin, BaseTest):
+    def test_matches_the_compiled_filter_on_an_event_without_the_property(self) -> None:
+        _create_person(team=self.team, distinct_ids=["user"], properties={"name": "Ada"})
+        _create_event(team=self.team, event="checkout_viewed", distinct_id="user", properties={"step": 1})
+        flush_persons_and_events()
+        compiled: dict[str, ast.Expr] = {}
+        expected: dict[str, bool] = {}
+        actual: dict[str, bool] = {}
+        for filter_class, key in (
+            (EventPropertyFilter, "plan"),
+            (EventPropertyFilter, "$exception_types"),
+            (PersonPropertyFilter, "plan"),
+            (PersonPropertyFilter, "$exception_types"),
+        ):
+            for operator in PropertyOperator:
+                first, second, third = _values(operator)
+                for value in (None, [], first, [first, second], [first, second, third]):
+                    prop = filter_class(key=key, operator=operator, value=value)
+                    label = f"{prop.type} {key} {operator.value} {value!r}"
+                    actual[label] = ExposurePropertyFilter.of(prop, "checkout_viewed").fails_when_missing
+                    try:
+                        compiled[label] = property_to_expr(prop, self.team)
+                    except BaseHogQLError:
+                        # The exposure query fails before it reads a property, so no filter fails on its account.
+                        expected[label] = False
+        query = ast.SelectQuery(
+            select=[ast.Call(name="countIf", args=[expr]) for expr in compiled.values()],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value="checkout_viewed"),
+            ),
         )
+        counts = execute_hogql_query(query, self.team).results[0]
+        expected.update({label: count == 0 for label, count in zip(compiled, counts)})
 
-        self.assertEqual(property_filter.fails_when_missing, operator in FAILS_A_MISSING_PROPERTY)
+        self.assertEqual(actual, expected)
 
 
 class TestExposureCriteriaCannotMatch(TestCase):

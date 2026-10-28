@@ -15,7 +15,12 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
 )
 from products.experiments.backend.health.checks.events_received import quoted
-from products.experiments.backend.health.context import ExposureCohort, ExposurePropertyFilter, HealthContext
+from products.experiments.backend.health.context import (
+    ExposureCohort,
+    ExposureEvents,
+    ExposurePropertyFilter,
+    HealthContext,
+)
 from products.experiments.backend.health.skips import NOT_ON_ARCHIVED, CheckOutcome, not_applicable, not_checked
 
 # pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
@@ -34,7 +39,7 @@ def exposure_filters(ctx: HealthContext) -> CheckOutcome:
         return not_applicable("The exposure criteria have no cohort filter and no negated event property filter")
     dynamic = [cohort for cohort in ctx.exposure_cohorts if not cohort.is_static]
     if dynamic:
-        return _filter_on_dynamic_cohort(ctx, dynamic)
+        return _filter_on_dynamic_cohort(ctx, events, dynamic)
     if exclusions:
         return _filter_excludes_events(ctx, exclusions)
     if len(ctx.exposure_cohorts) < len(events.cohort_ids):
@@ -51,10 +56,20 @@ def _excludes_events(property_filter: ExposurePropertyFilter) -> bool:
     )
 
 
-def _filter_on_dynamic_cohort(ctx: HealthContext, cohorts: list[ExposureCohort]) -> ExperimentHealthFinding:
+def _filter_on_dynamic_cohort(
+    ctx: HealthContext, events: ExposureEvents, cohorts: list[ExposureCohort]
+) -> ExperimentHealthFinding:
     conditions = ctx.flag.reachable_conditions if ctx.flag else ()
-    in_flag = [cohort for cohort in cohorts if any(cohort.id in c.cohort_ids for c in conditions)]
-    forced = [cohort for cohort in in_flag if any(cohort.id in c.cohort_ids and c.pinned_variant for c in conditions)]
+    # The criteria and a release condition read the same users only when both keep the cohort's members.
+    in_flag = [
+        cohort
+        for cohort in cohorts
+        if cohort.id in events.member_cohort_ids and any(cohort.id in c.member_cohort_ids for c in conditions)
+    ]
+    pinning = [
+        c for c in conditions if c.pinned_variant and any(cohort.id in c.member_cohort_ids for cohort in in_flag)
+    ]
+    forced = [cohort for cohort in in_flag if any(cohort.id in c.member_cohort_ids for c in pinning)]
     many = len(cohorts) > 1
     lead = (
         f"The exposure criteria filter on the dynamic {'cohorts' if many else 'cohort'} {_names(cohorts)}. The results "
@@ -64,11 +79,15 @@ def _filter_on_dynamic_cohort(ctx: HealthContext, cohorts: list[ExposureCohort])
     subcode: str | None
     if forced:
         subcode = COHORT_FORCES_VARIANT
+        pinned = (
+            "Release conditions of the feature flag on {names} give one variant to all the users they match"
+            if len(pinning) > 1
+            else "A release condition of the feature flag on {names} gives one variant to all the users it matches"
+        ).format(names=_names(forced))
         effect = (
-            f"The feature flag's release conditions give one variant to everyone in {_names(forced)}, and the flag "
-            f"checks who is in {_them(forced)} on each call. Users who joined or left since the calculation are "
-            "counted differently from how the flag assigned them, which can make the split of users across variants "
-            f"uneven. {_static_in_both_places(ctx)}"
+            f"{pinned}, and the flag checks who is in {_them(forced)} on each call. Users who joined or left since the "
+            "calculation are counted differently from how the flag assigned them, which can make the split of users "
+            f"across variants uneven. {_static_in_both_places(ctx)}"
         )
     elif in_flag:
         subcode = COHORT_IN_RELEASE_CONDITIONS
@@ -80,15 +99,9 @@ def _filter_on_dynamic_cohort(ctx: HealthContext, cohorts: list[ExposureCohort])
         )
     else:
         subcode = None
-        advice = (
-            "Use a static cohort instead, or limit the experiment to these users in the feature flag's release "
-            "conditions."
-            if not ctx.is_launched
-            else "Use a static cohort instead, which keeps the same members."
-        )
         effect = (
             "Users who join or leave after their exposure move in or out of the results, so if the variant changes who "
-            f"joins, the results are biased. {advice}"
+            "joins, the results are biased. Use a static cohort instead, which keeps the same members."
         )
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.EXPOSURE_FILTER_ON_DYNAMIC_COHORT,
