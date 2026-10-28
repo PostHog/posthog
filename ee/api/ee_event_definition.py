@@ -1,18 +1,39 @@
 from django.utils import timezone
 
 import posthoganalytics
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.event_usage import groups
-from posthog.models import EventDefinition, ObjectMediaPreview
+from posthog.models import EventDefinition, ObjectMediaPreview, User
 from posthog.models.organization import OrganizationMembership
 
 from ee.models.event_definition import EnterpriseEventDefinition
 
 
+# Request and response bodies share one schema component, so the schema lists both shapes:
+# the owner's user ID on write, and the user object that `to_representation` below returns on read.
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "integer", "writeOnly": True},
+            {"allOf": [{"$ref": "#/components/schemas/UserBasic"}], "readOnly": True},
+        ]
+    }
+)
+class EventDefinitionOwnerField(serializers.PrimaryKeyRelatedField):
+    pass
+
+
 class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+    owner = EventDefinitionOwnerField(
+        queryset=User.objects.all(),
+        allow_null=True,
+        required=False,
+        help_text="The user responsible for the event. Write the user's ID, or null to clear it. Reads return the user.",
+    )
     updated_by = UserBasicSerializer(read_only=True)
     verified_by = UserBasicSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)

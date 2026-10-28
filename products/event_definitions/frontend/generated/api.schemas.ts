@@ -83,8 +83,8 @@ export interface EnterpriseEventDefinitionApi {
     readonly id: string
     /** @maxLength 400 */
     name: string
-    /** @nullable */
-    owner?: number | null
+    /** The user responsible for the event. Write the user's ID, or null to clear it. Reads return the user. */
+    owner?: number | UserBasicApi | null
     /** @nullable */
     description?: string | null
     tags?: unknown[]
@@ -136,8 +136,8 @@ export interface PatchedEnterpriseEventDefinitionApi {
     readonly id?: string
     /** @maxLength 400 */
     name?: string
-    /** @nullable */
-    owner?: number | null
+    /** The user responsible for the event. Write the user's ID, or null to clear it. Reads return the user. */
+    owner?: number | UserBasicApi | null
     /** @nullable */
     description?: string | null
     tags?: unknown[]

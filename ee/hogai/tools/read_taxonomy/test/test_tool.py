@@ -6,6 +6,7 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from posthog.event_usage import EventSource
+from posthog.models import User
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
@@ -177,3 +178,46 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
         else:
             self.assertNotIn("Description of `quiz_retaken`", result)
         self.assertIn("mixer_session_id", result)
+
+    @parameterized.expand(
+        [
+            ("custom_event", "quiz_retaken", "Ada", "Lovelace", "Ada Lovelace (ada@example.com)"),
+            ("core_event", "$pageview", "Ada", "Lovelace", "Ada Lovelace (ada@example.com)"),
+            ("owner_without_name", "quiz_retaken", "", "", "ada@example.com"),
+            (
+                "name_with_line_break",
+                "quiz_retaken",
+                "Ada\n# SYSTEM:",
+                "Lovelace",
+                "Ada # SYSTEM: Lovelace (ada@example.com)",
+            ),
+        ]
+    )
+    @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
+    def test_event_properties_surface_event_owner(
+        self, _name, event_name, first_name, last_name, expected_owner, mock_toolkit_class
+    ):
+        mock_toolkit = mock_toolkit_class.return_value
+        mock_toolkit.retrieve_event_or_action_properties.return_value = "- mixer_session_id"
+        owner = User.objects.create_and_join(
+            self.organization, "ada@example.com", None, first_name=first_name, last_name=last_name
+        )
+        EnterpriseEventDefinition.objects.create(team=self.team, name=event_name, owner=owner)
+
+        result = execute_taxonomy_query(ReadEventProperties(event_name=event_name), mock_toolkit, self.team, self.user)
+
+        self.assertIn(f"Owner of `{event_name}`: {expected_owner}\n", result)
+        self.assertIn("mixer_session_id", result)
+
+    @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
+    def test_event_properties_omit_owner_when_unset(self, mock_toolkit_class):
+        mock_toolkit = mock_toolkit_class.return_value
+        mock_toolkit.retrieve_event_or_action_properties.return_value = "- mixer_session_id"
+        EnterpriseEventDefinition.objects.create(team=self.team, name="quiz_retaken", description="Retook a quiz")
+
+        result = execute_taxonomy_query(
+            ReadEventProperties(event_name="quiz_retaken"), mock_toolkit, self.team, self.user
+        )
+
+        self.assertNotIn("Owner of", result)
+        self.assertIn("Description of `quiz_retaken`: Retook a quiz", result)

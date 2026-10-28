@@ -42661,8 +42661,8 @@ export namespace Schemas {
       readonly id: string;
       /** @maxLength 400 */
       name: string;
-      /** @nullable */
-      owner?: number | null;
+      /** The user responsible for the event. Write the user's ID, or null to clear it. Reads return the user. */
+      owner?: number | UserBasic | null;
       /** @nullable */
       description?: string | null;
       tags?: unknown[];
@@ -86233,8 +86233,8 @@ export namespace Schemas {
       readonly id?: string;
       /** @maxLength 400 */
       name?: string;
-      /** @nullable */
-      owner?: number | null;
+      /** The user responsible for the event. Write the user's ID, or null to clear it. Reads return the user. */
+      owner?: number | UserBasic | null;
       /** @nullable */
       description?: string | null;
       tags?: unknown[];

@@ -11,6 +11,14 @@ import * as zod from 'zod'
 
 export const eventDefinitionsCreateBodyNameMax = 400
 
+export const eventDefinitionsCreateBodyOwnerTwoOneDistinctIdMax = 200
+
+export const eventDefinitionsCreateBodyOwnerTwoOneFirstNameMax = 150
+
+export const eventDefinitionsCreateBodyOwnerTwoOneLastNameMax = 150
+
+export const eventDefinitionsCreateBodyOwnerTwoOneEmailMax = 254
+
 export const eventDefinitionsCreateBodyPrimaryPropertyMax = 400
 
 export const eventDefinitionsCreateBodyPostToSlackDefault = false
@@ -18,7 +26,46 @@ export const eventDefinitionsCreateBodyPostToSlackDefault = false
 export const EventDefinitionsCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(eventDefinitionsCreateBodyNameMax),
-        owner: zod.number().nullish(),
+        owner: zod
+            .union([
+                zod.number(),
+                zod.object({
+                    id: zod.number(),
+                    uuid: zod.uuid(),
+                    distinct_id: zod.string().max(eventDefinitionsCreateBodyOwnerTwoOneDistinctIdMax).nullish(),
+                    first_name: zod.string().max(eventDefinitionsCreateBodyOwnerTwoOneFirstNameMax).optional(),
+                    last_name: zod.string().max(eventDefinitionsCreateBodyOwnerTwoOneLastNameMax).optional(),
+                    email: zod.email().max(eventDefinitionsCreateBodyOwnerTwoOneEmailMax),
+                    is_email_verified: zod.boolean().nullish(),
+                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
+                    role_at_organization: zod
+                        .union([
+                            zod
+                                .enum([
+                                    'engineering',
+                                    'data',
+                                    'product',
+                                    'founder',
+                                    'leadership',
+                                    'marketing',
+                                    'sales',
+                                    'student',
+                                    'other',
+                                ])
+                                .describe(
+                                    '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
+                                ),
+                            zod.enum(['']),
+                            zod.null(),
+                        ])
+                        .optional(),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "The user responsible for the event. Write the user's ID, or null to clear it. Reads return the user."
+            ),
         description: zod.string().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         verified: zod.boolean().optional(),
@@ -38,6 +85,14 @@ export const EventDefinitionsCreateBody = /* @__PURE__ */ zod
 
 export const eventDefinitionsUpdateBodyNameMax = 400
 
+export const eventDefinitionsUpdateBodyOwnerTwoOneDistinctIdMax = 200
+
+export const eventDefinitionsUpdateBodyOwnerTwoOneFirstNameMax = 150
+
+export const eventDefinitionsUpdateBodyOwnerTwoOneLastNameMax = 150
+
+export const eventDefinitionsUpdateBodyOwnerTwoOneEmailMax = 254
+
 export const eventDefinitionsUpdateBodyPrimaryPropertyMax = 400
 
 export const eventDefinitionsUpdateBodyPostToSlackDefault = false
@@ -45,7 +100,46 @@ export const eventDefinitionsUpdateBodyPostToSlackDefault = false
 export const EventDefinitionsUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(eventDefinitionsUpdateBodyNameMax),
-        owner: zod.number().nullish(),
+        owner: zod
+            .union([
+                zod.number(),
+                zod.object({
+                    id: zod.number(),
+                    uuid: zod.uuid(),
+                    distinct_id: zod.string().max(eventDefinitionsUpdateBodyOwnerTwoOneDistinctIdMax).nullish(),
+                    first_name: zod.string().max(eventDefinitionsUpdateBodyOwnerTwoOneFirstNameMax).optional(),
+                    last_name: zod.string().max(eventDefinitionsUpdateBodyOwnerTwoOneLastNameMax).optional(),
+                    email: zod.email().max(eventDefinitionsUpdateBodyOwnerTwoOneEmailMax),
+                    is_email_verified: zod.boolean().nullish(),
+                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
+                    role_at_organization: zod
+                        .union([
+                            zod
+                                .enum([
+                                    'engineering',
+                                    'data',
+                                    'product',
+                                    'founder',
+                                    'leadership',
+                                    'marketing',
+                                    'sales',
+                                    'student',
+                                    'other',
+                                ])
+                                .describe(
+                                    '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
+                                ),
+                            zod.enum(['']),
+                            zod.null(),
+                        ])
+                        .optional(),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "The user responsible for the event. Write the user's ID, or null to clear it. Reads return the user."
+            ),
         description: zod.string().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         verified: zod.boolean().optional(),
@@ -65,6 +159,14 @@ export const EventDefinitionsUpdateBody = /* @__PURE__ */ zod
 
 export const eventDefinitionsPartialUpdateBodyNameMax = 400
 
+export const eventDefinitionsPartialUpdateBodyOwnerTwoOneDistinctIdMax = 200
+
+export const eventDefinitionsPartialUpdateBodyOwnerTwoOneFirstNameMax = 150
+
+export const eventDefinitionsPartialUpdateBodyOwnerTwoOneLastNameMax = 150
+
+export const eventDefinitionsPartialUpdateBodyOwnerTwoOneEmailMax = 254
+
 export const eventDefinitionsPartialUpdateBodyPrimaryPropertyMax = 400
 
 export const eventDefinitionsPartialUpdateBodyPostToSlackDefault = false
@@ -72,7 +174,46 @@ export const eventDefinitionsPartialUpdateBodyPostToSlackDefault = false
 export const EventDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(eventDefinitionsPartialUpdateBodyNameMax).optional(),
-        owner: zod.number().nullish(),
+        owner: zod
+            .union([
+                zod.number(),
+                zod.object({
+                    id: zod.number(),
+                    uuid: zod.uuid(),
+                    distinct_id: zod.string().max(eventDefinitionsPartialUpdateBodyOwnerTwoOneDistinctIdMax).nullish(),
+                    first_name: zod.string().max(eventDefinitionsPartialUpdateBodyOwnerTwoOneFirstNameMax).optional(),
+                    last_name: zod.string().max(eventDefinitionsPartialUpdateBodyOwnerTwoOneLastNameMax).optional(),
+                    email: zod.email().max(eventDefinitionsPartialUpdateBodyOwnerTwoOneEmailMax),
+                    is_email_verified: zod.boolean().nullish(),
+                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
+                    role_at_organization: zod
+                        .union([
+                            zod
+                                .enum([
+                                    'engineering',
+                                    'data',
+                                    'product',
+                                    'founder',
+                                    'leadership',
+                                    'marketing',
+                                    'sales',
+                                    'student',
+                                    'other',
+                                ])
+                                .describe(
+                                    '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
+                                ),
+                            zod.enum(['']),
+                            zod.null(),
+                        ])
+                        .optional(),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "The user responsible for the event. Write the user's ID, or null to clear it. Reads return the user."
+            ),
         description: zod.string().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         verified: zod.boolean().optional(),
