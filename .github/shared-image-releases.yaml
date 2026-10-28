@@ -71,6 +71,10 @@ filters:
         - 'products/wizard/backend/**'
         - 'products/tasks/backend/**'
         - 'posthog/temporal/oauth.py'
+        - posthog/scopes.py
+        - 'products/security/backend/facade/**'
+        - 'products/security/backend/logic/**'
+        - 'products/security/backend/metrics.py'
         - 'posthog/egress/github/**'
         - 'posthog/egress/limiter/**'
         - 'posthog/egress/transport/**'
@@ -81,6 +85,8 @@ filters:
         - 'posthog/temporal/common/**'
         - 'posthog/management/commands/start_temporal_worker.py'
         - 'posthog/settings/temporal.py'
+        - 'posthog/settings/data_stores.py'
+        - 'posthog/settings/object_storage.py'
         - posthog/schema.py
         - 'posthog/models/**'
         - 'posthog/migrations/**'
@@ -107,4 +113,4 @@ images:
             wizard:
                 repository: posthog-temporal-workers/wizard
                 filter: wizardWorker
-                bootstrapPolicyDigest: 7436d119df36955f25266fbe774bfb36a1a5664ad6d13c5520755674a2500c5c
+                bootstrapPolicyDigest: b960118802d4378e6588e70ddf9e1b81689981ca69c68bf6211ecefb18b07ebd
