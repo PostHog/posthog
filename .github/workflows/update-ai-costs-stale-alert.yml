@@ -30,15 +30,24 @@ jobs:
                       const aiObservabilityAfterHours = 24
                       const { owner, repo } = context.repo
 
-                      const { data: prs } = await github.rest.pulls.list({
-                          owner,
-                          repo,
-                          head: `${owner}:chore/llma-update-ai-costs`,
-                          state: 'all',
-                          sort: 'created',
-                          direction: 'desc',
-                          per_page: 50,
-                      })
+                      const prs = await github.paginate(
+                          github.rest.pulls.list,
+                          {
+                              owner,
+                              repo,
+                              head: `${owner}:chore/llma-update-ai-costs`,
+                              state: 'all',
+                              sort: 'created',
+                              direction: 'desc',
+                              per_page: 100,
+                          },
+                          (response, done) => {
+                              if (response.data.some((pr) => pr.merged_at)) {
+                                  done()
+                              }
+                              return response.data
+                          }
+                      )
                       const [current, ...older] = prs
                       if (!current || current.state !== 'open') {
                           core.info('No open LLM cost PR')
