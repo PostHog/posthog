@@ -1635,6 +1635,11 @@ jobs:
                         else
                             pytest -p no:cacheprovider posthog/test/test_startup_import_budget.py posthog/test/test_dataclass_defaults.py
                         fi
+            # New files in `ee/` need a human decision, and a path comparison sees an empty
+            # file that a content scan cannot. Exemptions live in the script.
+            - name: Check for new files under ee/
+              if: github.event_name == 'pull_request'
+              run: python .github/scripts/check-no-new-ee-files.py --against HEAD^1 --committed
             # Deterministic = a static check above failed after setup completed.
             # A retry can't fix it, so this signals the cancellation gate to stop the run.
             - name: Flag deterministic failure

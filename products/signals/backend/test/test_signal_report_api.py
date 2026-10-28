@@ -3133,13 +3133,18 @@ class TestSignalReportListAPI(APIBaseTest):
         assert row["dismissal_reason"] == "analysis_wrong"
 
     def _repo_selection_artefact(
-        self, report: SignalReport, *, repository: str | None, created_at: datetime | None = None
+        self,
+        report: SignalReport,
+        *,
+        repository: str | None,
+        created_at: datetime | None = None,
+        research_context: dict[str, str] | None = None,
     ) -> SignalReportArtefact:
         art = SignalReportArtefact(
             team=self.team,
             report=report,
             type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
-            content=json.dumps({"repository": repository, "reason": "pick"}),
+            content=json.dumps({"repository": repository, "reason": "pick", "research_context": research_context}),
         )
         art.save()
         if created_at is not None:
@@ -3167,14 +3172,16 @@ class TestSignalReportListAPI(APIBaseTest):
 
         assert reports[0].prefetched_repo_selection_artefacts == [latest]
 
-    def test_list_repo_slug_null_without_selection(self):
+    @parameterized.expand([(None,), ({"mode": "data_only", "repository_status": "no_integration"},)])
+    def test_list_repo_slug_null_without_selection(self, research_context: dict[str, str] | None) -> None:
         report = self._create_report()
-        self._repo_selection_artefact(report, repository=None)
+        self._repo_selection_artefact(report, repository=None, research_context=research_context)
 
         response = self.client.get(self._list_url())
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["repo_slug"] is None
+        assert row["research_context"] == research_context
 
     @parameterized.expand(
         [
