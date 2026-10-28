@@ -811,7 +811,7 @@ class TestSlackNudge(BaseTest):
     )
     @override_settings(TEST=False, LLM_GATEWAY_URL="http://gateway.local", LLM_GATEWAY_API_KEY="test-key")
     @patch(f"{MODULE}.posthoganalytics.feature_enabled", return_value=True)
-    @patch("posthog.llm.gateway_client.get_llm_client")
+    @patch("posthog.llm.gateway_client.build_openai_client")
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
     def test_llm_gates_nudge_when_ai_processing_approved(
@@ -876,7 +876,7 @@ class TestSlackNudge(BaseTest):
 
     @override_settings(TEST=False, LLM_GATEWAY_URL="http://gateway.local", LLM_GATEWAY_API_KEY="test-key")
     @patch(f"{MODULE}.posthoganalytics.feature_enabled", return_value=True)
-    @patch("posthog.llm.gateway_client.get_llm_client")
+    @patch("posthog.llm.gateway_client.build_openai_client")
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
     def test_classifier_no_starts_cooldown_so_chatter_is_not_reclassified(
@@ -915,7 +915,7 @@ class TestSlackNudge(BaseTest):
     )
     @override_settings(TEST=False, LLM_GATEWAY_URL="http://gateway.local", LLM_GATEWAY_API_KEY="test-key")
     @patch(f"{MODULE}.posthoganalytics.feature_enabled")
-    @patch("posthog.llm.gateway_client.get_llm_client")
+    @patch("posthog.llm.gateway_client.build_openai_client")
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
     def test_nudge_never_calls_llm_when_gated_off(

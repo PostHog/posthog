@@ -6,13 +6,13 @@ from dataclasses import replace
 from pydantic import BaseModel, Field
 from temporalio import activity
 
-from posthog.llm.gateway_client import get_async_anthropic_gateway_client
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.conversations.backend.temporal.ai_reply.constants import TICKET_TYPE_HINTS, UTILITY_MODEL
 from products.conversations.backend.temporal.ai_reply.llms import (
     anthropic_output_config,
     anthropic_text,
+    build_conversations_client,
     create_message,
     llm_attempts,
     strip_json_fence,
@@ -86,7 +86,7 @@ derive search queries about the customer's support question."""
     if input.missing:
         user_parts.append("\nMissing from previous attempt:\n" + "\n".join(f"- {m}" for m in input.missing))
 
-    client = get_async_anthropic_gateway_client(product="conversations", team_id=input.team_id)
+    client = build_conversations_client(input.team_id, input.trace_id, input.ticket_id)
     message = await create_message(
         client,
         model=UTILITY_MODEL,
