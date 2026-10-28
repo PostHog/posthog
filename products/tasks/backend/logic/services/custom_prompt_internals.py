@@ -344,6 +344,7 @@ async def _create_task_and_trigger(
     output_schema: dict[str, Any] | None = None,
     analytics_query_context: list[dict[str, object]] | None = None,
     files: Sequence[SessionFile] = (),
+    spend_signal_id: str | None = None,
 ) -> tuple[Task, TaskRun]:
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
@@ -383,6 +384,7 @@ async def _create_task_and_trigger(
         mode="background",
         branch=branch,
         signal_report_id=signal_report_id,
+        spend_signal_id=spend_signal_id,
         ai_stage=ai_stage,
         ai_agent_name=ai_agent_name,
         posthog_mcp_scopes=posthog_mcp_scopes,
@@ -432,6 +434,7 @@ async def create_task_and_trigger(
     mcp_gateway_server_ids: list[str] | None = None,
     output_schema: dict[str, Any] | None = None,
     analytics_query_context: list[dict[str, object]] | None = None,
+    spend_signal_id: str | None = None,
 ) -> AgentTaskRunDTO:
     task, task_run = await _create_task_and_trigger(
         description,
@@ -440,6 +443,7 @@ async def create_task_and_trigger(
         step_name=step_name,
         origin_product=origin_product,
         signal_report_id=signal_report_id,
+        spend_signal_id=spend_signal_id,
         ai_stage=ai_stage,
         ai_agent_name=ai_agent_name,
         internal=internal,
