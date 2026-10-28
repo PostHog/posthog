@@ -7,6 +7,7 @@ import { contentHash, SymbolDataType, writeSymbolData } from '@/error-tracking/c
 import { runHog } from '@/testing'
 
 import { GIT_REPO, SMALL_MAPPING } from '../../../test/parity/fixtures'
+import { HERMES_BUILD } from '../../../test/parity/hermes-fixtures'
 
 function project(files: Record<string, string>): string {
     const folder = mkdtempSync(join(tmpdir(), 'hog-et-'))
@@ -127,6 +128,33 @@ describe('hog error-tracking upload', () => {
 
         expect(result.exitCode).toBe(1)
         expect(readFileSync(join(folder, 'dist/a.js'), 'utf8')).toBe(bundle)
+    })
+
+    test('--dry-run plans a Hermes map once when two paths overlap', async () => {
+        const composed = 'android/hbc/index.android.bundle.hbc.composed.map'
+        const folder = project({
+            ...HERMES_BUILD,
+            [composed]: HERMES_BUILD[composed]!.replace('{', '{"chunk_id":"0b9f3c55-6a1e-4f43-9d9a-3a1f2c7e8b10",'),
+        })
+        const result = await runHog(['et', 'upload', '--dry-run', 'android', 'android/hbc'], {
+            env: { CLAUDECODE: '1' },
+            cwd: folder,
+            useDisk: true,
+        })
+        expect(result.exitCode).toBe(0)
+        expect(result.json().symbolSets).toEqual([expect.objectContaining({ path: composed, kind: 'hermes' })])
+    })
+
+    test('upload fails when Hermes bundles have no composed maps', async () => {
+        const { 'android/hbc/index.android.bundle.hbc.composed.map': _composed, ...metroOnly } = HERMES_BUILD
+        const folder = project(metroOnly)
+        const result = await runHog(['et', 'upload', '--dry-run', 'android'], {
+            env: { CLAUDECODE: '1' },
+            cwd: folder,
+            useDisk: true,
+        })
+        expect(result.exitCode).toBe(1)
+        expect(result.error()).toMatchObject({ code: 'no_hermes_maps' })
     })
 
     test('--dry-run reads the release from the repository a symlinked mapping points into', async () => {

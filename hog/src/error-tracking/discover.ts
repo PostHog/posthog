@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 
 import type { ArtifactKind } from '@/core/config'
@@ -138,6 +138,15 @@ export function listFiles(roots: readonly Root[], cwd: string): string[] {
 
 export function discover(roots: readonly Root[], cwd: string, options: DiscoverOptions = {}): Artifact[] {
     const artifacts: Artifact[] = []
+    // Overlapping paths, like `build build/hbc`, reach the same file twice.
+    const seen = new Set<string>()
+    const add = (artifact: Artifact): void => {
+        const canonical = realpathSync(artifact.path)
+        if (!seen.has(canonical)) {
+            seen.add(canonical)
+            artifacts.push(artifact)
+        }
+    }
     for (const root of roots) {
         const { path, isFile, files } = rootFiles(root, cwd)
         if (isFile) {
@@ -151,13 +160,13 @@ export function discover(roots: readonly Root[], cwd: string, options: DiscoverO
                     root.kind ? undefined : 'Pass --kind to say which one it is.'
                 )
             }
-            artifacts.push({ kind, path, display: relative(cwd, path) || path, root })
+            add({ kind, path, display: relative(cwd, path) || path, root })
             continue
         }
         for (const file of files) {
             const kind = detect(file, true, root.kind, options)
             if (kind) {
-                artifacts.push({ kind, path: file, display: relative(cwd, file), root })
+                add({ kind, path: file, display: relative(cwd, file), root })
             }
         }
     }

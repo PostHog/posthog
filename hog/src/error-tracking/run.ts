@@ -450,6 +450,18 @@ export async function upload(
         }
     }
 
+    // posthog-cli's Hermes upload fails when it finds nothing to upload, so a build step that lost
+    // its composed maps doesn't pass while every exception stays unreadable.
+    if (composed.length === 0 && selection.artifacts.some((artifact) => artifact.kind === 'hermes')) {
+        const message = 'hog found Hermes bundles but no composed Hermes sourcemaps'
+        const hint =
+            'Run `hog error-tracking clone` after the Hermes build, and upload the folder with its composed maps.'
+        if (planned.length === 0) {
+            throw new HogError('no_hermes_maps', `${message}, so nothing was uploaded.`, hint)
+        }
+        warnings.push(`${message}, so their stack traces stay unreadable. ${hint}`)
+    }
+
     const report = (item: Planned, status: SymbolSetReport['status']): SymbolSetReport => ({
         path: item.artifact.display,
         kind: item.artifact.kind,
