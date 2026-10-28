@@ -5850,6 +5850,9 @@ export class PostHogAPIClient {
     const teamId = await this.getTeamId();
     const path = `/api/projects/${teamId}/signals/reports/section_counts/`;
     const url = new URL(`${this.api.baseUrl}${path}`);
+    if (params?.source_product) {
+      url.searchParams.set("source_product", params.source_product);
+    }
     if (params?.priority) url.searchParams.set("priority", params.priority);
     if (params?.suggested_reviewers) {
       url.searchParams.set("suggested_reviewers", params.suggested_reviewers);
