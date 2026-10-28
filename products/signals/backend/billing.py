@@ -1,38 +1,5 @@
-"""Signals billing — a flat credit charge per report that ships an implementation PR.
-
-Signals is billed on outcomes, not LLM spend: each signal report whose implementation task
-opens a pull request is charged a flat number of credits, once. The chargeable moment is
-deterministic — the first implementation `TaskRun` with a `pr_url` set — so a report is
-billed exactly once, in the period that PR first appeared, regardless of any later status
-changes, re-judgements, or additional runs.
-
-Billing eligibility uses the `SignalReportTask` implementation bridge and the first task-run
-PR URL. PR-link artefacts also include external work, so their presence cannot authorize a charge.
-
-Because this is a billing source it fails closed: a run only bills when its PR URL is a GitHub
-URL and the run, task, bridge, and report teams all agree, so malformed bridge rows never
-produce a charge.
-
-Credits use the same unit as ai_credits: 1 credit = $0.01, so the flat $15 charge is 1500
-credits.
-
-Two mechanisms remove a report from billing:
-
-- **Refunds** (retrospective, `SignalReportRefund`): an `excluded`-path refund makes the usage
-  query skip the report entirely — committed strictly on the same UTC day as the first billable
-  PR run, so no usage send (all of which happen ≥3h45m into the next UTC day) can ever observe
-  the exclusion flipping. A `credited`-path refund is deliberately NOT consulted here: usage
-  stays truthful and the money comes back as a billing-service credit.
-- **Exemptions** (prospective, `SignalReport.billing_exempt_reason`): PostHog-system-origin
-  reports are marked never-billable before their billable moment exists, so they never enter
-  usage (nor, via the same query driving quota `todays_usage`, consume a free-tier slot).
-
-Emergent semantic to be aware of: because of the `billed_earlier` idempotency check below, a
-report whose first billable PR run has been refunded can NEVER be billed again — a later, second
-PR run on the same report finds the first run before the period and is skipped, and the first
-run itself is refund-excluded (excluded path) or already handled by a credit (credited path).
-This is why restoring a refunded report is blocked at the API layer: refund → restore → new PR
-would otherwise be repeatable free work.
+"""A report's first implementation PR determines its legacy charge, even after a refund.
+Usage billing counts finalized spend; both meters feed reporting and quota refresh.
 """
 
 import uuid
@@ -46,12 +13,20 @@ from django.utils import timezone
 
 from dateutil.relativedelta import relativedelta
 
+from posthog.models import Team
 from posthog.models.organization import BillingPeriod
 
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.enums import SignalSourceProduct
-from products.signals.backend.models import SignalReport, SignalReportRefund, SignalReportTask, SignalScoutRun
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportRefund,
+    SignalReportTask,
+    SignalScoutRun,
+    SignalSpend,
+)
 from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_is_proven_canonical
+from products.signals.backend.spend_billing import spend_billing_credits_by_team, usage_billing_cutoff
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.api import GITHUB_PR_URL_PREFIX
 
@@ -182,6 +157,14 @@ def report_has_implementation_pr(report_id: str | uuid.UUID, *, team_id: int) ->
     return _bridges_with_pr_run(include_manual=True).filter(report_id=report_id, team_id=team_id).exists()
 
 
+def _legacy_pr_bridges(
+    reports: QuerySet[SignalReport], *, organization_id: uuid.UUID | None
+) -> QuerySet[SignalReportTask]:
+    if organization_id is not None and (cutoff := usage_billing_cutoff(organization_id)) is not None:
+        reports = reports.exclude(team__organization_id=organization_id, created_at__gte=cutoff)
+    return _bridges_with_pr_run().filter(report_id__in=reports.values("id"))
+
+
 class FirstBillablePrRun(NamedTuple):
     created_at: datetime
     pr_url: str
@@ -197,8 +180,10 @@ def first_billable_pr_run(report_id: str | uuid.UUID, *, team_id: int) -> FirstB
     query, so the two can never disagree about whether a billable run exists.
     """
     row = (
-        _bridges_with_pr_run()
-        .filter(report_id=report_id, team_id=team_id)
+        _legacy_pr_bridges(
+            SignalReport.objects.filter(id=report_id, team_id=team_id),
+            organization_id=Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first(),
+        )
         # Both columns resolve against the TaskRun join the filter established, so the earliest
         # billable run's timestamp and URL come from the same row.
         .order_by("task__runs__created_at")
@@ -234,13 +219,15 @@ def report_pr_is_merged(report_id: str | uuid.UUID, pr_url: str, *, team_id: int
     ).exists()
 
 
-def annotate_first_billable_pr_run_at(queryset: QuerySet[SignalReport]) -> QuerySet[SignalReport]:
+def annotate_first_billable_pr_run_at(
+    queryset: QuerySet[SignalReport], *, organization_id: uuid.UUID
+) -> QuerySet[SignalReport]:
     """Annotate each report with `first_billable_pr_run_at` (its billable moment, batched form of
     `first_billable_pr_run`), NULL when it never shipped a billable PR run. Applies the same
     fail-closed filters as the usage query, so list-rendered refund eligibility can never
     disagree with what the refund action would accept."""
     earliest = (
-        _bridges_with_pr_run()
+        _legacy_pr_bridges(queryset, organization_id=organization_id)
         .filter(report_id=OuterRef("id"))
         .order_by("task__runs__created_at")
         .values("task__runs__created_at")[:1]
@@ -256,8 +243,10 @@ def first_billable_pr_run_at_by_report(report_ids: Sequence[str | uuid.UUID], *,
     Reports with no billable PR run are absent from the map, matching the annotation's NULL.
     """
     rows = (
-        _bridges_with_pr_run()
-        .filter(report_id__in=report_ids, team_id=team_id)
+        _legacy_pr_bridges(
+            SignalReport.objects.filter(id__in=report_ids, team_id=team_id),
+            organization_id=Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first(),
+        )
         .values("report_id")
         .annotate(first_run_at=Min("task__runs__created_at"))
     )
@@ -332,11 +321,13 @@ def current_billing_period_bounds(organization: "Organization") -> BillingPeriod
     return BillingPeriod(start=start, end=start + relativedelta(months=1))
 
 
-def get_signals_billing_credits_by_team(
+def _report_billing_credits_by_team(
     begin: datetime,
     end: datetime,
     organization_id: str | uuid.UUID | None = None,
     organization_ids: Collection[str | uuid.UUID] | None = None,
+    *,
+    cutoffs: dict[uuid.UUID, datetime],
 ) -> list[tuple[int, int]]:
     """Signals credits used per team in `[begin, end)`.
 
@@ -358,6 +349,8 @@ def get_signals_billing_credits_by_team(
         task__runs__created_at__gte=begin,
         task__runs__created_at__lt=end,
     )
+    for org_id, cutoff in cutoffs.items():
+        bridges = bridges.exclude(team__organization_id=org_id, report__created_at__gte=cutoff)
     if organization_id is not None:
         bridges = bridges.filter(team__organization_id=organization_id)
     if organization_ids is not None:
@@ -405,6 +398,41 @@ def get_signals_billing_credits_by_team(
             continue
         totals[team_id] += SIGNALS_CREDITS_PER_REPORT_WITH_PR
 
+    return list(totals.items())
+
+
+def get_signals_billing_credits_by_team(
+    begin: datetime,
+    end: datetime,
+    organization_id: str | uuid.UUID | None = None,
+    organization_ids: Collection[str | uuid.UUID] | None = None,
+) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass — preserves the existing usage-counter contract
+    """Shared by daily reporting and the 15-minute quota refresh, including today's settled spend."""
+    if end <= begin:
+        return []
+    if organization_ids is not None:
+        organizations = {uuid.UUID(str(org_id)) for org_id in organization_ids}
+        if organization_id is not None:
+            organizations &= {uuid.UUID(str(organization_id))}
+    elif organization_id is not None:
+        organizations = {uuid.UUID(str(organization_id))}
+    else:
+        # Only evaluate flags for orgs with usage in this window, once per org for both meters.
+        organizations = set(
+            _bridges_with_pr_run(task__runs__created_at__gte=begin, task__runs__created_at__lt=end)
+            .values_list("team__organization_id", flat=True)
+            .distinct()
+        )
+        organizations.update(
+            SignalSpend.objects.unscoped()
+            .filter(finalized_at__gte=begin, finalized_at__lt=end, billing_exempt=False)
+            .values_list("team__organization_id", flat=True)
+            .distinct()
+        )
+    cutoffs = {org_id: cutoff for org_id in organizations if (cutoff := usage_billing_cutoff(org_id)) is not None}
+    totals = dict(_report_billing_credits_by_team(begin, end, organization_id, organization_ids, cutoffs=cutoffs))
+    for team_id, credits in spend_billing_credits_by_team(begin, end, cutoffs=cutoffs).items():
+        totals[team_id] = totals.get(team_id, 0) + credits
     return list(totals.items())
 
 
