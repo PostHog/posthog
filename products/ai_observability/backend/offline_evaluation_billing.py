@@ -1,7 +1,5 @@
 from datetime import UTC, datetime
 
-from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Sum
 from django.utils import timezone
 
@@ -18,22 +16,10 @@ def get_offline_evaluation_usage(period_start: datetime, period_end: datetime) -
     """Billable quantities by acceptance organization and environment, without consuming the ledger."""
     if timezone.is_naive(period_start) or timezone.is_naive(period_end) or period_start >= period_end:
         raise ValueError("Offline evaluation usage requires an aware, increasing reporting window")
-    configured_start = settings.OFFLINE_EVALUATION_BILLING_START
-    if not configured_start:
-        return {}
-    try:
-        charging_start = datetime.fromisoformat(configured_start)
-    except ValueError as error:
-        raise ImproperlyConfigured("OFFLINE_EVALUATION_BILLING_START must be an ISO UTC timestamp") from error
-    if timezone.is_naive(charging_start) or charging_start.utcoffset() != UTC.utcoffset(charging_start):
-        raise ImproperlyConfigured("OFFLINE_EVALUATION_BILLING_START must be an ISO UTC timestamp")
-    start = max(period_start.astimezone(UTC), charging_start)
-    if start >= period_end:
-        return {}
 
     rows = list(
         OfflineEvaluationUsageLedger.objects.unscoped()
-        .filter(accepted_at__gte=start, accepted_at__lt=period_end.astimezone(UTC))
+        .filter(accepted_at__gte=period_start.astimezone(UTC), accepted_at__lt=period_end.astimezone(UTC))
         .values("organization_id", "team_id", "billing_eligible")
         .annotate(total_quantity=Sum("quantity"))
     )

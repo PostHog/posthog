@@ -399,7 +399,7 @@ Local and external datasets do not require hosted links; they can use the `*_ide
 
 Large payloads have separate storage and 30-day deadlines anchored to first acceptance.
 Retries neither extend deadlines nor restore deleted payloads.
-Automatic payload deletion is not enabled by these endpoints. Usage billing requires the separate activation described below.
+Automatic payload deletion is not enabled by these endpoints.
 
 ### Product usage events
 
@@ -457,7 +457,7 @@ Both `organization usage report` and `llm analytics usage` expose:
 | Property                                 | Meaning                                                                                                |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `ai_ingested_event_count_in_period`      | Billing-eligible ingested AIO events, preserving wallet-billed gateway and sponsored-event exemptions. |
-| `ai_offline_eval_metric_count_in_period` | Sum of eligible offline ledger quantities accepted in the activated reporting window.                  |
+| `ai_offline_eval_metric_count_in_period` | Sum of eligible offline ledger quantities accepted in the reporting window.                            |
 | `ai_event_count_in_period`               | The sum of the two components.                                                                         |
 
 Organization reports include the same breakdown in each `teams` entry, including historical environments that have moved or been deleted. A moved environment can appear under both organizations, with only the usage attributed to each.
@@ -477,20 +477,16 @@ Currently internal-metrics organizations are also excluded, even if they have ol
 
 Current-day quota refresh adds offline usage to `llm_events.todays_usage` by the stored organization, including usage from deleted environments.
 It leaves the prior-period `usage` received from billing intact. Ledger failures abort before quota updates or report delivery, allowing existing retries without publishing an incomplete total.
-Unknown eligibility in an activated window also fails reporting rather than guessing from current or missing team records.
+Unknown eligibility in a reporting window also fails reporting rather than guessing from current or missing team records.
 Reports are absolute totals: rereading an unchanged window does not consume or modify ledger entries. Existing analytics dispatch claims and already-reported checks still apply.
 Separately scheduled reports can observe different late-arriving ingested data; identical windows and source snapshots produce matching AIO totals.
 
-### Billing activation prerequisite
+### Deployment
 
-`OFFLINE_EVALUATION_BILLING_START` defaults to empty, which disables the offline billing component in both reports and quota refresh while recording continues.
-Activation requires an explicitly approved ISO timestamp with UTC offset (`Z` or `+00:00`), configured consistently on all reporting and quota workers. No charging date is supplied by this implementation.
-The effective window starts at the later of the requested start and the configured charging start. Recording before that instant is not charged or backfilled.
-
+Offline usage reporting uses the requested reporting window without a separate charging-start date or activation setting.
 Deploy the nullable eligibility migration first, then deploy the new upload writers and all reporting/quota workers. Old writers remain compatible and write null eligibility.
-Drain old workers and pending reports/workflows before the approved future cutover; never activate over a period containing uploads from old writers.
+All billable entries in a reporting window must have an eligibility snapshot; legacy nulls are intentionally not backfilled.
 Temporal's exclusive-day-end patch preserves the window recorded by pre-deploy workflows. Already serialized reports are not rewritten.
-All post-cutover entries must have an eligibility snapshot; legacy nulls are intentionally not backfilled. Rollback or changing the cutover after reports have been consumed requires billing reconciliation, not an automatic replay.
 
 ## Resource tags
 

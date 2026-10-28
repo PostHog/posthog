@@ -18,8 +18,6 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
-from django.test import override_settings
-
 from asgiref.sync import sync_to_async
 
 from posthog.models import Organization, Team
@@ -231,12 +229,9 @@ async def test_aggregate_writes_chunks_and_manifest(minio_workflow_ctx: Workflow
         ]
     )
 
-    with (
-        override_settings(OFFLINE_EVALUATION_BILLING_START=ctx.period_start.isoformat()),
-        patch(
-            "posthog.temporal.usage_report.activities.get_instance_metadata",
-            return_value=_instance_metadata(),
-        ),
+    with patch(
+        "posthog.temporal.usage_report.activities.get_instance_metadata",
+        return_value=_instance_metadata(),
     ):
         result = await activity_environment.run(
             aggregate_and_chunk_org_reports,

@@ -90,7 +90,6 @@ class TestQuotaLimiting(BaseTest):
             return update_all_orgs_billing_quotas()
 
     @parameterized.expand([(False,), (True,)])
-    @override_settings(OFFLINE_EVALUATION_BILLING_START="2026-10-01T00:00:00Z")
     @time_machine.travel("2026-10-31T12:00:00Z", tick=False)
     def test_offline_usage_updates_today_without_recounting_billing_history(self, deleted_team: bool) -> None:
         self.organization.usage = {
@@ -292,7 +291,7 @@ class TestQuotaLimiting(BaseTest):
         self.organization.save()
 
         flush_persons_and_events()
-        with self.assertNumQueries(FuzzyInt(3, 10)):
+        with self.assertNumQueries(FuzzyInt(4, 11)):
             result = self._run_quota_limiting()
         assert patch_capture.call_count == 0  # No events should be captured since org won't be limited
         assert result.quota_limited_orgs["events"] == {}

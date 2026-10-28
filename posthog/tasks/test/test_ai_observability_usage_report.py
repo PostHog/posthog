@@ -16,7 +16,7 @@ from posthog.test.base import (
 from unittest.mock import MagicMock, patch
 
 from django.db import DatabaseError, connection
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -547,7 +547,6 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert metrics.response_count == 5  # 3 + 2 (only "survey sent" events)
 
     @parameterized.expand([(50, 30), (0, 30), (50, 0), (0, 0)])
-    @override_settings(OFFLINE_EVALUATION_BILLING_START="2026-10-31T00:00:00Z")
     @time_machine.travel("2026-10-31T12:00:00Z", tick=False)
     def test_upload_to_both_reports_and_quota(self, ingested: int, offline: int) -> None:
         period = DayRange(start=datetime(2026, 10, 31, tzinfo=UTC), end=datetime(2026, 11, 1, tzinfo=UTC))
@@ -654,7 +653,6 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         )
 
     @parameterized.expand([(False,), (True,)])
-    @override_settings(OFFLINE_EVALUATION_BILLING_START="2026-10-31T00:00:00Z")
     @time_machine.travel("2026-11-01T00:01:00Z", tick=False)
     def test_both_reports_keep_historical_ownership_after_move_and_deletion(self, deleted_team: bool) -> None:
         period = DayRange(start=datetime(2026, 10, 31, tzinfo=UTC), end=datetime(2026, 11, 1, tzinfo=UTC))
@@ -679,7 +677,6 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
             self.assertEqual(analytics[org_id]["ai_event_count_in_period"], expected)
             self.assertEqual(reports[org_id].ai_event_count_in_period, expected)
 
-    @override_settings(OFFLINE_EVALUATION_BILLING_START="2026-10-31T00:00:00Z")
     @time_machine.travel("2026-11-01T00:01:00Z", tick=False)
     def test_failed_ledger_read_does_not_claim_the_analytics_dispatch(self) -> None:
         OfflineEvaluationUsageLedger.objects.for_team(self.team.id).create(
@@ -1564,7 +1561,10 @@ class TestAIObservabilityUsageReportTaskWiring(SimpleTestCase):
         task = send_ai_observability_usage_reports
         task.push_request(retries=retries, called_directly=called_directly, is_eager=True)
         try:
-            with pytest.raises(Exception, match="CH down"):
+            with (
+                patch("posthog.tasks.ai_observability_usage_report.get_offline_evaluation_usage", return_value={}),
+                pytest.raises(Exception, match="CH down"),
+            ):
                 task.run()
         finally:
             task.pop_request()

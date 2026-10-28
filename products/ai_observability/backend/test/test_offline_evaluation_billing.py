@@ -5,9 +5,8 @@ from uuid import uuid4
 
 import time_machine
 
-from django.core.exceptions import ImproperlyConfigured
 from django.db import DatabaseError, connection
-from django.test import TestCase, override_settings
+from django.test import TestCase
 
 from parameterized import parameterized
 
@@ -25,7 +24,6 @@ from products.ai_observability.backend.offline_evaluation_billing import get_off
 from ee.billing.quota_limiting import _aggregate_quota_usage, _iter_quota_organizations, update_all_orgs_billing_quotas
 
 
-@override_settings(OFFLINE_EVALUATION_BILLING_START="2026-10-01T00:00:00Z")
 @time_machine.travel("2026-10-31T12:00:00Z", tick=False)
 class TestOfflineEvaluationBilling(TestCase):
     organization: Organization
@@ -160,19 +158,6 @@ class TestOfflineEvaluationBilling(TestCase):
         self.organization.delete()
         self.assertEqual(get_offline_evaluation_usage(self.period.start, self.period.end), {})
         self.assertEqual(OfflineEvaluationUsageLedger.objects.unscoped().get().quantity, 30)
-
-    @parameterized.expand([("", 0), ("2026-10-31T12:00:00Z", 10), ("2026-11-01T00:00:00Z", 0)])
-    def test_cutover_does_not_charge_earlier_recordings(self, start: str, expected: int) -> None:
-        self.record(self.team, 20, eligible=None)
-        self.record(self.team, 10, at=self.period.start + timedelta(hours=12))
-        with self.settings(OFFLINE_EVALUATION_BILLING_START=start):
-            usage = get_offline_evaluation_usage(self.period.start, self.period.end)
-        self.assertEqual(sum(usage.get(str(self.organization.id), {}).values()), expected)
-
-    @parameterized.expand([("invalid",), ("2026-10-31T00:00:00",), ("2026-10-31T00:00:00+01:00",)])
-    def test_invalid_activation_fails_closed(self, start: str) -> None:
-        with self.settings(OFFLINE_EVALUATION_BILLING_START=start), self.assertRaises(ImproperlyConfigured):
-            get_offline_evaluation_usage(self.period.start, self.period.end)
 
     def test_unknown_eligibility_fails_even_when_the_team_no_longer_exists(self) -> None:
         self.record(self.team, 20, eligible=None)
