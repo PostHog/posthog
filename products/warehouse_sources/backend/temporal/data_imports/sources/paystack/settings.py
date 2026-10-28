@@ -6,7 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PaystackEndpointConfig:
     # API path relative to https://api.paystack.co (e.g. "/transaction").
     path: str

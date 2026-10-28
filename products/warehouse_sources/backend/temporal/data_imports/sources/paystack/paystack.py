@@ -33,7 +33,7 @@ PAYSTACK_BASE_URL = "https://api.paystack.co"
 PAGE_SIZE = 100
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class PaystackResumeConfig:
     next_page: Optional[int] = None
     next_cursor: Optional[str] = None
