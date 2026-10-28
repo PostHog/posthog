@@ -390,7 +390,7 @@ mod test {
 
         // The manifest must match the build path embedded in the fixture's DWARF.
         const SOURCE_PATH: &str =
-            "/private/tmp/posthog-flutter-symbols-research/sample/lib/main.dart";
+            "/fixtures/flutter/native-symbolication-builds/sample/lib/main.dart";
         const SOURCE: &str = include_str!("../../../../tests/static/native/flutter_sample.dart");
         let artifacts: [(&[u8], u64); 2] = [
             (
@@ -405,6 +405,14 @@ mod test {
 
         for (compressed, address) in artifacts {
             let dwarf = zstd::decode_all(compressed).unwrap();
+            for home_prefix in [b"/Users/".as_slice(), b"/home/".as_slice()] {
+                assert!(
+                    !dwarf
+                        .windows(home_prefix.len())
+                        .any(|bytes| bytes == home_prefix),
+                    "fixture embeds an unredacted home directory"
+                );
+            }
             let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
             let options = zip::write::SimpleFileOptions::default();
             zip.start_file("dwarf", options).unwrap();

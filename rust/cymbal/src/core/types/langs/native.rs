@@ -237,9 +237,9 @@ impl RawNativeFrame {
 
         let relative_addr = calculate_relative_addr(instruction_addr, debug_image)?;
 
-        // Dart AOT reports direct program counters, which can point to a
-        // function entry. Other native traces report return addresses, so
-        // look up the preceding call instruction for those frames.
+        // Dart's AOT stack decoder looks up reported PCs directly, including
+        // synthetic async frames near function entries. Other native traces
+        // report return addresses, so look up the preceding call instruction.
         let lookup_addr = if self.lang.as_deref() == Some("dart") {
             relative_addr
         } else {
@@ -500,6 +500,10 @@ impl RawNativeFrame {
         // every pre-marker frame id is unchanged.
         if self.inline {
             hasher.update(b"inline");
+        }
+        // A Dart lookup can resolve a different function at the same address.
+        if self.lang.as_deref() == Some("dart") {
+            hasher.update(b"dart-exact-pc");
         }
         hasher.update(b"native");
 
@@ -971,6 +975,16 @@ mod test {
         let id_b = launch_b.frame_id(&[image_at("build-1", 0x104f00000)]);
         assert_eq!(id_a, id_b);
 
+        let mut dart_a = launch_a.clone();
+        dart_a.lang = Some("dart".to_string());
+        let mut dart_b = launch_b.clone();
+        dart_b.lang = Some("dart".to_string());
+        assert_eq!(
+            dart_a.frame_id(&[image_at("build-1", 0x100000000)]),
+            dart_b.frame_id(&[image_at("build-1", 0x104f00000)])
+        );
+        assert_ne!(id_a, dart_a.frame_id(&[image_at("build-1", 0x100000000)]));
+
         // Without a matching image the absolute address is hashed, so the ids differ.
         assert_ne!(launch_a.frame_id(&[]), launch_b.frame_id(&[]));
     }
@@ -1181,7 +1195,7 @@ mod test {
         let zip = zip_fixture(
             &dwarf,
             Some((
-                "/private/tmp/posthog-flutter-symbols-research/sample/lib/main.dart",
+                "/fixtures/flutter/native-symbolication-builds/sample/lib/main.dart",
                 SOURCE,
             )),
         );

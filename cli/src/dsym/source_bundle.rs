@@ -576,6 +576,34 @@ pub fn filter_source_paths_under_root<'a>(paths: &'a [String], root: &Path) -> V
         .collect()
 }
 
+pub fn filter_source_paths_for_upload<'a>(
+    paths: &'a [String],
+    source_root: Option<&Path>,
+    binary_path: &Path,
+    extra_filter: impl Fn(&str) -> bool,
+) -> Vec<&'a str> {
+    let filtered = match source_root {
+        Some(root) => filter_source_paths_under_root(paths, root),
+        None => filter_source_paths(paths),
+    };
+    let filtered: Vec<&str> = filtered
+        .into_iter()
+        .filter(|path| extra_filter(path))
+        .collect();
+    info!(
+        "Found {} source paths in DWARF ({} after filtering)",
+        paths.len(),
+        filtered.len()
+    );
+    if filtered.is_empty() && source_root.is_some() {
+        warn!(
+            "No readable sources found inside the source root for {}",
+            binary_path.display()
+        );
+    }
+    filtered
+}
+
 /// Collect source files from disk, reading each file referenced by DWARF debug info.
 ///
 /// Since the CLI runs on the build machine, the absolute paths from DWARF are valid.

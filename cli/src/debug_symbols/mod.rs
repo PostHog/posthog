@@ -82,18 +82,12 @@ impl DebugSymbolFile {
             if include_source {
                 match source_bundle::extract_source_paths_from_dwarf_bytes(&self.data) {
                     Ok(all_paths) => {
-                        let filtered = filter_native_source_paths(&all_paths, source_root);
-                        info!(
-                            "Found {} source paths in DWARF ({} after filtering)",
-                            all_paths.len(),
-                            filtered.len()
+                        let filtered = source_bundle::filter_source_paths_for_upload(
+                            &all_paths,
+                            source_root,
+                            &self.path,
+                            is_native_source_path,
                         );
-                        if filtered.is_empty() && source_root.is_some() {
-                            warn!(
-                                "No readable sources found inside the source root for {}",
-                                self.path.display()
-                            );
-                        }
                         if !filtered.is_empty() {
                             match source_bundle::collect_source_files(&filtered) {
                                 Ok(source_files) => {
@@ -133,32 +127,22 @@ impl DebugSymbolFile {
     }
 }
 
-/// Filter DWARF source paths for native (Rust/C/C++) builds: on top of the
-/// shared system-path filters, drop registry/toolchain sources that aren't
-/// part of the user's project tree. Go toolchain sources are already trimmed
-/// inside the shared extraction (see `filter_go_toolchain_sources`).
-fn filter_native_source_paths<'a>(paths: &'a [String], source_root: Option<&Path>) -> Vec<&'a str> {
-    let paths = match source_root {
-        Some(root) => source_bundle::filter_source_paths_under_root(paths, root),
-        None => source_bundle::filter_source_paths(paths),
-    };
-    paths
-        .into_iter()
-        .filter(|path| {
-            const EXCLUDED: &[&str] = &[
-                "/.cargo/registry/",
-                "/.cargo/git/",
-                "/rustc/",
-                "/.rustup/toolchains/",
-                "/vendor/",
-            ];
-            if EXCLUDED.iter().any(|sub| path.contains(sub)) {
-                tracing::debug!("Filtered out (native toolchain): {}", path);
-                return false;
-            }
-            true
-        })
-        .collect()
+/// Drop native registry/toolchain sources outside the user's project tree.
+/// Go toolchain sources are already trimmed inside the shared extraction
+/// (see `filter_go_toolchain_sources`).
+fn is_native_source_path(path: &str) -> bool {
+    const EXCLUDED: &[&str] = &[
+        "/.cargo/registry/",
+        "/.cargo/git/",
+        "/rustc/",
+        "/.rustup/toolchains/",
+        "/vendor/",
+    ];
+    if EXCLUDED.iter().any(|sub| path.contains(sub)) {
+        tracing::debug!("Filtered out (native toolchain): {}", path);
+        return false;
+    }
+    true
 }
 
 /// Walk `directory` and classify everything that looks like native debug

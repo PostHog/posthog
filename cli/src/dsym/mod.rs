@@ -161,7 +161,6 @@ fn zip_dwarf_binary(
     source_root: Option<&Path>,
 ) -> Result<Vec<u8>> {
     use std::io::{Cursor, Write};
-    use tracing::info;
 
     let mut buffer = Cursor::new(Vec::new());
 
@@ -181,23 +180,12 @@ fn zip_dwarf_binary(
         if include_source {
             match source_bundle::extract_source_paths_from_dwarf(dwarf_path) {
                 Ok(all_paths) => {
-                    let filtered = match source_root {
-                        Some(root) => {
-                            source_bundle::filter_source_paths_under_root(&all_paths, root)
-                        }
-                        None => source_bundle::filter_source_paths(&all_paths),
-                    };
-                    info!(
-                        "Found {} source paths in DWARF ({} after filtering)",
-                        all_paths.len(),
-                        filtered.len()
+                    let filtered = source_bundle::filter_source_paths_for_upload(
+                        &all_paths,
+                        source_root,
+                        dwarf_path,
+                        |_| true,
                     );
-                    if filtered.is_empty() && source_root.is_some() {
-                        tracing::warn!(
-                            "No readable sources found inside the source root for {}",
-                            dwarf_path.display()
-                        );
-                    }
 
                     if !filtered.is_empty() {
                         match source_bundle::collect_source_files(&filtered) {
