@@ -694,6 +694,15 @@ class TestMCPCustomHarnessEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert self.client.get(self._url()).json() == []
         assert custom_harness_rules(self.team) == ()
 
+    def test_a_longer_pattern_matches_before_a_shorter_one_it_contains(self) -> None:
+        self.client.post(self._url(), {"name": "Acme", "match_pattern": "acme"}, format="json")
+        self.client.post(self._url(), {"name": "Acme agent", "match_pattern": "acme-agent"}, format="json")
+
+        assert custom_harness_rules(self.team) == (
+            CustomHarnessRule(name="Acme agent", pattern="acme-agent"),
+            CustomHarnessRule(name="Acme", pattern="acme"),
+        )
+
     def test_other_teams_harnesses_are_not_listed(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other-team")
         MCPCustomHarness.objects.create(team=other_team, name="Elsewhere", match_pattern="elsewhere")
