@@ -287,8 +287,12 @@ Large results reduce the number of examples returned; each returned example keep
 The tools indicate when examples are omitted, and aggregate counts and pass rates still cover the full period.
 
 The report agent's `sample_generation_details` tool keeps the beginning and end of input and input-state previews within 500 characters, with an elision marker.
+Each sample includes `input_length`, the stored input's character count before shortening the preview.
 Both sampled and full generation details include input, output, cache-read, and cache-creation token counts.
-The agent must inspect full generation details before claiming captured input is truncated or instrumentation is broken. Previews and low input token counts alone are insufficient evidence.
+The agent must inspect full generation details before claiming captured input is truncated or instrumentation is broken, and report a limitation only when those details confirm it.
+Shortened previews and low input token counts alongside high cache-read or cache-creation token counts are expected and alone do not justify an auditability caveat.
+A trace can contain many generations by design; use generation IDs to distinguish individual calls.
+The agent must recheck these caveats from prior reports against current full generation details and omit caveats that the data does not support.
 
 ## Browser compatibility
 

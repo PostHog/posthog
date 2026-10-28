@@ -213,6 +213,7 @@ export namespace Schemas {
         inCohortVia: InCohortVia | null;
         inlineCohortCalculation: InlineCohortCalculation | null;
         materializationMode: MaterializationMode | null;
+        materializeRepeatedCTEs: boolean | null;
         materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | null;
         mergeFederatedAggregateJoins: boolean | null;
         negatedPersonFiltersNotIn: boolean | null;

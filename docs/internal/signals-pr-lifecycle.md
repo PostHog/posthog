@@ -64,6 +64,9 @@ The metric must match the finding's filters, population, exclusions, window, and
 When no useful supported metric can measure that claim, the summary states the specific limitation in one short sentence.
 Qualitative findings can omit metrics.
 
+Research presentation drops invalid observation metrics individually and keeps the report prose and valid metrics.
+A snapshot series without a paired value and measurement time is cleared while its live query remains available.
+
 Observation metrics support HogQL filters that compare direct event fields or event properties with literal values.
 Boolean operations, arithmetic, and literal lists are supported; other function calls and subqueries remain unreadable.
 Report reads, research selection, and snapshot refresh use the same filter check.

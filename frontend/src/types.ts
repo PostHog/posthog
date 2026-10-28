@@ -6344,9 +6344,6 @@ export interface DataModelingEdge {
     id: string
     source_id: string
     target_id: string
-    properties: Record<string, unknown>
-    created_at: string
-    updated_at: string
 }
 
 export type DataModelingSyncInterval = '15min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'

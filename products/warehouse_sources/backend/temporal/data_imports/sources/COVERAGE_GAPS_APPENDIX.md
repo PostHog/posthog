@@ -7604,7 +7604,7 @@ Note: The URLs supplied in the payload (documentation.mailgun.com/docs/mailgun/a
 
 ## Mailjet — gaps
 
-Today (13): `bouncestatistics`, `campaign`, `campaigndraft`, `clickstatistics`, `contact`, `contactmetadata`, `contactslist`, `listrecipient`, `message`, `messageevent`, `openinformation`, `statcounters`, `template`
+Today (15): `bouncestatistics`, `campaign`, `campaigndraft`, `clickstatistics`, `contact`, `contactdata`, `contactmetadata`, `contactslist`, `listrecipient`, `message`, `messageevent`, `messageinformation`, `openinformation`, `statcounters`, `template`
 
 Diffed against: <https://dev.mailjet.com/email/reference/messages/>
 
@@ -7612,10 +7612,10 @@ Diffed against: <https://dev.mailjet.com/email/reference/messages/>
 - [ ] `messagesentstatistics` — skipped: Mailjet lists it as a deprecated legacy statistics resource replaced by `/statcounters`.
 - [ ] `messagehistory` — skipped: only exposed as `/messagehistory/{message_ID}`, so it would take one request per message ever sent. The webhook-fed `messageevent` table already carries this event stream.
 - [x] `bouncestatistics` — Bounce events with reason codes; we sync clicks and opens but not bounces (high)
-- [ ] `campaignstatistics` — Aggregate performance per campaign, resolving the campaign rows we already sync (high)
-- [ ] `contactdata` — Actual custom property values per contact - we sync contactmetadata (the schema) but not the values (high)
-- [ ] `openstatistics` — Open events aggregated per message/campaign, complementing the openinformation rows we sync (medium)
-- [ ] `messageinformation` — Per-message metadata linking messages to campaigns, senders and spam assassin scores (medium)
+- [ ] `campaignstatistics` — skipped: Mailjet's OpenAPI spec marks it as a deprecated legacy endpoint and points to `/statcounters`, which we already sync.
+- [x] `contactdata` — Actual custom property values per contact - we sync contactmetadata (the schema) but not the values (high). Added as `contactdata`: full refresh, because the API has no change filter.
+- [ ] `openstatistics` — skipped: Mailjet's OpenAPI spec marks it as a deprecated legacy endpoint and points to `/statcounters`, which we already sync.
+- [x] `messageinformation` — Per-message metadata linking messages to campaigns, senders and spam assassin scores (medium). Added as `messageinformation`: incremental on `CreatedAt` through `FromTS`.
 - [ ] `newsletter` — Newsletter objects that campaign and campaigndraft rows reference (medium)
 - [ ] `sender` — Lookup table resolving the sender IDs carried on campaigns and messages (medium)
 - [ ] `listrecipientstatistics` — Engagement metrics per list subscription, joining to the listrecipient rows we sync (medium)
@@ -9203,10 +9203,10 @@ Today (4): `absences`, `collaborators`, `contracts`, `payslips`
 
 Diffed against: <https://developers.payfit.io/llms.txt>
 
-- [ ] `/companies/{companyId}/contracts/time (worked time by contract)` — actual hours worked per pay period - the core time analytics table alongside absences (high)
-- [ ] `/companies/{companyId}/accounting-v2` — payroll accounting entries broken down by analytical code and employee, the finance-facing dataset (high)
-- [ ] `/companies/{companyId}` — company lookup resolving the company ID every other table is scoped by (medium)
-- [ ] `/companies/{companyId}/payroll-status` — payroll state per pay period, needed to know which periods are final (medium)
+- [x] `/companies/{companyId}/contracts/time (worked time by contract)` — actual hours worked per pay period - the core time analytics table alongside absences (high)
+- [x] `/companies/{companyId}/accounting-v2` — payroll accounting entries broken down by analytical code and employee, the finance-facing dataset (high)
+- [x] `/companies/{companyId}` — company lookup resolving the company ID every other table is scoped by (medium)
+- [x] `/companies/{companyId}/payroll-status` — payroll state per pay period, needed to know which periods are final (medium)
 - [ ] `/companies/{companyId}/collaborators/meal-vouchers` — per-month meal voucher entitlements per collaborator (FR) (medium)
 - [ ] `/companies/{companyId}/health-insurance-contracts` — benefit contract lookup joined to employee contracts already synced (medium)
 - [ ] `/companies/{companyId}/provident-fund-contracts` — provident fund contract lookup, same join as health insurance (low)
@@ -9937,10 +9937,10 @@ Today (7): `distributions`, `divisions`, `groups`, `survey_questions`, `survey_r
 
 Diffed against: <https://stoplight.io/api/v1/projects/cHJqOjk3NDQ/table-of-contents>
 
-- [ ] `Directory contacts (GET /API/v3/directories/{directoryId}/contacts)` — analyze respondent identities, external references, and opt-out status across surveys (high)
-- [ ] `Mailing lists (GET /API/v3/directories/{directoryId}/mailinglists)` — identify distribution audiences and compare results by mailing list (high)
-- [ ] `Directories (GET /API/v3/directories)` — identify contact directories and discover parents for audience tables (high)
-- [ ] `Distribution history (GET /API/v3/distributions/{distributionId}/history)` — measure recipient delivery and participation for existing survey distributions (high)
+- [x] `Directory contacts (GET /API/v3/directories/{directoryId}/contacts)` — analyze respondent identities, external references, and opt-out status across surveys (high)
+- [x] `Mailing lists (GET /API/v3/directories/{directoryId}/mailinglists)` — identify distribution audiences and compare results by mailing list (high)
+- [x] `Directories (GET /API/v3/directories)` — identify contact directories and discover parents for audience tables (high)
+- [x] `Distribution history (GET /API/v3/distributions/{distributionId}/history)` — measure recipient delivery and participation for existing survey distributions (high)
 - [ ] `Mailing list contacts (GET /API/v3/directories/{directoryId}/mailinglists/{mailingListId}/contacts)` — analyze audience membership and compare response rates across recipient segments (medium)
 - [ ] `Group members (GET /API/v3/groups/{groupId}/members)` — connect existing groups and users to analyze organizational membership (medium)
 - [ ] `Contact transactions (GET /API/v3/directories/{directoryId}/contacts/{contactId}/transactions)` — connect customer interactions with survey feedback (medium)
@@ -11940,8 +11940,8 @@ Diffed against: <https://developer.systeme.io/llms.txt>
 - [ ] `Email statistics (GET /api/mailing/statistics/newsletters; GET /api/mailing/statistics/campaign-steps; GET /api/mailing/statistics/automation-emails)` — compare messages sent, opens, clicks, bounces, and spam reports across email types (high)
 - [x] `Digital products (GET /api/payment/digital-products)` — analyze the digital product catalog alongside courses and subscription offerings (medium)
 - [x] `Physical products (GET /api/payment/physical-products)` — analyze physical product offerings and compare them with digital products (medium)
-- [ ] `Campaigns (GET /api/mailing/campaigns)` — analyze automated email campaigns alongside newsletters (medium)
-- [ ] `Campaign steps (GET /api/mailing/campaigns/{campaignId}/steps)` — connect email performance to each message and its position in a campaign (medium)
+- [x] `Campaigns (GET /api/mailing/campaigns)` — analyze automated email campaigns alongside newsletters (medium)
+- [x] `Campaign steps (GET /api/mailing/campaigns/{campaignId}/steps)` — connect email performance to each message and its position in a campaign (medium)
 - [ ] `Funnels (GET /api/funnels)` — identify marketing funnels for comparisons with contacts and their source URLs (medium)
 - [ ] `Funnel steps (GET /api/funnels/{funnelId}/steps)` — describe funnel pages and their sequence for acquisition analysis (medium)
 - [ ] `Bookings (GET /api/booking-calendar/bookings)` — analyze appointment demand and booking activity alongside contact growth (medium)
