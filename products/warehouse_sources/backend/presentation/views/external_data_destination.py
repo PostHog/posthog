@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
-from posthog.models.integration import Integration
+from posthog.models.integration import DEFAULT, Integration
 from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
@@ -166,7 +166,7 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
         ),
     )
     integration = TeamScopedPrimaryKeyRelatedField(
-        queryset=Integration.objects.all(),
+        queryset=Integration.objects.with_auth(DEFAULT).all(),
         required=False,
         allow_null=True,
         help_text="Integration holding this destination's credentials. Required for every type except the PostHog warehouse.",

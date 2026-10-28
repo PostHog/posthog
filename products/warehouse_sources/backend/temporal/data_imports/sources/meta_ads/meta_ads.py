@@ -162,7 +162,7 @@ def _fetch_integration_row(integration_id: int, team_id: int) -> Integration:
     while True:
         close_old_connections()
         try:
-            return Integration.objects.get(id=integration_id, team_id=team_id)
+            return Integration.objects.with_auth(Integration.AuthType.OAUTH).get(id=integration_id, team_id=team_id)
         except OperationalError:
             attempt += 1
             if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:

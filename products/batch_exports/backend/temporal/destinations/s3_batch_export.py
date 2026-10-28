@@ -30,6 +30,7 @@ from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.dataclasses import frozen
 from posthog.models.integration import (
+    DEFAULT,
     AWSS3Integration,
     AWSS3RoleBasedIntegration,
     Integration,
@@ -178,7 +179,7 @@ async def _get_s3_integration(
     the credentials are malformed.
     """
     try:
-        integration = await Integration.objects.aget(id=integration_id, team_id=team_id)
+        integration = await Integration.objects.with_auth(DEFAULT).aget(id=integration_id, team_id=team_id)
     except Integration.DoesNotExist:
         raise S3IntegrationNotFoundError(integration_id, team_id)
 

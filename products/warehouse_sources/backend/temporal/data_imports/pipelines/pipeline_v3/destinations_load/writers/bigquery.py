@@ -210,7 +210,9 @@ class BigQueryDestinationWriter:
 
         from posthog.models.integration import Integration  # noqa: PLC0415 — avoids a model import cycle
 
-        integration = Integration.objects.get(id=self._ctx.integration_id, team_id=self._ctx.team_id)
+        integration = Integration.objects.with_auth(Integration.AuthType.SERVICE_ACCOUNT).get(
+            id=self._ctx.integration_id, team_id=self._ctx.team_id
+        )
         google_cloud_integration = GoogleCloudServiceAccountIntegration(integration)
         if not google_cloud_integration.has_key():
             # Keyless means PostHog impersonates the team's service account instead of holding

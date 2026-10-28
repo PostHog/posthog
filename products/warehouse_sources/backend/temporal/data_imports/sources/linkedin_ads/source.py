@@ -283,7 +283,9 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             )
 
         try:
-            Integration.objects.get(id=config.linkedin_ads_integration_id, team_id=team_id)
+            Integration.objects.with_auth(Integration.AuthType.OAUTH).get(
+                id=config.linkedin_ads_integration_id, team_id=team_id
+            )
             return True, None
         except Integration.DoesNotExist:
             return False, _MISSING_INTEGRATION_ERROR

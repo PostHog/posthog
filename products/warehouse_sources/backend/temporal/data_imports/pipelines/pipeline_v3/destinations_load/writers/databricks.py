@@ -219,7 +219,7 @@ def fields_for(schema: pa.Schema, *, with_batch_index: bool) -> list[DatabricksF
 
 async def _load_integration(integration_id: int, team_id: int) -> DatabricksIntegration:
     try:
-        integration = await Integration.objects.aget(
+        integration = await Integration.objects.with_auth(Integration.AuthType.SERVICE_PRINCIPAL).aget(
             id=integration_id, team_id=team_id, kind=Integration.IntegrationKind.DATABRICKS
         )
     except Integration.DoesNotExist:

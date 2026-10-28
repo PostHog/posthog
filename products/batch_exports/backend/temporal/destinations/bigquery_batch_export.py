@@ -1441,7 +1441,6 @@ async def merge_all_consumer_tables(
     all_consumers_done: asyncio.Barrier,
     producer_task: asyncio.Task[None],
 ) -> None:
-
     await all_consumers_done.wait()
 
     # Only merge to final table if the upstream producer has not failed and
@@ -1486,7 +1485,9 @@ async def _get_google_cloud_service_account_integration(
         return None
 
     try:
-        integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
+        integration = await Integration.objects.with_auth(Integration.AuthType.SERVICE_ACCOUNT).aget(
+            id=inputs.integration_id, team_id=inputs.team_id
+        )
     except Integration.DoesNotExist:
         raise BigQueryIntegrationNotFoundError(
             f"Google Cloud service account integration with id '{inputs.integration_id}' not found"

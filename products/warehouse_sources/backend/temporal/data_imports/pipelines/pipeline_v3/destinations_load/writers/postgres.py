@@ -40,7 +40,7 @@ import psycopg
 import pyarrow as pa
 from psycopg import sql
 
-from posthog.models.integration import Integration, PostgreSQLIntegration
+from posthog.models.integration import DEFAULT, Integration, PostgreSQLIntegration
 from posthog.psycopg_helpers import has_ipv6_route, is_resolvable_hostname, is_temporary_resolution_failure
 
 from products.batch_exports.backend.facade.destinations.postgres import (
@@ -267,7 +267,7 @@ class PostgresDestinationWriter:
 
     async def _load_integration(self, integration_id: int) -> Integration:
         try:
-            return await Integration.objects.aget(
+            return await Integration.objects.with_auth(DEFAULT).aget(
                 id=integration_id, team_id=self._ctx.team_id, kind=self.integration_kind
             )
         except Integration.DoesNotExist as err:

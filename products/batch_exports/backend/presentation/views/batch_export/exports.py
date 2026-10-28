@@ -898,11 +898,15 @@ class BatchExportSerializer(serializers.ModelSerializer):
                         continue
                     # These ids live inside `config` rather than the team-scoped `integration`
                     # field, so team ownership must be checked here.
-                    if not Integration.objects.filter(
-                        id=copy_integration_id,
-                        team_id=self.context["team_id"],
-                        kind=Integration.IntegrationKind.AWS_S3,
-                    ).exists():
+                    if (
+                        not Integration.objects.with_auth(Integration.AuthType.CREDENTIALS)
+                        .filter(
+                            id=copy_integration_id,
+                            team_id=self.context["team_id"],
+                            kind=Integration.IntegrationKind.AWS_S3,
+                        )
+                        .exists()
+                    ):
                         raise serializers.ValidationError(
                             f"'{field_name}' does not reference an AWS S3 integration of this project."
                         )

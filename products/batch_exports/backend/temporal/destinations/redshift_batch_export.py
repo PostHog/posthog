@@ -901,7 +901,9 @@ async def _get_redshift_integration(
 ) -> AWSRedshiftRoleBasedIntegration | AWSRedshiftIntegration | RedshiftIntegration:
     """Fetch a Redshift integration from the database."""
     try:
-        integration = await Integration.objects.aget(id=integration_id, team_id=team_id)
+        integration = await Integration.objects.with_auth(Integration.AuthType.CREDENTIALS).aget(
+            id=integration_id, team_id=team_id
+        )
     except Integration.DoesNotExist:
         raise IntegrationError(f"Redshift integration with ID '{integration_id}' not found for team '{team_id}'")
 
@@ -921,7 +923,9 @@ async def _get_redshift_integration(
 async def _get_aws_s3_integration(integration_id: int, team_id: int) -> AWSS3RoleBasedIntegration | AWSS3Integration:
     """Fetch an AWS S3 integration from the database."""
     try:
-        integration = await Integration.objects.aget(id=integration_id, team_id=team_id)
+        integration = await Integration.objects.with_auth(Integration.AuthType.CREDENTIALS).aget(
+            id=integration_id, team_id=team_id
+        )
     except Integration.DoesNotExist:
         raise IntegrationError(f"AWS S3 integration with ID '{integration_id}' not found for team '{team_id}'")
 

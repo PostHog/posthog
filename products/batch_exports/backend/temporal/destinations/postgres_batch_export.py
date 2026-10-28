@@ -960,7 +960,9 @@ async def _get_postgresql_integration(
         return None
 
     try:
-        integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
+        integration = await Integration.objects.with_auth(Integration.AuthType.PASSWORD).aget(
+            id=inputs.integration_id, team_id=inputs.team_id
+        )
     except Integration.DoesNotExist:
         raise PostgreSQLIntegrationNotFoundError(f"PostgreSQL integration with id '{inputs.integration_id}' not found")
     return PostgreSQLIntegration(integration)

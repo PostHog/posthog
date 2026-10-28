@@ -197,7 +197,7 @@ async def _get_snowflake_integration(integration_id: int, team_id: int) -> Snowf
     `SnowflakeIntegration` raises `SnowflakeIntegrationError` if the config is malformed.
     """
     try:
-        integration = await Integration.objects.aget(
+        integration = await Integration.objects.with_auth(Integration.AuthType.CREDENTIALS).aget(
             id=integration_id, team_id=team_id, kind=Integration.IntegrationKind.SNOWFLAKE
         )
     except Integration.DoesNotExist:

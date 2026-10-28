@@ -28,7 +28,11 @@ def resolve_resend_oauth_token(integration_id: int, team_id: int, current_token:
     (nobody else rotated past it) we refresh, otherwise we hand back the fresher token already on the row.
     """
     with transaction.atomic():
-        integration = Integration.objects.select_for_update().get(id=integration_id, team_id=team_id, kind="resend")
+        integration = (
+            Integration.objects.with_auth(Integration.AuthType.OAUTH)
+            .select_for_update()
+            .get(id=integration_id, team_id=team_id, kind="resend")
+        )
         oauth = OauthIntegration(integration)
         if oauth.access_token_expired() or (current_token is not None and integration.access_token == current_token):
             oauth.refresh_access_token()

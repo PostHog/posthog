@@ -124,7 +124,9 @@ class AzureBlobInsertInputs(BatchExportInsertInputs):
 
 async def _get_azure_blob_integration(integration_id: int, team_id: int) -> AzureBlobIntegration:
     try:
-        integration = await Integration.objects.aget(id=integration_id, team_id=team_id)
+        integration = await Integration.objects.with_auth(Integration.AuthType.CONNECTION_STRING).aget(
+            id=integration_id, team_id=team_id
+        )
     except Integration.DoesNotExist:
         raise AzureBlobIntegrationNotFoundError(integration_id, team_id)
 

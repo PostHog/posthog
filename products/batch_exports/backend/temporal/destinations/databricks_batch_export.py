@@ -1125,7 +1125,9 @@ async def _get_databricks_integration(inputs: DatabricksInsertInputs) -> Databri
         DatabricksIntegrationError: If the Databricks integration is not valid.
     """
     try:
-        integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
+        integration = await Integration.objects.with_auth(Integration.AuthType.SERVICE_PRINCIPAL).aget(
+            id=inputs.integration_id, team_id=inputs.team_id
+        )
     except Integration.DoesNotExist:
         raise DatabricksIntegrationNotFoundError(f"Databricks integration with id '{inputs.integration_id}' not found")
     return DatabricksIntegration(integration)

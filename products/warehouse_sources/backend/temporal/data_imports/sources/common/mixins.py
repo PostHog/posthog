@@ -15,7 +15,7 @@ from sshtunnel import BaseSSHTunnelForwarderError, SSHTunnelForwarder
 
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
+from posthog.models.integration import DEFAULT, Integration
 from posthog.psycopg_helpers import (
     is_resolvable_hostname,
     is_temporary_resolution_failure,
@@ -1023,7 +1023,7 @@ class OAuthMixin:
         attempt = 0
         while True:
             try:
-                return Integration.objects.get(id=integration_id, team_id=team_id)
+                return Integration.objects.with_auth(DEFAULT).get(id=integration_id, team_id=team_id)
             except Integration.DoesNotExist:
                 raise ValueError(f"Integration not found: {integration_id}") from None
             except OperationalError:

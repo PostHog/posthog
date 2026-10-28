@@ -9,7 +9,7 @@ from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_fiel
 from rest_framework import serializers
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.models.integration import Integration
+from posthog.models.integration import DEFAULT, Integration
 
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.batch_exports.backend.facade.contracts import InvalidDestinationConfigError
@@ -606,14 +606,14 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         ),
     )
     integration = TeamScopedPrimaryKeyRelatedField(
-        queryset=Integration.objects.all(),
+        queryset=Integration.objects.with_auth(DEFAULT).all(),
         required=False,
         allow_null=True,
         help_text="The integration for this destination.",
     )
     integration_id = TeamScopedPrimaryKeyRelatedField(
         write_only=True,
-        queryset=Integration.objects.all(),
+        queryset=Integration.objects.with_auth(DEFAULT).all(),
         source="integration",
         required=False,
         allow_null=True,

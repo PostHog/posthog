@@ -716,11 +716,15 @@ def _impersonated_credentials(service_account_email: str, team_id: int) -> googl
 
 
 def _resolve_auth_from_integration(integration_id: int, team_id: int) -> BigQueryAuthInfo:
-    integration = Integration.objects.filter(
-        id=integration_id,
-        team_id=team_id,
-        kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
-    ).first()
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.SERVICE_ACCOUNT)
+        .filter(
+            id=integration_id,
+            team_id=team_id,
+            kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
+        )
+        .first()
+    )
     if integration is None:
         raise BigQueryAuthResolutionError(BIGQUERY_INTEGRATION_NOT_FOUND_ERROR)
 

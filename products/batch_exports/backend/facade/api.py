@@ -34,7 +34,7 @@ from django.db.models.functions import Coalesce
 import structlog
 
 from posthog.models import Team, User
-from posthog.models.integration import Integration
+from posthog.models.integration import DEFAULT, Integration
 
 from products.batch_exports.backend import (
     destination_tests,
@@ -545,7 +545,7 @@ def run_destination_test_step(
 
     test_configuration = dict(config)
     if integration_id is not None:
-        integration = Integration.objects.get(id=integration_id, team_id=team_id)
+        integration = Integration.objects.with_auth(DEFAULT).get(id=integration_id, team_id=team_id)
         test_configuration = {
             **test_configuration,
             **integration.config,
