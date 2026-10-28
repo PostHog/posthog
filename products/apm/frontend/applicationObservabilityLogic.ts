@@ -4,21 +4,23 @@ import { actionToUrl, urlToAction } from 'kea-router'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import { apmEndpointsList, apmServicesList } from './generated/api'
+import { apmEndpointsList, apmServiceMapList, apmServicesList } from './generated/api'
 import type {
     EndpointHealthApi,
     EndpointsHealthResponseApi,
     ServiceHealthApi,
+    ServiceMapResponseApi,
     ServicesHealthResponseApi,
 } from './generated/api.schemas'
+import { ServiceGraph, buildServiceGraph, layoutServiceGraph } from './serviceMap'
 
 export const APPLICATION_OBSERVABILITY_PATH = '/application-observability'
 
 export type TimeRange = '-1h' | '-6h' | '-24h' | '-7d'
 
-export type ApplicationObservabilityTab = 'services' | 'endpoints'
+export type ApplicationObservabilityTab = 'services' | 'endpoints' | 'map'
 
-export const TABS: ApplicationObservabilityTab[] = ['services', 'endpoints']
+export const TABS: ApplicationObservabilityTab[] = ['services', 'endpoints', 'map']
 
 export const TIME_RANGE_LABELS: Record<TimeRange, string> = {
     '-1h': 'Last hour',
@@ -67,6 +69,13 @@ export interface applicationObservabilityLogicValues {
     environments: string[]
     hasLoadError: boolean
     resolvedEnvironment: string
+    selectedMapService: ServiceHealthApi | null
+    selectedMapServiceName: string | null
+    serviceMap: ServiceMapResponseApi | null
+    serviceMapLayout: ServiceGraph | null
+    serviceMapLayoutLoading: boolean
+    serviceMapLoadError: boolean
+    serviceMapLoading: boolean
     services: ServiceHealthApi[]
     servicesHealth: ServicesHealthResponseApi | null
     servicesHealthLoading: boolean
@@ -89,6 +98,36 @@ export interface applicationObservabilityLogicActions {
         payload?: void
     ) => {
         endpointsHealth: EndpointsHealthResponseApi
+        payload?: void
+    }
+    layoutServiceMap: (_: void) => void
+    layoutServiceMapFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    layoutServiceMapSuccess: (
+        serviceMapLayout: ServiceGraph,
+        payload?: void
+    ) => {
+        serviceMapLayout: ServiceGraph
+        payload?: void
+    }
+    loadServiceMap: (_: void) => void
+    loadServiceMapFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadServiceMapSuccess: (
+        serviceMap: ServiceMapResponseApi,
+        payload?: void
+    ) => {
+        serviceMap: ServiceMapResponseApi
         payload?: void
     }
     loadServicesHealth: (_: void) => void
@@ -115,6 +154,9 @@ export interface applicationObservabilityLogicActions {
     setEnvironment: (environment: string | null) => {
         environment: string | null
     }
+    setSelectedMapService: (service: string | null) => {
+        service: string | null
+    }
     setTab: (tab: ApplicationObservabilityTab) => {
         tab: ApplicationObservabilityTab
     }
@@ -134,6 +176,10 @@ export interface applicationObservabilityLogicMeta {
         resolvedEnvironment: (environment: string | null, servicesHealth: ServicesHealthResponseApi | null) => string
         endpoints: (endpointsHealth: EndpointsHealthResponseApi | null) => EndpointHealthApi[]
         attentionCount: (services: ServiceHealthApi[]) => number
+        selectedMapService: (
+            services: ServiceHealthApi[],
+            selectedMapServiceName: string | null
+        ) => ServiceHealthApi | null
     }
 }
 
@@ -154,6 +200,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
         setTab: (tab: ApplicationObservabilityTab) => ({ tab }),
         setEndpointsService: (service: string | null) => ({ service }),
         showServiceEndpoints: (service: string) => ({ service }),
+        setSelectedMapService: (service: string | null) => ({ service }),
         // Internal: coalesces the picker actions and the initial URL sync into a single reload.
         // `includeServices` is false for changes that only affect the active tab's own data.
         requestReload: (includeServices: boolean = true) => ({ includeServices }),
@@ -177,6 +224,17 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             {
                 loadServicesHealthSuccess: () => false,
                 loadServicesHealthFailure: () => true,
+            },
+        ],
+        selectedMapServiceName: [
+            null as string | null,
+            { setSelectedMapService: (_, { service }) => service, setEnvironment: () => null },
+        ],
+        serviceMapLoadError: [
+            false,
+            {
+                loadServiceMapSuccess: () => false,
+                loadServiceMapFailure: () => true,
             },
         ],
         endpointsLoadError: [
@@ -203,6 +261,35 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
                     })
                     breakpoint()
                     return response
+                },
+            },
+        ],
+        serviceMap: [
+            null as ServiceMapResponseApi | null,
+            {
+                loadServiceMap: async (_: void, breakpoint): Promise<ServiceMapResponseApi> => {
+                    const dateTo = new Date()
+                    const dateFrom = new Date(dateTo.getTime() - TIME_RANGE_MS[values.timeRange])
+                    const response = await apmServiceMapList(String(values.currentTeamId), {
+                        date_from: dateFrom.toISOString(),
+                        date_to: dateTo.toISOString(),
+                        ...(values.environment ? { environment: values.environment } : {}),
+                    })
+                    breakpoint()
+                    return response
+                },
+            },
+        ],
+        // ELK runs async, so the layout is a loader of its own over the services and the edges.
+        serviceMapLayout: [
+            null as ServiceGraph | null,
+            {
+                layoutServiceMap: async (_: void, breakpoint): Promise<ServiceGraph> => {
+                    const graph = await layoutServiceGraph(
+                        buildServiceGraph(values.services, values.serviceMap?.edges ?? [])
+                    )
+                    breakpoint()
+                    return graph
                 },
             },
         ],
@@ -243,6 +330,11 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
         endpoints: [
             (s) => [s.endpointsHealth],
             (endpointsHealth: EndpointsHealthResponseApi | null): EndpointHealthApi[] => endpointsHealth?.results ?? [],
+        ],
+        selectedMapService: [
+            (s) => [s.services, s.selectedMapServiceName],
+            (services: ServiceHealthApi[], selectedMapServiceName: string | null): ServiceHealthApi | null =>
+                services.find((row) => row.service_name === selectedMapServiceName) ?? null,
         ],
         attentionCount: [
             (s) => [s.services],
@@ -301,6 +393,12 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
         setTab: () => actions.requestReload(false),
         setEndpointsService: () => actions.requestReload(false),
         showServiceEndpoints: () => actions.requestReload(false),
+        loadServiceMapSuccess: () => actions.layoutServiceMap(),
+        loadServicesHealthSuccess: () => {
+            if (values.tab === 'map' && values.serviceMap) {
+                actions.layoutServiceMap()
+            }
+        },
         // Debounced with a replaceable timer: several `requestReload` calls in the same tick
         // (e.g. the initial URL sync setting both the environment and the range at once, or that
         // sync landing in the same tick as the mount-time load) collapse into a single request.
@@ -314,6 +412,9 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
                     }
                     if (values.tab === 'endpoints') {
                         actions.loadEndpointsHealth()
+                    }
+                    if (values.tab === 'map') {
+                        actions.loadServiceMap()
                     }
                 }, 0)
                 return () => clearTimeout(timerId)

@@ -67,3 +67,20 @@ class EndpointsHealthResponseSerializer(serializers.Serializer):
     service = serializers.CharField(allow_null=True, help_text="The service filter applied, if any.")
     date_from = serializers.DateTimeField(help_text="Start of the window used.")
     date_to = serializers.DateTimeField(help_text="End of the window used.")
+
+
+class ServiceEdgeSerializer(serializers.Serializer):
+    caller = serializers.CharField(help_text="The calling service.")
+    callee = serializers.CharField(help_text="The called service.")
+    calls = serializers.IntegerField(help_text="Calls from the caller into the callee in the sampled traces.")
+    error_count = serializers.IntegerField(help_text="Calls with an error status on the callee span.")
+    p95_ms = serializers.FloatField(allow_null=True, help_text="95th percentile duration of the callee span, in ms.")
+
+
+@extend_schema_serializer(many=False)
+class ServiceMapResponseSerializer(serializers.Serializer):
+    edges = ServiceEdgeSerializer(many=True, help_text="One edge per calling and called service, most calls first.")
+    trace_count = serializers.IntegerField(help_text="Traces sampled to build the map.")
+    environment = serializers.CharField(help_text="The environment the map was built for.")
+    date_from = serializers.DateTimeField(help_text="Start of the window used.")
+    date_to = serializers.DateTimeField(help_text="End of the window used.")

@@ -25,10 +25,11 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.models.user import User
 
-from products.apm.backend.facade.api import is_apm_enabled, list_endpoints_health, list_services_health
+from products.apm.backend.facade.api import get_service_map, is_apm_enabled, list_endpoints_health, list_services_health
 from products.apm.backend.presentation.serializers import (
     EndpointsHealthRequestSerializer,
     EndpointsHealthResponseSerializer,
+    ServiceMapResponseSerializer,
     ServicesHealthRequestSerializer,
     ServicesHealthResponseSerializer,
 )
@@ -123,3 +124,25 @@ class EndpointsHealthViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "date_to": window.date_to,
         }
         return Response(EndpointsHealthResponseSerializer(payload).data, status=status.HTTP_200_OK)
+
+
+class ServiceMapViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """Service-to-service call edges in an environment and window. Same gate and window as services."""
+
+    scope_object = "tracing"
+
+    @extend_schema(parameters=[ServicesHealthRequestSerializer], responses={200: ServiceMapResponseSerializer})
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        _check_flag(self.team)
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        date_from, date_to, environment = _window(ServicesHealthRequestSerializer(data=request.query_params))
+
+        result = get_service_map(team=self.team, date_from=date_from, date_to=date_to, environment=environment)
+        payload = {
+            "edges": [asdict(edge) for edge in result.edges],
+            "trace_count": result.trace_count,
+            "environment": environment,
+            "date_from": date_from,
+            "date_to": date_to,
+        }
+        return Response(ServiceMapResponseSerializer(payload).data, status=status.HTTP_200_OK)

@@ -10,8 +10,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ApmEndpointsListParams,
+    ApmServiceMapListParams,
     ApmServicesListParams,
     EndpointsHealthResponseApi,
+    ServiceMapResponseApi,
     ServicesHealthResponseApi,
 } from './api.schemas'
 
@@ -40,6 +42,36 @@ export const apmEndpointsList = async (
     options?: RequestInit
 ): Promise<EndpointsHealthResponseApi> => {
     return apiMutator<EndpointsHealthResponseApi>(getApmEndpointsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getApmServiceMapListUrl = (projectId: string, params?: ApmServiceMapListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/apm/service-map/?${stringifiedParams}`
+        : `/api/projects/${projectId}/apm/service-map/`
+}
+
+/**
+ * Service-to-service call edges in an environment and window. Same gate and window as services.
+ */
+export const apmServiceMapList = async (
+    projectId: string,
+    params?: ApmServiceMapListParams,
+    options?: RequestInit
+): Promise<ServiceMapResponseApi> => {
+    return apiMutator<ServiceMapResponseApi>(getApmServiceMapListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

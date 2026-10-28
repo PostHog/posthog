@@ -14,6 +14,7 @@ import {
     applicationObservabilityLogic,
 } from './applicationObservabilityLogic'
 import { EndpointsTab } from './EndpointsTab'
+import { ServiceMapTab } from './ServiceMapTab'
 import { ServicesTab } from './ServicesTab'
 
 export const scene: SceneExport = {
@@ -61,6 +62,7 @@ export function ApplicationObservabilityScene(): JSX.Element {
                 tabs={[
                     { key: 'services', label: 'Services', content: <ServicesTab /> },
                     { key: 'endpoints', label: 'Endpoints', content: <EndpointsTab /> },
+                    { key: 'map', label: 'Map', content: <ServiceMapTab /> },
                 ]}
                 data-attr="apm-tabs"
             />
