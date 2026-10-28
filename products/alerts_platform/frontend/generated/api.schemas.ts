@@ -794,12 +794,12 @@ export type MetricsPlatformAlertConditionApiOperator =
     | null
 
 export const MetricsPlatformAlertConditionApiOperator = {
-    '': '>',
-    '': '>=',
-    '': '<',
-    '': '<=',
-    '': '==',
-    '': '!=',
+    Gt: 'gt',
+    Gte: 'gte',
+    Lt: 'lt',
+    Lte: 'lte',
+    Eq: 'eq',
+    Ne: 'ne',
 } as const
 
 export interface MetricsPlatformAlertConditionApi {

@@ -22,7 +22,8 @@ from products.metrics.backend.alerts.wording import alert_url
 CHECK_INTERVAL_MINUTES: Final = 1
 MAX_QUERY_LENGTH: Final = 10_000
 
-Operator = Literal[">", ">=", "<", "<=", "==", "!="]
+# Words rather than symbols, because generated API clients build enum keys from the values.
+Operator = Literal["gt", "gte", "lt", "lte", "eq", "ne"]
 
 
 class MetricsPlatformAlertCondition(BaseModel):

@@ -72545,12 +72545,12 @@ export namespace Schemas {
 
 
     export const MetricsPlatformAlertConditionOperator = {
-      '': '>',
-      '': '>=',
-      '': '<',
-      '': '<=',
-      '': '==',
-      '': '!=',
+      Gt: 'gt',
+      Gte: 'gte',
+      Lt: 'lt',
+      Lte: 'lte',
+      Eq: 'eq',
+      Ne: 'ne',
     } as const;
 
     export type MetricsPlatformAlertConditionKindEnum = typeof MetricsPlatformAlertConditionKindEnum[keyof typeof MetricsPlatformAlertConditionKindEnum];
