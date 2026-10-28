@@ -5,8 +5,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from itertools import batched
 
-from django.db.models import Exists, F, OuterRef, Q, Window
-from django.db.models.functions import RowNumber
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 import numpy as np
@@ -17,7 +16,6 @@ from posthog.dataclasses import frozen
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_observation_anchor_similarity import ReplayObservationAnchorSimilarity
-from products.replay_vision.backend.models.replay_scanner_semantics import ReplayScannerSearchTheme
 from products.replay_vision.backend.watch_rank import (
     ANCHOR_VERSION,
     AnchorReading,
@@ -28,7 +26,7 @@ from products.replay_vision.backend.watch_rank import (
 )
 from products.replay_vision.backend.watch_rank_backfill import _VECTOR_CHUNK, stored_vectors_between
 from products.replay_vision.backend.watch_semantics import SemanticItem, assign_semantics_batch, merge_watch_ranks
-from products.replay_vision.backend.watch_themes import MAX_SUGGESTED_QUERIES, THEME_ACTIVE_WINDOW, name_theme
+from products.replay_vision.backend.watch_themes import name_theme, naming_candidates
 
 logger = structlog.get_logger(__name__)
 
@@ -138,21 +136,9 @@ def _backfill_slice(team_id: int, slice_rows: list[_Pending], anchors: dict[Watc
 
 
 def _name_suggestable_themes(team_id: int) -> int:
-    """Name each scanner's largest active themes, the only ones a suggestion can show, so the daily naming budget
-    never goes to themes nobody sees."""
     now = timezone.now()
-    due = (
-        ReplayScannerSearchTheme.objects.for_team(team_id)
-        .filter(last_member_at__gte=now - THEME_ACTIVE_WINDOW)
-        .annotate(
-            scanner_rank=Window(RowNumber(), partition_by=[F("scanner_id")], order_by=[F("member_count").desc(), "id"])
-        )
-        .filter(scanner_rank__lte=MAX_SUGGESTED_QUERIES, member_count__gte=F("rename_at_member_count"))
-        .order_by("-member_count")
-        .values_list("id", flat=True)
-    )
     named = 0
-    for theme_id in list(due):
+    for theme_id in list(naming_candidates(team_id, now).order_by("-member_count").values_list("id", flat=True)):
         try:
             named += async_to_sync(name_theme)(team_id, theme_id, now) is not None
         except Exception:

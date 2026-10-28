@@ -16,7 +16,7 @@ import numpy as np
 from posthog.models.utils import uuid7
 
 from products.replay_vision.backend.models.replay_scanner_semantics import ReplayScannerFeedGroup
-from products.replay_vision.backend.semantic_space import ClusterArrays, SemanticSpace, pack, unpack
+from products.replay_vision.backend.semantic_space import ClusterArrays, ClusterWrites, SemanticSpace, unpack
 
 FEED_GROUP_MIN_SIMILARITY = 0.65
 FEED_GROUP_MIN_RAW_SIMILARITY = 0.90
@@ -47,38 +47,6 @@ class _ScannerGroups(ClusterArrays):
         self.keep(keep)
 
 
-class FeedGroupWrites:
-    """The group rows one batch of assignments created or changed, written back once when the batch ends."""
-
-    def __init__(self, team_id: int, scanner_id: str) -> None:
-        self._team_id = team_id
-        self._scanner_id = scanner_id
-        self._rows: dict[uuid.UUID, ReplayScannerFeedGroup] = {}
-        self._created: set[uuid.UUID] = set()
-
-    def record(self, groups: _ScannerGroups, index: int, created: bool) -> None:
-        group_id = groups.ids[index]
-        if created:
-            self._created.add(group_id)
-        # Values are absolute: every writer holds the centre lock, and a cache behind Postgres reloads before it assigns.
-        self._rows[group_id] = ReplayScannerFeedGroup(
-            id=group_id,
-            team_id=self._team_id,
-            scanner_id=self._scanner_id,
-            vector_sum=pack(groups.sums[index]),
-            member_count=int(groups.counts[index]),
-            last_member_at=groups.last_member_at(index),
-        )
-
-    def save(self) -> None:
-        groups = ReplayScannerFeedGroup.objects.for_team(self._team_id)
-        groups.bulk_create([row for group_id, row in self._rows.items() if group_id in self._created])
-        groups.bulk_update(
-            [row for group_id, row in self._rows.items() if group_id not in self._created],
-            ["vector_sum", "member_count", "last_member_at"],
-        )
-
-
 class FeedGroupCache:
     def __init__(self) -> None:
         self._scanners: OrderedDict[str, _ScannerGroups] = OrderedDict()
@@ -91,7 +59,7 @@ class FeedGroupCache:
         space: SemanticSpace,
         version: int,
         now: datetime,
-        writes: FeedGroupWrites,
+        writes: ClusterWrites,
     ) -> uuid.UUID:
         """Put one observation in its scanner's closest active group, or start a group. Call under the centre lock,
         with the centre's member count before this observation joins, and save `writes` before the lock is released."""
@@ -99,12 +67,11 @@ class FeedGroupCache:
         best = groups.nearest(
             space, now - FEED_GROUP_ACTIVE_WINDOW, FEED_GROUP_MIN_SIMILARITY, FEED_GROUP_MIN_RAW_SIMILARITY
         )
-        created = best is None
         if best is None:
             best = groups.add(uuid7(), space.vector, now)
         else:
             groups.join(best, space.vector, now)
-        writes.record(groups, best, created=created)
+        writes.record(groups, best)
         groups.version = version + 1
         return groups.ids[best]
 

@@ -12,6 +12,7 @@ redelivered message finds them already there.
 import uuid
 from collections.abc import Sequence
 from datetime import datetime, timedelta
+from itertools import batched
 from typing import Any
 
 from django.db import transaction
@@ -31,12 +32,13 @@ from products.replay_vision.backend.models.replay_scanner_semantics import (
 from products.replay_vision.backend.scanner_access import scanners_for_reading_observations
 from products.replay_vision.backend.semantic_space import (
     SEMANTIC_DIMENSIONS,
+    ClusterWrites,
     pack,
     scanner_space,
     semantic_vector,
     unpack,
 )
-from products.replay_vision.backend.watch_feed_groups import FeedGroupWrites, feed_group_cache
+from products.replay_vision.backend.watch_feed_groups import feed_group_cache
 from products.replay_vision.backend.watch_rank import current_rank
 from products.replay_vision.backend.watch_themes import ThemeAssignment, ThemeBatch, belongs_in_theme
 
@@ -44,6 +46,7 @@ from products.replay_vision.backend.watch_themes import ThemeAssignment, ThemeBa
 SEMANTIC_RETENTION = timedelta(days=90)
 # Pruning runs on one in this many assignments of a scanner, which keeps it rare and still bounds the tables.
 _PRUNE_EVERY = 500
+_MERGE_CHUNK = 500
 
 
 @frozen
@@ -104,12 +107,12 @@ def assign_semantics_batch(
             }
             center_sum = unpack(center.vector_sum).copy()
             member_count = center.member_count
-            group_writes = FeedGroupWrites(team_id, scanner_id)
+            group_writes = ClusterWrites(ReplayScannerFeedGroup, team_id, scanner_id)
             themes: ThemeBatch | None = None
             for item in items:
                 row = rows.get(item.observation_id)
                 rank = current_rank({"watch_rank": row["watch_rank"]}) if row else None
-                if row is None or rank is None or rank.get("group") or item.observation_id in assigned:
+                if row is None or rank is None or rank.get("group"):
                     continue
                 v = semantic_vector(item.vector)
                 space = scanner_space(center_sum, member_count, v)
@@ -172,25 +175,27 @@ def assign_semantics_batch(
 
 
 def merge_watch_ranks(team_id: int, keys_by_observation: dict[str, dict[str, Any]]) -> None:
-    """Add keys to each observation's rank in one update, without rewriting what another writer put there, and drop
-    the retired duplicate link."""
-    if not keys_by_observation:
-        return
+    """Add keys to each observation's rank without rewriting what another writer put there, and drop the retired
+    duplicate link."""
     without_duplicate = Func(
         F("watch_rank"), Value("duplicate_of"), template="(%(expressions)s)", arg_joiner=" - ", output_field=JSONField()
     )
-    keys = Case(
-        *(
-            When(id=observation_id, then=Value(observation_keys, output_field=JSONField()))
-            for observation_id, observation_keys in keys_by_observation.items()
-        ),
-        output_field=JSONField(),
-    )
-    ReplayObservation.objects.filter(team_id=team_id, id__in=list(keys_by_observation)).update(
-        watch_rank=Func(
-            without_duplicate, keys, template="%(expressions)s", arg_joiner=" || ", output_field=JSONField()
+    # Postgres tries each CASE branch in turn per row, so one update stays at a few hundred observations.
+    for chunk in batched(keys_by_observation.items(), _MERGE_CHUNK, strict=False):
+        keys = Case(
+            *(
+                When(id=observation_id, then=Value(observation_keys, output_field=JSONField()))
+                for observation_id, observation_keys in chunk
+            ),
+            output_field=JSONField(),
         )
-    )
+        ReplayObservation.objects.filter(
+            team_id=team_id, id__in=[observation_id for observation_id, _ in chunk]
+        ).update(
+            watch_rank=Func(
+                without_duplicate, keys, template="%(expressions)s", arg_joiner=" || ", output_field=JSONField()
+            )
+        )
 
 
 def _valence_unknown_for_row(

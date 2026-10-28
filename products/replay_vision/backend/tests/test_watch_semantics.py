@@ -96,7 +96,7 @@ class TestThemeRules(SimpleTestCase):
 
         expected = int(np.argmax(unit(sums / counts[:, None] - mean) @ unit(vector - mean)))
 
-        assert nearest_cluster(sums, counts, space, -1.0, -1.0) == expected
+        assert nearest_cluster(sums, counts, np.einsum("ij,ij->i", sums, sums), space, -1.0, -1.0) == expected
 
 
 class TestAssignSemantics(BaseTest):

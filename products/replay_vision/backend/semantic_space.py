@@ -13,6 +13,11 @@ import numpy as np
 
 from posthog.dataclasses import frozen
 
+from products.replay_vision.backend.models.replay_scanner_semantics import (
+    ReplayScannerFeedGroup,
+    ReplayScannerSearchTheme,
+)
+
 # text-embedding-3 vectors keep their meaning when cut short and renormalised, and a short one keeps the clusters
 # cheap to hold and compare.
 SEMANTIC_DIMENSIONS = 512
@@ -59,26 +64,28 @@ def scanner_space(center_sum: np.ndarray, center_count: int, vector: np.ndarray)
 def nearest_cluster(
     sums: np.ndarray,
     counts: np.ndarray,
+    squared_norms: np.ndarray,
     space: SemanticSpace,
     centred_threshold: float,
     raw_threshold: float,
-    squared_norms: np.ndarray | None = None,
+    eligible: np.ndarray | None = None,
 ) -> int | None:
-    """The index of the cluster whose mean is closest to the vector, or None when none is close enough."""
+    """The index of the eligible cluster whose mean is closest to the vector, or None when none is close enough."""
     if not len(counts):
         return None
-    if squared_norms is None:
-        squared_norms = np.einsum("ij,ij->i", sums, sums)
     direction = unit(space.vector - space.mean)
     # Each centred mean's projection and length come from the sums and their cached squared norms, so a scanner with
-    # thousands of clusters costs two matrix-vector products rather than a new matrix of centroids.
-    projections = (sums @ direction) / counts
+    # thousands of clusters costs one pass over the sums rather than a new matrix of centroids.
+    dots = sums @ np.stack([direction, space.mean], axis=1)
+    projections = dots[:, 0] / counts
     lengths_squared = squared_norms / counts**2
     if space.centring:
         projections -= float(space.mean @ direction)
-        lengths_squared += float(space.mean @ space.mean) - 2 * (sums @ space.mean) / counts
+        lengths_squared += float(space.mean @ space.mean) - 2 * dots[:, 1] / counts
     lengths = np.sqrt(np.maximum(lengths_squared, 0))
-    similarities = np.divide(projections, lengths, out=np.zeros_like(projections), where=lengths > 1e-6)
+    similarities = np.divide(projections, lengths, out=np.full_like(projections, -np.inf), where=lengths > 1e-6)
+    if eligible is not None:
+        similarities[~eligible] = -np.inf
     best = int(np.argmax(similarities))
     threshold = centred_threshold if space.centring else raw_threshold
     return best if similarities[best] >= threshold else None
@@ -120,19 +127,24 @@ class ClusterArrays:
     def last(self) -> np.ndarray:
         return self._last[: self.size]
 
+    @property
+    def squares(self) -> np.ndarray:
+        return self._squares[: self.size]
+
     def nearest(
         self, space: SemanticSpace, active_since: datetime, centred_threshold: float, raw_threshold: float
     ) -> int | None:
         """The closest cluster that took a member since `active_since`, or None when none is close enough."""
-        active = np.nonzero(self.last >= active_since.timestamp())[0]
-        if len(active) == self.size:
-            return nearest_cluster(
-                self.sums, self.counts, space, centred_threshold, raw_threshold, self._squares[: self.size]
-            )
-        best = nearest_cluster(
-            self.sums[active], self.counts[active], space, centred_threshold, raw_threshold, self._squares[active]
+        eligible = self.last >= active_since.timestamp()
+        return nearest_cluster(
+            self.sums,
+            self.counts,
+            self.squares,
+            space,
+            centred_threshold,
+            raw_threshold,
+            None if eligible.all() else eligible,
         )
-        return None if best is None else int(active[best])
 
     def add(self, cluster_id: uuid.UUID, vector: np.ndarray, at: datetime) -> int:
         if self.size == self.capacity:
@@ -167,3 +179,34 @@ class ClusterArrays:
         for array in (self._sums, self._counts, self._last, self._squares):
             array[: len(indices)] = array[: self.size][indices]
         self.size = len(indices)
+
+
+class ClusterWrites:
+    """The cluster rows one batch of assignments created or changed, upserted once when the batch ends."""
+
+    def __init__(
+        self, model: type[ReplayScannerFeedGroup] | type[ReplayScannerSearchTheme], team_id: int, scanner_id: str
+    ) -> None:
+        self._model = model
+        self._team_id = team_id
+        self._scanner_id = scanner_id
+        self._rows: dict[uuid.UUID, ReplayScannerFeedGroup | ReplayScannerSearchTheme] = {}
+
+    def record(self, clusters: ClusterArrays, index: int) -> None:
+        # Values are absolute: every writer holds the centre lock, and a cache behind Postgres reloads before it assigns.
+        self._rows[clusters.ids[index]] = self._model(
+            id=clusters.ids[index],
+            team_id=self._team_id,
+            scanner_id=self._scanner_id,
+            vector_sum=pack(clusters.sums[index]),
+            member_count=int(clusters.counts[index]),
+            last_member_at=clusters.last_member_at(index),
+        )
+
+    def save(self) -> None:
+        self._model.objects.for_team(self._team_id).bulk_create(
+            list(self._rows.values()),  # type: ignore[arg-type]
+            update_conflicts=True,
+            unique_fields=["id"],
+            update_fields=["vector_sum", "member_count", "last_member_at"],
+        )

@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from django.core.cache import cache
-from django.db.models import F, Window
+from django.db.models import F, QuerySet, Window
 from django.db.models.functions import RowNumber
 
 import numpy as np
@@ -21,19 +21,23 @@ from google.genai import types
 from pydantic import BaseModel, Field
 
 from posthog.dataclasses import frozen
+from posthog.models.utils import uuid7
 
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.gemini_client import AI_PRODUCT, replay_gemini_client
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import PromptValence, ReplayScanner, ScannerType
-from products.replay_vision.backend.models.replay_scanner_semantics import ReplayScannerSearchTheme
+from products.replay_vision.backend.models.replay_scanner_semantics import (
+    THEME_FIRST_RENAME_AT,
+    ReplayScannerSearchTheme,
+)
 from products.replay_vision.backend.observation_formatting import explanation_text
 from products.replay_vision.backend.semantic_space import (
     SEMANTIC_DIMENSIONS,
     ClusterArrays,
+    ClusterWrites,
     SemanticSpace,
-    pack,
     unit,
     unpack,
 )
@@ -52,6 +56,8 @@ MAX_ACTIVE_THEMES = 2_000
 MAX_SUGGESTED_QUERIES = 4
 # A cross-scanner view takes at most this many suggestions from one scanner, so one busy scanner never fills it.
 _PER_SCANNER_SUGGESTIONS = 2
+# A spare candidate per suggestion lets a scanner fall back to its next theme when one is a duplicate.
+_SUGGESTION_CANDIDATES = MAX_SUGGESTED_QUERIES * 2
 # Two themes whose mean meanings are this close tell one story, so the list shows only the larger one.
 SUGGESTION_MAX_SIMILARITY = 0.92
 THEME_NAME_SAMPLES = 8
@@ -114,48 +120,55 @@ class ThemeBatch:
     """A scanner's active themes, read once for a batch of assignments under the centre lock and saved once."""
 
     def __init__(self, team_id: int, scanner_id: str, now: datetime) -> None:
-        self._team_id = team_id
-        self._scanner_id = scanner_id
         themes = list(
             ReplayScannerSearchTheme.objects.for_team(team_id)
             .filter(scanner_id=scanner_id, last_member_at__gte=now - THEME_ACTIVE_WINDOW)
             .order_by("-last_member_at")
-            .only("id", "vector_sum", "member_count", "rename_at_member_count", "last_member_at")[:MAX_ACTIVE_THEMES]
+            .values_list("id", "vector_sum", "member_count", "rename_at_member_count", "last_member_at")[
+                :MAX_ACTIVE_THEMES
+            ]
         )
-        self._themes = {theme.id: theme for theme in themes}
+        self._rename_at = {theme_id: rename_at for theme_id, _, _, rename_at, _ in themes}
         self._clusters = ClusterArrays(
-            [theme.id for theme in themes],
-            [unpack(theme.vector_sum) for theme in themes],
-            [theme.member_count for theme in themes],
-            [theme.last_member_at for theme in themes],
+            [theme_id for theme_id, *_ in themes],
+            [unpack(vector_sum) for _, vector_sum, *_ in themes],
+            [member_count for _, _, member_count, *_ in themes],
+            [last_member_at for *_, last_member_at in themes],
         )
-        self._created: set[uuid.UUID] = set()
-        self._changed: set[uuid.UUID] = set()
+        self._writes = ClusterWrites(ReplayScannerSearchTheme, team_id, scanner_id)
 
     def assign(self, space: SemanticSpace, now: datetime) -> ThemeAssignment:
         """Put one observation in its scanner's closest active theme, or start a theme."""
         best = self._clusters.nearest(space, now - THEME_ACTIVE_WINDOW, THEME_MIN_SIMILARITY, THEME_MIN_RAW_SIMILARITY)
         if best is None:
-            theme = ReplayScannerSearchTheme(team_id=self._team_id, scanner_id=self._scanner_id, last_member_at=now)
-            self._themes[theme.id] = theme
-            self._created.add(theme.id)
-            best = self._clusters.add(theme.id, space.vector, now)
+            best = self._clusters.add(uuid7(), space.vector, now)
         else:
-            theme = self._themes[self._clusters.ids[best]]
             self._clusters.join(best, space.vector, now)
-        theme.vector_sum = pack(self._clusters.sums[best])
-        theme.member_count = int(self._clusters.counts[best])
-        theme.last_member_at = self._clusters.last_member_at(best)
-        self._changed.add(theme.id)
-        return ThemeAssignment(theme_id=theme.id, name_due=theme.member_count >= theme.rename_at_member_count)
+        self._writes.record(self._clusters, best)
+        theme_id = self._clusters.ids[best]
+        rename_at = self._rename_at.get(theme_id, THEME_FIRST_RENAME_AT)
+        return ThemeAssignment(theme_id=theme_id, name_due=int(self._clusters.counts[best]) >= rename_at)
 
     def save(self) -> None:
-        themes = ReplayScannerSearchTheme.objects.for_team(self._team_id)
-        themes.bulk_create([self._themes[theme_id] for theme_id in self._created])
-        themes.bulk_update(
-            [self._themes[theme_id] for theme_id in self._changed - self._created],
-            ["vector_sum", "member_count", "last_member_at"],
-        )
+        self._writes.save()
+
+
+def _scanner_rank() -> Window:
+    """Each theme's rank by size within its scanner, so suggestions and naming agree on which themes a scanner shows."""
+    return Window(RowNumber(), partition_by=[F("scanner_id")], order_by=[F("member_count").desc(), "id"])
+
+
+def naming_candidates(team_id: int, now: datetime) -> QuerySet[ReplayScannerSearchTheme]:
+    """Themes due a name among those a suggestion could show, so the daily naming budget never goes to themes nobody
+    sees."""
+    active = ReplayScannerSearchTheme.objects.for_team(team_id).filter(last_member_at__gte=now - THEME_ACTIVE_WINDOW)
+    return active.annotate(scanner_rank=_scanner_rank()).filter(
+        scanner_rank__lte=_SUGGESTION_CANDIDATES, member_count__gte=F("rename_at_member_count")
+    )
+
+
+def _is_naming_candidate(team_id: int, theme_id: uuid.UUID, now: datetime) -> bool:
+    return naming_candidates(team_id, now).filter(id=theme_id).exists()
 
 
 def _claim_naming(team_id: int, theme_id: uuid.UUID) -> int | None:
@@ -234,6 +247,8 @@ async def name_theme(team_id: int, theme_id: uuid.UUID, now: datetime) -> str | 
     # Consent and budget come before the claim, so a theme that cannot be named now is tried again on its next member.
     if not await sync_to_async(is_ai_data_processing_approved)(team_id):
         return None
+    if not await sync_to_async(_is_naming_candidate)(team_id, theme_id, now):
+        return None
     if not await sync_to_async(_reserve_naming_budget)(team_id, now):
         logger.info("replay_vision.watch_themes.naming_budget_spent", team_id=team_id)
         return None
@@ -282,13 +297,13 @@ def theme_suggestions(team_id: int, scanner_ids: list[str], now: datetime) -> li
     """The names of the largest active themes among the given scanners, as example searches."""
     per_scanner_cap = MAX_SUGGESTED_QUERIES if len(scanner_ids) == 1 else _PER_SCANNER_SUGGESTIONS
     # Each scanner's own top themes are ranked first, so one scanner with many themes never crowds out the rest.
-    themes = (
+    named = (
         ReplayScannerSearchTheme.objects.for_team(team_id)
         .filter(scanner_id__in=scanner_ids, last_member_at__gte=now - THEME_ACTIVE_WINDOW)
         .exclude(name="")
-        .annotate(
-            scanner_rank=Window(RowNumber(), partition_by=[F("scanner_id")], order_by=[F("member_count").desc(), "id"])
-        )
+    )
+    themes = (
+        named.annotate(scanner_rank=_scanner_rank())
         # A spare candidate per slot lets a scanner fall back to its next theme when one is a duplicate.
         .filter(scanner_rank__lte=per_scanner_cap * 2)
         .order_by("-member_count", "id")
