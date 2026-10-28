@@ -10,6 +10,7 @@ import hashlib
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -975,7 +976,6 @@ def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., Non
         template: str = coder.DEFAULT_TEMPLATE,
         preset: str = coder.DEFAULT_PRESET,
         start_app: bool | None = None,
-        instance_type: str | None = None,
         verbose: bool = False,
     ) -> None:
         captured.update(
@@ -989,7 +989,6 @@ def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., Non
                 "template": template,
                 "preset": preset,
                 "start_app": str(start_app),
-                "instance_type": instance_type,
             }
         )
 
@@ -1072,13 +1071,6 @@ class TestWorkspaceCreation:
                 "none",
                 {"repo": _REPO, "workspace_region": "eu-central-1"},
             ),
-            (
-                {"instance_type": "m7g.4xlarge"},
-                ["Default (warm)"],
-                "posthog-linux",
-                "none",
-                {"repo": _REPO, "workspace_region": "us-east-1", "instance_type": "m7g.4xlarge"},
-            ),
         ],
         ids=[
             "defaults",
@@ -1086,7 +1078,6 @@ class TestWorkspaceCreation:
             "custom-template",
             "resolver-fallback-flows-through",
             "explicit-region",
-            "explicit-instance-type",
         ],
     )
     def test_create_workspace_forwards_params_and_template(
@@ -1135,56 +1126,30 @@ class TestWorkspaceCreation:
         else:
             coder.update_workspace("devbox-test-user")
 
-    @pytest.mark.parametrize("build_status, fails", [("running", False), ("failed", True)], ids=["built", "failed"])
-    def test_start_workspace_with_parameters_sends_values_through_the_build_api(
-        self, monkeypatch: pytest.MonkeyPatch, build_status: str, fails: bool
+    @pytest.mark.parametrize(
+        "returncode, build_status, output, shortage",
+        [
+            (1, "failed", "api error InsufficientInstanceCapacity: Insufficient capacity.", True),
+            (1, "failed", "Error: Missing required provider", False),
+            (0, "failed", "api error InsufficientInstanceCapacity: Insufficient capacity.", True),
+        ],
+        ids=["start-capacity", "start-other-error", "update-exits-0-on-capacity"],
+    )
+    def test_failed_build_reports_a_capacity_shortage_only_for_capacity_errors(
+        self, monkeypatch: pytest.MonkeyPatch, returncode: int, build_status: str, output: str, shortage: bool
     ) -> None:
-        captured: dict[str, object] = {}
-        monkeypatch.setattr(coder, "_run_build", _fake_run_build_capturing(captured))
         monkeypatch.setattr(
-            coder, "_run", lambda args, **kw: subprocess.CompletedProcess(args, 0, "session-token\n", "")
+            coder, "_run_build", lambda args, verbose=False: subprocess.CompletedProcess(args, returncode, output, "")
         )
-        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(
             coder, "get_workspace", lambda name: {"name": name, "latest_build": {"status": build_status}}
         )
-        post = MagicMock(return_value=MagicMock(ok=True))
-        monkeypatch.setattr(coder.requests, "post", post)
-        workspace = {"name": "devbox-test-user", "id": "ws-1", "template_active_version_id": "tv-active"}
+        build = coder.update_workspace if returncode == 0 else coder.start_workspace
 
-        if fails:
-            with pytest.raises(SystemExit):
-                coder.start_workspace_with_parameters(workspace, {"instance_type": "m7g.4xlarge"})
-        else:
-            coder.start_workspace_with_parameters(workspace, {"instance_type": "m7g.4xlarge"})
+        with pytest.raises(SystemExit) as raised:
+            build("devbox-test-user")
 
-        post.assert_called_once()
-        assert post.call_args.args == ("https://coder.example.com/api/v2/workspaces/ws-1/builds",)
-        assert post.call_args.kwargs["headers"] == {"Coder-Session-Token": "session-token"}
-        assert post.call_args.kwargs["json"] == {
-            "transition": "start",
-            "template_version_id": "tv-active",
-            "rich_parameter_values": [{"name": "instance_type", "value": "m7g.4xlarge"}],
-        }
-        assert captured["args"] == ["coder", "logs", "devbox-test-user", "--follow"]
-
-    @pytest.mark.parametrize(
-        "output, hinted",
-        [("api error InsufficientInstanceCapacity: Insufficient capacity.", True), ("Error: other failure", False)],
-        ids=["capacity", "other"],
-    )
-    def test_failed_update_hints_another_instance_type_only_on_capacity_errors(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], output: str, hinted: bool
-    ) -> None:
-        monkeypatch.setattr(
-            coder, "_run_build", lambda args, verbose=False: subprocess.CompletedProcess(args, 0, output, "")
-        )
-        monkeypatch.setattr(coder, "get_workspace", lambda name: {"name": name, "latest_build": {"status": "failed"}})
-
-        with pytest.raises(SystemExit):
-            coder.update_workspace("devbox-test-user")
-
-        assert ("--instance-type" in capsys.readouterr().out) is hinted
+        assert isinstance(raised.value, coder.CapacityShortage) is shortage
 
     def test_clone_workspace_forwards_source_and_creation_flags(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
@@ -1298,6 +1263,87 @@ class TestWorkspaceCreation:
 
         assert len(calls) == len(outputs)
         assert dropped.isdisjoint(_parse_parameter_flags(calls[-1]))
+
+
+_CAPACITY_LOG = "api error InsufficientInstanceCapacity: Insufficient capacity."
+
+
+class TestCapacityFallback:
+    @pytest.mark.parametrize(
+        "first_build_shortage, fallback_results, expected_starts, exits",
+        [
+            (False, {}, [], False),
+            (True, {"m7g.4xlarge": ("succeeded", "")}, ["m7g.4xlarge"], False),
+            (
+                True,
+                {"m7g.4xlarge": ("failed", _CAPACITY_LOG), "m6g.4xlarge": ("succeeded", "")},
+                ["m7g.4xlarge", "m6g.4xlarge"],
+                False,
+            ),
+            (
+                True,
+                {"m7g.4xlarge": ("failed", _CAPACITY_LOG), "m6g.4xlarge": ("failed", _CAPACITY_LOG)},
+                ["m7g.4xlarge", "m6g.4xlarge"],
+                True,
+            ),
+            (True, {"m7g.4xlarge": ("failed", "Error: Missing required provider")}, ["m7g.4xlarge"], True),
+        ],
+        ids=["no-shortage", "next-type-starts", "last-type-starts", "every-type-short", "other-error-stops"],
+    )
+    def test_shortage_starts_the_box_on_the_template_s_other_instance_types(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        first_build_shortage: bool,
+        fallback_results: dict[str, tuple[str, str]],
+        expected_starts: list[str],
+        exits: bool,
+    ) -> None:
+        starts: list[str] = []
+        build_results: dict[str, tuple[str, str]] = {}
+
+        def fake_request(method: str, url: str, **kwargs: Any) -> MagicMock:
+            path = url.removeprefix("https://coder.example.com/api/v2")
+            if path == "/workspacebuilds/b-failed/parameters":
+                body: object = [{"name": "instance_type", "value": "m8g.4xlarge"}, {"name": "repo", "value": _REPO}]
+            elif path == "/templateversions/tv-1/rich-parameters":
+                options = [{"value": t} for t in ("m8g.4xlarge", "m7g.4xlarge", "m6g.4xlarge")]
+                body = [{"name": "instance_type", "options": options}]
+            elif method == "POST" and path == "/workspaces/ws-1/builds":
+                instance_type = kwargs["json"]["rich_parameter_values"][0]["value"]
+                starts.append(instance_type)
+                build_results[f"b-{instance_type}"] = fallback_results[instance_type]
+                body = {"id": f"b-{instance_type}", "job": {"status": fallback_results[instance_type][0]}}
+            elif path.endswith("/logs"):
+                body = [{"output": build_results[path.split("/")[2]][1]}]
+            else:
+                raise AssertionError(f"unexpected {method} {path}")
+            return MagicMock(ok=True, json=MagicMock(return_value=body))
+
+        def first_build() -> None:
+            if first_build_shortage:
+                raise coder.CapacityShortage(1)
+
+        monkeypatch.setattr(coder.requests, "request", fake_request)
+        monkeypatch.setattr(
+            coder,
+            "_run",
+            lambda args, **kw: subprocess.CompletedProcess(
+                args, 0, '[{"url": "https://coder.example.com"}]' if "whoami" in args else "token\n", ""
+            ),
+        )
+        monkeypatch.setattr(
+            coder,
+            "get_workspace",
+            lambda name: {"id": "ws-1", "latest_build": {"id": "b-failed", "template_version_id": "tv-1"}},
+        )
+
+        if exits:
+            with pytest.raises(SystemExit):
+                coder.run_with_capacity_fallback("devbox-test-user", first_build)
+        else:
+            coder.run_with_capacity_fallback("devbox-test-user", first_build)
+
+        assert starts == expected_starts
 
 
 class TestTemplatePresetResolution:
@@ -1741,7 +1787,6 @@ class TestDevboxCommands:
             "template": coder.DEFAULT_TEMPLATE,
             "preset": coder.DEFAULT_PRESET,
             "start_app": "None",
-            "instance_type": None,
         }
 
     def test_devbox_start_forwards_larger_disk_size(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1961,7 +2006,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(
             devbox_cli,
             "_start_existing_workspace",
-            lambda name, ws, start_app=None, instance_type=None, verbose=False: resumed.append(name),
+            lambda name, ws, start_app=None, verbose=False: resumed.append(name),
         )
         monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
@@ -2000,7 +2045,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(
             devbox_cli,
             "_start_existing_workspace",
-            lambda name, ws, start_app=None, instance_type=None, verbose=False: resumed.append(name),
+            lambda name, ws, start_app=None, verbose=False: resumed.append(name),
         )
         monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
@@ -2488,60 +2533,29 @@ class TestStartExistingWorkspace:
         monkeypatch.setattr(devbox_mutagen, "sync_list", lambda **kw: [])
 
     @pytest.mark.parametrize(
-        "status, outdated, instance_type, expected",
-        [
-            ("stopped", False, None, ["start"]),
-            ("stopped", True, None, ["update"]),
-            ("stopped", True, "m7g.4xlarge", ["build-api"]),
-            ("failed", False, "m7g.4xlarge", ["build-api"]),
-        ],
-        ids=["current", "outdated", "instance-type", "instance-type-after-failed-build"],
+        "outdated, expected", [(False, ["start"]), (True, ["update"])], ids=["current", "outdated"]
     )
-    def test_stopped_workspace_builds_through_the_right_path(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        status: str,
-        outdated: bool,
-        instance_type: str | None,
-        expected: list[str],
+    def test_stopped_workspace_updates_only_when_outdated(
+        self, monkeypatch: pytest.MonkeyPatch, outdated: bool, expected: list[str]
     ) -> None:
         calls: list[str] = []
         monkeypatch.setattr(devbox_cli, "start_workspace", lambda name, verbose=False: calls.append("start"))
         monkeypatch.setattr(devbox_cli, "update_workspace", lambda name, verbose=False: calls.append("update"))
-        monkeypatch.setattr(
-            devbox_cli,
-            "start_workspace_with_parameters",
-            lambda workspace, parameters, verbose=False: (
-                calls.append("build-api")
-                if parameters == {"instance_type": instance_type}
-                else pytest.fail(f"unexpected parameters {parameters}")
-            ),
-        )
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
 
         devbox_cli._start_existing_workspace(
-            "devbox-test-user",
-            {"latest_build": {"status": status}, "outdated": outdated},
-            instance_type=instance_type,
-            verbose=False,
+            "devbox-test-user", {"latest_build": {"status": "stopped"}, "outdated": outdated}, verbose=False
         )
 
         assert calls == expected
 
-    @pytest.mark.parametrize(
-        "status, flags",
-        [("stopped", {"start_app": True}), ("running", {"instance_type": "m7g.4xlarge"})],
-        ids=["start-app", "instance-type-on-running"],
-    )
-    def test_existing_workspace_flag_is_rejected_before_any_build(
-        self, monkeypatch: pytest.MonkeyPatch, status: str, flags: dict[str, object]
-    ) -> None:
-        for build in ("start_workspace", "update_workspace", "start_workspace_with_parameters"):
-            monkeypatch.setattr(devbox_cli, build, lambda *args, **kw: pytest.fail("no build expected"))
+    def test_start_app_flag_is_rejected_before_any_build(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        for build in ("start_workspace", "update_workspace"):
+            monkeypatch.setattr(devbox_cli, build, lambda name, verbose=False: pytest.fail("no build expected"))
 
         with pytest.raises(SystemExit):
             devbox_cli._start_existing_workspace(
-                "devbox-test-user", {"latest_build": {"status": status}}, verbose=False, **flags
+                "devbox-test-user", {"latest_build": {"status": "stopped"}}, start_app=True, verbose=False
             )
 
     @pytest.mark.parametrize(

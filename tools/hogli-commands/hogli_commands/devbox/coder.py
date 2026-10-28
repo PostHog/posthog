@@ -22,6 +22,7 @@ import threading
 import subprocess
 import webbrowser
 import urllib.parse
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
@@ -83,13 +84,6 @@ WORKSPACE_REGION_PARAMETER = "workspace_region"
 DISK_SIZE_PARAMETER = "disk_size"
 REGIONS = ("us-east-1", "eu-central-1")
 DEFAULT_REGION = REGIONS[0]
-
-# Mutable parameter. The template changes the type of the same EC2 instance, so
-# a box keeps its disk. Valid values match the template's options exactly.
-INSTANCE_TYPE_PARAMETER = "instance_type"
-INSTANCE_TYPES = ("m8g.4xlarge", "m7g.4xlarge", "m6g.4xlarge")
-# AWS error code when a zone has no free capacity for the requested type.
-_CAPACITY_ERROR = "InsufficientInstanceCapacity"
 
 # Immutable, create-time parameter consumed by `devbox:clone`: the EC2 instance
 # of the source devbox. The template images that instance server-side and boots
@@ -303,29 +297,13 @@ def _run_build(args: list[str], *, verbose: bool = False) -> subprocess.Complete
 
     returncode = proc.wait()
 
-    output = "".join(captured)
-    if returncode != 0:
-        if not verbose:
-            click.echo()
-            click.echo(click.style("Build failed. Full output:", fg="red"))
-            click.echo(output, nl=False)
-        _echo_capacity_hint(output)
+    if returncode != 0 and not verbose:
+        click.echo()
+        click.echo(click.style("Build failed. Full output:", fg="red"))
+        for line in captured:
+            click.echo(line, nl=False)
 
-    return subprocess.CompletedProcess(args, returncode, output, "")
-
-
-def _echo_capacity_hint(build_output: str) -> None:
-    """Tell the user how to retry on another instance type when AWS ran out of capacity."""
-    if _CAPACITY_ERROR not in build_output:
-        return
-    click.echo(
-        click.style(
-            "AWS has no free capacity for this instance type in the devbox's availability zone. "
-            "Run `hogli devbox:start` again with `--instance-type` set to another of: "
-            f"{', '.join(INSTANCE_TYPES)}.",
-            fg="yellow",
-        )
-    )
+    return subprocess.CompletedProcess(args, returncode, "".join(captured), "")
 
 
 def _append_parameter_flags(args: list[str], parameters: dict[str, str]) -> list[str]:
@@ -361,6 +339,20 @@ def _run_with_param_retry(
         dropped = match.group(1)
         click.echo(click.style(f"Template doesn't accept '{dropped}', retrying without it.", fg="yellow"))
         del remaining[dropped]
+
+
+# AWS error code when an availability zone has no free capacity for the requested instance type.
+_CAPACITY_ERROR = "InsufficientInstanceCapacity"
+
+
+class CapacityShortage(SystemExit):
+    """A build failed because AWS had no capacity for the box's instance type in its zone."""
+
+
+def _exit_for_failed_build(returncode: int, output: str) -> NoReturn:
+    if _CAPACITY_ERROR in output:
+        raise CapacityShortage(returncode or 1)
+    raise SystemExit(returncode or 1)
 
 
 def _resolve_tailscale() -> str | None:
@@ -1348,7 +1340,6 @@ def create_workspace(
     template: str = DEFAULT_TEMPLATE,
     preset: str = DEFAULT_PRESET,
     start_app: bool | None = None,
-    instance_type: str | None = None,
     verbose: bool = False,
 ) -> None:
     """Create a new Coder workspace.
@@ -1383,8 +1374,6 @@ def create_workspace(
     if dotfiles_uri:
         parameters[DOTFILES_URI_PARAMETER] = dotfiles_uri
     parameters.update(_start_app_param(start_app))
-    if instance_type:
-        parameters[INSTANCE_TYPE_PARAMETER] = instance_type
 
     resolved_preset = resolve_template_preset(template, preset)
     base_args = [
@@ -1401,7 +1390,7 @@ def create_workspace(
     ]
     result = _run_with_param_retry(base_args, parameters, verbose=verbose)
     if result.returncode != 0:
-        raise SystemExit(result.returncode)
+        _exit_for_failed_build(result.returncode, result.stdout)
 
 
 # A metadata read over ssh is near-instant; keep the ceiling tight so a wedged
@@ -1520,7 +1509,7 @@ def start_workspace(name: str, *, verbose: bool = False) -> None:
     """Start a stopped workspace."""
     result = _run_build(["coder", "start", name, "--yes"], verbose=verbose)
     if result.returncode != 0:
-        raise SystemExit(result.returncode)
+        _exit_for_failed_build(result.returncode, result.stdout)
 
 
 # Must exceed the longest blocking startup script timeout in the posthog-linux
@@ -1592,7 +1581,7 @@ def restart_workspace(name: str, *, verbose: bool = False) -> None:
     """
     result = _run_build(["coder", "restart", name, "--use-parameter-defaults", "--yes"], verbose=verbose)
     if result.returncode != 0:
-        raise SystemExit(result.returncode)
+        _exit_for_failed_build(result.returncode, result.stdout)
 
 
 def update_workspace(name: str, *, verbose: bool = False) -> None:
@@ -1602,54 +1591,123 @@ def update_workspace(name: str, *, verbose: bool = False) -> None:
     adds with its default instead of prompting behind the spinner.
     """
     result = _run_build(["coder", "update", name, "--use-parameter-defaults"], verbose=verbose)
-    _exit_if_streamed_build_failed(name, result, verbose=verbose)
-
-
-def start_workspace_with_parameters(
-    workspace: dict[str, Any], parameters: dict[str, str], *, verbose: bool = False
-) -> None:
-    """Start a workspace on the active template version with new mutable parameter values.
-
-    The Coder CLI cannot change a mutable parameter on an existing workspace:
-    it resolves the value to the last build's after any ``--parameter`` flag
-    (cli/parameterresolver.go). The build API takes a provided value first, so
-    hogli calls it directly, as the Coder dashboard does.
-    """
-    name = workspace["name"]
-    token = _run(["coder", "login", "token"], capture_output=True)
-    if token.returncode != 0:
-        _fail("Could not read your Coder session token. Run `hogli devbox:setup`.")
-    response = requests.post(
-        f"{get_coder_url()}/api/v2/workspaces/{workspace['id']}/builds",
-        headers={"Coder-Session-Token": token.stdout.strip()},
-        json={
-            "transition": "start",
-            "template_version_id": workspace["template_active_version_id"],
-            "rich_parameter_values": [{"name": key, "value": value} for key, value in parameters.items()],
-        },
-        timeout=30,
-    )
-    if not response.ok:
-        _fail(f"Coder refused to start '{name}': {response.text}")
-    result = _run_build(["coder", "logs", name, "--follow"], verbose=verbose)
-    _exit_if_streamed_build_failed(name, result, verbose=verbose)
-
-
-def _exit_if_streamed_build_failed(name: str, result: subprocess.CompletedProcess[str], *, verbose: bool) -> None:
-    """Exit when a command that only streams build logs ran over a failed build.
-
-    `coder update` and `coder logs` exit 0 whatever the build result, so the
-    workspace status is the only reliable signal.
-    """
     if result.returncode != 0:
-        raise SystemExit(result.returncode)
+        _exit_for_failed_build(result.returncode, result.stdout)
+    # `coder update` only streams the build logs, so it exits 0 when the build fails.
     workspace = get_workspace(name)
     if workspace is not None and get_workspace_status(workspace) == "failed":
         if not verbose:
             click.echo(click.style("Build failed. Full output:", fg="red"))
             click.echo(result.stdout, nl=False)
-        _echo_capacity_hint(result.stdout)
+        _exit_for_failed_build(1, result.stdout)
+
+
+# Mutable template parameter. A change to it changes the type of the same EC2
+# instance, so the box keeps its disk.
+INSTANCE_TYPE_PARAMETER = "instance_type"
+BUILD_WAIT_TIMEOUT = 3600
+BUILD_POLL_INTERVAL = 3
+_BUILD_DONE_JOB_STATUSES = frozenset({"succeeded", "failed", "canceled"})
+
+
+class _CoderApi:
+    """The Coder REST API, called as the user and on the deployment the Coder CLI is logged into.
+
+    The Coder CLI cannot change a mutable parameter on an existing workspace,
+    because it resolves the value to the last build's after any ``--parameter``
+    flag (cli/parameterresolver.go). The build API takes a provided value
+    first, as the Coder dashboard does.
+    """
+
+    def __init__(self) -> None:
+        whoami = _run(["coder", "whoami", "-o", "json"], capture_output=True)
+        token = _run(["coder", "login", "token"], capture_output=True)
+        if whoami.returncode != 0 or token.returncode != 0:
+            _fail(f"Could not read your Coder login. {RUNTIME_SETUP_HINT}", cause="coder_login_unreadable")
+        self._base_url = f"{json.loads(whoami.stdout)[0]['url'].rstrip('/')}/api/v2"
+        self._headers = {"Coder-Session-Token": token.stdout.strip()}
+
+    def request(self, method: str, path: str, *, body: dict[str, Any] | None = None) -> Any:
+        try:
+            response = requests.request(method, f"{self._base_url}{path}", headers=self._headers, json=body, timeout=30)
+        except requests.RequestException as error:
+            _fail(f"Could not reach Coder: {error}", cause="coder_api_unreachable")
+        if not response.ok:
+            _fail(f"Coder rejected {method} {path}: {response.text}", cause="coder_api_rejected")
+        return response.json()
+
+    def instance_type(self, build_id: str) -> str | None:
+        parameters = self.request("GET", f"/workspacebuilds/{build_id}/parameters")
+        return next((p["value"] for p in parameters if p["name"] == INSTANCE_TYPE_PARAMETER), None)
+
+    def instance_type_options(self, template_version_id: str) -> list[str]:
+        parameters = self.request("GET", f"/templateversions/{template_version_id}/rich-parameters")
+        return next(
+            ([o["value"] for o in p["options"]] for p in parameters if p["name"] == INSTANCE_TYPE_PARAMETER), []
+        )
+
+    def start_on_instance_type(self, workspace_id: str, instance_type: str) -> tuple[str, str]:
+        """Start the workspace on ``instance_type`` and return the build's job status and log output."""
+        build = self.request(
+            "POST",
+            f"/workspaces/{workspace_id}/builds",
+            body={
+                "transition": "start",
+                "rich_parameter_values": [{"name": INSTANCE_TYPE_PARAMETER, "value": instance_type}],
+            },
+        )
+        deadline = time.monotonic() + BUILD_WAIT_TIMEOUT
+        while (status := build["job"]["status"]) not in _BUILD_DONE_JOB_STATUSES:
+            if time.monotonic() >= deadline:
+                _fail(f"The devbox build did not finish within {BUILD_WAIT_TIMEOUT}s.", cause="build_wait_timeout")
+            time.sleep(BUILD_POLL_INTERVAL)
+            build = self.request("GET", f"/workspacebuilds/{build['id']}")
+        logs = self.request("GET", f"/workspacebuilds/{build['id']}/logs")
+        return status, "".join(f"{log['output']}\n" for log in logs)
+
+
+def run_with_capacity_fallback(name: str, build: Callable[[], None]) -> None:
+    """Run a start build, and on a capacity shortage start the box on the template's other instance types.
+
+    EC2 capacity runs out per availability zone and instance type, so another
+    type in the same zone usually has room. The box stays on the type that
+    started, and a later shortage on it moves the box on again.
+    """
+    try:
+        build()
+        return
+    except CapacityShortage:
+        pass
+
+    workspace = get_workspace(name)
+    if workspace is None:
         raise SystemExit(1)
+    api = _CoderApi()
+    failed_build = workspace["latest_build"]
+    failed_type = api.instance_type(failed_build["id"])
+    options = api.instance_type_options(failed_build["template_version_id"])
+    if failed_type is None or not options:
+        raise SystemExit(1)
+
+    for instance_type in [option for option in options if option != failed_type]:
+        click.echo(
+            click.style(
+                f"AWS has no {failed_type} capacity in the devbox's availability zone. Starting it on {instance_type}...",
+                fg="yellow",
+            )
+        )
+        status, output = api.start_on_instance_type(workspace["id"], instance_type)
+        if status == "succeeded":
+            return
+        if _CAPACITY_ERROR not in output:
+            click.echo(click.style("Build failed. Full output:", fg="red"))
+            click.echo(output, nl=False)
+            raise SystemExit(1)
+        failed_type = instance_type
+    _fail(
+        f"AWS has no capacity in the devbox's availability zone for any of {', '.join(options)}. Try again later.",
+        cause="capacity_exhausted",
+    )
 
 
 def delete_workspace(name: str, *, verbose: bool = False) -> None:
