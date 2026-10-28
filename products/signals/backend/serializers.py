@@ -15,7 +15,7 @@ from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_fiel
 from rest_framework import serializers
 from rest_framework.request import Request
 
-from posthog.api.fields import RepeatedOrCommaSeparatedListField
+from posthog.api.fields import RepeatedCommaSeparatedOrJSONListField
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.auth import is_mcp_request
 from posthog.dataclasses import frozen
@@ -2234,7 +2234,7 @@ class SignalReportListQuerySerializer(serializers.Serializer):
             "Defaults to true."
         ),
     )
-    exclude = RepeatedOrCommaSeparatedListField(
+    exclude = RepeatedCommaSeparatedOrJSONListField(
         child=serializers.UUIDField(),
         required=False,
         default=list,

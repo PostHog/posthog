@@ -2003,6 +2003,24 @@ class TestSignalReportListAPI(APIBaseTest):
         assert [row["id"] for row in without_shown["results"]] == [str(waiting.id)]
         assert without_shown["count"] == 1
 
+    @parameterized.expand(
+        [
+            ("json_array_one_id", lambda ids: json.dumps(ids[:1]), 1),
+            ("json_array_two_ids", lambda ids: json.dumps(ids[:2]), 2),
+            ("comma_separated_two_ids", lambda ids: ",".join(ids[:2]), 2),
+        ]
+    )
+    def test_exclude_accepts_mcp_and_frontend_encodings(self, _name, encode, excluded_count):
+        reports = [self._create_report(title=f"Report {index}") for index in range(3)]
+        ids = [str(report.id) for report in reports]
+
+        response = self.client.get(self._list_url(exclude=encode(ids)))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert {row["id"] for row in body["results"]} == set(ids[excluded_count:])
+        assert body["count"] == len(ids) - excluded_count
+
     def test_is_suggested_reviewer_uses_latest_reviewers_row(self):
         # suggested_reviewers is append-only: an older row listing the user must not keep them
         # flagged after a newer row drops them (latest-wins).
