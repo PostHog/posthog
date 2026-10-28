@@ -127,7 +127,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
 
     def _calculate_event_from_flag(self, values: list[bool | str]) -> PropertyValuesQueryResponse:
         search = (self.query.search_value or "").lower()
-        names = [convert_property_value(value) for value in values]
+        names = list(dict.fromkeys(convert_property_value(value) for value in values))
         return PropertyValuesQueryResponse(
             results=[PropertyValueItem(name=name) for name in names if search in name.lower()],
             timings=self.timings.to_list(),
@@ -137,10 +137,12 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
     @cached_property
     def _use_property_values_table(self) -> bool:
         # Column and virtual lookups stay on the events scan: the table only
-        # holds keys from the properties blob. event_names is deliberately not
-        # a fallback: the table has no event dimension, so flagged teams get
-        # event-agnostic value suggestions for event-scoped requests.
-        if self.query.is_column or self.query.property_key.startswith("$virt_"):
+        # holds keys from the properties blob. `$feature/` lookups stay there
+        # too, because property-vals-rs can be set to skip `$feature/` keys.
+        # event_names is deliberately not a fallback: the table has no event
+        # dimension, so flagged teams get event-agnostic value suggestions for
+        # event-scoped requests.
+        if self.query.is_column or self.query.property_key.startswith(("$virt_", FEATURE_FLAG_PROPERTY_PREFIX)):
             return False
         team_id = str(self.team.pk)
         if not posthoganalytics.feature_enabled(

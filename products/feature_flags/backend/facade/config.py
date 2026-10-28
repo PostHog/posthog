@@ -189,3 +189,14 @@ def served_string_values(filters: object) -> list[str]:
         ]
         return list(dict.fromkeys(value for value in candidates if isinstance(value, str)))
     return []
+
+
+def served_holdout_values(filters: object) -> list[str]:
+    config = decode_config(filters)
+    holdout = config.filters.get("holdout") if isinstance(config, ConfigV1) else None
+    holdout_id = holdout.get("id") if isinstance(holdout, Mapping) else None
+    return [] if holdout_id is None else [holdout_variant(holdout_id)]
+
+
+def holdout_variant(holdout_id: object) -> str:
+    return f"holdout-{holdout_id}"
