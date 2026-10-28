@@ -264,7 +264,7 @@ class TestShadowSampleRate(SimpleTestCase):
             ("negative", "-0.1", 0.001),
         ]
     )
-    def test_configured_shadow_sample_rate(self, _name, env_value, expected):
+    def test_configured_shadow_sample_rate(self, _name: str, env_value: str | None, expected: float) -> None:
         with patch.dict(os.environ):
             os.environ.pop("HOGQL_PARSER_SHADOW_SAMPLE_RATE", None)
             if env_value is not None:
