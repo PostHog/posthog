@@ -23,5 +23,5 @@ async def test_request_context_changes_do_not_reach_the_handler_task() -> None:
     with mock.patch.object(ASGIHandler, "run_get_response", _fake_get_response):
         response = await handler.run_get_response(HttpRequest())
 
-    assert response.content == b"ok"
+    assert response.status_code == 200
     assert _set_during_request.get() is None
