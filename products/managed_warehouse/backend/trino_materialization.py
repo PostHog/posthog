@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -19,6 +19,7 @@ from products.data_modeling.backend.facade.system_tables import DATA_MODELING_AL
 from products.managed_warehouse.backend.common import ducklake_data_modeling_schema
 from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeTableResult,
+    StoredColumnType,
     TrinoExpansionMode,
     TrinoIncrementalWrite,
 )
@@ -49,6 +50,7 @@ def execute_trino_shadow_materialization(
     saved_query_id: str | UUID,
     source_query: object,
     incremental: TrinoIncrementalWrite | None = None,
+    stored_column_types: tuple[StoredColumnType, ...] = (),
     control: TrinoQueryControl | None = None,
 ) -> DuckLakeTableResult:
     if control:
@@ -59,6 +61,7 @@ def execute_trino_shadow_materialization(
     compiled = _compile(team, hogql_query, incremental if merge else None)
     if control:
         control.checkpoint()
+    stored_types = {column.name: _parse_clickhouse_type(column.clickhouse_type) for column in stored_column_types}
 
     schema_name = ducklake_data_modeling_schema(team_id)
     query_id = UUID(str(saved_query_id))
@@ -73,13 +76,28 @@ def execute_trino_shadow_materialization(
             control.attach(cursor)
         try:
             _run(cursor, control, f"CREATE SCHEMA IF NOT EXISTS {schema}")
-            if merge and not _table_exists(cursor, control, connection.catalog, schema_name, table_name):
-                # Nothing to merge into, so build the whole table from the unfiltered query.
-                merge = False
-                compiled = _compile(team, hogql_query, None)
+            existing_types: dict[str, str] = {}
+            if merge:
+                existing_types = _table_column_types(cursor, control, connection.catalog, schema_name, table_name)
+                if not existing_types:
+                    # Nothing to merge into, so build the whole table from the unfiltered query.
+                    merge = False
+                    compiled = _compile(team, hogql_query, None)
             sql, parameters = convert_pyformat_placeholders(compiled.sql, compiled.values)
             if compiled.needs_row_type_probe:
-                sql = _name_anonymous_row_fields(cursor, control, sql, parameters)
+                sql, output_types = _conform_output_types(cursor, control, sql, parameters, stored_types)
+                drifted = sorted(
+                    name
+                    for name, output_type in output_types.items()
+                    if name in existing_types and _type_key(existing_types[name]) != _type_key(output_type)
+                )
+                if merge and drifted:
+                    # A merge cannot change a column's type, so rebuild the table from the unfiltered query.
+                    logger.info("trino_incremental_rebuild_for_column_types", table=table, columns=drifted)
+                    merge = False
+                    compiled = _compile(team, hogql_query, None)
+                    sql, parameters = convert_pyformat_placeholders(compiled.sql, compiled.values)
+                    sql, _ = _conform_output_types(cursor, control, sql, parameters, stored_types)
             if merge:
                 assert incremental is not None
                 stage = f"{schema}.{escape_trino_identifier(table_name + STAGE_SUFFIX)}"
@@ -198,55 +216,153 @@ _ROW_TYPE_NAMES = frozenset(
 _ROW_TYPE_SUFFIXES = frozenset({"", "with time zone", "without time zone", "day to second", "year to month"})
 
 
-def _name_anonymous_row_fields(
-    cursor: Cursor, control: TrinoQueryControl | None, sql: str, parameters: list[object]
-) -> str:
-    """Cast every anonymous ROW field in the output to a named one.
+def _conform_output_types(
+    cursor: Cursor,
+    control: TrinoQueryControl | None,
+    sql: str,
+    parameters: list[object],
+    stored_types: Mapping[str, _ClickHouseType],
+) -> tuple[str, dict[str, str]]:
+    """Cast the output columns to the types the table must store, and return the SQL with each column's type.
 
-    DuckLake refuses anonymous row fields, and Trino gives no way to name them without spelling
-    out the type, so the output types are read from a zero-row run of the query. Fields are named
-    "1", "2", ... as ClickHouse names unnamed tuple elements, so both builds store the same struct.
+    The output types are read from a zero-row run of the query. Two casts are applied:
+
+    - Each anonymous ROW field gets a name. DuckLake refuses anonymous row fields, and Trino gives no
+      way to name them without spelling out the type. Fields are named "1", "2", ... as ClickHouse
+      names unnamed tuple elements, so both builds store the same struct.
+    - A boolean becomes an integer where ClickHouse stored the value as UInt8. ClickHouse types
+      comparisons and logical operators as UInt8, and only toBool() and source columns as Bool.
+      Models that read this table expect the stored type.
     """
     _fetch(cursor, control, f"SELECT * FROM ({sql}) LIMIT 0", parameters)
     projections: list[str] = []
-    renamed = False
+    output_types: dict[str, str] = {}
+    cast = False
     for column in cursor.description or []:
         name = escape_trino_identifier(column[0])
         reference = f"{escape_trino_identifier(_OUTPUT_ALIAS)}.{name}"
         # The DB-API stubs type this as an int code; the Trino client returns the type name.
         type_code: object = column[1] if len(column) > 1 else None
         type_text = type_code if isinstance(type_code, str) else None
-        named_type = _named_row_type(type_text) if type_text is not None else None
-        if named_type is None:
+        target_type = _conformed_type(type_text, stored_types.get(column[0])) if type_text is not None else None
+        if target_type is None:
             projections.append(f"{reference} AS {name}")
         else:
-            renamed = True
-            projections.append(f"CAST({reference} AS {named_type}) AS {name}")
-    if not renamed:
-        return sql
-    return f"SELECT {', '.join(projections)} FROM ({sql}) AS {escape_trino_identifier(_OUTPUT_ALIAS)}"
+            cast = True
+            projections.append(f"CAST({reference} AS {target_type}) AS {name}")
+        if type_text is not None:
+            output_types[column[0]] = target_type or type_text
+    if not cast:
+        return sql, output_types
+    return (
+        f"SELECT {', '.join(projections)} FROM ({sql}) AS {escape_trino_identifier(_OUTPUT_ALIAS)}",
+        output_types,
+    )
 
 
-def _named_row_type(type_text: str) -> str | None:
-    """Return ``type_text`` with each anonymous row field named by position, or None when none is anonymous."""
+_CLICKHOUSE_CONTAINERS = {"row(": "Tuple", "array(": "Array", "map(": "Map"}
+
+
+def _conformed_type(type_text: str, stored: _ClickHouseType | None) -> str | None:
+    """Return the type ``type_text`` must be cast to, or None when it can be stored as it is.
+
+    ``stored`` is the ClickHouse type stored for the same value. A Trino row, array or map reads
+    the stored element types only from a ClickHouse Tuple, Array or Map with the same number of
+    arguments, matched by position.
+    """
     text = type_text.strip()
     lowered = text.lower()
-    for prefix in ("row(", "array(", "map("):
+    if lowered == "boolean":
+        return "integer" if stored is not None and stored.name == "UInt8" else None
+    for prefix, clickhouse_name in _CLICKHOUSE_CONTAINERS.items():
         if not (lowered.startswith(prefix) and text.endswith(")")):
             continue
         parts = _split_type_arguments(text[len(prefix) : -1])
-        renamed = False
+        stored_arguments = (
+            stored.arguments
+            if stored is not None and stored.name == clickhouse_name and len(stored.arguments) == len(parts)
+            else None
+        )
+        changed = False
         arguments: list[str] = []
         for position, part in enumerate(parts, start=1):
             field_name, field_type = _split_row_field(part) if prefix == "row(" else (None, part.strip())
-            named_type = _named_row_type(field_type)
-            renamed = renamed or named_type is not None or (prefix == "row(" and field_name is None)
-            argument = named_type or field_type
+            target_type = _conformed_type(
+                field_type, stored_arguments[position - 1] if stored_arguments is not None else None
+            )
+            changed = changed or target_type is not None or (prefix == "row(" and field_name is None)
+            argument = target_type or field_type
             if prefix == "row(":
                 argument = f"{_quote_row_field(field_name or str(position))} {argument}"
             arguments.append(argument)
-        return f"{prefix}{', '.join(arguments)})" if renamed else None
+        return f"{prefix}{', '.join(arguments)})" if changed else None
     return None
+
+
+def _type_key(type_text: str) -> str:
+    # A result description and information_schema can spell one type with different quoting and spacing.
+    return re.sub(r'[\s"]', "", type_text).lower()
+
+
+@frozen
+class _ClickHouseType:
+    name: str
+    arguments: tuple[_ClickHouseType, ...] = ()
+
+
+_CLICKHOUSE_WRAPPERS = ("Nullable(", "LowCardinality(")
+
+
+def _parse_clickhouse_type(type_text: str) -> _ClickHouseType:
+    """Parse the container structure of a ClickHouse type, without its Nullable and LowCardinality wrappers."""
+    text = type_text.strip()
+    unwrapped = True
+    while unwrapped:
+        unwrapped = False
+        for wrapper in _CLICKHOUSE_WRAPPERS:
+            if text.startswith(wrapper) and text.endswith(")"):
+                text = text[len(wrapper) : -1].strip()
+                unwrapped = True
+    name, _, rest = text.partition("(")
+    name = name.strip()
+    if name not in _CLICKHOUSE_CONTAINERS.values() or not rest.endswith(")"):
+        return _ClickHouseType(name=name)
+    parts = _split_clickhouse_arguments(rest[:-1])
+    if name == "Tuple":
+        parts = [_clickhouse_element_type(part) for part in parts]
+    return _ClickHouseType(name=name, arguments=tuple(_parse_clickhouse_type(part) for part in parts))
+
+
+def _split_clickhouse_arguments(text: str) -> list[str]:
+    parts: list[str] = []
+    depth = 0
+    quote: str | None = None
+    start = 0
+    for index, character in enumerate(text):
+        if quote is not None:
+            if character == quote:
+                quote = None
+            continue
+        if character in "'`":
+            quote = character
+        elif character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+        elif character == "," and depth == 0:
+            parts.append(text[start:index])
+            start = index + 1
+    parts.append(text[start:])
+    return [part.strip() for part in parts]
+
+
+def _clickhouse_element_type(element: str) -> str:
+    """The type of a ClickHouse tuple element, which may carry a name: ``flag UInt8`` or ``UInt8``."""
+    if element.startswith("`"):
+        closing = element.find("`", 1)
+        return element[closing + 1 :].strip() if closing != -1 else element
+    name, space, rest = element.partition(" ")
+    return rest.strip() if space and "(" not in name and rest.strip() else element
 
 
 def _quote_row_field(name: str) -> str:
@@ -328,17 +444,20 @@ def _drop_stage(cursor: Cursor, stage: str) -> None:
         logger.warning("trino_incremental_stage_drop_failed", stage=stage, exc_info=True)
 
 
-def _table_exists(
+def _table_column_types(
     cursor: Cursor, control: TrinoQueryControl | None, catalog: str, schema_name: str, table_name: str
-) -> bool:
+) -> dict[str, str]:
+    """The type of each column of the table, or an empty mapping when the table does not exist."""
+    information_schema = f"{escape_trino_identifier(catalog)}.information_schema"
     rows = _fetch(
         cursor,
         control,
-        f"SELECT 1 FROM {escape_trino_identifier(catalog)}.information_schema.tables "
-        "WHERE table_schema = ? AND table_name = ? AND table_type = 'BASE TABLE'",
+        f"SELECT c.column_name, c.data_type FROM {information_schema}.columns c "
+        f"JOIN {information_schema}.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name "
+        "WHERE t.table_schema = ? AND t.table_name = ? AND t.table_type = 'BASE TABLE'",
         [schema_name, table_name],
     )
-    return bool(rows)
+    return {str(name): str(data_type) for name, data_type in rows}
 
 
 def _max_key(cursor: Cursor, control: TrinoQueryControl | None, table: str, incremental_key: str) -> Any:

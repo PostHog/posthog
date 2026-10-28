@@ -45,6 +45,7 @@ if TYPE_CHECKING:
         DuckLakeS3Secret,
         DuckLakeTableResult,
         ManagedWarehouseTrinoConnection,
+        StoredColumnType,
         TrinoCompiledQuery,
         TrinoIncrementalWrite,
     )
@@ -95,6 +96,7 @@ def execute_trino_shadow_materialization(
     saved_query_id: str | UUID,
     source_query: object,
     incremental: TrinoIncrementalWrite | None = None,
+    stored_column_types: tuple[StoredColumnType, ...] = (),
 ) -> DuckLakeTableResult:
     from products.managed_warehouse.backend.trino_materialization import (  # noqa: PLC0415 -- keeps the optional Trino driver off startup paths
         execute_trino_shadow_materialization as execute_shadow,
@@ -106,6 +108,7 @@ def execute_trino_shadow_materialization(
         saved_query_id=saved_query_id,
         source_query=source_query,
         incremental=incremental,
+        stored_column_types=stored_column_types,
     )
 
 
@@ -251,6 +254,7 @@ async def execute_trino_model(
     saved_query_id: str | UUID,
     source_query: object,
     incremental: TrinoIncrementalWrite | None = None,
+    stored_column_types: tuple[StoredColumnType, ...] = (),
     on_processed_bytes: Callable[[int], None] | None = None,
     on_cpu_milliseconds: Callable[[int], None] | None = None,
 ) -> DuckLakeTableResult:
@@ -269,6 +273,7 @@ async def execute_trino_model(
             saved_query_id=saved_query_id,
             source_query=source_query,
             incremental=incremental,
+            stored_column_types=stored_column_types,
             control=control,
         ),
         on_processed_bytes=on_processed_bytes,
