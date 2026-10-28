@@ -1786,8 +1786,8 @@ mod tests {
             );
         }
 
-        #[tokio::test]
-        async fn a_chunk_that_crosses_the_ttl_while_it_scans_fails() {
+        #[test]
+        fn a_chunk_that_crosses_the_ttl_while_it_scans_fails() {
             static CALLS: AtomicUsize = AtomicUsize::new(0);
             fn crosses_the_ttl() -> i64 {
                 match CALLS.fetch_add(1, Ordering::SeqCst) {
@@ -1795,15 +1795,27 @@ mod tests {
                     _ => 101 * 86_400_000,
                 }
             }
-            let client = mixed_chunk_database("seeder_scanner_crosses_ttl").await;
-            let run = mixed_run(120);
-
-            let error =
-                failure_of(scan_day_one(&scanner(client, false), &run, crosses_the_ttl).await);
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
+            let handle = recorder.handle();
+            let error = metrics::with_local_recorder(&recorder, || {
+                runtime.block_on(async {
+                    let client = mixed_chunk_database("seeder_scanner_crosses_ttl").await;
+                    let run = mixed_run(120);
+                    failure_of(scan_day_one(&scanner(client, false), &run, crosses_the_ttl).await)
+                })
+            });
 
             assert!(
                 matches!(error, ScanError::PastRetention { .. }),
                 "the chunk failed for another reason: {error:?}"
+            );
+            assert!(
+                handle.render().contains(ROWS_SCANNED),
+                "the chunk failed before its queries read a row"
             );
         }
 
