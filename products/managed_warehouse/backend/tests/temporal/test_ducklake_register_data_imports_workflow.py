@@ -1,3 +1,4 @@
+import io
 import re
 import uuid
 import datetime as dt
@@ -8,6 +9,8 @@ from collections.abc import Iterator
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
@@ -15,9 +18,13 @@ from posthog.sync import database_sync_to_async
 
 from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseSourceJobStatus
 from products.managed_warehouse.backend.models import ManagedWarehouseSourceJob, ManagedWarehouseSourceLifecycle
-from products.managed_warehouse.backend.temporal import ducklake_register_data_imports_workflow as registration_module
+from products.managed_warehouse.backend.temporal import (
+    ducklake_register_data_imports_workflow as registration_module,
+    ducklake_register_trino as trino_registration_module,
+)
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow import (
     S3_COPY_BATCH_SIZE,
+    DuckLakeRegisterCleanupInputs,
     DuckLakeRegisterDataImportsActivityInputs,
     DuckLakeRegisterDataImportsGateInputs,
     DuckLakeRegisterDataImportsInputs,
@@ -94,24 +101,62 @@ async def test_registration_gate_accepts_either_managed_warehouse_flag(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("server_provisioned", [True, False])
-async def test_registration_gate_requires_provisioned_duckgres_server(monkeypatch, ateam, server_provisioned):
-    monkeypatch.setattr(registration_module, "feature_enabled_or_false", lambda *args, **kwargs: True)
+@pytest.mark.parametrize(
+    "registers_through_trino, server_provisioned, trino_ready, expected",
+    [
+        (False, True, False, True),
+        (False, False, True, False),
+        (True, True, True, True),
+        (True, True, False, False),
+        (True, False, True, False),
+    ],
+)
+async def test_registration_gate_requires_provisioned_duckgres_server(
+    monkeypatch, ateam, registers_through_trino, server_provisioned, trino_ready, expected
+):
+    def fake_feature_enabled(key, distinct_id, **kwargs):
+        return key != registration_module.DUCKLAKE_TRINO_REGISTRATION_FLAG or registers_through_trino
+
+    monkeypatch.setattr(registration_module, "feature_enabled_or_false", fake_feature_enabled)
     monkeypatch.setattr(registration_module, "is_dev_mode", lambda: False)
     monkeypatch.setattr(
         registration_module,
         "get_duckgres_server_by_team_org",
         lambda team_id: MagicMock() if server_provisioned else None,
     )
+    trino_catalog = MagicMock(return_value="tenant_catalog" if trino_ready else None)
+    monkeypatch.setattr(registration_module, "get_ready_trino_catalog_name", trino_catalog)
+    skipped_counter = MagicMock()
+    skipped_metric = MagicMock(return_value=skipped_counter)
+    monkeypatch.setattr(registration_module, "get_ducklake_register_data_imports_skipped_metric", skipped_metric)
 
     result = await ducklake_register_data_imports_gate_activity(DuckLakeRegisterDataImportsGateInputs(team_id=ateam.id))
 
-    assert result is server_provisioned
+    assert result is expected
+    if registers_through_trino:
+        trino_catalog.assert_called_once_with(str(ateam.organization_id))
+    else:
+        trino_catalog.assert_not_called()
+    if registers_through_trino and not trino_ready:
+        skipped_metric.assert_called_once_with(team_id=ateam.id, reason="trino_not_ready")
+        skipped_counter.add.assert_called_once_with(1)
+    else:
+        skipped_metric.assert_not_called()
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ateam):
+@pytest.mark.parametrize("registers_through_trino", [False, True])
+async def test_prepare_registration_pins_the_import_jobs_prepared_generation(
+    monkeypatch, ateam, registers_through_trino
+):
+    monkeypatch.setattr(
+        registration_module,
+        "feature_enabled_or_false",
+        lambda key, *args, **kwargs: (
+            registers_through_trino and key == registration_module.DUCKLAKE_TRINO_REGISTRATION_FLAG
+        ),
+    )
     credential = await database_sync_to_async(DataWarehouseCredential.objects.create)(
         team=ateam,
         access_key="test_key",
@@ -154,10 +199,18 @@ async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ate
     assert metadata is not None
     folder_path = await database_sync_to_async(schema.folder_path)()
     assert metadata.prepared_source_uri.endswith(f"/{folder_path}/{prepared_queryable_folder}")
-    assert metadata.landing_uri == (
-        f"s3://ducklake-dev/posthog_data_imports_team_{ateam.id}/postgres_customers/"
-        f"_imports/{schema.id}/job-123/1234567890_abcdef12"
-    )
+    if registers_through_trino:
+        # Outside every table directory: Trino rejects files inside another table's directory.
+        assert metadata.landing_uri == (
+            f"s3://ducklake-dev/_imports/posthog_data_imports_team_{ateam.id}/postgres_customers/"
+            f"{schema.id}/job-123/1234567890_abcdef12"
+        )
+    else:
+        assert metadata.landing_uri == (
+            f"s3://ducklake-dev/posthog_data_imports_team_{ateam.id}/postgres_customers/"
+            f"_imports/{schema.id}/job-123/1234567890_abcdef12"
+        )
+    assert metadata.use_trino is registers_through_trino
     assert metadata.ducklake_schema_name == f"posthog_data_imports_team_{ateam.id}"
     assert metadata.ducklake_table_name == "postgres_customers"
 
@@ -1178,6 +1231,199 @@ def test_register_uses_workflow_minted_names(monkeypatch):
     assert any("RENAME TO" in query and names.previous_name in query for query in executed)
 
 
+class _FakePreparedGenerationS3:
+    def __init__(self, files: dict[str, bytes]) -> None:
+        self.files = files
+        self.by_source: dict[str, bytes] = {}
+        self.copied: dict[str, bytes] = {}
+
+    def find(self, prefix: str, detail: bool = False):
+        found = {f"{prefix}/{relative}": {"Size": 100, "type": "file"} for relative in self.files}
+        self.by_source = {f"{prefix}/{relative}": content for relative, content in self.files.items()}
+        return found if detail else list(found)
+
+    def copy(self, sources: list[str], destinations: list[str], *, batch_size: int) -> None:
+        for source, destination in zip(sources, destinations, strict=True):
+            self.copied[destination] = self.by_source[source]
+
+    def open(self, path: str, mode: str = "rb") -> io.BytesIO:
+        return io.BytesIO(self.copied[path.removeprefix("s3://")])
+
+
+def _parquet_bytes(table: pa.Table) -> bytes:
+    sink = io.BytesIO()
+    pq.write_table(table, sink)
+    return sink.getvalue()
+
+
+def _mock_trino(monkeypatch, *, registered_rows: int = 0, table_names: list[str] | None = None):
+    statements: list[str] = []
+    connection = MagicMock(catalog="tenant_catalog")
+    cursor = connection.cursor.return_value
+
+    def fetchall() -> list[list[object]]:
+        statement = statements[-1]
+        if statement.startswith("SELECT count(*)"):
+            return [[registered_rows]]
+        if statement.startswith("SELECT table_name"):
+            return [[name] for name in table_names or []]
+        if "EXECUTE add_files" in statement:
+            return [["added_data_files", 1]]
+        if "EXECUTE publish_as" in statement:
+            return [["replaced_tables", 1]]
+        return []
+
+    cursor.execute.side_effect = statements.append
+    cursor.fetchall.side_effect = fetchall
+    connect = MagicMock()
+    connect.return_value.__enter__.return_value = connection
+    monkeypatch.setattr(trino_registration_module, "connect_managed_warehouse_trino", connect)
+    monkeypatch.setattr(registration_module, "_get_org_id_for_team", lambda team_id: "org-id")
+    monkeypatch.setattr(
+        registration_module,
+        "_connect_to_duckgres_for_team",
+        MagicMock(side_effect=AssertionError("the Trino path must not connect to duckgres")),
+    )
+    return connect, statements
+
+
+@pytest.mark.parametrize(
+    "registered_rows, should_publish, outcome",
+    [
+        (3, True, "published"),
+        (2, True, "row_count_mismatch"),
+        (3, False, "stale"),
+    ],
+)
+def test_copy_activity_registers_through_trino(monkeypatch, registered_rows, should_publish, outcome):
+    s3 = _FakePreparedGenerationS3(
+        {
+            "_ph_partition_key=2026-07/a.parquet": _parquet_bytes(
+                pa.table({"id": pa.array([1, 2], pa.int64()), "name": pa.array(["a", "b"])})
+            ),
+            "_ph_partition_key=2026-08/b.parquet": _parquet_bytes(pa.table({"id": pa.array([3], pa.int64())})),
+        }
+    )
+    monkeypatch.setattr(registration_module, "get_s3_client", lambda: s3)
+    monkeypatch.setattr(registration_module, "_should_publish_prepared_generation", lambda inputs: should_publish)
+    connect, statements = _mock_trino(monkeypatch, registered_rows=registered_rows)
+    heartbeater = MagicMock()
+    heartbeater.__enter__ = MagicMock(return_value=heartbeater)
+    heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(registration_module, "HeartbeaterSync", MagicMock(return_value=heartbeater))
+    workload_metrics = _mock_activity_workload_metrics(monkeypatch)
+    stale_metric = MagicMock()
+    monkeypatch.setattr(registration_module, "get_ducklake_register_data_imports_stale_metric", stale_metric)
+    inputs = _trino_activity_inputs()
+    names = inputs.registration_table_names
+    assert names is not None
+    attempt_landing = (
+        "ducklake/_imports/posthog_data_imports_team_1/postgres_customers/schema/job/"
+        f"1234567890_abcdef12/{names.attempt_token}"
+    )
+
+    if outcome == "row_count_mismatch":
+        with pytest.raises(ApplicationError, match="row count mismatch") as error:
+            copy_and_register_ducklake_data_imports_activity(inputs)
+        assert error.value.non_retryable is True
+    else:
+        assert copy_and_register_ducklake_data_imports_activity(inputs) is (outcome == "published")
+
+    assert sorted(s3.copied) == [
+        f"{attempt_landing}/_ph_partition_key=2026-07/a.parquet",
+        f"{attempt_landing}/_ph_partition_key=2026-08/b.parquet",
+    ]
+    connect.assert_called_once_with("org-id", principal="posthog:ducklake-register:team:1:schema:schema")
+    staging = f'"tenant_catalog"."posthog_data_imports_team_1"."{names.shadow_name}"'
+    assert statements[:4] == [
+        'CREATE SCHEMA IF NOT EXISTS "tenant_catalog"."posthog_data_imports_team_1"',
+        f'CREATE TABLE {staging} ("id" BIGINT, "name" VARCHAR, "_ph_partition_key" VARCHAR) '
+        "WITH (partitioning = ARRAY['_ph_partition_key'])",
+        f"ALTER TABLE {staging} EXECUTE add_files("
+        f"files => ARRAY['s3://{attempt_landing}/_ph_partition_key=2026-07/a.parquet', "
+        f"'s3://{attempt_landing}/_ph_partition_key=2026-08/b.parquet'], "
+        "import_id => '1234567890_abcdef12-b0', allow_missing => true, hive_partitioning => true)",
+        f"SELECT count(*) FROM {staging}",
+    ]
+    if outcome == "published":
+        assert statements[4:] == [f"ALTER TABLE {staging} EXECUTE publish_as(target => 'postgres_customers')"]
+        workload_metrics.files.record.assert_called_once_with(2.0)
+        workload_metrics.rows.record.assert_called_once_with(3.0)
+        workload_metrics.bytes.record.assert_called_once_with(200.0)
+    else:
+        assert statements[4:] == [f"DROP TABLE IF EXISTS {staging}"]
+        workload_metrics.rows.record.assert_not_called()
+    if outcome == "stale":
+        stale_metric.assert_called_once_with(team_id=1, schema_id="schema", stage="publish")
+    else:
+        stale_metric.assert_not_called()
+
+
+def test_cleanup_activity_drops_trino_registration_tables_and_sweeps_stale_ones(monkeypatch):
+    now = dt.datetime.now(dt.UTC)
+    stale = trino_registration_module.staging_table_name(now - dt.timedelta(hours=7), "0" * 16)
+    young = trino_registration_module.staging_table_name(now - dt.timedelta(hours=1), "1" * 16)
+    _connect, statements = _mock_trino(monkeypatch, table_names=[young, stale, "postgres_customers"])
+
+    registration_module.cleanup_ducklake_registration_tables_activity(
+        DuckLakeRegisterCleanupInputs(
+            team_id=1,
+            schema_name="posthog_data_imports_team_1",
+            table_names=["__ph_register_attempt"],
+            use_trino=True,
+        )
+    )
+
+    schema = '"tenant_catalog"."posthog_data_imports_team_1"'
+    assert statements == [
+        f'DROP TABLE IF EXISTS {schema}."__ph_register_attempt"',
+        'SELECT table_name FROM "tenant_catalog".information_schema.tables '
+        "WHERE table_schema = 'posthog_data_imports_team_1' AND starts_with(table_name, '__ph_register_')",
+        f'DROP TABLE IF EXISTS {schema}."{stale}"',
+    ]
+
+
+@pytest.mark.asyncio
+async def test_workflow_registers_through_trino_with_time_stamped_staging_names(monkeypatch):
+    started_at = dt.datetime(2026, 7, 30, 12, 0, 0, tzinfo=dt.UTC)
+    finished_at = started_at + dt.timedelta(minutes=7)
+    metadata = _trino_activity_inputs().metadata
+    execute_activity = AsyncMock(side_effect=[True, None, metadata, True, None, None])
+    _mock_workflow_metrics(monkeypatch)
+    monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(registration_module.workflow, "uuid4", MagicMock(return_value=uuid.UUID(int=7)))
+    monkeypatch.setattr(
+        registration_module.workflow,
+        "now",
+        MagicMock(side_effect=[started_at, started_at, finished_at, finished_at]),
+    )
+
+    await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
+
+    copy_call = next(
+        call
+        for call in execute_activity.await_args_list
+        if call.args[0] is copy_and_register_ducklake_data_imports_activity
+    )
+    cleanup_call = next(
+        call
+        for call in execute_activity.await_args_list
+        if call.args[0] is registration_module.cleanup_ducklake_registration_tables_activity
+    )
+    names = copy_call.args[1].registration_table_names
+    assert names.shadow_name == trino_registration_module.staging_table_name(started_at, uuid.UUID(int=7).hex[:16])
+    assert cleanup_call.args[1] == DuckLakeRegisterCleanupInputs(
+        team_id=1,
+        schema_name=metadata.ducklake_schema_name,
+        table_names=[names.shadow_name],
+        use_trino=True,
+    )
+    assert _recorded_source_job_statuses(execute_activity) == [
+        registration_module.ManagedWarehouseSourceJobStatus.RUNNING,
+        registration_module.ManagedWarehouseSourceJobStatus.COMPLETED,
+    ]
+
+
 @pytest.mark.asyncio
 async def test_workflow_records_end_to_end_duration_on_post_gate_failure(monkeypatch):
     started_at = dt.datetime(2026, 7, 30, 12, 0, 0)
@@ -1315,6 +1561,23 @@ def _activity_inputs() -> DuckLakeRegisterDataImportsActivityInputs:
             landing_uri="s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job",
             ducklake_schema_name="posthog_data_imports_team_1",
             ducklake_table_name="postgres_customers",
+        ),
+    )
+
+
+def _trino_activity_inputs() -> DuckLakeRegisterDataImportsActivityInputs:
+    inputs = _activity_inputs()
+    return dataclasses.replace(
+        inputs,
+        metadata=dataclasses.replace(
+            inputs.metadata,
+            landing_uri=(
+                "s3://ducklake/_imports/posthog_data_imports_team_1/postgres_customers/schema/job/1234567890_abcdef12"
+            ),
+            use_trino=True,
+        ),
+        registration_table_names=registration_module.trino_registration_table_names(
+            minted_at=dt.datetime(2026, 7, 30, 12, 0, 0, tzinfo=dt.UTC), token="0123456789abcdef"
         ),
     )
 
