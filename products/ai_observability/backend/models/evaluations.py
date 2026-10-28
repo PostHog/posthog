@@ -301,9 +301,10 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
                 # A newer compiler can reject source that an older one accepted. Keep the stored bytecode so the
                 # owner can still pause or delete the evaluation, but never let broken code start to run again.
                 activating = self.status == EvaluationStatus.ACTIVE and self._initial_status != self.status
-                bytecode = None if activating else self._stored_hog_bytecode_if_source_unchanged()
-                if bytecode is None:
+                stored_bytecode = None if activating else self._stored_hog_bytecode_if_source_unchanged()
+                if stored_bytecode is None:
                     raise ValidationError({"evaluation_config": f"Failed to compile Hog code: {e}"})
+                bytecode = stored_bytecode
             self.evaluation_config["bytecode"] = bytecode
 
         # Compile bytecode for each condition
