@@ -363,7 +363,9 @@ def _source_schema(table: TableDefinition) -> SourceSchema:
             if is_files
             else incremental_field(DELTA_VERSION_COLUMN, IncrementalFieldType.Integer)
         ],
-        prefers_full_refresh=True,
+        # An incremental sync keeps a Delta table equal to its source, so only file tables need a full
+        # refresh to drop the rows of deleted files.
+        prefers_full_refresh=is_files,
         schema_metadata=table.schema_metadata(),
     )
 

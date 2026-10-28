@@ -7,6 +7,7 @@ import {
     type ReportPlanApi,
     type ReportRankingApi,
     type ReportSourceSuggestionApi,
+    type ReviewerRemovalReasonEnumApi,
     type SignalReportPullRequestApi,
     type SignalReportAssigneeApi,
     type SignalReportAssignmentPrStateEnumApi,
@@ -23,6 +24,12 @@ import {
 // The canonical signal taxonomy, generated from the backend enums via OpenAPI/Orval.
 // Re-exported under the domain names so consumers don't carry the `Api` suffix around.
 export { SignalSourceProduct, SignalSourceType }
+
+/** Why a person removed a reviewer, sent with the remove edit. The web app sends a reason only. */
+export interface ReviewerRemoval {
+    reason: ReviewerRemovalReasonEnumApi | null
+    note?: string
+}
 
 // Suggested-reviewer shapes, read from `suggested_reviewers` artefact content (a polymorphic JSON
 // field with no per-type OpenAPI schema). Mirrors EnrichedReviewer/RelevantCommit in
@@ -88,6 +95,7 @@ export const ACTIONABLE_ACTIONABILITY_VALUES: SignalReportActionability[] = [
 ]
 
 export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_at'> {
+    startup_failure?: SignalReportApi['startup_failure']
     pull_requests?: readonly SignalReportPullRequestApi[]
     assignee?: SignalReportAssigneeApi | null
     id: string

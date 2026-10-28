@@ -229,7 +229,7 @@ export const UI_APPS: Array<{
         appDir: 'generated/experiment-results',
     },
     {
-        name: 'PostHog Chart Walkthrough',
+        name: 'PostHog Chart Explanation',
         uri: EXPLAIN_CHART_RESOURCE_URI,
         description: 'A trends chart with the moments that stand out highlighted, explained one chapter at a time.',
         appDir: 'explain-chart',

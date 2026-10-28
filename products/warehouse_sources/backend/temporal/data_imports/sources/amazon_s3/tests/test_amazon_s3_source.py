@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import pyarrow as pa
 import structlog
@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     NO_SUCH_BUCKET_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.filesystem import ObjectStore
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import build_default_sync_settings
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import source_inputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import ReplaceScope, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.amazons3 import (
@@ -178,13 +179,57 @@ def test_sync_keeps_the_settings_the_table_was_discovered_with(tmp_path: Path) -
     assert rows[0]["c1"] == "1"
 
 
+def test_a_delta_table_defaults_to_incremental_and_a_file_table_to_full_refresh(tmp_path: Path) -> None:
+    write(tmp_path, "exports/orders/a.csv", b"id\n1\n")
+    write(tmp_path, "exports/sales/_delta_log/00000000000000000000.json", b"")
+    write(tmp_path, "exports/sales/part-0.parquet", b"")
+
+    schemas = _LocalAmazonS3Source(tmp_path).get_schemas(make_config(), team_id=1)
+
+    assert {schema.name: build_default_sync_settings(schema) for schema in schemas} == {
+        "orders": {"sync_type": "full_refresh"},
+        "sales": {
+            "sync_type": "incremental",
+            "incremental_field": "_delta_version",
+            "incremental_field_type": IncrementalFieldType.Integer,
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "url_pattern, looks_up_region",
+    [
+        ("https://customer-data.s3.us-east-1.amazonaws.com/exports/", False),
+        ("https://customer-data.s3.amazonaws.com/exports/", True),
+        ("https://s3.amazonaws.com/customer-data/exports/", True),
+        ("s3://customer-data/exports/", True),
+    ],
+)
+def test_a_url_without_a_region_uses_the_bucket_region_from_s3(
+    tmp_path: Path, url_pattern: str, looks_up_region: bool
+) -> None:
+    write(tmp_path, "exports/a.csv", b"id\n1\n")
+
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.amazon_s3.source.lookup_s3_bucket_region",
+        return_value="us-east-1",
+    ) as lookup:
+        valid, message = _LocalAmazonS3Source(tmp_path).validate_credentials(
+            make_config(url_pattern=url_pattern), team_id=1
+        )
+
+    # `_LocalAmazonS3Source.open_store` checks that the store gets the bucket's region.
+    assert (valid, message) == (True, None)
+    assert lookup.called is looks_up_region
+    assert all(lookup_call == call("customer-data") for lookup_call in lookup.call_args_list)
+
+
 @pytest.mark.parametrize(
     "files, config_overrides, fs_error, expected",
     [
         ({"exports/a.csv": b"id\n1\n"}, {}, None, None),
         ({"exports/notes.md": b"# hi"}, {}, None, NO_IMPORTABLE_FILES_ERROR),
         ({}, {"url_pattern": "https://s3.us-east-1.amazonaws.com/Not_A_Bucket/exports/"}, None, INVALID_CONFIG_ERROR),
-        ({}, {"url_pattern": "https://customer-data.s3.amazonaws.com/exports/"}, None, INVALID_CONFIG_ERROR),
         ({}, {}, PermissionError("Access Denied"), ACCESS_DENIED_ERROR),
         ({}, {}, FileNotFoundError("NoSuchBucket"), NO_SUCH_BUCKET_ERROR),
     ],

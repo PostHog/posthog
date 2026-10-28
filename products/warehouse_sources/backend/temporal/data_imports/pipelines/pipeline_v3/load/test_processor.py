@@ -1,3 +1,4 @@
+import datetime as dt
 import tempfile
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
@@ -45,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _file_count_after_write,
     _get_write_type,
     _mark_job_completed,
+    _partial_data_loading_applies,
     _promote_loaded_prefixes,
     _promote_staged_cursor,
     _read_existing_rows_by_first_pk,
@@ -719,7 +721,9 @@ class TestPostWriteHandleReads:
         helper.latest_known_version.return_value = 7 + commits_behind
         mock_writer_cls.return_value.write = AsyncMock(return_value=returned)
         mock_writer_cls.return_value.deltalite_file_count_change = deltalite_file_count_change
-        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+        job = MagicMock()
+        job.schema.table = None
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = job
 
         process_message(_message(batch_index=batch_index, is_first_ever_sync=is_first_ever_sync))
 
@@ -2475,11 +2479,44 @@ class TestTableHandleReuse:
             assert rows.schema.names == ["id", "name", "added"]
 
 
+class TestPartialDataLoading:
+    @parameterized.expand(
+        [
+            ("first_sync_of_a_new_table", True, ExternalDataSourceType.STRIPE, None, True),
+            ("table_created_by_this_job", True, ExternalDataSourceType.STRIPE, 1, True),
+            ("rebuild_of_a_served_table", True, ExternalDataSourceType.STRIPE, -1, False),
+            ("other_source", True, ExternalDataSourceType.POSTGRES, None, False),
+            ("not_a_rebuild", False, ExternalDataSourceType.STRIPE, None, False),
+        ]
+    )
+    def test_only_a_new_table_publishes_each_batch(
+        self,
+        _name: str,
+        is_first_ever_sync: bool,
+        source_type: str,
+        table_created_hours_after_job: int | None,
+        expected: bool,
+    ) -> None:
+        job_created_at = dt.datetime(2026, 10, 1, tzinfo=dt.UTC)
+        job = MagicMock(created_at=job_created_at)
+        schema = MagicMock()
+        schema.source.source_type = source_type
+        schema.table = (
+            None
+            if table_created_hours_after_job is None
+            else MagicMock(created_at=job_created_at + dt.timedelta(hours=table_created_hours_after_job))
+        )
+        signal = ExportSignalMessage.from_dict(_message(is_first_ever_sync=is_first_ever_sync))
+
+        assert _partial_data_loading_applies(signal, schema, job) is expected
+
+
 class TestCompactionDuringRebuild:
     @staticmethod
     def _schema(source_type: str = "Postgres") -> MagicMock:
         schema = MagicMock()
         schema.source.source_type = source_type
+        schema.table = None
         return schema
 
     @parameterized.expand(
@@ -2514,12 +2551,15 @@ class TestCompactionDuringRebuild:
         signal = ExportSignalMessage.from_dict(_message(**{"batch_index": 10, **overrides}))
         members = members or [(signal.run_uuid, signal.batch_index)]
         with patch(f"{_PROCESSOR}.is_schema_flag_enabled", return_value=True):
-            assert _rebuild_compaction_due(signal, self._schema(source_type or "Postgres"), members) is expected
+            assert (
+                _rebuild_compaction_due(signal, self._schema(source_type or "Postgres"), MagicMock(), members)
+                is expected
+            )
 
     def test_the_flag_turns_it_off(self) -> None:
         signal = ExportSignalMessage.from_dict(_message(batch_index=10, sync_type="full_refresh"))
         with patch(f"{_PROCESSOR}.is_schema_flag_enabled", return_value=False):
-            assert _rebuild_compaction_due(signal, self._schema(), [(signal.run_uuid, 10)]) is False
+            assert _rebuild_compaction_due(signal, self._schema(), MagicMock(), [(signal.run_uuid, 10)]) is False
 
     def _load(self, table_path: str, sync_type: str, first_index: int, *, enabled: bool) -> None:
         write_deltalake(table_path, TestTableHandleReuse._SEED)

@@ -144,6 +144,24 @@ def reconcile_inbox_onboarding(team_id: int, failed_checks: int = 0) -> None:
 
 
 @shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=10,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+@with_team_scope(canonical=True)
+def settle_scout_spend(team_id: int, run_id: str) -> None:
+    from products.signals.backend.spend import (
+        complete_task_spend,  # noqa: PLC0415 - keeps spend accounting off the task registration import path
+    )
+
+    complete_task_spend(team_id=team_id, run_id=run_id)
+
+
+@shared_task(
     name="products.signals.backend.tasks.refresh_pull_request_participants",
     ignore_result=True,
     bind=True,

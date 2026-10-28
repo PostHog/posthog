@@ -167,18 +167,27 @@ class TestOrbSource:
 
     @parameterized.expand(
         [
-            ("CreditLedgerEntries", "credits/ledger"),
-            ("BalanceTransactions", "balance_transactions"),
+            ("CreditLedgerEntries", "customers", "credits/ledger", "customer_id", None),
+            ("BalanceTransactions", "customers", "balance_transactions", "customer_id", None),
+            ("CreditBlocks", "customers", "credits", "customer_id", "true"),
+            ("SubscriptionSchedules", "subscriptions", "schedule", "subscription_id", None),
         ]
     )
-    def test_fanout_walks_every_customer_and_tags_rows(self, endpoint: str, child_suffix: str) -> None:
+    def test_fanout_walks_every_parent_and_tags_rows(
+        self,
+        endpoint: str,
+        parent: str,
+        child_suffix: str,
+        parent_key: str,
+        include_all_blocks: str | None,
+    ) -> None:
         result = self._driver().run(
             endpoint,
             [
-                self._page([{"id": "cus_1"}, {"id": "cus_gone"}, {"id": "cus_2"}]),
+                self._page([{"id": "p_1"}, {"id": "p_gone"}, {"id": "p_2"}]),
                 self._page([{"id": "entry-1"}], next_cursor="child-next"),
                 self._page([{"id": "entry-2"}]),
-                # A customer deleted after the parent listing must not fail the fan-out.
+                # A parent deleted after the parent listing must not fail the fan-out.
                 ScriptedResponse(status=404, json={"title": "Not found"}),
                 self._page([{"id": "entry-3"}]),
             ],
@@ -186,17 +195,47 @@ class TestOrbSource:
 
         assert result.raised is None
         assert result.paths == [
-            "/v1/customers",
-            f"/v1/customers/cus_1/{child_suffix}",
-            f"/v1/customers/cus_1/{child_suffix}",
-            f"/v1/customers/cus_gone/{child_suffix}",
-            f"/v1/customers/cus_2/{child_suffix}",
+            f"/v1/{parent}",
+            f"/v1/{parent}/p_1/{child_suffix}",
+            f"/v1/{parent}/p_1/{child_suffix}",
+            f"/v1/{parent}/p_gone/{child_suffix}",
+            f"/v1/{parent}/p_2/{child_suffix}",
         ]
         assert result.params("cursor") == [None, None, "child-next", None, None]
+        assert result.params("limit") == ["100"] * 5
+        assert result.params("include_all_blocks") == [None] + [include_all_blocks] * 4
         assert result.rows == [
-            {"id": "entry-1", "customer_id": "cus_1"},
-            {"id": "entry-2", "customer_id": "cus_1"},
-            {"id": "entry-3", "customer_id": "cus_2"},
+            {"id": "entry-1", parent_key: "p_1"},
+            {"id": "entry-2", parent_key: "p_1"},
+            {"id": "entry-3", parent_key: "p_2"},
+        ]
+
+    @parameterized.expand(
+        [
+            ("CustomerCosts", "customers", "customer_id"),
+            ("SubscriptionCosts", "subscriptions", "subscription_id"),
+        ]
+    )
+    def test_costs_fanout_fetches_one_unpaginated_response_per_parent(
+        self, endpoint: str, parent: str, parent_key: str
+    ) -> None:
+        cost = {"timeframe_start": "2026-10-01T00:00:00Z", "subtotal": "1.00", "total": "1.00", "per_price_costs": []}
+        result = self._driver().run(
+            endpoint,
+            [
+                self._page([{"id": "p_1"}, {"id": "p_2"}]),
+                ScriptedResponse(json={"data": [{**cost, "timeframe_end": "2026-10-02T00:00:00Z"}]}),
+                ScriptedResponse(json={"data": [{**cost, "timeframe_end": "2026-10-03T00:00:00Z"}]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [f"/v1/{parent}", f"/v1/{parent}/p_1/costs", f"/v1/{parent}/p_2/costs"]
+        # The parent listing still pages at the maximum size; the costs endpoint takes no page size.
+        assert result.params("limit") == ["100", None, None]
+        assert [(row[parent_key], row["timeframe_end"]) for row in result.rows] == [
+            ("p_1", "2026-10-02T00:00:00Z"),
+            ("p_2", "2026-10-03T00:00:00Z"),
         ]
 
     def test_fanout_resume_skips_completed_customers(self) -> None:
