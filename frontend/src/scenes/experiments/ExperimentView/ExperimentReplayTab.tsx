@@ -91,7 +91,7 @@ const LIST_UNAVAILABLE_COPY: Record<ExperimentRecordingsListUnavailableReason, {
     },
     group_aggregated: {
         dataAttr: 'experiment-recordings-unavailable-group-aggregated',
-        copy: "This experiment counts groups rather than individual people, so its exposures can't be matched to a variant here. Recordings still carry the variant each person saw, so you can watch them by variant in session replay.",
+        copy: "This experiment counts groups rather than individual people, so its exposures can't be matched to a variant here. When the flag is evaluated in the browser or app, recordings carry the variant, so you can watch them by variant in session replay.",
     },
     no_variants: {
         dataAttr: 'experiment-recordings-unavailable-no-variants',
@@ -273,10 +273,11 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
     // are meaningless without one. Placed after every hook, as the draft case always was.
     if (listUnavailableReason !== null) {
         const { dataAttr, copy } = LIST_UNAVAILABLE_COPY[listUnavailableReason]
-        // The variant lands on the person's own `$feature/<key>` event property whatever the flag
-        // aggregates by, so session replay can filter by variant even though a group exposure has
-        // no person for this tab to match a recording to. The window is the experiment's own, so
-        // the lists hold the sessions the experiment ran over.
+        // A group exposure has no person for this tab to match a recording to, but flag evaluation
+        // stamps the variant on the person's own events as `$feature/<key>`, so a replay filter can
+        // still separate the variants. The stamp comes from the SDK that evaluated the flag, so a
+        // flag evaluated only on the server leaves these lists empty. The window is the
+        // experiment's own, so the lists hold the sessions it ran over.
         const flagKey = experiment.feature_flag?.key
         const variantReplayLinks =
             listUnavailableReason === 'group_aggregated' && flagKey
