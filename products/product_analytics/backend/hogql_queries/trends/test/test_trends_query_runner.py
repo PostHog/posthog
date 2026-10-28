@@ -6648,6 +6648,16 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ("event_series_with_two_flag_keys", _flag_call_event_series, ["probe-flag", "other-flag"], 3),
             ("action_series", _flag_call_action_series, ["probe-flag"], 2),
             ("action_with_two_flag_call_steps", _flag_call_action_series, ["probe-flag", "other-flag"], 3),
+            ("daily_active_users", _flag_call_event_series, ["probe-flag"], 2, BaseMathType.DAU),
+            (
+                "breakdown_by_response",
+                _flag_call_event_series,
+                ["probe-flag"],
+                2,
+                None,
+                BreakdownFilter(breakdown="$feature_flag_response", breakdown_type=BreakdownType.EVENT),
+            ),
+            ("test_account_filters", _flag_call_event_series, ["probe-flag"], 2, None, None, True),
         ]
     )
     def test_flag_call_series_reads_flag_evaluations_when_the_rewrite_is_on(
@@ -6656,22 +6666,46 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         series: Callable[[Team, list[str]], EventsNode | ActionsNode],
         flag_keys: list[str],
         expected_count: int,
+        math: BaseMathType | None = None,
+        breakdown: BreakdownFilter | None = None,
+        filter_test_accounts: bool = False,
     ):
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization,
             defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
         )
+        if filter_test_accounts:
+            self.team.test_account_filters = [
+                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+            ]
+            self.team.save()
         _create_flag_evaluations(self.team.pk, "probe-flag", count=2)
         _create_flag_evaluations(self.team.pk, "other-flag")
         _create_flag_evaluations(self.team.pk, "unselected-flag")
+        node = series(self.team, flag_keys)
+        if math is not None:
+            node = node.model_copy(update={"math": math})
 
         with patch(
             "posthog.hogql.database.database.feature_enabled_or_false",
             side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-from-flag-evaluations",
         ):
-            response = self._run_trends_query("-7d", None, IntervalType.DAY, [series(self.team, flag_keys)])
+            # Mode 2 raises when the swapped query reads people differently, so the persons-on-events mode is fixed.
+            response = self._run_trends_query(
+                "-7d",
+                None,
+                IntervalType.DAY,
+                [node],
+                breakdown=breakdown,
+                filter_test_accounts=filter_test_accounts,
+                hogql_modifiers=HogQLQueryModifiers(
+                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+                ),
+            )
 
         assert response.results[0]["count"] == expected_count
+        if breakdown is not None:
+            assert response.results[0]["breakdown_value"] == "true"
 
     def test_multiple_breakdowns_work_with_formula(self):
         self._create_test_events()
