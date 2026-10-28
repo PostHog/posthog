@@ -52,6 +52,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     SESSION_SETTLING_SECONDS,
     STICKY_WARM_SHAPES_KEY,
     TEAM_SHAPE_SET_TTL_SECONDS,
+    TODAY_STALE_GRACE_CAP_SECONDS,
     VOLUME_FLOOR_READY_KEY,
     VOLUME_FLOOR_TEAMS_KEY,
     BelowVolumeFloor,
@@ -156,6 +157,17 @@ class TestLazyTtlSchedule(BaseTest):
         schedule = lazy_ttl_schedule(self.team)
         assert schedule.max_window_days == LAZY_MAX_WINDOW_DAYS
         assert schedule.default_ttl_seconds == 90 * 24 * 60 * 60
+
+    def test_today_ttl_stays_below_the_hourly_warmer_and_apart_from_yesterday(self) -> None:
+        # At or above the hourly warmer cadence, a warm run finds today's job still valid and
+        # skips it, so today refreshes every other hour. Equal to yesterday's TTL,
+        # `split_ranges_by_ttl` fuses both days into one job and every today rebuild rescans yesterday.
+        with time_machine.travel("2026-08-20T12:00:00Z", tick=False):
+            schedule = lazy_ttl_schedule(self.team)
+            today_ttl = schedule.get_ttl(datetime(2026, 8, 20, tzinfo=UTC))
+            yesterday_ttl = schedule.get_ttl(datetime(2026, 8, 19, tzinfo=UTC))
+        assert today_ttl == 50 * 60
+        assert today_ttl != yesterday_ttl
 
 
 class TestCheckCommonEligibility(BaseTest):
@@ -842,8 +854,55 @@ class TestWebEnsurePrecomputed(BaseTest):
 
     @parameterized.expand(
         [
-            # A fresh-enough current-day bucket is still hours coarse (today band
-            # is 4h), which an hourly graph renders as missing recent data. On a
+            # TTL plus grace bounds how old served current-day data can be, so a range
+            # that includes today must not inherit the long configured grace.
+            ("includes_today", datetime(2026, 8, 21, tzinfo=UTC), {}, 4 * 3600, TODAY_STALE_GRACE_CAP_SECONDS),
+            # Teams ahead of UTC keep their local morning in the previous UTC window.
+            (
+                "includes_today_ahead_of_utc",
+                datetime(2026, 8, 20, tzinfo=UTC),
+                {"timezone": "Asia/Tokyo"},
+                4 * 3600,
+                TODAY_STALE_GRACE_CAP_SECONDS,
+            ),
+            # Past windows are settled, so the full grace keeps them served while revalidating.
+            ("ends_yesterday", datetime(2026, 8, 20, tzinfo=UTC), {}, 4 * 3600, 4 * 3600),
+            # The cap only lowers the grace and never raises a shorter configured one.
+            ("configured_below_cap", datetime(2026, 8, 21, tzinfo=UTC), {}, 600, 600),
+            ("forced_includes_today", datetime(2026, 8, 21, tzinfo=UTC), {"forced": True}, 4 * 3600, None),
+            ("background_includes_today", datetime(2026, 8, 21, tzinfo=UTC), {"background": True}, 4 * 3600, None),
+        ]
+    )
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_stale_grace_capped_for_ranges_including_today(
+        self, _name, time_range_end, context, configured_grace, expected_grace, mock_ensure
+    ):
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+        reset_query_tags()
+        self.team.timezone = context.get("timezone", "UTC")
+        tags: dict[str, str] = {}
+        if context.get("forced"):
+            tags["execution_mode"] = ExecutionMode.CALCULATE_BLOCKING_ALWAYS.value
+        if context.get("background"):
+            tags["trigger"] = REVALIDATION_TRIGGER
+        with (
+            time_machine.travel("2026-08-20T12:00:00Z", tick=False),
+            override_settings(WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS=configured_grace),
+            tags_context(**tags),
+        ):
+            web_ensure_precomputed(
+                team=self.team,
+                ttl_seconds={"default": 3600},
+                table=None,
+                time_range_start=datetime(2026, 8, 13, tzinfo=UTC),
+                time_range_end=time_range_end,
+            )
+        assert mock_ensure.call_args.kwargs["stale_while_revalidate_seconds"] == expected_grace
+
+    @parameterized.expand(
+        [
+            # A fresh-enough current-day bucket is still up to a TTL coarse,
+            # which an hourly graph renders as missing recent data. On a
             # forced refresh the current day must read as expired so the request
             # falls through to the live query instead of the coarse bucket.
             ("forced", ExecutionMode.CALCULATE_BLOCKING_ALWAYS.value, None, True),

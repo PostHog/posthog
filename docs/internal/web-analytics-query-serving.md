@@ -37,7 +37,7 @@ request
   │     range ≤ MAX_PRECOMPUTE_DAYS, filters events-evaluable
   │     (restricted teams: single exact $host only)
   │   freshness: all day-buckets fresh per TTL band ──▶ serve *_lazy_query (~80–200ms)
-  │     expired within the SWR grace (default 4h) ──▶ serve stale + enqueue revalidation
+  │     expired within the SWR grace (default 4h, 70m if today) ──▶ serve stale + enqueue revalidation
   │ miss (NEVER builds inline — enqueues debounced background warm)
   ▼
 [2] Preaggregated tables (deprecated)
@@ -159,7 +159,7 @@ Full details in [PRECOMPUTATION.md](../../products/web_analytics/PRECOMPUTATION.
 
 | Day age        | TTL    |
 | -------------- | ------ |
-| Today (0d)     | 4h     |
+| Today (0d)     | 50m    |
 | Yesterday (1d) | 6h     |
 | 2–7d           | 5d     |
 | 8–14d          | 7d     |
@@ -167,6 +167,7 @@ Full details in [PRECOMPUTATION.md](../../products/web_analytics/PRECOMPUTATION.
 | 22–35d         | 12–14d |
 | 36d+           | 90d    |
 
+- User reads never get precomputed current-day data older than 2h: the 50m TTL plus a grace capped at 70m for any range that includes the current team-local day. The TTL stays below the hourly demand warmer cadence, so each warm run rebuilds today.
 - Stale-while-revalidate: 4h grace by default, set by `WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS` (read per call, so a new env value applies once the process restarts; must stay under the framework's 48h ClickHouse expiry buffer, which the executor enforces). User reads inside the grace get the stale row instantly (tagged `precompute_stale=true`) with a Celery revalidation enqueued (10-min debounce). Background warmers and forced refreshes are never served stale — they are the refresh.
 - Session settling: 24h forward pad on event scans, matching the SDK session length cap.
 - OOM protection: a team that OOMs during a build gets Redis-pinned for 14 days to 1-day insert windows.

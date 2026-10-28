@@ -286,6 +286,15 @@ def stale_while_revalidate_seconds() -> int:
     return settings.WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS
 
 
+# A user read never gets precomputed current-day data older than 2 hours: TTL plus
+# the capped grace. Past that, the read misses and falls back to the live query. The TTL
+# must stay below the hourly demand warmer's cadence, so that each warm run finds the
+# current-day window expired and rebuilds it. A TTL at or above the cadence lets a run
+# skip a window that is still valid, which doubles the effective refresh interval.
+TODAY_TTL_SECONDS = 50 * 60
+TODAY_STALE_GRACE_CAP_SECONDS = 70 * 60
+
+
 WEB_ANALYTICS_LAZY_PRECOMPUTE_CHECK_MISS = Counter(
     "web_analytics_lazy_precompute_check_miss_total",
     "User-facing reads that found no covering READY jobs, fell back to the live query, and enqueued a background warm.",
@@ -607,6 +616,16 @@ def handle_stale_served(*, runner: Any, family: str) -> None:
     enqueue_stale_revalidation(team=runner.team, query=runner.query, family=family, debounce_extra=debounce_extra)
 
 
+def _current_day_cutoff(team: Team) -> datetime:
+    # Jobs split on UTC day boundaries, so the cutoff is the UTC-day floor of team-local
+    # midnight. A cutoff at local midnight itself sits after the window start for teams
+    # behind UTC and never matches the current day's window.
+    today_start_local = (
+        django_timezone.now().astimezone(ZoneInfo(team.timezone)).replace(hour=0, minute=0, second=0, microsecond=0)
+    )
+    return floor_utc_day(today_start_local.astimezone(UTC))
+
+
 def web_ensure_precomputed(
     *, team: Team, shape_key_extra: Optional[str] = None, **kwargs: Any
 ) -> LazyComputationResult:
@@ -637,6 +656,7 @@ def web_ensure_precomputed(
         }
     background = is_background_warming_request()
     forced = is_forced_refresh_request()
+    current_day_cutoff = _current_day_cutoff(team)
     if "stale_while_revalidate_seconds" not in kwargs:
         if forced:
             # An explicit user-initiated force refresh must never be handed a
@@ -649,9 +669,16 @@ def web_ensure_precomputed(
             # different freshness clocks.
             kwargs["stale_while_revalidate_seconds"] = None
         else:
-            kwargs["stale_while_revalidate_seconds"] = resolve_stale_while_revalidate_seconds(
+            grace = resolve_stale_while_revalidate_seconds(
                 stale_while_revalidate_seconds(), BACKGROUND_WARMING_TRIGGERS
             )
+            # The executor applies one grace to every window of the request, so a range
+            # that touches the current day caps the grace for its older windows too.
+            # Those windows have multi-hour or multi-day TTLs, so the cap rarely applies to them.
+            time_range_end = kwargs.get("time_range_end")
+            if grace is not None and time_range_end is not None and time_range_end > current_day_cutoff:
+                grace = min(grace, TODAY_STALE_GRACE_CAP_SECONDS)
+            kwargs["stale_while_revalidate_seconds"] = grace
     # User-facing requests never compute inline: they are served from covering
     # READY jobs (fresh or within the stale grace) or told "miss" immediately so
     # the caller falls back to the live query. Construction happens only on
@@ -694,29 +721,19 @@ def web_ensure_precomputed(
         if pinned:
             schedule = replace(schedule, max_window_days=OOM_PIN_WINDOW_DAYS)
         if forced and not background:
-            # A within-TTL current-day bucket can still be hours behind (the
-            # today band is 4h), which on an hourly graph reads as missing
-            # recent data. Disabling the grace above cannot help there because
-            # the bucket is not stale, just coarse. Treat the windows covering
-            # the current team-local day as expired for this read only: the
-            # ensure reports a miss, the read falls through to the live query,
-            # and the SWR enqueue rebuilds the bucket in the background.
-            # Jobs split on UTC day boundaries, so the cutoff is the UTC-day
-            # floor of team-local midnight; a cutoff at local midnight itself
-            # sits after the window start for teams behind UTC and would never
-            # match today's window. Background builds are excluded because the
-            # same schedule sets the insert TTL, and the revalidation task runs
-            # under the forced execution mode, so it would persist the rebuilt
-            # bucket with a 1-second expiry that every ambient read then
-            # misses. `rules` are first-match by descending cutoff, so
-            # prepending wins over the normal today band.
-            today_start_local = (
-                django_timezone.now()
-                .astimezone(ZoneInfo(team.timezone))
-                .replace(hour=0, minute=0, second=0, microsecond=0)
-            )
-            forced_cutoff = floor_utc_day(today_start_local.astimezone(UTC))
-            schedule = replace(schedule, rules=[(forced_cutoff, 1), *schedule.rules])
+            # A within-TTL current-day bucket can still be up to a TTL behind,
+            # which on an hourly graph reads as missing recent data. Disabling
+            # the grace above cannot help there because the bucket is not
+            # stale, just coarse. Treat the windows covering the current
+            # team-local day as expired for this read only: the ensure reports
+            # a miss, the read falls through to the live query, and the SWR
+            # enqueue rebuilds the bucket in the background. Background builds
+            # are excluded because the same schedule sets the insert TTL, and
+            # the revalidation task runs under the forced execution mode, so it
+            # would persist the rebuilt bucket with a 1-second expiry that
+            # every ambient read then misses. `rules` are first-match by
+            # descending cutoff, so prepending wins over the normal today band.
+            schedule = replace(schedule, rules=[(current_day_cutoff, 1), *schedule.rules])
         kwargs["ttl_seconds"] = schedule
     result = ensure_precomputed(team=team, **kwargs)
     if result.ready and result.computed_at is not None and runner is not None:
@@ -757,15 +774,13 @@ _FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS: frozenset[str] = frozenset(
 
 # Hourly UTC bucketing TTL schedule. Two jobs in one:
 #
-# 1. Freshness — today gets 4h and yesterday 6h. Both must comfortably outlast
-#    the eager warmer's hourly force-refresh cadence: a user read that finds the
-#    window stale pays a synchronous recompute before reading, so a TTL near the
-#    warmer period (yesterday was 1h) races it and hands users multi-second
-#    waits. Recomputing more often buys nothing anyway — the ~6h HogQL result
-#    cache already fronts these queries, so a cache hit never reads the
-#    precompute. Today and yesterday must keep *distinct* TTLs or
-#    `split_ranges_by_ttl` fuses them into one 2-day job and every
-#    today-refresh recomputes yesterday too.
+# 1. Freshness — today gets TODAY_TTL_SECONDS and yesterday 6h. User reads never
+#    recompute inline: they are check-only, served fresh or stale within the
+#    grace, and a miss warms in the background. A short today TTL therefore
+#    costs background rebuilds, not user latency. Today's TTL stays below the
+#    hourly warmer cadence (see TODAY_TTL_SECONDS). Today and yesterday must
+#    keep *distinct* TTLs or `split_ranges_by_ttl` fuses them into one 2-day
+#    job and every today-refresh recomputes yesterday too.
 #    Windows aged 2+ days are *session-final*: sessions cap at 24h (the insert
 #    scans window_end+24h), so bounce/duration can no longer change, and
 #    measured late-event ingestion beyond 49h is ≤0.03% of pageviews on the
@@ -781,7 +796,7 @@ _FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS: frozenset[str] = frozenset(
 #    24-day merge is what drove the multi-hundred-million-row scans that OOM the
 #    insert on very high-traffic teams.
 LAZY_TTL_SECONDS: dict[str, int] = {
-    "0d": 4 * 60 * 60,  # today
+    "0d": TODAY_TTL_SECONDS,  # today
     "1d": 6 * 60 * 60,  # yesterday
     "7d": 5 * 24 * 60 * 60,  # days 2–7   → one ~6d job
     "14d": 7 * 24 * 60 * 60,  # days 8–14  → one 7d job

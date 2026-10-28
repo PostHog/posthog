@@ -137,7 +137,7 @@ Different freshness per how recent the data is:
 
 | Day age   | TTL     | Rationale                                                                        |
 | --------- | ------- | -------------------------------------------------------------------------------- |
-| Today     | 4 h     | Must outlast the hourly eager warmer so user reads never race a refresh          |
+| Today     | 50 min  | Below the hourly demand warmer cadence, so each warm run rebuilds today          |
 | Yesterday | 6 h     | Distinct from today's TTL so `split_ranges_by_ttl` keeps the two days separate   |
 | 2–7d      | 5 days  | Session-final (24h session cap) — recomputing an immutable window buys nothing   |
 | 8–14d     | 7 days  | Distinct per-week TTLs force weekly job boundaries, keeping INSERT scans bounded |
@@ -148,7 +148,11 @@ Different freshness per how recent the data is:
 Stored via the `LAZY_TTL_SECONDS` dict in `web_lazy_precompute_common.py` (see the comment there for the full freshness-vs-job-sizing reasoning); consumed by `lazy_computation_executor.parse_ttl_schedule` against the team's timezone.
 For the framework mechanisms behind it, see [design decisions](../analytics_platform/backend/lazy_computation/README.md#design-decisions).
 
-A user forced refresh treats today's bucket as expired for that read only (#86699): the 4-hour today band otherwise left hourly graphs hours behind after a Reload.
+A user read never gets precomputed current-day data older than 2 hours. A read whose range includes the current team-local day caps the stale grace at 70 minutes (`TODAY_STALE_GRACE_CAP_SECONDS`), on top of the 50-minute TTL (`TODAY_TTL_SECONDS`).
+Other ranges keep the configured grace.
+A short today TTL costs background rebuilds, not user latency, because user reads never compute inline.
+
+A user forced refresh treats today's bucket as expired for that read only (#86699): a within-TTL today band otherwise left hourly graphs behind after a Reload.
 The forced read goes live, but the stored bucket is not rebuilt early: the revalidation it enqueues runs as a background build with the normal TTL, finds the job still fresh, and reuses it.
 Later non-forced reads keep serving that bucket until its normal TTL lapses.
 Background builds never get this rule, because the same schedule stamps `expires_at` and the revalidation task runs in the forced mode, so it would store buckets that expire after 1 second.
