@@ -28,6 +28,9 @@ from products.error_tracking.backend.temporal.lifecycle.policies import (
     ALERT_DISPATCH_PATCH,
     ALERT_DISPATCH_RETRY_POLICY,
     ALERT_DISPATCH_SCHEDULE_TO_CLOSE_TIMEOUT,
+    SUMMARY_RETRY_POLICY,
+    SUMMARY_SCHEDULE_TO_CLOSE_TIMEOUT,
+    SUMMARY_START_TO_CLOSE_TIMEOUT,
 )
 
 WORKFLOW_NAME = "error-tracking-issue-created"
@@ -42,14 +45,6 @@ SEVERITY_INFERENCE_START_TO_CLOSE_TIMEOUT = timedelta(seconds=35)
 # Alerts wait for inference, so a model outage must not hold them past this bound, retries included.
 SEVERITY_INFERENCE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=45)
 SUMMARY_ON_WRITE_PATCH = "error-tracking-summary-on-write-activity"
-SUMMARY_RETRY_POLICY = common.RetryPolicy(
-    initial_interval=timedelta(seconds=5),
-    maximum_interval=timedelta(seconds=30),
-    maximum_attempts=3,
-)
-# Sized past one model call (ISSUE_SUMMARY_LLM_TIMEOUT_SECONDS) plus the category call and the input build.
-SUMMARY_START_TO_CLOSE_TIMEOUT = timedelta(seconds=60)
-SUMMARY_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(minutes=5)
 EMBEDDING_ACTIVITY_RETRY_POLICY = common.RetryPolicy(
     initial_interval=timedelta(seconds=1),
     maximum_interval=timedelta(seconds=15),
