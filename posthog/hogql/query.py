@@ -76,13 +76,20 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
-from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
+from posthog.errors import (
+    CHQueryErrorS3Error,
+    CHQueryErrorS3FileChangedDuringRead,
+    CHQueryErrorUnknownIdentifier,
+    ExposedCHQueryError,
+)
+from posthog.exceptions_capture import capture_exception
 from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.data_modeling.backend.facade import api as data_modeling_api
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 if TYPE_CHECKING:
@@ -144,6 +151,7 @@ class HogQLQueryExecutor:
     bypass_warehouse_access_control: bool = False
     user_access_control: Optional[UserAccessControl] = None
     resolver_factory: Optional[ResolverFactory] = None
+    refresh_stale_view_columns: bool = True
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -1063,6 +1071,35 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:
+        query = self.query
+        try:
+            return self._execute()
+        except CHQueryErrorUnknownIdentifier:
+            if not self._refreshed_stale_view_columns():
+                raise
+            return self._with_fresh_database(query).execute()
+
+    def _refreshed_stale_view_columns(self) -> bool:
+        view_ids = self.context.referenced_saved_query_ids
+        if not self.refresh_stale_view_columns or not view_ids:
+            return False
+        try:
+            return bool(data_modeling_api.refresh_view_columns(self.team, view_ids, self.user))
+        except Exception as e:
+            capture_exception(e, {"team_id": self.team.pk})
+            return False
+
+    def _with_fresh_database(
+        self, query: Union[str, ast.SelectQuery, ast.SelectSetQuery] | None
+    ) -> "HogQLQueryExecutor":
+        return dataclasses.replace(
+            self,
+            query=query,
+            context=dataclasses.replace(self.context, database=None),
+            refresh_stale_view_columns=False,
+        )
+
+    def _execute(self) -> HogQLQueryResponse:
         self._executing = True
         trace.get_current_span().set_attribute("team_id", self.team.pk)
         try:
