@@ -52,14 +52,6 @@ function dateInTimezone(instant: dayjs.Dayjs, timezone: string): string {
     return `${part('year')}-${part('month')}-${part('day')}`
 }
 
-function flagEvaluationsRetentionStartDate(timezone: string, asOf: dayjs.Dayjs = dayjs()): string {
-    // The subtraction runs on a UTC date so that no DST change can shift it.
-    return dayjs
-        .utc(dateInTimezone(asOf, timezone))
-        .subtract(FLAG_EVALUATIONS_RETENTION_DAYS, 'day')
-        .format('YYYY-MM-DD')
-}
-
 export interface FlagCallsInsightResponse {
     timezone?: string | null
     last_refresh?: string | null
@@ -71,19 +63,22 @@ function insightTimezone(response: FlagCallsInsightResponse | null | undefined):
     return response?.timezone || 'UTC'
 }
 
-export function insightFlagEvaluationsRetentionStartDate(
-    response: FlagCallsInsightResponse | null | undefined
-): string {
+/** The oldest day the window covers, as a `YYYY-MM-DD` date. Without a response, it is the UTC date as of now. */
+export function flagEvaluationsRetentionStartDate(response?: FlagCallsInsightResponse | null): string {
     // The backend resolves the 90-day preset from when the query ran, so a cached result counts back from then.
     const asOf = response?.last_refresh ? dayjs(response.last_refresh) : dayjs()
-    return flagEvaluationsRetentionStartDate(insightTimezone(response), asOf)
+    // The subtraction runs on a UTC date so that no DST change can shift it.
+    return dayjs
+        .utc(dateInTimezone(asOf, insightTimezone(response)))
+        .subtract(FLAG_EVALUATIONS_RETENTION_DAYS, 'day')
+        .format('YYYY-MM-DD')
 }
 
 // Start of the oldest day that FLAG_EVALUATIONS_RETENTION_DAYS covers. dateStringToDayJs resolves the ranges this is
 // compared to against UTC, so the boundary is UTC too: a browser-local midnight sits hours off it,
 // which drops the 90-day preset in a timezone ahead of UTC.
 export function flagEvaluationsRetentionStart(): dayjs.Dayjs {
-    return dayjs.utc(flagEvaluationsRetentionStartDate('UTC'))
+    return dayjs.utc(flagEvaluationsRetentionStartDate())
 }
 
 export function reachesPastFlagEvaluationsRetention(dateFrom: string | null): boolean {
@@ -92,20 +87,20 @@ export function reachesPastFlagEvaluationsRetention(dateFrom: string | null): bo
     return !parsed || parsed.isBefore(flagEvaluationsRetentionStart())
 }
 
-// Trends sends the compared range it resolved in the team timezone. Stickiness and funnels do not, so this
-// estimates it. The estimate shifts the start in the browser's timezone, so across a DST change it can move the
-// start to the previous day.
+// Trends sends the compared range it resolved in the team timezone. The Metric display's change pill gets one
+// even though its query has no compareFilter. Stickiness and funnels send none, so this estimates the range in the
+// browser's timezone. Across a DST change, the estimate can move the start to the previous day.
 function comparedPeriodStart(
     start: dayjs.Dayjs,
     response: FlagCallsInsightResponse | null | undefined,
     compareFilter: CompareFilter | null | undefined
 ): dayjs.Dayjs {
-    if (!compareFilter?.compare) {
-        return start
-    }
     const resolvedFrom = response?.resolved_compare_date_range?.date_from
     if (resolvedFrom) {
         return dayjs(resolvedFrom)
+    }
+    if (!compareFilter?.compare) {
+        return start
     }
     const compareToComponents = dateStringToComponents(compareFilter.compare_to ?? null)
     return compareToComponents
@@ -136,5 +131,5 @@ export function insightReachesPastFlagEvaluationsRetention({
     // The window covers whole days in the team timezone. This compares dates, not instants. A DST change can
     // repeat midnight. The backend starts the 90-day preset at the first midnight. An instant comparison against
     // the second midnight would show the notice for the preset.
-    return dateInTimezone(comparedStart, insightTimezone(response)) < insightFlagEvaluationsRetentionStartDate(response)
+    return dateInTimezone(comparedStart, insightTimezone(response)) < flagEvaluationsRetentionStartDate(response)
 }

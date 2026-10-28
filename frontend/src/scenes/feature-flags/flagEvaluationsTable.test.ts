@@ -102,6 +102,19 @@ describe('flagEvaluationsTable', () => {
             true,
         ],
         [
+            'a Metric whose change pill compares against the period before the 90-day preset',
+            '-90d',
+            resolved('2025-11-02T00:00:00+02:00', {
+                timezone: 'Africa/Johannesburg',
+                resolved_compare_date_range: {
+                    date_from: '2025-08-03T00:00:00+02:00',
+                    date_to: '2025-11-02T00:00:00+02:00',
+                },
+            }),
+            undefined,
+            true,
+        ],
+        [
             'a comparison whose start the backend resolved inside the window',
             '-30d',
             resolved(daysAgo(30), { resolved_compare_date_range: { date_from: daysAgo(60), date_to: daysAgo(30) } }),

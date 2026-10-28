@@ -24,7 +24,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import {
     FLAG_EVALUATIONS_TABLE,
-    insightFlagEvaluationsRetentionStartDate,
+    flagEvaluationsRetentionStartDate,
     insightReachesPastFlagEvaluationsRetention,
 } from 'scenes/feature-flags/flagEvaluationsTable'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
@@ -2334,7 +2334,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
         flagCallsRetentionStartDate: [
             (s) => [s.insightData],
-            (insightData: Record<string, any>): string => insightFlagEvaluationsRetentionStartDate(insightData),
+            (insightData: Record<string, any>): string => flagEvaluationsRetentionStartDate(insightData),
         ],
         isNonTimeSeriesDisplay: [
             (s) => [s.display],
