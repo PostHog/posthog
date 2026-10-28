@@ -32,6 +32,8 @@ ENDPOINTS_LIMIT = 500
 # The map joins spans to their parents, so it reads a bounded sample of traces, not the whole window.
 MAP_TRACE_LIMIT = 2000
 MAP_EDGES_LIMIT = 1000
+# Caps the rows the self-join holds in memory, however many spans the sampled traces carry.
+MAP_SPAN_LIMIT = 200_000
 DEFAULT_ENVIRONMENT = "default"
 
 ENVIRONMENT_ATTRIBUTES = (
@@ -173,13 +175,16 @@ def _service_edges_query(
 ) -> ast.SelectQuery:
     # A call shows up as a callee span whose parent span belongs to another service, so each call
     # counts once however many client spans the caller wraps around it. Both ends must be in the
-    # environment: a sampled trace can also hold spans from another environment.
+    # environment: a sampled trace can also hold spans from another environment. The CTE is read once
+    # per side of the join, so its span budget needs a stable order for both sides to see the same rows.
     query = parse_select(
         """
         WITH spans AS (
             SELECT trace_id, span_id, parent_span_id, service_name, status_code, duration_nano
             FROM posthog.trace_spans
             WHERE {where} AND {env_expr} = {environment} AND trace_id IN {trace_ids}
+            ORDER BY trace_id, span_id
+            LIMIT {span_limit}
         )
         SELECT
             p.service_name AS caller,
@@ -199,6 +204,7 @@ def _service_edges_query(
             "env_expr": environment_expr(),
             "environment": ast.Constant(value=environment),
             "trace_ids": ast.Tuple(exprs=[ast.Constant(value=trace_id) for trace_id in trace_ids]),
+            "span_limit": ast.Constant(value=MAP_SPAN_LIMIT),
             "limit": ast.Constant(value=MAP_EDGES_LIMIT),
         },
     )

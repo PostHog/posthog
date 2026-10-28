@@ -80,6 +80,13 @@ class TestServiceMapAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(data["trace_count"], 1)
         self.assertEqual({e["calls"] for e in data["edges"]}, {1})
 
+    def test_span_input_to_the_join_is_capped(self) -> None:
+        # One span has no parent to join to, so a one-span budget leaves no edges over the same trace sample.
+        with patch("products.apm.backend.logic.health.sources.MAP_SPAN_LIMIT", 1):
+            data = self._get()
+        self.assertEqual(data["edges"], [])
+        self.assertEqual(data["trace_count"], 4)
+
     def test_403_when_the_flag_is_off(self) -> None:
         with patch(FLAG_PATCH, return_value=False):
             response = self.client.get(URL.format(self.team.id))
