@@ -155,6 +155,8 @@ def _client_config(config: BraintrustSourceConfig, team_id: int) -> ClientConfig
         "auth": {"type": "bearer", "token": config.api_key},
         "allowed_hosts": [],
         "allow_redirects": False,
+        # A response over the API's size limit comes back as a 303 to a presigned S3 object.
+        "presigned_redirect_host_suffixes": [".amazonaws.com"],
         "request_timeout": (10, 60),
         "paginator": {
             "type": "cursor",

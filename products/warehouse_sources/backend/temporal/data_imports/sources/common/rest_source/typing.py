@@ -229,6 +229,10 @@ class ClientConfig(TypedDict, total=False):
     # When False, redirects are not followed and any 3xx is rejected — closes the redirect-based
     # off-host escape that host-pinning alone would miss. Defaults to True (follow redirects).
     allow_redirects: bool
+    # Host suffixes (e.g. ``.amazonaws.com``) of presigned storage that a vendor offloads large
+    # responses to. With redirects disabled, a 302/303 to an HTTPS host ending in one of them is
+    # fetched with a bare GET that carries no credentials, and its body is read as the page.
+    presigned_redirect_host_suffixes: Optional[list[str]]
     # Per-request (connect, read) timeout in seconds. Left unset, the tracked session applies
     # `default_request_timeout()`. A source pointed at a customer-controlled host should set a
     # tighter value. A single float applies to both connect and read; a tuple sets them separately.

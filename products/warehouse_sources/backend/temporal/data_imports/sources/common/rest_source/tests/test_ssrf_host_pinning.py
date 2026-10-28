@@ -1,3 +1,4 @@
+import gzip
 import json
 from typing import Any, Optional
 
@@ -5,8 +6,9 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
-from requests import Response
+from requests import Response, Session
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
 )
@@ -110,16 +112,33 @@ class TestSSRFHostPinning:
             pages = list(pager)
             assert [row["id"] for page in pages for row in page] == [1, 2]
 
+    @parameterized.expand(
+        [
+            ("redirects_disabled", None, "https://evil.com/steal"),
+            (
+                "host_outside_presigned_suffixes",
+                [".amazonaws.com"],
+                "https://evil.com/a.amazonaws.com?X-Amz-Signature=sekret",
+            ),
+            ("presigned_host_over_http", [".amazonaws.com"], "http://bucket.s3.amazonaws.com/o?X-Amz-Signature=sekret"),
+        ]
+    )
     @patch(f"{MODULE}.make_tracked_session")
-    def test_redirect_rejected_when_disabled(self, MockSession) -> None:
+    def test_redirect_rejected_when_disabled(
+        self, _name: str, presigned_suffixes: Optional[list[str]], location: str, MockSession
+    ) -> None:
         mock_session = _session_echoing_url(MockSession)
-        mock_session.send.return_value = _make_response(
-            {}, status_code=302, headers={"Location": "https://evil.com/steal"}
-        )
+        mock_session.send.return_value = _make_response({}, status_code=303, headers={"Location": location})
 
-        client = RESTClient(base_url="https://api.example.com", allow_redirects=False)
-        with pytest.raises(ValueError, match="Unexpected redirect"):
+        client = RESTClient(
+            base_url="https://api.example.com",
+            allow_redirects=False,
+            presigned_redirect_host_suffixes=presigned_suffixes,
+        )
+        with pytest.raises(ValueError, match="Unexpected redirect") as exc_info:
             list(client.paginate(path="/items", data_selector="results"))
+        assert "sekret" not in str(exc_info.value)
+        assert mock_session.send.call_count == 1
 
         # The redirect target was never followed: send ran once and got no allow_redirects.
         _, kwargs = mock_session.send.call_args
@@ -135,3 +154,32 @@ class TestSSRFHostPinning:
 
         _, kwargs = mock_session.send.call_args
         assert kwargs.get("allow_redirects") is True
+
+    @parameterized.expand([("plain_body", False), ("gzipped_body", True)])
+    def test_presigned_redirect_fetched_without_credentials(self, _name: str, gzipped: bool) -> None:
+        location = "https://bucket.s3.us-east-1.amazonaws.com/responses/page.json.gz?X-Amz-Signature=sig"
+        offloaded = _make_response({"results": [{"id": 1}]})
+        if gzipped:
+            offloaded._content = gzip.compress(offloaded.content)
+        session = Session()
+        client = RESTClient(
+            base_url="https://api.example.com",
+            auth=BearerTokenAuth("api-secret"),
+            headers={"X-Api-Key": "header-secret"},
+            session=session,
+            allow_redirects=False,
+            presigned_redirect_host_suffixes=[".amazonaws.com"],
+        )
+
+        with patch.object(
+            session,
+            "send",
+            side_effect=[_make_response({}, status_code=303, headers={"Location": location}), offloaded],
+        ) as send:
+            pages = list(client.paginate(path="/items", method="post", data_selector="results"))
+
+        assert pages == [[{"id": 1}]]
+        followed = send.call_args_list[1].args[0]
+        assert (followed.method, followed.url) == ("GET", location)
+        assert "Authorization" not in followed.headers
+        assert "X-Api-Key" not in followed.headers

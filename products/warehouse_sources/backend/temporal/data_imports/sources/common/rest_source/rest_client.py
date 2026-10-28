@@ -1,5 +1,6 @@
 import re
 import copy
+import gzip
 import time
 import logging
 from collections.abc import Callable, Iterator
@@ -29,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     request_deadline,
     suspend_adapter_retries,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import redact_request_urls
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
     interruptible_wait,
 )
@@ -394,6 +396,7 @@ class RESTClient:
         retry_backoff_max_seconds: float = DEFAULT_RETRY_BACKOFF_MAX_SECONDS,
         allowed_hosts: Optional[list[str]] = None,
         allow_redirects: bool = True,
+        presigned_redirect_host_suffixes: Optional[list[str]] = None,
         request_timeout: Optional[RequestTimeout] = None,
         capture: bool = True,
         retry_budget_seconds: Optional[float] = None,
@@ -417,6 +420,9 @@ class RESTClient:
         # a tighter value. ``NO_REQUEST_TIMEOUT`` is the only way to send a request with no deadline.
         self._request_timeout = request_timeout
         self._allow_redirects = allow_redirects
+        self._presigned_redirect_host_suffixes = tuple(
+            suffix.lower() for suffix in presigned_redirect_host_suffixes or () if suffix
+        )
         # When set (even to an empty list), every outgoing request URL — including
         # paginator next-page links and seeded resume URLs — must resolve to one of
         # these hosts (the base_url host is always implicitly allowed). This pins
@@ -502,6 +508,42 @@ class RESTClient:
                         "port is rejected to prevent credential exfiltration."
                     )
                 )
+
+    def _presigned_redirect_url(self, response: Response) -> Optional[str]:
+        if not self._presigned_redirect_host_suffixes or response.status_code not in (302, 303):
+            return None
+        location = response.headers.get("Location")
+        if not location:
+            return None
+        split = urlsplit(location)
+        host = (split.hostname or "").lower()
+        if (
+            split.scheme.lower() != "https"
+            or split.username is not None
+            or split.password is not None
+            or not host.endswith(self._presigned_redirect_host_suffixes)
+        ):
+            return None
+        return location
+
+    def _fetch_presigned_redirect(self, url: str) -> Response:
+        # The signed URL is its own credential, so the request is built outside the session to keep
+        # the API auth and session headers off it, and its URL stays out of logs and samples.
+        prepared = PreparedRequest()
+        prepared.prepare(method="GET", url=url)
+        with redact_request_urls():
+            response = self._send(prepared)
+        if not response.ok:
+            # An expired or missing object is fixed by asking the API again for a fresh URL.
+            raise RESTClientRetryableError(
+                f"HTTP {response.status_code} fetching an offloaded response from {_safe_url(url)}"
+            )
+        if response.content[:2] == b"\x1f\x8b":
+            try:
+                response._content = gzip.decompress(response.content)
+            except (OSError, EOFError) as e:
+                raise RESTClientRetryableError(f"Truncated offloaded response from {_safe_url(url)}") from e
+        return response
 
     def paginate(
         self,
@@ -644,6 +686,9 @@ class RESTClient:
         try:
             with request_deadline(deadline):
                 response = self._send(prepared)
+                presigned_url = self._presigned_redirect_url(response)
+                if presigned_url is not None:
+                    response = self._fetch_presigned_redirect(presigned_url)
         except ChunkedEncodingError as e:
             raise RESTClientRetryableError(self._redact(f"Connection broken while reading response: {e}")) from e
         except RequestsConnectionError as e:
@@ -682,7 +727,8 @@ class RESTClient:
             raise ValueError(
                 self._redact(
                     f"Unexpected redirect ({response.status_code}) to "
-                    f"{response.headers.get('Location')!r} from {prepared.url}; refusing to follow."
+                    f"{_safe_url(response.headers.get('Location') or '')!r} from {_safe_url(prepared.url or '')}; "
+                    "refusing to follow."
                 )
             )
 
