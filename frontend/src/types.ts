@@ -46,6 +46,7 @@ import type {
     OrganizationNotificationLockApi,
     ProjectApi,
     SharingConfigurationApi,
+    TeamFeatureFlagPolicyConfigApi,
 } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
@@ -926,7 +927,7 @@ export interface TeamType extends TeamBasicType {
     customer_analytics_config: CustomerAnalyticsConfig
     workflows_config: WorkflowsConfig
     // Optional so cached team objects from before this field shipped still typecheck.
-    feature_flag_policy_config?: FeatureFlagPolicyConfig
+    feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     business_model?: 'b2b' | 'b2c' | 'other' | null
 }
 
@@ -946,10 +947,6 @@ export interface WorkflowsConfig {
     // Null on either disables the marketing frequency cap.
     marketing_frequency_cap_max_messages?: number | null
     marketing_frequency_cap_window_days?: number | null
-}
-
-export interface FeatureFlagPolicyConfig {
-    require_tags: boolean
 }
 
 export interface ProductIntentType {
@@ -2512,6 +2509,8 @@ export interface BillingType {
     billing_plan: BillingPlan | null
     startup_program_label?: StartupProgramLabel | null
     startup_program_label_previous?: StartupProgramLabel | null
+    /** False when the YC credits do not renew, for example after a YC program block */
+    startup_program_credits_renew?: boolean
     is_annual_plan_customer?: boolean | null
     account_owner?: {
         email?: string
@@ -4890,6 +4889,7 @@ export interface PreflightStatus {
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
+    cohort_csv_upload_max_bytes?: number
     /** Whether the instance has an MCP server that the WebMCP proxy can reach. */
     webmcp_available?: boolean
     object_storage: boolean
@@ -5339,6 +5339,8 @@ export interface TiledIconModuleProps {
 export type EventOrPropType = EventDefinition & PropertyDefinition
 
 export interface AppContext {
+    /** The page left out the user's data, and the app fetches it at boot. See lib/utils/deferredAppContext. */
+    deferred?: boolean
     run_mode?: 'US' | 'EU' | 'DEV' | 'E2E' | 'LOCAL' | 'HOBBY'
     current_user: UserType | null
     current_project: ProjectType | null
@@ -6194,6 +6196,7 @@ export enum ActivityScope {
     CROSS_PROJECT_DASHBOARD = 'CrossProjectDashboard',
     REPLAY = 'Replay',
     REPLAY_SCANNER = 'ReplayScanner',
+    REPLAY_OBSERVATION = 'ReplayObservation',
     VISION_ALERT_CONFIGURATION = 'VisionAlertConfiguration',
     // TODO: doh! we don't need replay and recording
     RECORDING = 'recording',

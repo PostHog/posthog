@@ -23,6 +23,7 @@ from trino.exceptions import TrinoUserError
 from posthog.hogql.resolver import ResolverFactory
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 
+from posthog.clickhouse.client.execute import KillSwitchLevel
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
@@ -163,14 +164,46 @@ class TestMaterializeViewManagedWarehouseActivity:
             is_ready.assert_not_called()
 
     @pytest.mark.parametrize(
-        "compile_error,error_tracked,alias_dispatch_fails",
+        "compile_error,error_tracked,alias_dispatch_fails,upstream_unbuilt,failed_status",
         [
-            (None, False, False),
-            (ValueError("Trino compilation failed"), True, False),
-            (TrinoLoweringError("TRINO_TABLE_LOCATOR_MISSING", "table"), False, False),
-            (TrinoUserError({"errorName": "COLUMN_NOT_FOUND", "errorType": "USER_ERROR"}), False, False),
-            (TrinoUserError({"errorName": "SYNTAX_ERROR", "errorType": "USER_ERROR"}), True, False),
-            (None, True, True),
+            (None, False, False, False, None),
+            (ValueError("Trino compilation failed"), True, False, False, DataModelingJobStatus.FAILED),
+            (
+                TrinoLoweringError("TRINO_TABLE_LOCATOR_MISSING", "table"),
+                False,
+                False,
+                False,
+                DataModelingJobStatus.FAILED,
+            ),
+            (
+                TrinoUserError({"errorName": "COLUMN_NOT_FOUND", "errorType": "USER_ERROR"}),
+                False,
+                False,
+                False,
+                DataModelingJobStatus.FAILED,
+            ),
+            (
+                TrinoUserError({"errorName": "TABLE_NOT_FOUND", "errorType": "USER_ERROR"}),
+                False,
+                False,
+                True,
+                DataModelingJobStatus.SKIPPED,
+            ),
+            (
+                TrinoUserError({"errorName": "TABLE_NOT_FOUND", "errorType": "USER_ERROR"}),
+                False,
+                False,
+                False,
+                DataModelingJobStatus.FAILED,
+            ),
+            (
+                TrinoUserError({"errorName": "SYNTAX_ERROR", "errorType": "USER_ERROR"}),
+                True,
+                False,
+                False,
+                DataModelingJobStatus.FAILED,
+            ),
+            (None, True, True, False, None),
         ],
     )
     async def test_trino_shadow_records_execution_or_compilation_result(
@@ -184,6 +217,8 @@ class TestMaterializeViewManagedWarehouseActivity:
         compile_error: Exception | None,
         error_tracked: bool,
         alias_dispatch_fails: bool,
+        upstream_unbuilt: bool,
+        failed_status: DataModelingJobStatus | None,
     ) -> None:
         inputs = ManagedWarehouseShadowInputs(
             team_id=ateam.pk,
@@ -223,6 +258,10 @@ class TestMaterializeViewManagedWarehouseActivity:
                 side_effect=lambda saved_query: setattr(saved_query, "query", executable_query),
             ),
             unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse.unbuilt_upstream_saved_query_ids",
+                return_value=frozenset({uuid4()}) if upstream_unbuilt else frozenset(),
+            ),
+            unittest.mock.patch(
                 "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse.capture_exception"
             ) as capture,
         ):
@@ -246,7 +285,7 @@ class TestMaterializeViewManagedWarehouseActivity:
         if compile_error is not None:
             reconcile_aliases.assert_not_awaited()
             assert result.error == str(compile_error)
-            assert ajob.status == DataModelingJobStatus.FAILED
+            assert ajob.status == failed_status
         else:
             reconcile_aliases.assert_awaited_once_with(ateam.pk, str(asaved_query.id))
             assert result.row_count == 12
@@ -394,11 +433,23 @@ class TestFailMaterializationActivity:
         # terminal transition must stamp it (the model default is the job's start time).
         assert ajob.last_run_at > ajob.created_at
 
-    async def test_does_not_overwrite_already_terminal_job(self, activity_environment, ateam, anode, ajob, adag):
-        ajob.status = DataModelingJob.Status.COMPLETED
+    @pytest.mark.parametrize(
+        "status,error",
+        [
+            (DataModelingJob.Status.COMPLETED, None),
+            # A Trino shadow saved as skipped, then backstopped as orphaned after the worker died,
+            # would otherwise become a failure that counts toward suspension.
+            (DataModelingJob.Status.SKIPPED, "TABLE_NOT_FOUND: upstream missing"),
+        ],
+    )
+    async def test_does_not_overwrite_already_terminal_job(
+        self, activity_environment, ateam, anode, ajob, adag, status, error
+    ):
+        ajob.status = status
+        ajob.error = error
         await database_sync_to_async(ajob.save)()
         await database_sync_to_async(ajob.refresh_from_db)()
-        completed_last_run_at = ajob.last_run_at
+        terminal_last_run_at = ajob.last_run_at
 
         inputs = FailMaterializationInputs(
             team_id=ateam.pk,
@@ -406,12 +457,13 @@ class TestFailMaterializationActivity:
             dag_id=str(adag.id),
             job_id=str(ajob.id),
             error="Late failure",
+            update_node=False,
         )
         await activity_environment.run(fail_materialization_activity, inputs)
         await database_sync_to_async(ajob.refresh_from_db)()
-        assert ajob.status == DataModelingJob.Status.COMPLETED
-        assert ajob.error is None
-        assert ajob.last_run_at == completed_last_run_at
+        assert ajob.status == status
+        assert ajob.error == error
+        assert ajob.last_run_at == terminal_last_run_at
 
     async def test_updates_node_system_properties(self, activity_environment, ateam, anode, ajob, adag):
         inputs = FailMaterializationInputs(
@@ -885,6 +937,7 @@ class TestNodeSuspension:
             "ch-offline.example.com:9440: While executing Remote. (ATTEMPT_TO_READ_AFTER_EOF)",
             "Cannot connect to host ch-offline.example.com:8443",
             'ProxyConnectionError: Failed to connect to proxy URL: "http://proxy.example.com:3128/"',
+            "PanicException: Memory pointer from external source (e.g, FFI) is not aligned with the specified scalar type.",
             "Abandoned: the materialization workflow is no longer running",
             "QueueEmpty: Application error",
             "Preempted: a new DAG run started before this job completed",
@@ -895,6 +948,8 @@ class TestNodeSuspension:
             "Error: InvalidMessageFormat: Arrow stream contains bytes that are not an IPC message: 'garbage'",
             'TrinoQueryError(type=INSUFFICIENT_RESOURCES, name=CLUSTER_OUT_OF_MEMORY, message="Query killed because the cluster is out of memory. Please try again in a few minutes.", query_id=20261011_000000_00000_abcde)',
             'TrinoQueryError(type=INTERNAL_ERROR, name=TOO_MANY_REQUESTS_FAILED, message="Encountered too many errors talking to a worker node. The node may have crashed or be under too much load.", query_id=20261017_000000_00000_abcde)',
+            'TrinoQueryError(type=INTERNAL_ERROR, name=PAGE_TRANSPORT_TIMEOUT, message="Page transport timed out. This is probably a transient issue, please retry.", query_id=20261024_000000_00000_abcde)',
+            "error 403: b'This tenant is not admitted to the pool yet; the request was not dispatched'",
         ],
     )
     async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):
@@ -928,17 +983,31 @@ class TestNodeSuspension:
             await database_sync_to_async(job.delete)()
 
     @pytest.mark.parametrize(
-        "identifier",
+        "error",
         [
-            "Preempted",
-            "QueueEmpty",
-            "ProxyConnectionError",
-            "InvalidMessageFormat: Arrow stream contains bytes that are not an IPC message: ",
-            "InvalidMessageFormat: Encapsulated IPC message format must begin with continuation bytes, received: ",
+            *(
+                f"Code: 47. DB::Exception: Missing columns: '{identifier}' while processing query"
+                for identifier in [
+                    "Preempted",
+                    "QueueEmpty",
+                    "ProxyConnectionError",
+                    "InvalidMessageFormat: Arrow stream contains bytes that are not an IPC message: ",
+                    "InvalidMessageFormat: Encapsulated IPC message format must begin with continuation bytes, received: ",
+                ]
+            ),
+            *(
+                f"TrinoUserError(type=USER_ERROR, name=COLUMN_NOT_FOUND, message=\"line 1:8: Column '{identifier}' cannot be resolved\", query_id=20261024_000000_00000_abcde)"
+                for identifier in [
+                    "error 403: b'This tenant is not admitted to the pool yet",
+                    "name=CLUSTER_OUT_OF_MEMORY,",
+                    "name=TOO_MANY_REQUESTS_FAILED,",
+                    "name=PAGE_TRANSPORT_TIMEOUT,",
+                ]
+            ),
         ],
     )
     async def test_suspends_when_a_customer_identifier_spells_an_abort_marker(
-        self, ateam, anode, asaved_query, adag, identifier
+        self, ateam, anode, asaved_query, adag, error
     ):
         from posthog.temporal.data_modeling.activities.utils import (
             CONSECUTIVE_FAILURES_TO_SUSPEND,
@@ -946,7 +1015,6 @@ class TestNodeSuspension:
             maybe_suspend_node_for_engine,
         )
 
-        error = f"Code: 47. DB::Exception: Missing columns: '{identifier}' while processing query"
         jobs = [
             await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error=error)
             for _ in range(CONSECUTIVE_FAILURES_TO_SUSPEND)
@@ -2188,6 +2256,40 @@ class TestHogqlTableModifiers:
             expected_sql_new_events_schema if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else expected_sql
         )
         assert captured_sql is not None and expected_sql in captured_sql
+
+    @pytest.mark.parametrize(
+        "kill_switch_level,expected_max_threads",
+        [
+            (KillSwitchLevel.OFF, None),
+            (KillSwitchLevel.LIGHT, 16),
+            (KillSwitchLevel.FULL, 8),
+        ],
+    )
+    async def test_kill_switch_lowers_the_threads_per_query(
+        self, ateam: Team, kill_switch_level: KillSwitchLevel, expected_max_threads: int | None
+    ) -> None:
+        client = _EmptyArrowClient(pa.schema([pa.field("id", pa.int64())]))
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
+            yield client
+
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.resolve_kill_switch_level",
+                lambda _team_id: kill_switch_level,
+            ),
+        ):
+            _ = [batch async for batch in hogql_table("SELECT 1", ateam, LOGGER.bind())]
+
+        assert client.arrow_query is not None
+        if expected_max_threads is None:
+            assert "max_threads" not in client.arrow_query
+        else:
+            assert f"max_threads={expected_max_threads}" in client.arrow_query
 
     async def test_compiles_account_dependencies_without_a_user(self, ateam: Team) -> None:
         schema_fields: list[pa.Field[Any]] = [

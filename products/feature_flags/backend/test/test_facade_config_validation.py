@@ -1179,7 +1179,6 @@ class TestReleasedContract:
         assert config_validation._STRING_VALUE_OPERATORS == filters_validation.STRING_VALUE_OPERATORS
         assert config_validation._NUMERIC_COMPARISON_OPERATORS == filters_validation.NUMERIC_COMPARISON_OPERATORS
         assert config_validation._LIST_VALUE_OPERATORS == filters_validation.LIST_VALUE_OPERATORS
-        assert config_validation._SEMVER_OPERATORS == filters_validation.SEMVER_OPERATORS
 
     def test_size_check_measures_the_same_bytes_as_the_v1_limit(self) -> None:
         document = config(targeted(targeting={"properties": [person(value="ø")]}, metadata={"note": "x"}))

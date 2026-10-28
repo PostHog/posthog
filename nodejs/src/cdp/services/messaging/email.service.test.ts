@@ -32,6 +32,7 @@ import {
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 import { MessageAssetsService } from './message-assets.service'
+import { RecipientTokensService } from './recipient-tokens.service'
 
 class ThrottlingException extends Error {
     constructor(message: string) {
@@ -1110,6 +1111,31 @@ describe('EmailService', () => {
                 expect(result.metrics.map((m) => m.metric_name)).not.toContain('email_sent')
             })
 
+            it('moves the first deliverable cc address to To when the To address is suppressed', async () => {
+                const suppressed = new Set(['test@example.com', 'cc-bounced@example.com', 'bcc-bounced@example.com'])
+                jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockImplementation((_teamId, email) =>
+                    Promise.resolve(suppressed.has(email))
+                )
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    cc: '"Bounced" <cc-bounced@example.com>, cc-1@example.com, cc-2@example.com',
+                    bcc: 'bcc-bounced@example.com',
+                })
+
+                const result = await service.executeSendEmail(invocation)
+
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.Destination).toEqual({
+                    ToAddresses: ['cc-1@example.com'],
+                    CcAddresses: ['cc-2@example.com'],
+                })
+                expect(result.metrics.map((m) => m.metric_name)).toContain('email_sent')
+                expect(result.logs.map((l) => l.message).join(' ')).toContain(
+                    'test@example.com, cc-bounced@example.com, bcc-bounced@example.com'
+                )
+            })
+
             it('calls SES when the recipient is not suppressed', async () => {
                 jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockResolvedValue(false)
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
@@ -1514,20 +1540,53 @@ describe('EmailService', () => {
             expect(sentCommand.input.Content.Simple.Body.Html.Data).toMatch(expected)
         })
 
-        it('should include unsubscribe headers for non-transactional emails', async () => {
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
-            invocation.hogFunction.metadata = { message_category_type: 'marketing' }
-            const result = await service.executeSendEmail(invocation)
-            expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            const headers = sentCommand.input.Content.Simple.Headers
-            expect(headers).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({ Name: 'List-Unsubscribe' }),
-                    expect.objectContaining({ Name: 'List-Unsubscribe-Post' }),
-                ])
-            )
-        })
+        it.each([
+            { name: 'a hog function send', fromHogFlow: false, parentRunId: null, expectedSource: {} },
+            {
+                name: 'a workflow send',
+                fromHogFlow: true,
+                parentRunId: null,
+                expectedSource: { app_source_id: 'function-1', instance_id: 'action-email' },
+            },
+            {
+                name: 'a broadcast send',
+                fromHogFlow: true,
+                parentRunId: 'batch-run-1',
+                expectedSource: { app_source_id: 'batch-run-1', instance_id: 'action-email' },
+            },
+        ])(
+            'includes unsubscribe headers for $name, attributed to the email it came from',
+            async ({ fromHogFlow, parentRunId, expectedSource }) => {
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                invocation.hogFunction.metadata = { message_category_type: 'marketing' }
+                if (fromHogFlow) {
+                    Object.assign(invocation, { hogFlow: { id: 'function-1', version: 1 }, parentRunId })
+                    invocation.state.actionId = 'action-email'
+                }
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                const headers = sentCommand.input.Content.Simple.Headers
+                expect(headers).toEqual(
+                    expect.arrayContaining([
+                        expect.objectContaining({ Name: 'List-Unsubscribe' }),
+                        expect.objectContaining({ Name: 'List-Unsubscribe-Post' }),
+                    ])
+                )
+                const unsubscribeUrl = headers.find((h: { Name: string }) => h.Name === 'List-Unsubscribe').Value
+                const token = unsubscribeUrl.match(/messaging-preferences\/([^/]+)\//)[1]
+                const validated = new RecipientTokensService(
+                    hub.ENCRYPTION_SALT_KEYS,
+                    hub.SITE_URL
+                ).validatePreferencesToken(token)
+                expect(validated).toEqual({
+                    valid: true,
+                    team_id: team.id,
+                    identifier: 'test@example.com',
+                    ...expectedSource,
+                })
+            }
+        )
 
         it('should not include unsubscribe headers for transactional emails (but tracking-code header is still set)', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })

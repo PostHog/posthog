@@ -170,10 +170,12 @@ export enum NodeKind {
     ExperimentQuery = 'ExperimentQuery',
     ExperimentExposureQuery = 'ExperimentExposureQuery',
     ExperimentEventExposureConfig = 'ExperimentEventExposureConfig',
+    ExperimentWarehouseNativeExposureConfig = 'ExperimentWarehouseNativeExposureConfig',
     ExperimentActorsQuery = 'ExperimentActorsQuery',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
     ExperimentDataWarehouseNode = 'ExperimentDataWarehouseNode',
+    ExperimentWarehouseNativeNode = 'ExperimentWarehouseNativeNode',
     ExperimentExposureNode = 'ExperimentExposureNode',
 
     // Database metadata
@@ -548,10 +550,8 @@ export interface HogQLQueryModifiers {
     materializedColumnsOptimizationMode?: 'disabled' | 'optimized'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
-    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
     useNewEventsSchema?: boolean
-    /** Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported. */
-    useNewEventsCluster?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     customBotDefinitions?: CustomBotRule[]
     /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
@@ -1992,6 +1992,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
 export interface BoxPlotDatum {
     day: string
     label: string
+    count?: integer
     min: number
     p25: number
     median: number
@@ -5688,6 +5689,7 @@ export type FileSystemIconType =
     | 'uptime_monitoring'
     | 'workflows'
     | 'broadcasts'
+    | 'transactional'
     | 'notebook'
     | 'action'
     | 'activity'
@@ -5811,19 +5813,6 @@ export type InsightQueryNode =
 
 export type ProductAnalyticsInsightQueryNode = Exclude<InsightQueryNode, WebStatsTableQuery | WebOverviewQuery>
 
-export interface ExperimentVariantTrendsBaseStats {
-    key: string
-    count: number
-    exposure: number
-    absolute_exposure: number
-}
-
-export interface ExperimentVariantFunnelsBaseStats {
-    key: string
-    success_count: number
-    failure_count: number
-}
-
 export interface MaxExperimentVariantResultBayesian {
     key: string
     chance_to_win: number | null
@@ -5857,14 +5846,6 @@ export interface MaxExperimentSummaryContext {
     stats_method: ExperimentStatsMethod
 }
 
-export enum ExperimentSignificanceCode {
-    Significant = 'significant',
-    NotEnoughExposure = 'not_enough_exposure',
-    LowWinProbability = 'low_win_probability',
-    HighLoss = 'high_loss',
-    HighPValue = 'high_p_value',
-}
-
 /** Stored shape of a legacy experiment metric. It no longer runs, so it is kept only to list and migrate legacy experiments. */
 export interface ExperimentFunnelsQuery {
     kind: NodeKind.ExperimentFunnelsQuery
@@ -5886,15 +5867,19 @@ export interface ExperimentTrendsQuery {
     fingerprint?: string
 }
 
-export type ExperimentExposureConfig = ExperimentEventExposureConfig | ActionsNode
+export type ExperimentExposureConfig =
+    | ExperimentEventExposureConfig
+    | ActionsNode
+    | ExperimentWarehouseNativeExposureConfig
 
 export interface ExperimentExposureCriteria {
     filterTestAccounts?: boolean
     exposure_config?: ExperimentExposureConfig
     /** Additional event (or action) an entity must emit at/after their first default exposure
      *  event before they count as exposed; exposure time becomes this event's timestamp.
-     *  Only valid with the default exposure event, not a custom `exposure_config`. */
-    activation_config?: ExperimentExposureConfig
+     *  Only valid with the default exposure event, not a custom `exposure_config`. Warehouse-native
+     *  activation has no defined semantics yet, so only events and actions apply here. */
+    activation_config?: ExperimentEventExposureConfig | ActionsNode
     multiple_variant_handling?: 'exclude' | 'first_seen'
 }
 
@@ -5902,6 +5887,19 @@ export interface ExperimentEventExposureConfig extends Node {
     kind: NodeKind.ExperimentEventExposureConfig
     event: string
     properties: AnyPropertyFilter[]
+}
+
+/** Exposures that live in the customer's warehouse, read through a direct connection. An experiment
+ *  with this exposure runs entirely in the warehouse, so every metric source must be an
+ *  `ExperimentWarehouseNativeNode` on the same connection. */
+export interface ExperimentWarehouseNativeExposureConfig extends Node {
+    kind: NodeKind.ExperimentWarehouseNativeExposureConfig
+    /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
+    connection_id: string
+    /** Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`,
+     *  `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies
+     *  the experiment's date range and multiple-variant handling. */
+    query: string
 }
 
 // ── Slim API types for experiment create/update ──────────────────────
@@ -6158,6 +6156,33 @@ export interface ExperimentDataWarehouseNode extends EntityNode {
     data_warehouse_join_key: string
 }
 
+/** The subset of `ExperimentMetricMathType` a warehouse-native source supports, with the same values. */
+export enum ExperimentWarehouseNativeMathType {
+    TotalCount = 'total',
+    Sum = 'sum',
+}
+
+/** Outcome rows that live in the customer's warehouse, read through a direct connection. PostHog joins
+ *  them to the experiment's exposures and aggregates them inside the warehouse, so the SQL never
+ *  mentions variants or exposures and only per-variant aggregates leave the warehouse. Distinct from
+ *  `ExperimentDataWarehouseNode`, which reads tables synced into PostHog. It does not extend
+ *  `EntityNode`: property filters and the other event settings cannot apply to SQL PostHog does not
+ *  parse, so the shape lists every supported field. Only mean and ratio metrics accept it. */
+export interface ExperimentWarehouseNativeNode extends Node {
+    kind: NodeKind.ExperimentWarehouseNativeNode
+    /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
+    connection_id: string
+    /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and
+     *  `timestamp` columns plus any numeric columns a metric can measure. */
+    query: string
+    /** How to aggregate the rows per entity. Defaults to `total` (row count). */
+    math?: ExperimentWarehouseNativeMathType
+    /** The numeric column `math` reads. Required when `math` is `sum`. One SQL relation can serve
+     *  several metrics, each reading a different column. */
+    math_property?: string
+    custom_name?: string
+}
+
 // Named separately from `ExperimentMetricSource` so the JSDoc `@discriminator` tag
 // can attach without tripping ts-json-schema-generator's dedup (same workaround
 // pattern as `ExperimentMetricUnion = ExperimentMetric`). The alias is the public
@@ -6165,7 +6190,11 @@ export interface ExperimentDataWarehouseNode extends EntityNode {
 /**
  * @discriminator kind
  */
-export type ExperimentMetricSourceUnion = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+export type ExperimentMetricSourceUnion =
+    | EventsNode
+    | ActionsNode
+    | ExperimentDataWarehouseNode
+    | ExperimentWarehouseNativeNode
 
 export type ExperimentMetricSource = ExperimentMetricSourceUnion
 
@@ -6196,6 +6225,13 @@ export type ExperimentRetentionStartUnion =
     | ExperimentExposureNode
 
 export type ExperimentRetentionStart = ExperimentRetentionStartUnion
+
+/**
+ * @discriminator kind
+ */
+export type ExperimentRetentionCompletionUnion = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+
+export type ExperimentRetentionCompletion = ExperimentRetentionCompletionUnion
 
 export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
     ExperimentMetricOutlierHandling & {
@@ -6242,7 +6278,7 @@ export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
     // start resolves to the experiment's own exposure event at query time.
     start_event: ExperimentRetentionStart
     // Event that defines the completion of the retention window
-    completion_event: ExperimentMetricSource
+    completion_event: ExperimentRetentionCompletion
 
     // Start of the retention window
     retention_window_start: integer
@@ -6305,19 +6341,7 @@ export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQuer
 }
 
 export interface ExperimentQueryResponse {
-    // Legacy fields
     kind?: NodeKind.ExperimentQuery
-    insight?: Record<string, any>[]
-    metric?: ExperimentMetric
-    variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[]
-    probability?: Record<string, number>
-    significant?: boolean
-    significance_code?: ExperimentSignificanceCode
-    stats_version?: integer
-    p_value?: number
-    credible_intervals?: Record<string, [number, number]>
-
-    // New fields
     baseline?: ExperimentStatsBaseValidated
     variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
 
@@ -8447,7 +8471,8 @@ export interface MarketingAnalyticsRecommendationsSource {
 export interface MarketingAnalyticsRecommendationsQuery extends DataNode<MarketingAnalyticsRecommendationsQueryResponse> {
     kind: NodeKind.MarketingAnalyticsRecommendationsQuery
     dateRange?: DateRange
-    sources: MarketingAnalyticsRecommendationsSource[]
+    /** Tables to read. Omit to read every synced Google Ads and Google Search Console source in the project. */
+    sources?: MarketingAnalyticsRecommendationsSource[]
 }
 
 export type MarketingAnalyticsRecommendationRule =
@@ -9356,6 +9381,14 @@ export interface SQLEditorConfiguration {
  * A null configuration and any absent key mean "default".
  * Writers must send the complete object; the server validates and replaces it wholesale.
  */
+/** One person's display choices for the Analytics lists. */
+export interface AnalyticsListDisplayConfiguration {
+    /** Leaves insights out of the All list. */
+    hide_insights?: boolean
+    /** The sort a list opens with. A column header click still changes the sort for that visit. */
+    default_sort?: '-last_viewed_at' | '-created_at'
+}
+
 export interface UserUIConfiguration {
     /**
      * Schema version of this configuration blob, for future format migrations.
@@ -9363,6 +9396,7 @@ export interface UserUIConfiguration {
      */
     version: number
     sql_editor?: SQLEditorConfiguration
+    analytics_list?: AnalyticsListDisplayConfiguration
     [key: string]: unknown
 }
 

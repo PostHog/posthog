@@ -411,6 +411,35 @@ if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS <= 0:
     raise ImproperlyConfigured(
         "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS must be a positive integer, or no platform insight check starts"
     )
+# Insight batch keys the platform starts per tick, across every team. A key is one team's checks due
+# in one slot. With a tick a minute, 60 times this must cover the keys due per hour, or hourly alerts
+# fall behind their cadence. The pool above bounds concurrent queries, not this. A key that finds the
+# pool full polls for a slot within its tick, so a high value costs waiting runs rather than load.
+# The default is never below the pool size, so a larger pool is never left idle. Discovery returns
+# every key in one activity result, so the cap keeps it at the 1000 keys the other sources use.
+ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK: int = get_from_env(
+    "ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK", max(200, ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS), type_cast=int
+)
+if not 0 < ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK <= 1000:
+    raise ImproperlyConfigured("ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK must be between 1 and 1000")
+# Chart renders for platform insight firings allowed to run at once, across every worker. A render
+# blocks a worker thread for up to 90 seconds, so this keeps renders from taking the slots that
+# planning and recording need.
+ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS: int = get_from_env(
+    "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS", 3, type_cast=int
+)
+if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS must be a positive integer, or no platform insight chart renders"
+    )
+# Billing batch keys the platform starts per tick, across every team. A key is one team's due alerts
+# and makes one billing service call, so this bounds the platform's load on that service. With a tick
+# a minute, 60 times this must cover the keys due per hour, or hourly alerts fall behind their cadence.
+ALERTS_PLATFORM_BILLING_KEYS_PER_TICK: int = get_from_env("ALERTS_PLATFORM_BILLING_KEYS_PER_TICK", 5, type_cast=int)
+if ALERTS_PLATFORM_BILLING_KEYS_PER_TICK <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_BILLING_KEYS_PER_TICK must be a positive integer, or no platform billing check starts"
+    )
 # The platform's parallel logs batches allowed to run at once, across every team. A batch runs its
 # cohort queries one after another, so this bounds the parallel run's concurrent logs queries.
 ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES: int = get_from_env(

@@ -10,6 +10,7 @@ from posthog.schema import (
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsRecommendationsQueryResponse,
     MarketingAnalyticsRecommendationsSource,
+    MarketingAnalyticsRecommendationsSourceType,
 )
 
 from posthog.hogql import ast
@@ -29,8 +30,14 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     TermKeywordStats,
     recommend,
 )
+from products.warehouse_sources.backend.facade.api import (
+    all_queryable_table_keys,
+    list_schemas_for_source,
+    list_sources,
+)
 
 ROW_LIMIT = 50000
+RECOMMENDATION_SOURCE_TYPES = ("GoogleAds", "GoogleSearchConsole")
 
 
 class MarketingAnalyticsRecommendationsQueryRunner(
@@ -65,10 +72,11 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         return ast.SelectQuery(select=[ast.Constant(value=1)])
 
     def _calculate(self) -> MarketingAnalyticsRecommendationsQueryResponse:
-        if not self.query.sources:
+        sources = self.query.sources if self.query.sources is not None else self._project_sources()
+        if not sources:
             return MarketingAnalyticsRecommendationsQueryResponse(results=[])
-        ads = [source for source in self.query.sources if source.sourceType == "GoogleAds"]
-        organic = [source for source in self.query.sources if source.sourceType == "GoogleSearchConsole"]
+        ads = [source for source in sources if source.sourceType == "GoogleAds"]
+        organic = [source for source in sources if source.sourceType == "GoogleSearchConsole"]
         date_from, date_to = self.query_date_range.date_from(), self.query_date_range.date_to()
         organic_queries = tuple(query for source in organic for query in self._organic_queries(source))
         site_urls = tuple(url for source in organic for url in self._site_urls(source))
@@ -91,6 +99,25 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             )
         ]
         return MarketingAnalyticsRecommendationsQueryResponse(results=_dedupe_organic_only(results))
+
+    def _project_sources(self) -> list[MarketingAnalyticsRecommendationsSource]:
+        table_keys = all_queryable_table_keys(self.team.pk)
+        sources = []
+        for source in list_sources(self.team.pk):
+            if source.source_type not in RECOMMENDATION_SOURCE_TYPES:
+                continue
+            tables = {
+                schema.name: table_keys[schema.table_id].queryable_key
+                for schema in list_schemas_for_source(source.id, self.team.pk)
+                if schema.should_sync
+                and schema.last_synced_at is not None
+                and schema.table_id is not None
+                and schema.table_id in table_keys
+            }
+            recommendation_source = _recommendation_source(source.source_type, tables)
+            if recommendation_source is not None:
+                sources.append(recommendation_source)
+        return sources
 
     def _readable(self, table: str | None) -> bool:
         if not table:
@@ -337,6 +364,30 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             if rows and rows[0][0]:
                 return rows[0][0]
         return None
+
+
+def _recommendation_source(source_type: str, tables: dict[str, str]) -> MarketingAnalyticsRecommendationsSource | None:
+    if source_type == "GoogleAds":
+        if "campaign" not in tables or "campaign_stats" not in tables:
+            return None
+        return MarketingAnalyticsRecommendationsSource(
+            sourceType=MarketingAnalyticsRecommendationsSourceType.GOOGLE_ADS,
+            campaignTable=tables["campaign"],
+            campaignStatsTable=tables["campaign_stats"],
+            campaignImpressionShareTable=tables.get("campaign_impression_share_stats"),
+            customerTable=tables.get("customer"),
+            searchTermTable=tables.get("search_term_stats"),
+            searchTermKeywordTable=tables.get("search_term_keyword_stats"),
+            performanceMaxSearchTermTable=tables.get("performance_max_search_term_stats"),
+        )
+    query_table = tables.get("search_analytics_by_query") or tables.get("search_analytics_by_query_page")
+    if query_table is None:
+        return None
+    return MarketingAnalyticsRecommendationsSource(
+        sourceType=MarketingAnalyticsRecommendationsSourceType.GOOGLE_SEARCH_CONSOLE,
+        queryTable=query_table,
+        sitesTable=tables.get("sites"),
+    )
 
 
 def _parse_reasons(value: str | None) -> tuple[str, ...]:

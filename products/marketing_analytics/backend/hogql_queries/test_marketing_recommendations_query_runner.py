@@ -3,6 +3,8 @@ from tempfile import TemporaryDirectory
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from posthog.schema import DateRange, MarketingAnalyticsRecommendationsQuery, MarketingAnalyticsRecommendationsSource
@@ -10,6 +12,7 @@ from posthog.schema import DateRange, MarketingAnalyticsRecommendationsQuery, Ma
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations_query_runner import (
     MarketingAnalyticsRecommendationsQueryRunner,
 )
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 
@@ -80,3 +83,56 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
 
         budget = [(rec.subject, rec.action) for rec in response.results if rec.rule == "budget_constrained"]
         assert budget == ([("Campaign 101", "Raise the daily budget from $100 to $300")] if has_status else [])
+
+
+class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
+    def _source(self, source_type: str, prefix: str, schemas: dict[str, bool]) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=prefix,
+            connection_id=prefix,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=source_type,
+            prefix=prefix,
+        )
+        for name, synced in schemas.items():
+            table = DataWarehouseTable.objects.create(
+                team=self.team, name=f"{prefix}{source_type.lower()}_{name}", columns={}, external_data_source=source
+            )
+            ExternalDataSchema.objects.create(
+                team=self.team,
+                source=source,
+                name=name,
+                table=table,
+                should_sync=synced,
+                last_synced_at=timezone.now() if synced else None,
+            )
+
+    def test_reads_synced_tables_of_every_google_source_when_the_query_names_none(self) -> None:
+        self._source(
+            "GoogleAds",
+            "acme",
+            {"campaign": True, "campaign_stats": True, "search_term_stats": True, "customer": False},
+        )
+        self._source("GoogleAds", "unsynced", {"campaign": True, "campaign_stats": False})
+        self._source("GoogleSearchConsole", "organic", {"search_analytics_by_query_page": True, "sites": True})
+        self._source("BingAds", "bing", {"campaign_performance_report": True})
+
+        runner = MarketingAnalyticsRecommendationsQueryRunner(
+            query=MarketingAnalyticsRecommendationsQuery(), team=self.team, user=self.user
+        )
+
+        sources = sorted(runner._project_sources(), key=lambda source: source.sourceType)
+        assert [source.model_dump(exclude_none=True) for source in sources] == [
+            {
+                "sourceType": "GoogleAds",
+                "campaignTable": "googleads.acme.campaign",
+                "campaignStatsTable": "googleads.acme.campaign_stats",
+                "searchTermTable": "googleads.acme.search_term_stats",
+            },
+            {
+                "sourceType": "GoogleSearchConsole",
+                "queryTable": "googlesearchconsole.organic.search_analytics_by_query_page",
+                "sitesTable": "googlesearchconsole.organic.sites",
+            },
+        ]

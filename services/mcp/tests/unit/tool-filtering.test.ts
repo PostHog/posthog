@@ -1096,7 +1096,6 @@ describe('Tool Filtering - Feature Flags', () => {
         const allFlags = getRequiredFeatureFlags()
         const branchFlags = [
             'scout-trials',
-            'self-optimising-workflows',
             'business-knowledge-github-repos',
             'signals-report-checks-replace',
             'inbox-report-actions-mcp',
@@ -1104,17 +1103,21 @@ describe('Tool Filtering - Feature Flags', () => {
             'cross-project-dashboards',
             'warehouse-suggestions',
             'scouts-tool-access',
+            'workflows-sending-tier-requests',
             'replay-vision-scanner-dashboard',
             'metrics-dashboard-import',
             'managed-warehouse-trino-query',
             'llm-analytics-tags',
             'marketing-analytics-conversion-setup-ai',
+            'marketing-analytics-recommendations',
             'insight-data-checks',
             'logs-agent-tools',
             'workflows-transactional-email-api',
             'activity-summary',
             'anomalies-search',
             'workflows-email-domain-agent-setup',
+            'feature-flag-rules-v2-mcp',
+            'investigate-insight',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
