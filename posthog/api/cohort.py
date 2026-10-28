@@ -39,7 +39,7 @@ from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT, LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.errors import BaseHogQLError, TableAccessDeniedError
+from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
@@ -67,6 +67,7 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.hogql_cohort_query import (
+    FLAG_CALL_READS_COMPILE_ERRORS,
     FlagCallReads,
     HogQLCohortQuery,
     batch_flag_call_reads,
@@ -1077,7 +1078,7 @@ def _flag_call_reads_or_none(criteria: Sequence[Property], team: Team) -> FlagCa
     values = [{**prop.to_dict(), "negation": False} for prop in criteria]
     try:
         return batch_flag_call_reads(Cohort(team=team, filters={"properties": {"type": "OR", "values": values}}), team)
-    except (BaseHogQLError, ValidationError, ValueError):
+    except FLAG_CALL_READS_COMPILE_ERRORS:
         return None
     except Exception as error:
         # A malformed filter value can fail an assert in the HogQL printer. The guard refuses the save, so the API

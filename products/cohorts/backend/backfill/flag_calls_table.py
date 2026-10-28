@@ -2,10 +2,6 @@ from collections.abc import Iterable
 from enum import StrEnum
 from typing import Any
 
-from rest_framework.exceptions import ValidationError
-
-from posthog.hogql.errors import BaseHogQLError
-
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT, FLAG_EVALUATIONS_TABLE
 from posthog.models.team.team import Team
 
@@ -29,11 +25,14 @@ def _slides_with_the_boundary(condition: dict[str, Any]) -> bool:
 
 def _reads_flag_evaluations(cohort: Cohort, conditions: list[dict[str, Any]], team: Team) -> bool:
     # hogql_cohort_query imports posthog.tasks.calculate_cohort, which imports this module through runs.
-    from posthog.hogql_queries.hogql_cohort_query import batch_flag_call_reads  # noqa: PLC0415
+    from posthog.hogql_queries.hogql_cohort_query import (  # noqa: PLC0415
+        FLAG_CALL_READS_COMPILE_ERRORS,
+        batch_flag_call_reads,
+    )
 
     try:
         reads = batch_flag_call_reads(cohort, team)
-    except (BaseHogQLError, ValidationError, ValueError) as error:
+    except FLAG_CALL_READS_COMPILE_ERRORS as error:
         raise FlagCallsTableUnresolved(
             f"The batch query of cohort {cohort.id} does not compile, so the run can't pick the table to read "
             f"its flag calls from: {error}"

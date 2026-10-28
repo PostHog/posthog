@@ -36,6 +36,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery, SelectSetNode, SelectSetQuery
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.flag_called_warnings import count_flag_calls_read_from_events
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -795,6 +796,10 @@ class HogQLCohortQuery:
         if condition.negation:
             raise ValidationError("Top level condition cannot be negated", str(self.property_groups))
         return condition.query
+
+
+# What batch_flag_call_reads raises when the cohort's batch query does not compile.
+FLAG_CALL_READS_COMPILE_ERRORS = (BaseHogQLError, ValidationError, ValueError)
 
 
 @frozen
