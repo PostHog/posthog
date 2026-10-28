@@ -90,7 +90,7 @@ function ExtensionPanelBody({ panelState }: { panelState: ExtensionPanelState })
                 </LemonBanner>
             )
         case 'ready':
-            return <ExtensionPageToolbar origin={panelState.origin} />
+            return <ExtensionPageToolbar />
     }
 }
 
