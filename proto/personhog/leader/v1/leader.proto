@@ -79,6 +79,7 @@ service PersonHogLeader {
   // is_identified = true, and last_seen_at = max(target, sources); the
   // version is max(target, max sealed) + 1 — at or above every sealed
   // source's death document, which derives from the same sealed + 1
+  // unless a source row moved after its seal and its tombstone raised it
   // (equal when the highest sealed version dominates; the streams are
   // per-person, so the relation is a convention, not a collision guard).
   // Safe under at-least-once delivery: re-applying the same fold on

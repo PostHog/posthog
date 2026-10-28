@@ -602,6 +602,60 @@ async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
     h.ctx.cleanup().await.expect("cleanup");
 }
 
+/// The fence stops leader writes only. A writer on the Postgres path can
+/// move a sealed source past its seal before the flip, and a tombstone at
+/// sealed + 1 would then tie or sit below the live row.
+#[tokio::test]
+async fn a_direct_postgres_write_between_seal_and_flip_cannot_outrank_the_source_tombstone() {
+    let h = MergeHarness::new().await;
+    let target = h.ctx.insert_person_with_distinct_id("raced-target").await;
+    let source = h.ctx.insert_person_with_distinct_id("raced-source").await;
+    h.set_person(target, r#"{"a": "target"}"#, 3, false).await;
+    h.set_person(source, r#"{"a": "source"}"#, 7, false).await;
+
+    let op_id = Uuid::now_v7();
+    let request = merge_request("raced-target", &["raced-source"]);
+    h.create(op_id, &request).await;
+    h.step(op_id).await.expect("started -> claimed");
+    let row = h.step(op_id).await.expect("claimed -> sources_sealed");
+    assert_eq!(row.step, "sources_sealed");
+
+    sqlx::query(&format!(
+        "UPDATE {} SET version = version + 3 WHERE team_id = $1 AND id = $2",
+        h.ctx.tables.person
+    ))
+    .bind(h.ctx.team_id as i32)
+    .bind(source)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("direct write");
+
+    h.step(op_id)
+        .await
+        .expect("sources_sealed -> document_folded");
+    h.step(op_id).await.expect("document_folded -> flipped");
+    let row = h.step(op_id).await.expect("flipped -> completed");
+    assert!(row.completed_at.is_some());
+
+    let (is_deleted, version, _) = h.person_state(source).await;
+    assert!(is_deleted);
+    assert_eq!(
+        version, 11,
+        "the tombstone must outrank the direct write, not just the seal"
+    );
+    let docs = h.leader.death_documents();
+    assert_eq!(docs.len(), 1);
+    assert_eq!(
+        docs[0].version, 11,
+        "the death document honors the tombstone"
+    );
+    let (_, target_version, _) = h.person_state(target).await;
+    assert_eq!(
+        target_version, 3,
+        "the fold is unaffected: it ran before the flip"
+    );
+}
+
 #[tokio::test]
 async fn a_merge_keeps_a_real_hash_key_over_the_cookieless_sentinel() {
     let h = MergeHarness::new().await;

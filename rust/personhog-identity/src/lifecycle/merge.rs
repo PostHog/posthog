@@ -251,6 +251,7 @@ const STEPS_TOTAL: &str = "personhog_lifecycle_merge_steps_total";
 const OUTCOMES_TOTAL: &str = "personhog_lifecycle_merge_outcomes_total";
 /// Pre-flip aborts by refusal slug.
 const ABORTS_TOTAL: &str = "personhog_lifecycle_merge_aborts_total";
+const TOMBSTONES_ABOVE_SEAL_TOTAL: &str = "personhog_lifecycle_merge_tombstones_above_seal_total";
 
 fn record_transition(from: &str, to: &str) {
     common_metrics::inc(
@@ -355,6 +356,11 @@ struct SealedSnapshot {
     // Defaulted so seals written before the field existed still parse.
     #[serde(default)]
     last_seen_at: Option<i64>,
+    // The version the flip's source tombstone committed at. Absent until
+    // the flip records it; the committed release forwards it so the death
+    // document lands at or above it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tombstone_version: Option<i64>,
 }
 
 pub struct MergeDriver {
@@ -1494,6 +1500,7 @@ fn snapshot_from_sealed(person: &Person) -> Result<SealedSnapshot, SagaError> {
         is_identified: person.is_identified,
         properties,
         last_seen_at: person.last_seen_at,
+        tombstone_version: None,
     })
 }
 
@@ -2019,9 +2026,12 @@ async fn move_hash_key_overrides(
     Ok(())
 }
 
-/// Scrub and tombstone the sealed source person rows at the death version
-/// the leader derives from the same seal (sealed + 1), so a reused key
-/// revives above it.
+/// Scrub and tombstone the sealed source person rows at sealed + 1, the
+/// death version the leader derives from the same seal, so a reused key
+/// revives above it. The fence stops leader writes only: a writer on the
+/// Postgres path can move a source row past its seal before the flip, so
+/// the tombstone also clears the row's own version. The committed version
+/// joins the seal, and the release carries it to the leader.
 async fn tombstone_sealed_sources(
     tx: &mut Tx<'_>,
     tables: &IdentityTables,
@@ -2035,21 +2045,65 @@ async fn tombstone_sealed_sources(
             properties = '{{}}'::jsonb,
             properties_last_updated_at = '{{}}'::jsonb,
             properties_last_operation = '{{}}'::jsonb,
-            version = (lop.sealed->>'version')::bigint + 1
+            version = GREATEST(COALESCE(p.version, 0) + 1, (lop.sealed->>'version')::bigint + 1)
         FROM {lop_table} lop
         WHERE lop.op_id = $1 AND lop.role = $3 AND lop.status = $4
           AND p.team_id = $2 AND p.id = lop.person_id
+        RETURNING p.id, p.version, (lop.sealed->>'version')::bigint
         "#,
         person_table = tables.person,
         lop_table = tables.lifecycle_op_person,
     );
-    sqlx::query(&query_tag!("merge_tombstone_sealed_sources", tombstone_sql))
-        .bind(op.op_id)
-        .bind(team_id)
-        .bind(ROLE_SOURCE)
-        .bind(STATUS_SEALED)
-        .execute(&mut **tx)
-        .await?;
+    let tombstoned_sources: Vec<(i64, i64, Option<i64>)> =
+        sqlx::query_as(&query_tag!("merge_tombstone_sealed_sources", tombstone_sql))
+            .bind(op.op_id)
+            .bind(team_id)
+            .bind(ROLE_SOURCE)
+            .bind(STATUS_SEALED)
+            .fetch_all(&mut **tx)
+            .await?;
+    let moved_above_seal: Vec<(i64, i64, i64)> = tombstoned_sources
+        .iter()
+        .filter_map(|(id, version, sealed)| {
+            sealed
+                .filter(|sealed| *version > sealed + 1)
+                .map(|sealed| (*id, sealed, *version))
+        })
+        .collect();
+
+    let (tombstoned_ids, tombstone_versions): (Vec<i64>, Vec<i64>) = tombstoned_sources
+        .into_iter()
+        .map(|(id, version, _)| (id, version))
+        .unzip();
+    mirrored_query!(
+        tables.is_validation(),
+        op = "merge_flip_record_tombstone_versions",
+        r#"
+        UPDATE {lifecycle_op_person} lop
+        SET sealed = lop.sealed || jsonb_build_object('tombstone_version', u.version)
+        FROM unnest($2::bigint[], $3::bigint[]) AS u(person_id, version)
+        WHERE lop.op_id = $1 AND lop.person_id = u.person_id
+        "#,
+        op.op_id,
+        &tombstoned_ids,
+        &tombstone_versions
+        => execute(&mut **tx)
+    )?;
+
+    if !moved_above_seal.is_empty() {
+        tracing::warn!(
+            op_id = %op.op_id,
+            team_id = op.team_id,
+            persons = moved_above_seal.len(),
+            person_sealed_tombstone = ?moved_above_seal,
+            "merge source tombstones landed above sealed + 1; the rows moved after the seal"
+        );
+        common_metrics::inc(
+            TOMBSTONES_ABOVE_SEAL_TOTAL,
+            &[],
+            moved_above_seal.len() as u64,
+        );
+    }
     Ok(())
 }
 
@@ -2116,7 +2170,7 @@ impl MergeDriver {
                             outcome: ReleaseOutcome::Committed.into(),
                             sealed_version: Some(snapshot.version),
                             created_at: snapshot.created_at,
-                            tombstone_version: None,
+                            tombstone_version: snapshot.tombstone_version,
                         })
                         .await
                         .map(|_| ())
