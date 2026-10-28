@@ -7604,7 +7604,7 @@ Note: The URLs supplied in the payload (documentation.mailgun.com/docs/mailgun/a
 
 ## Mailjet — gaps
 
-Today (13): `bouncestatistics`, `campaign`, `campaigndraft`, `clickstatistics`, `contact`, `contactmetadata`, `contactslist`, `listrecipient`, `message`, `messageevent`, `openinformation`, `statcounters`, `template`
+Today (15): `bouncestatistics`, `campaign`, `campaigndraft`, `clickstatistics`, `contact`, `contactdata`, `contactmetadata`, `contactslist`, `listrecipient`, `message`, `messageevent`, `messageinformation`, `openinformation`, `statcounters`, `template`
 
 Diffed against: <https://dev.mailjet.com/email/reference/messages/>
 
@@ -7612,10 +7612,10 @@ Diffed against: <https://dev.mailjet.com/email/reference/messages/>
 - [ ] `messagesentstatistics` — skipped: Mailjet lists it as a deprecated legacy statistics resource replaced by `/statcounters`.
 - [ ] `messagehistory` — skipped: only exposed as `/messagehistory/{message_ID}`, so it would take one request per message ever sent. The webhook-fed `messageevent` table already carries this event stream.
 - [x] `bouncestatistics` — Bounce events with reason codes; we sync clicks and opens but not bounces (high)
-- [ ] `campaignstatistics` — Aggregate performance per campaign, resolving the campaign rows we already sync (high)
-- [ ] `contactdata` — Actual custom property values per contact - we sync contactmetadata (the schema) but not the values (high)
-- [ ] `openstatistics` — Open events aggregated per message/campaign, complementing the openinformation rows we sync (medium)
-- [ ] `messageinformation` — Per-message metadata linking messages to campaigns, senders and spam assassin scores (medium)
+- [ ] `campaignstatistics` — skipped: Mailjet's OpenAPI spec marks it as a deprecated legacy endpoint and points to `/statcounters`, which we already sync.
+- [x] `contactdata` — Actual custom property values per contact - we sync contactmetadata (the schema) but not the values (high). Added as `contactdata`: full refresh, because the API has no change filter.
+- [ ] `openstatistics` — skipped: Mailjet's OpenAPI spec marks it as a deprecated legacy endpoint and points to `/statcounters`, which we already sync.
+- [x] `messageinformation` — Per-message metadata linking messages to campaigns, senders and spam assassin scores (medium). Added as `messageinformation`: incremental on `CreatedAt` through `FromTS`.
 - [ ] `newsletter` — Newsletter objects that campaign and campaigndraft rows reference (medium)
 - [ ] `sender` — Lookup table resolving the sender IDs carried on campaigns and messages (medium)
 - [ ] `listrecipientstatistics` — Engagement metrics per list subscription, joining to the listrecipient rows we sync (medium)
@@ -9178,15 +9178,15 @@ Note: The docs page embeds a full OpenAPI document (91 operationIds) which I par
 
 ## PartnerStack — **thin**
 
-Today (4): `customers`, `deals`, `leads`, `partnerships`
+Today (8): `customers`, `deal_stages`, `deals`, `lead_stages`, `leads`, `partnerships`, `rewards`, `transactions`
 
 Diffed against: <https://docs.partnerstack.com/llms.txt>
 
-- [ ] `GET /v2/transactions` — the commission ledger; without it partner revenue cannot be measured at all (high)
-- [ ] `GET /v2/rewards` — reward records earned by partners, the payout-side counterpart to transactions (high)
+- [x] `GET /v2/transactions` — the commission ledger; without it partner revenue cannot be measured at all (high)
+- [x] `GET /v2/rewards` — reward records earned by partners, the payout-side counterpart to transactions (high)
 - [ ] `GET /v2/payouts` — money actually paid out to partners (high)
 - [ ] `GET /v2/actions` — tracked partner actions/events - the raw attribution events behind customers and deals (high)
-- [ ] `GET /v2/sales-cycles/{object_type}/stages` — lookup resolving the stage ids carried on the deals and leads we already sync (high)
+- [x] `GET /v2/sales-cycles/{object_type}/stages` — lookup resolving the stage ids carried on the deals and leads we already sync (high)
 - [ ] `GET /v2/groups` — lookup resolving the group each partnership belongs to (high)
 - [ ] `GET /v2/tiers (and /v2/tiers/collection)` — lookup resolving partnership tier ids, which drive commission rates (high)
 - [ ] `GET /v2/links/{partnership_identifier}` — per-partner referral links, the attribution key between traffic and customers (medium)
@@ -9195,7 +9195,7 @@ Diffed against: <https://docs.partnerstack.com/llms.txt>
 - [ ] `GET /v2/product-book` — product book definitions that scope which products a partner can sell (medium)
 - [ ] `GET /v2/partner-team/{team_key}` — partner team membership resolving individual members behind a partnership (medium)
 
-Note: Only 4 of roughly 20 listable v2 collections are exposed. Everything monetary - transactions, rewards, payouts - and every lookup that resolves ids on the objects we already sync (groups, tiers, sales cycle stages, products) is missing, so the current tables cannot be joined into a partner revenue model.
+Note: The source syncs 8 tables. Transactions, rewards, and the deal and lead sales cycle stages are synced; the stages path is `/v2/sales_cycles/{object_type}/stages` (underscore). `GET /v2/payouts` exists only in the Partner API (partner bearer token), not the Vendor API this source authenticates against, so it stays unticked. The groups, tiers, and products lookups are still missing.
 
 ## PayFit — gaps
 
