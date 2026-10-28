@@ -1,4 +1,4 @@
-import type { PageAnalyticsInfo, PageFeatureFlagsSnapshot } from './pageToolbarBridge'
+import type { PageAnalyticsInfo, PageDebugInfo, PageFeatureFlagsSnapshot } from './pageToolbarBridge'
 
 // The content script's isolated world can't call the page's `window.posthog`, so the page agent calls it from the
 // page's own world.
@@ -11,6 +11,9 @@ export type PageAgentRequest =
     | { method: 'read-analytics' }
     | { method: 'override-flags'; flags: Record<string, string | boolean> | false; payloads?: Record<string, unknown> }
     | { method: 'reload-flags' }
+    | { method: 'subscribe-events'; forwardSnapshotPayloads: boolean }
+    | { method: 'unsubscribe-events' }
+    | { method: 'read-debug-info' }
 
 export type PageAgentReply =
     /** `id` is null when the page agent reports by itself that posthog-js appeared on the page. */
@@ -18,6 +21,8 @@ export type PageAgentReply =
     | { kind: 'result'; id: number; ok: true; featureFlags: PageFeatureFlagsSnapshot }
     | { kind: 'result'; id: number; ok: false; error: string }
     | { kind: 'feature-flags'; featureFlags: PageFeatureFlagsSnapshot }
+    | { kind: 'event-captured'; event: unknown }
+    | { kind: 'debug-info'; id: number; info: PageDebugInfo }
 
 export interface PageAgentRequestMessage {
     source: typeof PAGE_AGENT_REQUEST_SOURCE

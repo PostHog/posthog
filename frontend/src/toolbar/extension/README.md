@@ -62,6 +62,9 @@ The page tools run the floating toolbar's own logics in the content script, and 
 - `heatmapToolbarMenuLogic`, `heatmapDataLogic` and `heatmapCaptureLogic` for the heatmap.
 - `actionsLogic` and `actionsTabLogic` for actions.
 - `flagsToolbarLogic` for feature flags.
+- `eventDebugMenuLogic` for the event debugger, and `webVitalsToolbarLogic` for web vitals.
+- `screenshotUploadLogic` for screenshots for events.
+- `experimentsLogic` and `experimentsTabLogic` for web experiments.
 
 The panel shows their controls. It sends each command to the tool it belongs to, and gets their state back through a port.
 
@@ -90,9 +93,16 @@ flowchart LR
   The content script asks the page agent for the page's posthog-js settings when the page tools start, and stands in for posthog-js with them.
   When a page loads posthog-js later, the page agent reports it, and the page tools start again with it.
   For flag overrides the page agent calls posthog-js and reports the flag state back. A change it doesn't answer fails after 5 seconds.
-- **Forms.** The panel edits its own copy of the action form, so typing doesn't wait for the page, and sends the form after a short pause.
-  It sends the form right away before any command that changes it on the page, and takes the page's copy only when the page changed the form itself, for example when the user picks an element.
+  The page agent also forwards each event posthog-js captures, for the event debugger and the web vitals of the page load, and reads the debug info.
+- **Event debugger.** The debugger starts the first time the user opens it. The page keeps up to 5,000 events, like the floating toolbar.
+  While the debugger is open, its slice carries the newest 200 rows the filters show, and the properties of the open event.
+  The page agent sends the payload of `$snapshot` events only while the debugger shows them.
+  **Export** downloads every filtered event from the page.
+- **Forms.** The panel edits its own copy of the action and experiment forms, so typing doesn't wait for the page, and sends the form after a short pause.
+  It sends a pending edit right away before any command that changes the form on the page, and takes the page's copy only when the page changed the form itself, for example when the user picks an element.
   The page counts the matches of the selectors the panel shows, and counts again when the page changes.
+- **Experiments.** The page previews the open variant by changing its own DOM, and puts back the original HTML when the user closes the variant, leaves the experiment, saves it, or closes the tool, and when the page tools stop.
+  An experiment selector must match in the document itself, because posthog-js applies web experiments with `document.querySelectorAll`, which doesn't look inside shadow roots.
 - **Injection.** The panel injects the content script on first use. The script answers a ping, so the panel doesn't inject it twice.
 - **Navigation.** When a single-page app changes the URL, the port stays open and the page tools follow the new URL.
   A new document closes the port. The panel then connects again and turns the mode the user picked back on.
@@ -112,3 +122,9 @@ Use a site in the project's authorized URLs. Do these steps in Chrome and in Fir
 8. Open a page that doesn't load posthog-js as `window.posthog`. **Flags** says that it can't override flags there.
 9. Switch to a tab with another site, then back. The panel shows the state of each tab.
 10. Switch the project in the panel. The panel connects the toolbar to the new project.
+11. Click **Events** and use the page. The events stream in. Open one, search, pause and resume, and export them.
+12. Click **Web vitals**. The project's P90 metrics show, and the page load's metrics fill in as posthog-js reports them.
+13. Click **More**. Check the debug info, open the current session recording, turn on **Hide PII on this page**, and add a screenshot to an event.
+14. Click **Experiments** and open an experiment. Open a variant: the page shows it. Edit its HTML: the page changes as you type. Close the variant, then go back: the page shows its original state.
+15. Create an experiment, pick an element for a transformation with **Select element**, edit it, and save it. Open a page whose snippet sets `disable_web_experiments`: **Experiments** shows a warning.
+16. Switch the browser to dark mode. The panel follows it.
