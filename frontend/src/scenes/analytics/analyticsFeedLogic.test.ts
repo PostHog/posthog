@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -121,8 +122,6 @@ describe('analyticsFeedLogic', () => {
             'dashboard:3',
             'notebook:n1',
         ])
-        // The unfiled sweep runs once, before any source is read, so pre-sync objects get their rows.
-        expect(requests[0]).toBe('unfiled')
         expect(requests.filter((request) => request === 'unfiled')).toHaveLength(1)
         expect(requests.filter((request) => request !== 'unfiled').sort()).toEqual([
             'canvas:0:-created_at',
@@ -142,6 +141,32 @@ describe('analyticsFeedLogic', () => {
             'Growth',
             'Growth',
         ])
+    })
+
+    it('shows rows before the unfiled sweep returns, then reloads them once if the sweep filed any', async () => {
+        let finishSweep: () => void = () => {}
+        const sweepDone = new Promise<void>((resolve) => (finishSweep = resolve))
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/unfiled/': async () => {
+                    requests.push('unfiled')
+                    await sweepDone
+                    return { count: 1 }
+                },
+            },
+        })
+        const logic = analyticsFeedLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.refreshFeed(ALL)).toFinishAllListeners()
+        expect(feed(logic)).toEqual(['dashboard:10', 'notebook:n9', 'dashboard:8'])
+        expect(requests.filter((request) => request === 'dashboard:0:-created_at')).toHaveLength(1)
+
+        finishSweep()
+        await waitFor(() => expect(requests.filter((request) => request === 'dashboard:0:-created_at')).toHaveLength(2))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(requests.filter((request) => request === 'unfiled')).toHaveLength(1)
     })
 
     it.each([

@@ -227,8 +227,15 @@ export const analyticsFeedLogic = kea<analyticsFeedLogicType>([
             }
             // An object made before its product joined the file system has no row until the unfiled sweep
             // files it, and Today never opens the project tree that runs that sweep, so the first read runs it.
-            cache.unfiledSweep ??= api.fileSystem.unfiled().catch(() => null)
-            await cache.unfiledSweep
+            // The sweep is slow in a large project, so the list does not wait for it and reloads only if it filed rows.
+            if (!cache.unfiledSweep) {
+                cache.unfiledSweep = api.fileSystem.unfiled().catch(() => null)
+                void cache.unfiledSweep.then((result: { count: number } | null) => {
+                    if (result?.count && !cache.disposables.isDisposed) {
+                        actions.refreshFeed(query)
+                    }
+                })
+            }
             const projectId = String(values.currentTeamId)
             for (const type of analyticsFeedTypes(query)) {
                 const key = analyticsSourceKey(projectId, query, type)
