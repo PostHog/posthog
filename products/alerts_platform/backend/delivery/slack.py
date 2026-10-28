@@ -26,7 +26,7 @@ from posthog.slack.channels import (
 from posthog.slack.formatting import escape_slack_mrkdwn
 
 from products.alerts_platform.backend.delivery.describers import slack_renderer_for
-from products.alerts_platform.backend.delivery.message import AlertMessage
+from products.alerts_platform.backend.delivery.message import UNTRACKED_GROUPS_LABEL, AlertMessage
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
@@ -106,10 +106,21 @@ def content_for(*, team_id: int, message: AlertMessage) -> SlackMessageContent:
                 image=message.image,
             )
             if content is not None:
-                return content
+                return _with_untracked_groups(content, message)
         except Exception:
             logger.exception("alerts_platform.slack_renderer_failed", source=message.source.value)
     return SlackMessageContent(text=escape_slack_mrkdwn(message.title), blocks=blocks_for(message))
+
+
+def _with_untracked_groups(content: SlackMessageContent, message: AlertMessage) -> SlackMessageContent:
+    notices = [detail for detail in message.details if detail.label == UNTRACKED_GROUPS_LABEL]
+    if not notices or not content.attachments:
+        return content
+    last = content.attachments[-1]
+    blocks = last.get("blocks", [])
+    notice = section_block(_body(tuple(notices)))
+    attachments = [*content.attachments[:-1], {**last, "blocks": [*blocks[:-1], notice, *blocks[-1:]]}]
+    return SlackMessageContent(text=content.text, blocks=content.blocks, attachments=attachments)
 
 
 def _without_image_content(content: SlackMessageContent) -> SlackMessageContent:
@@ -181,6 +192,8 @@ class SlackTransport:
                 content = _without_image_content(content)
                 response = post(content)
         except SlackApiError as error:
+            # A refusal a person can fix, such as a channel the bot has left, rather than a
+            # transport failure a retry would clear.
             raise DeliveryError(f"Slack refused the message: {error.response.get('error')}") from error
         timestamp = response.get("ts")
         if not timestamp:
@@ -207,6 +220,9 @@ class SlackTransport:
                 *attachments[:-1],
                 {
                     **attachments[-1],
+                    # Screen readers read the fallback text rather than the blocks, so it carries the
+                    # current state too.
+                    "fallback": f"{attachments[-1].get('fallback', '')} ({state_line})",
                     "blocks": _with_state_line(attachments[-1].get("blocks", []), state_line),
                 },
             ]
@@ -229,6 +245,7 @@ class SlackTransport:
             try:
                 update(content)
             except SlackApiError as error:
+                # A chart URL expires, so an edit long after the opening message can lose it.
                 if not _refused_image(error, content):
                     raise
                 update(_without_image_content(content))

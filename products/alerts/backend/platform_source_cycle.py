@@ -682,6 +682,9 @@ BREAKDOWN_GROUPING_KEY = "breakdown"
 # and every group's detail rides in the outcome Temporal carries, so a long label must not grow it.
 MAX_DETAIL_BREACHES: Final = 10
 MAX_BREACH_CHARS: Final = 500
+MAX_DETAIL_ROWS: Final = 5
+MAX_TAGS: Final = 10
+MAX_TAG_CHARS: Final = 100
 
 # A breakdown value can be muted on its own, which production cannot express, so the platform's
 # mute applies: the value is still judged and only its announcement is held. A snooze of the
@@ -834,9 +837,23 @@ def _detail(
         **_context(alert),
         # The legacy alert's id, which a native message's snooze menu snoozes.
         "alert_id": str(alert.id),
+        # Recorded now so the Slack card is a function of the transition and a later rename or delete cannot change it.
+        "metric_name": _clipped(alert.insight.name or alert.insight.derived_name or "Insight", MAX_TAG_CHARS),
+        "timezone": alert.team.timezone,
+        "is_anomaly": bool(alert.detector_config),
+        "insight_interval": (alert.insight.query or {}).get("source", alert.insight.query or {}).get("interval"),
+        "tags": [
+            _clipped(tag, MAX_TAG_CHARS)
+            for tag in alert.insight.tagged_items.filter(tag__team_id=alert.team_id)
+            .values_list("tag__name", flat=True)
+            .order_by("tag__name")[:MAX_TAGS]
+        ],
+        "team_name": _clipped(alert.team.name, MAX_TAG_CHARS),
     }
     if breach_details:
-        detail["breach_details"] = breach_details[:5]
+        detail["breach_details"] = [
+            {key: _clipped(str(value)) for key, value in row.items()} for row in breach_details[:MAX_DETAIL_ROWS]
+        ]
     if wants_chart:
         detail[CHART_PENDING_KEY] = str(alert.id)
     return detail

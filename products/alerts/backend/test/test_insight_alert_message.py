@@ -1,9 +1,6 @@
 import json
 from datetime import UTC, datetime
-from types import SimpleNamespace
 from typing import Any
-
-from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -119,9 +116,6 @@ class TestInsightAlertMessage(SimpleTestCase):
         assert last in timing
 
     def test_native_message_links_to_the_insight_that_fired(self) -> None:
-        current_alert = SimpleNamespace(
-            insight=SimpleNamespace(short_id="new-insight"), team=SimpleNamespace(name="Example project")
-        )
         now = datetime(2026, 1, 1, tzinfo=UTC)
         transition = AnnouncedTransition(
             grouping_key="",
@@ -135,22 +129,45 @@ class TestInsightAlertMessage(SimpleTestCase):
             occurred_at=now,
             source_detail={"alert_id": "00000000-0000-4000-8000-000000000001", "insight_short_id": "original-insight"},
         )
-        with (
-            patch("products.alerts.backend.platform_alert_slack.AlertConfiguration.objects") as alerts,
-            patch(
-                "products.alerts.backend.platform_alert_slack.insight_transition_properties",
-                return_value=self._properties(),
-            ),
-        ):
-            alerts.select_related.return_value.filter.return_value.first.return_value = current_alert
-            content = render_insight_slack_message(
-                team_id=1,
-                transition=transition,
-                alert_name="Example alert",
-                alert_url="https://example.com/alert",
-                project=None,
-                image=None,
-            )
+        content = render_insight_slack_message(
+            team_id=1,
+            transition=transition,
+            alert_name="Example alert",
+            alert_url="https://example.com/alert",
+            project=None,
+            image=None,
+        )
         assert content is not None
         insight_link = content.attachments[1]["blocks"][-1]["elements"][1]["url"]
         assert insight_link.endswith("/insights/original-insight")
+
+    def test_native_anomaly_message_shows_the_affected_period(self) -> None:
+        now = datetime(2026, 1, 2, tzinfo=UTC)
+        transition = AnnouncedTransition(
+            grouping_key="",
+            kind=AlertEventKind.FIRING,
+            episode_started_at=now,
+            value=240,
+            labels={},
+            condition={},
+            source_config={},
+            error_message=None,
+            occurred_at=now,
+            source_detail={
+                "alert_id": "00000000-0000-4000-8000-000000000001",
+                "insight_short_id": "original-insight",
+                "is_anomaly": True,
+                "triggered_dates": ["2026-01-01"],
+                "interval": "day",
+            },
+        )
+        content = render_insight_slack_message(
+            team_id=1,
+            transition=transition,
+            alert_name="Example alert",
+            alert_url="https://example.com/alert",
+            project=None,
+            image=None,
+        )
+        assert content is not None
+        assert "Affected period" in str(content.attachments)

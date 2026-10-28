@@ -13,7 +13,8 @@ from slack_sdk.errors import SlackApiError
 from posthog.models.integration import Integration
 from posthog.slack.channels import MAX_HEADER_CHARS, MAX_SECTION_CHARS
 
-from products.alerts_platform.backend.delivery.slack import SlackTransport, blocks_for
+from products.alerts_platform.backend.delivery.message import UNTRACKED_GROUPS_LABEL
+from products.alerts_platform.backend.delivery.slack import SlackTransport, blocks_for, content_for
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
@@ -264,3 +265,18 @@ class TestSlackAttachmentTransport(SimpleTestCase):
             assert handle.root_content is not None
             assert handle.root_content["attachments"] == sent
             assert content.attachments[1]["blocks"] == [image, actions]
+
+
+class TestSourceRendererKeepsGroupLimitNotice(SimpleTestCase):
+    def test_untracked_groups_detail_reaches_custom_attachment(self) -> None:
+        content = SlackMessageContent(
+            text="", blocks=[], attachments=[{"blocks": [{"type": "divider"}, {"type": "actions", "elements": []}]}]
+        )
+        message = replace(
+            MESSAGE, details=(MessageDetail(label=UNTRACKED_GROUPS_LABEL, value="2 more groups not tracked"),)
+        )
+        with patch("products.alerts_platform.backend.delivery.slack.slack_renderer_for") as renderer:
+            renderer.return_value.return_value = content
+            result = content_for(team_id=1, message=message)
+        assert "2 more groups not tracked" in str(result.attachments[0]["blocks"][-2])
+        assert result.attachments[0]["blocks"][-1]["type"] == "actions"
