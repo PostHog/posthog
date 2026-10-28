@@ -302,10 +302,13 @@ def send_notifications_for_breaches(
 
     # Join with newlines so each breach/investigation line renders on its own line in
     # Slack/Discord/Teams destinations rather than as one run-on comma-separated string.
+    destination_description = "\n".join(breaches)
+    if len(destination_description) > 3000:
+        destination_description = destination_description[:2999] + "…"
     deliveries.extend(
         trigger_alert_hog_functions(
             alert=alert,
-            properties={"breaches": "\n".join(breaches), **(extra_properties or {})},
+            properties={"breaches": destination_description, **(extra_properties or {})},
         )
     )
 
