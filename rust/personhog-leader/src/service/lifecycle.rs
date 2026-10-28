@@ -311,9 +311,10 @@ impl PersonHogLeaderService {
         // writer confirms, and PG answers from then on.
         self.fences.remove(&cache_key);
         counter!("personhog_leader_fences_total", "action" => "released_committed").increment(1);
+        // Its own counter, not a `fences_total` action: the release above is
+        // already counted there, and a sum over `action` must count it once.
         if floored_by_tombstone {
-            counter!("personhog_leader_fences_total", "action" => "death_floored_by_tombstone")
-                .increment(1);
+            counter!("personhog_leader_death_documents_floored_by_tombstone_total").increment(1);
         }
         Ok(())
     }

@@ -68,10 +68,13 @@ export type DeletePersonResult = Message<'personhog.lifecycle.v1.DeletePersonRes
 
     /**
      * The version the person's Postgres tombstone committed at, set when
-     * outcome = DELETED. A caller that publishes its own ClickHouse person
-     * tombstone uses this version; the distinct-id tombstones are
-     * published from the outbox. Absent for an operation recorded before
-     * this field existed.
+     * outcome = DELETED. A lower bound on the row's final version, not the
+     * final version: the leader may produce the death document higher, and
+     * the writer moves the row there. A caller that publishes its own
+     * ClickHouse person tombstone uses this version; never use it as a
+     * revival or version floor. The distinct-id tombstones are published
+     * from the outbox. Absent for an operation recorded before this field
+     * existed.
      *
      * @generated from field: optional int64 person_version = 3;
      */

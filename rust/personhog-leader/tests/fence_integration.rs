@@ -2686,8 +2686,11 @@ async fn a_folds_target_cache_dirt_is_sanitized() {
 /// re-deriving the document from the sealed version — this test pins that
 /// composed behavior against either side changing (the load filter, or the
 /// duplicate-release absorb).
-#[tokio::test]
-async fn a_release_after_a_cache_eviction_still_produces_the_death_document() {
+///
+/// `tombstone_above_seal` is how far the saga's direct tombstone sits above
+/// the seal: `None` is a release from an identity build that never sent a
+/// tombstone version, `Some(n)` a row that moved after the seal.
+async fn release_after_a_cache_eviction(tombstone_above_seal: Option<i64>) {
     let pool = common::create_persons_pool().await;
     let mut harness = start_fence_harness(
         test_cached_person(),
@@ -2737,9 +2740,10 @@ async fn a_release_after_a_cache_eviction_still_produces_the_death_document() {
         .sealed
         .unwrap();
     let sealed_version = sealed.version;
+    let tombstone_version = sealed_version + tombstone_above_seal.unwrap_or(1);
 
-    // The unmap transaction's direct tombstone: scrubbed, parked at
-    // sealed + 1.
+    // The unmap transaction's direct tombstone: scrubbed, at sealed + 1
+    // unless the row moved after the seal.
     sqlx::query(
         "INSERT INTO posthog_person \
              (id, team_id, uuid, properties, created_at, version, is_identified, is_deleted) \
@@ -2748,7 +2752,7 @@ async fn a_release_after_a_cache_eviction_still_produces_the_death_document() {
     .bind(person_id)
     .bind(team_id as i32)
     .bind(&person_uuid)
-    .bind(sealed_version + 1)
+    .bind(tombstone_version)
     .execute(&pool)
     .await
     .expect("insert unmap tombstone");
@@ -2771,7 +2775,7 @@ async fn a_release_after_a_cache_eviction_still_produces_the_death_document() {
                 outcome: ReleaseOutcome::Committed.into(),
                 sealed_version: Some(sealed_version),
                 created_at: sealed.created_at,
-                tombstone_version: None,
+                tombstone_version: tombstone_above_seal.map(|_| tombstone_version),
             },
             partition,
         ))
@@ -2783,8 +2787,7 @@ async fn a_release_after_a_cache_eviction_still_produces_the_death_document() {
     assert!(death.is_deleted);
     assert_eq!(death.uuid, person_uuid);
     assert_eq!(
-        death.version,
-        sealed_version + 1,
+        death.version, tombstone_version,
         "the death document confirms the direct tombstone at the same version"
     );
 
@@ -2799,6 +2802,18 @@ async fn a_release_after_a_cache_eviction_still_produces_the_death_document() {
         .execute(&pool)
         .await
         .expect("cleanup person");
+}
+
+#[tokio::test]
+async fn a_release_after_a_cache_eviction_still_produces_the_death_document() {
+    release_after_a_cache_eviction(None).await;
+}
+
+/// The cold-leader path re-derives the death document from the request, so
+/// the tombstone floor must apply there as well as to a warm entry.
+#[tokio::test]
+async fn a_release_after_a_cache_eviction_honors_the_sagas_tombstone_version() {
+    release_after_a_cache_eviction(Some(4)).await;
 }
 
 /// The mark rows a committed release verifies against — committed by the

@@ -84,7 +84,8 @@ export type Person = Message<'personhog.types.v1.Person'> & {
 
     /**
      * True on a death document: the changelog record the leader produces when
-     * a lifecycle saga destroys the person (version = sealed_version + 1).
+     * a lifecycle saga destroys the person, at sealed_version + 1 or at the
+     * saga's tombstone version when that is higher.
      * Consumers treat the person as gone; the writer projects it as the
      * Postgres tombstone. proto3 default (false) keeps old records live.
      *
@@ -1755,7 +1756,8 @@ export type ReleaseFenceRequest = Message<'personhog.types.v1.ReleaseFenceReques
 
     /**
      * The version sealed at fence time. The death document is produced at
-     * sealed_version + 1. Required when outcome = COMMITTED. Explicitly
+     * sealed_version + 1, raised to tombstone_version when that is higher.
+     * Required when outcome = COMMITTED. Explicitly
      * optional because 0 is a legitimate sealed version — a fresh person
      * stub is created at version 0 — so absence must stay distinguishable
      * from it.
@@ -1782,8 +1784,11 @@ export type ReleaseFenceRequest = Message<'personhog.types.v1.ReleaseFenceReques
      * sealed_version + 1, higher when a direct Postgres writer bumped the
      * row between the fence and the tombstone. The death document is
      * produced at or above it, so the changelog never carries a live
-     * version below the tombstone. Optional for ops unmapped before this
-     * field existed; absent means sealed_version + 1.
+     * version below the tombstone. A value at or below sealed_version is
+     * refused INVALID_ARGUMENT with the fence kept: the saga never
+     * tombstones below sealed + 1, so such a value is a caller bug.
+     * Optional for ops unmapped before this field existed; absent means
+     * sealed_version + 1.
      *
      * @generated from field: optional int64 tombstone_version = 8;
      */

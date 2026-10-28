@@ -679,10 +679,14 @@ async fn unmap(
             .bind(team_id)
             .fetch_all(&mut *tx)
             .await?;
-    let above_seal = tombstoned_persons
+    let moved_above_seal: Vec<(i64, i64, i64)> = tombstoned_persons
         .iter()
-        .filter(|(_, version, sealed)| sealed.is_some_and(|sealed| *version > sealed + 1))
-        .count();
+        .filter_map(|(id, version, sealed)| {
+            sealed
+                .filter(|sealed| *version > sealed + 1)
+                .map(|sealed| (*id, sealed, *version))
+        })
+        .collect();
 
     // The committed version joins the seal so the release carries it to the
     // leader and the outcome reports it, under the same step CAS.
@@ -719,14 +723,19 @@ async fn unmap(
     }
     tx.commit().await?;
     record_transition(DeleteStep::Sealed.as_str(), DeleteStep::Unmapped.as_str());
-    if above_seal > 0 {
+    if !moved_above_seal.is_empty() {
         tracing::warn!(
             op_id = %op.op_id,
             team_id,
-            persons = above_seal,
+            persons = moved_above_seal.len(),
+            person_sealed_tombstone = ?moved_above_seal,
             "delete tombstones landed above sealed + 1; the rows moved after the seal"
         );
-        common_metrics::inc(TOMBSTONES_ABOVE_SEAL_TOTAL, &[], above_seal as u64);
+        common_metrics::inc(
+            TOMBSTONES_ABOVE_SEAL_TOTAL,
+            &[],
+            moved_above_seal.len() as u64,
+        );
     }
     Ok(())
 }
