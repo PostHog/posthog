@@ -23,7 +23,7 @@ if [ -n "${GITHUB_ENV:-}" ]; then
 fi
 WAIT_RETRIES="${WAIT_FOR_DOCKER_RETRIES:-1}"
 WAIT_RETRY_TIMEOUT="${WAIT_FOR_DOCKER_RETRY_TIMEOUT:-120}"
-COMPOSE_WAIT_TIMEOUT="${WAIT_FOR_COMPOSE_TIMEOUT:-600}"
+COMPOSE_WAIT_TIMEOUT="${WAIT_FOR_COMPOSE_TIMEOUT:-300}"
 # `compose up` pulls every image before it creates any container, so one Docker Hub
 # timeout leaves the whole stack missing.
 LAUNCH_RETRIES="${WAIT_FOR_DOCKER_LAUNCH_RETRIES:-3}"
@@ -191,12 +191,13 @@ pull_from_first_mirror() {
     local mirror
 
     for mirror in "${REGISTRY_MIRRORS[@]}"; do
-        if docker pull -q "${mirror}/${path}" >/dev/null 2>&1 && docker tag "${mirror}/${path}" "$image"; then
+        # Without a bound, a stalled mirror holds the launch until the job times out instead of falling through.
+        if timeout --kill-after=10s 180 docker pull -q "${mirror}/${path}" >/dev/null 2>&1 && docker tag "${mirror}/${path}" "$image"; then
             echo "Pulled ${image} from ${mirror}."
             return 0
         fi
     done
-    echo "No mirror has ${image}; compose pulls it from Docker Hub."
+    echo "No mirror served ${image}; compose pulls it from Docker Hub."
 }
 
 pull_from_registry_mirror() {
