@@ -189,6 +189,7 @@ describe('explain-chart', () => {
                         { text: 'Failures by browser.', query: sql('by_browser') },
                         { text: 'Versions.', query: sql('no_numbers') },
                         { text: 'A broken query.', query: sql('oops') },
+                        { text: 'An unknown kind.', query: { kind: '__proto__' } },
                     ],
                 },
             ],
@@ -222,6 +223,7 @@ describe('explain-chart', () => {
                 },
                 true,
             ],
+            [null, null, true],
             [null, null, true],
             [null, null, true],
         ])

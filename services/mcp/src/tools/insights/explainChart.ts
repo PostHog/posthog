@@ -59,7 +59,7 @@ const NOT_OVER_TIME =
 
 // The explanation redraws insight evidence through the query tool for its kind. A tool's schema is narrower than the
 // query's, so evidence the tool would refuse keeps its link and no chart.
-const REDRAW_TOOLS = Object.fromEntries(
+const REDRAW_TOOLS = new Map(
     (
         [
             ['TrendsQuery', 'query-trends'],
@@ -69,11 +69,11 @@ const REDRAW_TOOLS = Object.fromEntries(
             ['PathsQuery', 'query-paths'],
             ['LifecycleQuery', 'query-lifecycle'],
         ] as const
-    ).map(([kind, tool]) => [kind, { tool, schema: GENERATED_TOOLS[tool]!().schema }])
+    ).map(([kind, tool]) => [kind as string, { tool, schema: GENERATED_TOOLS[tool]!().schema }])
 )
 
 function redrawToolFor(query: Record<string, unknown> | undefined): string | null {
-    const redraw = query && typeof query.kind === 'string' ? REDRAW_TOOLS[query.kind] : undefined
+    const redraw = query && typeof query.kind === 'string' ? REDRAW_TOOLS.get(query.kind) : undefined
     return redraw && redraw.schema.safeParse(query).success ? redraw.tool : null
 }
 
@@ -94,19 +94,19 @@ async function runSqlEvidence(
             queries.set(JSON.stringify(item.query), item.query)
         }
     }
-    const entries = await Promise.all(
-        [...queries].map(async ([key, query]): Promise<[string, SqlEvidence]> => {
-            try {
-                const response = await context.api.query({ projectId }).runQuery({ query })
-                const columns = (response.columns ?? []).map(String)
-                const rows = Array.isArray(response.results) ? (response.results as unknown[][]) : []
-                return [key, { chart: sqlEvidenceChart(columns, rows) }]
-            } catch (error) {
-                return [key, { error: error instanceof Error ? error.message : String(error) }]
-            }
-        })
-    )
-    return new Map(entries)
+    // One at a time, so the evidence does not use up the team's concurrent query limit.
+    const results = new Map<string, SqlEvidence>()
+    for (const [key, query] of queries) {
+        try {
+            const response = await context.api.query({ projectId }).runQuery({ query })
+            const columns = (response.columns ?? []).map(String)
+            const rows = Array.isArray(response.results) ? (response.results as unknown[][]) : []
+            results.set(key, { chart: sqlEvidenceChart(columns, rows) })
+        } catch (error) {
+            results.set(key, { error: error instanceof Error ? error.message : String(error) })
+        }
+    }
+    return results
 }
 
 function sqlProblems(chapters: Params['chapters'], sqlEvidence: Map<string, SqlEvidence>): string[] {

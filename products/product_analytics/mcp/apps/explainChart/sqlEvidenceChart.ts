@@ -7,7 +7,6 @@ interface Points {
     series: Series
 }
 
-const MAX_POINTS = 200
 const MAX_BREAKDOWN_SERIES = 10
 const TIMESTAMP = /^\d{4}-(?<month>\d{2})-(?<day>\d{2})(?:[T ](?<time>\d{2}:\d{2}))?/
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -29,20 +28,19 @@ function isLongShape(rows: unknown[][]): boolean {
 
 /** `hour, safari, chrome`: one series per number column. */
 function wideSeries(columns: string[], rows: unknown[][]): Points {
-    const kept = rows.slice(0, MAX_POINTS)
     const valueColumns = columns.map((_, index) => index).filter((index) => index > 0 && isNumberColumn(rows, index))
     return {
-        points: kept.map((row) => String(row[0])),
+        points: rows.map((row) => String(row[0])),
         series: valueColumns.map((index) => ({
             name: columns[index]!,
-            values: kept.map((row) => numberOrNull(row[index])),
+            values: rows.map((row) => numberOrNull(row[index])),
         })),
     }
 }
 
 /** `hour, browser, failures`: one series per browser, with a gap where a browser has no row for an hour. */
 function longSeries(rows: unknown[][]): Points {
-    const points = [...new Set(rows.map((row) => String(row[0])))].slice(0, MAX_POINTS)
+    const points = [...new Set(rows.map((row) => String(row[0])))]
     const valuesByName = new Map<string, Map<string, number | null>>()
     for (const [x, rawName, value] of rows) {
         const name = String(rawName ?? 'None')

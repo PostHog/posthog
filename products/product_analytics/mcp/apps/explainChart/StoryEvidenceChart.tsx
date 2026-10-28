@@ -20,7 +20,8 @@ export function StoryEvidenceChart({ chart, theme, className }: StoryEvidenceCha
     }))
     // quill-charts positions points by label, so a repeated label would send the line backwards.
     const keys = chart.labels.map((_, index) => String(index))
-    const xAxis = { tickFormatter: (key: string): string => chart.ticks[Number(key)] ?? key }
+    // Results saved before `ticks` existed carry only `labels`.
+    const xAxis = { tickFormatter: (key: string): string => (chart.ticks ?? chart.labels)[Number(key)] ?? key }
     const yAxis = { tickFormatter: Y_TICK_FORMATTER, showGrid: true, label: chart.yAxisLabel ?? undefined }
     const tooltip = { labelFormatter: (key: string): string => chart.labels[Number(key)] ?? key }
     const legend = { show: series.length > 1 }

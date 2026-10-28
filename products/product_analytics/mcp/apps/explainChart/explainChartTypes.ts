@@ -4,7 +4,7 @@ export interface StoryEvidenceChartData {
     type: 'line' | 'bar'
     labels: string[]
     /** The axis label of each point, which leaves out a date that repeats. */
-    ticks: string[]
+    ticks?: string[]
     /** Null where a breakdown value has no row for that point. */
     series: { name: string; values: (number | null)[] }[]
     yAxisLabel: string | null
