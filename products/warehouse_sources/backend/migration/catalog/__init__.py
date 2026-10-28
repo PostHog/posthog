@@ -60,6 +60,14 @@ class TableMatch:
     confidence: MatchConfidence | None
 
 
+@frozen
+class PostHogTables:
+    names: frozenset[str]
+    # False when the source also syncs tables it discovers in the user's account, such as Firebase
+    # collections. An unmatched vendor table can then still exist under its own name.
+    complete: bool
+
+
 def _letters(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.lower())
 
@@ -88,15 +96,17 @@ def match_destination(provider: str, vendor_service: str) -> ExternalDataDestina
     return rules.destination_types.get(vendor_service) if rules else None
 
 
-def posthog_tables(source_type: ExternalDataSourceType) -> frozenset[str] | None:
-    """Table names the source can sync, or None when the user defines them, as in a database."""
+def posthog_tables(source_type: ExternalDataSourceType) -> PostHogTables | None:
+    """Tables the source can sync, or None when the user defines them all, as in a database."""
     source = SourceRegistry.get_source(source_type)
     if source.lists_tables_without_credentials:
         documented = frozenset(table["name"] for table in source.get_documented_tables())
         if documented:
-            return documented
-    # A source that cannot list its tables without credentials or config still describes each one.
-    return frozenset(source.get_canonical_descriptions()) or None
+            return PostHogTables(names=documented, complete=True)
+    # A source that cannot list its tables without credentials or config still describes the
+    # tables it always has, but it can discover more in the user's account.
+    described = frozenset(source.get_canonical_descriptions())
+    return PostHogTables(names=described, complete=False) if described else None
 
 
 def _inferred_keys(vendor_table: str, rewrites: tuple[tuple[str, str], ...]) -> list[str]:

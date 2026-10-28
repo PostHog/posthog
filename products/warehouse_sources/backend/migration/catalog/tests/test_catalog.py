@@ -4,6 +4,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.migration.catalog import (
     MatchConfidence,
+    PostHogTables,
     TableMatch,
     match_source,
     match_tables,
@@ -70,14 +71,16 @@ class TestCatalog:
 
     @parameterized.expand(
         [
-            ("lists_tables_without_credentials", T.STRIPE, "Charge"),
-            ("needs_credentials_to_list", T.GOOGLEADS, "campaign"),
-            ("needs_config_to_list", T.GITHUB, "issues"),
+            ("static_catalog", T.STRIPE, "Charge", True),
+            ("needs_credentials_to_list", T.GOOGLEADS, "campaign", False),
+            ("needs_config_to_list", T.GITHUB, "issues", False),
+            ("also_discovers_tables", T.FIREBASE, "auth_users", False),
         ]
     )
-    def test_posthog_tables(self, _name: str, source_type: T, expected_table: str) -> None:
+    def test_posthog_tables(self, _name: str, source_type: T, known_table: str, complete: bool) -> None:
         tables = posthog_tables(source_type)
-        assert tables is not None and expected_table in tables
+        assert isinstance(tables, PostHogTables)
+        assert (known_table in tables.names, tables.complete) == (True, complete)
 
     def test_posthog_tables_is_none_for_user_defined_tables(self) -> None:
         assert posthog_tables(T.POSTGRES) is None
