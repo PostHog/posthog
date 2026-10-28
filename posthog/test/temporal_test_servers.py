@@ -40,6 +40,8 @@ from posthog.dataclasses import frozen
 logger = logging.getLogger(__name__)
 
 DOWNLOAD_BASE_URL = "https://temporal.download"
+TEMPORAL_ASSETS_URL = f"{DOWNLOAD_BASE_URL}/assets/"
+GITHUB_URL = "https://github.com/"
 CACHE_DIR_ENV = "POSTHOG_TEMPORAL_SERVER_CACHE_DIR"
 ATTEMPTS = 5
 # Connect and per-read timeouts, so a silent connection fails within seconds.
@@ -104,6 +106,10 @@ def _download(binary: ServerBinary, platform_params: dict[str, str], dest: Path)
     file_to_extract: str = info["fileToExtract"]
     if not archive_url.endswith(".tar.gz"):
         raise ValueError(f"unsupported archive format: {archive_url}")
+    # temporal.download proxies GitHub release assets under the same path. Its proxy can stall for runners in
+    # us-east-1, so the archive comes straight from GitHub. The version lookup above stays on temporal.download.
+    if archive_url.startswith(TEMPORAL_ASSETS_URL):
+        archive_url = GITHUB_URL + archive_url.removeprefix(TEMPORAL_ASSETS_URL)
 
     with tempfile.TemporaryDirectory(dir=dest.parent) as work_dir:
         archive_path = Path(work_dir) / "archive.tar.gz"
