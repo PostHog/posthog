@@ -36,6 +36,7 @@ Temporary Codex credential-service outages remain retryable. Missing or invalid 
 The worker records `agent_startup_attempt` immediately before a real launch and `agent_startup_success` after readiness succeeds.
 Successful initialization clears the startup failure and clears the crash message while the run is non-terminal. A terminal run keeps its final error. A later failed attempt preserves the last completed startup as recovery evidence.
 These startup state fields cannot be written, appended to, or removed through the run PATCH API, including by sandbox clients.
+Recovery notifications bind the repository, provider, runtime, and startup time. Reusing an already healthy server preserves its original startup evidence.
 Older agents may omit these fields; consumers must preserve the existing behavior when they are absent or invalid.
 
 `branch` selects the base branch for the first run.

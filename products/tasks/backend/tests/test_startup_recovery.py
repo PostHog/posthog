@@ -1,4 +1,5 @@
 from datetime import timedelta
+from functools import partial
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -7,6 +8,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from products.tasks.backend.facade.api import latest_agent_startup_success
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
@@ -43,21 +45,31 @@ class TestAgentStartupRecovery(BaseTest):
             task_runtime=runtime,
             state={"runtime_adapter": adapter} if adapter else {},
         )
+        latest_startup = partial(
+            latest_agent_startup_success,
+            team_id=self.team.id,
+            repository="example/research",
+            provider=provider,
+            runtime="gvisor",
+        )
         started_at = timezone.now()
         with time_machine.travel(started_at, tick=False):
             _record_agent_startup_attempt(context, "gvisor")
         run.refresh_from_db()
         assert "agent_startup_success" not in run.state
+        assert latest_startup() is None
         with time_machine.travel(started_at + timedelta(seconds=1), tick=False):
             _record_agent_startup_success(context)
         run.refresh_from_db()
         success = run.state["agent_startup_success"]
         assert success["started_at"] == started_at.isoformat()
         assert success["provider"] == provider
+        assert latest_startup() == started_at
         with time_machine.travel(started_at + timedelta(seconds=2), tick=False):
             _record_agent_startup_attempt(context, "gvisor")
         run.refresh_from_db()
         assert run.state["agent_startup_success"] == success
+        assert latest_startup() == started_at
         TaskRun.update_state_atomic(str(run.id), updates={"startup_failure": {"reason": "proxy_invalid"}})
         TaskRun.objects.filter(id=run.id).update(error_message="Turn failed", status=final_status)
         with time_machine.travel(started_at + timedelta(seconds=3), tick=False):
@@ -66,3 +78,4 @@ class TestAgentStartupRecovery(BaseTest):
         assert "startup_failure" not in run.state
         assert run.error_message == ("Turn failed" if run.is_terminal else None)
         assert run.state["agent_startup_success"]["started_at"] == (started_at + timedelta(seconds=2)).isoformat()
+        assert latest_startup() == started_at + timedelta(seconds=2)
