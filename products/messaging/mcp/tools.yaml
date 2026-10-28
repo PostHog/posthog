@@ -135,11 +135,10 @@ tools:
             idempotent: true
         title: Update the Supabase auth email settings
         description: >
-            Update how the project sends a Supabase project's auth emails. Send only the fields to change, but
-            templates replaces the whole mapping, so include every type to keep. To get
-            templates to map, call supabase-auth-emails-starter-templates-create or use the email template tools. Ask
-            the user for the hook secret. Never invent one. Map the core emails before the user turns on the hook in
-            Supabase.
+            Update how the project sends a Supabase project's auth emails. Send only the fields to change, but templates
+            replaces the whole mapping, so include every type to keep. To get templates to map, call
+            supabase-auth-emails-starter-templates-create or use the email template tools. Ask the user for the hook
+            secret. Never invent one. Map the core emails before the user turns on the hook in Supabase.
         feature_flag: workflows-supabase-auth-emails
         response:
             exclude:
