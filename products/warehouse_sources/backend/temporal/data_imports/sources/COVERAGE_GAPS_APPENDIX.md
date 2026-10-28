@@ -5371,7 +5371,7 @@ Today (6): `Countries`, `EntityLegalForms`, `Jurisdictions`, `LeiIssuers`, `LeiR
 
 Diffed against: <https://documenter.gw.postman.com/api/collections/7679680/SVYrrxuU?segregateAuth=true&versionTag=latest>
 
-- [ ] `Region Codes (GET /api/v1/regions)` — resolve address region codes to named subdivisions for geographic entity analysis (high)
+- [x] `Region Codes (GET /api/v1/regions)` — resolve address region codes to named subdivisions for geographic entity analysis (high)
 - [ ] `Direct Child Relationship(s) (GET /api/v1/lei-records/{id}/direct-child-relationships)` — build direct consolidation hierarchies and identify related entities for counterparty exposure analysis (high)
 - [ ] `Ultimate Child Relationship(s) (GET /api/v1/lei-records/{id}/ultimate-child-relationships)` — connect entities to their ultimate consolidation parents for group exposure and corporate structure analysis (high)
 - [ ] `ISINs (GET /api/v1/lei-records/{id}/isins)` — join legal entities to issued securities and connect issuer identity with investment data (high)
@@ -8893,21 +8893,21 @@ Note: Parsed official resource references for schedules, occurrences, receipts, 
 
 ## Opsgenie — gaps
 
-Today (12): `alerts`, `escalations`, `incident_timeline_entries`, `incidents`, `integrations`, `schedule_on_calls`, `schedule_rotations`, `schedules`, `services`, `team_members`, `teams`, `users`
+Today (14): `alert_logs`, `alerts`, `escalations`, `incident_timeline_entries`, `incidents`, `integrations`, `schedule_on_calls`, `schedule_overrides`, `schedule_rotations`, `schedules`, `services`, `team_members`, `teams`, `users`
 
 Diffed against: <https://docs.opsgenie.com/docs/api-overview>
 
-- [ ] `GET /v2/alerts/{identifier}/logs` — per-alert state transition history (created, acked, escalated, closed) — the basis of MTTA/MTTR (high)
+- [x] `GET /v2/alerts/{identifier}/logs` — per-alert state transition history (created, acked, escalated, closed) — the basis of MTTA/MTTR (high) — shipped as `alert_logs`
 - [x] `Team member API (GET /v2/teams/{id}/members)` — membership table joining the users and teams already synced (high) — shipped as `team_members`; Opsgenie has no member list GET, so members come from `GET /v2/teams/{id}`
 - [x] `Schedule rotation API (GET /v2/schedules/{id}/rotations)` — lookup resolving the rotation structure behind each synced schedule; without it schedules are opaque (high)
 - [x] `Who is on call API (GET /v2/schedules/{id}/on-calls, /v2/schedules/on-calls)` — resolves schedule + rotation into the actual on-call person, the headline operational fact (high) — shipped as `schedule_on_calls` from the per-schedule path; the all-schedules list is deprecated
 - [x] `Incident timeline API (GET /v1/incidents/{id}/timeline)` — state/transition history for the incidents table already synced (high) — shipped as `incident_timeline_entries` from `GET /v2/incident-timelines/{id}/entries`
 - [ ] `GET /v2/alerts/{identifier}/notes` — responder commentary attached to alerts, needed for incident review analysis (medium)
 - [ ] `GET /v2/alerts/{identifier}/recipients` — who was notified per alert and in what state — notification-reach analysis (medium)
-- [ ] `Schedule override API (GET /v2/schedules/{id}/overrides)` — explains gaps between rotation and actual on-call coverage (medium)
-- [ ] `Postmortem API (GET /v1/incidents/{id}/postmortems)` — post-incident write-ups joined to synced incidents (medium)
+- [x] `Schedule override API (GET /v2/schedules/{id}/overrides)` — explains gaps between rotation and actual on-call coverage (medium) — shipped as `schedule_overrides`
+- [ ] `Postmortem API (GET /v1/incidents/{id}/postmortems)` — post-incident write-ups joined to synced incidents (medium) — skipped: the Incident API has no postmortem read endpoint
 - [ ] `Heartbeat API (GET /v2/heartbeats)` — monitoring heartbeat state, a distinct alerting signal from alerts (medium)
-- [ ] `Logs API (GET /v2/logs/list/{marker})` — account-level audit/activity log for configuration and alert changes over time (medium)
+- [ ] `Logs API (GET /v2/logs/list/{marker})` — account-level audit/activity log for configuration and alert changes over time (medium) — skipped: the endpoint lists downloadable log files (name, date, size), not log records, and is Enterprise-only
 - [ ] `Maintenance API (GET /v1/maintenance)` — maintenance windows that suppress alerts — needed to exclude planned downtime (low)
 
 Note: Alert sub-resource paths confirmed against the vendor SDK reference at https://raw.githubusercontent.com/opsgenie/opsgenie-python-sdk/master/README.md. Notification-rule, policy, forwarding-rule, integration-action, service-incident-template and custom-role endpoints were excluded as configuration.
@@ -8949,12 +8949,12 @@ Diffed against: <https://raw.githubusercontent.com/orbcorp/orb-node/main/api.md>
 - [x] `GET /metrics (billable metrics)` — lookup resolving the billable-metric IDs that prices reference; without it usage-based charges are unexplainable (high)
 - [x] `GET /customers/{customer_id}/credits/ledger` — credit grant/decrement transaction log — the ledger a warehouse user needs for prepaid-balance analysis (high)
 - [x] `GET /customers/{customer_id}/balance_transactions` — customer account balance movements over time, joined to synced customers and invoices (high)
-- [ ] `GET /customers/{customer_id}/costs` — per-customer cost breakdown by price/metric over a timeframe — Orb's headline revenue metric (high)
+- [x] `GET /customers/{customer_id}/costs` — per-customer cost breakdown by price/metric over a timeframe — Orb's headline revenue metric (high)
 - [ ] `GET /subscriptions/{subscription_id}/usage` — usage quantities per billable metric per subscription, the raw driver of every invoice line (medium)
 - [ ] `GET /subscription_changes` — state-transition history for the subscriptions table already synced (upgrades, downgrades, cancellations) (medium)
-- [ ] `GET /subscriptions/{subscription_id}/schedule` — plan-over-time schedule per subscription — resolves which plan applied in which period (medium)
-- [ ] `GET /customers/{customer_id}/credits` — outstanding credit block balances per customer (medium)
-- [ ] `GET /subscriptions/{subscription_id}/costs` — cost breakdown at subscription grain, complementing the customer-level view (medium)
+- [x] `GET /subscriptions/{subscription_id}/schedule` — plan-over-time schedule per subscription — resolves which plan applied in which period (medium)
+- [x] `GET /customers/{customer_id}/credits` — outstanding credit block balances per customer (medium)
+- [x] `GET /subscriptions/{subscription_id}/costs` — cost breakdown at subscription grain, complementing the customer-level view (medium)
 - [ ] `GET /events/volume` — ingested event volume over time — useful for reconciling usage against billing (low)
 - [ ] `GET /dimensional_price_groups` — lookup for dimensional pricing groups referenced by prices (low)
 
@@ -9008,12 +9008,12 @@ Diffed against: <https://jsapi.apiary.io/apis/amplifyv01/api-description-documen
 - [x] `/reports/marketers/{id}/publishers` — publisher breakdown, the core Outbrain optimization dimension (high)
 - [x] `/reports/marketers/{id}/sections` — section/placement breakdown - the finest-grained supply dimension advertisers block or bid on (high)
 - [x] `/marketers/{id}/conversionEvents` — lookup table resolving the conversion event ids that appear in every report's conversion details (high)
-- [ ] `/reports/marketers/{id}/campaigns/periodic` — daily per-campaign time series; campaign_performance today is only a date-range rollup (high)
+- [x] `/reports/marketers/{id}/campaigns/periodic` — daily per-campaign time series; campaign_performance today is only a date-range rollup (high)
 - [ ] `/reports/marketers/{id}/geo` — geo breakdown with country/region granularity (medium)
 - [ ] `/reports/marketers/{id}/platforms` — device/platform breakdown (medium)
-- [ ] `/reports/marketers/{id}/interests` — interest-targeting breakdown (medium)
-- [ ] `/marketers/{id}/segments` — audience segments lookup for segment-targeted campaigns (medium)
-- [ ] `/campaigns/{campaignId}/locations` — campaign geo targeting rows, needed to interpret geo report deltas (medium)
+- [x] `/reports/marketers/{id}/interests` — interest-targeting breakdown (medium)
+- [x] `/marketers/{id}/segments` — audience segments lookup for segment-targeted campaigns (medium)
+- [x] `/campaigns/{campaignId}/locations` — campaign geo targeting rows, needed to interpret geo report deltas (medium)
 - [ ] `/marketers/{id}/engagementMetrics` — marketer-level engagement metrics not present in the periodic report (low)
 - [ ] `/campaigns/{campaignId}/promotedLinksSequences` — sequence grouping for promoted links (low)
 
@@ -9144,14 +9144,14 @@ Today (13): `campaigns`, `custom_fields`, `forms`, `list_emails`, `list_membersh
 
 Diffed against: <https://developer.salesforce.com/docs/marketing/pardot/guide/version5overview.html>
 
-- [ ] `Lifecycle Stages (GET /api/v5/objects/lifecycle-stages)` — resolve lifecycleStageId values on prospects into sales journey stages (high)
-- [ ] `Lifecycle Histories (GET /api/v5/objects/lifecycle-histories)` — measure time between funnel stages and progression from prospect to won opportunity (high)
-- [ ] `Emails (GET /api/v5/objects/emails)` — resolve emailId values on visitor activities and analyze individual email performance (high)
+- [x] `Lifecycle Stages (GET /api/v5/objects/lifecycle-stages)` — resolve lifecycleStageId values on prospects into sales journey stages (high)
+- [x] `Lifecycle Histories (GET /api/v5/objects/lifecycle-histories)` — measure time between funnel stages and progression from prospect to won opportunity (high)
+- [x] `Emails (GET /api/v5/objects/emails)` — resolve emailId values on visitor activities and analyze individual email performance (high)
 - [ ] `Email Templates (GET /api/v5/objects/email-templates)` — resolve emailTemplateId values on visitor activities and list emails for performance comparisons (high)
 - [ ] `Custom Redirects (GET /api/v5/objects/custom-redirects)` — resolve customRedirectId values on visitor activities into tracked links and campaigns (high)
 - [ ] `Form Handlers (GET /api/v5/objects/form-handlers)` — resolve formHandlerId values on visitor activities for external form conversion analysis (high)
 - [ ] `Landing Pages (GET /api/v5/objects/landing-pages)` — resolve landingPageId values on visitor activities into conversion pages (high)
-- [ ] `Visitor Page Views (GET /api/v5/objects/visitor-page-views)` — resolve visitorPageViewId values on visitor activities into individual page visits (high)
+- [x] `Visitor Page Views (GET /api/v5/objects/visitor-page-views)` — resolve visitorPageViewId values on visitor activities into individual page visits (high)
 
 Note: Read the official v5 overview and each listed object reference, then checked their Query GET operations. Existing visitor activities carry IDs for several missing marketing assets. Lifecycle history adds stage transitions beyond the current prospect stage. Excluded exports, authentication, write operations, and layout configuration.
 
@@ -9161,10 +9161,10 @@ Today (12): `campaigns`, `clicks`, `conversion_metrics`, `conversion_types`, `co
 
 Diffed against: <https://api-docs.partnerize.com/partner/>
 
-- [ ] `/reporting/report_publisher/publisher/{publisher_id}/payable` — payable commission per conversion - the money side of the clicks/conversions already synced (high)
-- [ ] `/reporting/export/export/conversion_item.csv (conversion items)` — basket/line-item detail for conversions we already sync (high)
-- [ ] `/v2/campaigns/{campaignId}/publishers/{publisherId}/commissions/active (also /default, /campaign, /voucher, /promotion, /tier)` — commission rate card that resolves the campaign IDs carried on conversions (high)
-- [ ] `/v2/publishers/{publisherId}/discovery/advertisers (brands)` — advertiser/brand lookup resolving the campaign-to-brand relationship on synced campaigns (high)
+- [ ] `/reporting/report_publisher/publisher/{publisher_id}/payable` — payable commission per conversion - the money side of the clicks/conversions already synced (high); skipped: the spec documents it as per-currency totals with an untyped item list and no date window, and each `conversion_items` row already carries a `payable` flag
+- [x] `/reporting/export/export/conversion_item.csv (conversion items)` — basket/line-item detail for conversions we already sync (high). Added as `conversion_items`, read from the JSON conversion report's nested items rather than the CSV export, so it pages and syncs incrementally like `conversions`.
+- [x] `/v2/campaigns/{campaignId}/publishers/{publisherId}/commissions/active (also /default, /campaign, /voucher, /promotion, /tier)` — commission rate card that resolves the campaign IDs carried on conversions (high). Added as `commissions` (fan-out over `campaigns`). The per-type routes skipped: `/active` already returns all of their rows.
+- [x] `/v2/publishers/{publisherId}/discovery/advertisers (brands)` — advertiser/brand lookup resolving the campaign-to-brand relationship on synced campaigns (high). Added as `advertisers`.
 - [ ] `/user/publisher/{publisher_id}/campaign/{campaign_id}/voucher` — voucher-code lookup for attributing conversions to promo codes (medium)
 - [ ] `/user/publisher/{publisher_id}/selfbill` — self-billing invoices, the settlement layer over payable commission (medium)
 - [ ] `/user/publisher/{publisher_id}/payment/summary` — payments summary for reconciling earnings against payouts (medium)
@@ -9220,10 +9220,10 @@ Today (5): `links`, `payments`, `payouts`, `refunds`, `webhooks`
 
 Diffed against: <https://docs.paymongo.com/llms.txt>
 
-- [ ] `Payout Transactions (GET /v1/payouts/{id}/transactions)` — reconcile payouts against payments, refunds, disputes, and other settlement entries (high)
+- [x] `Payout Transactions (GET /v1/payouts/{id}/transactions)` — reconcile payouts against payments, refunds, disputes, and other settlement entries (high)
 - [ ] `Net Revenue (GET /v2/analytics/net_revenue; GET /v2/analytics/net_revenue_breakdown)` — measure revenue after fees, taxes, disputes, and adjustments (high)
-- [ ] `Subscriptions (GET /v1/subscriptions)` — measure recurring revenue, subscription growth, and churn (high)
-- [ ] `Invoices (GET /v1/invoices)` — track unpaid, overdue, and paid invoices for receivables analysis (high)
+- [x] `Subscriptions (GET /v1/subscriptions)` — measure recurring revenue, subscription growth, and churn (high)
+- [x] `Invoices (GET /v1/invoices)` — track unpaid, overdue, and paid invoices for receivables analysis (high)
 - [ ] `Customers (GET /v1/customers)` — analyze customer cohorts and connect customer records to subscription activity (medium)
 - [ ] `Subscription Plans (GET /v1/subscriptions/plans)` — compare subscription pricing, billing intervals, and plan performance (medium)
 - [ ] `Ledger Transactions (GET /v1/ledger_transactions)` — analyze accounting transactions and their debit and credit entries (medium)
@@ -9239,14 +9239,14 @@ Today (13): `Customers`, `Disputes`, `PaymentPages`, `PaymentRequests`, `Plans`,
 
 Diffed against: <https://raw.githubusercontent.com/PaystackOSS/openapi/main/dist/paystack.yaml>
 
-- [ ] `/settlement/{id}/transactions` — maps settlements we already sync to the transactions we already sync - the payout reconciliation join (high)
-- [ ] `/balance/ledger` — ledger entries behind every balance movement, the money-movement fact table (high)
-- [ ] `/split (transaction splits)` — lookup resolving split codes carried on transactions and subaccounts we already sync (high)
+- [x] `/settlement/{id}/transactions` — maps settlements we already sync to the transactions we already sync - the payout reconciliation join (high)
+- [x] `/balance/ledger` — ledger entries behind every balance movement, the money-movement fact table (high)
+- [x] `/split (transaction splits)` — lookup resolving split codes carried on transactions and subaccounts we already sync (high)
 - [ ] `/bank` — bank lookup resolving the bank codes on transfer recipients we already sync (medium)
 - [ ] `/transaction/timeline/{id}` — per-transaction event/state history for funnel and failure analysis (medium)
 - [ ] `/bulkcharge and /bulkcharge/{code}/charges` — batch charge runs plus their member charges (medium)
 - [ ] `/dedicated_account (dedicated virtual accounts)` — virtual NUBANs assigned to customers, needed to attribute bank-transfer inflows (medium)
-- [ ] `/directdebit/mandate-authorizations` — direct debit mandates underpinning recurring collections (medium)
+- [x] `/directdebit/mandate-authorizations` — direct debit mandates underpinning recurring collections (medium)
 - [ ] `/order and /order/{id}` — commerce orders with line items sitting above transactions (medium)
 - [ ] `/storefront and /storefront/{id}/order` — storefront dimension for the orders above (low)
 - [ ] `/transaction/totals and /paymentrequest/totals` — vendor-computed volume aggregates useful as a cross-check (low)
@@ -9270,10 +9270,10 @@ Today (5): `accounts`, `features`, `guides`, `pages`, `visitors`
 Diffed against: <https://engageapi.pendo.io/api/collections/16265887/Tzm6jvKG>
 
 - [ ] `aggregation source: events` — the raw usage event stream - Pendo's headline dataset and the basis of every engagement metric (high)
-- [ ] `aggregation source: featureEvents` — feature click events joined to the features table already synced (high)
-- [ ] `aggregation source: pageEvents` — page view events joined to the pages table already synced (high)
-- [ ] `GET /api/v1/tracktype` — lookup resolving custom track event type IDs; also needed to interpret trackEvents (high)
-- [ ] `aggregation source: trackEvents` — custom-instrumented events, the analog of product analytics custom events (high)
+- [x] `aggregation source: featureEvents` — feature click events joined to the features table already synced (high)
+- [x] `aggregation source: pageEvents` — page view events joined to the pages table already synced (high)
+- [x] `GET /api/v1/tracktype` — lookup resolving custom track event type IDs; also needed to interpret trackEvents (high)
+- [x] `aggregation source: trackEvents` — custom-instrumented events, the analog of product analytics custom events (high)
 - [ ] `aggregation source: guideEvents (plus guidesSeen)` — guide impressions and interactions for the guides table already synced (medium)
 - [ ] `aggregation source: pollEvents / pollsSeen` — poll and NPS responses, the source of Pendo's NPS reporting (medium)
 - [ ] `aggregation source: surveyResponses` — survey response rows for voice-of-customer analysis (medium)
@@ -13533,9 +13533,9 @@ Today (3): `documents`, `signers`, `templates`
 
 Diffed against: <https://docs.zapsign.com.br/english/sitemap-pages.xml>
 
-- [ ] `docs/signer-log/{doc_token} (document audit trail)` — per-document signature event history (viewed, signed, refused, timestamps) - the state-transition table behind document status (high)
-- [ ] `users (GET /api/v1/users/, account users)` — lookup table resolving the created_by / account user IDs already carried on documents (medium)
-- [ ] `signer-verification-details/{signer_token}` — authentication and identity-verification outcome per signer, needed to analyze signing friction and failures (medium)
+- [x] `docs/signer-log/{doc_token} (document audit trail)` — per-document signature event history (viewed, signed, refused, timestamps) - the state-transition table behind document status (high)
+- [x] `users (GET /api/v1/users/, account users)` — lookup table resolving the created_by / account user IDs already carried on documents (medium)
+- [x] `signer-verification-details/{signer_token}` — authentication and identity-verification outcome per signer, needed to analyze signing friction and failures (medium)
 - [ ] `checks/{check_id} and checks/{check_id}/details (background checks)` — background-check status and results tied to signers; no list endpoint, so it must fan out from signers (low)
 
 Note: Docs are a GitBook site with no OpenAPI spec; the English sitemap enumerates every endpoint page and each page embeds the literal api.zapsign.com.br path, which is what I diffed against. Webhook create/delete/logs endpoints exist but were excluded as plumbing.

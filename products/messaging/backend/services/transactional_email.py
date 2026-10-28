@@ -304,6 +304,7 @@ def send_transactional_email(
     distinct_id: str | None,
     message_data: dict[str, Any],
     idempotency_key: str | None = None,
+    timeout: float = 10,
 ) -> QueuedEmail:
     if idempotency_key is not None and not IDEMPOTENCY_KEY_PATTERN.fullmatch(idempotency_key):
         raise InvalidIdempotencyKey(
@@ -324,7 +325,7 @@ def send_transactional_email(
         # The CDP service holds the key, because only it knows whether the email was queued.
         payload["idempotency_key"] = idempotency_key
     try:
-        response = run_transactional_workflow(team.id, str(hog_flow_id), payload)
+        response = run_transactional_workflow(team.id, str(hog_flow_id), payload, timeout=timeout)
     except Exception as e:
         logger.exception("transactional_email_queue_failed", team_id=team.id, template_id=str(template_id))
         raise DeliveryUnavailable() from e

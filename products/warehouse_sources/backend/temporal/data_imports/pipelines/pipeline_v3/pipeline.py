@@ -77,6 +77,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.s
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     _append_debug_column_to_pyarrows_table,
     _handle_null_columns_with_definitions,
+    drop_internal_columns,
     evolve_pyarrow_schema,
     merge_observed_columns_into_schema_metadata,
     normalize_column_name,
@@ -1162,7 +1163,7 @@ class PipelineV3(Generic[ResumableData]):
             cleanup_memory(pa_memory_pool, py_table if "py_table" in locals() else None)
 
     async def _process_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> None:
-        pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
+        pa_table = _append_debug_column_to_pyarrows_table(drop_internal_columns(pa_table), self._load_id)
         source_column_names = pa_table.column_names
         if not self._resource.preserve_column_names:
             pa_table = normalize_table_column_names(pa_table)

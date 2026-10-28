@@ -178,6 +178,8 @@ import type {
     SignalsScoutRunsRecentPerScoutParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
+    SubmitMonitoringResultRequestApi,
+    SubmitMonitoringResultResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -2705,6 +2707,28 @@ export const signalsScoutLighthouseAudit = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(lighthouseAuditRequestApi),
+    })
+}
+
+export const getSignalsScoutSubmitMonitoringResultUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/monitoring_result/`
+}
+
+/**
+ * Submit the assigned Monitoring check's evidence and verdict while the scout is running. Only the owning Monitoring scout can call this endpoint. The server derives the check, attempt, definition, and fixed window from the run. Validation errors record nothing: correct the fields and retry in the same run. An identical accepted submission is idempotent. This records an evaluation and leaves the report in Monitoring.
+ * @summary Submit the result of an authored Monitoring check
+ */
+export const signalsScoutSubmitMonitoringResult = async (
+    projectId: string,
+    runId: string,
+    submitMonitoringResultRequestApi: SubmitMonitoringResultRequestApi,
+    options?: RequestInit
+): Promise<SubmitMonitoringResultResponseApi> => {
+    return apiMutator<SubmitMonitoringResultResponseApi>(getSignalsScoutSubmitMonitoringResultUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(submitMonitoringResultRequestApi),
     })
 }
 
