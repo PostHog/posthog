@@ -250,7 +250,7 @@ def _invoke_structured_model(
                         "input_schema": output_model.model_json_schema(),
                     }
                 ],
-                tool_choice={"type": "tool", "name": tool_name},
+                tool_choice={"type": "tool", "name": tool_name, "disable_parallel_tool_use": True},
                 extra_headers={"X-PostHog-Privacy-Mode": "true"},
             )
         try:

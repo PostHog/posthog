@@ -390,6 +390,7 @@ class TestLearningAnalyzer:
         for call in entered.messages.create.call_args_list:
             assert call.kwargs["extra_headers"] == {"X-PostHog-Privacy-Mode": "true"}
             assert call.kwargs["tool_choice"]["type"] == "tool"
+            assert call.kwargs["tool_choice"]["disable_parallel_tool_use"] is True
         embed.assert_not_called()
         search.assert_not_called()
         publish.assert_not_called()
