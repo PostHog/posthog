@@ -1622,8 +1622,10 @@ export class ApiClient {
 
             runQuery: async ({
                 query,
+                timeoutMs,
             }: {
                 query: Record<string, unknown>
+                timeoutMs?: number
             }): Promise<{
                 results: unknown
                 columns?: unknown[] | null
@@ -1643,6 +1645,7 @@ export class ApiClient {
                     method: 'POST',
                     path: `/api/environments/${projectId}/query/`,
                     body: { query: normalizeQuery(query) },
+                    timeoutMs,
                 })
             },
 

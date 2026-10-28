@@ -83,14 +83,6 @@ type SqlEvidence = { chart: StoryEvidenceChartData | null } | { error: string }
 
 const SQL_EVIDENCE_TIME_LIMIT_MS = 60_000
 
-function beforeDeadline<T>(promise: Promise<T>, deadline: number): Promise<T> {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const timeout = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error('it did not finish in time')), deadline - Date.now())
-    })
-    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
-}
-
 function isSqlQuery(query: Record<string, unknown> | undefined): query is Record<string, unknown> {
     return query?.kind === 'HogQLQuery' && typeof query.query === 'string'
 }
@@ -110,15 +102,13 @@ async function runSqlEvidence(
     const deadline = Date.now() + SQL_EVIDENCE_TIME_LIMIT_MS
     const results = new Map<string, SqlEvidence>()
     for (const [key, query] of queries) {
-        if (Date.now() >= deadline) {
+        const timeoutMs = deadline - Date.now()
+        if (timeoutMs <= 0) {
             results.set(key, { error: 'it did not finish in time' })
             continue
         }
         try {
-            const response = await beforeDeadline<{ columns?: unknown[] | null; results: unknown }>(
-                context.api.query({ projectId }).runQuery({ query }),
-                deadline
-            )
+            const response = await context.api.query({ projectId }).runQuery({ query, timeoutMs })
             const columns = (response.columns ?? []).map(String)
             const rows = Array.isArray(response.results) ? (response.results as unknown[][]) : []
             results.set(key, { chart: sqlEvidenceChart(columns, rows) })
