@@ -1,11 +1,20 @@
+import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconServer } from '@posthog/icons'
 import { IconFlutter, IconGo, IconJavascript, IconPHP, IconPython, IconRuby } from '@posthog/icons'
-import { LemonSelect, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSelect, LemonTabs, Link } from '@posthog/lemon-ui'
 
+import { type AgentPromptAction, AgentPromptButton, buildAgentPrompt } from 'lib/components/AgentPromptButton'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAndroidOS, IconAppleIOS, IconNodeJS } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { projectLogic } from 'scenes/projectLogic'
+import { urls } from 'scenes/urls'
 
 import { Experiment, MultivariateFlagVariant, SDKKey } from '~/types'
 
@@ -13,6 +22,7 @@ import { getExperimentStatus } from 'products/experiments/frontend/experimentSta
 
 import {
     AndroidSnippet,
+    buildExperimentFlagAgentPrompt,
     FlutterSnippet,
     GolangSnippet,
     IOSSnippet,
@@ -28,10 +38,18 @@ import {
     ReactSnippet,
     RubySnippet,
 } from './ExperimentCodeSnippets'
-import { getExperimentVariants } from './utils'
+import { getBaselineVariantKey, getExperimentVariants } from './utils'
 
 /** Where the snippet is shown: above the tabs while the experiment is a draft, or in the Code tab. */
 export type ImplementationSnippetPlacement = 'draft_header' | 'code_tab'
+
+/** The arm of the EXPERIMENT_IMPLEMENTATION_AGENT_PROMPT experiment the generic section rendered. */
+export type ImplementationArm = 'control' | 'test'
+
+type ImplementationOption = 'agent_prompt' | 'code_snippet'
+
+// The test arm opens on the prompt, so the experiment measures what leading with the prompt does.
+const DEFAULT_IMPLEMENTATION_OPTION: ImplementationOption = 'agent_prompt'
 
 interface ExperimentImplementationDetailsProps {
     experiment: Partial<Experiment> | null
@@ -43,6 +61,8 @@ interface SnippetCopy {
     variant: string | null
     /** `test_override` is the "Test that it works" line, which forces a variant in the user's own browser. */
     snippetKind: 'code' | 'test_override'
+    /** Null for prompt experiments, which the implementation experiment leaves out. */
+    implementationArm: ImplementationArm | null
 }
 
 type OnSnippetCopied = (copy: SnippetCopy) => void
@@ -50,7 +70,7 @@ type OnSnippetCopied = (copy: SnippetCopy) => void
 function reportImplementationSnippetCopied(
     experiment: Partial<Experiment> | null,
     placement: ImplementationSnippetPlacement,
-    { sdk, variant, snippetKind }: SnippetCopy
+    { sdk, variant, snippetKind, implementationArm }: SnippetCopy
 ): void {
     posthog.capture('experiment implementation snippet copied', {
         experiment_id: experiment?.id,
@@ -59,20 +79,45 @@ function reportImplementationSnippetCopied(
         sdk,
         variant,
         snippet_kind: snippetKind,
+        implementation_arm: implementationArm,
     })
 }
+
+interface AgentPromptCopy {
+    /** `prompt_experiment` is a prompt experiment's prompt, `feature_flag` is the implementation experiment's. */
+    promptKind: 'prompt_experiment' | 'feature_flag'
+    /** `prompt_text` is the copy button on the prompt, `agent_button` is the agent button's Clipboard option. */
+    source: 'prompt_text' | 'agent_button'
+}
+
+type OnAgentPromptCopied = (copy: AgentPromptCopy) => void
 
 // Agent prompt copies get their own event, so they never count as code copies.
 function reportAgentPromptCopied(
     experiment: Partial<Experiment> | null,
-    placement: ImplementationSnippetPlacement
+    placement: ImplementationSnippetPlacement,
+    { promptKind, source }: AgentPromptCopy
 ): void {
     posthog.capture('experiment implementation agent prompt copied', {
         experiment_id: experiment?.id,
         experiment_status: getExperimentStatus(experiment),
         placement,
-        prompt_kind: 'prompt_experiment',
-        source: 'prompt_text',
+        prompt_kind: promptKind,
+        source,
+    })
+}
+
+function experimentFlagAgentPrompt(experiment: Partial<Experiment> | null): string {
+    const experimentId = experiment?.id
+    return buildExperimentFlagAgentPrompt({
+        experimentName: experiment?.name ?? '',
+        experimentUrl:
+            typeof experimentId === 'number'
+                ? window.location.origin + addProjectIdIfMissing(urls.experiment(experimentId))
+                : null,
+        flagKey: experiment?.feature_flag?.key ?? '',
+        variantKeys: getExperimentVariants(experiment).map((variant) => variant.key),
+        baselineVariantKey: getBaselineVariantKey(experiment),
     })
 }
 
@@ -287,7 +332,12 @@ function PromptExperimentImplementation({
                                 <PromptExperimentPythonSnippet
                                     flagKey={flagKey}
                                     onCopy={() =>
-                                        onSnippetCopied({ sdk: SDKKey.PYTHON, variant: null, snippetKind: 'code' })
+                                        onSnippetCopied({
+                                            sdk: SDKKey.PYTHON,
+                                            variant: null,
+                                            snippetKind: 'code',
+                                            implementationArm: null,
+                                        })
                                     }
                                 />
                             ),
@@ -299,7 +349,12 @@ function PromptExperimentImplementation({
                                 <PromptExperimentJSSnippet
                                     flagKey={flagKey}
                                     onCopy={() =>
-                                        onSnippetCopied({ sdk: SDKKey.NODE_JS, variant: null, snippetKind: 'code' })
+                                        onSnippetCopied({
+                                            sdk: SDKKey.NODE_JS,
+                                            variant: null,
+                                            snippetKind: 'code',
+                                            implementationArm: null,
+                                        })
                                     }
                                 />
                             ),
@@ -314,13 +369,65 @@ function PromptExperimentImplementation({
     )
 }
 
-function GenericExperimentImplementation({
+function ExperimentAgentPrompt({
     experiment,
-    onSnippetCopied,
+    onPromptCopied,
+    onPromptOpened,
 }: {
     experiment: Partial<Experiment> | null
-    onSnippetCopied: OnSnippetCopied
+    onPromptCopied: (source: AgentPromptCopy['source']) => void
+    onPromptOpened: (agent: string) => void
 }): JSX.Element {
+    const { currentProjectId } = useValues(projectLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
+    const action: AgentPromptAction = {
+        key: 'implement',
+        label: 'prompt',
+        buildPrompt: () => experimentFlagAgentPrompt(experiment),
+    }
+    // Show the text the Clipboard option copies, so it also says how to install the PostHog MCP server.
+    const prompt = buildAgentPrompt(action, 'clipboard', currentProjectId, !!isCloudOrDev)
+
+    return (
+        <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-secondary text-sm mb-0">
+                    Run this prompt in your coding agent to add the feature flag to your code.
+                </p>
+                <AgentPromptButton
+                    appearance="lemon"
+                    labelMode="destination"
+                    data-attr="experiment-implementation-agent-prompt"
+                    actions={[action]}
+                    onRun={({ agentKey }) =>
+                        agentKey === 'clipboard' ? onPromptCopied('agent_button') : onPromptOpened(agentKey)
+                    }
+                />
+            </div>
+            <CodeSnippet language={Language.Text} wrap compact onCopy={() => onPromptCopied('prompt_text')}>
+                {prompt}
+            </CodeSnippet>
+        </div>
+    )
+}
+
+function GenericExperimentImplementation({
+    experiment,
+    placement,
+    onSnippetCopied,
+    onAgentPromptCopied,
+}: {
+    experiment: Partial<Experiment> | null
+    placement: ImplementationSnippetPlacement
+    onSnippetCopied: OnSnippetCopied
+    onAgentPromptCopied: OnAgentPromptCopied
+}): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    // Read here rather than on the page, so only people who see this section are exposed to the experiment.
+    const implementationArm: ImplementationArm =
+        featureFlags[FEATURE_FLAGS.EXPERIMENT_IMPLEMENTATION_AGENT_PROMPT] === 'test' ? 'test' : 'control'
+    const [implementationOption, setImplementationOption] =
+        useState<ImplementationOption>(DEFAULT_IMPLEMENTATION_OPTION)
     const defaultVariant = getExperimentVariants(experiment)[1]?.key ?? 'test'
     const [currentVariant, setCurrentVariant] = useState(defaultVariant)
     const [defaultSelectedOption] = OPTIONS
@@ -334,48 +441,113 @@ function GenericExperimentImplementation({
         }
     }
 
+    const selectImplementationOption = (option: ImplementationOption): void => {
+        if (option === implementationOption) {
+            return
+        }
+        setImplementationOption(option)
+        posthog.capture('experiment implementation option selected', {
+            experiment_id: experiment?.id,
+            placement,
+            option,
+        })
+    }
+
+    const reportAgentPromptOpened = (agent: string): void => {
+        posthog.capture('experiment implementation agent prompt opened', {
+            experiment_id: experiment?.id,
+            placement,
+            agent,
+        })
+    }
+
+    const snippetSelects = (
+        <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+                <span className="text-secondary text-sm">Variant group</span>
+                <LemonSelect
+                    size="small"
+                    className="min-w-[5rem]"
+                    onSelect={setCurrentVariant}
+                    value={currentVariant}
+                    options={getExperimentVariants(experiment).map((variant: MultivariateFlagVariant) => ({
+                        value: variant.key,
+                        label: variant.key,
+                    }))}
+                />
+            </div>
+            <CodeLanguageSelect selectOption={selectOption} selectedOptionValue={selectedOption.value} />
+        </div>
+    )
+
+    const snippet = (
+        <div>
+            <div className="mb-2">
+                <selectedOption.Snippet
+                    variant={currentVariant}
+                    flagKey={experiment?.feature_flag?.key ?? ''}
+                    onCopy={() =>
+                        onSnippetCopied({
+                            sdk: selectedOption.key,
+                            variant: currentVariant,
+                            snippetKind: 'code',
+                            implementationArm,
+                        })
+                    }
+                    onTestCopy={() =>
+                        onSnippetCopied({
+                            sdk: selectedOption.key,
+                            variant: currentVariant,
+                            snippetKind: 'test_override',
+                            implementationArm,
+                        })
+                    }
+                />
+            </div>
+            <Link subtle to={selectedOption.documentationLink} target="_blank">
+                See the docs for more implementation information.
+            </Link>
+        </div>
+    )
+
+    if (implementationArm === 'control') {
+        return (
+            <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h2 className="font-semibold text-lg mb-0">Implementation</h2>
+                    {snippetSelects}
+                </div>
+                {snippet}
+            </div>
+        )
+    }
+
     return (
         <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="font-semibold text-lg mb-0">Implementation</h2>
-                <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2">
-                        <span className="text-secondary text-sm">Variant group</span>
-                        <LemonSelect
-                            size="small"
-                            className="min-w-[5rem]"
-                            onSelect={setCurrentVariant}
-                            value={currentVariant}
-                            options={getExperimentVariants(experiment).map((variant: MultivariateFlagVariant) => ({
-                                value: variant.key,
-                                label: variant.key,
-                            }))}
-                        />
-                    </div>
-                    <CodeLanguageSelect selectOption={selectOption} selectedOptionValue={selectedOption.value} />
-                </div>
+                <LemonSegmentedButton
+                    size="small"
+                    value={implementationOption}
+                    onChange={selectImplementationOption}
+                    options={[
+                        { value: 'agent_prompt', label: 'Prompt for your agent' },
+                        { value: 'code_snippet', label: 'Code snippet' },
+                    ]}
+                />
             </div>
-            <div>
-                <div className="mb-2">
-                    <selectedOption.Snippet
-                        variant={currentVariant}
-                        flagKey={experiment?.feature_flag?.key ?? ''}
-                        onCopy={() =>
-                            onSnippetCopied({ sdk: selectedOption.key, variant: currentVariant, snippetKind: 'code' })
-                        }
-                        onTestCopy={() =>
-                            onSnippetCopied({
-                                sdk: selectedOption.key,
-                                variant: currentVariant,
-                                snippetKind: 'test_override',
-                            })
-                        }
-                    />
-                </div>
-                <Link subtle to={selectedOption.documentationLink} target="_blank">
-                    See the docs for more implementation information.
-                </Link>
-            </div>
+            {implementationOption === 'agent_prompt' ? (
+                <ExperimentAgentPrompt
+                    experiment={experiment}
+                    onPromptCopied={(source) => onAgentPromptCopied({ promptKind: 'feature_flag', source })}
+                    onPromptOpened={reportAgentPromptOpened}
+                />
+            ) : (
+                <>
+                    {snippetSelects}
+                    {snippet}
+                </>
+            )}
         </div>
     )
 }
@@ -386,6 +558,7 @@ export function ExperimentImplementationDetails({
 }: ExperimentImplementationDetailsProps): JSX.Element {
     const promptMetadata = experiment?.parameters?.prompt_metadata
     const onSnippetCopied: OnSnippetCopied = (copy) => reportImplementationSnippetCopied(experiment, placement, copy)
+    const onAgentPromptCopied: OnAgentPromptCopied = (copy) => reportAgentPromptCopied(experiment, placement, copy)
 
     if (promptMetadata) {
         return (
@@ -393,10 +566,19 @@ export function ExperimentImplementationDetails({
                 flagKey={experiment?.feature_flag?.key ?? ''}
                 promptMetadata={promptMetadata}
                 onSnippetCopied={onSnippetCopied}
-                onAgentPromptCopied={() => reportAgentPromptCopied(experiment, placement)}
+                onAgentPromptCopied={() =>
+                    onAgentPromptCopied({ promptKind: 'prompt_experiment', source: 'prompt_text' })
+                }
             />
         )
     }
 
-    return <GenericExperimentImplementation experiment={experiment} onSnippetCopied={onSnippetCopied} />
+    return (
+        <GenericExperimentImplementation
+            experiment={experiment}
+            placement={placement}
+            onSnippetCopied={onSnippetCopied}
+            onAgentPromptCopied={onAgentPromptCopied}
+        />
+    )
 }

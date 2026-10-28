@@ -445,3 +445,57 @@ Reference docs
         </CodeSnippet>
     )
 }
+
+export interface ExperimentFlagAgentPromptInput {
+    experimentName: string
+    /** Absolute link to the experiment page, left out of the prompt when null. */
+    experimentUrl: string | null
+    flagKey: string
+    variantKeys: string[]
+    baselineVariantKey: string
+}
+
+function joinWithOr(values: string[]): string {
+    return values.length > 1 ? `${values.slice(0, -1).join(', ')} or ${values[values.length - 1]}` : values.join('')
+}
+
+/** Asks a coding agent to add a product experiment's feature flag to the user's code. It keeps the layout of the
+ * prompt experiments' agent prompt above, without the prompt management steps. */
+export function buildExperimentFlagAgentPrompt({
+    experimentName,
+    experimentUrl,
+    flagKey,
+    variantKeys,
+    baselineVariantKey,
+}: ExperimentFlagAgentPromptInput): string {
+    const quote = (value: string): string => `"${value}"`
+    const testVariantKeys = variantKeys.filter((key) => key !== baselineVariantKey)
+    const showChange =
+        testVariantKeys.length > 1
+            ? `Show each variant's version of the change when the flag returns ${joinWithOr(testVariantKeys.map(quote))}. If you can't tell what a variant should do, ask me.`
+            : `Show the change only when the flag returns ${quote(testVariantKeys[0] ?? 'test')}.`
+    const context = [
+        `- Experiment: ${experimentName}`,
+        experimentUrl ? `- Experiment page: ${experimentUrl}` : null,
+        `- Feature flag key: ${quote(flagKey)}`,
+        variantKeys.length > 0 ? `- Variants: ${variantKeys.map(quote).join(', ')}` : null,
+    ]
+        .filter(Boolean)
+        .join('\n')
+
+    return `Add a PostHog experiment's feature flag to this project's code.
+
+Context
+${context}
+
+What to do
+1. Find where users see the change this experiment tests. If you can't tell what the change is, ask me.
+2. Use the PostHog SDK this project already has. If it has none, install the one that fits the project.
+3. Read the ${quote(flagKey)} flag at that spot, not earlier, so only users who see the change count as exposed. Use a call that records an exposure, like getFeatureFlag. getAllFlags and payload-only calls don't.
+4. ${showChange} For ${quote(baselineVariantKey)}, or when the flag has no value, keep today's behavior.
+5. Follow this project's existing conventions. Don't add new frameworks.
+
+Reference docs
+- Adding experiment code: https://posthog.com/docs/experiments/adding-experiment-code
+`
+}
