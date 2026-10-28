@@ -12,10 +12,33 @@ it('keeps catalog SQL and bound values unchanged when a worksheet is saved or it
         query: 'SELECT count(*) FROM events WHERE timestamp >= {start}',
         values: { start: '2026-01-01' },
     }
-    const node = catalogMetricWorksheet({ name: 'revenue', definition: source })!
+    const node = catalogMetricWorksheet({
+        name: 'revenue',
+        definition: source,
+        id: 'metric-revenue',
+        status: 'approved',
+        is_drifted: true,
+        unit: 'usd',
+        owner: 'analyst@example.com',
+        updated_at: '2026-01-01T00:00:00Z',
+    })!
     const parsed = parseBIEditorState(BIEditorView.BI, JSON.stringify(node.config))!.config
     expect(buildBIQuery({ ...parsed, chartType: ChartDisplayType.BoldNumber })?.node.source).toEqual(source)
     expect(parsed.catalogMetric).toBe('revenue')
+    expect(parsed.catalogMetricContext).toEqual({
+        id: 'metric-revenue',
+        status: 'approved',
+        isDrifted: true,
+        unit: 'usd',
+        owner: 'analyst@example.com',
+        updatedAt: '2026-01-01T00:00:00Z',
+    })
+    expect(
+        parseBIEditorState(BIEditorView.BI, {
+            ...parsed,
+            catalogMetricContext: { ...parsed.catalogMetricContext, isDrifted: 'false' },
+        })
+    ).toBeNull()
     expect(
         parseBIEditorState(
             BIEditorView.BI,

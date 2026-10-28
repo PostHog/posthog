@@ -154,6 +154,15 @@ export interface BIConfig {
     querySnapshot?: HogQLQuery
     /** Catalog provenance only: the snapshot does not track subsequent definition edits. */
     catalogMetric?: string
+    /** Catalog metadata at copy time, not a live approval of the worksheet. */
+    catalogMetricContext?: {
+        id: string
+        status: string
+        isDrifted: boolean
+        unit: string
+        owner: string | null
+        updatedAt: string | null
+    }
     /** Reusable expressions owned by this worksheet only. */
     localFields?: BIField[]
     /** Named dimension sequences saved with the worksheet; imports are independent copies. */

@@ -989,6 +989,18 @@ class BIConditionGroup(BaseModel):
     operator: Operator1
 
 
+class CatalogMetricContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    isDrifted: bool
+    owner: str | None = None
+    status: str
+    unit: str
+    updatedAt: str | None = None
+
+
 class Alias(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -31648,6 +31660,10 @@ class BIConfig(BaseModel):
     catalogMetric: str | None = Field(
         default=None,
         description=("Catalog provenance only: the snapshot does not track subsequent definition edits."),
+    )
+    catalogMetricContext: CatalogMetricContext | None = Field(
+        default=None,
+        description=("Catalog metadata at copy time, not a live approval of the worksheet."),
     )
     chartType: ChartDisplayType
     colorBy: str | None = None

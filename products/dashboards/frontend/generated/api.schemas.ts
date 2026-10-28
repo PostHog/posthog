@@ -9337,6 +9337,15 @@ export interface DataVisualizationNodeApi {
     version?: number | null
 }
 
+export interface CatalogMetricContextApi {
+    id: string
+    isDrifted: boolean
+    owner?: string | null
+    status: string
+    unit: string
+    updatedAt?: string | null
+}
+
 export type BIDateBucketApi = (typeof BIDateBucketApi)[keyof typeof BIDateBucketApi]
 
 export const BIDateBucketApi = {
@@ -9633,6 +9642,8 @@ export interface BIValueApi {
 export interface BIConfigApi {
     /** Catalog provenance only: the snapshot does not track subsequent definition edits. */
     catalogMetric?: string | null
+    /** Catalog metadata at copy time, not a live approval of the worksheet. */
+    catalogMetricContext?: CatalogMetricContextApi | null
     chartType: ChartDisplayTypeApi
     colorBy?: string | null
     columns: BIFieldApi[]

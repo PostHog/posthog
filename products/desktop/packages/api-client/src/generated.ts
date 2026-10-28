@@ -4544,6 +4544,14 @@ export namespace Schemas {
         groups: Array<BIConditionGroup>;
         operator: Operator1;
     };
+    export type CatalogMetricContext = {
+        id: string;
+        isDrifted: boolean;
+        owner?: (string | null) | undefined;
+        status: string;
+        unit: string;
+        updatedAt?: (string | null) | undefined;
+    };
     export type BIDateBucket =
         | "minute"
         | "hour"
@@ -4735,6 +4743,7 @@ export namespace Schemas {
     };
     export type BIConfig = {
         catalogMetric?: (string | null) | undefined;
+        catalogMetricContext?: (CatalogMetricContext | null) | undefined;
         chartType: ChartDisplayType;
         colorBy?: (string | null) | undefined;
         columns: Array<BIField>;
