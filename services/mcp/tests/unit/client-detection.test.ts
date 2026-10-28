@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import {
     ANTHROPIC_CLIENT_NAME_FRAGMENTS,
+    ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS,
     ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS,
     CODING_AGENT_CLIENT_NAME_FRAGMENTS,
     DEFAULT_CLIENT_CAPABILITIES,
     MCPClientProfile,
+    OPENAI_RENDER_UI_CLIENT_NAMES,
     POSTHOG_CODE_CONSUMER,
-    RENDER_UI_HOST_CLIENT_NAME_FRAGMENTS,
-    RENDER_UI_HOST_USER_AGENT_FRAGMENTS,
     TOOLS_MODE_CLIENT_NAME_FRAGMENTS,
     TOOLS_MODE_USER_AGENT_FRAGMENTS,
     isCliModeEnabledClient,
@@ -413,8 +413,8 @@ describe('MCPClientProfile', () => {
         it('keeps the fragment lists non-empty and lowercased', () => {
             for (const fragments of [
                 ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS,
-                RENDER_UI_HOST_USER_AGENT_FRAGMENTS,
-                RENDER_UI_HOST_CLIENT_NAME_FRAGMENTS,
+                ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS,
+                OPENAI_RENDER_UI_CLIENT_NAMES,
             ]) {
                 expect(fragments.length).toBeGreaterThan(0)
                 for (const fragment of fragments) {

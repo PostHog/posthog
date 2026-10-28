@@ -316,7 +316,8 @@ In CLI mode, MCP Apps UI hosts receive a separate `render-ui` tool beside `exec`
 A client declares UI support with the `extensions["io.modelcontextprotocol/ui"]` capability.
 The client supports `render-ui` when that capability lists `text/html;profile=mcp-app` in `mimeTypes`.
 If the client sends the capability, the server uses it, and it overrides name detection in both directions.
-If the client does not send the capability, the server falls back to known hosts: Claude web and desktop, Cowork, Codex, ChatGPT, and the shared `openai-mcp` client name or user agent.
+If the client does not send the capability, the server falls back to known hosts: Claude web and desktop, Cowork, and the exact `openai-mcp` client name or user agent product.
+The OpenAI match is exact, so Codex CLI (`codex-mcp-client`) does not receive `render-ui` without a declaration.
 Legacy clients declare capabilities during `initialize`; the server retains UI support for later requests in that session.
 Stateless clients declare capabilities in each request's `_meta["io.modelcontextprotocol/clientCapabilities"]`.
 An explicit request declaration takes precedence over stored session support.

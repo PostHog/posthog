@@ -558,8 +558,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         { mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI' },
         { mcpClientName: 'Anthropic/ClaudeAI', mcpVendorClient: 'Cowork' },
         { mcpClientName: 'example-client', mcpUiSupported: true },
-        { mcpClientName: 'codex-mcp-client' },
-        { mcpClientName: 'ChatGPT' },
+        { mcpClientName: 'openai-mcp' },
         { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0' },
     ])('puts UI host %j in single-exec and enables render-ui', async (clientProps) => {
         const props = makeProps(clientProps)
@@ -588,6 +587,8 @@ describe('RequestStateResolver MCP client contexts', () => {
     it.each([
         { mcpClientName: 'Anthropic/ClaudeAI', mcpVendorClient: 'ClaudeCode' },
         { mcpClientName: 'example-client' },
+        { mcpClientName: 'codex-mcp-client', clientUserAgent: 'codex-mcp-client/0.165.0' },
+        { mcpClientName: 'ChatGPT' },
         { mcpClientName: 'codex', mcpUiSupported: false },
         { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0', mcpUiSupported: false },
         { mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI', mcpUiSupported: false },

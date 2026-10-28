@@ -26,8 +26,8 @@
  *   sent by the PostHog Desktop Tasks wrapper.
  *
  * - `isRenderUiHost()` uses declared MCP Apps support when the client sends it.
- *   Otherwise it matches Claude web/desktop, Cowork, Codex, ChatGPT, and the
- *   shared OpenAI MCP client.
+ *   Otherwise it matches Claude web/desktop, Cowork, and the exact `openai-mcp`
+ *   client name.
  *
  * - `isClaudeChatHost()` matches Claude web/desktop only — the chat surfaces that
  *   report `supportsInstructions` but never surface the `instructions` payload to
@@ -52,6 +52,11 @@ function matchesAnyFragment(clientName: string | undefined, fragments: readonly 
         return false
     }
     return fragments.some((fragment) => normalized.includes(normalizeClientName(fragment)))
+}
+
+function matchesProductName(value: string | undefined, names: readonly string[]): boolean {
+    const product = value?.trim().split(/[\s/]/, 1)[0]?.toLowerCase()
+    return !!product && names.includes(product)
 }
 
 // Coding agents and LLM-driven clients that render text rather than MCP Apps UI.
@@ -204,15 +209,11 @@ export const INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS = ['claudecode'] as const
 export const ANTHROPIC_USER_AGENT_FRAGMENTS = ['claude-user'] as const
 export const ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS = ANTHROPIC_USER_AGENT_FRAGMENTS
 
-// OpenAI clients send no vendor header, so ChatGPT, Codex, and the shared
-// `openai-mcp` client are matched on `clientInfo.name` or the User-Agent. Claude
-// is matched on the User-Agent only, because its pooled `clientInfo.name` is shared
-// with Claude Code.
-export const RENDER_UI_HOST_CLIENT_NAME_FRAGMENTS = ['codex', 'chatgpt', 'openai-mcp'] as const
-export const RENDER_UI_HOST_USER_AGENT_FRAGMENTS = [
-    ...ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS,
-    ...RENDER_UI_HOST_CLIENT_NAME_FRAGMENTS,
-] as const
+// OpenAI clients send no vendor header, so the shared `openai-mcp` client is matched
+// on `clientInfo.name` or the User-Agent product token. The match is exact because a
+// substring match on `codex` also matches Codex CLI (`codex-mcp-client`), which cannot
+// render UI.
+export const OPENAI_RENDER_UI_CLIENT_NAMES = ['openai-mcp'] as const
 
 export type ClientCapabilities = {
     // MCP `initialize` response includes an `instructions` field that most
@@ -349,8 +350,9 @@ export class MCPClientProfile {
             return matchesAnyFragment(this.vendorClient, ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS)
         }
         return (
-            matchesAnyFragment(this.userAgent, RENDER_UI_HOST_USER_AGENT_FRAGMENTS) ||
-            matchesAnyFragment(this.clientName, RENDER_UI_HOST_CLIENT_NAME_FRAGMENTS)
+            matchesAnyFragment(this.userAgent, ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS) ||
+            matchesProductName(this.userAgent, OPENAI_RENDER_UI_CLIENT_NAMES) ||
+            matchesProductName(this.clientName, OPENAI_RENDER_UI_CLIENT_NAMES)
         )
     }
 
