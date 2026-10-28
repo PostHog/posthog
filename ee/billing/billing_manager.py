@@ -127,6 +127,11 @@ def _has_quota_limiting_markers(usage: dict | None) -> bool:
     return False
 
 
+def _is_older_than_applied_billing_status(organization: Organization, computed_at: datetime) -> bool:
+    applied_at = parse_datetime((organization.usage or {}).get("billing_status_computed_at") or "")
+    return applied_at is not None and computed_at < applied_at
+
+
 def _free_trial_active(customer: CustomerInfo) -> bool:
     free_trial_until = customer.get("free_trial_until")
     if not free_trial_until:
@@ -700,6 +705,15 @@ class BillingManager:
         """
         Ensure the relevant organization details are up-to-date locally
         """
+        computed_at = parse_datetime(billing_status.get("computed_at") or "")
+        if computed_at is not None and _is_older_than_applied_billing_status(organization, computed_at):
+            logger.info(
+                "billing_status_out_of_order_skipped",
+                organization_id=str(organization.id),
+                computed_at=computed_at.isoformat(),
+            )
+            return organization
+
         org_modified = False
 
         data = billing_status["customer"]
@@ -748,6 +762,12 @@ class BillingManager:
                 org_modified = True
 
             should_update_org_billing_quotas = usage_changed or had_quota_limiting_markers
+
+        # Written after set_org_usage_summary, so a new stamp alone does not count as a usage change.
+        if computed_at is not None and organization.usage is not None:
+            organization.usage["billing_status_computed_at"] = computed_at.isoformat()
+            organization.usage["billing_latest_usage_report_date"] = billing_status.get("latest_usage_report_date")
+            org_modified = True
 
         available_product_features = data.get("available_product_features", None)
         revoked_feature_keys: set[str] = set()

@@ -161,6 +161,7 @@ INFORMATIONAL_USAGE_RESOURCES = (
     "sandbox_compute_cpu_millicore_seconds",
     "sandbox_compute_memory_mib_seconds",
 )
+BILLING_STATUS_STAMP_KEYS = ("billing_status_computed_at", "billing_latest_usage_report_date")
 # -------------------------------------------------------------------------------------------------
 # REDIS FUNCTIONS
 # -------------------------------------------------------------------------------------------------
@@ -1025,6 +1026,11 @@ def set_org_usage_summary(
                 resource_usage["todays_usage"] = todays_usage_value
 
     _merge_informational_usage_summary(cast(dict, new_usage), original_usage, todays_usage)
+
+    # update_org_details writes these after this comparison, so keep the stored values here.
+    for key in BILLING_STATUS_STAMP_KEYS:
+        if key in original_usage and key not in new_usage:
+            cast(dict, new_usage)[key] = original_usage[key]
 
     has_changed = new_usage != organization.usage
     organization.usage = new_usage
