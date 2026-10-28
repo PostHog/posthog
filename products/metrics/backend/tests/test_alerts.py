@@ -33,7 +33,7 @@ class TestMetricsAlertConfig(SimpleTestCase):
 class TestMetricsAlertCreate(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.enterContext(patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True))
+        self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
 
     def _create(self, source_config: dict[str, object]) -> Any:
         return self.client.post(
