@@ -698,15 +698,27 @@ class TestIssueSummaryGeneration(BaseTest):
         assert issue_summaries.get_client().get(self._lock_key) == issue_summaries.LOCK_QUEUED.encode()
         assert 0 < issue_summaries.get_client().ttl(self._lock_key) <= 60
 
-    def test_unexpected_error_stops_start_and_still_raises(self) -> None:
+    @parameterized.expand(
+        [
+            ("read", lambda test: get_or_generate_issue_summary(test.team.id, test.issue.id), False),
+            ("creation", lambda test: test._generate_on_creation(), True),
+            ("reopen", lambda test: test._refresh_on_reopen(), True),
+        ]
+    )
+    def test_unexpected_error_settles_the_claim_and_still_raises(
+        self, _name: str, generate: Any, releases_claim: bool
+    ) -> None:
         with (
             patch.object(issue_summaries.Team.objects, "get", side_effect=OperationalError("db down")),
             self.assertRaises(OperationalError),
         ):
-            get_or_generate_issue_summary(self.team.id, self.issue.id)
+            generate(self)
 
-        assert self._start() == (False, False)
-        assert 0 < issue_summaries.get_client().ttl(self._lock_key) <= issue_summaries.ISSUE_SUMMARY_LOCK_TTL_SECONDS
+        assert self._start() == (releases_claim, releases_claim)
+        if not releases_claim:
+            assert (
+                0 < issue_summaries.get_client().ttl(self._lock_key) <= issue_summaries.ISSUE_SUMMARY_LOCK_TTL_SECONDS
+            )
 
     @parameterized.expand(
         [
