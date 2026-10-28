@@ -1,14 +1,6 @@
 import { useState } from 'react'
 
-import {
-    IconCode,
-    IconFlask,
-    IconGraph,
-    IconPieChart,
-    IconPiggyBank,
-    IconPullRequest,
-    IconToggle,
-} from '@posthog/icons'
+import { IconCode, IconFlask, IconGraph, IconPiggyBank, IconPullRequest, IconTarget, IconToggle } from '@posthog/icons'
 import { Button, Text } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
@@ -53,7 +45,7 @@ function entryIcon(entry: BetsActivityApi): JSX.Element {
         case 'pull_request':
             return <IconPullRequest />
         default:
-            return /^(Budget|Usage)/.test(entry.title) ? <IconPiggyBank /> : <IconPieChart />
+            return /^(Budget|Usage)/.test(entry.title) ? <IconPiggyBank /> : <IconTarget />
     }
 }
 

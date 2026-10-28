@@ -4,7 +4,7 @@
 import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { IconPieChart } from '@posthog/icons'
+import { IconTarget } from '@posthog/icons'
 
 import type { ProductSetupProbe } from 'lib/components/ProductEmptyState/setupProbes'
 import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
@@ -2215,7 +2215,7 @@ export const productRailPanes: ProductRailPane[] = [
     {
         key: 'product:portfolio',
         label: 'Bets',
-        icon: <IconPieChart />,
+        icon: <IconTarget />,
         path: '/bets',
         href: () => urls.bets(),
         flag: 'bets',

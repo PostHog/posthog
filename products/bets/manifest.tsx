@@ -1,4 +1,4 @@
-import { IconPieChart } from '@posthog/icons'
+import { IconTarget } from '@posthog/icons'
 
 import { urls } from 'scenes/urls'
 
@@ -10,7 +10,7 @@ export const manifest: ProductManifest = {
     railPane: {
         key: 'product:portfolio',
         label: 'Bets',
-        icon: <IconPieChart />,
+        icon: <IconTarget />,
         path: '/bets',
         href: () => urls.bets(),
         flag: 'bets',
