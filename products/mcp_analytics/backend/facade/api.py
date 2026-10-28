@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import datetime
 
 from django.db import transaction
@@ -12,7 +13,7 @@ from posthog.api.capture import capture_internal
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.mcp_analytics.backend import logic
+from products.mcp_analytics.backend import custom_harnesses, logic
 from products.mcp_analytics.backend.hogql_queries.base import (
     EFFECTIVE_DESCRIPTION_SQL,
     EFFECTIVE_TOOL_SQL,
@@ -26,10 +27,14 @@ from .constants import MCP_MISSING_CAPABILITY_EVENT
 from .enums import SubmissionKind
 
 
-def mcp_harness_virtual_field_expr() -> ast.Expr:
-    # nosemgrep: hogql-fstring-audit (both SQL fragments are fixed server-side expressions)
+def custom_harness_rules(team: Team) -> tuple[contracts.CustomHarnessRule, ...]:
+    return custom_harnesses.custom_harness_rules(team)
+
+
+def mcp_harness_virtual_field_expr(custom_rules: Sequence[contracts.CustomHarnessRule] = ()) -> ast.Expr:
+    # nosemgrep: hogql-fstring-audit (the rule fields are escaped and character-restricted, the rest is fixed)
     return parse_expr(
-        f"if(startsWith(event, '$mcp_'), arrayMap(h -> {harness_label_sql('h')}, [{HARNESS_TOKEN_SQL}])[1], NULL)",
+        f"if(startsWith(event, '$mcp_'), arrayMap(h -> {harness_label_sql('h', custom_rules)}, [{HARNESS_TOKEN_SQL}])[1], NULL)",
         cache_origin=CacheOrigin.BUILTIN,
     )
 
