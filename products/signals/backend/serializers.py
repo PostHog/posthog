@@ -1465,7 +1465,45 @@ class SignalReportSerializerExtension(OpenApiSerializerExtension):
         return schema
 
 
+class StartupProvider(TextChoices):
+    CLAUDE = "claude", "Claude"
+    CODEX = "codex", "Codex"
+    PI = "pi", "Pi"
+
+
+class StartupPhase(TextChoices):
+    SESSION_SETUP = "session_setup", "Session setup"
+    SDK_INITIALIZATION = "sdk_initialization", "SDK initialization"
+    SETUP_HOOKS = "setup_hooks", "Setup hooks"
+
+
+class StartupRetryability(TextChoices):
+    REQUIRES_ACTION = "requires_action", "Requires action"
+    TRANSIENT = "transient", "Transient"
+    UNKNOWN = "unknown", "Unknown"
+
+
+class ReportStartupFailureSerializer(serializers.Serializer):
+    provider = serializers.ChoiceField(
+        choices=StartupProvider.choices, help_text="Agent provider that failed to start."
+    )
+    phase = serializers.ChoiceField(choices=StartupPhase.choices, help_text="Startup stage that failed.")
+    reason = serializers.CharField(allow_null=True, help_text="Validated provider reason code, when available.")
+    retryability = serializers.ChoiceField(
+        choices=StartupRetryability.choices, help_text="Whether an unchanged startup can be retried."
+    )
+    task_id = serializers.UUIDField(help_text="Research task that could not start.")
+    run_id = serializers.UUIDField(help_text="Failed research task run.")
+    message = serializers.CharField(help_text="Safe explanation and suggested next action.")
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
+    startup_failure = ReportStartupFailureSerializer(
+        read_only=True,
+        allow_null=True,
+        required=False,
+        help_text="Startup failure from the latest failed research attempt, when available.",
+    )
     reviewer_assignment = serializers.SerializerMethodField(
         help_text="Reviewer control and state token for preparing an automatic proposal."
     )
@@ -1679,6 +1717,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "signal_count",  # Used for occurrence count
             "signals_at_run",  # Snooze threshold: re-promote when signal_count >= this value
             "collapsed_note_count",  # Scout notes the work log dropped, rendered as one line instead
+            "startup_failure",
             "created_at",
             "updated_at",
             "artefact_count",

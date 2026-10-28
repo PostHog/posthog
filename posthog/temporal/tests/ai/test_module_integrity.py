@@ -154,6 +154,7 @@ class TestSignalsProductModuleIntegrity:
             "get_embedding_activity",
             "match_signal_to_report_activity",
             "mark_report_failed_activity",
+            "notify_research_startup_failure_activity",
             "read_signals_from_s3_activity",
             "check_report_quota_gate_activity",
             "check_report_task_settlement_activity",
