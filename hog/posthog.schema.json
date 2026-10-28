@@ -1,0 +1,79 @@
+{
+    "$id": "https://raw.githubusercontent.com/PostHog/posthog/master/hog/posthog.schema.json",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+        "$schema": {
+            "description": "The JSON schema for this file.",
+            "type": "string"
+        },
+        "errorTracking": {
+            "type": "object",
+            "properties": {
+                "release": {
+                    "description": "The release every uploaded symbol set belongs to.",
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "description": "The release name, usually the app or service name.",
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "version": {
+                            "description": "The release version. hog uses the git commit when this is not set.",
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "sources": {
+                    "description": "What `hog error-tracking inject`, `upload` and `process` scan when no path is passed.",
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "A folder or file to scan, relative to posthog.json."
+                            },
+                            "kind": {
+                                "description": "The artifact type. hog detects it from the files when this is not set.",
+                                "type": "string",
+                                "enum": ["js", "hermes", "proguard", "dsym", "elf"]
+                            },
+                            "ignore": {
+                                "description": "Glob patterns of files to skip, relative to `path`.",
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            "mapId": {
+                                "description": "ProGuard only: the map ID your Android build injected into the app.",
+                                "type": "string",
+                                "minLength": 1
+                            }
+                        },
+                        "required": ["path"],
+                        "additionalProperties": false,
+                        "description": "A place where the build writes artifacts with symbols, such as bundles and their sourcemaps."
+                    }
+                }
+            },
+            "additionalProperties": false,
+            "description": "Settings for `hog error-tracking`."
+        },
+        "languages": {
+            "description": "Typed SDK settings that `posthog-cli exp schema pull` writes. hog leaves them alone.",
+            "type": "object",
+            "propertyNames": {
+                "type": "string"
+            },
+            "additionalProperties": {}
+        }
+    },
+    "additionalProperties": false,
+    "description": "Settings for the PostHog CLI. Never put API keys here: use `hog auth login` or environment variables."
+}

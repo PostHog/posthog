@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { access, chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname } from 'node:path'
 
@@ -20,6 +20,8 @@ export interface Runtime {
     now: () => number
     sleep: (ms: number) => Promise<void>
     homeDir: () => string | undefined
+    cwd: () => string
+    exists: (path: string) => Promise<boolean>
     readFile: (path: string) => Promise<string>
     writePrivateFile: (path: string, contents: string) => Promise<void>
     removeFile: (path: string) => Promise<void>
@@ -64,6 +66,12 @@ export function processRuntime(): Runtime {
                 return undefined
             }
         },
+        cwd: () => process.cwd(),
+        exists: (path) =>
+            access(path).then(
+                () => true,
+                () => false
+            ),
         readFile: (path) => readFile(path, 'utf8'),
         // A rename is atomic, so a crash never leaves a half-written file, and the mode is set
         // before the contents land.

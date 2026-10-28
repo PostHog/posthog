@@ -1,0 +1,76 @@
+{
+    "exitCode": 0,
+    "requests": [
+        {
+            "method": "GET",
+            "path": "/api/projects/1/error_tracking/releases/hash/f5bacd280427e2a06b06ddd5097489794b66ed56bdb85fb8b63a43fca2a2953c45cb348dcf37e252f57d875333b773a1664ade7c5cc02e221eae47b13d3a03d3",
+            "headers": {
+                "authorization": "Bearer phx_<key>",
+                "content-type": "application/json"
+            },
+            "status": 404
+        },
+        {
+            "method": "POST",
+            "path": "/api/projects/1/error_tracking/releases",
+            "headers": {
+                "authorization": "Bearer phx_<key>",
+                "content-type": "application/json"
+            },
+            "body": "{\"hash_id\":\"f5bacd280427e2a06b06ddd5097489794b66ed56bdb85fb8b63a43fca2a2953c45cb348dcf37e252f57d875333b773a1664ade7c5cc02e221eae47b13d3a03d3\",\"version\":\"1.0+7\",\"project\":\"com.example.app\"}",
+            "status": 201
+        },
+        {
+            "method": "POST",
+            "path": "/api/projects/1/error_tracking/symbol_sets/bulk_check_upload",
+            "headers": {
+                "authorization": "Bearer phx_<key>",
+                "content-type": "application/json"
+            },
+            "body": "{\"symbol_sets\":[{\"chunk_id\":\"map-start-500-once\",\"release_id\":\"f845c163-4530-518a-9806-6241506198ca\",\"content_hash\":\"72e221661b7a13caab866c5782dc0c99890c67d568fea7d4f9775d7917e1be3dbccca94b7e08ef7ed4ff6485f52db9c93f4fa209e9a82330bed1981bf99b495c\",\"content_length\":222}],\"force\":false,\"skip_on_conflict\":false}",
+            "status": 200
+        },
+        {
+            "method": "POST",
+            "path": "/api/projects/1/error_tracking/symbol_sets/bulk_start_upload",
+            "headers": {
+                "authorization": "Bearer phx_<key>",
+                "content-type": "application/json"
+            },
+            "body": "{\"symbol_sets\":[{\"chunk_id\":\"map-start-500-once\",\"release_id\":\"f845c163-4530-518a-9806-6241506198ca\",\"content_hash\":\"72e221661b7a13caab866c5782dc0c99890c67d568fea7d4f9775d7917e1be3dbccca94b7e08ef7ed4ff6485f52db9c93f4fa209e9a82330bed1981bf99b495c\",\"content_length\":222}],\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\",\"force\":false,\"skip_on_conflict\":false}",
+            "status": 500
+        },
+        {
+            "method": "POST",
+            "path": "/api/projects/1/error_tracking/symbol_sets/bulk_start_upload",
+            "headers": {
+                "authorization": "Bearer phx_<key>",
+                "content-type": "application/json"
+            },
+            "body": "{\"symbol_sets\":[{\"chunk_id\":\"map-start-500-once\",\"release_id\":\"f845c163-4530-518a-9806-6241506198ca\",\"content_hash\":\"72e221661b7a13caab866c5782dc0c99890c67d568fea7d4f9775d7917e1be3dbccca94b7e08ef7ed4ff6485f52db9c93f4fa209e9a82330bed1981bf99b495c\",\"content_length\":222}],\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\",\"force\":false,\"skip_on_conflict\":false}",
+            "status": 201
+        },
+        {
+            "method": "PUT",
+            "path": "/s3/put/symbolsets/a4fe8f3f-afc1-55f2-8a06-b947ec3000b6?length=222",
+            "headers": {
+                "authorization": "<none>"
+            },
+            "upload": {
+                "sha512": "72e221661b7a13caab866c5782dc0c99890c67d568fea7d4f9775d7917e1be3dbccca94b7e08ef7ed4ff6485f52db9c93f4fa209e9a82330bed1981bf99b495c",
+                "length": 222
+            },
+            "status": 200
+        },
+        {
+            "method": "POST",
+            "path": "/api/projects/1/error_tracking/symbol_sets/bulk_finish_upload",
+            "headers": {
+                "authorization": "Bearer phx_<key>",
+                "content-type": "application/json"
+            },
+            "body": "{\"content_hashes\":{\"a4fe8f3f-afc1-55f2-8a06-b947ec3000b6\":\"72e221661b7a13caab866c5782dc0c99890c67d568fea7d4f9775d7917e1be3dbccca94b7e08ef7ed4ff6485f52db9c93f4fa209e9a82330bed1981bf99b495c\"},\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\"}",
+            "status": 201
+        }
+    ]
+}

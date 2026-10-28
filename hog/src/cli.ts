@@ -125,6 +125,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: { exitCode: number }
         const command = parent.command(name).description(node.description)
         switch (node.kind) {
             case 'group':
+                command.aliases(node.aliases ?? [])
                 for (const [childName, child] of Object.entries(node.commands)) {
                     addNode(command, childName, child, `${path} ${childName}`)
                 }

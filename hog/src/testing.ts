@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from 'node:fs'
+
 import type { Prompts } from '@/core/prompts'
 import type { Env, Runtime } from '@/core/runtime'
 
@@ -7,8 +9,11 @@ export interface FakeRuntimeOptions {
     env?: Env
     stdoutIsTTY?: boolean
     columns?: number
+    cwd?: string
     files?: Record<string, string>
     stdin?: string
+    // Read files from disk instead of `files`, for commands that scan real build output.
+    useDisk?: boolean
     // Answers to prompts, in the order hog asks them. A prompt with no answer left fails the test.
     answers?: string[]
     // Answers every API request. Without it, requests fail with HTTP 500.
@@ -72,7 +77,16 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
             clock += ms
         },
         homeDir: () => '/home/test',
+        cwd: () => options.cwd ?? '/work',
+        // A path exists when it is a file, or a folder some file sits under.
+        exists: async (path) =>
+            options.useDisk
+                ? existsSync(path)
+                : path in files || Object.keys(files).some((file) => file.startsWith(`${path}/`)),
         readFile: async (path) => {
+            if (options.useDisk) {
+                return readFileSync(path, 'utf8')
+            }
             const contents = files[path]
             if (contents === undefined) {
                 throw new Error(`ENOENT: ${path}`)

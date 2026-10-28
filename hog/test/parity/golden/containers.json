@@ -1,0 +1,425 @@
+[
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "lines",
+            "seed": 1000,
+            "size": 0
+        },
+        "hash": "0feb4aa5d6d8b5131455d9809d4356bd9a98d63babf12b1efc2eb20349de5e8e484b0e79dbfd0e0eb533af64e6803ec7e5f2a32eaa44a57c41256d2ac5ba7f86"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "lines",
+            "seed": 1001,
+            "size": 1
+        },
+        "hash": "64d4653dbe9e4b6ff6f5fc853d891eda904111c4570803406a98efe04b931e2c0854c99c6d3b7dce5335ae550117ba9e1710efa6f636f174e08fda57c4b57e8f"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "lines",
+            "seed": 1002,
+            "size": 1000
+        },
+        "hash": "7b160a1fbeb5825729f9d91896821fbcaebacc30b06d3ce224ff2d9f5349389cb869d31e83b09903729ac4863861684f577475b50f86d51f664b7cfb2ec7283c"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "lines",
+            "seed": 1003,
+            "size": 131071
+        },
+        "hash": "6bf65e4a328ef498c3ee2cf9eba1c1eb99385cf9e6ff45653544cd0c31f933d4db4c90990931eb81cf320acbfdfad7137b8937ba80e9b44e2a243b988c2f76b8"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "lines",
+            "seed": 1004,
+            "size": 131072
+        },
+        "hash": "851ad4b88cb87ce5b6de34931e433f398b48b95b9b4f61787a66b19aee518206da52bae6ced327ecff1ec771973cf7b96fe7f4644aef4dae32add568d44ba667"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "lines",
+            "seed": 1005,
+            "size": 131073
+        },
+        "hash": "dbde378cdc38497b83cafbb484cdae38e0a6cebc467492bb1578d761383be072e719a34b8918ad50b0e01942e6b491848d08a7c827d42014acb9928fd1bc2abe"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "lines",
+            "seed": 1006,
+            "size": 262144
+        },
+        "hash": "e9d12ced337c7df2e80fd2753e03c993ee6d372a68156cbded67211010fbee9cd591d63cef9e5addc02e2d912310e327528d48d124a84e62b859f16f7a4df834"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "lines",
+            "seed": 1007,
+            "size": 393216
+        },
+        "hash": "46591380dc3535e44aea12b4491e97544210da95fac63847fb06910a421011fb6111175f9ff4b075c9c11df18ed97b06253767ef90131d77c5a5d3cf61b8ba4d"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "lines",
+            "seed": 1008,
+            "size": 2097151
+        },
+        "hash": "2a7088c74e6f350e0c384c756c58a22a0cc511425c35d6f7e1c8d58ddffdf50452ee9855211d640a6dd2a0469c1c7442a0e4ef79d15f795d1c3caa68eb916a2b"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "lines",
+            "seed": 1009,
+            "size": 2097152
+        },
+        "hash": "796955409d5eddac5d5c107d9d8dc1ffeab71b9ec399f2efb42ca52512caf4f1c6596829b3b79e460dbe04142c316fdb511f67c4565d5f6315f4d9293854a737"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "lines",
+            "seed": 1010,
+            "size": 2097153
+        },
+        "hash": "b6d5fcb1abcda1d7034ab95a55bc88d22549ced7bab81e11e05cb5e2dba097e4061bb257b2dd2ac2e44bd3f7b3e6e64a1b4ff244ee1811f92d42c46417c70bef"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "lines",
+            "seed": 1011,
+            "size": 2228224
+        },
+        "hash": "22c18046ad494252abc4e5895be35c50220b868a903ccbae9ac6a7e2f00b4d72f3af0313e140b034298b71caad0e7322f6f7870377e9db62bf9d1881cb9cd6c8"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "lines",
+            "seed": 1012,
+            "size": 3000000
+        },
+        "hash": "5bf6e370ff1b984f06a43545dd99ed929bab393ddea4b3aa071806b659d268442941689d27e6fe67ab4f23112a09d65eaf20b83b54533a2b437e12310b9f143f"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "lines",
+            "seed": 1013,
+            "size": 8388608
+        },
+        "hash": "b60e56653bfea3eb24fe5c72970a1df639e4cc01c5bc2dd082d9e8ef551f89a0912664c1faad4ab2b478208f40f6009d0d41c396324d77e469464b28c1605797"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "lines",
+            "seed": 1014,
+            "size": 8388609
+        },
+        "hash": "b85e71d26f42d3a3a0b86d2a18f46bfd38291374c92f440f1b2a50bf19ec3f1b2a882239887587dd26aa3ee0ee631981129c7bb760878e651fc592bb4f486fbe"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "ascii",
+            "seed": 2000,
+            "size": 0
+        },
+        "hash": "0feb4aa5d6d8b5131455d9809d4356bd9a98d63babf12b1efc2eb20349de5e8e484b0e79dbfd0e0eb533af64e6803ec7e5f2a32eaa44a57c41256d2ac5ba7f86"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "ascii",
+            "seed": 2001,
+            "size": 1
+        },
+        "hash": "2c0c9fc60305f34f09e6acd7c19dbb5759328703b5cf0ffbbe28ba9cf6d776ea15742047e6a733747ec8737a7e78f75c087ba19d25622456841f5d378ab27740"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "ascii",
+            "seed": 2002,
+            "size": 1000
+        },
+        "hash": "ba86c431301a99049ee2274881bafa48fc826bf6aed2b3534adf98be5f37cf98bb5022a7885f1533f70975d37021bae79cdc2168291d228c86858cc372161715"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "ascii",
+            "seed": 2003,
+            "size": 131071
+        },
+        "hash": "8d1e0dd56908778cd92a9082c2400901556c3fc2893e90d034e007ba80b7fce6455999ff22e962b0e7c49032fe982243042fa97ebda087d6a963f5ff619d0f44"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "ascii",
+            "seed": 2004,
+            "size": 131072
+        },
+        "hash": "d2f38799bf2c094d94b4129c4dc35b034c16a6576afc42078357d3503630a1e7a13d06edbbc1d164feccc873b82cda34791aba43b4e60700ba808e82ee44bc93"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "ascii",
+            "seed": 2005,
+            "size": 131073
+        },
+        "hash": "4b6d0be8a0dcef79b646f1894a513e80793636f02531101b4cd6941e4fce07be02abcb4fb5ab8913857ac7344a7316eaab1d4033e733ed5ba1e8381670c387f9"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "ascii",
+            "seed": 2006,
+            "size": 262144
+        },
+        "hash": "d1fd73507e4d412fc165641fca5703e08eeecb9a94c0303a75faea63c5d89453375a03ed461c7a0976339283f1b9c8754cf52821fbc3fd7864a3529d1bd22c97"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "ascii",
+            "seed": 2007,
+            "size": 393216
+        },
+        "hash": "85c833bdb26c4effdcae2132b4078a06c3ebc236429d1aa148b8b1a531b09ddc33cd7b3df61df4c4e5788844b9cf8c76ef9545b643f73d36aede79ddef84e061"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "ascii",
+            "seed": 2008,
+            "size": 2097151
+        },
+        "hash": "56a526bcae3bcf314ae5996b4fed6f2ad416419a8fd2800d4344f992e1e9a7e35d0e435b9e620669920bdea6de5dd714496269cf127353e05c15bc7900d2c772"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "ascii",
+            "seed": 2009,
+            "size": 2097152
+        },
+        "hash": "1c743301659beba8e45835a6fe9c6a7542aad71eb84f55abfc37aa9e4f4263e8cb69684d2502373878a4aca5a936b2443a89441ca7947901522dc81b0255ee1d"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "ascii",
+            "seed": 2010,
+            "size": 2097153
+        },
+        "hash": "fb8ccb86b24dcca98b1f4a8d3d3ee4cf123cf401a5f5af4a560887e57d69e45f2e57c61155702385ca925daae945d036e4f99aa9124054ed117b9d69d58f0732"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "ascii",
+            "seed": 2011,
+            "size": 2228224
+        },
+        "hash": "3ab4a124477e8947a215d9f89589fecda3903e156caf9bafe1bba58de5b547bd7cf6731a12871569d37fd9cf3c5becba80637a556d9e40c2bdfb6a883571248d"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "ascii",
+            "seed": 2012,
+            "size": 3000000
+        },
+        "hash": "e17458e86b4a054f47e1054eeb228bc5e1529856e2e775e1d32ddbb6ccb2c7db31515345b6c8e2f25bdb2b02ce18794f858d48201f733ef31f0764af6293dc84"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "ascii",
+            "seed": 2013,
+            "size": 8388608
+        },
+        "hash": "a2148b2998e30c4976c2f19c131e01508cdfed53ddc35df2d5f30c2ca9bf28d0a89b7ab22889d362cf52591eee4f369d3a15e3b721d79c7498ee9b6db7b52db1"
+    },
+    {
+        "type": "proguard",
+        "input": {
+            "generator": "ascii",
+            "seed": 2014,
+            "size": 8388609
+        },
+        "hash": "07f2e54d1e8ac9d8ba431186d82735e92c2793247413f6ebf3e8b79fcba66cda566c36cc07890ab0c354df3b8065c5850e736969cf68cb5899195fdae2a0a3b9"
+    },
+    {
+        "type": "elf",
+        "input": {
+            "generator": "bytes",
+            "seed": 3000,
+            "size": 0
+        },
+        "hash": "c5328d625e21b00c77967715c047022eff6cada2b150a39f08e08c6e5bd7871feee266e8efee570d471c555f35c9d2fdaf218019f39883aa2d6ec39d2787fd16"
+    },
+    {
+        "type": "elf",
+        "input": {
+            "generator": "bytes",
+            "seed": 3001,
+            "size": 1
+        },
+        "hash": "951f15b6576602febc1c28eb9b3cf0988bcb69632eca6995130d8af75edf2a69a4093ff8fedd86678285adad55cd6e498794d1fb6d051a4e1c149a4c1eb60bd3"
+    },
+    {
+        "type": "elf",
+        "input": {
+            "generator": "bytes",
+            "seed": 3002,
+            "size": 1000
+        },
+        "hash": "51fd8ea415cfb87b342f21687773ccc9c744998b4c29abdeb7ce8a55794b5c033ec5cf6ecebf9b3942ff8703508619e656136e7f3012fb55bd60aab9b02fab2b"
+    },
+    {
+        "type": "elf",
+        "input": {
+            "generator": "bytes",
+            "seed": 3003,
+            "size": 131071
+        },
+        "hash": "bdaa1d36c8d667b923ee409b656651577a963623d688c5bd75ab6c9b3d3b153555b706c24ef97de2d4fd1978b3b052d8e538c77583082119e36dd0b4ccb684fe"
+    },
+    {
+        "type": "elf",
+        "input": {
+            "generator": "bytes",
+            "seed": 3004,
+            "size": 131072
+        },
+        "hash": "b21104240afb3622d968f5880460ef448147ce6ae55a653aba1148bc73ba72566942a98d5ae989dc86f90916d6e90da093bb487688b52ee3a83888c474943e23"
+    },
+    {
+        "type": "elf",
+        "input": {
+            "generator": "bytes",
+            "seed": 3005,
+            "size": 131073
+        },
+        "hash": "a9960ece7149a300c8ff361d0cc824867fbb291f9f6b4c0fde7af30563ff8fa6f50f0f5039c180e0afeea5d624b698e5d95d32a5d9922462b9ae05d72db274dd"
+    },
+    {
+        "type": "elf",
+        "input": {
+            "generator": "bytes",
+            "seed": 3006,
+            "size": 262144
+        },
+        "hash": "16cace4a111a8b8e580748baa4091ebe49011846358f6cbefa556c91c43da6af89921ff8f4b986fd2d76efb48e7d04e2929f722c19a1da80288128f3dbbc77e1"
+    },
+    {
+        "type": "elf",
+        "input": {
+            "generator": "bytes",
+            "seed": 3007,
+            "size": 393216
+        },
+        "hash": "0f8cfec509edd5784d59008ddc173e2db19cf0afc61f2c639308f0394d88a6bc55d25a1e788e612f542675423315ba824cf5a5a6315284a12d5ac17aaf6d1ff4"
+    },
+    {
+        "type": "elf",
+        "input": {
+            "generator": "bytes",
+            "seed": 3008,
+            "size": 2097151
+        },
+        "hash": "b76cc438a083d24684d6fe41809d1481e3a6c26a7397a236d4fb88efa004e1e1956644914d52835f018466e2cf3faa6550c559c578382cf5361eb99a37a91447"
+    },
+    {
+        "type": "elf",
+        "input": {
+            "generator": "bytes",
+            "seed": 3009,
+            "size": 2097152
+        },
+        "hash": "f98bbf7b8abece501c6de50c039e4697bb5c9bef8280932b0a9bf8566c62d625c842606242a342732fde6498585b62e208e240aac13f0eaf7da86bd88cc0e0e2"
+    },
+    {
+        "type": "elf",
+        "input": {
+            "generator": "bytes",
+            "seed": 3010,
+            "size": 2097153
+        },
+        "hash": "965d19f0f1970490ce599c51b89a3cf451d8df5f75dc4bedf1732bc8e68c9a99babd5d3dffdf9fded1e8a4fbd18e7b73f285c7c3adf9ad02fa93236477fb3301"
+    },
+    {
+        "type": "elf",
+        "input": {
+            "generator": "bytes",
+            "seed": 3011,
+            "size": 2228224
+        },
+        "hash": "33dd774b31631fa94731ece041bf5cc79b29e8298fe98c5370620bf6eb8bf267cb40088cde7190c269b5ff87d71c8ddb1c56b75a05f2e803e8587a3483095e2c"
+    },
+    {
+        "type": "elf",
+        "input": {
+            "generator": "bytes",
+            "seed": 3012,
+            "size": 3000000
+        },
+        "hash": "04006af60f8d4c9cf3cfdf1134a4708d020de73630bc7be881d9b6e87dbc1f85a1c154ffefc368579afa5f85f4967b08745998f23b7ac2ef9ad00ac870643f8b"
+    },
+    {
+        "type": "elf",
+        "input": {
+            "generator": "bytes",
+            "seed": 3013,
+            "size": 8388608
+        },
+        "hash": "6793955cb6b8eca32460ede367d715b13b68f78d0d246c8fd985706220db336e333ed2a8c8a42523af9158e3d1f9b0ff08b189a5a1dca1263ecf7255a36e5277"
+    },
+    {
+        "type": "elf",
+        "input": {
+            "generator": "bytes",
+            "seed": 3014,
+            "size": 8388609
+        },
+        "hash": "3834b810463fbe944c12e9d68a7dde344db4fe3e019664382bd9a7dd71c7d2cd785de5f11aa825b9f2d8c0601a821b44c32b37b5884da32dbc22473c50ee6cb7"
+    },
+    {
+        "type": "dsym",
+        "input": {
+            "generator": "bytes",
+            "seed": 4000,
+            "size": 33554432
+        },
+        "hash": "120b0bcd3c58bb94c9a0a7ab8cb97cd19daa403a7e830888a4a90713e50d8c905d72f9edac0a3ac072dbcf2868cf6d2328aabee80f7e367ff1c241c47165d716"
+    },
+    {
+        "type": "hermes",
+        "input": {
+            "generator": "ascii",
+            "seed": 5000,
+            "size": 655360
+        },
+        "hash": "8c303d48c20e81fdcaab24836b1b394d127e72035bc7651167a2707c07c608b698c635cf47f389064612009943257e8684ee124f838e0db30da36973304f4822"
+    }
+]

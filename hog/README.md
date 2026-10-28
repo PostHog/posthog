@@ -11,15 +11,17 @@ It is not published yet.
 `hog` has no `exp` namespace.
 The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tasks`, `schema`) are top-level commands in `hog`.
 
-| Command                   | Status                                                                                                                  |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `hog auth login`          | Logs in through the browser and saves a personal API key. Agents finish with `hog auth login --wait`.                   |
-| `hog auth status`         | Shows whether hog is logged in, whose key it is, and where the key comes from. Exits with code 1 without a working key. |
-| `hog auth logout`         | Removes the stored key. The key stays valid in PostHog until you delete it there.                                       |
-| `hog query run <query>`   | Runs a HogQL query. `-` reads the query from stdin.                                                                     |
-| `hog query check <query>` | Checks a query without running it. Exits with code 1 when the query has errors.                                         |
-| `hog commands`            | Lists every command, its arguments, options and scopes.                                                                 |
-| Everything else           | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.         |
+| Command                                 | Status                                                                                                                  |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `hog auth login`                        | Logs in through the browser and saves a personal API key. Agents finish with `hog auth login --wait`.                   |
+| `hog auth status`                       | Shows whether hog is logged in, whose key it is, and where the key comes from. Exits with code 1 without a working key. |
+| `hog auth logout`                       | Removes the stored key. The key stays valid in PostHog until you delete it there.                                       |
+| `hog query run <query>`                 | Runs a HogQL query. `-` reads the query from stdin.                                                                     |
+| `hog query check <query>`               | Checks a query without running it. Exits with code 1 when the query has errors.                                         |
+| `hog error-tracking upload [paths...]`  | Uploads symbols for readable stack traces. ProGuard and R8 mappings so far. `hog et` is an alias.                       |
+| `hog config check`, `hog config schema` | Check `posthog.json` against its schema, or print the schema.                                                           |
+| `hog commands`                          | Lists every command, its arguments, options and scopes.                                                                 |
+| Everything else                         | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.         |
 
 ## Agents, people and pipes
 
@@ -34,6 +36,24 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 
 `-o text` or `-o json` overrides the default, and `--raw` prints a command's full result as JSON.
 Exit codes: 0 on success, 1 when a command fails, 2 for a usage error.
+
+## posthog.json
+
+Project settings live in `posthog.json`, which hog looks for from the current folder up to the git root.
+It never holds API keys.
+Point `$schema` at the published schema to get validation in your editor:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/PostHog/posthog/master/hog/posthog.schema.json",
+  "errorTracking": {
+    "release": { "name": "my-app" },
+    "sources": [{ "path": "app/build/outputs/mapping/release", "mapId": "<map id>" }]
+  }
+}
+```
+
+`posthog.schema.json` is generated from `src/core/config.ts` with `pnpm --filter @posthog/hog schema`.
 
 ## Credentials
 

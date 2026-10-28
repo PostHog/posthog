@@ -5,6 +5,8 @@ import { kebabCase } from './text'
 export interface ArgumentSpec {
     description: string
     optional?: boolean
+    // Collects every remaining argument into a list. Only the last argument can be variadic.
+    variadic?: boolean
     // `-` reads the value from stdin, and an empty value is an error.
     stdin?: boolean
 }
@@ -21,7 +23,11 @@ export type OptionSpec =
       }
 
 type ArgumentValues<Args> = {
-    [Name in keyof Args]: Args[Name] extends { optional: true } ? string | undefined : string
+    [Name in keyof Args]: Args[Name] extends { variadic: true }
+        ? string[]
+        : Args[Name] extends { optional: true }
+          ? string | undefined
+          : string
 }
 
 export type OptionValues<Options> = {
@@ -73,6 +79,8 @@ export interface Group {
     kind: 'group'
     description: string
     commands: CommandTree
+    // Shorter names that work the same, like `et` for `error-tracking`. Help and agents use the full name.
+    aliases?: readonly string[]
 }
 
 // A command posthog-cli still owns. hog lists it and points the caller to `use`, with the same arguments.
@@ -107,5 +115,6 @@ export function optionFlags(name: string, spec: OptionSpec): string {
 }
 
 export function argumentSyntax(name: string, spec: ArgumentSpec): string {
-    return spec.optional ? `[${kebabCase(name)}]` : `<${kebabCase(name)}>`
+    const label = `${kebabCase(name)}${spec.variadic ? '...' : ''}`
+    return spec.optional ? `[${label}]` : `<${label}>`
 }
