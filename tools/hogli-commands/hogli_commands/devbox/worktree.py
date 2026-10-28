@@ -33,6 +33,7 @@ from .config import (
     WORKTREE_AUTO_SOURCES,
     WORKTREE_BOX_CLEANUP_ACTIONS,
     WorktreeBoxRecord,
+    claim_worktree_box,
     clear_worktree_auto_sources,
     clear_worktree_box_cleanup,
     load_worktree_boxes,
@@ -40,6 +41,7 @@ from .config import (
     save_worktree_auto_sources,
     save_worktree_box_cleanup,
     saved_worktree_auto_sources,
+    worktree_box_claimant,
 )
 from .sync import _REMOTE_REPO_PATH, _detect_local_posthog_checkout, ensure_sync_session
 
@@ -160,7 +162,7 @@ def _resolve_target(
     boxes = load_worktree_boxes()
     registered = boxes.get(str(root))
     registered_box = get_workspace(registered.workspace, workspaces) if registered is not None else None
-    if registered is not None and registered_box is not None and not registered.owns(registered_box):
+    if registered is not None and registered_box is not None and not registered.may_adopt(registered_box):
         registered = registered_box = None
     registered_label = extract_workspace_label(registered.workspace) if registered is not None else None
     if registered is not None and registered_label is not None and label in (None, registered_label):
@@ -182,14 +184,7 @@ def _resolve_target(
             f"`hogli devbox:destroy {registered_label or ''}` before you pick another label."
         )
     existing = get_workspace(name, workspaces)
-    owner = next(
-        (
-            path
-            for path, record in boxes.items()
-            if path != str(root) and record.workspace == name and existing is not None and record.owns(existing)
-        ),
-        None,
-    )
+    owner = worktree_box_claimant(boxes, root, name, existing)
     if owner is not None:
         _fail(f"Devbox '{name}' belongs to the worktree at {owner}. Pick another `--label`.")
     if label is None and registered is None and existing is not None:
@@ -299,14 +294,17 @@ def devbox_worktree(
         return
 
     git_dir = str(_git_dir(root))
-    record_worktree_box(
+    owner = claim_worktree_box(
         root,
         WorktreeBoxRecord(
             workspace=target.workspace_name,
             git_dir=git_dir,
             workspace_id=None if existing is None else existing.get("id"),
         ),
+        existing,
     )
+    if owner is not None:
+        _fail(f"Devbox '{target.workspace_name}' belongs to the worktree at {owner}. Pick another `--label`.")
     if on_clean == "keep":
         clear_worktree_box_cleanup()
     elif on_clean is not None:
@@ -346,7 +344,9 @@ def devbox_worktree_auto() -> None:
     log_path = _git_dir(root) / _AUTO_LOG_NAME
     with log_path.open("ab") as log:
         subprocess.Popen(
-            [sys.executable, "-m", "hogli", "devbox:worktree", "--yes"],
+            # -P keeps the worktree off sys.path, so a `hogli` package committed to the
+            # branch being checked out cannot shadow the installed one and run here.
+            [sys.executable, "-P", "-m", "hogli", "devbox:worktree", "--yes"],
             cwd=root,
             stdin=subprocess.DEVNULL,
             stdout=log,

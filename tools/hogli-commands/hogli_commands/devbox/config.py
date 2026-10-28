@@ -188,7 +188,22 @@ class WorktreeBoxRecord:
     workspace_id: str | None = None
 
     def owns(self, workspace: Mapping[str, Any]) -> bool:
-        return self.workspace_id is None or workspace.get("id") == self.workspace_id
+        """Whether *workspace* is the box this record was saved for.
+
+        A record without the ID cannot answer that, so it answers no: a run
+        that stopped between provisioning and the workspace lookup saves no ID,
+        and a box recreated under the same name must never be taken for the one
+        this worktree set up and deleted with it.
+        """
+        return self.workspace_id is not None and workspace.get("id") == self.workspace_id
+
+    def may_adopt(self, workspace: Mapping[str, Any]) -> bool:
+        """Whether `devbox:worktree` may keep using *workspace* for this worktree.
+
+        A record without the ID matches the box by name once more, which lets
+        the re-run store the ID that `owns` needs.
+        """
+        return self.workspace_id is None or self.owns(workspace)
 
 
 def load_worktree_boxes() -> dict[str, WorktreeBoxRecord]:
@@ -234,11 +249,51 @@ def _save_worktree_boxes(boxes: dict[str, WorktreeBoxRecord]) -> None:
     staging.replace(path)
 
 
+def worktree_box_claimant(
+    boxes: Mapping[str, WorktreeBoxRecord],
+    worktree_path: Path,
+    workspace: str,
+    live_workspace: Mapping[str, Any] | None,
+) -> str | None:
+    """The other worktree that holds *workspace*, or None when the name is free.
+
+    A record holds the name from the moment it is written, so two worktrees
+    that derive the same label cannot both provision it. Once the box exists,
+    only the record that matches Coder's ID holds it, and a record left behind
+    by a worktree that is gone holds nothing.
+    """
+    for path, record in boxes.items():
+        if path == str(worktree_path) or record.workspace != workspace:
+            continue
+        if record.owns(live_workspace) if live_workspace is not None else Path(path).exists():
+            return path
+    return None
+
+
 def record_worktree_box(worktree_path: Path, record: WorktreeBoxRecord) -> None:
     with _locked_worktree_boxes():
         boxes = load_worktree_boxes()
         boxes[str(worktree_path)] = record
         _save_worktree_boxes(boxes)
+
+
+def claim_worktree_box(
+    worktree_path: Path, record: WorktreeBoxRecord, live_workspace: Mapping[str, Any] | None
+) -> str | None:
+    """Register *record* for this worktree unless another worktree holds the name.
+
+    Returns the worktree that holds it, or None once the claim is saved. The
+    check and the write share the registry lock, so two worktrees racing for the
+    same label cannot both start the same box.
+    """
+    with _locked_worktree_boxes():
+        boxes = load_worktree_boxes()
+        owner = worktree_box_claimant(boxes, worktree_path, record.workspace, live_workspace)
+        if owner is not None:
+            return owner
+        boxes[str(worktree_path)] = record
+        _save_worktree_boxes(boxes)
+    return None
 
 
 def forget_worktree_boxes(worktree_paths: list[Path]) -> None:

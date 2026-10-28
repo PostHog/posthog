@@ -158,12 +158,24 @@ class Worktree:
 
 @dataclass(frozen=True)
 class WorktreeBox:
+    """A registered devbox paired with the worktree it was set up for.
+
+    ``worktree_path`` is the registry key, which `git worktree move` leaves
+    behind. ``current_path`` carries where the checkout is now, so a move does
+    not hide the box from cleanup or strand its registry entry.
+    """
+
     worktree_path: Path
     record: WorktreeBoxRecord
+    current_path: Path | None = None
 
     @property
     def workspace(self) -> str:
         return self.record.workspace
+
+    @property
+    def checkout_path(self) -> Path:
+        return self.current_path or self.worktree_path
 
 
 @click.command(
@@ -359,7 +371,7 @@ def worktrees_clean(
     if boxes:
         click.echo(f"\nWould {box_action} {len(boxes)} devbox(es) set up for these worktrees:")
         for box in boxes:
-            click.echo(f"  {box.workspace}  {_display_path(box.worktree_path)}")
+            click.echo(f"  {box.workspace}  {_display_path(box.checkout_path)}")
 
     if dry_run:
         click.echo("[DRY-RUN] Nothing deleted.")
@@ -372,6 +384,7 @@ def worktrees_clean(
         click.echo("Aborted.")
         return
 
+    _stop_worktree_mirrors(registered_boxes)
     reclaimed, removed, failed = _execute(stale, mode, repo_root)
     if reclaimed >= 0:
         summary = f"\n✓ Done. Reclaimed ~{_format_size(reclaimed)} of disk across {removed}/{len(stale)} worktree(s)."
@@ -381,7 +394,7 @@ def worktrees_clean(
         summary += f" {failed} could not be fully removed (see warnings above)."
     click.echo(summary)
 
-    removed_boxes = [box for box in registered_boxes if not box.worktree_path.exists()]
+    removed_boxes = [box for box in registered_boxes if not box.checkout_path.exists()]
     if box_action and removed_boxes:
         _clean_worktree_boxes(removed_boxes, box_action)
     elif removed_boxes:
@@ -446,13 +459,37 @@ def _clean_boxes_of_removed_worktrees(boxes: list[WorktreeBox], box_action: str,
 
 
 def _match_worktree_boxes(worktrees: list[Worktree], registry: dict[str, WorktreeBoxRecord]) -> list[WorktreeBox]:
+    """Pair each worktree with the devbox registered for it.
+
+    A record keeps the path the worktree had when it was registered, so a
+    worktree that `git worktree move` relocated is found through its admin
+    directory, which the move carries over.
+    """
     registry_by_path = {_resolve(Path(path)): (Path(path), record) for path, record in registry.items()}
+    registry_by_git_dir = {_resolve(Path(record.git_dir)): (Path(path), record) for path, record in registry.items()}
     boxes: list[WorktreeBox] = []
     for wt in worktrees:
         match = registry_by_path.get(_resolve(wt.path))
+        if match is None:
+            git_dir = _gitdir_for(wt.path)
+            match = registry_by_git_dir.get(_resolve(git_dir)) if git_dir is not None else None
         if match is not None:
-            boxes.append(WorktreeBox(worktree_path=match[0], record=match[1]))
+            boxes.append(WorktreeBox(worktree_path=match[0], record=match[1], current_path=wt.path))
     return boxes
+
+
+def _stop_worktree_mirrors(boxes: list[WorktreeBox]) -> None:
+    """Stop the sync mirrors before their worktrees go away.
+
+    A mirror that still runs while the local files disappear copies the
+    deletions to the devbox, which would empty the checkout that `--stop-boxes`
+    and `--keep-boxes` exist to keep.
+    """
+    for box in boxes:
+        try:
+            mutagen.sync_terminate(mutagen.workspace_label_selector(box.workspace))
+        except SystemExit:
+            click.echo(f"  ⚠️  could not stop the sync mirror for {box.workspace}; its devbox copy may lose files.")
 
 
 def _clean_worktree_boxes(boxes: list[WorktreeBox], box_action: str) -> None:

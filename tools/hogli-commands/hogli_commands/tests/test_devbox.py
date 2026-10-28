@@ -1062,6 +1062,24 @@ class TestDevboxWorktreeCommand:
         assert (started, synced) == (expected_calls, expected_calls)
         assert devbox_config.load_worktree_boxes()[str(worktree_root)].workspace == expected_box
 
+    def test_label_claimed_by_another_worktree_is_refused_before_the_box_exists(
+        self, monkeypatch: pytest.MonkeyPatch, worktree_root: Path
+    ) -> None:
+        other = worktree_root.parent / "other-worktree"
+        other.mkdir()
+        devbox_config.record_worktree_box(
+            other, devbox_config.WorktreeBoxRecord(workspace="devbox-test-user-shared", git_dir="admin")
+        )
+        monkeypatch.setattr(devbox_worktree, "fetch_user_workspaces", lambda: [])
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
+        monkeypatch.setattr(devbox_worktree, "devbox_start", lambda **kwargs: pytest.fail("started a claimed box"))
+
+        result = runner.invoke(cli, ["devbox:worktree", "--label", "shared"])
+
+        assert result.exit_code == 1, result.output
+        assert str(other) in result.output
+        assert str(worktree_root) not in devbox_config.load_worktree_boxes()
+
 
 class TestWorkspaceRegion:
     """Reading the region back from the workspace `region` metadata item."""
