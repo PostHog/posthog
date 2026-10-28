@@ -63703,13 +63703,13 @@ export namespace Schemas {
     }
 
     /**
-     * * `cio` - c.io
+     * * `customerio` - Customer.io
      */
     export type ImportProviderKeyEnum = typeof ImportProviderKeyEnum[keyof typeof ImportProviderKeyEnum];
 
 
     export const ImportProviderKeyEnum = {
-      Cio: 'cio',
+      Customerio: 'customerio',
     } as const;
 
     export interface ImportStepOption {
@@ -63724,7 +63724,7 @@ export namespace Schemas {
     export interface ImportProviderOption {
       /** Provider key to send when starting an import.
        *
-       * * `cio` - c.io */
+       * * `customerio` - Customer.io */
       key: ImportProviderKeyEnum;
       /** Display name of the provider. */
       label: string;
@@ -98164,11 +98164,6 @@ export namespace Schemas {
       version?: number | null;
     }
 
-    export interface ProviderImportError {
-      /** Why the import did not start. */
-      error: string;
-    }
-
     /**
      * * `queued` - Waiting to start
      * * `running` - Importing
@@ -98190,7 +98185,7 @@ export namespace Schemas {
       id: string;
       /** The provider the run imports from.
        *
-       * * `cio` - c.io */
+       * * `customerio` - Customer.io */
       provider: ImportProviderKeyEnum;
       /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
        *
@@ -116432,7 +116427,7 @@ export namespace Schemas {
     export interface StartProviderImport {
       /** The provider to import from.
        *
-       * * `cio` - c.io */
+       * * `customerio` - Customer.io */
       provider: ImportProviderKeyEnum;
       /**
          * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
@@ -116440,7 +116435,7 @@ export namespace Schemas {
          * @items.maxLength 64
          */
       steps: string[];
-      /** The provider's API key. For c.io, an App API key. Leave it out to reuse the stored key. */
+      /** The provider's API key. For Customer.io, an App API key. Leave it out to reuse the stored key. */
       api_key?: string;
     }
 

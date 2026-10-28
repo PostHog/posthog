@@ -6,6 +6,8 @@ from rest_framework import status
 
 from posthog.models.integration import Integration
 
+from products.messaging.backend.services.customerio_client import CustomerIOAPIError
+
 
 @patch("products.messaging.backend.provider_imports.runs.start_provider_import_workflow")
 @patch("products.messaging.backend.services.customerio_import_service.CustomerIOClient")
@@ -14,12 +16,10 @@ class TestProviderImportsAPI(APIBaseTest):
         return f"/api/projects/{self.team.id}/messaging_provider_imports/"
 
     def test_start_runs_the_selected_steps_in_provider_order(
-        self, mock_client_class: MagicMock, start_workflow: MagicMock
+        self, _mock_client_class: MagicMock, start_workflow: MagicMock
     ) -> None:
-        mock_client_class.return_value.validate_credentials.return_value = True
-
         response = self.client.post(
-            self._url(), {"provider": "cio", "steps": ["opt_outs", "suppressions"], "api_key": "app-key"}
+            self._url(), {"provider": "customerio", "steps": ["opt_outs", "suppressions"], "api_key": "app-key"}
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
@@ -33,38 +33,48 @@ class TestProviderImportsAPI(APIBaseTest):
         assert self.client.get(f"{self._url()}{response.json()['id']}/").json()["id"] == response.json()["id"]
 
     def test_rejects_a_second_import_while_one_is_running(
-        self, mock_client_class: MagicMock, _start_workflow: MagicMock
+        self, _mock_client_class: MagicMock, _start_workflow: MagicMock
     ) -> None:
-        mock_client_class.return_value.validate_credentials.return_value = True
-        body = {"provider": "cio", "steps": ["suppressions"]}
+        body = {"provider": "customerio", "steps": ["suppressions"]}
         assert self.client.post(self._url(), {**body, "api_key": "app-key"}).status_code == status.HTTP_201_CREATED
 
         response = self.client.post(self._url(), body)
 
         assert response.status_code == status.HTTP_409_CONFLICT
-        assert "already running" in response.json()["error"]
+        assert "already running" in response.json()["detail"]
 
     @parameterized.expand(
         [
-            ("unknown_step", ["automations"], True, "no step named automations"),
-            ("rejected_key", ["suppressions"], False, "c.io rejected the App API key"),
+            ("unknown_step", ["automations"], None, status.HTTP_400_BAD_REQUEST, "no step named automations"),
+            (
+                "rejected_key",
+                ["suppressions"],
+                401,
+                status.HTTP_400_BAD_REQUEST,
+                "Customer.io rejected the App API key",
+            ),
+            ("provider_down", ["suppressions"], 503, status.HTTP_503_SERVICE_UNAVAILABLE, "returned HTTP 503"),
         ]
     )
-    def test_rejects_an_import_that_cannot_run(
+    def test_does_not_start_an_import_that_cannot_run(
         self,
         mock_client_class: MagicMock,
         start_workflow: MagicMock,
         _name: str,
         steps: list[str],
-        key_is_valid: bool,
-        expected_error: str,
+        topics_status: int | None,
+        expected_status: int,
+        expected_detail: str,
     ) -> None:
-        mock_client_class.return_value.validate_credentials.return_value = key_is_valid
+        if topics_status is not None:
+            mock_client_class.return_value.get_subscription_topics.side_effect = CustomerIOAPIError(
+                "Customer.io API error", status_code=topics_status
+            )
 
-        response = self.client.post(self._url(), {"provider": "cio", "steps": steps, "api_key": "app-key"})
+        response = self.client.post(self._url(), {"provider": "customerio", "steps": steps, "api_key": "app-key"})
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert expected_error in response.json()["error"]
+        assert response.status_code == expected_status, response.json()
+        assert expected_detail in response.json()["detail"]
         start_workflow.assert_not_called()
         assert not Integration.objects.filter(team_id=self.team.id, kind="customerio-app").exists()
 

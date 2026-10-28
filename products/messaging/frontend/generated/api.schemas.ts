@@ -237,12 +237,12 @@ export interface WebhookUrlApi {
 }
 
 /**
- * * `cio` - c.io
+ * * `customerio` - Customer.io
  */
 export type ImportProviderKeyEnumApi = (typeof ImportProviderKeyEnumApi)[keyof typeof ImportProviderKeyEnumApi]
 
 export const ImportProviderKeyEnumApi = {
-    Cio: 'cio',
+    Customerio: 'customerio',
 } as const
 
 /**
@@ -305,7 +305,7 @@ export interface ProviderImportRunApi {
     id: string
     /** The provider the run imports from.
      *
-     * * `cio` - c.io */
+     * * `customerio` - Customer.io */
     provider: ImportProviderKeyEnumApi
     /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
      *
@@ -333,7 +333,7 @@ export interface ProviderImportRunApi {
 export interface StartProviderImportApi {
     /** The provider to import from.
      *
-     * * `cio` - c.io */
+     * * `customerio` - Customer.io */
     provider: ImportProviderKeyEnumApi
     /**
      * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
@@ -341,13 +341,8 @@ export interface StartProviderImportApi {
      * @items.maxLength 64
      */
     steps: string[]
-    /** The provider's API key. For c.io, an App API key. Leave it out to reuse the stored key. */
+    /** The provider's API key. For Customer.io, an App API key. Leave it out to reuse the stored key. */
     api_key?: string
-}
-
-export interface ProviderImportErrorApi {
-    /** Why the import did not start. */
-    error: string
 }
 
 export interface ImportStepOptionApi {
@@ -362,7 +357,7 @@ export interface ImportStepOptionApi {
 export interface ImportProviderOptionApi {
     /** Provider key to send when starting an import.
      *
-     * * `cio` - c.io */
+     * * `customerio` - Customer.io */
     key: ImportProviderKeyEnumApi
     /** Display name of the provider. */
     label: string

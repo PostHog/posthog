@@ -1,7 +1,7 @@
 """Background imports of opt-outs, suppressions and categories from other messaging tools.
 
 Each run executes in Temporal, so a long provider list does not hit the request timeout. The synchronous
-c.io import in `customerio.py` stays available next to it.
+Customer.io import in `customerio.py` stays available next to it.
 """
 
 from datetime import datetime
@@ -21,6 +21,7 @@ from products.messaging.backend.provider_imports.base import (
     ImportCredentialsConflict,
     ImportCredentialsInvalid,
     ImportCredentialsMissing,
+    ImportProviderUnavailable,
 )
 from products.messaging.backend.provider_imports.registry import PROVIDERS, UnknownImportProvider, get_provider
 
@@ -37,6 +38,10 @@ class ProviderImportRejected(Exception):
 
 class ProviderImportConflict(Exception):
     """An import is already running, or a different API key is stored."""
+
+
+class ProviderImportUnavailable(Exception):
+    """The provider did not respond while checking the API key. Starting again later can work."""
 
 
 @frozen
@@ -94,8 +99,9 @@ def start_provider_import(
 ) -> ProviderImportRunState:
     """Check the credentials and start a background import of the selected steps.
 
-    Raises ProviderImportRejected for a request that can't work as sent, and ProviderImportConflict when an import
-    is already running or a different key is stored.
+    Raises ProviderImportRejected for a request that can't work as sent, ProviderImportConflict when an import is
+    already running or a different key is stored, and ProviderImportUnavailable when the provider can't check the
+    key.
     """
     try:
         run = runs.start_run(team_id, provider, steps, api_key, created_by_id)
@@ -103,6 +109,8 @@ def start_provider_import(
         raise ProviderImportRejected(_rejection_message(e)) from e
     except (runs.ProviderImportAlreadyRunning, ImportCredentialsConflict) as e:
         raise ProviderImportConflict(str(e)) from e
+    except ImportProviderUnavailable as e:
+        raise ProviderImportUnavailable(f"{e} Try again in a few minutes.") from e
     return _to_state(run)
 
 
