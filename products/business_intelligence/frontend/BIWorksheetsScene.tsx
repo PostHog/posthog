@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconHeart, IconHeartFilled, IconPlus } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonSegmentedButton, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
@@ -9,6 +9,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -103,7 +104,7 @@ export function BIWorksheetsScene(): JSX.Element {
                     Couldn't load worksheets.
                 </LemonBanner>
             ) : (
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={worksheets?.results ?? []}
                     loading={worksheetsLoading}
                     rowKey="id"

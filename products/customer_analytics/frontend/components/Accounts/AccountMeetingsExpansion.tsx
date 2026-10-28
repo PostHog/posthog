@@ -8,7 +8,6 @@ import {
     LemonInput,
     LemonInputSelect,
     LemonSkeleton,
-    LemonTable,
     LemonTableColumns,
     LemonTag,
     Link,
@@ -18,6 +17,7 @@ import {
 import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { urls } from 'scenes/urls'
 
 import gongIcon from 'public/services/gong.png'
@@ -276,7 +276,7 @@ export function AccountMeetingsExpansion({
         )
     } else {
         content = (
-            <LemonTable<MeetingApi>
+            <LemonOrQuillTable<MeetingApi>
                 size="small"
                 embedded={embedded}
                 dataSource={meetings ?? []}

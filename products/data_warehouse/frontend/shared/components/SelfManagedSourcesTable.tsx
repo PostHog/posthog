@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonDialog, LemonInput, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
@@ -17,7 +18,7 @@ export function SelfManagedSourcesTable(): JSX.Element {
             <div className="flex gap-2 justify-between items-center mb-4">
                 <LemonInput type="search" placeholder="Search..." onChange={setSearchTerm} value={searchTerm} />
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 id="self-managed-sources"
                 dataSource={filteredSelfManagedTables}
                 loading={databaseLoading}

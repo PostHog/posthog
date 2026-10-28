@@ -10,11 +10,12 @@ import {
     IconRevert,
     IconUpload,
 } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
@@ -188,7 +189,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                 </LemonButton>
             </div>
             <div className="max-h-64 overflow-y-auto">
-                <LemonTable
+                <LemonOrQuillTable
                     columns={columns}
                     dataSource={optOutPersons.results || []}
                     loading={optOutPersonsLoading}

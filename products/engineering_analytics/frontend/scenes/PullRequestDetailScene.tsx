@@ -2,19 +2,12 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
 import { IconExternal, IconPullRequest } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonInput,
-    LemonSkeleton,
-    LemonTable,
-    LemonTableColumns,
-    LemonTag,
-    Link,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSkeleton, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
@@ -199,7 +192,7 @@ function PerPushRunsTable({
         },
     ]
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={ordered}
             columns={columns}
             size="small"
@@ -378,7 +371,7 @@ function PrWorkflowsTable({
             : []) as LemonTableColumns<PrWorkflowRow>),
     ]
     return (
-        <LemonTable
+        <LemonOrQuillTable
             // Namespaces the page search param so paging can't move other tables sharing this URL.
             id="pr-workflows"
             dataSource={orderedRows}

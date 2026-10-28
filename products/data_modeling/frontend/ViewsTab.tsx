@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -9,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
@@ -338,7 +339,7 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
                     data-attr="views-type-filter"
                 />
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={visibleViews}
                 loading={viewsLoading}
                 columns={columns}

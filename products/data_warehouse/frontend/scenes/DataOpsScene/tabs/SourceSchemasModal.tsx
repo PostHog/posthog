@@ -5,7 +5,7 @@ import { IconRefresh } from '@posthog/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { sourceSchemasModalLogic } from './sourceSchemasModalLogic'
 import { sourceSchemaColumns } from './warehouseStatusDisplay'
@@ -37,7 +37,7 @@ export function SourceSchemasModal(): JSX.Element {
                     </div>
                 </LemonBanner>
             ) : (
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={sourceSchemas}
                     columns={sourceSchemaColumns}
                     loading={sourceSchemasLoading}

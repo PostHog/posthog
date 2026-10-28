@@ -7,8 +7,9 @@ import { IconCheck, IconPlus, IconX } from '@posthog/icons'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -151,7 +152,7 @@ export function SavedInsightsTable({
                 </>
             ) : (
                 <div className="overflow-x-hidden">
-                    <LemonTable
+                    <LemonOrQuillTable
                         dataSource={filterFn ? insights.results.filter(filterFn) : insights.results}
                         columns={columns}
                         loading={insightsLoading}

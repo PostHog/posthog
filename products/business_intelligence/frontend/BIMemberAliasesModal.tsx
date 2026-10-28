@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonModal, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { biFilterValuesLogic } from './biFilterValuesLogic'
 import { biMemberAliasesLogic } from './biMemberAliasesLogic'
@@ -55,7 +57,7 @@ export function BIMemberAliasesModal({ tabId }: { tabId: string }): JSX.Element 
                         </LemonButton>
                     </div>
                 )}
-                <LemonTable
+                <LemonOrQuillTable
                     key={search}
                     pagination={{ pageSize: 50 }}
                     size="small"

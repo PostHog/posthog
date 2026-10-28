@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { capReducers, flattenSeriesRows, MetricsSeriesRow } from './metricsReduce'
 import { safeColorToken, thresholdColor } from './metricsThresholds'
@@ -72,7 +73,7 @@ export function TablePanel({ series, display, fallbackName }: MetricsPanelProps)
 
     return (
         <div className="h-full w-full overflow-auto">
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={rows}
                 rowKey={(row) => JSON.stringify(row.labels) + (row.metricName ?? '')}

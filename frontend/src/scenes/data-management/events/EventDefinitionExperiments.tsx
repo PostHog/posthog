@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Link } from 'lib/lemon-ui/Link'
 import {
@@ -66,7 +66,7 @@ export function EventDefinitionExperiments({ definition }: { definition: EventDe
 
     return (
         <SceneSection title="Experiments using event">
-            <LemonTable
+            <LemonOrQuillTable
                 id={`event-definition-experiments-table-${definition.id}`}
                 loading={experimentsLoading}
                 columns={columns}

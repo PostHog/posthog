@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonTableColumn } from '@posthog/lemon-ui'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 
 import { crossProjectDashboardsListLogic } from './crossProjectDashboardsListLogic'
@@ -60,7 +61,7 @@ export function CrossProjectDashboardsList(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={dashboards}
                 columns={columns}
                 loading={dashboardsLoading}

@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -89,7 +90,7 @@ export function PlatformAlertsScene(): JSX.Element {
                 </LemonBanner>
             ) : null}
             {!configurationsError ? (
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={configurationsPage?.results ?? []}
                     columns={COLUMNS}
                     loading={configurationsPageLoading || configurationsPage === null}

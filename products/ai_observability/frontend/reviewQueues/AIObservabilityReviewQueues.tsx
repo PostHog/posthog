@@ -1,19 +1,12 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import {
-    LemonButton,
-    LemonInput,
-    LemonModal,
-    LemonTable,
-    LemonTableColumn,
-    LemonTableColumns,
-    LemonTag,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonTableColumn, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonModalContent, LemonModalFooter, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
@@ -237,7 +230,7 @@ export function AIObservabilityReviewQueues(): JSX.Element {
                 <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(19rem,23rem)_minmax(0,1fr)]">
                     <div className="border rounded bg-bg-light">
                         <div className="px-4 pt-4 pb-3 text-sm font-medium">Queues</div>
-                        <LemonTable
+                        <LemonOrQuillTable
                             id="queue"
                             loading={queuesLoading}
                             columns={queueColumns}
@@ -331,7 +324,7 @@ export function AIObservabilityReviewQueues(): JSX.Element {
                                     <div className="text-muted-alt">{queueItemCountLabel}</div>
                                 </div>
 
-                                <LemonTable
+                                <LemonOrQuillTable
                                     id="queue_item"
                                     loading={queueItemsLoading}
                                     columns={queueItemColumns}

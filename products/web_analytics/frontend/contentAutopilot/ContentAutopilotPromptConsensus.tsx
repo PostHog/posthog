@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 
-import { LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
+import { LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
@@ -55,7 +56,7 @@ export const ContentAutopilotPromptConsensus = ({ matrix }: { matrix: PromptCons
     ]
     return (
         <div className="overflow-x-auto">
-            <LemonTable
+            <LemonOrQuillTable
                 size="small"
                 dataSource={matrix.rows}
                 rowKey="engine"

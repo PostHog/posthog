@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTable, LemonTag, type LemonTagType, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, type LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { formatTimestamp } from '../../setupInspector/setupInspectorUtils'
@@ -28,7 +29,7 @@ export function HealthDebugCheckResults(): JSX.Element {
     const { setActiveDomain } = useActions(experimentHealthDebugLogic({ experimentId }))
 
     return (
-        <LemonTable<HealthDebugCheck>
+        <LemonOrQuillTable<HealthDebugCheck>
             size="small"
             dataSource={healthDebugChecks}
             rowKey="check"

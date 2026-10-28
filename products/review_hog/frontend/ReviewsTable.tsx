@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonTable, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { ReviewHogReviewsListScope, type ReviewRecentReviewApi } from './generated/api.schemas'
 import { displayedReviewMode, reviewTitle, runningStageLabel } from './reviewDisplay'
@@ -197,7 +198,7 @@ export function ReviewsTable(): JSX.Element {
     ]
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             columns={columns}
             dataSource={reviewsPage?.results ?? []}
             loading={!reviewsPage}

@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumn, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTableColumn, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
@@ -140,7 +141,7 @@ export function WarehouseDestinationsTable({
     ]
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={destinations}
             loading={loading}
             rowKey={(destination) => destination.id}

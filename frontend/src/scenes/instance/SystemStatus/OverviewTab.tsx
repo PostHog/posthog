@@ -1,8 +1,7 @@
 import { useValues } from 'kea'
 
-import { LemonTable } from '@posthog/lemon-ui'
-
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { isKeyOf } from 'lib/utils/guards'
 
@@ -32,7 +31,7 @@ export function OverviewTab(): JSX.Element {
     const { overview, systemStatusLoading } = useValues(systemStatusLogic)
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             className="system-status-table"
             rowKey="metric"
             dataSource={overview}
@@ -60,7 +59,7 @@ export function OverviewTab(): JSX.Element {
 
 function Subrows(props: SystemStatusSubrows): JSX.Element {
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={props.rows}
             columns={props.columns.map((title, dataIndex) => ({ title, dataIndex }))}
             embedded

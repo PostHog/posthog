@@ -6,7 +6,7 @@ import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CURRENCY_SYMBOL_TO_EMOJI_MAP, getCurrencySymbol } from 'lib/utils/currency'
 import { DataWarehouseManagedViewsetImpactModal } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetImpactModal'
@@ -78,7 +78,7 @@ export function EventConfiguration({
                     </AccessControlAction>
                 </div>
             </div>
-            <LemonTable<RevenueAnalyticsEventItem>
+            <LemonOrQuillTable<RevenueAnalyticsEventItem>
                 dataSource={events}
                 rowKey={(item) => item.eventName}
                 emptyState="No event sources configured yet"

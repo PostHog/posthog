@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonModal, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonTag } from '@posthog/lemon-ui'
+
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { managedMigrationLogic } from './managedMigrationLogic'
 import type { TrialRecord, TrialSummary } from './types'
@@ -79,7 +81,7 @@ export function TrialResultsModal(): JSX.Element {
                     </LemonBanner>
                 )}
 
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={records}
                     loading={trialRecordsLoading}
                     rowKey="seq"

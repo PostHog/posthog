@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
 
-import { LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -131,7 +132,7 @@ export function FeatureFlagRulesV2Readonly({ config }: { config: FeatureFlagRule
             <div className="flex flex-col gap-2">
                 <span className="font-semibold">Rules</span>
                 <p className="text-xs text-muted m-0">Rules are evaluated top to bottom; the first match decides.</p>
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={config.rules}
                     columns={columns}
                     rowKey="id"

@@ -1,7 +1,8 @@
 import { IconArchive, IconPlus, IconRefresh, IconUndo } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type { ScoutTrialsViewProps } from './ScoutTrialsView'
 import type { ScoutTrialComparison } from './scoutTrialUtils'
@@ -59,7 +60,7 @@ export function ScoutTrialHistory(props: ScoutTrialsViewProps): JSX.Element {
                 className="self-start"
                 data-attr="scout-trials-show-archived"
             />
-            <LemonTable<ScoutTrialComparison>
+            <LemonOrQuillTable<ScoutTrialComparison>
                 dataSource={props.comparisonsForConfig}
                 rowKey="id"
                 loading={props.comparisonHistoryLoading && !props.comparisonsForConfig.length}

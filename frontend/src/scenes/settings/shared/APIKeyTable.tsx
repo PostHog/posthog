@@ -1,6 +1,7 @@
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonMenu, LemonTable, LemonTableColumn, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonMenu, LemonTableColumn, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { detailedTime, humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
@@ -249,7 +250,7 @@ export function APIKeyTable<T extends APIKeyTableRow = APIKeyTableRow>({
     ]
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={keys}
             loading={loading}
             loadingSkeletonRows={3}

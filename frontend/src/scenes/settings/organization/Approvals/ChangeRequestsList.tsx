@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { cn } from 'lib/utils/css-classes'
@@ -143,7 +144,7 @@ export function ChangeRequestsList(): JSX.Element {
                     </div>
                 </div>
 
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={changeRequests}
                     columns={columns}
                     rowKey="id"

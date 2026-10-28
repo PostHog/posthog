@@ -3,7 +3,8 @@ import { useActions, useValues } from 'kea'
 import { LemonInput } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { fullName } from 'lib/utils/strings'
 import { TagList } from 'scenes/settings/user/PersonalAPIKeys'
 
@@ -83,7 +84,7 @@ export function OrganizationPersonalAPIKeysTable(): JSX.Element {
                     className="max-w-80"
                 />
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={filteredKeys}
                 loading={keysLoading}
                 columns={columns}

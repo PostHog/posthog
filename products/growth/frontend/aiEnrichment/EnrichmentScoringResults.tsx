@@ -1,6 +1,8 @@
 import { useValues } from 'kea'
 
-import { LemonBanner, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTableColumns } from '@posthog/lemon-ui'
+
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type { ScoringPreviewRowApi } from '../generated/api.schemas'
 import { enrichmentScoringLogic } from './enrichmentScoringLogic'
@@ -76,7 +78,7 @@ export function EnrichmentScoringResults(): JSX.Element {
                     {`${preview.response.summary.evaluated} companies evaluated · ${preview.response.summary.changed} changed · ${preview.response.summary.errors} errors`}
                 </p>
             )}
-            <LemonTable
+            <LemonOrQuillTable
                 size="small"
                 tableLayout="fixed"
                 uppercaseHeader={false}
@@ -95,7 +97,7 @@ export function EnrichmentScoringResults(): JSX.Element {
                             {row.error && <LemonBanner type="error">{row.error}</LemonBanner>}
                             <div>
                                 <h4>Score details</h4>
-                                <LemonTable
+                                <LemonOrQuillTable
                                     size="small"
                                     tableLayout="fixed"
                                     rowKey="key"

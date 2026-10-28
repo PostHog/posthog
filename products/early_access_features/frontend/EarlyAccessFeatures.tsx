@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable/types'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -122,7 +123,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                     allowClear
                 />
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 loading={earlyAccessFeaturesLoading}
                 columns={[
                     {

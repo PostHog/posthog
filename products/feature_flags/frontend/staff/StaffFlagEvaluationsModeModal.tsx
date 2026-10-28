@@ -6,12 +6,12 @@ import {
     LemonCheckbox,
     LemonModal,
     LemonSelect,
-    LemonTable,
     LemonTableColumns,
     Spinner,
 } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { pluralize } from 'lib/utils/strings'
 
 import { FlagEvaluationsModeEnumApi, StaffOrganizationModeChangeApi } from '../generated/api.schemas'
@@ -146,7 +146,7 @@ export function StaffFlagEvaluationsModeModal(): JSX.Element {
                     </div>
                 ) : (
                     <div className="space-y-2">
-                        <LemonTable
+                        <LemonOrQuillTable
                             size="small"
                             dataSource={summary.organizations}
                             columns={columns}

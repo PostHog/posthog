@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -42,7 +43,7 @@ export function PersonCohorts(): JSX.Element {
     ]
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={cohorts || []}
             loading={cohortsLoading}
             columns={columns}

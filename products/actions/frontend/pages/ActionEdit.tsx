@@ -26,8 +26,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -594,7 +595,7 @@ function ReferencesList({ logicProps }: { logicProps: ActionEditLogicProps }): J
     return (
         <div className="flex flex-col gap-4">
             <LemonInput type="search" placeholder="Search..." value={referencesSearch} onChange={setReferencesSearch} />
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={filteredReferences}
                 columns={REFERENCES_COLUMNS}
                 pagination={{ pageSize: 10 }}

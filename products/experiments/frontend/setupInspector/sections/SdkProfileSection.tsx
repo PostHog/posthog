@@ -1,4 +1,4 @@
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type {
     ExperimentSetupLibActivityApi,
@@ -41,7 +41,7 @@ export function SdkProfileSection({
                             { label: 'Computed at', value: formatTimestamp(data.computed_at) },
                         ]}
                     />
-                    <LemonTable<ExperimentSetupSdkLibApi>
+                    <LemonOrQuillTable<ExperimentSetupSdkLibApi>
                         size="small"
                         rowKey={(lib, index) => lib.lib ?? `unknown-${index}`}
                         dataSource={data.libs}
@@ -80,7 +80,7 @@ export function SdkProfileSection({
                             <p className="text-sm mb-0">
                                 No flag calls yet. These SDKs sent events of any kind over the last day:
                             </p>
-                            <LemonTable<ExperimentSetupLibActivityApi>
+                            <LemonOrQuillTable<ExperimentSetupLibActivityApi>
                                 size="small"
                                 rowKey={(lib, index) => lib.lib ?? `unknown-${index}`}
                                 dataSource={data.libs_on_any_event}

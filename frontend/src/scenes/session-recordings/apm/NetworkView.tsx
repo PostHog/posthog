@@ -4,12 +4,13 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useRef, useState } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
-import { LemonTable, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import AssetProportions from 'scenes/session-recordings/apm/components/AssetProportions'
 import { PerformanceCardRow } from 'scenes/session-recordings/apm/components/PerformanceCard'
@@ -213,7 +214,7 @@ export function NetworkView(): JSX.Element {
                         style={{ left: urlColumnWidth }}
                         onMouseDown={onUrlHeaderMouseDown}
                     />
-                    <LemonTable
+                    <LemonOrQuillTable
                         className="NetworkView__table"
                         size="small"
                         dataSource={currentPage}

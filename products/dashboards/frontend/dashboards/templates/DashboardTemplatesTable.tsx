@@ -7,9 +7,10 @@ import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonMenu, LemonTag
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import type { Sorting } from 'lib/lemon-ui/LemonTable'
 import { atColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -478,7 +479,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                     </div>
                 </div>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 id="dashboard-templates"
                 data-attr="dashboards-template-table"
                 pagination={{ pageSize: 25 }}

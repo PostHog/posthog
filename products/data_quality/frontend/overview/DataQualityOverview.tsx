@@ -9,13 +9,13 @@ import {
     LemonMenu,
     LemonSegmentedButton,
     LemonSkeleton,
-    LemonTable,
     LemonTag,
     Link,
     Spinner,
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { urls } from 'scenes/urls'
 
 import { CheckEditorModal } from '../CheckEditorModal'
@@ -396,7 +396,7 @@ function SubjectChecks({ group }: { group: SubjectGroup }): JSX.Element {
     }
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             size="small"
             dataSource={group.checks}
             rowKey="id"

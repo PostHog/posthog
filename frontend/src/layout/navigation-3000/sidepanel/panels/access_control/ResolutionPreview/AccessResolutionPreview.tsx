@@ -6,7 +6,6 @@ import {
     LemonButton,
     LemonCollapse,
     LemonDialog,
-    LemonTable,
     LemonTableColumns,
     LemonTag,
     Link,
@@ -14,6 +13,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
@@ -292,7 +292,7 @@ export function AccessResolutionPreview(): JSX.Element {
                         {resourceChanges.length > 0 && (
                             <div>
                                 <h4 className="mb-2">Resource-level access</h4>
-                                <LemonTable
+                                <LemonOrQuillTable
                                     id={`access-resolution-resource-${projectId}`}
                                     columns={resourceColumns}
                                     dataSource={resourceChanges}
@@ -306,7 +306,7 @@ export function AccessResolutionPreview(): JSX.Element {
                         {objectChanges.length > 0 && (
                             <div>
                                 <h4 className="mb-2">Objects with their own access rules</h4>
-                                <LemonTable
+                                <LemonOrQuillTable
                                     id={`access-resolution-object-${projectId}`}
                                     columns={objectColumns}
                                     dataSource={objectChanges}

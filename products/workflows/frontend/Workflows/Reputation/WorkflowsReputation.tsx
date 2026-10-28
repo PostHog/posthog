@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
@@ -199,7 +200,7 @@ function IspBreakdown({
                 }
                 tooltip={`The project-wide rates above pool every provider together, so a struggling provider can be hidden by the others. This table splits the rates out per provider. A provider that accepts your mail and then files it as spam still reads as healthy here. ${WINDOW_TOOLTIP}`}
             />
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={[...isps]}
                 rowKey={(row) => row.isp}
                 columns={[
@@ -499,7 +500,7 @@ export function WorkflowsReputation(): JSX.Element {
                     </span>
                 )}
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={[...workflowSnapshots]}
                 loading={reputationResponseLoading}
                 rowKey={(snapshot) => snapshot.hog_flow_id}

@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconLetter, IconNotification } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import { metricsStepUrl } from '../metricsDrillParams'
@@ -200,7 +201,7 @@ export function WorkflowMessageLeaderboard({
             ) : !loading && !hasMessages ? (
                 <span className="text-sm text-muted">This workflow has no email or push steps yet.</span>
             ) : (
-                <LemonTable
+                <LemonOrQuillTable
                     columns={columns}
                     dataSource={rows}
                     loading={loading}

@@ -7,13 +7,13 @@ import {
     LemonLabel,
     LemonSegmentedButton,
     LemonSelect,
-    LemonTable,
     LemonTextArea,
     Spinner,
 } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { appLogic } from 'scenes/appLogic'
@@ -184,7 +184,7 @@ export function DecisionPlaygroundScene(): JSX.Element {
             <SceneSection title="Answers">
                 {decision ? (
                     <>
-                        <LemonTable
+                        <LemonOrQuillTable
                             dataSource={answerRows}
                             rowKey="key"
                             columns={[

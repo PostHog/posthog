@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
@@ -60,7 +60,7 @@ export function SqlTestResult({ preview, unit, stale, loading, onAddUnit }: SqlT
                 </div>
             ) : (
                 <div className="overflow-x-auto">
-                    <LemonTable<unknown[]>
+                    <LemonOrQuillTable<unknown[]>
                         size="small"
                         dataSource={preview.rows}
                         pagination={{ pageSize: PREVIEW_PAGE_SIZE, useUrl: false }}

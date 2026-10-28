@@ -7,7 +7,8 @@ import { LemonColorButton, LemonTag } from '@posthog/lemon-ui'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
-import { LemonTable, LemonTableColumn, LemonTableColumnGroup, Sorting } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumnGroup, Sorting } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
@@ -402,7 +403,7 @@ export function FunnelStepsTable(): JSX.Element | null {
     ] as LemonTableColumnGroup<FlattenedFunnelStepByBreakdown>[]
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={flattenedBreakdowns}
             columns={columnsGrouped}
             loading={insightLoading}

@@ -1,8 +1,8 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { CUSTOM_RANGE, type DateTimeRange } from './date-time-ranges'
 import { DateTimePicker } from './date-time-picker'
+import { CUSTOM_RANGE, type DateTimeRange } from './date-time-ranges'
 
 // The day grid wraps each Button in a div carrying the data-is-* range flags.
 const dayCell = (label: string): HTMLElement => {

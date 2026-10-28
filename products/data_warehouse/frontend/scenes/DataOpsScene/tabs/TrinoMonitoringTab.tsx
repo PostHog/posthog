@@ -6,7 +6,8 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { humanizeBytes } from 'lib/utils/numbers'
@@ -196,7 +197,7 @@ export function TrinoMonitoringTab(): JSX.Element {
                 description="Queries submitted to the warehouse and not yet finished."
             >
                 <div className="@container">
-                    <LemonTable
+                    <LemonOrQuillTable
                         columns={queryColumns}
                         dataSource={monitoringSnapshot?.queries ?? []}
                         rowKey="query_id"

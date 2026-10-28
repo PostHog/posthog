@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
 
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { pluralize } from 'lib/utils/strings'
 import { InlineTagEditor } from 'scenes/experiments/SharedMetrics/InlineTagEditor'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
@@ -180,7 +180,7 @@ export function SharedMetricModal({
                                 )}
                             </div>
                         )}
-                        <LemonTable
+                        <LemonOrQuillTable
                             dataSource={displayedMetrics}
                             loading={sharedMetricsResponseLoading && displayedMetrics.length === 0}
                             emptyState={

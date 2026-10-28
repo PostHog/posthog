@@ -8,7 +8,8 @@ import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -90,7 +91,7 @@ function BucketsTable({ group }: { group: PrecomputeDebugGroupApi }): JSX.Elemen
                     last built before the query_log lookback window.
                 </LemonBanner>
             )}
-            <LemonTable dataSource={group.buckets} columns={columns} size="small" embedded />
+            <LemonOrQuillTable dataSource={group.buckets} columns={columns} size="small" embedded />
         </div>
     )
 }
@@ -231,7 +232,7 @@ export function PrecomputeDebugScene(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={debugState?.groups ?? []}
                 columns={columns}
                 loading={debugStateLoading}

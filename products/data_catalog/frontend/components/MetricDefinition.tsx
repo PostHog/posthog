@@ -4,7 +4,7 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { urls } from 'scenes/urls'
 
 import { InsightShortId } from '~/types'
@@ -276,7 +276,7 @@ function ResultsTable({ results }: { results: unknown }): JSX.Element {
     if (first && typeof first === 'object' && !Array.isArray(first)) {
         const keys = Object.keys(first as Record<string, unknown>)
         return (
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={rows as Record<string, unknown>[]}
                 columns={keys.map((columnKey) => ({
                     title: columnKey,

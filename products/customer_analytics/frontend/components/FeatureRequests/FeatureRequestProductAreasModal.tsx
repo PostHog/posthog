@@ -7,10 +7,11 @@ import {
     LemonLabel,
     LemonModal,
     LemonSwitch,
-    LemonTable,
     LemonTableColumns,
     LemonTag,
 } from '@posthog/lemon-ui'
+
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type { FeatureRequestProductAreaApi } from '../../generated/api.schemas'
 import { featureRequestsLogic } from './featureRequestsLogic'
@@ -143,7 +144,7 @@ export function FeatureRequestProductAreasModal(): JSX.Element {
                     </div>
                 )}
                 <div className="min-h-0 flex-1 overflow-hidden">
-                    <LemonTable
+                    <LemonOrQuillTable
                         dataSource={filteredProductAreas}
                         columns={columns}
                         rowKey="id"

@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconLaptop, IconLeave } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTag } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { UserAuthSessionApi } from '~/generated/core/api.schemas'
@@ -59,7 +60,7 @@ export function LoginSessions(): JSX.Element {
             >
                 Log out everywhere else
             </LemonButton>
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={loginSessions}
                 loading={loginSessionsLoading}
                 columns={[

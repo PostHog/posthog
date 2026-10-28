@@ -1,7 +1,9 @@
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { LemonButton, LemonCheckbox, LemonTable, type LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, type LemonTableColumns } from '@posthog/lemon-ui'
+
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import {
     WidgetCardBodyMessage,
@@ -154,7 +156,7 @@ export function MetricsTableView({
         })),
     ]
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={rows}
             columns={tableColumns}
             rowKey="key"

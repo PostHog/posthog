@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonModal, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { BillingInvoiceItemRow, BillingProductV2AddonType } from '~/types'
 
@@ -106,7 +107,7 @@ export function ConfirmDowngradeModal({ product }: { product: BillingProductV2Ad
 
                 <AddonFeatureLossNotice product={currentPlatformAddon} targetProduct={product} />
 
-                <LemonTable dataSource={rows} columns={columns} className="mt-4" uppercaseHeader={false} />
+                <LemonOrQuillTable dataSource={rows} columns={columns} className="mt-4" uppercaseHeader={false} />
 
                 {creditCoversNextInvoice && (
                     <div className="mt-2 text-sm">

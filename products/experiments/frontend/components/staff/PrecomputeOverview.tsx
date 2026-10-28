@@ -4,7 +4,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration } from 'lib/utils/durations'
@@ -368,7 +369,7 @@ export function PrecomputeOverview(): JSX.Element {
                     </div>
 
                     <h3>Why reads went direct</h3>
-                    <LemonTable
+                    <LemonOrQuillTable
                         size="small"
                         columns={directReasonColumns}
                         dataSource={directReasonRows}
@@ -383,7 +384,7 @@ export function PrecomputeOverview(): JSX.Element {
                             <LemonTag type="muted">selection bias</LemonTag>
                         </Tooltip>
                     </div>
-                    <LemonTable
+                    <LemonOrQuillTable
                         size="small"
                         columns={pathPerfColumns}
                         dataSource={pathPerfRows}

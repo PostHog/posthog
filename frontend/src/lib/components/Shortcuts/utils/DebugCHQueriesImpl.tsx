@@ -13,7 +13,7 @@ import { LinkMetabaseQuery } from 'lib/components/MetabaseQueryLink'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -322,7 +322,7 @@ export function DebugCHQueries({ insightId, experimentId }: DebugCHQueriesProps)
                 </LemonButton>
             </div>
 
-            <LemonTable
+            <LemonOrQuillTable
                 columns={[
                     {
                         title: 'Timestamp',

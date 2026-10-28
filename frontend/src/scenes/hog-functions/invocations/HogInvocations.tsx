@@ -11,7 +11,6 @@ import {
     LemonInputSelect,
     LemonModal,
     LemonSelect,
-    LemonTable,
     LemonTableColumns,
     LemonTag,
     LemonTagProps,
@@ -27,6 +26,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
 import { urls } from 'scenes/urls'
@@ -730,7 +730,7 @@ export function HogInvocations({
                 </div>
             ) : null}
 
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={runs}
                 columns={columns}
                 loading={runsLoading && !hasLoadedOnce}

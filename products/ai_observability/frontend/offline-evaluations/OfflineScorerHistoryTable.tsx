@@ -1,8 +1,9 @@
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type { OfflineHistoryPageApi, OfflineHistoryPointApi } from '../generated/api.schemas'
 import { offlineExperimentUrl } from './offlineExperimentPresentation'
@@ -31,7 +32,7 @@ export function OfflineScorerHistoryTable({
     onToggleRun: (key: string) => void
 }): JSX.Element {
     return (
-        <LemonTable<OfflineHistoryPointApi>
+        <LemonOrQuillTable<OfflineHistoryPointApi>
             className="@max-[50rem]/scorer-history:[&_colgroup]:hidden @max-[50rem]/scorer-history:[&_table]:table-auto"
             rowKey={offlineHistoryPointKey}
             dataSource={page?.results || []}

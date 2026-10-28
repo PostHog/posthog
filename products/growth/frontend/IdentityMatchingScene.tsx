@@ -10,7 +10,6 @@ import {
     LemonSegmentedButton,
     LemonSelect,
     LemonTab,
-    LemonTable,
     LemonTableColumns,
     LemonTabs,
     LemonTag,
@@ -24,6 +23,7 @@ import { downloadBlob } from 'lib/components/ExportButton/exporter'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -428,7 +428,7 @@ export function IdentityMatchingScene(): JSX.Element {
                             trigger a run manually.
                         </LemonBanner>
                     ) : (
-                        <LemonTable
+                        <LemonOrQuillTable
                             dataSource={links}
                             columns={columns}
                             loading={linksResponseLoading}

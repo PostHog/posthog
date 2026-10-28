@@ -9,7 +9,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -448,7 +448,7 @@ export function IngestionWarningsView(): JSX.Element {
                         type="search"
                         placeholder="Try pasting a person or session id or an ingestion warning type"
                     />
-                    <LemonTable
+                    <LemonOrQuillTable
                         dataSource={data}
                         loading={dataLoading}
                         columns={[
@@ -516,7 +516,7 @@ export function IngestionWarningsView(): JSX.Element {
 
 function RenderNestedWarnings(warningSummary: IngestionWarningSummary): JSX.Element {
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={warningSummary.warnings}
             columns={[
                 {

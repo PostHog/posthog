@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type { DevTokenApi } from '../generated/api.schemas'
 import { devModeLogic } from '../logics/devModeLogic'
@@ -94,7 +95,7 @@ export function DevModeSetting(): JSX.Element {
                 </div>
             ) : null}
 
-            <LemonTable<DevTokenApi>
+            <LemonOrQuillTable<DevTokenApi>
                 dataSource={usage?.tokens ?? []}
                 loading={usageLoading}
                 emptyState="No tokens created in the last 24 hours"

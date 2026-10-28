@@ -13,8 +13,9 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -368,7 +369,7 @@ export function DashboardsTable({
     return (
         <>
             <DashboardsFiltersBar extraActions={extraActions} />
-            <LemonTable
+            <LemonOrQuillTable
                 data-attr="dashboards-table"
                 pagination={{ pageSize: 50 }}
                 dataSource={dashboards as DashboardType[]}

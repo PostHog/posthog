@@ -1,5 +1,4 @@
-import { LemonTable } from '@posthog/lemon-ui'
-
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 
 import {
@@ -60,7 +59,7 @@ export function QueryIndexUsageTable({
             <p className="text-xs px-2 pt-1 mb-1">
                 How each property filter reads its data. A filter with no index behind it reads every row.
             </p>
-            <LemonTable
+            <LemonOrQuillTable
                 size="small"
                 dataSource={predicates}
                 expandable={{

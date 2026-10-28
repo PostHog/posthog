@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
 import { printHogStringOutput } from '@posthog/hogvm'
-import { LemonButton, LemonTable, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -31,7 +32,7 @@ export function ReplResultsTable({ response }: ReplResultsTableProps): JSX.Eleme
                         key: 'table',
                         label: 'Table',
                         content: (
-                            <LemonTable
+                            <LemonOrQuillTable
                                 columns={response.columns.map((col, index) => ({ dataIndex: index, title: col }))}
                                 dataSource={response.results}
                             />

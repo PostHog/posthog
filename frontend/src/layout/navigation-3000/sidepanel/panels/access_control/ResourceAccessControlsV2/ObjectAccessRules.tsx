@@ -8,11 +8,11 @@ import {
     LemonLabel,
     LemonModal,
     LemonSelect,
-    LemonTable,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { toSentenceCase } from 'lib/utils/strings'
 
 import { AccessLevelSelect } from '../AccessLevelSelect'
@@ -65,7 +65,7 @@ export function ObjectAccessRules({
             }
         >
             <AddObjectRuleModal projectId={projectId} scopeType={scopeType} subjectId={subjectId} />
-            <LemonTable
+            <LemonOrQuillTable
                 loading={objectsLoading}
                 columns={[
                     {

@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { FeatureFlagFiltersSection } from 'scenes/feature-flags/FeatureFlagFilters'
 import { urls } from 'scenes/urls'
 
@@ -46,7 +47,7 @@ export const SelectExistingFeatureFlagModal = ({
                     <code>'control'</code> is used as the analysis baseline, or the first variant if there is none.
                 </div>
                 {filtersSection}
-                <LemonTable
+                <LemonOrQuillTable
                     id="ff"
                     dataSource={featureFlags.results}
                     loading={featureFlagsLoading}

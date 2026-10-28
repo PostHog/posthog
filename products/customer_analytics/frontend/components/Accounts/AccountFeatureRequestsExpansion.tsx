@@ -7,11 +7,11 @@ import {
     LemonInput,
     LemonInputSelect,
     LemonModal,
-    LemonTable,
     LemonTableColumns,
     Link,
 } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
@@ -132,7 +132,7 @@ export function AccountFeatureRequestsExpansion({
                     {accountRequestsError}
                 </LemonBanner>
             )}
-            <LemonTable
+            <LemonOrQuillTable
                 size="small"
                 embedded={embedded}
                 dataSource={accountRequests.results}

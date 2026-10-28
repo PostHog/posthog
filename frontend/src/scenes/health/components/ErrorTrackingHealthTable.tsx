@@ -1,6 +1,7 @@
 import { Link } from '@posthog/lemon-ui'
 
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type { HealthIssue } from '../types'
 import { issueActionsColumn, severityColumn } from './healthTableColumns'
@@ -61,5 +62,5 @@ export function ErrorTrackingHealthTable({
         issueActionsColumn(onSnooze, onDismiss, onUndismiss),
     ]
 
-    return <LemonTable dataSource={issues} columns={columns} embedded size="small" rowClassName="group" />
+    return <LemonOrQuillTable dataSource={issues} columns={columns} embedded size="small" rowClassName="group" />
 }

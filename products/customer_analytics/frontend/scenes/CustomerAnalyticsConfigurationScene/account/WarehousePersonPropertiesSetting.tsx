@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPencil, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTableColumns, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -279,7 +280,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                     Add {labels.entity} property
                 </LemonButton>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={profileDefinitions}
                 // Only the first load blanks the table. Polling for a running sync refreshes the same

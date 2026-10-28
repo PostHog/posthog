@@ -2,21 +2,13 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconExternal, IconGear } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonSkeleton,
-    LemonTable,
-    LemonTableColumns,
-    LemonTag,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
@@ -497,7 +489,7 @@ export function WorkflowRunsScene(): JSX.Element {
                             {/* Container queries drop the secondary columns when the scene is narrow, so Duration and
                         Started stay in view. */}
                             <LemonCard hoverEffect={false} className="overflow-hidden p-0 @container/runs">
-                                <LemonTable<WorkflowRunRow>
+                                <LemonOrQuillTable<WorkflowRunRow>
                                     dataSource={runRows}
                                     columns={runColumns}
                                     size="small"

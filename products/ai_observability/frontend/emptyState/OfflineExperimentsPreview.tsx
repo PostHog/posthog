@@ -2,7 +2,8 @@ import './OfflineExperimentsPreview.scss'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { LemonTable, type LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { type LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
@@ -112,7 +113,7 @@ export function OfflineExperimentsPreview(): JSX.Element {
                     <span className="text-xs font-semibold">Compare experiments</span>
                     <LemonTag size="small">example data</LemonTag>
                 </div>
-                <LemonTable
+                <LemonOrQuillTable
                     className="OfflineExperimentsPreview__table"
                     size="small"
                     columns={columns}

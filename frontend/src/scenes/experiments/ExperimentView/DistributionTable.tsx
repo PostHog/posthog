@@ -8,11 +8,12 @@ import {
     LemonDialog,
     LemonModal,
     LemonSwitch,
-    LemonTable,
     LemonTableColumns,
     LemonTag,
     Link,
 } from '@posthog/lemon-ui'
+
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { AuthorizedUrlList } from '~/lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from '~/lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -320,7 +321,7 @@ export function DistributionTable(): JSX.Element {
                     At least one test variant must remain in analysis. Re-include a variant to exclude others.
                 </LemonBanner>
             )}
-            <LemonTable
+            <LemonOrQuillTable
                 loading={false}
                 columns={columns}
                 dataSource={tableData}

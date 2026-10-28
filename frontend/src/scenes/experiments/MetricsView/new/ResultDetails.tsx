@@ -3,10 +3,11 @@ import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonTableColumns, LemonTabs } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { ExperimentFunnelChart } from 'scenes/experiments/charts/funnel/ExperimentFunnelChart'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
@@ -235,7 +236,7 @@ export function ResultDetails({
 
     return (
         <div className={embedded ? 'divide-y divide-border' : 'space-y-4'}>
-            <LemonTable columns={columns} dataSource={dataSource} loading={false} embedded={embedded} />
+            <LemonOrQuillTable columns={columns} dataSource={dataSource} loading={false} embedded={embedded} />
             {isExperimentFunnelMetric(metric) && (
                 <ExperimentFunnelChart
                     result={result}

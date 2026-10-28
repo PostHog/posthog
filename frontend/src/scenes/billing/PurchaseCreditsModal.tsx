@@ -2,11 +2,12 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { BillingGauge } from './BillingGauge'
 import { billingLogic } from './billingLogic'
@@ -176,7 +177,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                         <p className="mb-1 text-md font-semibold">Summary</p>
                         <p className="mb-0">Here's a summary of what you'll pay.</p>
                     </div>
-                    <LemonTable
+                    <LemonOrQuillTable
                         showHeader={false}
                         columns={[
                             {

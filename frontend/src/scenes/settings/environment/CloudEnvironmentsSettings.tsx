@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEllipsis, IconPlus } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonMenu, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonMenu, LemonTag } from '@posthog/lemon-ui'
+
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type { SandboxEnvironmentDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
@@ -44,7 +46,7 @@ export function CloudEnvironmentsSettings(): JSX.Element {
                     The environments did not load.
                 </LemonBanner>
             ) : (
-                <LemonTable
+                <LemonOrQuillTable
                     size="small"
                     loading={environmentsLoading && environments === null}
                     dataSource={environments ?? []}

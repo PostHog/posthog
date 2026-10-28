@@ -11,7 +11,8 @@ import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRec
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
@@ -1092,7 +1093,7 @@ export function DataTable({
                             ) : usedWebAnalyticsPreAggregatedTables ? (
                                 <PreAggregatedBadge variant="preagg" />
                             ) : null}
-                            <LemonTable
+                            <LemonOrQuillTable
                                 data-attr={dataAttr}
                                 className="DataTable"
                                 allowContentScroll={context?.dataTableAllowContentScroll}

@@ -11,6 +11,7 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -20,7 +21,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonSwitch } from '~/lib/lemon-ui/LemonSwitch'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { atColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -273,7 +274,7 @@ export function LLMPromptsScene(): JSX.Element {
                     />
                 </div>
 
-                <LemonTable
+                <LemonOrQuillTable
                     loading={promptsLoading}
                     columns={columns}
                     dataSource={prompts.results}

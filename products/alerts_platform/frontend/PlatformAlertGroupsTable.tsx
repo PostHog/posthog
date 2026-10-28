@@ -1,4 +1,6 @@
-import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonTableColumns } from '@posthog/lemon-ui'
+
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { PlatformAlertApi } from './generated/api.schemas'
 import { OptionalTimeLabel } from './OptionalTimeLabel'
@@ -31,7 +33,7 @@ const COLUMNS: LemonTableColumns<PlatformAlertApi> = [
 
 export function PlatformAlertGroupsTable({ alerts }: { alerts: readonly PlatformAlertApi[] }): JSX.Element {
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={[...alerts]}
             columns={COLUMNS}
             rowKey="id"

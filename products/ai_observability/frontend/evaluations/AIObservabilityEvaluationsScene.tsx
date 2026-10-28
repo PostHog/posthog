@@ -21,7 +21,6 @@ import {
     LemonMenu,
     LemonModal,
     LemonSwitch,
-    LemonTable,
     LemonTag,
     Link,
     Tooltip,
@@ -32,6 +31,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -149,7 +149,7 @@ function EvaluationsWithMetricsTable({
     const displayedIds = new Set(displayedEvaluations.map((evaluation) => evaluation.id))
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             columns={columns}
             dataSource={evaluationsWithMetrics.filter((evaluation: EvaluationConfig) =>
                 displayedIds.has(evaluation.id)
@@ -704,7 +704,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                     )}
 
                     {!overviewEnabled && !evaluationsFilter && !selectedDirectoryId && (
-                        <LemonTable
+                        <LemonOrQuillTable
                             columns={directoryColumns}
                             dataSource={evaluationDirectories}
                             loading={evaluationDirectoriesLoading}

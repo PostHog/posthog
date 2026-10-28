@@ -12,7 +12,6 @@ import {
     LemonLabel,
     LemonSegmentedButton,
     LemonSwitch,
-    LemonTable,
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -20,6 +19,7 @@ import {
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
@@ -457,7 +457,7 @@ export function HogFunctionTest(): JSX.Element {
 
                                 <LemonLabel>Test invocation logs</LemonLabel>
 
-                                <LemonTable
+                                <LemonOrQuillTable
                                     dataSource={testResult.logs ?? []}
                                     columns={[
                                         {

@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
 
-import { LemonBanner, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTag } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
@@ -58,7 +59,7 @@ export function HogQLAlertPreviewRowsTable({
     return (
         <div className="deprecated-space-y-1">
             {!isFirstRow && overflowNote}
-            <LemonTable
+            <LemonOrQuillTable
                 size="small"
                 dataSource={rows}
                 columns={[

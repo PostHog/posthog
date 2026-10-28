@@ -3,10 +3,11 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import * as greekPng from '@posthog/brand/hoggies/png/greek'
-import { LemonCollapse, LemonInput, LemonTable, ProfilePicture, Spinner } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonInput, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { EmailViewerModal } from './EmailViewerModal'
@@ -80,7 +81,7 @@ function AssetsTable({ workflowId, parentRunId, actionId, invocationId }: Assets
                 onChange={setSearch}
                 className="max-w-100"
             />
-            <LemonTable
+            <LemonOrQuillTable
                 loading={assetsLoading}
                 dataSource={assets}
                 onRow={(asset: MessageAsset) => ({

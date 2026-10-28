@@ -28,6 +28,9 @@ const columns: ColumnDef<Person>[] = [
   pageSize={10}                  // omit for an unpaginated table
   pageSizeOptions={[10, 25, 50]} // renders the per-page selector
   stickyHeader                   // or "page" to stick to document scroll
+  sorting={sorting}              // optional controlled TanStack SortingState
+  onSortingChange={setSorting}
+  manualSorting                  // rows arrive sorted by the server
   fullWidth
   size="sm"                      // tighten cell padding; pair with Card size="sm"
   onPageChange={(page, nextPage) => track(page, nextPage)} // one-based page numbers
@@ -40,6 +43,11 @@ Rules:
 - Column defs are standard TanStack `ColumnDef`s; quill-specific options go in `meta`: `align: 'left' | 'center' | 'right'` (header + cells) and `expand: true` (absorb leftover width).
 - `fullWidth` needs exactly one column with `meta: { expand: true }` to decide which column stretches.
 - Sorting is client-side and on by default — click header toggles asc → desc → off. Opt out per column with `enableSorting: false`.
+- Sort state is uncontrolled by default. Pass `sorting` (a TanStack `SortingState`) with `onSortingChange` to own it, for example to sync it to the URL. `onSortingChange` receives the next state, not an updater.
+- Server-side sorting: pass `manualSorting` and hand over rows already in the requested order. Headers still toggle and report through `onSortingChange`; the table does not reorder `data`.
+- `enableSortingRemoval={false}` cycles asc → desc only. Set `sortDescFirst` on a column (or `false` to force ascending) to choose the first direction; without it TanStack picks descending for non-string values.
+- `getRowId` gives rows a stable identity (defaults to the index). `getRowProps(row, index)` adds props to each body `<tr>` (class name, data attributes, handlers); `index` is the rendered position. `onRowClick` wins over a `getRowProps` click handler.
+- Expandable rows: `renderExpandedRow(row, index)` renders a full-width row under an expanded row. Toggle from a cell with `row.getToggleExpandedHandler()`. `getRowCanExpand` limits which rows expand; `expanded`/`onExpandedChange` (a map keyed by row id) control it.
 - Pagination is opt-in via `pageSize`; the component owns page state, reports user navigation through `onPageChange`, and resets to page 0 when `pageSize` changes. The pager is suppressed when the table has no rows — an empty table shows only its empty state, never a "0–0 of 0" pager.
 - Custom empty state via the `empty` prop (ReactNode); default is a minimal "No results".
 - `onRowClick` makes non-interactive parts of each row clickable and keyboard accessible. Links, buttons, form controls, editable content, and custom controls keep their own behavior. Add `data-row-click-ignore` to a custom descendant that must not activate the row.

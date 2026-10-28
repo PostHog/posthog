@@ -10,7 +10,6 @@ import {
     LemonMenu,
     LemonModal,
     LemonSelect,
-    LemonTable,
     LemonTableColumns,
 } from '@posthog/lemon-ui'
 
@@ -23,6 +22,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
@@ -142,7 +142,7 @@ function UsageMetricsTable(): JSX.Element {
         },
     ]
 
-    return <LemonTable columns={columns} dataSource={usageMetrics} loading={usageMetricsLoading} />
+    return <LemonOrQuillTable columns={columns} dataSource={usageMetrics} loading={usageMetricsLoading} />
 }
 
 function UsageMetricsForm(): JSX.Element {

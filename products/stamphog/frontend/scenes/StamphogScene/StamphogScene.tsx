@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconGithub } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -182,7 +183,7 @@ function RepoConfigsTable(): JSX.Element {
                     data-attr="stamphog-repo-search"
                 />
             )}
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={filteredRepoConfigs}
                 loading={repoConfigsLoading}

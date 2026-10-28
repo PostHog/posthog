@@ -10,7 +10,8 @@ import { IconExclamation } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -496,7 +497,7 @@ function VerifiedDomainsTable(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={verifiedDomainsList}
                 columns={visibleVerifiedColumns}
                 loading={verifiedDomainsLoading || identityProviderConfigsLoading}
@@ -506,7 +507,7 @@ function VerifiedDomainsTable(): JSX.Element {
             {unverifiedDomainsList.length > 0 && (
                 <>
                     <h4>Pending domains</h4>
-                    <LemonTable
+                    <LemonOrQuillTable
                         dataSource={unverifiedDomainsList}
                         columns={unverifiedColumns}
                         loading={verifiedDomainsLoading || identityProviderConfigsLoading}

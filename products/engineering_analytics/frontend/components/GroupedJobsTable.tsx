@@ -2,9 +2,10 @@
 // de-shard); failing groups sort first and name their failed shards. Groups expand via the caret only,
 // because links inside rows must stay clickable.
 
-import { LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import type { WorkflowJobApi } from '../generated/api.schemas'
@@ -178,7 +179,7 @@ export function GroupedJobsTable({
     const axisEnd = endValues.length ? Math.max(...endValues) : 1
 
     return (
-        <LemonTable<WorkflowJobGroup>
+        <LemonOrQuillTable<WorkflowJobGroup>
             dataSource={groups}
             size="small"
             embedded={embedded}

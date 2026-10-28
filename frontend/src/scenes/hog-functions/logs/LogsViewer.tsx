@@ -6,7 +6,6 @@ import {
     LemonButton,
     LemonInput,
     LemonSelect,
-    LemonTable,
     LemonTableColumn,
     LemonTableProps,
     LemonTag,
@@ -18,6 +17,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconArrowDown, IconArrowUp, IconWithCount } from 'lib/lemon-ui/icons'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { pluralize } from 'lib/utils/strings'
 
 import { LogEntryLevel } from '~/types'
@@ -296,7 +296,7 @@ export function LogsViewer({
             </div>
 
             {isGrouped ? (
-                <LemonTable
+                <LemonOrQuillTable
                     key="grouped"
                     dataSource={orderedGroupedLogs}
                     loading={logsLoading}
@@ -402,7 +402,7 @@ export function LogsViewerTable({
     ]
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             {...props}
             rowKey={(record, index) => `${record.timestamp.toISOString()}-${index}`}
             columns={renderColumns(logColumns)}

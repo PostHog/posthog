@@ -1,5 +1,7 @@
 import { IconArrowRight } from '@posthog/icons'
-import { LemonBanner, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDialog, LemonTag } from '@posthog/lemon-ui'
+
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type { HogFlowPublishImpactApi, HogFlowPublishImpactDeletedStepApi } from '../generated/api.schemas'
 
@@ -27,7 +29,7 @@ function PublishImpactContent({
             {deletedSteps.length > 0 && (
                 <div className="flex flex-col gap-1">
                     <span className="font-semibold">Removed steps</span>
-                    <LemonTable<HogFlowPublishImpactDeletedStepApi>
+                    <LemonOrQuillTable<HogFlowPublishImpactDeletedStepApi>
                         dataSource={deletedSteps}
                         rowKey="action_id"
                         size="small"

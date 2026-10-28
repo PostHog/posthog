@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonCard, LemonSelect, LemonSkeleton, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard, LemonSelect, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -418,7 +419,7 @@ export function MaterializationStatusPanel({
                 {runHistoryError && (
                     <LemonBanner type="error">Couldn't load runs. Use Refresh runs to try again.</LemonBanner>
                 )}
-                <LemonTable
+                <LemonOrQuillTable
                     rowKey="id"
                     pagination={{
                         controlled: true,

@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -97,7 +98,7 @@ export function EvaluationReportsTab({
                 )}
             </div>
 
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={reportRuns}
                 loading={reportRunsLoading}
                 rowKey="id"

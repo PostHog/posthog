@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { type ColumnDef } from '@tanstack/react-table'
+import { type ColumnDef, type SortingState } from '@tanstack/react-table'
 import * as React from 'react'
 
 import { Badge, Checkbox, Field, Label } from '@posthog/quill-primitives'
@@ -204,4 +204,35 @@ export const FullWidthPaginated: Story = {
             className="rounded-md border border-[var(--border)]"
         />
     ),
+}
+
+// Controlled, server-side sorting: the owner holds the sort order and returns rows
+// already in that order, as an API would. `manualSorting` keeps the table from
+// re-sorting them, and `enableSortingRemoval={false}` cycles asc → desc only.
+export const ServerSorted: Story = {
+    render: function ServerSortedStory() {
+        const [sorting, setSorting] = React.useState<SortingState>([{ id: 'signups', desc: true }])
+        const rows = React.useMemo(() => {
+            const [sort] = sorting
+            if (!sort) {
+                return people
+            }
+            const key = sort.id as keyof Person
+            return [...people].sort((a, b) => {
+                const order = a[key] < b[key] ? -1 : a[key] > b[key] ? 1 : 0
+                return sort.desc ? -order : order
+            })
+        }, [sorting])
+        return (
+            <DataTable
+                columns={columns}
+                data={rows}
+                sorting={sorting}
+                onSortingChange={setSorting}
+                manualSorting
+                enableSortingRemoval={false}
+                className="max-w-2xl rounded-md border border-[var(--border)]"
+            />
+        )
+    },
 }

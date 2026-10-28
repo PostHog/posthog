@@ -2,7 +2,9 @@ import { BuiltLogic, useActions, useValues } from 'kea'
 import { Children, MouseEvent, ReactElement, isValidElement, useCallback } from 'react'
 import { P, match } from 'ts-pattern'
 
-import { LemonButton, LemonTable, LemonTableColumn, LemonTableProps } from '@posthog/lemon-ui'
+import { LemonButton, LemonTableColumn, LemonTableProps } from '@posthog/lemon-ui'
+
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type { DataSourceLogic } from './types'
 
@@ -58,7 +60,7 @@ export function DataSourceTable<T extends Record<string, any>>({
     )
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={items}
             columns={columns}
             loading={itemsLoading}

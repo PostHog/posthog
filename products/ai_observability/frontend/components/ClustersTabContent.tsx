@@ -1,9 +1,10 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { urls } from 'scenes/urls'
 
 import { aiObservabilityTraceLogic } from '../aiObservabilityTraceLogic'
@@ -52,7 +53,7 @@ export function ClustersTabContent(): JSX.Element {
                     Refresh
                 </LemonButton>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={clusters}
                 columns={[
                     {

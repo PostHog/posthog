@@ -8,12 +8,12 @@ import {
     LemonCard,
     LemonInput,
     LemonSkeleton,
-    LemonTable,
     LemonTableColumns,
     LemonTag,
     Link,
 } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyLargeNumber, percentage } from 'lib/utils/numbers'
 import { humanList } from 'lib/utils/strings'
 import { tryDecodeURIComponent } from 'lib/utils/url'
@@ -273,7 +273,7 @@ export const AgentAnalyticsReadiness = (): JSX.Element => {
                     onRetry={loadDemandRows}
                     loading={demandRowsLoading}
                 >
-                    <LemonTable
+                    <LemonOrQuillTable
                         columns={demandColumns(llmsTxtLinks, hasInput)}
                         dataSource={demandRows}
                         loading={demandRowsLoading}

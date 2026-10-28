@@ -5,7 +5,8 @@ import { LemonBanner, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -77,7 +78,7 @@ export function ReusableWidgetCatalog(): JSX.Element {
                     We couldn't load reusable widgets.
                 </LemonBanner>
             ) : null}
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={reusableWidgets}
                 columns={columns}
                 rowKey="id"

@@ -3,9 +3,10 @@ import './ConversionPaths.scss'
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { LemonSegmentedButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { getSeriesColor } from 'lib/colors'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { formatCurrency } from 'lib/utils/currency'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
@@ -195,7 +196,7 @@ export function ConversionPaths({
                     onRetry={() => loadData('force_blocking')}
                 />
             ) : (
-                <LemonTable
+                <LemonOrQuillTable
                     columns={columns}
                     dataSource={rows}
                     loading={responseLoading}

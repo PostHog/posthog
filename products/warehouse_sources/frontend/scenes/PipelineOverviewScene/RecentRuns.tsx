@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
 
-import { LemonButton, LemonSkeleton, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, Spinner } from '@posthog/lemon-ui'
 import type { LemonTagType } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
@@ -40,7 +41,7 @@ export function RecentRuns(): JSX.Element {
     }
 
     return (
-        <LemonTable<PipelineActivityRowApi>
+        <LemonOrQuillTable<PipelineActivityRowApi>
             id="etl-recent-runs"
             dataSource={recentRunRows}
             rowKey="id"

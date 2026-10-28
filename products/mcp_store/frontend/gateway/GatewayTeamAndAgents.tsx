@@ -2,8 +2,9 @@ import { MakeLogicType, actions, kea, path, reducers, useActions, useValues } fr
 import { router } from 'kea-router'
 
 import { IconChevronRight, IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag, ProfilePicture, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSwitch, LemonTag, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { urls } from 'scenes/urls'
 
 import { GatewayMemberSummaryApi, MCPGatewayServerApi, MCPServiceAccountApi } from '../generated/api.schemas'
@@ -189,7 +190,7 @@ export function GatewayTeamAndAgents({ onOpenAgent, onOpenMember }: GatewayTeamA
                         aria-label="Search members"
                     />
                 </div>
-                <LemonTable
+                <LemonOrQuillTable
                     loading={membersLoading}
                     dataSource={displayedMembers}
                     emptyState={

@@ -3,7 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconRefresh } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
@@ -35,7 +36,7 @@ export function AsyncMigrationDetails({ asyncMigration }: { asyncMigration: Asyn
         },
     ]
     return (
-        <LemonTable
+        <LemonOrQuillTable
             columns={columns}
             dataSource={asyncMigrationErrors[asyncMigration.id]}
             loading={asyncMigrationErrorsLoading[asyncMigration.id]}

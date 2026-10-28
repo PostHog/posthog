@@ -2,13 +2,14 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
@@ -50,7 +51,7 @@ export function ManagedSourcesTable(): JSX.Element {
                     value={managedSearchTerm}
                 />
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 id="managed-sources"
                 // Labels and icons come from `availableSources`, so rows shown before it answers
                 // would render raw source types and then swap under the reader.

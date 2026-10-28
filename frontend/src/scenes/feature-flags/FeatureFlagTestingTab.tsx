@@ -6,7 +6,7 @@ import { PropertiesTable } from 'lib/components/PropertiesTable/PropertiesTable'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import type { Dayjs } from 'lib/dayjs'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import type { FeatureFlagType, PersonType } from '~/types'
@@ -313,7 +313,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                             </div>
                                         </LemonBanner>
                                     )}
-                                    <LemonTable
+                                    <LemonOrQuillTable
                                         dataSource={allEvaluations}
                                         rowKey="distinctId"
                                         size="small"

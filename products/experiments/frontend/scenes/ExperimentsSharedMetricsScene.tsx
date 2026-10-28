@@ -7,7 +7,6 @@ import {
     LemonBanner,
     LemonButton,
     LemonInput,
-    LemonTable,
     LemonTableColumn,
     LemonTableColumns,
     LemonTag,
@@ -16,6 +15,7 @@ import {
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -202,7 +202,7 @@ export function ExperimentsSharedMetricsScene(): JSX.Element {
                     New shared metric
                 </LemonButton>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={sharedMetrics}
                 loading={sharedMetricsLoading}

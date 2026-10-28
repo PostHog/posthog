@@ -12,7 +12,6 @@ import {
     LemonMenu,
     LemonMenuItems,
     LemonSkeleton,
-    LemonTable,
     LemonTableColumns,
     Link,
     ProfilePicture,
@@ -23,6 +22,7 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
 import { urls } from 'scenes/urls'
 
@@ -648,7 +648,7 @@ export function AccountConversationsExpansion({
         <div className="flex flex-col gap-3">
             {toolbar}
             {sourceFailureBanner}
-            <LemonTable<AccountConversation>
+            <LemonOrQuillTable<AccountConversation>
                 data-attr="account-conversations-table"
                 size="small"
                 embedded={embedded}

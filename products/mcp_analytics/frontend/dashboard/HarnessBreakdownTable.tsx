@@ -1,4 +1,4 @@
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { formatPercentage } from 'lib/utils/numbers'
 
@@ -8,7 +8,7 @@ import { HarnessLogo } from './harness'
 
 export function HarnessBreakdownTable({ rows, totalCalls }: { rows: HarnessRow[]; totalCalls: number }): JSX.Element {
     return (
-        <LemonTable<HarnessRow>
+        <LemonOrQuillTable<HarnessRow>
             dataSource={rows}
             rowKey="category"
             size="small"

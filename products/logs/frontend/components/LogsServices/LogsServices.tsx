@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
 import { IconShare } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import type { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
@@ -318,7 +319,7 @@ export function LogsServices(): JSX.Element {
                 {/* Pagination and sorting are controlled by the logic (which passes in the
                     pre-sorted page slice) so it knows which rows are visible and can lazy-load
                     their sparklines; the backend only sparklines the top rows per request. */}
-                <LemonTable
+                <LemonOrQuillTable
                     columns={columns}
                     dataSource={pageRows}
                     loading={servicesDataLoading}

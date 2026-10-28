@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonDialog, LemonModal, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonModal } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { VARIABLE_INSIGHT_COLUMNS } from 'scenes/data-management/variables/insightColumns'
 
 import { VariableType } from '../../types'
@@ -83,7 +84,7 @@ export const NewVariableModal = (): JSX.Element => {
             {modalType === 'existing' && (
                 <div className="mt-4">
                     <h3 className="text-base font-semibold mb-2">Insights using this variable</h3>
-                    <LemonTable
+                    <LemonOrQuillTable
                         loading={insightsLoading}
                         dataSource={insightsUsingVariable}
                         columns={VARIABLE_INSIGHT_COLUMNS}

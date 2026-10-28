@@ -3,8 +3,9 @@ import { router } from 'kea-router'
 import useResizeObserver from 'use-resize-observer'
 
 import { IconWarning } from '@posthog/icons'
-import { LemonSkeleton, LemonTable, LemonTableColumns, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTableColumns, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { tryDecodeURIComponent } from 'lib/utils/url'
 import { pageReportsLogic } from 'scenes/web-analytics/pageReportsLogic'
@@ -198,7 +199,7 @@ export function PageDirectoryTable(): JSX.Element {
 
     return (
         <div ref={ref} className="min-w-0">
-            <LemonTable<WebPageDirectoryRow>
+            <LemonOrQuillTable<WebPageDirectoryRow>
                 dataSource={rows}
                 columns={columns}
                 rowKey="page"

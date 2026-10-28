@@ -9,7 +9,6 @@ import {
     LemonModal,
     LemonSelect,
     LemonSkeleton,
-    LemonTable,
     LemonTag,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -18,6 +17,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TeamMembershipLevel } from 'lib/constants'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { LLMProviderIcon, LLM_PROVIDER_SELECT_OPTIONS } from '../LLMProviderIcon'
 import {
@@ -1116,7 +1116,7 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                 )}
                             </div>
                         ) : (
-                            <LemonTable
+                            <LemonOrQuillTable
                                 columns={columns}
                                 dataSource={sortProviderKeys(providerKeys)}
                                 loading={providerKeysLoading}

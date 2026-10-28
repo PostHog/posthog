@@ -2,8 +2,9 @@ import clsx from 'clsx'
 import { capitalizeFirstLetter } from 'kea-forms'
 
 import { IconPencil } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, LemonTag, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTableColumns, LemonTag, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { pluralizeResource } from 'lib/utils/accessControlUtils'
 import { fullName } from 'lib/utils/strings'
 
@@ -93,7 +94,7 @@ export function AccessControlTable(props: AccessControlTableProps): JSX.Element 
     )
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             columns={columns}
             dataSource={props.entries}
             loading={props.loading}

@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSelect, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSelect, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { urls } from 'scenes/urls'
 
 import { applicationObservabilityLogic } from './applicationObservabilityLogic'
@@ -71,7 +72,7 @@ export function EndpointsTab(): JSX.Element {
                         : "Couldn't load endpoints. Try again shortly."}
                 </LemonBanner>
             )}
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={endpoints}
                 rowKey={(row) => `${row.service_name}\n${row.endpoint}`}

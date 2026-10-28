@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { WebAgentAnalyticsQueryType } from '~/queries/schema/schema-general'
@@ -71,7 +72,7 @@ export const AgentAnalyticsIssues = (): JSX.Element => {
                 onRetry={loadIssues}
                 loading={contentGapIssuesLoading}
             >
-                <LemonTable
+                <LemonOrQuillTable
                     columns={issueColumns}
                     dataSource={issues}
                     expandable={{

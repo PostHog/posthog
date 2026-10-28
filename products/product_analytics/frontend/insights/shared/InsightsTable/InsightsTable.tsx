@@ -5,7 +5,8 @@ import { compare as compareFn } from 'natural-orderby'
 import { ReactNode, useCallback, useMemo, useState } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/country'
 import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -530,7 +531,7 @@ export function InsightsTable({
     }
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             id={isInDashboardContext ? insight.short_id : undefined}
             dataSource={
                 isMainInsightView

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
@@ -195,7 +195,7 @@ export function QueryTabs<Q extends Node>({
                   key: 'metadata',
                   label: 'Metadata',
                   content: (
-                      <LemonTable
+                      <LemonOrQuillTable
                           dataSource={[
                               ...(response.metadata as HogQLMetadataResponse).errors.map((error) => ({
                                   type: 'error',

@@ -4,7 +4,8 @@ import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 export type MarkdownNotebookEntityListPickerItem = {
     id: string | number
@@ -134,7 +135,7 @@ export function MarkdownNotebookEntityListPicker({
                     onChange={setSearch}
                 />
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={filteredItems}
                 columns={columns}
                 loading={isLoading}

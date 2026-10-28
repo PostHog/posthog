@@ -31,7 +31,6 @@ import {
     LemonInput,
     LemonMenu,
     LemonSelect,
-    LemonTable,
     LemonTabs,
     LemonTag,
     LemonTagProps,
@@ -50,6 +49,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { identifierToHuman, pluralize } from 'lib/utils/strings'
@@ -2140,7 +2140,7 @@ function TraceMetricsTable(): JSX.Element | null {
                 <IconMessage className="text-base" />
                 Metrics and user feedback
             </h4>
-            <LemonTable
+            <LemonOrQuillTable
                 columns={[
                     {
                         title: 'Metric',

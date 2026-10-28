@@ -4,8 +4,9 @@ import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonBanner, LemonTable, LemonTableColumn, LemonTableColumnGroup, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTableColumn, LemonTableColumnGroup, Tooltip } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { formatCurrency } from 'lib/utils/currency'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
@@ -274,7 +275,7 @@ export function AttributionTable({
                 dimensionLabel={dimensionLabel}
                 loading={responseLoading}
             />
-            <LemonTable
+            <LemonOrQuillTable
                 className="AttributionTable"
                 columns={columns}
                 dataSource={rows}

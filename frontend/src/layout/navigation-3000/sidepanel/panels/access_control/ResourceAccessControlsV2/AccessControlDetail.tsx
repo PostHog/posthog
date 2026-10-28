@@ -5,7 +5,7 @@ import { LemonButton, LemonDialog, Link, ProfilePicture, Tooltip } from '@postho
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 import { fullName } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
@@ -331,7 +331,7 @@ function ProductsSection({
 
     return (
         <AccessDetailSection title="Products" description={`The access this ${subjectNoun} has to each product.`}>
-            <LemonTable
+            <LemonOrQuillTable
                 showHeader={false}
                 dataSource={visibleResources}
                 rowKey="key"

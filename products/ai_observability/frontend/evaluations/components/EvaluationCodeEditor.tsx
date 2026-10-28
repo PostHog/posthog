@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 import { Fragment } from 'react'
 
 import { IconCheck, IconExternal, IconMinus, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
 import { urls } from '~/scenes/urls'
@@ -275,7 +276,7 @@ export function HogTestResultsPanel(): JSX.Element | null {
                 </LemonButton>
             </div>
             {hogTestMessage && <div className="text-sm text-muted">{hogTestMessage}</div>}
-            <LemonTable<TestHogResultItemApi>
+            <LemonOrQuillTable<TestHogResultItemApi>
                 columns={[
                     {
                         title: 'Result',

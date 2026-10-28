@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSkeleton, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { _MetricsOverviewServiceApi } from '../generated/api.schemas'
@@ -54,7 +55,7 @@ const MetricsOverviewSkeleton = (): JSX.Element => (
                 <OverviewStat key={label} label={label} value={null} caption={null} />
             ))}
         </div>
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={[]}
             loading
             rowKey="service_name"
@@ -158,7 +159,7 @@ export const MetricsOverview = (): JSX.Element => {
                     />
                 ))}
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={overview.services as _MetricsOverviewServiceApi[]}
                 loading={overviewLoading && overview.services.length === 0}
                 rowKey="service_name"

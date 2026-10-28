@@ -4,7 +4,8 @@ import { useCallback, useState } from 'react'
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { DebugCHQueries } from 'lib/components/Shortcuts/utils/DebugCHQueries'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -276,7 +277,9 @@ function MetricComparisonResults({
                 <div className="text-danger text-sm mb-1">Precomputed error: {precomputed.error}</div>
             )}
 
-            {comparisonRows.length > 0 && <LemonTable dataSource={comparisonRows} columns={columns} size="small" />}
+            {comparisonRows.length > 0 && (
+                <LemonOrQuillTable dataSource={comparisonRows} columns={columns} size="small" />
+            )}
         </div>
     )
 }

@@ -2,10 +2,11 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconArrowLeft, IconClock, IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSwitch, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSwitch, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -225,7 +226,7 @@ export function GatewayAgentScene({
 
             <div className="flex flex-col gap-2">
                 <h3 className="mb-0">Recent tool calls</h3>
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={visibleRecentCalls}
                     loading={recentCallsLoading}
                     emptyState="No tool calls from this agent yet. Tool calls will appear here after the agent uses a server."

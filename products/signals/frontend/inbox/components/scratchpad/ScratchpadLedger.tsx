@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSkeleton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import type { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { urls } from 'scenes/urls'
 
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
@@ -77,7 +78,7 @@ export function ScratchpadLedger(): JSX.Element {
 
     return (
         <div className="@container/ledger">
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={filteredEntries ?? []}
                 columns={columns}
                 rowKey="key"

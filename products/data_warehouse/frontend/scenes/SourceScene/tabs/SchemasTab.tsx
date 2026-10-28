@@ -10,7 +10,6 @@ import {
     LemonInput,
     LemonSelect,
     LemonSwitch,
-    LemonTable,
     LemonTag,
     LemonTagType,
     Link,
@@ -25,6 +24,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -428,7 +428,7 @@ function ManagedSchemaTable({
     }, [isLoading, initialLoad])
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={schemas}
             loading={initialLoad}
             disableTableWhileLoading={false}

@@ -2,9 +2,10 @@ import { decode } from 'he'
 import { useValues } from 'kea'
 
 import { IconCopy } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { IconKey } from 'lib/lemon-ui/icons'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
@@ -37,7 +38,7 @@ export function OAuthApps(): JSX.Element {
     }
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={oauthApps}
             className="mt-4"
             columns={[

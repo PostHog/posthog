@@ -13,7 +13,8 @@ import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/Vie
 import { EVENT_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { cn } from 'lib/utils/css-classes'
 import { DefinitionsSceneTabs } from 'scenes/data-management/DefinitionsSceneTabs'
 import { DefinitionHeader, getEventDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
@@ -221,7 +222,7 @@ export function EventDefinitionsTable(): JSX.Element {
 
             <EventDefinitionModal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} />
 
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 data-attr="events-definition-table"
                 loading={eventDefinitionsLoading}

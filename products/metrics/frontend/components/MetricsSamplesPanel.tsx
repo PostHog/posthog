@@ -3,11 +3,12 @@ import { useActions, useValues } from 'kea'
 import { Fragment, useEffect, useRef, useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonTable, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
 import { traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
@@ -34,7 +35,7 @@ function SamplesTab(): JSX.Element {
     )
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={samples}
             loading={samplesLoading}
             size="small"
@@ -198,7 +199,7 @@ function SeriesTab(): JSX.Element {
     const isRowExpanded = (row: MetricsSeriesRow): boolean => row.labels.length > 0 && expandedNames.includes(row.name)
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={seriesRows}
             loading={queryLoading}
             size="small"

@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import type { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { LogMessage } from '~/queries/schema/schema-general'
@@ -395,7 +396,7 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
                     </LemonBanner>
                 )}
             {compareEnabled ? (
-                <LemonTable
+                <LemonOrQuillTable
                     columns={compareColumns}
                     dataSource={diffResponse?.entries ?? []}
                     loading={diffResponseLoading}
@@ -409,7 +410,7 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
                     size="small"
                 />
             ) : (
-                <LemonTable
+                <LemonOrQuillTable
                     columns={columns}
                     dataSource={patterns}
                     loading={patternsResponseLoading}

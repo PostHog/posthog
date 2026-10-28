@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -157,7 +158,7 @@ export function KnowledgeSourceScene(): JSX.Element {
                                 </LemonBanner>
                             ) : null}
                             {!(sourceDocumentsFailed && sourceDocuments.length === 0) ? (
-                                <LemonTable<KnowledgeSourceDocumentApi>
+                                <LemonOrQuillTable<KnowledgeSourceDocumentApi>
                                     dataSource={sourceDocuments}
                                     loading={!sourceDocumentsLoaded}
                                     rowKey={(row) => row.id}

@@ -2,11 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import * as puzzlePng from '@posthog/brand/hoggies/png/puzzle'
 import { IconBook, IconMCP } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { MCPMissingCapabilitiesItem } from '~/queries/schema/schema-general'
 
@@ -191,7 +192,7 @@ export function MCPAnalyticsMissingCapabilities(): JSX.Element {
             {initialLoadFailed ? null : noReports ? (
                 <NoReportsState />
             ) : (
-                <LemonTable<MCPMissingCapabilitiesItem>
+                <LemonOrQuillTable<MCPMissingCapabilitiesItem>
                     dataSource={reports}
                     loading={reportsLoading && reports.length === 0}
                     rowKey={(row, index) => `${row.timestamp}-${index}`}

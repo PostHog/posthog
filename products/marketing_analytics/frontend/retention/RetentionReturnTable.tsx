@@ -1,5 +1,6 @@
-import { LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
+import { LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { displayBreakdownValue } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingBreakdown'
 import { VariationCell } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
@@ -118,7 +119,7 @@ export function RetentionReturnTable({
     return (
         <div className="@container flex flex-col gap-2">
             {compare && <div className="text-secondary text-xs">Compared with the previous acquisition period</div>}
-            <LemonTable
+            <LemonOrQuillTable
                 className="@max-[40rem]:[&_.sorting-indicator]:hidden"
                 tableLayout="fixed"
                 columns={columns}

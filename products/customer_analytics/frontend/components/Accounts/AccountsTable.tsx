@@ -10,7 +10,6 @@ import {
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
-    LemonTable,
     ProfilePicture,
 } from '@posthog/lemon-ui'
 
@@ -23,6 +22,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -919,7 +919,7 @@ const SKELETON_COLUMNS: LemonTableColumns<{ key: number }> = [
 
 function AccountsTableSkeleton(): JSX.Element {
     return (
-        <LemonTable
+        <LemonOrQuillTable
             className="DataTable"
             columns={SKELETON_COLUMNS}
             dataSource={Array.from({ length: SKELETON_ROW_COUNT }, (_, key) => ({ key }))}

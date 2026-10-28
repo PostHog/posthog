@@ -6,8 +6,9 @@ import { LemonBanner, LemonButton, LemonCheckbox, LemonDialog, LemonSelect, Lemo
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconSync } from 'lib/lemon-ui/icons'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -334,7 +335,7 @@ export default function FeatureFlagProjects(): JSX.Element {
         <div>
             <InfoBanner />
             <FeatureFlagCopySection />
-            <LemonTable
+            <LemonOrQuillTable
                 loading={false}
                 dataSource={projectsWithCurrentFlag}
                 columns={getColumns({

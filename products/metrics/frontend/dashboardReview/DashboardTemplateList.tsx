@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSegmentedButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
@@ -67,7 +68,7 @@ export function DashboardTemplateList(): JSX.Element {
                 options={STATUS_OPTIONS}
                 data-attr="metrics-dashboard-review-status"
             />
-            <LemonTable<MetricsDashboardTemplateApi>
+            <LemonOrQuillTable<MetricsDashboardTemplateApi>
                 dataSource={templates ?? []}
                 loading={templatesLoading}
                 rowKey="id"

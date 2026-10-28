@@ -10,8 +10,9 @@ import { TagSelect } from 'lib/components/TagSelect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -249,7 +250,7 @@ export const EndpointsTable = (): JSX.Element => {
                     </LemonButton>
                 </div>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 data-attr="endpoints-table"
                 pagination={{ pageSize: 20 }}
                 dataSource={endpoints as EndpointType[]}

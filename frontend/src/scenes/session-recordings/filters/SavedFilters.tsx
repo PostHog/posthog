@@ -2,20 +2,13 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
 import { IconShare, IconTrash } from '@posthog/icons'
-import {
-    LemonBadge,
-    LemonButton,
-    LemonInput,
-    LemonTable,
-    LemonTableColumn,
-    LemonTableColumns,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonInput, LemonTableColumn, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconArrowUp } from 'lib/lemon-ui/icons'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { isObject } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
@@ -246,7 +239,7 @@ export function SavedFilters({
                     onChange={(user) => setSavedPlaylistsFilters({ createdBy: user?.id ?? 'All users' })}
                 />
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={savedFilters.results}
                 columns={columns}
                 pagination={paginationSavedFilters}

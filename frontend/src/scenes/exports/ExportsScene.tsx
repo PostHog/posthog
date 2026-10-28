@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconDownload, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonTable, LemonTag, Spinner, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonTag, Spinner, lemonToast } from '@posthog/lemon-ui'
 import { LemonTableColumns } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
@@ -12,6 +12,7 @@ import { getExportDisabledReason, getExportPendingLabel } from 'lib/components/E
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -200,7 +201,7 @@ export function ExportsScene(): JSX.Element {
                 </div>
             </div>
 
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={exports}
                 loading={exportsLoading}

@@ -5,7 +5,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -84,7 +84,7 @@ export function MetricFromInsightModal({ insightShortId, insightName }: MetricFr
                     {metricsFromThisInsight.length > 0 && (
                         <div className="flex flex-col gap-1">
                             <span className="text-secondary">Metrics already created from this insight</span>
-                            <LemonTable
+                            <LemonOrQuillTable
                                 dataSource={metricsFromThisInsight}
                                 columns={[
                                     {

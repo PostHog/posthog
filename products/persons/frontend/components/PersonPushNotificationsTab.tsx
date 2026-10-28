@@ -2,10 +2,11 @@ import { useValues } from 'kea'
 import { useState } from 'react'
 
 import * as greekPng from '@posthog/brand/hoggies/png/greek'
-import { LemonTable, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { urls } from 'scenes/urls'
 
 import { EmailViewerModal } from 'products/workflows/frontend/Workflows/EmailViewerModal'
@@ -40,7 +41,7 @@ export function PersonPushNotificationsTab({ teamId, personId }: PersonPushNotif
 
     return (
         <>
-            <LemonTable
+            <LemonOrQuillTable
                 loading={pushNotificationsLoading}
                 dataSource={pushNotifications}
                 onRow={(asset: MessageAsset) => ({

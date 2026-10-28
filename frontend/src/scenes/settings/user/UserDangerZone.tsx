@@ -3,18 +3,10 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconTrash } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonDialog,
-    LemonInput,
-    LemonModal,
-    LemonTable,
-    LemonTag,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { detailedTime, humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { isNotNil } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
@@ -84,7 +76,7 @@ export function DeleteUserModal({
                         <p className="text-danger font-semibold">
                             You must leave or delete all organizations before deleting your account.
                         </p>
-                        <LemonTable
+                        <LemonOrQuillTable
                             dataSource={organizations}
                             size="small"
                             columns={[
@@ -174,7 +166,7 @@ export function DeleteUserModal({
                                 <p className="text-danger font-semibold mt-4">
                                     The following personal API keys will be deleted
                                 </p>
-                                <LemonTable
+                                <LemonOrQuillTable
                                     dataSource={keys}
                                     size="small"
                                     className="mt-2"

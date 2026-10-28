@@ -1,10 +1,11 @@
 import { useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCollapse, LemonSwitch, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCollapse, LemonSwitch, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { pluralize } from 'lib/utils/strings'
 
 import type { TrialComparisonReportApi } from 'products/signals/frontend/generated/api.schemas'
@@ -74,7 +75,7 @@ export function ScoutTrialComparisonReport({
                 <p className="m-0 text-xs text-muted">
                     Completed versions are ranked by confirmed checks passed. Cost and time don't affect the rank.
                 </p>
-                <LemonTable<TrialVersionResult>
+                <LemonOrQuillTable<TrialVersionResult>
                     dataSource={versions}
                     rowKey={({ variant }) => variant.variant_id}
                     size="small"
@@ -219,7 +220,7 @@ export function ScoutTrialComparisonReport({
                         data-attr="scout-trial-check-differences"
                     />
                 </div>
-                <LemonTable<TrialCheckRow>
+                <LemonOrQuillTable<TrialCheckRow>
                     dataSource={differencesOnly ? differingChecks : checks}
                     rowKey={({ criterion }) => criterion.id}
                     size="small"

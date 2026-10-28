@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTable } from '@posthog/lemon-ui'
 import type { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
@@ -89,7 +89,7 @@ export function LogsGroupByResults({ id }: { id: string }): JSX.Element {
                     (based on {humanFriendlyNumber(total_logs)} logs)
                 </div>
             )}
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={groups}
                 loading={groupByResponseLoading}

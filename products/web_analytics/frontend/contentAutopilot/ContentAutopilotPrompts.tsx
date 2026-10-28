@@ -7,12 +7,12 @@ import {
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
-    LemonTable,
     LemonTag,
     Link,
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type { AEOPromptApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
@@ -134,7 +134,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                     </p>
                 </LemonCard>
             ) : (
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={prompts.results}
                     rowKey="id"
                     loading={promptsLoading}

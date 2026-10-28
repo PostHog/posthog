@@ -21,7 +21,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
@@ -864,7 +865,7 @@ export function PromptExperiments({ prompt }: { prompt: LLMPrompt }): JSX.Elemen
                     </LemonButton>
                 </AccessControlAction>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={experiments}
                 columns={columns}
                 loading={experimentsLoading}

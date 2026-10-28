@@ -4,7 +4,7 @@ import { useCallback } from 'react'
 import { LemonButton, LemonSelect, Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -115,7 +115,7 @@ export function DatabaseTable({
     const { dataWarehouseTables, databaseLoading } = useValues(dataWarehouseSettingsSceneLogic)
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={dataSource}
             loading={databaseLoading}
             disableTableWhileLoading={false}

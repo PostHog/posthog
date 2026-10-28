@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
@@ -78,7 +79,7 @@ export function SaveToCohortModalContent({ closeModal, query }: SaveToCohortModa
                 }}
                 value={cohortFilters.search}
             />
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 loading={cohortsLoading}
                 rowKey="id"

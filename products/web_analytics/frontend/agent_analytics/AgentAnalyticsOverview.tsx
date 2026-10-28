@@ -7,13 +7,13 @@ import {
     LemonCard,
     LemonSkeleton,
     LemonTag,
-    LemonTable,
     LemonTableColumns,
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyLargeNumber, percentage } from 'lib/utils/numbers'
 import { tryDecodeURIComponent } from 'lib/utils/url'
@@ -331,7 +331,7 @@ export const AgentAnalyticsOverview = (): JSX.Element => {
                     onRetry={loadWhatAgentsRead}
                     loading={whatAgentsReadLoading}
                 >
-                    <LemonTable
+                    <LemonOrQuillTable
                         columns={whatAgentsReadColumns}
                         dataSource={whatAgentsRead}
                         loading={whatAgentsReadLoading}

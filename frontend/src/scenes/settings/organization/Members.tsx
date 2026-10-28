@@ -13,7 +13,8 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -56,7 +57,7 @@ function RemoveMemberModal({ member }: { member: OrganizationMemberType }): JSX.
                         and will stop working immediately. Please confirm they will not affect any services that depend
                         on them before removing {member.user.uuid == user?.uuid ? 'yourself' : 'this member'}.
                     </LemonBanner>
-                    <LemonTable
+                    <LemonOrQuillTable
                         dataSource={scopedApiKeys.keys}
                         columns={[
                             {
@@ -408,7 +409,7 @@ export function Members(): JSX.Element | null {
             </div>
 
             <MemberProjectAccessModal />
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={filteredMembers ?? []}
                 columns={columns}
                 rowKey="id"

@@ -1,8 +1,9 @@
 // One row per de-sharded job name (the backend strips the matrix "(G/N)" suffix with the same rule as
 // jobGroups). Jobs get no standalone pages — a job always needs its run as context.
 
-import { LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
@@ -62,7 +63,7 @@ export function JobAggregatesTable({
     // with the side panel open) drops the low-priority columns instead of pushing Cost out of view.
     return (
         <div className="@container/jobs">
-            <LemonTable<WorkflowJobAggregateApi>
+            <LemonOrQuillTable<WorkflowJobAggregateApi>
                 dataSource={aggregates}
                 loading={loading}
                 size="small"

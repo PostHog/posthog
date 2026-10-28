@@ -3,8 +3,9 @@ import { useActions, useValues } from 'kea'
 import { LemonInput } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { INSIGHTS_PER_PAGE, eventInsightsLogic } from 'scenes/data-management/events/eventInsightsLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -68,7 +69,7 @@ export function EventDefinitionInsights({ definition }: { definition: EventDefin
                 onChange={(value) => setFilters({ search: value })}
                 value={filters.search || ''}
             />
-            <LemonTable
+            <LemonOrQuillTable
                 id={`event-definition-insights-table-${definition.id}`}
                 loading={insightsLoading}
                 columns={columns}

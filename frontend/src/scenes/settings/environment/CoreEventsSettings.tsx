@@ -5,7 +5,7 @@ import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { uuid } from 'lib/utils/dom'
 import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
@@ -196,7 +196,7 @@ export function CoreEventsSettings(): JSX.Element {
                 </LemonButton>
             </div>
 
-            <LemonTable
+            <LemonOrQuillTable
                 rowKey={(item) => item.id}
                 dataSource={coreEvents}
                 columns={[

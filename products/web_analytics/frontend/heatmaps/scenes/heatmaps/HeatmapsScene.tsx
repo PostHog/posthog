@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconBrowser, IconHide, IconImage, IconPlus, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -11,6 +11,7 @@ import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -229,7 +230,7 @@ export function HeatmapsScene(): JSX.Element {
                 </div>
             </div>
             <div className="mb-4">
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={savedHeatmaps}
                     loading={savedHeatmapsLoading}
                     columns={columns}

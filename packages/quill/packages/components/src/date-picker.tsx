@@ -38,7 +38,6 @@ export interface DatePickerProps {
     className?: string
 }
 
-
 export function DatePicker({
     value,
     onApply,
@@ -175,7 +174,13 @@ export function DatePicker({
             <div className="flex justify-end px-3 py-2 items-center gap-2 bg-muted/30">
                 <span className="text-[10px] text-muted-foreground tabular-nums mr-auto">{presentational}</span>
                 {onCancel ? (
-                    <Button variant="outline" size="sm" onClick={onCancel} aria-label="Cancel" data-attr="date-picker-cancel">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={onCancel}
+                        aria-label="Cancel"
+                        data-attr="date-picker-cancel"
+                    >
                         Cancel
                     </Button>
                 ) : null}

@@ -17,6 +17,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -28,7 +29,7 @@ import { urls } from 'scenes/urls'
 import { LemonDialog } from '~/lib/lemon-ui/LemonDialog'
 import { LemonField } from '~/lib/lemon-ui/LemonField'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { atColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -252,7 +253,7 @@ function SkillLeafTable({
     columns: LemonTableColumns<LLMSkillListApi>
 }): JSX.Element {
     return (
-        <LemonTable
+        <LemonOrQuillTable
             columns={columns}
             dataSource={skills}
             rowKey="id"
@@ -582,7 +583,7 @@ export function LLMSkillsScene(): JSX.Element {
                             </LemonBanner>
                         )}
                         {showGroupedLoadingSkeleton ? (
-                            <LemonTable
+                            <LemonOrQuillTable
                                 loading
                                 columns={columns}
                                 dataSource={[]}
@@ -595,7 +596,7 @@ export function LLMSkillsScene(): JSX.Element {
                         )}
                     </>
                 ) : (
-                    <LemonTable
+                    <LemonOrQuillTable
                         loading={skillsLoading}
                         columns={columns}
                         // Drop the cached results while a reload is in flight if they exceed the

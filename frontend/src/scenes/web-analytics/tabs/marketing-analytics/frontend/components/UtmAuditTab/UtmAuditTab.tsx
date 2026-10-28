@@ -8,7 +8,6 @@ import {
     LemonInput,
     LemonSelect,
     LemonSkeleton,
-    LemonTable,
     LemonTabs,
     LemonTag,
     Popover,
@@ -16,6 +15,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { IconLink } from 'lib/lemon-ui/icons'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import {
     MARKETING_INTEGRATION_CONFIGS,
@@ -235,7 +235,7 @@ function CampaignTabContent(): JSX.Element {
                         />
                     </div>
                     <div className="max-h-[60vh] overflow-y-auto">
-                        <LemonTable
+                        <LemonOrQuillTable
                             dataSource={filteredCampaigns}
                             rowKey={(record) => `${record.source_name}-${record.campaign_id}`}
                             onRow={(record) => ({
@@ -302,7 +302,7 @@ function CampaignTabContent(): JSX.Element {
                         />
                     </div>
                     <div className="max-h-[60vh] overflow-y-auto">
-                        <LemonTable
+                        <LemonOrQuillTable
                             dataSource={sortedUtmCampaigns}
                             rowKey={(record) => `${record.utm_campaign}-${record.utm_source}`}
                             onRow={(record) => ({
@@ -393,7 +393,7 @@ function SourceTabContent(): JSX.Element {
                 />
             </div>
             <div className="max-h-[70vh] overflow-y-auto">
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={aggregatedUtmSources}
                     rowKey="utm_source"
                     columns={[

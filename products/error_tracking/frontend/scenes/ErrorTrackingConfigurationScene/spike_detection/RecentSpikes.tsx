@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { urls } from 'scenes/urls'
 
@@ -60,7 +61,7 @@ export function RecentSpikes(): JSX.Element {
     ]
 
     return (
-        <LemonTable<ErrorTrackingSpikeEvent>
+        <LemonOrQuillTable<ErrorTrackingSpikeEvent>
             dataSource={recentSpikes}
             columns={columns}
             loading={spikesResponseLoading}

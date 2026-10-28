@@ -13,8 +13,9 @@ import {
 } from '@posthog/lemon-ui'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { urls } from 'scenes/urls'
 
 import { UserBasicType } from '~/types'
@@ -285,7 +286,7 @@ export function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
                 </LemonBanner>
             )}
 
-            <LemonTable
+            <LemonOrQuillTable
                 size="small"
                 loading={datasetItemsLoading}
                 columns={columns}

@@ -2,12 +2,13 @@ import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
 import { IconHeart, IconHeartFilled } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -297,7 +298,7 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
                         onChange={setSearchTerm}
                         autoFocus
                     />
-                    <LemonTable
+                    <LemonOrQuillTable
                         columns={columns}
                         dataSource={filteredViews}
                         rowKey="id"

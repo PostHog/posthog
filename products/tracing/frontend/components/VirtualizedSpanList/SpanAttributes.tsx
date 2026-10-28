@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconColumns, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
-import { LemonButton, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import ViewRecordingButton, {
@@ -10,6 +10,7 @@ import ViewRecordingButton, {
     ViewRecordingButtonVariant,
 } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -224,7 +225,14 @@ export function SpanAttributes({
             {rows.length === 0 ? (
                 <div className="px-3 py-2 text-xs text-muted italic">{emptyLabel}</div>
             ) : (
-                <LemonTable embedded showHeader={false} size="small" rowKey="key" columns={columns} dataSource={rows} />
+                <LemonOrQuillTable
+                    embedded
+                    showHeader={false}
+                    size="small"
+                    rowKey="key"
+                    columns={columns}
+                    dataSource={rows}
+                />
             )}
         </div>
     )

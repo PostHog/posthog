@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyLargeNumber, percentage } from 'lib/utils/numbers'
 
 import { WebAgentAnalyticsQueryType } from '~/queries/schema/schema-general'
@@ -82,7 +83,7 @@ export const AgentRequestAnatomy = (): JSX.Element => {
                 onRetry={loadRequestAnatomy}
                 loading={requestAnatomyLoading}
             >
-                <LemonTable
+                <LemonOrQuillTable
                     columns={anatomyColumns}
                     dataSource={requestAnatomy}
                     loading={requestAnatomyLoading}

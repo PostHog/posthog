@@ -4,7 +4,8 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { dayjs } from 'lib/dayjs'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -158,7 +159,7 @@ export function FunnelTrendsTable(): JSX.Element | null {
     ]
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={seriesRows}
             columns={columns}
             loading={insightLoading}

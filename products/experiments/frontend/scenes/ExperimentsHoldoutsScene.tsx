@@ -10,12 +10,12 @@ import {
     LemonInput,
     LemonLabel,
     LemonModal,
-    LemonTable,
     LemonTableColumns,
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { NEW_HOLDOUT, holdoutsLogic } from 'scenes/experiments/holdoutsLogic'
 
 import { AccessControlLevel, AccessControlResourceType, ExperimentHoldoutType } from '~/types'
@@ -240,7 +240,7 @@ export function ExperimentsHoldoutsScene(): JSX.Element {
                 </LemonButton>
             </div>
 
-            <LemonTable
+            <LemonOrQuillTable
                 emptyState={
                     <div className="py-4 text-secondary text-sm text-center">
                         You have not created any holdouts yet.

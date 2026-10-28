@@ -2,12 +2,13 @@ import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { IconArrowRight, IconLetter, IconNotification } from '@posthog/icons'
-import { LemonLabel, LemonTable, LemonTableColumns, LemonTag, Link, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonLabel, LemonTableColumns, LemonTag, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { type AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { type ExpandableConfig } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import { EmailLinksTable } from './EmailLinksTable'
@@ -381,7 +382,7 @@ export function WorkflowMetricsSummary({
                         </span>
                         Email steps
                     </LemonLabel>
-                    <LemonTable
+                    <LemonOrQuillTable
                         columns={emailColumns}
                         dataSource={emailMetricsRows}
                         loading={emailTotalsByActionIdLoading}
@@ -399,7 +400,7 @@ export function WorkflowMetricsSummary({
                         </span>
                         Push steps
                     </LemonLabel>
-                    <LemonTable
+                    <LemonOrQuillTable
                         columns={pushColumns}
                         dataSource={pushMetricsRows}
                         loading={pushTotalsByActionIdLoading}

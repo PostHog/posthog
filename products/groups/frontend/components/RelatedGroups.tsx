@@ -4,7 +4,8 @@ import { useMemo } from 'react'
 import { IconPerson } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -131,7 +132,7 @@ export function RelatedGroups({
         type === 'person' ? ['related person', 'related people'] : ['related group', 'related groups']
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={dataSource}
             columns={columns}
             embedded={embedded}

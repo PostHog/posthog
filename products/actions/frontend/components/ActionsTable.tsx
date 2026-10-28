@@ -11,8 +11,8 @@ import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/Vie
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
@@ -222,7 +222,7 @@ export function ActionsTable(): JSX.Element {
                     />
                 </div>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 loading={actionsResponseLoading}
                 rowKey="id"

@@ -1,4 +1,6 @@
-import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonTableColumns } from '@posthog/lemon-ui'
+
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import {
     ExperimentMetric,
@@ -75,5 +77,5 @@ export function NotebookCompactTable({ result, metric }: NotebookCompactTablePro
         ...(result.variant_results?.map((v) => ({ ...v, isBaseline: false }) as TableRow) || []),
     ]
 
-    return <LemonTable columns={columns} dataSource={dataSource} size="small" />
+    return <LemonOrQuillTable columns={columns} dataSource={dataSource} size="small" />
 }

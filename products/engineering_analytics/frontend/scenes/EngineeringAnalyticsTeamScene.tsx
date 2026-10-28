@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPeople } from '@posthog/icons'
-import { LemonBanner, LemonSkeleton, LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -262,7 +263,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                                 {activityStatus === 'error' ? (
                                     <CIAnalyticsLoadError onRetry={loadActivity} loading={activityLoading} />
                                 ) : (
-                                    <LemonTable
+                                    <LemonOrQuillTable
                                         data-attr="engineering-analytics-team-tests-table"
                                         size="small"
                                         columns={testColumns}

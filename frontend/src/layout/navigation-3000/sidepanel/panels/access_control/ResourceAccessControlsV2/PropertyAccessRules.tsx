@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { PROPERTY_ACCESS_LEVEL_OPTIONS } from 'lib/utils/accessControlUtils'
 
 import { AIEventPropertyEnumApi } from 'products/access_control/frontend/generated/api.schemas'
@@ -55,7 +56,7 @@ export function PropertyAccessRules({
             }
         >
             <AddPropertyRuleModal projectId={projectId} scopeType={scopeType} subjectId={subjectId} />
-            <LemonTable
+            <LemonOrQuillTable
                 loading={propertiesLoading}
                 columns={[
                     {

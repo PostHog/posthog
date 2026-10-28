@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -125,7 +126,7 @@ function RunsTable(): JSX.Element {
     }
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             columns={columns}
             dataSource={runs}
             loading={runsResponseLoading}

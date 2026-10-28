@@ -7,7 +7,8 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { humanFriendlyDuration } from 'lib/utils/durations'
@@ -378,7 +379,7 @@ export function MonitoringTab(): JSX.Element {
             />
 
             <MonitoringSection title="Workers" description="Current workers and their allocated resources.">
-                <LemonTable
+                <LemonOrQuillTable
                     columns={workerColumns}
                     dataSource={sortedWorkers}
                     rowKey="id"

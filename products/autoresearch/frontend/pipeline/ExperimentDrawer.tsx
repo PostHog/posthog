@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonButton, LemonModal, LemonTable, LemonTabs, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTabs, LemonTag, Spinner } from '@posthog/lemon-ui'
+
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { formatDelta, modelSpecRows } from '../agentSearch'
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
@@ -70,7 +72,7 @@ export function ExperimentDrawer(): JSX.Element {
                                 key: 'settings',
                                 label: 'Model settings',
                                 content: (
-                                    <LemonTable
+                                    <LemonOrQuillTable
                                         size="small"
                                         dataSource={settings}
                                         rowKey="key"

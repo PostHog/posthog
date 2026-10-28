@@ -2,10 +2,11 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconEye, IconPlay } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { ReplayFiltersTab } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
@@ -191,7 +192,7 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                 <span className="text-muted text-sm">Select recordings to scan them together.</span>
                 <div ref={setSelectionBarTarget} />
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={sessionRecordings}
                 loading={sessionRecordingsResponseLoading || refreshingObservations}

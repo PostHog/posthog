@@ -10,7 +10,6 @@ import {
     LemonInput,
     LemonSelect,
     LemonSelectOptions,
-    LemonTable,
     LemonTableColumn,
     LemonTag,
     Link,
@@ -23,6 +22,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { createdByColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
@@ -365,7 +365,7 @@ export function HogFunctionList({
             </div>
 
             <BindLogic logic={hogFunctionsListLogic} props={props}>
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={filteredHogFunctions}
                     size="small"
                     loading={loading || manualFunctionsLoading}

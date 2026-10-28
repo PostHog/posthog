@@ -1,17 +1,10 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconDownload } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonInput,
-    LemonMenu,
-    LemonSelect,
-    LemonTable,
-    LemonTableColumn,
-    LemonTableColumns,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonMenu, LemonSelect, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -217,7 +210,7 @@ export function AIObservabilityReviews(): JSX.Element {
                 </div>
             </div>
 
-            <LemonTable
+            <LemonOrQuillTable
                 id="review"
                 loading={reviewsLoading}
                 columns={columns}

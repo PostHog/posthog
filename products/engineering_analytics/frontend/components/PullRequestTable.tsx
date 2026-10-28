@@ -5,9 +5,10 @@
 import { combineUrl } from 'kea-router'
 import { ReactNode } from 'react'
 
-import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
@@ -210,7 +211,7 @@ export function PullRequestTable({
     ]
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             data-attr={dataAttr}
             size="small"
             embedded={embedded}

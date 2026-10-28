@@ -2,9 +2,10 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconGraph, IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyStatsSummaryWithData } from 'scenes/surveys/SurveyStatsSummary'
@@ -155,7 +156,7 @@ function DemoDataTable(): JSX.Element {
                     <span>This table shows example data structure. Launch your survey to see real responses here.</span>
                 </div>
             </LemonBanner>
-            <LemonTable dataSource={tableData} columns={columns} rowKey="id" size="small" />
+            <LemonOrQuillTable dataSource={tableData} columns={columns} rowKey="id" size="small" />
         </div>
     )
 }

@@ -9,11 +9,11 @@ import {
     LemonInput,
     LemonSkeleton,
     LemonSwitch,
-    LemonTable,
     LemonTag,
     Spinner,
 } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { pluralize } from 'lib/utils/strings'
 import { faviconUrl } from 'scenes/web-analytics/common'
 
@@ -163,7 +163,7 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                     )}
                 </LemonCard>
             ) : (
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={visibleOpportunities}
                     rowKey="id"
                     pagination={{ pageSize: 25 }}

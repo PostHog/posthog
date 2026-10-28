@@ -2,9 +2,10 @@ import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconExternal, IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
@@ -46,7 +47,7 @@ function LineageMessage({
 
 function UpstreamTable({ nodes, emptyState }: { nodes: DataModelingNode[]; emptyState: string }): JSX.Element {
     return (
-        <LemonTable
+        <LemonOrQuillTable
             size="small"
             emptyState={emptyState}
             columns={[

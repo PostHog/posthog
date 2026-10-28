@@ -22,8 +22,9 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -587,7 +588,7 @@ const ExperimentsTable = ({
             ) : null}
 
             <div data-attr="experiments-table-container">
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={experiments.results}
                     columns={columns}
                     rowKey="id"

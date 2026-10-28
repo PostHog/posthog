@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonCard, LemonModal, LemonSkeleton, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonModal, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonModalContent, LemonModalFooter, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { urls } from 'scenes/urls'
 
 import type { OfflineResultReadApi } from '../generated/api.schemas'
@@ -204,7 +205,7 @@ export function OfflineItemInspector({
                                 {resultsError}
                             </LemonBanner>
                         )}
-                        <LemonTable
+                        <LemonOrQuillTable
                             dataSource={resultsError ? [] : results?.results || []}
                             loading={resultsLoading}
                             rowKey="id"

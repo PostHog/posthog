@@ -3,8 +3,9 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useEffect, useMemo, useRef } from 'react'
 
-import { LemonBanner, LemonButton, LemonCheckbox, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonTableColumns } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -133,7 +134,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         )
 
     return (
-        <LemonTable<Ticket>
+        <LemonOrQuillTable<Ticket>
             dataSource={tickets}
             rowKey="id"
             emptyState={emptyState}

@@ -10,7 +10,6 @@ import {
     LemonInput,
     LemonModal,
     LemonSearchableSelect,
-    LemonTable,
     LemonTag,
     Spinner,
 } from '@posthog/lemon-ui'
@@ -20,6 +19,7 @@ import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { openInAppSupport } from 'lib/components/Support/openInAppSupport'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
@@ -334,7 +334,7 @@ function JoinMatchPreview(): JSX.Element | null {
                 </span>
             )}
             {columns.length > 0 && response.results.length > 0 && (
-                <LemonTable
+                <LemonOrQuillTable
                     size="small"
                     dataSource={response.results}
                     columns={columns}

@@ -6,8 +6,9 @@ import { LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
@@ -38,7 +39,7 @@ export function TransactionalEmailsTable(): JSX.Element {
     }
 
     return (
-        <LemonTable<MessageTemplate>
+        <LemonOrQuillTable<MessageTemplate>
             dataSource={transactionalTemplates}
             loading={templatesLoading}
             rowKey="id"

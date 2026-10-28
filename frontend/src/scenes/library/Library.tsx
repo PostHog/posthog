@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonInput, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -109,7 +110,7 @@ function LibraryContent(): JSX.Element {
                     Couldn’t load your library. Try again, and if it keeps happening contact support.
                 </LemonBanner>
             ) : (
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={visibleObjects}
                     columns={columns}
                     loading={objectsLoading}
