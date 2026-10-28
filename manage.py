@@ -16,13 +16,21 @@ if _common_path not in sys.path:
 def start_stack_dumps() -> None:
     try:
         interval = float(os.environ.get("POSTHOG_COMMAND_DIAGNOSTICS_INTERVAL_SECONDS", "60"))
-    except ValueError:
-        interval = 60.0
-    faulthandler.dump_traceback_later(max(interval, 1.0), repeat=True)
+        if interval <= 0:
+            interval = 60.0
+        faulthandler.dump_traceback_later(max(interval, 1.0), repeat=True)
+    except (ValueError, OverflowError):
+        faulthandler.dump_traceback_later(60, repeat=True)
 
 
 def main():
-    if os.environ.get("POSTHOG_COMMAND_DIAGNOSTICS") == "1":
+    if (
+        os.environ.get("POSTHOG_COMMAND_DIAGNOSTICS") == "1"
+        and len(sys.argv) > 2
+        and sys.argv[1] in ("migrate", "migrate_clickhouse")
+        and "--check" in sys.argv[2:]
+        and "--" not in sys.argv[2:]
+    ):
         start_stack_dumps()
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
     try:

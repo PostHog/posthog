@@ -8,23 +8,39 @@ from pathlib import Path
 
 import unittest
 
+from parameterized import parameterized
+
 MANAGE = Path(__file__).resolve().parents[1] / "manage.py"
 
 BOOTSTRAP = """
 import sys
 import runpy
 import types
+import ctypes
 import threading
+import faulthandler
 from contextlib import nullcontext
 
+mode = sys.argv[2]
+
 def block_during_import(name):
-    threading.Event().wait()
+    if mode == "native_hang":
+        ctypes.PyDLL(None).sleep(30)
+    else:
+        threading.Event().wait()
+
+def execute(argv):
+    if mode == "failure":
+        raise SystemExit(7)
+
+if mode == "existing_watchdog":
+    faulthandler.dump_traceback_later(0.05, repeat=True)
 
 management = types.ModuleType("django.core.management")
-if sys.argv[2] == "hang":
+if mode in ("hang", "native_hang", "existing_watchdog"):
     management.__getattr__ = block_during_import
 else:
-    management.execute_from_command_line = lambda argv: None
+    management.execute_from_command_line = execute
 django = types.ModuleType("django")
 django.setup = lambda: None
 tagging = types.ModuleType("posthog.clickhouse.query_tagging")
@@ -39,18 +55,23 @@ sys.modules.update({
     "posthog.clickhouse": types.ModuleType("posthog.clickhouse"),
     "posthog.clickhouse.query_tagging": tagging,
 })
-sys.argv = [sys.argv[1], "migrate", "--check"]
+sys.argv = [sys.argv[1], *sys.argv[3:]]
 runpy.run_path(sys.argv[0], run_name="__main__")
 """
 
 
 class ManageDiagnosticsTest(unittest.TestCase):
-    def start(self, mode: str, env: dict[str, str]) -> subprocess.Popen[bytes]:
+    def start(
+        self, mode: str, env: dict[str, str], command: tuple[str, ...] = ("migrate", "--check")
+    ) -> subprocess.Popen[bytes]:
+        process_env = os.environ.copy()
+        for name in ("POSTHOG_COMMAND_DIAGNOSTICS", "POSTHOG_COMMAND_DIAGNOSTICS_INTERVAL_SECONDS"):
+            process_env.pop(name, None)
         process = subprocess.Popen(
-            [sys.executable, "-c", BOOTSTRAP, str(MANAGE), mode],
+            [sys.executable, "-c", BOOTSTRAP, str(MANAGE), mode, *command],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
-            env={**os.environ, **env},
+            env={**process_env, **env},
             start_new_session=True,
         )
         self.addCleanup(self.stop, process)
@@ -62,10 +83,24 @@ class ManageDiagnosticsTest(unittest.TestCase):
             os.killpg(process.pid, signal.SIGKILL)
         process.communicate(timeout=5)
 
-    def test_dumps_thread_stacks_while_the_command_hangs(self) -> None:
+    @parameterized.expand(
+        [
+            ("hang", ("migrate", "--check")),
+            ("native_hang", ("migrate", "--check")),
+            ("hang", ("migrate_clickhouse", "--check")),
+            ("existing_watchdog", ("run_warehouse_sources_load",)),
+            ("existing_watchdog", ("migrate",)),
+            ("existing_watchdog", ("migrate", "--", "--check")),
+        ]
+    )
+    def test_dumps_thread_stacks_while_the_command_hangs(self, mode: str, command: tuple[str, ...]) -> None:
         process = self.start(
-            "hang",
-            {"POSTHOG_COMMAND_DIAGNOSTICS": "1", "POSTHOG_COMMAND_DIAGNOSTICS_INTERVAL_SECONDS": "0.05"},
+            mode,
+            {
+                "POSTHOG_COMMAND_DIAGNOSTICS": "1",
+                "POSTHOG_COMMAND_DIAGNOSTICS_INTERVAL_SECONDS": "60" if mode == "existing_watchdog" else "0.05",
+            },
+            command,
         )
         assert process.stderr is not None
         output = b""
@@ -81,17 +116,20 @@ class ManageDiagnosticsTest(unittest.TestCase):
         self.assertIsNone(process.poll())
         self.assertIn(b"Timeout", output)
 
-    def test_leaves_a_finished_command_untouched(self) -> None:
-        for env in (
-            {},
-            {"POSTHOG_COMMAND_DIAGNOSTICS": "1", "POSTHOG_COMMAND_DIAGNOSTICS_INTERVAL_SECONDS": "60"},
-            {"POSTHOG_COMMAND_DIAGNOSTICS": "1", "POSTHOG_COMMAND_DIAGNOSTICS_INTERVAL_SECONDS": "not a number"},
-        ):
-            with self.subTest(env=env):
-                process = self.start("ok", env)
-                _, output = process.communicate(timeout=5)
-                self.assertEqual(0, process.returncode, output.decode())
-                self.assertEqual(b"", output)
+    @parameterized.expand(
+        [(None, "ok", 0), (None, "failure", 7), ("60", "failure", 7)]
+        + [(interval, "ok", 0) for interval in ("60", "not a number", "nan", "inf", "-inf", "1e300", "0", "-1")]
+    )
+    def test_leaves_a_finished_command_untouched(self, interval: str | None, mode: str, status: int) -> None:
+        env = (
+            {"POSTHOG_COMMAND_DIAGNOSTICS": "1", "POSTHOG_COMMAND_DIAGNOSTICS_INTERVAL_SECONDS": interval}
+            if interval is not None
+            else {}
+        )
+        process = self.start(mode, env)
+        _, output = process.communicate(timeout=5)
+        self.assertEqual(status, process.returncode, output.decode())
+        self.assertEqual(b"", output)
 
 
 if __name__ == "__main__":
