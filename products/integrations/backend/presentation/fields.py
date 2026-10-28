@@ -58,9 +58,12 @@ class IntegrationReferenceField(serializers.Field):
         if self.source_attrs:
             try:
                 parent = get_attribute(instance, self.source_attrs[:-1])
-                return PKOnlyObject(pk=parent.serializable_value(self.source_attrs[-1]))
+                value = parent.serializable_value(self.source_attrs[-1])
             except AttributeError:
                 pass
+            else:
+                # `serializable_value` returns the attribute itself when it is not a model field.
+                return PKOnlyObject(pk=getattr(value, "pk", value))
         return super().get_attribute(instance)
 
     def to_representation(self, value: IntegrationRecord | PKOnlyObject | int) -> int:

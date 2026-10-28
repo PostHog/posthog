@@ -132,6 +132,10 @@ class IntegrationQuerySet(models.QuerySet["Integration"]):
                 "Call _with_auth() directly on Integration.objects. The queryset without it holds only rows "
                 "with the default auth type of their kind."
             )
+        if self._auth_requirement is not None and not self._auth_requirement.any:
+            # A second selector would filter by both but write by the last, so a create could make a
+            # row that this queryset cannot read back. Narrow only from ANY.
+            raise ValueError("This queryset already has _with_auth(). Narrow only from _with_auth(ANY).")
         requirement = AuthRequirement.of(*auth_types)
         queryset = self._chain() if requirement.any else self.filter(requirement.q())  # type: ignore[attr-defined]
         queryset._auth_requirement = requirement

@@ -2976,17 +2976,18 @@ class IntegrationViewSet(
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         instances = page if page is not None else list(queryset)
-        for instance in instances:
-            if instance.kind == "github":
-                GitHubIntegration(instance, source="integrations_api", priority=Priority.NORMAL).ensure_account_name()
+        # Only App installations have an installation id to heal from. A typed-in token row does not.
+        github_apps = [
+            instance
+            for instance in instances
+            if instance.kind == "github" and instance.auth_type == IntegrationAuthType.OAUTH
+        ]
+        for instance in github_apps:
+            GitHubIntegration(instance, source="integrations_api", priority=Priority.NORMAL).ensure_account_name()
         # One grouped lookup for the whole page instead of an `exists()` per row, so
         # `installation_shared` stays a fixed one query however many GitHub rows there are.
         reference_counts = GitHubIntegration.installation_reference_counts(
-            {
-                instance.integration_id
-                for instance in instances
-                if instance.kind == "github" and instance.integration_id
-            },
+            {instance.integration_id for instance in github_apps if instance.integration_id},
             include_personal=False,
         )
         serializer = self.get_serializer(
@@ -3002,6 +3003,6 @@ class IntegrationViewSet(
         # Inlined from RetrieveModelMixin too: deferring to it would re-run `get_object`, paying a
         # second query and permission check for the row already in hand.
         instance = self.get_object()
-        if instance.kind == "github":
+        if instance.kind == "github" and instance.auth_type == IntegrationAuthType.OAUTH:
             GitHubIntegration(instance, source="integrations_api", priority=Priority.NORMAL).ensure_account_name()
         return Response(self.get_serializer(instance).data)

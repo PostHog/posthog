@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import PropertyMock, patch
 
 import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
 from products.warehouse_sources.backend.facade.credential_auth_types import CREDENTIAL_AUTH_TYPES
@@ -9,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.cre
     derive_credential_auth_type,
     render_credential_auth_types,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -30,8 +32,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
         (ExternalDataSourceType.ZENDESK, "credentials"),
     ],
 )
-def test_derive_credential_auth_type(source_type: ExternalDataSourceType, expected: str) -> None:
-    assert derive_credential_auth_type(source_type) == expected
+def test_credential_auth_type(source_type: ExternalDataSourceType, expected: str) -> None:
+    source = SourceRegistry.get_source(source_type)
+
+    assert source.credential_auth_type == expected
+    assert derive_credential_auth_type(source.get_source_config) == expected
+
+
+def test_compute_reads_the_auth_type_from_the_source_class() -> None:
+    zendesk = type(SourceRegistry.get_source(ExternalDataSourceType.ZENDESK))
+    with patch.object(zendesk, "credential_auth_type", new_callable=PropertyMock, return_value="token"):
+        auth_types = compute_credential_auth_types()
+
+    assert auth_types[CREDENTIAL_KINDS[ExternalDataSourceType.ZENDESK.value]] == "token"
 
 
 def test_every_credential_kind_has_an_auth_type() -> None:
