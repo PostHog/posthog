@@ -592,6 +592,12 @@ def arm_pending_checks(
         report = SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first()
         if report is None:
             return 0
+        if not (
+            SignalReportCheck.objects.for_team(team_id)
+            .filter(report_id=report_id, status=SignalReportCheck.Status.PENDING)
+            .exists()
+        ):
+            return 0
         if monitoring_enabled is None:
             monitoring_enabled = team_report_monitoring_enabled(team_id)
         status = effective_report_status(report.status, team_id=team_id, monitoring_enabled=monitoring_enabled)
