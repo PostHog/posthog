@@ -245,6 +245,8 @@ def opsgenie_source(
             "name": "Authorization",
             "location": "header",
         },
+        # Alert logs follow the response's `paging.next` URL; pin it to the regional API host.
+        "allowed_hosts": [],
     }
 
     if config.fanout is not None:

@@ -131,6 +131,8 @@ OPSGENIE_ENDPOINTS: dict[str, OpsgenieEndpointConfig] = {
             parent_field_renames={"id": "alert_id"},
             parent_params={"sort": "createdAt", "order": "asc"},
             child_params={"order": "asc", "direction": "next"},
+            # An alert deleted after the alert listing returns 404; skip it rather than fail the run.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),
     "schedule_on_calls": OpsgenieEndpointConfig(
@@ -171,6 +173,7 @@ OPSGENIE_ENDPOINTS: dict[str, OpsgenieEndpointConfig] = {
             resolve_field="id",
             include_from_parent=["id"],
             parent_field_renames={"id": "schedule_id"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),
     # Opsgenie has no member listing endpoint; the members come embedded in the single-team read.
