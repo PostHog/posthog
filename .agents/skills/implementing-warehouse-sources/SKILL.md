@@ -433,12 +433,16 @@ The semgrep rule `warehouse-source-inputs-go-through-store` blocks `source.job_i
 
 #### Connection fields in an Integration row
 
-PostHog stores the connection fields of one source in one `Integration` row of the hidden kind `warehouse-source`. The row key is the team, the kind, and the source id. `WarehouseSourceCredentialsStore` (`products/warehouse_sources/backend/logic/source_credentials.py`) is the only code that reads or writes these rows.
+A source's typed-in connection fields go to one `Integration` row of the source's credential kind (see "Credential kind"). `WarehouseSourceCredentialsStore` (`products/warehouse_sources/backend/logic/source_credentials.py`) is the only code that reads or writes these rows.
 
-- Never query `Integration` rows of this kind in source code. Do not call the credentials store from source code either. Use `SourceInputsStore`, which will use the credentials store internally.
-- The integrations API hides this kind. A user cannot list, create, or delete it.
-- The credentials store deletes the row when the source is soft deleted.
+- The source points at its row with the `credentials_integration_id` key in its inputs (`CREDENTIALS_REFERENCE_KEY`). This key is a reference, so it stays in `job_inputs`.
+- An OAuth source keeps its own `*_integration_id` key and gets no new row. Account selectors stay in `job_inputs`, because several sources can share one OAuth row.
+- The row has an auth type. Most sources use the default auth type of their kind (`postgresql` is `password`, a generated kind is `credentials`). A source on a kind with an OAuth or App default writes a second auth type of that kind (`stripe` `api_key`, `github` `token`, `slack` `token`). `credential_auth_types.py` holds these exceptions. A new source of that type needs an entry there, and the kind needs that auth type in its catalogue entry (`posthog/models/integration/auth_types.py`). The test `test_every_typed_in_source_type_has_auth_types_its_kind_supports` fails otherwise.
+- The row has the marker `config["warehouse_source_type"]`. Hog functions can never use a marked row as an input.
+- Rows are visible in the integrations list with their auth type, and several sources can use one row. An edit of a shared row raises `SharedCredentialsError` unless the caller confirms. An edit of an identifying field (host, port, user, account, SSH tunnel, `connection_host_fields`, auth type) of a shared row makes a new row.
+- The store never deletes a row. When a source is soft deleted, the store only releases the row. A row that nothing uses stays in the integrations list.
 - The integrations API refuses to delete an `Integration` that a source still points to with a `*_integration_id` field.
+- Never query these rows in source code, and do not call the credentials store from source code. Use `SourceInputsStore`, which will use the credentials store internally. The Custom source keeps its `job_inputs` as they are.
 
 ## Implementing `source_for_pipeline`
 

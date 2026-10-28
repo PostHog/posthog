@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from typing import Any, Optional
 
 from django.db import models
+from django.db.models import Q
 
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -18,7 +19,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration
+from posthog.models.integration import ANY, POSTHOG_CONNECT_KIND, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY, Integration
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -94,9 +95,21 @@ def _validate_not_posthog_connection(integration_ids: list[int], context: dict) 
     get_team = context.get("get_team")
     if get_team is None or not integration_ids:
         return
-    if Integration.objects.filter(team_id=get_team().id, id__in=integration_ids, kind=POSTHOG_CONNECT_KIND).exists():
+    blocked = Integration.objects.with_auth(ANY).filter(
+        Q(kind=POSTHOG_CONNECT_KIND) | Q(config__has_key=WAREHOUSE_SOURCE_TYPE_CONFIG_KEY),
+        team_id=get_team().id,
+        id__in=integration_ids,
+    )
+    kinds = set(blocked.values_list("kind", flat=True))
+    if POSTHOG_CONNECT_KIND in kinds:
         raise serializers.ValidationError(
             {"input": "A PostHog connection can't be used as a function input. Choose a different integration."}
+        )
+    # A row that a data warehouse source created holds the source's typed-in credentials (passwords,
+    # keys). The runtime passes an input's secrets to the function code, so no function may use it.
+    if kinds:
+        raise serializers.ValidationError(
+            {"input": "This integration can't be used as a function input. Choose a different integration."}
         )
 
 

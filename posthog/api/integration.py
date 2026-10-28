@@ -2,8 +2,8 @@ import os
 import re
 import json
 import time
-from collections.abc import Callable, Iterable
-from typing import Any, NoReturn, Protocol, cast
+from collections.abc import Callable
+from typing import Any, NoReturn, cast
 from urllib.parse import urlencode
 from uuid import uuid4
 
@@ -133,6 +133,7 @@ from posthog.models.integration import (
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.integration.stripe import stripe_signing_secret
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
+from posthog.models.integration.usages import IntegrationUsageType, integration_usages
 from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
     AccessControlPermission,
@@ -148,13 +149,10 @@ from posthog.tasks.email import send_integration_access_request
 from posthog.utils import absolute_uri, is_relative_url
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
-from products.batch_exports.backend.facade.api import list_batch_exports_using_integration
-from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
 from products.tasks.backend.facade.api import get_in_progress_runs_for_github_integration
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
-from products.warehouse_sources.backend.facade.integration_references import list_sources_using_integration
-from products.workflows.backend.facade.api import get_active_workflows_using_integration, lookup_existing_email_tools
+from products.workflows.backend.facade.api import lookup_existing_email_tools
 from products.workflows.backend.facade.contracts import EmailProviderUnavailableError
 from products.workflows.backend.facade.enums import EmailDomainSetupMethod
 
@@ -307,16 +305,12 @@ def _ensure_oauth_token_valid(instance: Integration) -> None:
             )
 
 
-class _HasNameOrId(Protocol):
-    @property
-    def id(self) -> Any: ...
-
-    @property
-    def name(self) -> str | None: ...
-
-
-def _concat_names_or_ids(items: Iterable[_HasNameOrId]) -> str:
-    return ", ".join(sorted(it.name or str(it.id) for it in items))
+_USAGE_TYPE_LABELS: dict[IntegrationUsageType, str] = {
+    IntegrationUsageType.WAREHOUSE_SOURCE: "data warehouse sources",
+    IntegrationUsageType.WORKFLOW: "active workflows",
+    IntegrationUsageType.HOG_FUNCTION: "enabled data pipelines",
+    IntegrationUsageType.BATCH_EXPORT: "batch exports",
+}
 
 
 def _github_disconnect_blocked_message(live_runs: InProgressGithubRunsDTO, team_id: int) -> str:
@@ -761,7 +755,16 @@ class IntegrationAccessRequestResponseSerializer(serializers.Serializer):
 class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     """Standard Integration serializer."""
 
-    kind = serializers.ChoiceField(choices=PUBLIC_INTEGRATION_KIND_CHOICES)
+    # A string, not an enum: a list can hold rows of kinds that a product registers, such as the kind of a
+    # warehouse source's typed-in credentials. `validate_kind` limits a create to the public kinds.
+    kind = serializers.CharField(
+        max_length=32,
+        help_text=(
+            "The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds "
+            "that PostHog connects here. Data warehouse sources also store their typed-in credentials as "
+            "integrations, under a kind per source type."
+        ),
+    )
     created_by = UserBasicSerializer(read_only=True)
     auth_type = serializers.ChoiceField(
         choices=IntegrationAuthType.choices,
@@ -848,8 +851,8 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
     def validate_kind(self, value: str) -> str:
         if value == Integration.IntegrationKind.SLACK_POSTHOG_CODE.value:
             raise ValidationError("This integration kind is deprecated and can no longer be created.")
-        if value == Integration.IntegrationKind.WAREHOUSE_SOURCE.value:
-            raise ValidationError("This integration kind is managed by PostHog and cannot be created here.")
+        if value not in Integration.IntegrationKind.values:
+            raise ValidationError(f'"{value}" is not a kind that can be connected here.')
         return value
 
     def create(self, validated_data: Any) -> Any:
@@ -1586,9 +1589,7 @@ class IntegrationViewSet(
         # creator. Unlike team-shared integrations, don't expose other members' connections in
         # list/retrieve — scope `posthog` rows to the requesting user. Other kinds stay team-visible.
         user_id = getattr(self.request.user, "id", None)
-        queryset = queryset.exclude(kind=Integration.IntegrationKind.WAREHOUSE_SOURCE).exclude(
-            Q(kind=POSTHOG_CONNECT_KIND) & ~Q(created_by_id=user_id)
-        )
+        queryset = queryset.exclude(Q(kind=POSTHOG_CONNECT_KIND) & ~Q(created_by_id=user_id))
         # The other actions (destroy, channels, github_repos, ...) call provider code that reads the
         # row in the default shape of its kind, so they keep to rows with the default auth type.
         if self.action not in ("list", "retrieve"):
@@ -1627,40 +1628,12 @@ class IntegrationViewSet(
         return super().get_throttles()
 
     def perform_destroy(self, instance: Integration) -> None:
-        flows_using_integration = get_active_workflows_using_integration(
-            team_id=instance.team_id, integration_id=instance.id
-        )
-        functions_using_integration = get_enabled_hog_functions_using_integration(
-            team_id=instance.team_id, integration_id=instance.id
-        )
-        batch_exports_using_integration = list_batch_exports_using_integration(
-            team_id=instance.team_id, integration_id=instance.id
-        )
-
-        sources_using_integration = list_sources_using_integration(team_id=instance.team_id, integration_pk=instance.pk)
-
-        used_by = []
-
-        if sources_using_integration:
-            source_names = ", ".join(
-                sorted(
-                    f"{source.source_type} ({source.prefix})" if source.prefix else source.source_type
-                    for source in sources_using_integration
-                )
-            )
-            used_by.append(f"data warehouse sources: {source_names}")
-
-        if flows_using_integration:
-            flow_names = _concat_names_or_ids(flows_using_integration)
-            used_by.append(f"active workflows: {flow_names}")
-
-        if functions_using_integration:
-            function_names = _concat_names_or_ids(functions_using_integration)
-            used_by.append(f"enabled data pipelines: {function_names}")
-
-        if batch_exports_using_integration:
-            batch_export_names = _concat_names_or_ids(batch_exports_using_integration)
-            used_by.append(f"batch exports: {batch_export_names}")
+        usages = integration_usages(team_id=instance.team_id, integration_pk=instance.pk)
+        used_by = [
+            f"{_USAGE_TYPE_LABELS[usage_type]}: {', '.join(sorted(usage.name for usage in usages if usage.type == usage_type))}"
+            for usage_type in IntegrationUsageType
+            if any(usage.type == usage_type for usage in usages)
+        ]
 
         if used_by:
             raise ValidationError(

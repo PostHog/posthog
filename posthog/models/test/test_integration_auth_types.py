@@ -17,7 +17,8 @@ AuthType = IntegrationAuthType
 
 class TestIntegrationAuthTypeCatalogue(SimpleTestCase):
     def test_every_integration_kind_has_a_catalogue_entry(self) -> None:
-        assert set(catalogued_kinds()) == set(Integration.IntegrationKind.values)
+        # Products register more kinds at startup, such as the warehouse source credential kinds.
+        assert set(Integration.IntegrationKind.values) <= set(catalogued_kinds())
 
     @parameterized.expand(
         [

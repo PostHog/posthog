@@ -67,7 +67,7 @@ products/batch_exports/backend/temporal/destinations/snowflake_batch_export.py 1
 products/billing_alerts/backend/facade/api.py 1
 products/business_knowledge/backend/github_repos.py 1
 products/canvas/backend/welcome.py 1
-products/cdp/backend/validation.py 2
+products/cdp/backend/validation.py 1
 products/commands/backend/channels/slack/mentions.py 2
 products/commands/backend/logic/github.py 1
 products/commands/backend/logic/subjects.py 1

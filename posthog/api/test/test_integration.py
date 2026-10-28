@@ -61,8 +61,10 @@ from posthog.models.integration import (
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
     SLACK_INTEGRATION_KINDS,
     STRIPE_POSTHOG_SECRET_NAMES,
+    WAREHOUSE_SOURCE_TYPE_CONFIG_KEY,
     Assignee,
     AssigneeLookupFailed,
+    AuthTypeSelector,
     EmailIntegration,
     GitHubInstallationAccess,
     GitHubIntegration,
@@ -8146,50 +8148,70 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
 
 
 class TestWarehouseSourceIntegrationKind(APIBaseTest):
-    def _credentials_row(self) -> Integration:
-        return Integration.objects.create(
+    def _credentials_row(self, kind: str, auth_type: str | None = None) -> Integration:
+        config: dict[str, Any] = {WAREHOUSE_SOURCE_TYPE_CONFIG_KEY: "Postgres", "display_name": "Postgres (prod)"}
+        if auth_type:
+            config["auth_type"] = auth_type
+        return Integration.objects.with_auth(AuthTypeSelector.ANY).create(
             team=self.team,
-            kind=Integration.IntegrationKind.WAREHOUSE_SOURCE,
+            kind=kind,
             integration_id=str(uuid4()),
-            config={"source_type": "Postgres", "source_id": "x"},
+            config=config,
             sensitive_config={"fields": {"password": "fake-password"}},
         )
 
-    def _source_pointing_at(self, integration: Integration, team=None, deleted: bool = False) -> ExternalDataSource:
+    def _source_pointing_at(
+        self, integration: Integration, team=None, deleted: bool = False, key: str = "linear_integration_id"
+    ) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
             team=team or self.team,
             source_id=str(uuid4()),
             connection_id=str(uuid4()),
             status="Completed",
             source_type=ExternalDataSourceType.LINEAR,
-            job_inputs={"linear_integration_id": integration.id},
+            job_inputs={key: integration.id},
             deleted=deleted,
         )
 
-    def test_hidden_kind_is_absent_from_list_retrieve_and_filter(self) -> None:
-        hidden = self._credentials_row()
-        visible = Integration.objects.create(team=self.team, kind="slack", integration_id="T1")
+    def test_typed_in_rows_are_listed_with_their_kind_and_auth_type(self) -> None:
+        postgres = self._credentials_row("postgresql")
+        stripe = self._credentials_row("stripe", "api_key")
+        generated = self._credentials_row("ably")
 
         listed = self.client.get(f"/api/projects/{self.team.id}/integrations/").json()["results"]
-        assert [row["id"] for row in listed] == [visible.id]
-        assert self.client.get(f"/api/projects/{self.team.id}/integrations/{hidden.id}/").status_code == 404
-        filtered = self.client.get(f"/api/projects/{self.team.id}/integrations/?kind=warehouse-source")
-        assert filtered.status_code == 400
 
-    def test_hidden_kind_cannot_be_created(self) -> None:
+        by_id = {row["id"]: row for row in listed}
+        assert {key: by_id[postgres.id][key] for key in ("kind", "auth_type", "display_name")} == {
+            "kind": "postgresql",
+            "auth_type": "password",
+            "display_name": "Postgres (prod)",
+        }
+        assert (by_id[stripe.id]["kind"], by_id[stripe.id]["auth_type"]) == ("stripe", "api_key")
+        assert (by_id[generated.id]["kind"], by_id[generated.id]["auth_type"]) == ("ably", "credentials")
+        assert "fake-password" not in json.dumps(listed)
+        assert self.client.get(f"/api/projects/{self.team.id}/integrations/{stripe.id}/").status_code == 200
+
+    @parameterized.expand([("generated_kind", "ably"), ("unknown_kind", "not-a-kind")])
+    def test_a_kind_outside_the_public_enum_cannot_be_created_or_filtered(self, _name: str, kind: str) -> None:
         response = self.client.post(
-            f"/api/projects/{self.team.id}/integrations/",
-            {"kind": "warehouse-source", "config": {}},
-            format="json",
+            f"/api/projects/{self.team.id}/integrations/", {"kind": kind, "config": {}}, format="json"
         )
-        assert response.status_code == 400
-        assert not Integration.objects.filter(kind="warehouse-source").exists()
 
-    def test_hidden_kind_cannot_be_destroyed(self) -> None:
-        hidden = self._credentials_row()
-        response = self.client.delete(f"/api/projects/{self.team.id}/integrations/{hidden.id}/")
-        assert response.status_code == 404
-        assert Integration.objects.filter(id=hidden.id).exists()
+        assert response.status_code == 400
+        assert not Integration.objects.with_auth(AuthTypeSelector.ANY).filter(kind=kind).exists()
+        assert self.client.get(f"/api/projects/{self.team.id}/integrations/?kind={kind}").status_code == 400
+
+    def test_destroy_is_blocked_by_a_source_credentials_reference(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        row = self._credentials_row("postgresql")
+        self._source_pointing_at(row, key="credentials_integration_id")
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/integrations/{row.id}/")
+
+        assert response.status_code == 400
+        assert "data warehouse sources" in json.dumps(response.json())
+        assert Integration.objects.filter(id=row.id).exists()
 
     @parameterized.expand(
         [

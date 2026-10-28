@@ -20,3 +20,11 @@ class WarehouseSourcesConfig(AppConfig):
         from products.warehouse_sources.backend.sync_alerts.registration import register  # noqa: PLC0415
 
         register()
+
+        # Core's auth type catalogue and kind choices must know the credential kinds before the first
+        # Integration query. The generated file is plain data, so this import stays cheap.
+        from products.warehouse_sources.backend.logic.credential_auth_types import (  # noqa: PLC0415
+            register_credential_kinds,
+        )
+
+        register_credential_kinds()

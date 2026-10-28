@@ -102,7 +102,8 @@ _KIND_AUTH_TYPES: dict[str, KindAuthTypes] = {
     "google-cloud-storage": KindAuthTypes(default=_A.SERVICE_ACCOUNT, others=frozenset({_A.HMAC_KEY})),
     "google-pubsub": KindAuthTypes(default=_A.SERVICE_ACCOUNT),
     "google-search-console": KindAuthTypes(default=_A.OAUTH),
-    "google-sheets": KindAuthTypes(default=_A.OAUTH),
+    # The warehouse Google Sheets source types in a sheet URL and reads it as a PostHog service account.
+    "google-sheets": KindAuthTypes(default=_A.OAUTH, others=frozenset({_A.CREDENTIALS})),
     "helpscout": KindAuthTypes(default=_A.OAUTH),
     "hubspot": KindAuthTypes(default=_A.OAUTH),
     "instagram": KindAuthTypes(default=_A.OAUTH),
@@ -170,13 +171,12 @@ def _unset_q() -> Q:
 
 
 def _kinds_with_default_q(auth_type: IntegrationAuthType) -> Q | None:
-    kinds = [kind for kind, entry in _KIND_AUTH_TYPES.items() if entry.default == auth_type]
-    clauses: list[Q] = []
-    if kinds:
-        clauses.append(Q(kind__in=kinds))
     if UNKNOWN_KIND_AUTH_TYPES.default == auth_type:
-        clauses.append(~Q(kind__in=list(_KIND_AUTH_TYPES)))
-    return _any_of(clauses)
+        # Unknown kinds share this default, so list the kinds that do not. Products register many
+        # kinds with this default, and the short list keeps the SQL small.
+        return ~Q(kind__in=[kind for kind, entry in _KIND_AUTH_TYPES.items() if entry.default != auth_type])
+    kinds = [kind for kind, entry in _KIND_AUTH_TYPES.items() if entry.default == auth_type]
+    return Q(kind__in=kinds) if kinds else None
 
 
 def _any_of(clauses: Iterable[Q]) -> Q | None:
