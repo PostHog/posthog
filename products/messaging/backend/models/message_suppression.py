@@ -58,6 +58,9 @@ class MessageSuppression(TeamScopedRootMixin, UUIDModel):
     last_bounce_at = models.DateTimeField(null=True, blank=True)
     # Last SMTP diagnostic we saw, kept for visibility in the UI (e.g. the "Message expired" text).
     last_bounce_diagnostic = models.TextField(null=True, blank=True)
+    # When the address last hard-bounced. Set on every row, manual entries included, and cleared when a
+    # user removes the suppression. A suppressed row with this set also blocks transactional messages.
+    hard_bounced_at = models.DateTimeField(null=True, blank=True)
 
     # Whether the address is actively suppressed. A row can exist while still only counting
     # bounces (suppressed=False) before it crosses the threshold.
