@@ -9,6 +9,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
+from django.utils import timezone
 
 import temporalio.worker
 from temporalio import activity
@@ -16,6 +17,8 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from posthog.hogql import ast
+
+from posthog.sync import database_sync_to_async
 
 from products.ml_inference.backend.facade.contracts import DecisionResult, NoulAnswer
 from products.signals.backend.emission._prompts import ISSUE_ACTIONABILITY_PROMPT
@@ -37,6 +40,8 @@ from products.signals.backend.emission.pipeline import (
     summarize_long_descriptions,
 )
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
+from products.signals.backend.models import SignalEmissionRecord, SignalSpend
+from products.signals.backend.spend import signal_id_for
 
 PIPELINE_MODULE_PATH = "products.signals.backend.emission.pipeline"
 FETCHER_MODULE_PATH = "products.signals.backend.emission.fetchers.data_warehouse"
@@ -368,11 +373,72 @@ class TestRunSignalPipelineEmitterFailures:
         assert result == {"status": "success", "reason": "no_actionable_records", "signals_emitted": 0}
 
 
+@pytest.mark.django_db(transaction=True)
 class TestEmissionRetryIdentity:
     @pytest.mark.asyncio
-    async def test_activity_retries_keep_signal_id_but_later_imports_do_not(self):
+    @pytest.mark.parametrize("record_processed_outputs", [False, True])
+    async def test_retry_repairs_ledger_for_finalized_signal(self, team, record_processed_outputs: bool) -> None:
+        output = replace(_make_output(source_id="record-1"), idempotency_key="record-1")
+        signal_id = signal_id_for(
+            team_id=team.id,
+            source_product=output.source_product,
+            source_type=output.source_type,
+            idempotency_key="record-1",
+        )
+        await database_sync_to_async(
+            lambda: SignalSpend.objects.for_team(team.id).create(
+                team_id=team.id, signal_id=signal_id, kind=SignalSpend.Kind.AD_HOC, spend=1, finalized_at=timezone.now()
+            )
+        )()
+        config = _make_config(emitter=lambda team_id, record: output, record_processed_outputs=record_processed_outputs)
+        with patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit:
+            for _ in range(2):
+                result = await run_signal_pipeline(team=team, config=config, records=[{"id": "record-1"}], extra={})
+                assert result["signals_emitted"] == 0
+        emit.assert_not_awaited()
+        assert await SignalEmissionRecord.objects.filter(team=team, source_id="record-1").acount() == int(
+            record_processed_outputs
+        )
+
+    @pytest.mark.asyncio
+    async def test_retry_skips_filtered_signal_after_sibling_dispatch_failure(self, team):
+        checked = []
+
+        async def filter_outputs(*, outputs, **kwargs):
+            checked.append([output.source_id for output in outputs])
+            for output in outputs:
+                if output.source_id == "filtered":
+                    await database_sync_to_async(
+                        lambda output=output: SignalSpend.objects.for_team(team.id).create(
+                            team_id=team.id, signal_id=output.signal_id, kind=SignalSpend.Kind.AD_HOC, spend=1
+                        )
+                    )()
+            return [output for output in outputs if output.source_id != "filtered"]
+
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.activity") as temporal_activity,
+            patch(f"{PIPELINE_MODULE_PATH}.filter_actionable", side_effect=filter_outputs),
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"),
+        ):
+            temporal_activity.in_activity.return_value = True
+            temporal_activity.info.return_value.workflow_run_id = "import"
+            temporal_activity.info.return_value.activity_id = "emit"
+            records = [{"id": "filtered"}, {"id": "accepted"}]
+            config = _make_config(actionability_prompt="Filter {description}")
+            emit.side_effect = RuntimeError("dispatch failed")
+            with pytest.raises(RuntimeError):
+                await run_signal_pipeline(team=team, config=config, records=records, extra={})
+            filtered = await database_sync_to_async(lambda: SignalSpend.objects.for_team(team.id).get())()
+            assert filtered.finalized_at is not None
+            emit.side_effect = None
+            await run_signal_pipeline(team=team, config=config, records=records, extra={})
+            assert checked == [["filtered", "accepted"], ["accepted"]]
+            assert [call.kwargs["source_id"] for call in emit.call_args_list] == ["accepted", "accepted"]
+
+    @pytest.mark.asyncio
+    async def test_activity_retries_keep_signal_id_but_later_imports_do_not(self, team):
         config = _make_config(record_processed_outputs=False)
-        team = MagicMock(id=1)
         with (
             patch(f"{PIPELINE_MODULE_PATH}.activity") as temporal_activity,
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
@@ -395,12 +461,11 @@ class TestEmissionRetryIdentity:
             assert emit.call_args.kwargs["signal_id"] != first
 
     @pytest.mark.asyncio
-    async def test_material_versions_dedupe_across_imports(self):
+    async def test_material_versions_dedupe_across_imports(self, team):
         def emitter(team_id, record):
             return replace(_make_output(source_id=record["id"]), idempotency_key=f"{record['id']}:{record['version']}")
 
         config = _make_config(emitter=emitter, sync_with_source=True)
-        team = MagicMock(id=1)
         with (
             patch(f"{PIPELINE_MODULE_PATH}.activity") as temporal_activity,
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
@@ -617,7 +682,7 @@ class TestFilterActionable:
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=mock_client),
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
         ):
             result = await filter_actionable(team, outputs, "prompt {description}", extra={})
 
@@ -714,7 +779,7 @@ class TestSummarizeLongDescriptions:
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=mock_client),
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
         ):
             result = await summarize_long_descriptions(team, [short, long], self.PROMPT, self.THRESHOLD, extra={})
 
@@ -739,7 +804,7 @@ class TestEmitSignals:
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as mock_emit,
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
         ):
             count = await _emit_signals(team=team, organization=MagicMock(), outputs=[output], extra={})
 
@@ -769,7 +834,7 @@ class TestEmitSignals:
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
         ):
             await _emit_signals(
                 team=MagicMock(),
@@ -795,7 +860,7 @@ class TestEmitSignals:
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", side_effect=mock_emit),
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
             patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture,
         ):
             count = await _emit_signals(team=MagicMock(), organization=MagicMock(), outputs=outputs, extra={})
@@ -822,7 +887,7 @@ class TestEmitSignals:
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as mock_emit,
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
         ):
             count = await _emit_signals(team=MagicMock(), organization=MagicMock(), outputs=[output], extra={})
 
@@ -837,7 +902,7 @@ class TestEmitSignals:
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as mock_emit,
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
         ):
             with pytest.raises(RuntimeError, match="All 1 signal emissions failed"):
                 await _emit_signals(team=MagicMock(), organization=MagicMock(), outputs=[output], extra={})
@@ -850,23 +915,22 @@ class TestEmitSignals:
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", side_effect=Exception("boom")),
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
         ):
             with pytest.raises(RuntimeError, match="All 2 signal emissions failed"):
                 await _emit_signals(team=MagicMock(), organization=MagicMock(), outputs=outputs, extra={})
 
 
+@pytest.mark.django_db(transaction=True)
 class TestExistingSourceOnlyOutputs:
     @pytest.mark.asyncio
-    async def test_terminal_source_only_emits_when_it_already_has_a_report(self):
+    async def test_terminal_source_only_emits_when_it_already_has_a_report(self, team):
         config = _make_config(sync_with_source=True, actionability_prompt="Actionable? {description}")
         records: list[dict[str, Any]] = [
             {"id": "open", "state": "open"},
             {"id": "known-closed", "state": "closed", "existing_source_only": True},
             {"id": "new-closed", "state": "closed", "existing_source_only": True},
         ]
-        team = MagicMock(id=1)
-        team.uuid = uuid.UUID("00000000-0000-0000-0000-000000000001")
         with (
             patch(
                 f"{PIPELINE_MODULE_PATH}.fetch_source_signal_matches",
@@ -879,7 +943,7 @@ class TestExistingSourceOnlyOutputs:
                 side_effect=lambda **kwargs: kwargs["outputs"],
             ) as filter_actionable,
             patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture,
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
         ):
             result = await run_signal_pipeline(team=team, config=config, records=records, extra={})
 
@@ -895,11 +959,10 @@ class TestExistingSourceOnlyOutputs:
         assert filtered[0].kwargs["properties"]["filter_reason"] == "source_state_without_report"
 
 
+@pytest.mark.django_db(transaction=True)
 class TestPipelineStageTelemetry:
     @pytest.mark.asyncio
-    async def test_captures_each_stage_per_signal(self):
-        team = MagicMock(id=1)
-        team.uuid = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    async def test_captures_each_stage_per_signal(self, team):
 
         short_description = "short actionable bug"
         long_description = "x" * 500
@@ -945,7 +1008,7 @@ class TestPipelineStageTelemetry:
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=mock_llm_client),
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock),
             patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture,
         ):
@@ -969,11 +1032,10 @@ class TestPipelineStageTelemetry:
         ]
 
 
+@pytest.mark.django_db(transaction=True)
 class TestRunSignalPipelineSteering:
     @pytest.mark.asyncio
-    async def test_source_config_steering_customizes_actionability_prompt(self):
-        team = MagicMock(id=1)
-        team.uuid = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    async def test_source_config_steering_customizes_actionability_prompt(self, team):
         config = _make_config(actionability_prompt=ISSUE_ACTIONABILITY_PROMPT)
         records = [{"id": "chore_1", "description": "Bump lodash to 4.17.21"}]
 
@@ -988,7 +1050,7 @@ class TestRunSignalPipelineSteering:
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=mock_llm_client),
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock),
             patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture,
         ):
@@ -1016,9 +1078,7 @@ class TestRunSignalPipelineSteering:
         assert [call.kwargs["properties"]["steering_applied"] for call in filtered_calls] == [True]
 
     @pytest.mark.asyncio
-    async def test_without_source_config_prompt_is_unchanged(self):
-        team = MagicMock(id=1)
-        team.uuid = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    async def test_without_source_config_prompt_is_unchanged(self, team):
         config = _make_config(actionability_prompt=ISSUE_ACTIONABILITY_PROMPT)
         records = [{"id": "issue_1", "description": "Export button broken"}]
 
@@ -1033,7 +1093,7 @@ class TestRunSignalPipelineSteering:
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=mock_llm_client),
-            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.activity.in_activity", return_value=False),
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock),
             patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"),
         ):
