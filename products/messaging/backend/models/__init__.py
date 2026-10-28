@@ -3,6 +3,7 @@ from .message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID, MessageReci
 from .message_suppression import MessageSuppression, SuppressionSource
 from .message_template import MessageTemplate
 from .optout_sync_config import OptOutSyncConfig
+from .provider_import_run import ProviderImportRun
 
 __all__ = [
     "ALL_MESSAGE_PREFERENCE_CATEGORY_ID",
@@ -13,5 +14,6 @@ __all__ = [
     "MessageTemplate",
     "OptOutSyncConfig",
     "PreferenceStatus",
+    "ProviderImportRun",
     "SuppressionSource",
 ]
