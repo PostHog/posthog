@@ -46,4 +46,4 @@ flox activate -- python manage.py knowledge_writer_pr_smoke \
   --with-agent <merged pull request url> <merged pull request url>
 ```
 
-Each run takes about 2 minutes. The 240-minute limit on both (`--agent-timeout-minutes`) only stops a stuck run. When the first run ends without a pull request, the command names the task and run and leaves any branch the agent pushed.
+Each run takes 1 to 4 minutes. The 240-minute limit on both (`--agent-timeout-minutes`) only stops a stuck run. When the first run ends without a pull request, the command names the task and run and leaves any branch the agent pushed.
