@@ -13,7 +13,9 @@ from urllib.parse import quote, urlencode
 import structlog
 from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
+from slack_sdk.errors import SlackApiError
 
+from posthog.dataclasses import frozen
 from posthog.slack.formatting import channel_id_from_target
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     METRICS_UNAVAILABLE_MESSAGE,
@@ -37,6 +39,26 @@ _md = MarkdownIt("commonmark", {"html": False}).enable("table")
 _slack_converter = SlackMarkdownConverter()
 
 _INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=eval_report&utm_medium=slack"
+
+# Slack errors that no retry can fix. The user must change the channel or reconnect Slack.
+_SLACK_CONFIG_ERRORS = frozenset(
+    {
+        "not_in_channel",
+        "account_inactive",
+        "is_archived",
+        "channel_not_found",
+        "invalid_auth",
+        "token_revoked",
+        "missing_scope",
+        "not_allowed_token_type",
+    }
+)
+_SLACK_CONFIG_ERROR_HINTS = {
+    "not_in_channel": "The PostHog app is not in this channel. Invite it to the channel to get the next reports.",
+    "is_archived": "This channel is archived. Pick a different channel for this report.",
+    "channel_not_found": "Slack can't find this channel. Pick a different channel for this report.",
+}
+_SLACK_RECONNECT_HINT = "The Slack connection no longer works. Reconnect Slack in your project settings."
 
 # Inline styles for email-safe HTML (many clients strip <style> blocks)
 _EMAIL_TABLE_STYLE = 'style="border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 14px;"'
@@ -338,6 +360,12 @@ def deliver_email_report(
     return errors
 
 
+@frozen
+class SlackDeliveryFailure:
+    message: str
+    retryable: bool
+
+
 def deliver_slack_report(
     report_run,
     targets: list[dict],
@@ -346,8 +374,8 @@ def deliver_slack_report(
     project_id: int,
     period_start: str,
     period_end: str,
-) -> list[str]:
-    """Send report via Slack. Returns list of errors (empty if all succeeded).
+) -> list[SlackDeliveryFailure]:
+    """Send report via Slack. Returns one failure per failed target (empty if all succeeded).
 
     Main message = agent title (Block Kit header) + metrics context + first section.
     Thread replies = sections[1:]. If there's only one section, no thread replies.
@@ -358,7 +386,7 @@ def deliver_slack_report(
 
     content = EvalReportContent.from_dict(report_run.content)
     citation_map = _build_citation_map(content.citations)
-    errors: list[str] = []
+    failures: list[SlackDeliveryFailure] = []
 
     header_text = f"{evaluation_name}: {content.title}" if content.title else f"Evaluation report: {evaluation_name}"
     # Slack header blocks are limited to 150 chars, enforce that here.
@@ -382,7 +410,7 @@ def deliver_slack_report(
         if not channel_id:
             error_msg = f"Failed to send Slack message to {channel}: no channel ID in target value"
             logger.warning(error_msg)
-            errors.append(error_msg)
+            failures.append(SlackDeliveryFailure(message=error_msg, retryable=False))
             continue
 
         try:
@@ -440,12 +468,23 @@ def deliver_slack_report(
                         text=mrkdwn_text[:3000],
                     )
 
+        except SlackApiError as e:
+            slack_error = e.response.get("error")
+            if slack_error in _SLACK_CONFIG_ERRORS:
+                hint = _SLACK_CONFIG_ERROR_HINTS.get(slack_error, _SLACK_RECONNECT_HINT)
+                error_msg = f"Failed to send Slack message to {channel}: {hint}"
+                logger.warning(error_msg, slack_error=slack_error)
+                failures.append(SlackDeliveryFailure(message=error_msg, retryable=False))
+            else:
+                error_msg = f"Failed to send Slack message to {channel}: {e}"
+                logger.exception(error_msg)
+                failures.append(SlackDeliveryFailure(message=error_msg, retryable=True))
         except Exception as e:
             error_msg = f"Failed to send Slack message to {channel}: {e}"
             logger.exception(error_msg)
-            errors.append(error_msg)
+            failures.append(SlackDeliveryFailure(message=error_msg, retryable=True))
 
-    return errors
+    return failures
 
 
 def deliver_report(report_id: str, report_run_id: str) -> None:
@@ -454,6 +493,8 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
     Raises RuntimeError after persisting FAILED status if ALL delivery targets
     fail, so the Temporal activity surfaces the failure and the retry policy
     kicks in. Partial failures return normally (with delivery_status=partial_failure).
+    If every failure is a Slack configuration error, it also returns normally,
+    because a retry cannot fix it and the run already shows the errors.
     """
     from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
 
@@ -479,12 +520,12 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
         all_errors.extend(email_errors)
 
     slack_targets = [t for t in targets if t.get("type") == "slack"]
-    slack_errors: list[str] = []
+    slack_failures: list[SlackDeliveryFailure] = []
     if slack_targets:
-        slack_errors = deliver_slack_report(
+        slack_failures = deliver_slack_report(
             report_run, slack_targets, evaluation_name, team_id, project_id, period_start, period_end
         )
-        all_errors.extend(slack_errors)
+        all_errors.extend(failure.message for failure in slack_failures)
 
     had_any_target = bool(email_targets or slack_targets)
     # Each email target may contain multiple comma-separated addresses, and deliver_email_report
@@ -502,9 +543,9 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
         increment_delivery("email", "delivered")
     for _ in range(len(email_errors)):
         increment_delivery("email", "failed")
-    for _ in range(slack_attempts - len(slack_errors)):
+    for _ in range(slack_attempts - len(slack_failures)):
         increment_delivery("slack", "delivered")
-    for _ in range(len(slack_errors)):
+    for _ in range(len(slack_failures)):
         increment_delivery("slack", "failed")
 
     if not had_any_target:
@@ -530,6 +571,7 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
         error_count=len(all_errors),
     )
 
-    if all_failed:
+    retryable = bool(email_errors) or any(failure.retryable for failure in slack_failures)
+    if all_failed and retryable:
         # Raise so the Temporal activity fails and retries fire per DELIVER_RETRY_POLICY.
         raise RuntimeError(f"All delivery targets failed for report run {report_run_id}: {'; '.join(all_errors)}")
