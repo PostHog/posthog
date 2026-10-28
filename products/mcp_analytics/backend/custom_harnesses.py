@@ -1,9 +1,14 @@
 from django.core.cache import cache
 
+import structlog
+
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 
 from products.mcp_analytics.backend.facade.contracts import CustomHarnessRule
 from products.mcp_analytics.backend.models import MCPCustomHarness
+
+logger = structlog.get_logger(__name__)
 
 CUSTOM_HARNESS_RULES_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
 
@@ -24,11 +29,22 @@ def _rule_pairs_from_db(team_id: int) -> RulePairs:
 
 def custom_harness_rules(team: Team) -> tuple[CustomHarnessRule, ...]:
     team_id = _canonical_team_id(team)
-    pairs: RulePairs | None = cache.get(_cache_key(team_id))
+    pairs: RulePairs | None = None
+    try:
+        pairs = cache.get(_cache_key(team_id))
+    except Exception as error:
+        # This cache is read on every HogQL database build, so a Redis outage must not
+        # take down unrelated queries. Postgres is the fallback of record.
+        logger.exception("mcp_analytics.custom_harness_rules_cache_get_failed", team_id=team_id)
+        capture_exception(error, additional_properties={"tag": "mcp_analytics_custom_harness_rules"})
     if pairs is None:
         pairs = _rule_pairs_from_db(team_id)
-        # `add` never overwrites, so a read that started before a save cannot replace the saved rules.
-        cache.add(_cache_key(team_id), pairs, CUSTOM_HARNESS_RULES_CACHE_TTL_SECONDS)
+        try:
+            # `add` never overwrites, so a read that started before a save cannot replace the saved rules.
+            cache.add(_cache_key(team_id), pairs, CUSTOM_HARNESS_RULES_CACHE_TTL_SECONDS)
+        except Exception as error:
+            logger.exception("mcp_analytics.custom_harness_rules_cache_add_failed", team_id=team_id)
+            capture_exception(error, additional_properties={"tag": "mcp_analytics_custom_harness_rules"})
     return tuple(CustomHarnessRule(name=name, pattern=pattern) for name, pattern in pairs)
 
 
