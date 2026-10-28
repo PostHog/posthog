@@ -72,7 +72,7 @@ export function ExplainChartView({
     evidenceCharts,
 }: ExplainChartViewProps): ReactElement {
     const pages = useMemo(() => buildStoryPages(data, formatValue), [data, formatValue])
-    // With one chapter, a summary page and steps add nothing, so the walkthrough is that chapter alone.
+    // With one chapter, a summary page and steps add nothing, so the explanation is that chapter alone.
     const singleChapter = pages.length === 2
     const [activeIndex, setActiveIndex] = useState(singleChapter ? 1 : 0)
     const [previewIndex, setPreviewIndex] = useState<number | null>(null)
@@ -138,7 +138,7 @@ export function ExplainChartView({
                                     data-attr="explain-chart-evidence-back"
                                 >
                                     <ArrowLeft className="size-3" />
-                                    Back to the walkthrough
+                                    Back to the explanation
                                 </Button>
                             </div>
                             {evidenceCharts.render(evidenceView)}
@@ -156,7 +156,7 @@ export function ExplainChartView({
                 </div>
                 <aside
                     className="relative shrink-0 border-t border-border @3xl/story:w-80 @3xl/story:border-t-0 @3xl/story:border-l"
-                    aria-label="Walkthrough of this chart"
+                    aria-label="Explanation of this chart"
                 >
                     {/* Beside the chart, the panel takes the chart's height and the page scrolls inside it. */}
                     <div className="flex flex-col @3xl/story:absolute @3xl/story:inset-0">

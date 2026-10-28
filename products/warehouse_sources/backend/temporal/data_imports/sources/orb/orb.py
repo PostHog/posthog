@@ -158,7 +158,10 @@ def orb_source(
             job_id=job_id,
             db_incremental_field_last_value=None,
             parent_endpoint_extra={"data_selector": "data"},
-            child_endpoint_extra={"data_selector": "data"},
+            child_endpoint_extra={"data_selector": "data"}
+            if cfg.paginated
+            else {"data_selector": "data", "paginator": "single_page"},
+            page_size_param="limit" if cfg.paginated else None,
             resume_hook=save_fanout_checkpoint,
             initial_paginator_state=resume.fanout_state if resume else None,
         )
