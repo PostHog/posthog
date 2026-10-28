@@ -2254,6 +2254,20 @@ class SignalReportListSerializer(SignalReportSerializer):
         return inbox_merge_key(score, getattr(obj, "priority_sort_rank", None))
 
 
+class SignalReportSectionCountsSerializer(serializers.Serializer):
+    review_and_merge = serializers.IntegerField(
+        help_text="Ready reports with an implementation pull request, for the review and merge section."
+    )
+    needs_pr = serializers.IntegerField(
+        help_text=(
+            "Ready or pending-input reports that are immediately actionable or need human input, "
+            "and have no implementation pull request."
+        )
+    )
+    resolved = serializers.IntegerField(help_text="Resolved reports.")
+    dismissed = serializers.IntegerField(help_text="Dismissed (suppressed) reports.")
+
+
 class SignalReportListQuerySerializer(serializers.Serializer):
     count_only = serializers.BooleanField(
         required=False,

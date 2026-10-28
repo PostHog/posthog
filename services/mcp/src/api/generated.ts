@@ -110508,6 +110508,17 @@ export namespace Schemas {
       report_id: string;
     }
 
+    export interface SignalReportSectionCounts {
+      /** Ready reports with an implementation pull request, for the review and merge section. */
+      review_and_merge: number;
+      /** Ready or pending-input reports that are immediately actionable or need human input, and have no implementation pull request. */
+      needs_pr: number;
+      /** Resolved reports. */
+      resolved: number;
+      /** Dismissed (suppressed) reports. */
+      dismissed: number;
+    }
+
     export interface SignalReportSourceMetadata {
       /** Report id. */
       readonly id: string;
@@ -140282,6 +140293,17 @@ export namespace Schemas {
      * Comma-separated report UUIDs to resolve CI state for, at most 100 per request.
      */
     report_ids: string;
+    };
+
+    export type SignalsReportsSectionCountsRetrieveParams = {
+    /**
+     * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
+     */
+    priority?: string;
+    /**
+     * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
+     */
+    suggested_reviewers?: string;
     };
 
     export type SignalsScoutConfigListParams = {

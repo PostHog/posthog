@@ -268,6 +268,7 @@ from products.signals.backend.serializers import (
     SignalReportMetricRefreshResponseSerializer,
     SignalReportPriorityUpdateSerializer,
     SignalReportRefundSerializer,
+    SignalReportSectionCountsSerializer,
     SignalReportSerializer,
     SignalReportSourceMetadataRequestSerializer,
     SignalReportSourceMetadataResponseSerializer,
@@ -1238,6 +1239,30 @@ class SignalReportListPagination(LimitOffsetPagination):
         return paginated
 
 
+_SUGGESTED_REVIEWERS_PARAMETER = OpenApiParameter(
+    name="suggested_reviewers",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description=(
+        "Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers "
+        "include any of the given users."
+    ),
+)
+_PRIORITY_PARAMETER = OpenApiParameter(
+    name="priority",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description=(
+        "Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. "
+        "Reports without a priority assignment are excluded when this filter is set."
+    ),
+)
+# Each inbox section sets these itself, so a section count request must not narrow them.
+_SECTION_DEFINING_PARAMETERS = ("status", "actionability", "has_implementation_pr", "include_all_statuses", "view")
+
+
 @extend_schema_view(
     destroy=extend_schema(
         summary="Delete a signal report",
@@ -1331,6 +1356,47 @@ class SignalReportViewSet(
             RankingOutcomesResponseSerializer({"status": status_value.value, "model": model, "outcomes": outcomes}).data
         )
 
+    @extend_schema(
+        description=(
+            "Count the reports in each inbox section with one query. Accepts the list's other filter "
+            "parameters, such as `priority` and `suggested_reviewers`. Each section sets its own status, "
+            "actionability and implementation PR condition, so those list parameters are rejected."
+        ),
+        parameters=[_PRIORITY_PARAMETER, _SUGGESTED_REVIEWERS_PARAMETER],
+        responses=SignalReportSectionCountsSerializer,
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    @tracer.start_as_current_span("signals.reports.section_counts")
+    def section_counts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        rejected = sorted(name for name in _SECTION_DEFINING_PARAMETERS if name in request.query_params)
+        if rejected:
+            raise serializers.ValidationError(
+                dict.fromkeys(rejected, "Each section sets this condition, so section counts do not accept it.")
+            )
+        trace.get_current_span().set_attribute("signals.reports.list.cached_filters", self._inbox_cached_filters)
+        has_pr = self._implementation_pr_report_filter()
+        counts = (
+            self.filter_queryset(self.get_queryset())
+            .order_by()
+            .aggregate(
+                review_and_merge=Count("id", filter=Q(status=SignalReport.Status.READY) & has_pr),
+                needs_pr=Count(
+                    "id",
+                    filter=Q(
+                        status__in=[SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT],
+                        latest_actionability__in=[
+                            ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
+                            ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
+                        ],
+                    )
+                    & ~has_pr,
+                ),
+                resolved=Count("id", filter=Q(status__in=sorted(self._resolved_read_statuses()))),
+                dismissed=Count("id", filter=Q(status=SignalReport.Status.SUPPRESSED)),
+            )
+        )
+        return Response(SignalReportSectionCountsSerializer(counts).data)
+
     @extend_schema(request=ReportReadStateRequestSerializer, responses=ReportReadStateResponseSerializer)
     @action(detail=False, methods=["post"], required_scopes=["task:read"])
     def read_state(self, request, **kwargs):
@@ -1422,7 +1488,7 @@ class SignalReportViewSet(
             qs = self._annotate_signal_report_ranking(qs)
             qs = self._apply_signal_report_ranking_filters(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
-        if self.action != "bulk_state":
+        if self.action not in {"bulk_state", "section_counts"}:
             # `bulk_state` answers with one outcome per id, never a serialized report, and the list
             # ordering that reads this value does not apply to it either.
             qs = self._annotate_is_suggested_reviewer(qs)
@@ -1488,7 +1554,7 @@ class SignalReportViewSet(
     }
 
     # Actions that work on many reports at once, so per-row annotations are wasted work there.
-    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state"})
+    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state", "section_counts"})
 
     # Actions allowed to resolve a suppressed report by ID even without an explicit
     # `status` filter. These are the read/reopen paths the inbox's Dismissed tab needs:
@@ -1589,6 +1655,9 @@ class SignalReportViewSet(
         # List-only: the flag widens the *list* for full-inbox-state scans (agent dedup). By-ID
         # actions ignore it entirely, so mutating actions like delete/reingest keep their existing
         # contract of 404ing on suppressed reports.
+        if self.action == "section_counts":
+            # The sections split reports by status themselves, dismissed ones included.
+            return True
         if self.action != "list":
             return False
         return self._bool_query_param("include_all_statuses") is True
@@ -1607,7 +1676,7 @@ class SignalReportViewSet(
 
     def _apply_signal_report_listed_filter(self, queryset):
         # List-only: a report a scout kept out of the inbox stays reachable by id and by its other actions.
-        if self.action != "list" or self._bool_query_param("include_unlisted") is True:
+        if self.action not in {"list", "section_counts"} or self._bool_query_param("include_unlisted") is True:
             return queryset
         return queryset.filter(inbox_hidden_report_filter(self.team_id))
 
@@ -2602,16 +2671,7 @@ class SignalReportViewSet(
                     "Combines with the other filters as an AND."
                 ),
             ),
-            OpenApiParameter(
-                name="suggested_reviewers",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers "
-                    "include any of the given users."
-                ),
-            ),
+            _SUGGESTED_REVIEWERS_PARAMETER,
             OpenApiParameter(
                 name="actionability",
                 type=OpenApiTypes.STR,
@@ -2663,16 +2723,7 @@ class SignalReportViewSet(
                 required=False,
                 description="PostHog user UUID used when scope=teammate.",
             ),
-            OpenApiParameter(
-                name="priority",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. "
-                    "Reports without a priority assignment are excluded when this filter is set."
-                ),
-            ),
+            _PRIORITY_PARAMETER,
             OpenApiParameter(
                 name="use_priority_preference",
                 type=OpenApiTypes.BOOL,
