@@ -1,9 +1,16 @@
 export type StoryConfidence = 'high' | 'medium' | 'low'
 
+export interface StoryEvidenceChart {
+    type: 'line' | 'bar'
+    labels: string[]
+    series: { name: string; values: number[] }[]
+}
+
 export interface StoryEvidence {
     text: string
     url: string | null
     query?: Record<string, unknown> | null
+    chart?: StoryEvidenceChart | null
 }
 
 export interface StoryChapter {

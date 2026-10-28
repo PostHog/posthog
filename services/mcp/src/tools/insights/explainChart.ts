@@ -176,6 +176,7 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
                 text: item.text,
                 url: item.query ? `${baseUrl}${newInsightPath(item.query)}` : (item.url ?? null),
                 query: item.query && redrawSchema.safeParse(item.query).success ? item.query : null,
+                chart: item.chart ?? null,
             })),
         }
     })
