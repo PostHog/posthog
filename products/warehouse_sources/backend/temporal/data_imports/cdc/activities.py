@@ -395,10 +395,10 @@ class CDCExtractActivity:
             if not enriched_table.num_rows:
                 continue
 
-            # Without the engine position, writing would name, order, and clean up files by
-            # customer data — cleanup can then delete unconsumed files (see errors.py).
+            # The batcher refuses a source column of this name, so only a capture bug gets here. Writing
+            # without the engine position could make cleanup delete unconsumed files (see errors.py).
             if not has_engine_seq(enriched_table):
-                raise CDCReservedColumnError(f"Table {table_name} reached the buffer without the engine position")
+                raise RuntimeError(f"Table {table_name} reached the buffer without the engine position")
             self._write_buffer_file(schema, table_name, enriched_table)
 
         if events_extracted:

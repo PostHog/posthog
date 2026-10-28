@@ -4599,6 +4599,7 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         [
             (
                 "turning_history_on_over_a_synced_column_is_refused",
+                "valid_to",
                 "consolidated",
                 None,
                 {"cdc_table_mode": "both"},
@@ -4606,6 +4607,7 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
             ),
             (
                 "turning_history_on_over_a_column_left_out_is_allowed",
+                "valid_to",
                 "consolidated",
                 ["id"],
                 {"cdc_table_mode": "both"},
@@ -4613,17 +4615,43 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
             ),
             (
                 "adding_the_column_to_enabled_columns_is_refused",
+                "valid_to",
                 "both",
                 ["id"],
                 {"enabled_columns": ["id", "valid_to"]},
                 True,
             ),
-            ("editing_a_table_that_already_syncs_it_is_allowed", "both", None, {"enabled_columns": None}, False),
+            (
+                "editing_a_table_that_already_syncs_it_is_allowed",
+                "valid_to",
+                "both",
+                None,
+                {"enabled_columns": None},
+                False,
+            ),
+            # Capture columns are refused on every CDC table, history or not.
+            (
+                "adding_a_capture_column_to_enabled_columns_is_refused",
+                "_PH_DELETED",
+                "consolidated",
+                ["id"],
+                {"enabled_columns": ["id", "_PH_DELETED"]},
+                True,
+            ),
+            (
+                "editing_a_table_that_already_syncs_a_capture_column_is_allowed",
+                "_PH_DELETED",
+                "consolidated",
+                None,
+                {"enabled_columns": None},
+                False,
+            ),
         ]
     )
-    def test_patch_checks_the_validity_columns_the_history_table_receives(
+    def test_patch_checks_the_columns_a_cdc_sync_writes(
         self,
         _name: str,
+        column: str,
         initial_mode: str,
         initial_enabled_columns: list[str] | None,
         request_body: dict,
@@ -4634,7 +4662,7 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         )
 
         self.schema.sync_type_config["cdc_table_mode"] = initial_mode
-        self.schema.sync_type_config["schema_metadata"] = {"columns": [{"name": "id"}, {"name": "valid_to"}]}
+        self.schema.sync_type_config["schema_metadata"] = {"columns": [{"name": "id"}, {"name": column}]}
         self.schema.enabled_columns = initial_enabled_columns
         self.schema.save()
 
@@ -4650,7 +4678,7 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         ):
             serializer.is_valid(raise_exception=True)
             if refused:
-                with pytest.raises(ValidationError, match="valid_to"):
+                with pytest.raises(ValidationError, match=column):
                     serializer.save()
             else:
                 serializer.save()
@@ -4659,54 +4687,6 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         assert self.schema.cdc_table_mode == (
             initial_mode if refused else request_body.get("cdc_table_mode", initial_mode)
         )
-        assert self.schema.enabled_columns == (
-            initial_enabled_columns if refused else request_body.get("enabled_columns", initial_enabled_columns)
-        )
-
-    @parameterized.expand(
-        [
-            (
-                "adding_the_column_to_enabled_columns_is_refused",
-                ["id"],
-                {"enabled_columns": ["id", "_PH_DELETED"]},
-                True,
-            ),
-            ("editing_a_table_that_already_syncs_it_is_allowed", None, {"enabled_columns": None}, False),
-        ]
-    )
-    def test_patch_checks_the_capture_columns_of_a_cdc_table(
-        self,
-        _name: str,
-        initial_enabled_columns: list[str] | None,
-        request_body: dict,
-        refused: bool,
-    ):
-        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
-            ExternalDataSchemaSerializer,
-        )
-
-        self.schema.sync_type_config["schema_metadata"] = {"columns": [{"name": "id"}, {"name": "_PH_DELETED"}]}
-        self.schema.enabled_columns = initial_enabled_columns
-        self.schema.save()
-
-        serializer = ExternalDataSchemaSerializer(
-            self.schema,
-            data=request_body,
-            partial=True,
-            context={"team_id": self.team.pk, "post_commit_actions": []},
-        )
-        with mock.patch(
-            "products.warehouse_sources.backend.presentation.views.external_data_schema.is_any_external_data_schema_paused",
-            return_value=False,
-        ):
-            serializer.is_valid(raise_exception=True)
-            if refused:
-                with pytest.raises(ValidationError, match="_PH_DELETED"):
-                    serializer.save()
-            else:
-                serializer.save()
-
-        self.schema.refresh_from_db()
         assert self.schema.enabled_columns == (
             initial_enabled_columns if refused else request_body.get("enabled_columns", initial_enabled_columns)
         )
