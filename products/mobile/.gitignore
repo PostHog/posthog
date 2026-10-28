@@ -22,3 +22,5 @@ google-services.json
 
 # Copied from canvaskit-wasm by `pnpm web` (setup-skia-web); Expo web serves it from the site root.
 public/canvaskit.wasm
+
+!/releases/ota-certificate.pem
