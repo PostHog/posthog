@@ -1,3 +1,4 @@
+import urllib.parse
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -9,9 +10,11 @@ from unittest.mock import MagicMock, patch
 from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot import (
+    PROPERTY_LENGTH_LIMIT,
     HubspotResumeConfig,
     _backfill_associations_into_results,
     _batch_read_associations,
+    _get_properties_str,
     _iso_to_ms,
     _resolve_search_properties,
     get_rows_via_search,
@@ -151,6 +154,31 @@ class TestResolveSearchProperties:
         assert "not_real" not in props
         assert "amount" in props
         logger.warning.assert_called()
+
+
+class TestGetPropertiesStr:
+    def test_truncates_with_headroom_below_hubspots_url_ceiling(self) -> None:
+        # Regression: HubSpot's own paginated `next` link re-serializes `associations` as
+        # repeated query keys instead of the compact comma-joined form the initial request
+        # sends, adding bytes on a resumed page. A cap that only just fit the initial URL (the
+        # old 16_000) left no room for that and produced a production 431 (Request Header
+        # Fields Too Large). The properties value alone must leave real headroom, not just stay
+        # under HubSpot's ~16_300-char ceiling.
+        many_props = [f"custom_property_name_{i}" for i in range(2000)]
+        logger = MagicMock()
+
+        props_str = _get_properties_str(
+            props=many_props,
+            api_key="k",
+            refresh_token="r",
+            object_type="contact",
+            logger=logger,
+            include_custom_props=False,
+        )
+
+        assert len(urllib.parse.quote(props_str)) <= 12_000
+        assert len(props_str.split(",")) < len(many_props)
+        logger.warning.assert_called_once()
 
 
 class TestBatchReadAssociations:
@@ -722,10 +750,19 @@ class TestGetRowsFullRefresh:
         assert len(captured_urls) == 2
         assert captured_urls[1] == "https://api.hubapi.com/page2"
 
-    def test_resume_from_next_url(self) -> None:
+    def test_resume_replaces_oversized_properties_but_keeps_cursor(self) -> None:
+        # Regression: a URL saved by an older sync (or before a PROPERTY_LENGTH_LIMIT reduction)
+        # can carry a `properties` value too large for the current cap. HubSpot's 431 doesn't
+        # care when the URL was built, only how large it is now, so resuming must rebuild the
+        # properties query rather than replaying the saved one verbatim — while still resuming
+        # from (not restarting past) HubSpot's opaque pagination cursor.
         from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot import get_rows
 
-        resume = HubspotResumeConfig(next_url="https://api.hubapi.com/resume-here")
+        oversized_properties = ",".join(f"custom_property_name_{i}" for i in range(2000))
+        stale_url = (
+            f"https://api.hubapi.com/crm/v3/objects/deals?properties={oversized_properties}&limit=100&after=NTI1cGFnZTI"
+        )
+        resume = HubspotResumeConfig(next_url=stale_url)
         manager = _make_manager(can_resume=True, resume_state=resume)
         logger = MagicMock()
 
@@ -751,7 +788,11 @@ class TestGetRowsFullRefresh:
                 )
             )
 
-        assert captured_urls[0] == "https://api.hubapi.com/resume-here"
+        requested_url = captured_urls[0]
+        assert "after=NTI1cGFnZTI" in requested_url
+        properties_value = requested_url.split("properties=")[1].split("&")[0]
+        assert properties_value != oversized_properties
+        assert len(urllib.parse.quote(properties_value)) <= PROPERTY_LENGTH_LIMIT
 
     def test_truncated_json_body_is_retried(self) -> None:
         # Regression: a truncated/partial page body raises requests' JSONDecodeError
