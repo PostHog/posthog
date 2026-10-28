@@ -351,7 +351,7 @@ def add_event_name_drop(teams: Sequence[Team], event_name: str, created_by: "Use
                     f"The event filter{where} is {state}. Make it live or remove its conditions, then try again."
                 )
 
-            filter_tree = prune_filter_tree(with_event_name_drop(config.filter_tree, event_name))
+            filter_tree = with_event_name_drop(config.filter_tree, event_name)
             if _count_conditions(filter_tree) > MAX_CONDITIONS:
                 raise ValidationError(
                     f"The event filter{where} already has the maximum of {MAX_CONDITIONS} conditions."
