@@ -622,8 +622,8 @@ class CDCExtractActivity:
 
         for schema in self.cdc_schemas:
             if is_history_table_mode(schema.cdc_table_mode):
-                # A taken name fails this table's own import. Capture only needs the names to refuse, and
-                # a name is only taken when the table would get the new naming.
+                # A taken name fails this table's own import. Capture then refuses only the names every
+                # history table reserves, so the source's other tables keep syncing.
                 self.history_naming_by_table[schema.name] = history_naming_unless_taken(schema) or HISTORY_NAMING
             enabled = schema.enabled_columns
             # `None` = sync all; `[]` = retain PKs + incremental only. Match the

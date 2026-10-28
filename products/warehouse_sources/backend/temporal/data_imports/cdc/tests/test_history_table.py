@@ -87,10 +87,14 @@ class TestHistoryNaming(BaseTest):
 
         assert history_naming(self.schema) == HISTORY_NAMING
 
-    def test_new_history_names_taken_compares_the_payload_of_a_new_source(self) -> None:
-        assert new_history_names_taken(self.source, ["orders", "items"], ["orders", "orders_history", "items"]) == [
-            "orders"
-        ]
+    @parameterized.expand([("new_naming", True, "orders_history"), ("legacy_naming", False, "orders_cdc")])
+    def test_new_history_names_taken_compares_the_payload_of_a_new_source(
+        self, _name: str, ph_naming: bool, sibling: str
+    ) -> None:
+        with override_settings(DATA_WAREHOUSE_PH_HISTORY_NAMING=ph_naming):
+            taken = new_history_names_taken(self.source, ["orders", "items"], ["orders", sibling, "items"])
+
+        assert taken == ["orders"]
 
     def test_a_sibling_source_table_named_like_the_legacy_table_is_not_its_history(self) -> None:
         sibling = ExternalDataSchema.objects.create(name="orders_cdc", team=self.team, source=self.source)

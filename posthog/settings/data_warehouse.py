@@ -233,7 +233,9 @@ DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES: int | None = get_from_
 
 # New history tables are named `<table>_history` with `_ph_valid_from` / `_ph_valid_to`. Stays off until every
 # loader reads the validity names from the batch: a loader on an older release appends such a batch without
-# closing the open versions.
+# closing the open versions. The API and the CDC workers each read it, so set the same value on all of them.
+# Do not turn it off again: a history table enabled while it was on and not yet registered would get the
+# legacy naming, which can refuse a source `valid_from` the API already accepted.
 DATA_WAREHOUSE_PH_HISTORY_NAMING: bool = get_from_env("DATA_WAREHOUSE_PH_HISTORY_NAMING", False, type_cast=str_to_bool)
 
 GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL")
