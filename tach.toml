@@ -648,6 +648,8 @@ path = "products.mcp_analytics"
 depends_on = [
     "posthog",
     "products.dashboards", "products.access_control",
+    # Interface-only: intent topics read the embedding model tables that error_tracking declares.
+    "products.error_tracking",
 ]
 layer = "modules"
 

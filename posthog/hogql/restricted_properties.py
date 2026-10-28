@@ -7,6 +7,7 @@ from posthog.hogql.constants import FEATURE_FLAG_PROPERTY_PREFIX
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN, AiEventsTable
+from posthog.hogql.database.schema.document_embeddings import ModelSpecificEmbeddingTable, RawDocumentEmbeddingsTable
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
@@ -15,6 +16,7 @@ from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN, UNPARSEABLE_PROPERTIES_KEY
 from posthog.constants import GROUP_TYPES_LIMIT
+from posthog.dataclasses import frozen
 
 logger = structlog.get_logger(__name__)
 
@@ -54,6 +56,21 @@ _AI_EVENTS_MIRRORED_COLUMNS = {column: property_name for property_name, column i
 _MCP_INTENT_ASSIGNMENTS_MIRRORED_COLUMNS = {"intent_text": "$mcp_intent", "intent_hash": "$mcp_intent"}
 
 
+# The same pipeline embeds each `$mcp_intent` value into the shared embedding tables, with the text in `content`,
+# the hash in `document_id` and the vector in `embedding`. A vector of a public model confirms a guessed text as well
+# as the hash does. Other products share those columns, so only the rows of the copied property mask.
+@frozen
+class EmbeddedDocumentKind:
+    product: str
+    document_type: str
+
+
+_EMBEDDED_PROPERTY_DOCUMENTS: dict[str, EmbeddedDocumentKind] = {
+    "$mcp_intent": EmbeddedDocumentKind(product="mcp_analytics", document_type="mcp-intent")
+}
+_EMBEDDING_MIRRORED_COLUMNS = frozenset({"content", "document_id", "embedding"})
+
+
 def mirrored_property_for_column(table_type: ast.Type, column_name: str, context: HogQLContext) -> str | None:
     """The event property a typed column copies verbatim, or None when the column copies nothing.
 
@@ -87,6 +104,26 @@ def mirrored_column_is_restricted(table_type: ast.Type, column_name: str, contex
     return source_property is not None and source_property in restricted_property_keys_for_table_type(
         table_type, context
     )
+
+
+def restricted_embedding_documents(
+    table_type: ast.Type, column_name: str, context: HogQLContext
+) -> list[EmbeddedDocumentKind]:
+    """The document kinds whose rows read as masked in this stored embedding column, or an empty list.
+
+    `column_name` is the stored column name, not the name a column alias gives it in the query.
+    """
+    if column_name not in _EMBEDDING_MIRRORED_COLUMNS or not isinstance(table_type, ast.BaseTableType):
+        return []
+    try:
+        table = table_type.resolve_database_table(context)
+    except Exception:
+        logger.warning("embedding_table_resolution_failed", table_type=type(table_type).__name__)
+        return []
+    if not isinstance(table, ModelSpecificEmbeddingTable | RawDocumentEmbeddingsTable):
+        return []
+    restricted = restricted_property_keys_for_table_type(table_type, context)
+    return [document for source, document in sorted(_EMBEDDED_PROPERTY_DOCUMENTS.items()) if source in restricted]
 
 
 def restricted_feature_flag_names(keys: Iterable[str]) -> list[str]:
@@ -133,7 +170,13 @@ def restricted_property_keys_for_table_type(
         group_type_index = table.group_index
     elif isinstance(
         table,
-        EventsTable | FlagEvaluationsTable | AiEventsTable | MCPIntentAssignmentsTable | RawMCPIntentAssignmentsTable,
+        EventsTable
+        | FlagEvaluationsTable
+        | AiEventsTable
+        | MCPIntentAssignmentsTable
+        | RawMCPIntentAssignmentsTable
+        | ModelSpecificEmbeddingTable
+        | RawDocumentEmbeddingsTable,
     ):
         prop_def_type = PropertyDefinition.Type.EVENT
     elif isinstance(table, (PersonsTable, RawPersonsTable)):

@@ -43,9 +43,11 @@ from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
 from posthog.hogql.restricted_properties import (
+    EmbeddedDocumentKind,
     mirrored_column_is_restricted,
     mirrored_property_for_column,
     native_property_path_overlaps_restriction,
+    restricted_embedding_documents,
     restricted_feature_flag_names,
     restricted_property_keys_for_table_type,
 )
@@ -1304,7 +1306,73 @@ class ClickHousePropertyResolver(CloningVisitor):
             and (masked := self._masked_mirrored_column(node.type)) is not None
         ):
             return masked
+        if self.context.restricted_properties and isinstance(node.type, ast.FieldType):
+            resolved_field = node.type.resolve_database_field(self.context)
+            if isinstance(resolved_field, DatabaseField):
+                documents = restricted_embedding_documents(node.type.table_type, resolved_field.name, self.context)
+                if documents:
+                    return self._masked_embedding_rows(node, node.type, resolved_field, documents)
         return super().visit_field(node)
+
+    def _masked_embedding_rows(
+        self,
+        node: ast.Field,
+        field_type: ast.FieldType,
+        resolved_field: DatabaseField,
+        documents: list[EmbeddedDocumentKind],
+    ) -> ast.Expr:
+        """The column read as masked on rows of a restricted property's documents, and as stored on every other row.
+
+        An array column reads as an empty array, which array functions accept. When a column alias hides the stored
+        `product` or `document_type` column, no row can be told apart, so every row reads as masked.
+        """
+        constant_type = resolved_field.get_constant_type()
+        masked: ast.Expr = (
+            ast.Array(exprs=[], type=replace(constant_type, nullable=False))
+            if isinstance(constant_type, ast.ArrayType)
+            else ast.Constant(value=None, type=ast.StringType(nullable=True))
+        )
+
+        def column(stored_name: str) -> ast.Field | None:
+            visible_name: str | None = stored_name
+            if isinstance(field_type.table_type, ast.ColumnAliasedTableType):
+                visible_name = next(
+                    (
+                        alias
+                        for alias, original in field_type.table_type.alias_to_original.items()
+                        if original == stored_name
+                    ),
+                    None,
+                )
+            if visible_name is None:
+                return None
+            return ast.Field(
+                chain=[visible_name], type=ast.FieldType(name=visible_name, table_type=field_type.table_type)
+            )
+
+        product, document_type = column("product"), column("document_type")
+        if product is None or document_type is None:
+            return masked
+        is_restricted_row = ast.Or(
+            exprs=[
+                ast.And(
+                    exprs=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=clone_expr(product),
+                            right=ast.Constant(value=document.product),
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=clone_expr(document_type),
+                            right=ast.Constant(value=document.document_type),
+                        ),
+                    ]
+                )
+                for document in documents
+            ]
+        )
+        return ast.Call(name="if", args=[is_restricted_row, masked, super().visit_field(node)])
 
     def _masked_mirrored_column(self, field_type: ast.FieldType) -> ast.Constant | None:
         """The NULL constant a restricted mirror column reads as, or None if it is unrestricted.

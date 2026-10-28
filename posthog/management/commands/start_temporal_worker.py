@@ -101,6 +101,10 @@ from posthog.temporal.mcp_analytics.intent_clustering import (
     MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
     MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
 )
+from posthog.temporal.mcp_analytics.intent_topics import (
+    MCP_ANALYTICS_INTENT_TOPICS_ACTIVITIES,
+    MCP_ANALYTICS_INTENT_TOPICS_WORKFLOWS,
+)
 from posthog.temporal.proxy_service import (
     ACTIVITIES as PROXY_SERVICE_ACTIVITIES,
     WORKFLOWS as PROXY_SERVICE_WORKFLOWS,
@@ -614,8 +618,8 @@ _task_queue_specs = [
         # defaultdict merge below folds these into the general-purpose
         # registration; the env override routes them to a dedicated worker.
         settings.MCPA_TASK_QUEUE,
-        MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
-        MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
+        [*MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS, *MCP_ANALYTICS_INTENT_TOPICS_WORKFLOWS],
+        [*MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES, *MCP_ANALYTICS_INTENT_TOPICS_ACTIVITIES],
     ),
     (
         settings.ERROR_TRACKING_TASK_QUEUE,

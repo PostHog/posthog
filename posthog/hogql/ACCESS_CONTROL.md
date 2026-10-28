@@ -231,6 +231,10 @@ Several catalog tables expose such columns because reading them scans far less d
 `intent_text` on `posthog.mcp_intent_assignments` and `posthog.raw_mcp_intent_assignments` holds a truncated copy of `$mcp_intent` and masks the same way.
 `intent_hash` on both tables masks with it, because it is the unsalted sha256 of the full text, so a reader could confirm a guessed text by comparing hashes.
 When `intent_hash` is masked, `posthog.mcp_intent_assignments` returns no rows, because it picks one row per hash and a NULL hash would merge every intent into one row.
+The intent pipeline also embeds each `$mcp_intent` value into the shared embedding tables (`document_embeddings`, `raw_document_embeddings` and the per-model tables), with the text in `content`, the hash in `document_id` and the vector in `embedding`.
+Other products share those columns, so `restricted_embedding_documents()` masks them per row: on a row with `product = 'mcp_analytics'` and `document_type = 'mcp-intent'`, `content` and `document_id` read as NULL and `embedding` reads as an empty array, and every other row reads as stored.
+The check uses the stored column name, so a column alias such as `FROM raw_document_embeddings AS e(document_type, product)` cannot rename a column out of the mask. When an alias hides the stored `product` or `document_type` column, every row reads as masked.
+The pipeline copies no other event property into the embedding `metadata`.
 The mapping is keyed by the stored column name, not the HogQL field name, so an expression field that reads a mirror column masks too: `flag_evaluations.response` reads the stored `response` column through `nullIf`, and the hidden `flag_evaluation_response` reads it bare, and both mask.
 For AI columns, `AI_PROPERTY_TO_COLUMN` in `posthog/hogql/database/schema/ai_events.py` is shared with the query rewriter.
 One rule for `$ai_input` masks both `events.properties.$ai_input` and `ai_events.input`, including nested reads such as `input[1].content`.

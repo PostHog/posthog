@@ -60,6 +60,7 @@ from posthog.temporal.health_checks.schedule import create_health_check_schedule
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
 from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
 from posthog.temporal.mcp_analytics.intent_clustering.schedule import create_intent_clustering_coordinator_schedule
+from posthog.temporal.mcp_analytics.intent_topics.schedule import create_intent_topics_schedules
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.salesforce_enrichment.conversations_slack_workflow import ConversationsSlackEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.stripe_workflow import StripeEnrichmentInputs
@@ -971,6 +972,7 @@ schedules = [
     create_replay_count_metrics_schedule,
     create_weekly_digest_schedule,
     create_intent_clustering_coordinator_schedule,
+    create_intent_topics_schedules,
     create_eval_reports_schedule,
     create_count_trigger_schedule,
     create_evaluation_sampler_schedule,
