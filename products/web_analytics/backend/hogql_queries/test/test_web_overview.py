@@ -875,8 +875,10 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
         builder = WebOverviewPreAggregatedQueryBuilder(runner)
         period_filters = builder.get_date_ranges()
 
-        lower_bound = period_filters.current_period.exprs[0].right.value
-        assert lower_bound == datetime(2023, 11, 1, 12, tzinfo=UTC)
+        assert isinstance(period_filters.current_period, ast.And)
+        lower_bound = period_filters.current_period.exprs[0]
+        assert isinstance(lower_bound, ast.CompareOperation)
+        assert lower_bound.right == ast.Constant(value=datetime(2023, 11, 1, 12, tzinfo=UTC))
 
         generated_query = builder.get_query()
         assert isinstance(generated_query.where, ast.And)
