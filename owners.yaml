@@ -153,13 +153,16 @@ rules:
           - '/posthog/test/repo_invariants/test_model_enum_defaults.py'
           - '/posthog/test/repo_invariants/test_squash_partial_fallback.py'
           - '/posthog/test/repo_invariants/test_startup_import_budget.py'
+          - '/posthog/test/repo_invariants/test_unowned_test_directories.py'
           - '/products/README.md'
           - '/products/architecture.md'
           - '/products/isolation_baseline.txt'
           - '/tools/openapi-codegen/'
       owners: team-devex
       sensitive: true
-    - match: '/products/model_crossing_uses_baseline.txt'
+    - match:
+          - '/posthog/test/repo_invariants/unowned_test_directories_baseline.txt'
+          - '/products/model_crossing_uses_baseline.txt'
       owners: team-devex
     - match: '/posthog/management/commands/find_enum_collisions.py'
       owners: team-devex
