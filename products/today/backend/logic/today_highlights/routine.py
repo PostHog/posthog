@@ -115,16 +115,33 @@ def frecency(view_days: Collection[date], today: date) -> float:
 def _frecent_metrics(
     context: Context, ranking: str, excluded: Collection[str], budget: int
 ) -> list[contracts.HighlightMetric]:
+    if budget <= 0:
+        return []
     deadline = monotonic() + BLOCKING_SECONDS
+    candidates: list[tuple[ViewedItem, contracts.HighlightMetric | None]] = []
+    available: set[str] = set()
+    for item in _candidates(context, _frecent_views(context, ranking)[:FRECENCY_CANDIDATES]):
+        shown = frozenset([*excluded, *available])
+        metric = context.guard(
+            f"frecent {item.kind} {item.ref}",
+            partial(_frecent_metric, context, item, shown, deadline, wait=False),
+            None,
+        )
+        candidates.append((item, metric))
+        if metric is not None:
+            available.add(metric.key)
+        if len(available) >= budget:
+            break
 
     metrics: list[contracts.HighlightMetric] = []
-    for item in _candidates(context, _frecent_views(context, ranking)[:FRECENCY_CANDIDATES]):
+    for item, metric in candidates:
         if len(metrics) >= budget:
             break
         shown = frozenset([*excluded, *(metric.key for metric in metrics)])
-        metric = context.guard(
-            f"frecent {item.kind} {item.ref}", partial(_frecent_metric, context, item, shown, deadline), None
-        )
+        if metric is None or metric.key in shown:
+            metric = context.guard(
+                f"frecent {item.kind} {item.ref}", partial(_frecent_metric, context, item, shown, deadline), None
+            )
         if metric is not None:
             metrics.append(metric)
     return metrics
@@ -173,7 +190,7 @@ def _popular_refs(context: Context) -> list[str]:
 
 
 def _frecent_metric(
-    context: Context, item: ViewedItem, shown: frozenset[str], deadline: float
+    context: Context, item: ViewedItem, shown: frozenset[str], deadline: float, *, wait: bool = True
 ) -> contracts.HighlightMetric | None:
     if item.kind == "insight":
         if f"insight:{item.ref}" in shown:
@@ -183,10 +200,12 @@ def _frecent_metric(
                 context,
                 item.ref,
                 reason=HighlightMetricReason.POPULAR,
-                blocking=monotonic() < deadline,
+                blocking=wait and monotonic() < deadline,
                 wait_until=deadline,
             )
-        return insight_metric(context, item.ref, viewed=item, blocking=monotonic() < deadline, wait_until=deadline)
+        return insight_metric(
+            context, item.ref, viewed=item, blocking=wait and monotonic() < deadline, wait_until=deadline
+        )
     if not item.ref.isdigit():
         return None
     dashboard = dashboard_insights(
@@ -205,7 +224,7 @@ def _frecent_metric(
                 dashboard,
                 tile,
                 viewed=item,
-                blocking=monotonic() < deadline,
+                blocking=wait and monotonic() < deadline,
                 wait_until=deadline,
             ),
             None,
