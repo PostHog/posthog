@@ -3,7 +3,7 @@ name: Update AI Costs Stale Alert
 on:
     workflow_dispatch:
     schedule:
-        - cron: '5 * * * 1-5'
+        - cron: '20 * * * 1-5'
 
 permissions:
     actions: read
