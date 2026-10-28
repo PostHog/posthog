@@ -64,7 +64,12 @@ def _get_batch_export(team_id: int, export_id: UUID, *related: str) -> BatchExpo
 def _get_integration(team_id: int, integration_id: int | None) -> Integration | None:
     if integration_id is None:
         return None
-    return Integration.objects.get(id=integration_id, team_id=team_id)
+    try:
+        return Integration.objects.get(id=integration_id, team_id=team_id)
+    except Integration.DoesNotExist as e:
+        raise contracts.InvalidBatchExportDestinationError(
+            "The integration for this destination no longer exists. Choose another integration and try again."
+        ) from e
 
 
 def _recursive_dict_merge(

@@ -666,6 +666,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
             )
         except InvalidBatchExportDestinationError as e:
             raise serializers.ValidationError(str(e))
+        except BatchExportNotFoundError:
+            raise NotFound(f"BatchExport ID '{export_id}' not found.")
 
         if destination_type == BatchExportDestinationType.WORKFLOWS:
             team_id = self.context["team_id"]
@@ -1017,7 +1019,10 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         test_step = self._parse_destination_test_step(request)
 
         batch_export = self.get_object()
-        stored_config = batch_exports_api.get_destination_test_config(batch_export.team_id, batch_export.id)
+        try:
+            stored_config = batch_exports_api.get_destination_test_config(batch_export.team_id, batch_export.id)
+        except BatchExportNotFoundError:
+            raise NotFound(f"BatchExport ID '{batch_export.id}' not found.")
 
         data = request.data
         data["destination"]["config"] = {**stored_config, **data["destination"]["config"]}
