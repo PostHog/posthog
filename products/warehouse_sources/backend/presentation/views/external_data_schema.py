@@ -1035,7 +1035,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         )
         ret["incremental_field_lookback_seconds"] = instance.incremental_field_lookback_seconds
         ret["primary_key_columns"] = instance.primary_key_columns
-        ret["cdc_table_mode"] = instance.cdc_table_mode
+        # A schema that left CDC still stores the mode it had there.
+        ret["cdc_table_mode"] = (
+            instance.cdc_table_mode
+            if instance.sync_type == ExternalDataSchema.SyncType.CDC or instance.keeps_history
+            else "consolidated"
+        )
         ret["latest_error"] = redact_schema_error(instance, self.context)
         return ret
 
@@ -2729,6 +2734,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "append_available": schema.supports_append,
             "cdc_available": cdc_available,
             "xmin_available": xmin_available,
+            "incremental_history_available": is_incremental_history_enabled_for_team(self.team),
             "full_refresh_available": not schema.webhook_only,
             "supports_webhooks": schema.supports_webhooks,
             "webhook_only": schema.webhook_only,

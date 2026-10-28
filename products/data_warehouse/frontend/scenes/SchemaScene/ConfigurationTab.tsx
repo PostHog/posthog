@@ -425,7 +425,9 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                     incremental_field_lookback_seconds:
                         syncType === 'incremental' ? (incrementalFieldLookbackSeconds ?? null) : null,
                     primary_key_columns: syncType === 'incremental' ? (primaryKeyColumns ?? null) : null,
-                    ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
+                    ...((syncType === 'cdc' || syncType === 'incremental') && cdcTableMode
+                        ? { cdc_table_mode: cdcTableMode }
+                        : {}),
                 })
                 lemonToast.success('Sync method saved')
                 loadSchema()
@@ -496,6 +498,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                                 append_available: schemaIncrementalFields.append_available,
                                 cdc_available: schemaIncrementalFields.cdc_available,
                                 xmin_available: schemaIncrementalFields.xmin_available,
+                                incremental_history_available: schemaIncrementalFields.incremental_history_available,
                                 cdc_table_mode: schema.cdc_table_mode,
                                 incremental_fields: schemaIncrementalFields.incremental_fields,
                                 supports_webhooks: schemaIncrementalFields.supports_webhooks ?? false,
