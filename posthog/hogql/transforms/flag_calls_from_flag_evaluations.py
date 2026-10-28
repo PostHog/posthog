@@ -19,13 +19,15 @@ from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import FLAG_CALLED_EVENT
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.events import EventsTable
-from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
+from posthog.hogql.database.schema.flag_evaluations import ELEMENT_STAND_INS, FlagEvaluationsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts
-from posthog.hogql.errors import QueryError
-from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
+from posthog.hogql.errors import BaseHogQLError, QueryError
+from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING, find_hogql_function
+from posthog.hogql.utils import is_json_verbatim
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
+from posthog.date_util import start_of_day
 
 # FLAG_EVALUATIONS_TTL_DAYS - 1. That constant lives in posthog/models/flag_evaluations/sql.py, and importing it
 # loads the posthog.models package, which the printer's import path avoids. The TTL can already have dropped the
@@ -73,7 +75,6 @@ _START_OF_UNITS = {
 # Rounding to a week or longer returns a Date. A comparison with a DateTime reads a Date at midnight UTC. In a zone
 # behind UTC, that midnight comes before the local midnight that the rounding chose.
 _DATE_UNITS = frozenset({"Week", "Month", "Quarter", "Year"})
-_TIMEZONE_ARGUMENT = {"toDateTime": 1, "toDateTime64": 2, "now": 0, "now64": 1}
 
 # An alias with one of these names can shadow the column in an unqualified read.
 _SCAN_COLUMNS = frozenset({"event", "timestamp", "properties"})
@@ -104,32 +105,68 @@ def can_read_flag_evaluations(
     then, so the scan reads `flag_evaluations` even when that leaves out calls older than its coverage or calls
     without a flag key.
 
-    The caller checks the rest with `swap_keeps_bindings`: every name in the swapped query binds as it did before.
+    `resolve_flag_calls_from_flag_evaluations` checks the rest after resolution: every name in the swapped query
+    binds as it did before.
     """
     scan = _EventsScan.of(node)
-    if scan is None or scan.shape_refusal(node) is not None:
-        return False
-    conjuncts = _conjuncts(node.where) + _conjuncts(node.prewhere)
-    if only_in_flag_evaluations:
-        return scan.pins_flag_calls(conjuncts, needs_flag_key=False)
-    return scan.pins_flag_calls(conjuncts, needs_flag_key=True) and scan.bounds_timestamp(conjuncts, now, timezone)
+    return scan is not None and _qualifies(
+        scan, node, _filter_conjuncts(node), now, timezone, only_in_flag_evaluations=only_in_flag_evaluations
+    )
 
 
-def flag_call_scans_refused(node: ast.AST, context: HogQLContext) -> list[str]:
-    """Why each `events` scan that reads only flag calls cannot read `flag_evaluations`, for an organization whose
-    flag calls are only there. Empty for every other organization."""
+def resolve_flag_calls_from_flag_evaluations(
+    node: _T_AST, context: HogQLContext, resolve: Callable[[_T_AST], _T_AST]
+) -> _T_AST:
+    """`node` resolved with `resolve`, with each `events` scan that `can_read_flag_evaluations` accepts reading
+    `posthog.flag_evaluations` instead.
+
+    This returns the swapped query only when it resolves and every name in it binds as it does in the original.
+    Otherwise it returns the resolved original. For an organization whose flag calls are only in
+    `flag_evaluations`, it raises a QueryError instead of returning the original. It also raises before it
+    resolves anything when such an organization's query has a scan of only flag calls with a shape that
+    `flag_evaluations` cannot stand in for.
+    """
+    database = context.database
     if (
         not context.rewrite_flag_calls_to_flag_evaluations
-        or context.database is None
-        or not context.database.flag_calls_only_in_flag_evaluations
+        or database is None
+        or not database.read_flag_calls_from_flag_evaluations
     ):
-        return []
-    collector = _RefusedScanCollector()
-    collector.visit(node)
-    return collector.reasons
+        return resolve(node)
+    finder = _FlagCalledConstantFinder()
+    finder.visit(node)
+    if not finder.found:
+        return resolve(node)
+    only_in_flag_evaluations = database.flag_calls_only_in_flag_evaluations
+    with context.timings.measure("flag_calls_from_flag_evaluations"):
+        rewritten = clone_expr(node)
+        swapper = _EventsScanSwapper(
+            now=datetime.now(UTC),
+            timezone=ZoneInfo(database.get_timezone()),
+            only_in_flag_evaluations=only_in_flag_evaluations,
+        )
+        swapper.visit(rewritten)
+    if only_in_flag_evaluations and swapper.refusals:
+        raise _flag_calls_only_in_flag_evaluations_error(swapper.refusals[0])
+    original = resolve(node)
+    if not swapper.swapped:
+        return original
+    try:
+        swapped = resolve(rewritten)
+    except BaseHogQLError as error:
+        # Expected for a query that reads a field flag_evaluations lacks, such as goe_0.properties.
+        reason = f"it reads something that table doesn't have: {error}"
+    else:
+        if _swap_keeps_bindings(original, swapped, swapper.flag_key_predicates):
+            return swapped
+        reason = "a name in it would read a different column there"
+    if only_in_flag_evaluations:
+        # events gets no new flag calls, so the original query would return only calls from before the move.
+        raise _flag_calls_only_in_flag_evaluations_error(reason)
+    return original
 
 
-def flag_calls_only_in_flag_evaluations_error(reason: str) -> QueryError:
+def _flag_calls_only_in_flag_evaluations_error(reason: str) -> QueryError:
     return QueryError(
         f"Your organization's {FLAG_CALLED_EVENT} events are only in posthog.flag_evaluations, and this query "
         f"can't read them there because {reason}. Change that part of the query, or query "
@@ -137,26 +174,20 @@ def flag_calls_only_in_flag_evaluations_error(reason: str) -> QueryError:
     )
 
 
-def rewrite_flag_calls_to_flag_evaluations(node: _T_AST, context: HogQLContext) -> _T_AST | None:
-    """A clone of `node` whose qualifying `events` scans read `posthog.flag_evaluations`, or None when none qualifies."""
-    if (
-        not context.rewrite_flag_calls_to_flag_evaluations
-        or context.database is None
-        or not context.database.read_flag_calls_from_flag_evaluations
-    ):
-        return None
-    finder = _FlagCalledConstantFinder()
-    finder.visit(node)
-    if not finder.found:
-        return None
-    cloned = clone_expr(node)
-    swapper = _EventsScanSwapper(
-        now=datetime.now(UTC),
-        timezone=ZoneInfo(context.database.get_timezone()),
-        only_in_flag_evaluations=context.database.flag_calls_only_in_flag_evaluations,
-    )
-    swapper.visit(cloned)
-    return cloned if swapper.swapped else None
+def _qualifies(
+    scan: "_EventsScan",
+    node: ast.SelectQuery,
+    conjuncts: list[ast.Expr],
+    now: datetime,
+    timezone: ZoneInfo,
+    *,
+    only_in_flag_evaluations: bool,
+) -> bool:
+    if scan.shape_refusal(node) is not None:
+        return False
+    if only_in_flag_evaluations:
+        return scan.pins_flag_calls(conjuncts, needs_flag_key=False)
+    return scan.pins_flag_calls(conjuncts, needs_flag_key=True) and scan.bounds_timestamp(conjuncts, now, timezone)
 
 
 class _EventsScan:
@@ -213,20 +244,17 @@ class _EventsScan:
     def pins_flag_calls(self, conjuncts: list[ast.Expr], needs_flag_key: bool) -> bool:
         """Whether `conjuncts` pin `event` to flag calls. `needs_flag_key` is true when no enclosing conjunct pins
         `$feature_flag`. A pin of `event` then counts only where these conjuncts also pin `$feature_flag`."""
-        needs_flag_key = needs_flag_key and not any(self._pins_flag_key(conjunct) for conjunct in conjuncts)
+        needs_flag_key = needs_flag_key and not self.flag_keys(conjuncts)
         return any(self._pins_flag_calls_in(conjunct, needs_flag_key) for conjunct in conjuncts)
 
     def _pins_flag_calls_in(self, expr: ast.Expr, needs_flag_key: bool) -> bool:
-        if _pins(expr, self._reads_event, _is_flag_called):
+        if _pinned_values(expr, self._reads_event, _is_flag_called) is not None:
             return not needs_flag_key
         if isinstance(expr, ast.Or):
             return bool(expr.exprs) and all(
                 self.pins_flag_calls(_conjuncts(branch), needs_flag_key) for branch in expr.exprs
             )
         return False
-
-    def _pins_flag_key(self, expr: ast.Expr) -> bool:
-        return self._flag_keys_in(expr) is not None
 
     def _flag_keys_in(self, expr: ast.Expr) -> list[str] | None:
         """The keys `expr` pins `$feature_flag` to, or None when it does not pin it."""
@@ -319,11 +347,6 @@ def _pinned_values(expr: ast.Expr, reads: _Predicate, accepts: _Predicate) -> li
     return None
 
 
-def _pins(expr: ast.Expr, reads: _Predicate, accepts: _Predicate) -> bool:
-    """Whether `expr` limits what `reads` matches to values that `accepts` matches."""
-    return _pinned_values(expr, reads, accepts) is not None
-
-
 def _is_constant(expr: ast.Expr, value: str) -> bool:
     return isinstance(expr, ast.Constant) and expr.value == value
 
@@ -347,8 +370,12 @@ def _conjuncts(expr: ast.Expr | None) -> list[ast.Expr]:
     return top_level_conjuncts(expr) if expr is not None else []
 
 
+def _filter_conjuncts(node: ast.SelectQuery) -> list[ast.Expr]:
+    return _conjuncts(node.where) + _conjuncts(node.prewhere)
+
+
 def _utc_midnight(now: datetime) -> datetime:
-    return datetime.combine(now.astimezone(UTC).date(), time.min, tzinfo=UTC)
+    return start_of_day(now.astimezone(UTC))
 
 
 def _earliest_instant(expr: ast.Expr, now: datetime, timezone: ZoneInfo) -> datetime | None:
@@ -398,12 +425,14 @@ def _start_of_day(expr: ast.Call, now: datetime, timezone: ZoneInfo) -> datetime
     else:
         return None
     value = expr.args[0]
-    instant = _earliest_instant(value, now, timezone)
     # ClickHouse rounds in the zone argument, or else in the zone of the value.
     zones = _zone(expr.args[zone_index]) if len(expr.args) > zone_index else _zones_of(value, timezone)
-    if instant is None or not zones:
+    if not zones:
         return None
-    return min(datetime.combine(instant.astimezone(zone).date(), time.min, tzinfo=zone) for zone in zones)
+    instant = _earliest_instant(value, now, timezone)
+    if instant is None:
+        return None
+    return min(start_of_day(instant.astimezone(zone)) for zone in zones)
 
 
 def _zones_of(expr: ast.Expr, timezone: ZoneInfo) -> tuple[tzinfo, ...]:
@@ -416,10 +445,12 @@ def _zones_of(expr: ast.Expr, timezone: ZoneInfo) -> tuple[tzinfo, ...]:
             expr = expr.args[0]
         else:
             break
-    if isinstance(expr, ast.Call) and expr.name in _TIMEZONE_ARGUMENT:
-        zone_index = _TIMEZONE_ARGUMENT[expr.name]
-        # The printer adds the team's zone to each of these calls that names none.
-        return _zone(expr.args[zone_index]) if len(expr.args) > zone_index else (timezone,)
+    if isinstance(expr, ast.Call):
+        meta = find_hogql_function(expr.name)
+        if meta is not None and meta.tz_aware and meta.max_args:
+            # The printer adds the team's zone as the last argument to each timezone-aware call that names none.
+            zone_index = meta.max_args - 1
+            return _zone(expr.args[zone_index]) if len(expr.args) > zone_index else (timezone,)
     return (timezone, UTC)
 
 
@@ -542,23 +573,6 @@ class _FlagCalledConstantFinder(_SyntaxVisitor):
             self.found = True
 
 
-class _RefusedScanCollector(_SyntaxVisitor):
-    def __init__(self) -> None:
-        super().__init__()
-        self.reasons: list[str] = []
-
-    def visit_select_query(self, node: ast.SelectQuery) -> None:
-        scan = _EventsScan.of(node)
-        reason = scan.shape_refusal(node) if scan is not None else None
-        if (
-            scan is not None
-            and reason is not None
-            and scan.pins_flag_calls(_conjuncts(node.where) + _conjuncts(node.prewhere), needs_flag_key=False)
-        ):
-            self.reasons.append(reason)
-        super().visit_select_query(node)
-
-
 class _EventsScanSwapper(_SyntaxVisitor):
     def __init__(self, now: datetime, timezone: ZoneInfo, only_in_flag_evaluations: bool) -> None:
         super().__init__()
@@ -566,17 +580,26 @@ class _EventsScanSwapper(_SyntaxVisitor):
         self.timezone = timezone
         self.only_in_flag_evaluations = only_in_flag_evaluations
         self.swapped = False
+        self.flag_key_predicates = 0
+        # Why each scan that reads only flag calls has a shape that flag_evaluations cannot stand in for.
+        self.refusals: list[str] = []
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         scan = _EventsScan.of(node)
-        if scan is not None and can_read_flag_evaluations(
-            node, self.now, self.timezone, only_in_flag_evaluations=self.only_in_flag_evaluations
-        ):
-            self._swap(node, scan)
+        if scan is not None:
+            conjuncts = _filter_conjuncts(node)
+            if _qualifies(
+                scan, node, conjuncts, self.now, self.timezone, only_in_flag_evaluations=self.only_in_flag_evaluations
+            ):
+                self._swap(node, scan, conjuncts)
+            else:
+                refusal = scan.shape_refusal(node)
+                if refusal is not None and scan.pins_flag_calls(conjuncts, needs_flag_key=False):
+                    self.refusals.append(refusal)
         super().visit_select_query(node)
 
-    def _swap(self, node: ast.SelectQuery, scan: _EventsScan) -> None:
-        keys = scan.flag_keys(_conjuncts(node.where) + _conjuncts(node.prewhere))
+    def _swap(self, node: ast.SelectQuery, scan: _EventsScan, conjuncts: list[ast.Expr]) -> None:
+        keys = scan.flag_keys(conjuncts)
         # The old alias keeps qualified reads such as `events.timestamp` resolving.
         scan.join.alias = scan.alias
         scan.join.table = ast.Field(chain=["posthog", "flag_evaluations"])
@@ -586,7 +609,7 @@ class _EventsScanSwapper(_SyntaxVisitor):
         # flag_key sorts the table, so this predicate lets ClickHouse skip other flags. flag_key holds the key's JSON
         # text, and a JSONExtractString pin compares the decoded key. The pin implies this predicate only when the
         # JSON text of each key is the key itself.
-        if keys and all(json.dumps(key)[1:-1] == key for key in keys):
+        if keys and all(is_json_verbatim(key) for key in keys):
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
@@ -594,25 +617,23 @@ class _EventsScanSwapper(_SyntaxVisitor):
                     right=ast.Tuple(exprs=[ast.Constant(value=key) for key in keys]),
                 )
             )
+            self.flag_key_predicates += 1
         node.prewhere = None
         node.where = conditions[0] if len(conditions) == 1 else ast.And(exprs=conditions)
         self.swapped = True
 
 
-def swap_keeps_bindings(original: ast.AST, swapped: ast.AST) -> bool:
+def _swap_keeps_bindings(original: ast.AST, swapped: ast.AST, flag_key_predicates: int) -> bool:
     """Whether every field and table in the resolved swapped query binds as it does in the resolved original.
 
     The swap may change only the table each swapped scan reads. A name that binds elsewhere changes the result
     with no resolution error: a `WITH` name that a `flag_evaluations` column now shadows, a `COLUMNS(...)` that
     expands to other columns, or a `FROM events` that read a CTE named `events`. The comparison ignores order,
-    because the swap moves `PREWHERE` into `WHERE`.
+    because the swap moves `PREWHERE` into `WHERE`. The swapped query also reads flag_key once for each of the
+    `flag_key_predicates` that the swap adds.
     """
-    original_bindings = Counter(_bindings(original))
-    swapped_bindings = Counter(_bindings(swapped))
-    # Every binding of the original must survive the swap. The swapped query also reads flag_key once for each
-    # `flag_key IN (...)` predicate that the swap adds.
-    added = swapped_bindings - original_bindings
-    return not (original_bindings - swapped_bindings) and set(added) <= {_ADDED_FLAG_KEY_READ}
+    expected = Counter(_bindings(original)) + Counter({_ADDED_FLAG_KEY_READ: flag_key_predicates})
+    return Counter(_bindings(swapped)) == expected
 
 
 # A field records the last part of its chain, so `e.person_id` and `person_id` match.
@@ -621,12 +642,6 @@ _Binding = tuple[str, str | int, tuple[str, ...]]
 # events has no flag_key column, so the original query records this binding only for a select alias named flag_key
 # that reads the scan.
 _ADDED_FLAG_KEY_READ: _Binding = ("field", "flag_key", ("scan",))
-
-# flag_evaluations defines these events columns as constants because a flag call stores no elements. A read of one
-# returns what the events column holds for a flag call, so it counts as a read of the scan.
-_ELEMENT_STAND_INS = frozenset(
-    {"elements_chain", "elements_chain_href", "elements_chain_texts", "elements_chain_ids", "elements_chain_elements"}
-)
 
 
 def _bindings(node: ast.AST) -> list[_Binding]:
@@ -649,10 +664,11 @@ class _BindingCollector(_SyntaxVisitor):
             return
         # The resolver replaces an expression field, such as flag_evaluations.person_id, with a hidden alias named
         # after the field. The same field can be a plain column on events, so only the alias name and what the
-        # expansion reads count.
+        # expansion reads count. An element stand-in reads no column. It returns what the events column holds for a
+        # flag call, so it counts as a read of the scan.
         expansion = _bindings(node.expr)
         reads_scan = all(target == ("scan",) for _, _, target in expansion) and (
-            bool(expansion) or node.alias in _ELEMENT_STAND_INS
+            bool(expansion) or node.alias in ELEMENT_STAND_INS
         )
         self.bindings.append(("field", node.alias, ("scan",) if reads_scan else ("expression",)))
 

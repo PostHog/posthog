@@ -57,10 +57,19 @@ def _self_joined(where: str) -> str:
 
 @time_machine.travel(NOW, tick=False)
 class TestCanReadFlagEvaluations(SimpleTestCase):
-    def _can_read(self, query: str, placeholders: dict[str, ast.Expr] | None = None, timezone: str = "UTC") -> bool:
+    def _can_read(
+        self,
+        query: str,
+        placeholders: dict[str, ast.Expr] | None = None,
+        timezone: str = "UTC",
+        *,
+        only_in_flag_evaluations: bool = False,
+    ) -> bool:
         select = parse_select(query, placeholders=placeholders)
         assert isinstance(select, ast.SelectQuery)
-        return can_read_flag_evaluations(select, datetime.now(UTC), ZoneInfo(timezone))
+        return can_read_flag_evaluations(
+            select, datetime.now(UTC), ZoneInfo(timezone), only_in_flag_evaluations=only_in_flag_evaluations
+        )
 
     def test_complete_days_leave_out_the_day_the_ttl_may_have_dropped(self):
         assert FLAG_EVALUATIONS_COMPLETE_DAYS == FLAG_EVALUATIONS_TTL_DAYS - 1
@@ -176,12 +185,13 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("aware_datetime", ast.Constant(value=COVERAGE_START)),
-            ("date", ast.Constant(value=(COVERAGE_START + timedelta(days=1)).date())),
+            ("aware_datetime", ast.Constant(value=COVERAGE_START), True),
+            ("date", ast.Constant(value=(COVERAGE_START + timedelta(days=1)).date()), True),
+            ("aware_datetime_before_coverage", ast.Constant(value=COVERAGE_START - timedelta(seconds=1)), False),
         ]
     )
-    def test_accepts_a_placeholder_bound_inside_coverage(self, _name: str, bound: ast.Expr):
-        assert self._can_read(_bounded_by("{bound}"), {"bound": bound}) is True
+    def test_reads_a_placeholder_bound_against_coverage(self, _name: str, bound: ast.Expr, expected: bool):
+        assert self._can_read(_bounded_by("{bound}"), {"bound": bound}) is expected
 
     @parameterized.expand(
         [
@@ -350,14 +360,6 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("aware_datetime_before_coverage", ast.Constant(value=COVERAGE_START - timedelta(seconds=1))),
-        ]
-    )
-    def test_refuses_a_placeholder_bound_before_coverage(self, _name: str, bound: ast.Expr):
-        assert self._can_read(_bounded_by("{bound}"), {"bound": bound}) is False
-
-    @parameterized.expand(
-        [
             ("no_lower_bound", _where(FLAG_CALLED, FLAG_KEY), True),
             ("bound_before_coverage", _bounded_by("now() - INTERVAL 180 DAY"), True),
             ("no_flag_key", _where(FLAG_CALLED, BOUND), True),
@@ -370,13 +372,7 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
     def test_skips_coverage_and_flag_key_when_only_flag_evaluations_has_flag_calls(
         self, _name: str, query: str, expected: bool
     ):
-        select = parse_select(query)
-        assert isinstance(select, ast.SelectQuery)
-
-        assert (
-            can_read_flag_evaluations(select, datetime.now(UTC), ZoneInfo("UTC"), only_in_flag_evaluations=True)
-            is expected
-        )
+        assert self._can_read(query, only_in_flag_evaluations=True) is expected
 
     @parameterized.expand(
         [

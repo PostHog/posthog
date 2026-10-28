@@ -705,14 +705,42 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
         assert [row[0] for row in results] == ["probe-distinct-id"]
 
-    def test_query_reading_event_time_group_properties_falls_back_only_while_events_gets_flag_calls(self):
-        self._create_events_only_flag_call()
-        query = f"SELECT distinct_id, goe_0.properties FROM events WHERE {FLAG_CALL_CONJUNCTS}"
-
-        results = self._query_events(query, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS).results
-
-        assert [row[0] for row in results] == ["events-distinct-id"]
-        with self.assertRaises(QueryError):
+    @parameterized.expand(
+        [
+            (
+                "event_time_group_properties",
+                f"SELECT distinct_id, goe_0.properties FROM events WHERE {FLAG_CALL_CONJUNCTS}",
+                "reads something that table doesn't have",
+            ),
+            ("select_star", f"SELECT * FROM events WHERE {FLAG_CALL_CONJUNCTS}", "selects \\* or COLUMNS"),
+            (
+                "with_name_that_a_flag_evaluations_column_shadows",
+                f"WITH 'all calls' AS flag_key SELECT flag_key FROM events WHERE {FLAG_CALL_CONJUNCTS}",
+                "a name in it would read a different column",
+            ),
+            (
+                "root_cte_named_events_in_a_union_branch",
+                "WITH events AS (SELECT uuid, event, properties, timestamp FROM posthog.events) "
+                f"SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS} "
+                f"UNION ALL SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS}",
+                "a name in it would read a different column",
+            ),
+            (
+                "columns_inside_an_expression",
+                f"SELECT tuple(*COLUMNS('^(created|inserted)_at$')) FROM events WHERE {FLAG_CALL_CONJUNCTS}",
+                "a name in it would read a different column",
+            ),
+        ]
+    )
+    def test_query_flag_evaluations_cannot_answer_reads_events_until_events_gets_no_flag_calls(
+        self, _name: str, query: str, error: str
+    ):
+        mode = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
+        assert (
+            self._query_events(query, mode=mode).clickhouse
+            == self._query_events(query, rewrite=False, mode=mode).clickhouse
+        )
+        with self.assertRaisesRegex(QueryError, error):
             self._query_events(query)
 
     @parameterized.expand(
@@ -733,13 +761,6 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
         assert [row[0] for row in on_events] == ["events-distinct-id"]
         assert [row[0] for row in on_flag_evaluations] == ["probe-distinct-id"]
-
-    def test_query_flag_evaluations_cannot_answer_errors_once_events_gets_no_flag_calls(self):
-        query = f"SELECT * FROM events WHERE {FLAG_CALL_CONJUNCTS}"
-
-        self._query_events(query, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
-        with self.assertRaisesRegex(QueryError, "selects \\* or COLUMNS"):
-            self._query_events(query)
 
     def _create_events_only_flag_call(self) -> None:
         _create_event(
@@ -800,33 +821,6 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert swapped.clickhouse is not None
         assert "FROM flag_evaluations" in swapped.clickhouse
         assert swapped.results == from_events
-
-    @parameterized.expand(
-        [
-            (
-                "with_name_that_a_flag_evaluations_column_shadows",
-                f"WITH 'all calls' AS flag_key SELECT flag_key FROM events WHERE {FLAG_CALL_CONJUNCTS}",
-            ),
-            (
-                "root_cte_named_events_in_a_union_branch",
-                "WITH events AS (SELECT uuid, event, properties, timestamp FROM posthog.events) "
-                f"SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS} "
-                f"UNION ALL SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS}",
-            ),
-            (
-                "columns_inside_an_expression",
-                f"SELECT tuple(*COLUMNS('^(created|inserted)_at$')) FROM events WHERE {FLAG_CALL_CONJUNCTS}",
-            ),
-        ]
-    )
-    def test_query_whose_names_bind_elsewhere_after_the_swap_keeps_reading_events(self, _name: str, query: str):
-        mode = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
-        assert (
-            self._query_events(query, mode=mode).clickhouse
-            == self._query_events(query, rewrite=False, mode=mode).clickhouse
-        )
-        with self.assertRaises(QueryError):
-            self._query_events(query)
 
     def test_swapped_prewhere_that_reads_an_overridden_person_id_runs(self):
         response = self._query_events(

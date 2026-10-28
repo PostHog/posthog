@@ -8,11 +8,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN, AiEventsTable
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
-from posthog.hogql.database.schema.flag_evaluations import (
-    FlagEvaluationsGroupKeySubTable,
-    FlagEvaluationsPersonSubTable,
-    FlagEvaluationsTable,
-)
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 
@@ -72,8 +68,7 @@ def mirrored_property_for_column(table_type: ast.Type, column_name: str, context
 
     if isinstance(table, AiEventsTable):
         return _AI_EVENTS_MIRRORED_COLUMNS.get(column_name)
-    # goe_N.key reads the same `$group_N` column through a virtual table.
-    if isinstance(table, FlagEvaluationsTable | FlagEvaluationsGroupKeySubTable):
+    if isinstance(table, FlagEvaluationsTable):
         return _FLAG_EVALUATIONS_MIRRORED_COLUMNS.get(column_name)
     return None
 
@@ -120,7 +115,7 @@ def restricted_property_keys_for_table_type(
     elif isinstance(table, EventsGroupSubTable):
         prop_def_type = PropertyDefinition.Type.GROUP
         group_type_index = table.group_index
-    elif isinstance(table, EventsTable | FlagEvaluationsTable | FlagEvaluationsGroupKeySubTable | AiEventsTable):
+    elif isinstance(table, EventsTable | FlagEvaluationsTable | AiEventsTable):
         prop_def_type = PropertyDefinition.Type.EVENT
     elif isinstance(table, (PersonsTable, RawPersonsTable)):
         prop_def_type = PropertyDefinition.Type.PERSON

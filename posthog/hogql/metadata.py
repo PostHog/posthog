@@ -357,17 +357,17 @@ def _flag_called_notices(
             return _FlagCalledNotices()
         url = _flag_called_announcement_url(move_notices.payload)
         swapped = flag_called_spans_read_from_flag_evaluations(prepared_ast) if prepared_ast is not None else set()
+        move_warnings: list[HogQLNotice] = []
+        flag_evaluations_notices: list[HogQLNotice] = []
+        for warning in warnings:
+            if LiteralSpan(start=warning.start, end=warning.end) in swapped:
+                flag_evaluations_notices.append(
+                    warning.model_copy(update={"message": FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE, "url": url})
+                )
+            else:
+                move_warnings.append(warning.model_copy(update={"url": url}))
         return _FlagCalledNotices(
-            move_warnings=tuple(
-                warning.model_copy(update={"url": url})
-                for warning in warnings
-                if LiteralSpan(start=warning.start, end=warning.end) not in swapped
-            ),
-            flag_evaluations_notices=tuple(
-                warning.model_copy(update={"message": FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE, "url": url})
-                for warning in warnings
-                if LiteralSpan(start=warning.start, end=warning.end) in swapped
-            ),
+            move_warnings=tuple(move_warnings), flag_evaluations_notices=tuple(flag_evaluations_notices)
         )
     except Exception:
         # The warning is advisory. A query that compiles must not be reported as invalid because this

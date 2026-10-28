@@ -83,13 +83,23 @@ class FlagEvaluationsGroupKeySubTable(VirtualTable):
     evaluation time, so `goe_N.properties` and `goe_N.created_at` do not resolve here."""
 
     def __init__(self, group_index: int):
-        super().__init__(fields={"key": StringDatabaseField(name=f"$group_{group_index}", nullable=False)})
+        super().__init__(
+            fields={
+                "key": ExpressionField(name="key", expr=ast.Field(chain=[f"$group_{group_index}"]), isolate_scope=True)
+            }
+        )
 
     def to_printed_clickhouse(self, context):
         return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
 
     def to_printed_hogql(self):
         return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
+
+
+# The events element columns that this table defines as constants, grouped by the type of the constant.
+_ELEMENT_STRING_STAND_INS = ("elements_chain", "elements_chain_href")
+_ELEMENT_ARRAY_STAND_INS = ("elements_chain_texts", "elements_chain_ids", "elements_chain_elements")
+ELEMENT_STAND_INS = frozenset(_ELEMENT_STRING_STAND_INS + _ELEMENT_ARRAY_STAND_INS)
 
 
 class FlagEvaluationsTable(Table):
@@ -244,7 +254,7 @@ class FlagEvaluationsTable(Table):
         # resolves here and matches nothing, as it does on events. The empty array keeps its String element type.
         **{
             name: ExpressionField(name=name, expr=ast.Constant(value=""), hidden=True)
-            for name in ("elements_chain", "elements_chain_href")
+            for name in _ELEMENT_STRING_STAND_INS
         },
         **{
             name: ExpressionField(
@@ -254,7 +264,7 @@ class FlagEvaluationsTable(Table):
                 ),
                 hidden=True,
             )
-            for name in ("elements_chain_texts", "elements_chain_ids", "elements_chain_elements")
+            for name in _ELEMENT_ARRAY_STAND_INS
         },
     }
 
