@@ -17,7 +17,6 @@ from django.conf import settings
 from django.core.cache import cache
 
 import requests
-import tldextract
 import dns.resolver
 import dns.exception
 from cryptography.hazmat.primitives import hashes, serialization
@@ -28,6 +27,7 @@ from dns.rdtypes.txtbase import TXTBase
 from posthog.schema import DomainConnectProviderName
 
 from posthog.dataclasses import frozen
+from posthog.public_suffix import extract_domain_parts
 
 if TYPE_CHECKING:
     from posthog.models.integration import Integration
@@ -200,7 +200,7 @@ def extract_root_domain_and_host(full_domain: str, *, include_private_suffixes: 
     Uses the Public Suffix List via tldextract for correct TLD handling.
     """
     full_domain = full_domain.rstrip(".")
-    ext = tldextract.extract(full_domain, include_psl_private_domains=include_private_suffixes)
+    ext = extract_domain_parts(full_domain, include_psl_private_domains=include_private_suffixes)
     if ext.suffix:
         root = f"{ext.domain}.{ext.suffix}"
     else:

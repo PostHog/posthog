@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 import time_machine
 
+from posthog.test import tiktoken_downloads
 from posthog.test.events_schema_prune import EventsSchemaPruner
 from posthog.test.junit import set_junit_report_location
 
@@ -243,6 +244,7 @@ def pytest_configure(config) -> None:
     from posthog.test import authentication_checks  # noqa: PLC0415 — deferred until pytest_configure
 
     authentication_checks.install()
+    tiktoken_downloads.install()
     if record_path := os.environ.get("POSTHOG_EVENTS_SCHEMA_RECORD_PATH"):
         from posthog.test.events_schema_recorder import (  # noqa: PLC0415 - keeps the Temporal client off other runs
             EventsSchemaRecorder,
