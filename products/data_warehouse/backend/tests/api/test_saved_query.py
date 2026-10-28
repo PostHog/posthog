@@ -21,10 +21,13 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorS3Error, wrap_clickhouse_query_error
 from posthog.models import ActivityLog
+from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, mark_node_suspended, suspension_state
 from products.data_modeling.backend.facade.models import (
     DAG,
@@ -1887,6 +1890,35 @@ class TestSavedQuery(APIBaseTest):
         downstream = DataWarehouseSavedQuery.objects.get(team=self.team, name="downstream_view")
         assert downstream.column_order == expected_downstream_columns
         assert delay.called == refreshes
+
+    def test_update_skips_downstream_views_the_editor_cannot_read(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        upstream = self._create_view("upstream_view", "select 1 as old_id")
+        downstream = self._create_view("downstream_view", "select * from upstream_view")
+        editor = self._create_user("editor@example.com")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_view",
+            resource_id=downstream["id"],
+            organization_member=OrganizationMembership.objects.get(user=editor, organization=self.organization),
+            access_level="none",
+        )
+        self.client.force_login(editor)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}",
+                {
+                    "query": {"kind": "HogQLQuery", "query": "select 1 as new_id"},
+                    "edited_history_id": upstream["latest_history_id"],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        assert DataWarehouseSavedQuery.objects.get(pk=downstream["id"]).column_order == ["old_id"]
 
     def _create_view(self, name: str, sql: str) -> dict[str, Any]:
         response = self.client.post(
