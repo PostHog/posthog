@@ -79,6 +79,12 @@ describe('mcpEarlyDataLogic', () => {
         ['waits two minutes after a refresh nobody reacted to', [3 * MINUTE - 1], 1],
         ['refreshes again once the doubled wait passes', [3 * MINUTE], 2],
         ['goes back to every minute after user input', [3 * MINUTE, 'input', MINUTE], 3],
+        ['does not back off when the input came before the refresh', [MINUTE - 1, 'input', MINUTE + 1], 2],
+        [
+            'does not push the refresh back while the user keeps moving',
+            [3 * MINUTE, 'input', MINUTE / 2, 'input', MINUTE / 2],
+            3,
+        ],
         ['never waits more than 30 minutes', [91 * MINUTE], 7],
     ] as [string, (number | 'input')[], number][])('%s', async (_label, timeline, expectedRefreshes) => {
         logic.unmount()
