@@ -924,6 +924,16 @@ mod tests {
             !lines.contains("declined") && !lines.contains("10.0.0.7"),
             "{lines}"
         );
+
+        // A srcset key outside an image slot, here in a custom event, is no srcset of the DOM and stays as it is.
+        let custom = r#"[{"type":5,"timestamp":1,"data":{"tag":"app","payload":{"srcset":"https://cdn.example.com/a.png 1x, https://10.0.0.7/a.png 2x"}}}]"#;
+        let lines = stored_lines(custom, &[]);
+        assert!(
+            lines.contains(
+                r#""srcset":"https://cdn.example.com/a.png 1x, https://10.0.0.7/a.png 2x""#
+            ),
+            "{lines}"
+        );
     }
 
     #[test]
@@ -970,8 +980,10 @@ mod tests {
             lines.contains(&format!(r#""src":"{reference}""#)),
             "{lines}"
         );
-        // The srcset held only the declined candidate, so it is left empty.
-        assert!(lines.contains(r#""srcset":"""#), "{lines}");
+        assert!(lines.contains(&format!(
+            r#""srcset":"{} 2x""#,
+            crate::rewrite::declined_marker("credential")
+        )));
         assert!(!lines.contains("cdn.example.com"));
     }
 

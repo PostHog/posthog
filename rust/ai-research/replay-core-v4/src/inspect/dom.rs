@@ -217,7 +217,7 @@ pub struct RemoteUrls {
 
 #[derive(Debug, Default)]
 struct SrcsetValues {
-    texts: HashMap<String, bool>,
+    values: HashMap<Vec<u8>, (String, bool)>,
     bytes: usize,
 }
 
@@ -225,6 +225,8 @@ struct SrcsetValues {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Srcset {
     pub text: String,
+    /// The value as a JSON string with its quotes and escapes, as the event holds it.
+    pub raw: Vec<u8>,
     /// The value belongs to a `<source>` whose `type` the fetcher does not store, so none of its images is stored.
     pub unfetched_type: bool,
 }
@@ -248,15 +250,18 @@ impl RemoteUrls {
     }
 
     /// A value seen on a source of a stored type and on one of another type keeps its candidates.
-    fn insert_srcset(&mut self, text: &str, unfetched_type: bool) {
+    /// Keyed by the value as the event holds it, so the writer finds that value again after it stores the event.
+    fn insert_srcset(&mut self, raw: &[u8], text: &str, unfetched_type: bool) {
         let srcsets = self.srcsets.get_or_insert_with(Box::default);
-        if let Some(known) = srcsets.texts.get_mut(text) {
+        if let Some((_, known)) = srcsets.values.get_mut(raw) {
             *known &= unfetched_type;
-        } else if srcsets.texts.len() < MAX_BLOCK_REMOTE_URLS
-            && srcsets.bytes + text.len() <= MAX_BLOCK_REMOTE_URL_BYTES
+        } else if srcsets.values.len() < MAX_BLOCK_REMOTE_URLS
+            && srcsets.bytes + raw.len() + text.len() <= MAX_BLOCK_REMOTE_URL_BYTES
         {
-            srcsets.bytes += text.len();
-            srcsets.texts.insert(text.to_owned(), unfetched_type);
+            srcsets.bytes += raw.len() + text.len();
+            srcsets
+                .values
+                .insert(raw.to_vec(), (text.to_owned(), unfetched_type));
         }
     }
 
@@ -265,19 +270,20 @@ impl RemoteUrls {
         for url in &other.urls {
             self.insert(url);
         }
-        for (text, unfetched_type) in other.srcsets.iter().flat_map(|s| &s.texts) {
-            self.insert_srcset(text, *unfetched_type);
+        for (raw, (text, unfetched_type)) in other.srcsets.iter().flat_map(|s| &s.values) {
+            self.insert_srcset(raw, text, *unfetched_type);
         }
     }
 
     pub fn take_srcsets(&mut self) -> Vec<Srcset> {
         self.srcsets
             .take()
-            .map(|srcsets| srcsets.texts)
+            .map(|srcsets| srcsets.values)
             .unwrap_or_default()
             .into_iter()
-            .map(|(text, unfetched_type)| Srcset {
+            .map(|(raw, (text, unfetched_type))| Srcset {
                 text,
+                raw,
                 unfetched_type,
             })
             .collect()
@@ -417,10 +423,10 @@ impl Walk {
     }
 
     fn push_srcset_value(&mut self, bytes: &[u8], value: Option<Span>, unfetched_type: bool) {
-        if let Some(srcset) = text(bytes, value) {
+        if let (Some(span), Some(srcset)) = (value, text(bytes, value)) {
             self.image_urls
                 .remote
-                .insert_srcset(&srcset, unfetched_type);
+                .insert_srcset(&bytes[span.0..span.1], &srcset, unfetched_type);
         }
     }
 
@@ -2020,8 +2026,12 @@ mod tests {
         }
         // Srcset values share the byte budget, past which the writer falls back to replacing each URL.
         let mut remote = RemoteUrls::default();
-        (0..=most_long).for_each(|i| remote.insert_srcset(&url(i, longest), false));
-        assert_eq!(remote.take_srcsets().len(), most_long);
+        // A value counts its raw and its unescaped form.
+        (0..=most_long).for_each(|i| {
+            let value = url(i, longest);
+            remote.insert_srcset(value.as_bytes(), &value, false)
+        });
+        assert_eq!(remote.take_srcsets().len(), most_long / 2);
 
         // A mutation past the attribute cap is not read to its end.
         let attributes = |count: usize| {

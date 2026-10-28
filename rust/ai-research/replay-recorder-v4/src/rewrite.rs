@@ -15,8 +15,8 @@ use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use metrics::counter;
 use replay_core_v4::bytescan::{unescape, write_json_string};
 use replay_core_v4::inspect::dom::{srcset_candidates, Srcset};
-use replay_core_v4::scan::images::AVIF_MARKER;
-use replay_core_v4::seal::image_url_key;
+use replay_core_v4::scan::images::{extract_images, ImageLimits, ImageSink, AVIF_MARKER};
+use replay_core_v4::seal::{image_content_key, image_url_key};
 use replay_core_v4::url_policy::is_remote;
 
 use crate::urls::url_reference;
@@ -134,6 +134,9 @@ pub struct UrlRewrite {
     srcset_key: AhoCorasick,
     /// Remote URLs that the block names only in picture sources of a type the fetcher does not store.
     unfetched: HashSet<String>,
+    /// Each inspected srcset value as the stored block holds it. Only these are rebuilt, so a srcset key outside an
+    /// image slot, such as in a custom event's payload, stays as it is.
+    stored_srcsets: HashSet<Vec<u8>>,
     url_targets: HashMap<String, usize>,
     team_id: i64,
     key_month: String,
@@ -186,6 +189,18 @@ impl UrlRewrite {
             .filter(|&(_, unfetched)| unfetched)
             .map(|(url, _)| url.to_owned())
             .collect();
+        // The writer takes the inline images out of the raw event and then writes its escapes again, so each value
+        // goes through the same two steps.
+        let content_key = image_content_key(team_key);
+        let stored_srcsets = srcsets
+            .iter()
+            .map(|srcset| {
+                let mut sink =
+                    ImageSink::new(&content_key, team_id, key_month, ImageLimits::default());
+                let extracted = extract_images(&srcset.raw, &mut sink);
+                canonical_strings(&extracted).into_owned()
+            })
+            .collect();
         let matcher = (!patterns.is_empty())
             .then(|| {
                 // A DFA over long URLs can take hundreds of times their bytes. A contiguous NFA takes about ten.
@@ -217,6 +232,7 @@ impl UrlRewrite {
             declined_kept: false,
             srcset_key: AhoCorasick::new([SRCSET_KEY]).expect("one literal pattern builds"),
             unfetched,
+            stored_srcsets,
             url_targets,
             team_id,
             key_month: key_month.to_owned(),
@@ -236,6 +252,9 @@ impl UrlRewrite {
             let Some(end) = string_end(bytes, start) else {
                 continue;
             };
+            if !self.stored_srcsets.contains(&bytes[start..end]) {
+                continue;
+            }
             let Ok(text) = unescape(bytes, (start, end)) else {
                 continue;
             };
@@ -433,8 +452,7 @@ mod tests {
         );
         assert!(serde_json::from_str::<serde_json::Value>(&out).is_ok());
 
-        // A srcset over several lines holds each URL after an escape, which is no part of the URL. The declined one
-        // leaves the list, which the rebuild writes with plain separators.
+        // A srcset over several lines holds each URL after an escape, which is no part of the URL.
         let declined = "https://10.0.0.7/c.png";
         let event = format!(r#"{{"srcset":"{a} 1x,\n{b} 2x,\t{declined} 3x"}}"#);
         let mut rewrite = UrlRewrite::new(
@@ -446,7 +464,10 @@ mod tests {
         );
         assert_eq!(
             String::from_utf8(rewrite.apply(event.as_bytes()).into_owned()).unwrap(),
-            format!(r#"{{"srcset":"{ra} 1x, {rb} 2x"}}"#)
+            format!(
+                r#"{{"srcset":"{ra} 1x,\n{rb} 2x,\t{} 3x"}}"#,
+                declined_marker("non_public_host")
+            )
         );
         assert!(rewrite.finish());
     }
