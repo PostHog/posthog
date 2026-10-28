@@ -14,6 +14,8 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import structlog
+
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import FLAG_CALLED_EVENT
@@ -29,6 +31,8 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
 from posthog.date_util import start_of_day
+
+logger = structlog.get_logger(__name__)
 
 # FLAG_EVALUATIONS_TTL_DAYS - 1. That constant lives in posthog/models/flag_evaluations/sql.py, and importing it
 # loads the posthog.models package, which the printer's import path avoids. The TTL can already have dropped the
@@ -156,8 +160,10 @@ def resolve_flag_calls_from_flag_evaluations(
             flag_key_compares_as_string=_flag_key_compares_as_string(context),
         )
         swapper.visit(rewritten)
-    if only_in_flag_evaluations and swapper.refusals:
-        raise _flag_calls_only_in_flag_evaluations_error(swapper.refusals[0])
+    if swapper.refusals:
+        if only_in_flag_evaluations:
+            raise _flag_calls_only_in_flag_evaluations_error(swapper.refusals[0])
+        logger.info("flag_calls_swap_declined", team_id=context.team_id, reason=swapper.refusals[0])
     original = resolve(node)
     if not swapper.swapped:
         return original
@@ -173,6 +179,7 @@ def resolve_flag_calls_from_flag_evaluations(
     if only_in_flag_evaluations:
         # events gets no new flag calls, so the original query would return only calls from before the move.
         raise _flag_calls_only_in_flag_evaluations_error(reason)
+    logger.info("flag_calls_swap_declined", team_id=context.team_id, reason=reason)
     return original
 
 
@@ -265,8 +272,9 @@ class _EventsScan:
         return None
 
     def pins_flag_calls(self, conjuncts: list[ast.Expr], needs_flag_key: bool) -> bool:
-        """Whether `conjuncts` pin `event` to flag calls. `needs_flag_key` is true when no enclosing conjunct pins
-        `$feature_flag`. A pin of `event` then counts only where these conjuncts also pin `$feature_flag`."""
+        """Whether `conjuncts` pin `event` to flag calls. With `needs_flag_key`, a pin of `event` counts only where
+        these conjuncts also pin `$feature_flag`. The recursion into `OR` branches passes False once an enclosing
+        conjunct pins `$feature_flag`."""
         needs_flag_key = needs_flag_key and not self.flag_keys(conjuncts)
         return any(self._pins_flag_calls_in(conjunct, needs_flag_key) for conjunct in conjuncts)
 

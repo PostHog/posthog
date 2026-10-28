@@ -479,6 +479,16 @@ def _evaluate_warehouse_access_control_flag(team: Team) -> bool:
     )
 
 
+def _evaluate_flag_calls_rewrite_flag(team: Team) -> bool:
+    return feature_enabled_or_false(
+        "hogql-flag-calls-from-flag-evaluations",
+        str(team.uuid),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+
+
 def _cached_team_flag(flag_key: str, team: Team, evaluate: Callable[[], bool]) -> bool:
     # Not cache_for/CachedFunction: its TTL is fixed at decoration time, and this TTL is a live
     # instance setting so ops can retune or disable the cache without a redeploy.
@@ -2056,22 +2066,11 @@ class Database(BaseModel):
             include_flag_evaluations_table = not is_direct_query and is_flag_evaluations_table_enabled(team)
             # This checks the read mode, not is_flag_evaluations_table_enabled. That one is true under DEBUG for an
             # organization still on EVENTS. The flag goes first because it reads no row.
-            read_mode = (
-                get_flag_evaluations_read_mode(team.organization_id)
-                if include_flag_evaluations_table
-                and _cached_team_flag(
-                    "hogql-flag-calls-from-flag-evaluations",
-                    team,
-                    lambda: feature_enabled_or_false(
-                        "hogql-flag-calls-from-flag-evaluations",
-                        str(team.uuid),
-                        groups={"organization": str(team.organization_id)},
-                        group_properties={"organization": {"id": str(team.organization_id)}},
-                        send_feature_flag_events=False,
-                    ),
-                )
-                else FlagEvaluationsMode.EVENTS
-            )
+            read_mode: int = FlagEvaluationsMode.EVENTS
+            if include_flag_evaluations_table and _cached_team_flag(
+                "hogql-flag-calls-from-flag-evaluations", team, lambda: _evaluate_flag_calls_rewrite_flag(team)
+            ):
+                read_mode = get_flag_evaluations_read_mode(team.organization_id)
             read_flag_calls_from_flag_evaluations = read_mode != FlagEvaluationsMode.EVENTS
             flag_calls_only_in_flag_evaluations = read_mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
 

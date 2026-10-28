@@ -803,9 +803,20 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 "WITH events AS (SELECT uuid, event, properties, timestamp FROM posthog.flag_evaluations) "
                 f"SELECT count() FROM (SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS})",
             ),
+            (
+                "select_star_excluding_flag_calls",
+                "SELECT * FROM events WHERE event != '$feature_flag_called' AND timestamp >= now() - INTERVAL 7 DAY",
+            ),
+            (
+                "select_star_of_flag_calls_and_other_events",
+                "SELECT * FROM events WHERE event IN ('$feature_flag_called', '$pageview') "
+                "AND timestamp >= now() - INTERVAL 7 DAY",
+            ),
         ]
     )
-    def test_query_on_a_cte_named_events_reads_the_cte_once_events_gets_no_flag_calls(self, _name: str, query: str):
+    def test_query_that_does_not_read_only_flag_calls_from_events_is_unchanged_once_events_gets_no_flag_calls(
+        self, _name: str, query: str
+    ):
         assert self._query_events(query).clickhouse == self._query_events(query, rewrite=False).clickhouse
 
     @parameterized.expand(
@@ -967,8 +978,13 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
         from_events = self._query_events(query, rewrite=False, mode=mode).results
 
+        swapped = self._query_events(query, mode=mode)
+
         assert len(from_events) == (2 if with_events_only_call else 1)
-        assert sorted(self._query_events(query, mode=mode).results) == sorted(from_events)
+        assert sorted(swapped.results) == sorted(from_events)
+        if mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY:
+            assert swapped.clickhouse is not None
+            assert "FROM flag_evaluations" in swapped.clickhouse
 
     def test_flag_call_query_on_events_prints_a_read_of_flag_evaluations(self):
         self.assertQueryMatchesSnapshot(self._query_events(FLAG_CALLS_ON_EVENTS).clickhouse)

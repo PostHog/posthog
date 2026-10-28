@@ -6658,6 +6658,16 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 BreakdownFilter(breakdown="$feature_flag_response", breakdown_type=BreakdownType.EVENT),
             ),
             ("test_account_filters", _flag_call_event_series, ["probe-flag"], 2, None, None, True),
+            (
+                "mode_1",
+                _flag_call_event_series,
+                ["probe-flag"],
+                2,
+                None,
+                None,
+                False,
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+            ),
         ]
     )
     def test_flag_call_series_reads_flag_evaluations_when_the_rewrite_is_on(
@@ -6669,10 +6679,10 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         math: BaseMathType | None = None,
         breakdown: BreakdownFilter | None = None,
         filter_test_accounts: bool = False,
+        mode: FlagEvaluationsMode = FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
     ):
         OrganizationFeatureFlagsConfig.objects.update_or_create(
-            organization=self.organization,
-            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+            organization=self.organization, defaults={"flag_evaluations_mode": mode}
         )
         if filter_test_accounts:
             self.team.test_account_filters = [
