@@ -552,12 +552,14 @@ name = "assignment-coordination"
 version = "0.1.0"
 dependencies = [
  "etcd-client",
+ "h2 0.4.13",
  "metrics",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
+ "tonic 0.14.6",
  "tracing",
 ]
 
@@ -4050,7 +4052,7 @@ dependencies = [
 
 [[package]]
 name = "deltalite-python"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "arrow",
  "arrow-array",
@@ -6515,6 +6517,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "assignment-coordination",
+ "async-trait",
+ "aws-config",
+ "aws-sdk-s3",
  "axum 0.7.9",
  "chrono",
  "common-alloc",
@@ -9793,9 +9798,9 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.27.1"
+version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48feacce1343c625054b88191f5c6ea28042643e44a27dd5bfd95d17914d06ff"
+checksum = "7b1f11e52e4f7f78fff94c1f68d1cec3d762911dc3ed27d7862e242435a792cf"
 dependencies = [
  "backtrace",
  "brotli 9.0.0",

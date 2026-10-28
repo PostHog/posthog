@@ -342,6 +342,7 @@ class GoogleAdsSource(
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         caption=(
                             "Earliest date to import, as YYYY-MM-DD. On a source that has already "
@@ -356,6 +357,7 @@ class GoogleAdsSource(
                     ),
                     SourceFieldSelectConfig(
                         name="skip_removed_keywords",
+                        sync_setting=True,
                         label="Skip removed keywords?",
                         caption=(
                             "Leave out keywords that are removed, or that sit in a removed ad group or "
@@ -373,6 +375,7 @@ class GoogleAdsSource(
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="is_mcc_account",
+                        account_selector=True,
                         label="Using MCC account?",
                         caption="Whether your account is a Google Ads MCC account and you're accessing a clients account?",
                         default=False,

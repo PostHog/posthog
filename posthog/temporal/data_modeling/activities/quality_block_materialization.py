@@ -9,7 +9,12 @@ from temporalio import activity
 
 from posthog.sync import database_sync_to_async_pool
 
-from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobStatus, Node
+from products.data_modeling.backend.facade.models import (
+    TERMINAL_JOB_STATUSES,
+    DataModelingJob,
+    DataModelingJobStatus,
+    Node,
+)
 from products.data_quality.backend.facade import api as data_quality_facade
 
 from .utils import QUALITY_BLOCKED_ERROR_PREFIX, update_node_system_properties
@@ -80,7 +85,7 @@ def _block_node_and_job(inputs: QualityBlockMaterializationInputs) -> None:
         node.save()
 
     job = DataModelingJob.objects.get(id=inputs.job_id)
-    if job.status in (DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED, DataModelingJobStatus.COMPLETED):
+    if job.status in TERMINAL_JOB_STATUSES:
         return
     job.status = DataModelingJobStatus.FAILED
     job.error = error

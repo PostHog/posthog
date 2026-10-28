@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # How a collection endpoint pages:
@@ -28,7 +29,16 @@ class MailchimpParentConfig:
     inject_as: str = "id"
 
 
-@dataclass
+@dataclass(frozen=True)
+class MailchimpEventsConfig:
+    """A per-recipient array to expand into one row per event, so each event's own timestamp can be the cursor."""
+
+    array_field: str
+    key_fields: tuple[str, ...]
+    """The event fields that identify one event. A fixed list keeps `event_id` stable when Mailchimp adds a field."""
+
+
+@dataclass(frozen=False)
 class MailchimpEndpointConfig:
     name: str
     path: str
@@ -46,6 +56,7 @@ class MailchimpEndpointConfig:
     """Maps an incremental field name to the Mailchimp query param that filters on it server-side."""
     chunk_size: Optional[int] = None
     chunk_size_bytes: Optional[int] = None
+    events: Optional[MailchimpEventsConfig] = None
 
 
 _LISTS_PARENT = MailchimpParentConfig(path="/lists", data_selector="lists", inject_as="list_id")
@@ -296,6 +307,32 @@ MAILCHIMP_ENDPOINTS: dict[str, MailchimpEndpointConfig] = {
         incremental_fields=[],
         primary_keys=["campaign_id", "email_id"],
     ),
+    # The tables above have no cursor column, and merging a `since` response on `email_id` would drop
+    # older events, so these tables hold one row per event.
+    "report_email_activity_events": MailchimpEndpointConfig(
+        name="report_email_activity_events",
+        path="/reports/{campaign_id}/email-activity",
+        data_selector="emails",
+        parents=(_REPORTS_PARENT,),
+        events=MailchimpEventsConfig(array_field="activity", key_fields=("action", "type", "timestamp", "url")),
+        primary_keys=["campaign_id", "event_id"],
+        partition_key="timestamp",
+        default_incremental_field="timestamp",
+        incremental_params={"timestamp": "since"},
+        incremental_fields=[incremental_field("timestamp")],
+    ),
+    "report_open_events": MailchimpEndpointConfig(
+        name="report_open_events",
+        path="/reports/{campaign_id}/open-details",
+        data_selector="members",
+        parents=(_REPORTS_PARENT,),
+        events=MailchimpEventsConfig(array_field="opens", key_fields=("timestamp",)),
+        primary_keys=["campaign_id", "event_id"],
+        partition_key="timestamp",
+        default_incremental_field="timestamp",
+        incremental_params={"timestamp": "since"},
+        incremental_fields=[incremental_field("timestamp")],
+    ),
     "report_click_details": MailchimpEndpointConfig(
         name="report_click_details",
         path="/reports/{campaign_id}/click-details",
@@ -379,6 +416,8 @@ MAILCHIMP_ENDPOINTS: dict[str, MailchimpEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(MAILCHIMP_ENDPOINTS.keys())
+
+EVENT_ENDPOINTS = frozenset(name for name, config in MAILCHIMP_ENDPOINTS.items() if config.events is not None)
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in MAILCHIMP_ENDPOINTS.items()

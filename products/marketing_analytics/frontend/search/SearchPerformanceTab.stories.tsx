@@ -411,21 +411,23 @@ export const MixedWithPosition: Story = {
         await expect(canvas.queryByRole('checkbox', { name: 'Show position' })).not.toBeInTheDocument()
     },
 }
+const ORGANIC_TRAFFIC_MOCKS = {
+    get: {
+        '/api/environments/:team_id/external_data_sources/': {
+            results: SOURCES.filter((source) => source.source_type === 'GoogleSearchConsole'),
+            count: 1,
+            next: null,
+            previous: null,
+        },
+    },
+} satisfies Mocks
+
 export const OrganicTraffic: Story = {
     ...Comparison,
     parameters: {
         ...Comparison.parameters,
         msw: {
-            mocks: {
-                get: {
-                    '/api/environments/:team_id/external_data_sources/': {
-                        results: SOURCES.filter((source) => source.source_type === 'GoogleSearchConsole'),
-                        count: 1,
-                        next: null,
-                        previous: null,
-                    },
-                },
-            },
+            mocks: ORGANIC_TRAFFIC_MOCKS,
         },
     },
 }
@@ -516,8 +518,9 @@ export const StaleAggregate: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await expect(await canvas.findByText(/Showing query-and-page data instead/)).toBeVisible()
-        await expect(await canvas.findByText('1,240')).toBeVisible()
+        await expect(await canvas.findByText(/search_analytics_by_query is out of date/)).toBeVisible()
+        await expect(await canvas.findByText('840')).toBeVisible()
+        await expect(canvas.queryByText('1,240')).toBeNull()
     },
 }
 export const UnavailableSources: Story = {
@@ -555,19 +558,21 @@ export const UnavailableSourcesNarrow: Story = {
     ...UnavailableSources,
     decorators: Narrow.decorators,
 }
+const ONLY_GOOGLE_ADS_MOCKS = {
+    get: {
+        '/api/environments/:team_id/external_data_sources/': {
+            results: SOURCES.filter((source) => source.source_type === 'GoogleAds'),
+            count: 1,
+            next: null,
+            previous: null,
+        },
+    },
+} satisfies Mocks
+
 export const OnlyGoogleAds: Story = {
     parameters: {
         msw: {
-            mocks: {
-                get: {
-                    '/api/environments/:team_id/external_data_sources/': {
-                        results: SOURCES.filter((source) => source.source_type === 'GoogleAds'),
-                        count: 1,
-                        next: null,
-                        previous: null,
-                    },
-                },
-            },
+            mocks: ONLY_GOOGLE_ADS_MOCKS,
         },
     },
 }
@@ -594,10 +599,14 @@ export const PlacementUnavailable: Story = {
         expect((await canvas.findAllByRole('button', { name: 'product analytics' })).length).toBeGreaterThan(0)
     },
 }
+const EMPTY_MOCKS = {
+    post: { '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': { results: [] } },
+} satisfies Mocks
+
 export const Empty: Story = {
     parameters: {
         msw: {
-            mocks: { post: { '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': { results: [] } } },
+            mocks: EMPTY_MOCKS,
         },
     },
 }
@@ -613,8 +622,8 @@ export const EmptyGoogleAds: Story = {
     parameters: {
         msw: {
             mocks: {
-                get: OnlyGoogleAds.parameters!.msw.mocks.get,
-                post: Empty.parameters!.msw.mocks.post,
+                get: ONLY_GOOGLE_ADS_MOCKS.get,
+                post: EMPTY_MOCKS.post,
             },
         },
     },
@@ -623,8 +632,8 @@ export const EmptyOrganic: Story = {
     parameters: {
         msw: {
             mocks: {
-                get: OrganicTraffic.parameters!.msw.mocks.get,
-                post: Empty.parameters!.msw.mocks.post,
+                get: ORGANIC_TRAFFIC_MOCKS.get,
+                post: EMPTY_MOCKS.post,
             },
         },
     },

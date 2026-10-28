@@ -18,7 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     rename_parent_fields,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    JSONResponseCursorPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -33,6 +36,9 @@ PAGERDUTY_BASE_URL = "https://api.pagerduty.com"
 
 # PagerDuty's max page size is 100; the default is 25.
 PAGE_SIZE = 100
+
+# The Analytics API pages with a body cursor and accepts up to 1,000 rows per page.
+ANALYTICS_PAGE_SIZE = 1000
 
 # PagerDuty rejects requests where `offset + limit` exceeds 10,000 with an HTTP 400.
 # Stop paginating before we cross it. Incremental endpoints stay well under this because
@@ -53,6 +59,8 @@ class PagerDutyResumeConfig:
     # Framework fan-out checkpoint ({"completed": [...], "current": ..., "child_state": ...}) for
     # endpoints that read one child list per parent row.
     fanout_state: Optional[dict[str, Any]] = None
+    # `starting_after` cursor of the next unfetched page, for the cursor-paged Analytics API.
+    cursor: Optional[str] = None
 
 
 def _format_incremental_value(value: Any) -> str:
@@ -139,6 +147,27 @@ class PagerDutyPaginator(BasePaginator):
             self._has_next_page = True
 
 
+class PagerDutyAnalyticsPaginator(JSONResponseCursorPaginator):
+    """Body cursor paginator for the Analytics API.
+
+    Each response carries the cursor of its last row in ``last`` even when it is the final page, so the
+    body-level ``more`` flag decides whether another page exists.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(cursor_path="last", cursor_param="starting_after", param_location="json")
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            more = bool(response.json().get("more", False))
+        except Exception:
+            more = False
+        if not data or not more:
+            self._has_next_page = False
+            return
+        super().update_state(response, data)
+
+
 def _non_secret_headers() -> dict[str, str]:
     # Auth (the `Token token=...` Authorization header) is supplied via the framework auth config so
     # its value is redacted from logs and errors; only the non-secret headers are set here.
@@ -164,14 +193,15 @@ def _shape_oncall(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def _shape_team_member(row: dict[str, Any]) -> dict[str, Any]:
+def _shape_user_reference(row: dict[str, Any]) -> dict[str, Any]:
     row["user_id"] = _reference_id(row, "user")
     return row
 
 
 _ROW_SHAPERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "oncalls": _shape_oncall,
-    "team_members": _shape_team_member,
+    "team_members": _shape_user_reference,
+    "incident_notes": _shape_user_reference,
 }
 
 
@@ -194,7 +224,7 @@ def _row_map(endpoint: str, config: PagerDutyEndpointConfig) -> Optional[Callabl
 
 
 def _list_params(config: PagerDutyEndpointConfig, should_use_incremental_field: bool) -> dict[str, Any]:
-    params: dict[str, Any] = {}
+    params: dict[str, Any] = dict(config.extra_params)
     if config.supports_since:
         # created_at is immutable, so an ascending sort means new rows append to the end and never
         # shift pages we've already read. Sent on every sync (not just incremental ones) so full
@@ -210,6 +240,20 @@ def _list_params(config: PagerDutyEndpointConfig, should_use_incremental_field: 
                 "convert": _format_incremental_value_or_none,
             }
     return params
+
+
+def _analytics_body(should_use_incremental_field: bool, db_incremental_field_last_value: Any) -> dict[str, Any]:
+    # Without a created_at range the API answers its default window. UTC keeps timestamps comparable
+    # with the other tables.
+    body: dict[str, Any] = {
+        "limit": ANALYTICS_PAGE_SIZE,
+        "order": "asc",
+        "order_by": "created_at",
+        "time_zone": "Etc/UTC",
+    }
+    if should_use_incremental_field and db_incremental_field_last_value is not None:
+        body["filters"] = {"updated_after": _format_incremental_value(db_incremental_field_last_value)}
+    return body
 
 
 def _skip_when_plan_gated(
@@ -230,6 +274,25 @@ def _skip_when_plan_gated(
         )
 
 
+ANALYTICS_READ_ONLY_KEY_ERROR = (
+    "The PagerDuty Analytics API only accepts POST requests, so a read-only API key can't sync the "
+    "incident_analytics table. Use a full access API key, or turn off syncing for this table."
+)
+ANALYTICS_PERSONAL_KEY_ERROR = (
+    "The PagerDuty Analytics API needs an account-level API key. A personal API key can't sync the "
+    "incident_analytics table. Use an account-level key, or turn off syncing for this table."
+)
+
+
+def _probe_analytics(api_token: str, url: str) -> tuple[bool, int | None]:
+    try:
+        session = make_tracked_session(redact_values=(api_token,))
+        response = session.post(url, headers=_get_headers(api_token), json={"limit": 1}, timeout=10.0)
+    except Exception:  # noqa: BLE001 — a credential probe must never raise; any failure means "not validated"
+        return False, None
+    return response.status_code == 200, response.status_code
+
+
 def validate_credentials(api_token: str, endpoint: Optional[str] = None) -> tuple[bool, int, str | None]:
     """Probe PagerDuty with a cheap single-row request.
 
@@ -241,17 +304,26 @@ def validate_credentials(api_token: str, endpoint: Optional[str] = None) -> tupl
         # A fan-out path carries an `{id}` placeholder. The parent list needs the same access scope.
         config = PAGERDUTY_ENDPOINTS[config.parent]
     path = config.path if config else "/users"
-    url = f"{PAGERDUTY_BASE_URL}{path}?{urlencode({'limit': 1})}"
 
-    ok, status = validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_token,)),
-        url,
-        headers=_get_headers(api_token),
-    )
+    is_post = config is not None and config.method == "POST"
+    if is_post:
+        ok, status = _probe_analytics(api_token, f"{PAGERDUTY_BASE_URL}{path}")
+    else:
+        ok, status = validate_via_probe(
+            lambda: make_tracked_session(redact_values=(api_token,)),
+            f"{PAGERDUTY_BASE_URL}{path}?{urlencode({'limit': 1})}",
+            headers=_get_headers(api_token),
+        )
     if ok:
         return True, status if status is not None else 200, None
     if status is None:
         return False, 0, "Could not reach PagerDuty"
+    # Read-only keys can only make GET requests, and personal keys must filter Analytics requests by
+    # team or service, which this source does not do.
+    if is_post and status == 403:
+        return False, 403, ANALYTICS_READ_ONLY_KEY_ERROR
+    if is_post and status == 400:
+        return False, 400, ANALYTICS_PERSONAL_KEY_ERROR
     if status == 401:
         return False, 401, "Invalid PagerDuty API key"
     if status == 403:
@@ -273,7 +345,19 @@ def pagerduty_source(
 
     endpoint_resource: EndpointResource
     resources: list[str | EndpointResource]
-    if config.parent is None:
+    if config.method == "POST":
+        endpoint_resource = {
+            "name": endpoint,
+            "endpoint": {
+                "method": "POST",
+                "path": config.path,
+                "json": _analytics_body(should_use_incremental_field, db_incremental_field_last_value),
+                "data_selector": config.envelope_key,
+                "paginator": PagerDutyAnalyticsPaginator(),
+            },
+        }
+        resources = [endpoint_resource]
+    elif config.parent is None:
         endpoint_resource = {
             "name": endpoint,
             "endpoint": {
@@ -331,13 +415,20 @@ def pagerduty_source(
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None:
-            initial_paginator_state = resume.fanout_state if config.parent else {"offset": resume.offset}
+            if config.parent:
+                initial_paginator_state = resume.fanout_state
+            elif config.method == "POST":
+                initial_paginator_state = {"cursor": resume.cursor} if resume.cursor else None
+            else:
+                initial_paginator_state = {"offset": resume.offset}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if not state:
             return
         if config.parent is not None:
             resumable_source_manager.save_state(PagerDutyResumeConfig(fanout_state=state))
+        elif state.get("cursor") is not None:
+            resumable_source_manager.save_state(PagerDutyResumeConfig(cursor=str(state["cursor"])))
         # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields the
         # last page (merge dedupes) rather than skipping it.
         elif state.get("offset") is not None:
@@ -380,9 +471,9 @@ def pagerduty_source(
         name=endpoint,
         items=items,
         primary_keys=config.primary_keys,
-        # We always request created_at ascending where a sort is available, and full-refresh endpoints
-        # replace wholesale, so ascending is correct everywhere.
-        sort_mode="asc",
+        # We request created_at ascending where a sort is available, and full-refresh endpoints replace
+        # wholesale. Endpoints whose incremental field the API can't sort by declare no order.
+        sort_mode=config.sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

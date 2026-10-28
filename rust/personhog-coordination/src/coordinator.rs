@@ -627,6 +627,21 @@ impl Coordinator {
             // still runs, which is what spares the successor the TTL.
             _ = cancel.cancelled() => Ok(()),
             _ = lease_lost.cancelled() => Err(Error::leadership_lost()),
+            // A live lease does not prove the seat: a deleted election key
+            // lets another candidate win while this one keeps coordinating.
+            lost = util::await_held_key_lost(
+                &self.store,
+                util::HeldKey::Leader,
+                lease_id,
+                self.config.standby_poll_interval,
+                &cancel,
+            ) => match lost {
+                Some(how) => {
+                    tracing::error!(name = %self.config.name, how, "election key lost; abdicating");
+                    Err(Error::leadership_lost())
+                }
+                None => Ok(()),
+            },
             result = self.run_coordination_loop(cancel.clone()) => result,
         };
 

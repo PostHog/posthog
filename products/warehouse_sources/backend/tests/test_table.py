@@ -33,10 +33,17 @@ from posthog.models import Team
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import (
+    HISTORY_HIDDEN_COLUMNS,
     DataWarehouseTable,
     classify_warehouse_read_error,
     get_hogql_field_for_column,
     run_chdb_query,
+)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    CDC_OP_COLUMN,
+    CDC_SEQ_COLUMN,
+    CDC_TIMESTAMP_COLUMN,
+    DELETED_AT_COLUMN,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
@@ -260,6 +267,15 @@ class TestWarehouseReadErrorClassification:
                 "isn't in your files any more",
             ),
             (
+                ServerException(
+                    "DB::Exception: The table structure cannot be extracted from a Parquet format file: "
+                    "std::exception. Code: 1001, type: Azure::Storage::StorageException, e.what() = 404 "
+                    "The specified blob does not exist.",
+                    code=636,
+                ),
+                "doesn't exist in the container",
+            ),
+            (
                 ServerException("DB::Exception: A failure shape nobody has classified yet.", code=999),
                 None,
             ),
@@ -357,14 +373,33 @@ class TestGetCountEngineChoice:
 
 
 class TestChdbEngineChoiceByFormat:
-    def _table(self, table_format: str, has_credential: bool) -> DataWarehouseTable:
+    def _table(
+        self, table_format: str, has_credential: bool, url_pattern: str = "https://bucket.example.com/t/"
+    ) -> DataWarehouseTable:
         return DataWarehouseTable(
             name="t",
             format=table_format,
             team=Team(id=1),
-            url_pattern="https://bucket.example.com/t/",
+            url_pattern=url_pattern,
             credential=DataWarehouseCredential(access_key="key", access_secret="secret") if has_credential else None,
         )
+
+    @pytest.mark.parametrize("method,clickhouse_result", [("get_columns", [("id", "String")]), ("get_count", [(7,)])])
+    def test_azure_reads_run_on_the_cluster(self, method: str, clickhouse_result: list[tuple]) -> None:
+        table = self._table(
+            DataWarehouseTable.TableFormat.Parquet, True, "https://acct.blob.core.windows.net/container/t/*.parquet"
+        )
+        with (
+            patch("products.warehouse_sources.backend.models.table.TEST", False),
+            patch("products.warehouse_sources.backend.models.table.run_chdb_query") as mock_run_chdb,
+            patch(
+                "products.warehouse_sources.backend.models.table.sync_execute", return_value=clickhouse_result
+            ) as mock_sync_execute,
+        ):
+            getattr(table, method)()
+
+        assert not mock_run_chdb.called
+        assert "azureBlobStorage(" in mock_sync_execute.call_args.args[0]
 
     @pytest.mark.parametrize(
         "table_format,has_credential,uses_chdb",
@@ -513,7 +548,7 @@ class TestRunChdbQuery:
         assert child_env["AWS_REGION"] == "us-east-1"
         assert child_env["AWS_EC2_METADATA_DISABLED"] == "true"
         assert child_env["https_proxy"] == "http://web-1:x@egress-proxy.example:4750/"
-        assert mock_run.call_args.kwargs["input"] == "SET s3_max_redirects = 0; SELECT 1"
+        assert mock_run.call_args.kwargs["input"] == "SET s3_max_redirects = 0; SET s3_retry_attempts = 0; SELECT 1"
 
     def test_read_rejects_a_certificate_issued_for_another_host(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -717,6 +752,11 @@ class TestSchemaInferenceMode(BaseTest):
                     self._table(DataWarehouseTable.TableFormat.JSON).get_columns()
 
         assert mock_sync_execute.call_count == 5
+
+
+class TestHistoryHiddenColumns(SimpleTestCase):
+    def test_names_match_the_columns_capture_writes(self) -> None:
+        assert HISTORY_HIDDEN_COLUMNS == {CDC_OP_COLUMN, CDC_SEQ_COLUMN, CDC_TIMESTAMP_COLUMN, DELETED_AT_COLUMN}
 
 
 class TestGetHogqlFieldForColumn(SimpleTestCase):

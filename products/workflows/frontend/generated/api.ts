@@ -11,6 +11,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AppMetricsResponseApi,
     AppMetricsTotalsResponseApi,
+    ApplyUtmDefaultsRequestApi,
+    ApplyUtmDefaultsResponseApi,
+    AudienceSuggestionsResponseApi,
     BlastRadiusApi,
     BlastRadiusRequestApi,
     BroadcastConversionCandidatesApi,
@@ -117,6 +120,43 @@ export const internalHogFlowsProcessDueSchedulesCreate = async (options?: Reques
     return apiMutator<void>(getInternalHogFlowsProcessDueSchedulesCreateUrl(), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getBroadcastAudienceSuggestionsCurrentUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/broadcast_audience_suggestions/current/`
+}
+
+/**
+ * Broadcast audiences written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const broadcastAudienceSuggestionsCurrent = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AudienceSuggestionsResponseApi> => {
+    return apiMutator<AudienceSuggestionsResponseApi>(getBroadcastAudienceSuggestionsCurrentUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBroadcastAudienceSuggestionsGenerateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/broadcast_audience_suggestions/generate/`
+}
+
+/**
+ * Broadcast audiences written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const broadcastAudienceSuggestionsGenerate = async (
+    projectId: string,
+    dataSuggestionGenerateRequestApi?: DataSuggestionGenerateRequestApi,
+    options?: RequestInit
+): Promise<AudienceSuggestionsResponseApi> => {
+    return apiMutator<AudienceSuggestionsResponseApi>(getBroadcastAudienceSuggestionsGenerateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataSuggestionGenerateRequestApi),
     })
 }
 
@@ -1246,6 +1286,23 @@ export const hogFlowsSchedulesDestroy = async (
     return apiMutator<void>(getHogFlowsSchedulesDestroyUrl(projectId, id, scheduleId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getHogFlowsApplyUtmDefaultsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/apply_utm_defaults/`
+}
+
+export const hogFlowsApplyUtmDefaultsCreate = async (
+    projectId: string,
+    applyUtmDefaultsRequestApi?: ApplyUtmDefaultsRequestApi,
+    options?: RequestInit
+): Promise<ApplyUtmDefaultsResponseApi> => {
+    return apiMutator<ApplyUtmDefaultsResponseApi>(getHogFlowsApplyUtmDefaultsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(applyUtmDefaultsRequestApi),
     })
 }
 

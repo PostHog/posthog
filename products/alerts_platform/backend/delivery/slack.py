@@ -127,8 +127,11 @@ class SlackTransport:
                 blocks,
                 text,
                 thread_ts=in_reply_to.external_ref.get("ts") if in_reply_to else None,
-                # A root edit notifies nobody, so a resolve also goes to the channel, as legacy posted it.
-                reply_broadcast=in_reply_to is not None and message.transition.kind == AlertEventKind.RESOLVED,
+                # A root edit notifies nobody, and a thread reply notifies only the people who follow
+                # the thread. So a resolve and a repeat firing also go to the channel, where legacy
+                # posted each one as a new message.
+                reply_broadcast=in_reply_to is not None
+                and message.transition.kind in (AlertEventKind.RESOLVED, AlertEventKind.FIRING),
             )
 
         try:
