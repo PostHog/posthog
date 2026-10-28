@@ -42,12 +42,16 @@ logger = logging.getLogger(__name__)
 DOWNLOAD_BASE_URL = "https://temporal.download"
 CACHE_DIR_ENV = "POSTHOG_TEMPORAL_SERVER_CACHE_DIR"
 ATTEMPTS = 5
-# The read timeout applies per socket read, so a stalled transfer fails while a slow one completes.
-REQUEST_TIMEOUT = (10, 60)
-# A transfer that keeps trickling bytes never trips the read timeout, so each attempt also has a total deadline.
-DOWNLOAD_DEADLINE_SECONDS = 180
-# Longer than ATTEMPTS full downloads, so a waiting process outlasts the lock holder's retries.
-LOCK_TIMEOUT_SECONDS = 1200
+# Connect and per-read timeouts, so a silent connection fails within seconds.
+REQUEST_TIMEOUT = (5, 10)
+# A healthy download takes about a second, while a degraded path trickles kilobytes per second without ever
+# tripping the read timeout. An attempt below this rate after the grace period is cut so the retry can land on a
+# fast path.
+MIN_BYTES_PER_SECOND = 1_000_000
+THROUGHPUT_GRACE_SECONDS = 5
+DOWNLOAD_DEADLINE_SECONDS = 60
+# Longer than ATTEMPTS bounded attempts plus backoff, so a waiting process outlasts the lock holder's retries.
+LOCK_TIMEOUT_SECONDS = 300
 # xdist gives every worker of one run the same id, so a failure one worker records stops the others in that run
 # only, and a later run tries again.
 _RUN_ID = os.environ.get("PYTEST_XDIST_TESTRUNUID") or uuid.uuid4().hex
@@ -103,14 +107,20 @@ def _download(binary: ServerBinary, platform_params: dict[str, str], dest: Path)
 
     with tempfile.TemporaryDirectory(dir=dest.parent) as work_dir:
         archive_path = Path(work_dir) / "archive.tar.gz"
-        deadline = time.monotonic() + DOWNLOAD_DEADLINE_SECONDS
+        started = time.monotonic()
+        received = 0
         with requests.get(archive_url, stream=True, timeout=REQUEST_TIMEOUT) as response:
             response.raise_for_status()
             with archive_path.open("wb") as archive_file:
-                for chunk in response.iter_content(chunk_size=1 << 20):
+                # chunk_size=None yields data as it arrives, so the checks below run after every read.
+                for chunk in response.iter_content(chunk_size=None):
                     archive_file.write(chunk)
-                    if time.monotonic() > deadline:
+                    received += len(chunk)
+                    elapsed = time.monotonic() - started
+                    if elapsed > DOWNLOAD_DEADLINE_SECONDS:
                         raise TimeoutError(f"download took longer than {DOWNLOAD_DEADLINE_SECONDS}s")
+                    if elapsed > THROUGHPUT_GRACE_SECONDS and received / elapsed < MIN_BYTES_PER_SECOND:
+                        raise TimeoutError(f"download too slow: {received} bytes in {elapsed:.0f}s")
         # Reading the whole gzip stream checks its CRC, which reading one tar member can stop short of.
         with gzip.open(archive_path) as compressed:
             while compressed.read(1 << 20):
