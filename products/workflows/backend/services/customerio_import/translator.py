@@ -47,8 +47,6 @@ _DAY_NAMES = {
 }
 _WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday"]
 _LAYOUT_CONTENT = re.compile(r"\{\{-?\s*content\s*-?\}\}")
-# A plain HTML comment. Outlook's conditional comments (`<!--[if mso]>`, `<!--<![endif]-->`) are kept.
-_HTML_COMMENT = re.compile(r"<!--(?!>)(?!\s*\[if)(?:(?!-->|<!\[endif\]).){0,5000}?-->", re.DOTALL)
 _LIQUID_TAG = re.compile(r"\{\{.{0,500}?\}\}|\{%.{0,500}?%\}", re.DOTALL)
 _SANS_SERIF = "font-family: Arial, Helvetica, sans-serif;"
 _STATIC_SEGMENT_TYPES = {"static", "manual"}
@@ -498,7 +496,7 @@ class _Builder:
             layout = template["layout"]
         if layout and _LAYOUT_CONTENT.search(layout):
             # A comment in the layout shows up as text in the plain-text version of the email.
-            return _LAYOUT_CONTENT.sub(lambda _: body, _HTML_COMMENT.sub("", layout), count=1)
+            return _LAYOUT_CONTENT.sub(lambda _: body, _strip_comments(layout), count=1)
         if layout_id:
             self.note(
                 NoteLevel.NEEDS_INPUT,
@@ -984,6 +982,22 @@ def _prune_unreachable(actions: list[dict[str, Any]], edges: list[dict[str, Any]
 
 def _plain_name(name: Any) -> str:
     """A step name without Liquid, which the editor shows as raw `{{ ... }}`. Customer.io often names emails by subject."""
-    text = _LIQUID_TAG.sub("", str(name or ""))
+    text = _LIQUID_TAG.sub("", str(name or "")[:2000])
     text = re.sub(r"\s+([!?.,:;])", r"\1", re.sub(r"\s+", " ", text)).strip()
     return text[:400]
+
+
+def _strip_comments(html: str) -> str:
+    """Drop plain HTML comments, keeping Outlook's conditional ones (`<!--[if mso]>`, `<!--<![endif]-->`)."""
+    parts: list[str] = []
+    position = 0
+    while (start := html.find("<!--", position)) != -1:
+        end = html.find("-->", start + 4)
+        if end == -1:
+            break
+        body = html[start + 4 : end]
+        conditional = body.lstrip().startswith("[if") or "<![endif]" in body
+        parts.append(html[position : end + 3] if conditional else html[position:start])
+        position = end + 3
+    parts.append(html[position:])
+    return "".join(parts)
