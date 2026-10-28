@@ -9,6 +9,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.client import async_connect
 
 from products.data_modeling.backend.facade.api import upstream_tables_being_replaced
 from products.data_modeling.backend.facade.models import (
@@ -19,14 +20,12 @@ from products.data_modeling.backend.facade.models import (
 )
 
 from .create_data_modeling_job import UPSTREAM_NAMES_IN_SKIP_REASON
+from .preempt_dag_run import _abandoned_jobs
 
 LOGGER = get_logger(__name__)
 
 # A sync run that is still Running after this long has stopped without finishing its job row.
 STALE_RELOAD_AGE = dt.timedelta(days=3)
-# Longer than any materialization runs (the Trino activity allows 365 minutes), so an older Running
-# row belongs to a workflow that died without finishing it.
-STALE_MATERIALIZATION_AGE = dt.timedelta(hours=8)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -150,18 +149,18 @@ async def check_upstream_reloads_activity(inputs: CheckUpstreamReloadsInputs) ->
 
 
 @database_sync_to_async_pool
-def _any_node_waiting(inputs: NodesWaitingOnUpstreamReloadsInputs) -> bool:
+def _nodes_and_running_jobs(inputs: NodesWaitingOnUpstreamReloadsInputs) -> tuple[list[Node], list[DataModelingJob]]:
     nodes = list(
         Node.objects.filter(team_id=inputs.team_id, dag_id=inputs.dag_id, id__in=inputs.node_ids).select_related(
             "saved_query"
         )
     )
-    # A node that another run is materializing waits too, so the follow-up never preempts that run.
-    running = _jobs(inputs.team_id, nodes, inputs.engine).filter(
-        status=DataModelingJobStatus.RUNNING, created_at__gte=timezone.now() - STALE_MATERIALIZATION_AGE
-    )
-    if running.exists():
-        return True
+    running = list(_jobs(inputs.team_id, nodes, inputs.engine).filter(status=DataModelingJobStatus.RUNNING))
+    return nodes, running
+
+
+@database_sync_to_async_pool
+def _any_node_reloading(nodes: list[Node], inputs: NodesWaitingOnUpstreamReloadsInputs) -> bool:
     built_saved_query_ids = _built_saved_query_ids(inputs.team_id, nodes, inputs.engine)
     # Stops at the first node still waiting, so a poll during a long reload reads little.
     return any(_tables_being_reloaded(node, inputs.engine, built_saved_query_ids) for node in nodes)
@@ -171,4 +170,10 @@ def _any_node_waiting(inputs: NodesWaitingOnUpstreamReloadsInputs) -> bool:
 async def any_node_waiting_on_upstream_reloads_activity(inputs: NodesWaitingOnUpstreamReloadsInputs) -> bool:
     """Whether any of these nodes waits on an upstream reload or on another run of it. Writes nothing."""
     bind_contextvars(team_id=inputs.team_id)
-    return await _any_node_waiting(inputs)
+    nodes, running = await _nodes_and_running_jobs(inputs)
+    # A node that another run is materializing waits too, so the follow-up never preempts that run.
+    # Temporal decides which Running rows are live, because a job's age cannot tell a slow run from
+    # a dead one.
+    if running and len(await _abandoned_jobs(await async_connect(), running)) < len(running):
+        return True
+    return await _any_node_reloading(nodes, inputs)

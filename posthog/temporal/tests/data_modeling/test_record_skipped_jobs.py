@@ -1,11 +1,10 @@
-import datetime as dt
 import dataclasses
 
 import pytest
-
-from django.utils import timezone
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest_asyncio
+from temporalio.client import WorkflowExecutionStatus
 from temporalio.testing import ActivityEnvironment
 
 from posthog.sync import database_sync_to_async
@@ -40,6 +39,7 @@ from products.warehouse_sources.backend.facade.models import (
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
+CHECK_MODULE = "posthog.temporal.data_modeling.activities.check_upstream_reloads"
 WORKFLOW_ID = "execute-dag-019e4b57-31b8-7c8a-9d0e-5edaf66fa0ca:900-2026-08-07T11:17:00Z"
 
 
@@ -220,35 +220,42 @@ class TestCheckUpstreamReloads:
             assert jobs == []
 
     @pytest.mark.parametrize(
-        "node_name,other_run_status,waiting",
+        "node_name,other_run_status,other_workflow_status,waiting",
         [
-            ("reloading", None, True),
-            ("idle", None, False),
-            ("idle", DataModelingJobStatus.RUNNING, True),
-            ("idle", DataModelingJobStatus.FAILED, False),
-            ("idle_with_abandoned_run", DataModelingJobStatus.RUNNING, False),
+            ("reloading", None, None, True),
+            ("idle", None, None, False),
+            ("idle", DataModelingJobStatus.RUNNING, WorkflowExecutionStatus.RUNNING, True),
+            ("idle", DataModelingJobStatus.RUNNING, WorkflowExecutionStatus.TERMINATED, False),
+            ("idle", DataModelingJobStatus.FAILED, None, False),
         ],
     )
-    async def test_a_node_waits_on_a_reload_or_on_another_run_of_it(
-        self, ateam, adag_local, node_name, other_run_status, waiting
+    async def test_a_node_waits_on_a_reload_or_on_another_live_run_of_it(
+        self, ateam, adag_local, node_name, other_run_status, other_workflow_status, waiting
     ):
         reloading, reloading_query = await _make_node(ateam, adag_local, "reloading")
         idle, idle_query = await _make_node(ateam, adag_local, "idle")
         await database_sync_to_async(_start_full_refresh_upstream_of)(ateam, adag_local, reloading)
         if other_run_status is not None:
-            other_run = await database_sync_to_async(DataModelingJob.objects.create)(
-                team=ateam, saved_query=idle_query, status=other_run_status, engine=DataModelingJobEngine.CLICKHOUSE
+            await database_sync_to_async(DataModelingJob.objects.create)(
+                team=ateam,
+                saved_query=idle_query,
+                status=other_run_status,
+                engine=DataModelingJobEngine.CLICKHOUSE,
+                workflow_id="materialize-view-other-run",
             )
-            if node_name == "idle_with_abandoned_run":
-                await database_sync_to_async(DataModelingJob.objects.filter(id=other_run.id).update)(
-                    created_at=timezone.now() - dt.timedelta(days=1)
-                )
+        temporal = MagicMock()
+        temporal.get_workflow_handle.return_value.describe = AsyncMock(
+            return_value=MagicMock(status=other_workflow_status)
+        )
         node = reloading if node_name == "reloading" else idle
 
-        result = await ActivityEnvironment().run(
-            any_node_waiting_on_upstream_reloads_activity,
-            NodesWaitingOnUpstreamReloadsInputs(team_id=ateam.pk, dag_id=str(adag_local.id), node_ids=[str(node.id)]),
-        )
+        with patch(f"{CHECK_MODULE}.async_connect", AsyncMock(return_value=temporal)):
+            result = await ActivityEnvironment().run(
+                any_node_waiting_on_upstream_reloads_activity,
+                NodesWaitingOnUpstreamReloadsInputs(
+                    team_id=ateam.pk, dag_id=str(adag_local.id), node_ids=[str(node.id)]
+                ),
+            )
 
         assert result is waiting
         assert await database_sync_to_async(_status_and_error)(reloading_query) == []
