@@ -61,6 +61,24 @@ function parseDotenv(contents: string, path: string): Map<string, string> {
     return values
 }
 
+// A missing file only warns, as in posthog-cli, so a shared build script still works on a machine
+// that logged in instead. Any other read failure stops the command.
+async function readDotenv(runtime: Runtime, path: string): Promise<string | undefined> {
+    try {
+        return await runtime.readFile(path)
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+            throw new HogError(
+                'invalid_dotenv_file',
+                `hog couldn't read ${path}: ${error instanceof Error ? error.message : String(error)}`,
+                'Check that the file is readable, or remove --dotenv-file.'
+            )
+        }
+        runtime.writeStderr(`Warning: ${path} doesn't exist, so hog uses your other credentials.\n`)
+        return undefined
+    }
+}
+
 function posthogHomeDir(env: Env, homeDir: string | undefined): string | undefined {
     if (env.POSTHOG_HOME) {
         return env.POSTHOG_HOME
@@ -93,25 +111,25 @@ export function checkHost(host: string): string | undefined {
 }
 
 function validate(raw: RawCredentials, host: string): Credentials {
-    const keyProblem = checkApiKey(raw.apiKey)
-    if (keyProblem) {
+    const keyError = checkApiKey(raw.apiKey)
+    if (keyError) {
         throw new HogError(
             'invalid_credentials',
-            keyProblem,
+            keyError,
             'Create a personal API key in PostHog under Settings > Personal API keys.'
         )
     }
-    const projectProblem = checkProjectId(raw.projectId)
-    if (projectProblem) {
+    const projectError = checkProjectId(raw.projectId)
+    if (projectError) {
         throw new HogError(
             'invalid_credentials',
-            projectProblem,
+            projectError,
             'Use the number in your project URL, like the 2 in https://us.posthog.com/project/2.'
         )
     }
-    const hostProblem = checkHost(host)
-    if (hostProblem) {
-        throw new HogError('invalid_credentials', hostProblem)
+    const hostError = checkHost(host)
+    if (hostError) {
+        throw new HogError('invalid_credentials', hostError)
     }
     return { apiKey: raw.apiKey, projectId: raw.projectId, host }
 }
@@ -140,19 +158,20 @@ export async function resolveCredentials(
         return withHost(fromEnv, 'env')
     }
 
-    if (options.dotenvFile) {
-        let contents: string | undefined
-        try {
-            contents = await runtime.readFile(options.dotenvFile)
-        } catch {
-            contents = undefined
-        }
+    const dotenvFile = options.dotenvFile ?? (runtime.env.POSTHOG_CLI_DOTENV_FILE || undefined)
+    if (dotenvFile) {
+        const contents = await readDotenv(runtime, dotenvFile)
         if (contents !== undefined) {
-            const values = parseDotenv(contents, options.dotenvFile)
+            const values = parseDotenv(contents, dotenvFile)
             const fromFile = fromLookup((name) => values.get(name) || undefined)
-            if (fromFile) {
-                return withHost(fromFile, 'dotenv-file')
+            if (!fromFile) {
+                throw new HogError(
+                    'not_authenticated',
+                    `hog couldn't find POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID in the environment or in ${dotenvFile}.`,
+                    'Add both variables to the file, or remove --dotenv-file.'
+                )
             }
+            return withHost(fromFile, 'dotenv-file')
         }
     }
 

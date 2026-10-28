@@ -1,11 +1,61 @@
 import { HogError } from '@/core/errors'
+import { parseLossless } from '@/core/raw-json'
 import { VERSION } from '@/version'
 
 import type { Credentials } from './credentials'
 
 export const USER_AGENT = `hog/${VERSION}`
+// Generous, because a HogQL query can run for minutes. It only stops a connection that hangs.
+const REQUEST_TIMEOUT_MS = 10 * 60 * 1000
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE'
+
+export interface HttpRequest {
+    method: Method
+    body?: unknown
+    apiKey?: string
+    timeoutMs?: number
+}
+
+export interface HttpResponse {
+    status: number
+    ok: boolean
+    json: unknown
+    text: string
+}
+
+// Sends one JSON request to PostHog. Any failure before the whole body arrives, including the
+// deadline, is a `network_error`, so callers handle a dropped connection in one place.
+export async function sendRequest(fetchFn: typeof fetch, url: URL, request: HttpRequest): Promise<HttpResponse> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', 'User-Agent': USER_AGENT }
+    if (request.apiKey) {
+        headers.Authorization = `Bearer ${request.apiKey}`
+    }
+    let response: Response
+    let text: string
+    try {
+        response = await fetchFn(url, {
+            method: request.method,
+            headers,
+            body: request.body === undefined ? undefined : JSON.stringify(request.body),
+            signal: AbortSignal.timeout(request.timeoutMs ?? REQUEST_TIMEOUT_MS),
+        })
+        text = await response.text()
+    } catch (error) {
+        throw new HogError(
+            'network_error',
+            `hog couldn't reach ${url.origin}: ${error instanceof Error ? error.message : String(error)}`,
+            'Check the host and your network connection.'
+        )
+    }
+    let json: unknown
+    try {
+        json = text ? parseLossless(text) : undefined
+    } catch {
+        json = undefined
+    }
+    return { status: response.status, ok: response.ok, json, text }
+}
 
 // A non-2xx answer from PostHog. `type` is the DRF error type, such as `validation_error`.
 export class ApiError extends HogError {
@@ -52,30 +102,12 @@ export class PostHogApi {
     }
 
     private async request<T>(method: Method, path: string, body?: unknown): Promise<T> {
-        let response: Response
-        try {
-            response = await this.fetchFn(this.url(path), {
-                method,
-                headers: {
-                    Authorization: `Bearer ${this.credentials.apiKey}`,
-                    'Content-Type': 'application/json',
-                    'User-Agent': USER_AGENT,
-                },
-                body: body === undefined ? undefined : JSON.stringify(body),
-            })
-        } catch (error) {
-            throw new HogError(
-                'network_error',
-                `hog couldn't reach ${this.credentials.host}: ${error instanceof Error ? error.message : String(error)}`,
-                'Check the host and your network connection.'
-            )
-        }
-
-        const text = await response.text()
-        let parsed: unknown
-        try {
-            parsed = text ? JSON.parse(text) : undefined
-        } catch {
+        const response = await sendRequest(this.fetchFn, this.url(path), {
+            method,
+            body,
+            apiKey: this.credentials.apiKey,
+        })
+        if (response.text && response.json === undefined) {
             throw new HogError(
                 'unexpected_response',
                 `PostHog answered with HTTP ${response.status} and a body that isn't JSON.`,
@@ -83,9 +115,9 @@ export class PostHogApi {
             )
         }
         if (!response.ok) {
-            throw this.failure(response.status, parsed)
+            throw this.failure(response.status, response.json)
         }
-        return parsed as T
+        return response.json as T
     }
 
     private failure(status: number, body: unknown): ApiError {

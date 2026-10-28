@@ -9,6 +9,7 @@ import type { ZipWriter } from './zip'
 // manifest from DWARF path to zip path. posthog-cli's dsym/source_bundle.rs.
 
 const MAX_SOURCE_FILE_BYTES = 64 * 1024 * 1024
+const MAX_ZIP_ENTRIES = 0xffff
 
 export interface SourceBundle {
     manifest: Map<string, string>
@@ -16,10 +17,10 @@ export interface SourceBundle {
     contents: Map<string, Uint8Array>
 }
 
-// Rust's `Path::file_name` on Unix: the last normal component, ignoring trailing `/` and `.`
-// components, and none for `..`, `/` or an empty path.
-function fileName(path: string): string | null {
-    const parts = path.split('/').filter((part) => part !== '' && part !== '.')
+// Rust's `Path::file_name`: the last normal component, ignoring trailing separators and `.`
+// components, and none for `..`, `/` or an empty path. Windows also splits on `\`.
+export function fileName(path: string, platform: NodeJS.Platform = process.platform): string | null {
+    const parts = path.split(platform === 'win32' ? /[\\/]/ : '/').filter((part) => part !== '' && part !== '.')
     const last = parts[parts.length - 1]
     return last === undefined || last === '..' ? null : last
 }
@@ -30,7 +31,14 @@ export function zipRelativePaths(paths: string[]): string[] {
     const result = paths.map((path) => fileName(path) ?? 'unknown')
     for (let round = 0; round < 10; round++) {
         const groups = new Map<string, number[]>()
-        result.forEach((name, index) => groups.set(name, [...(groups.get(name) ?? []), index]))
+        result.forEach((name, index) => {
+            const group = groups.get(name)
+            if (group) {
+                group.push(index)
+            } else {
+                groups.set(name, [index])
+            }
+        })
         let duplicates = false
         for (const indices of groups.values()) {
             if (indices.length < 2) {
@@ -55,12 +63,13 @@ export function zipRelativePaths(paths: string[]): string[] {
 }
 
 // `read_source_file`: a DWARF path can point anywhere, so symlinks, devices and files over 64 MiB
-// are refused, and the checks run on the opened file.
+// are refused, and the checks run on the opened file. O_NONBLOCK keeps the open of a FIFO
+// without a writer from hanging before the regular-file check rejects it.
 function readSourceFile(path: string): Uint8Array {
     if (lstatSync(path).isSymbolicLink()) {
         throw new Error('path is a symlink')
     }
-    const descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+    const descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
     try {
         const stat = fstatSync(descriptor)
         if (!stat.isFile()) {
@@ -69,11 +78,17 @@ function readSourceFile(path: string): Uint8Array {
         if (stat.size > MAX_SOURCE_FILE_BYTES) {
             throw new Error('exceeds the source file size limit')
         }
-        const buffer = Buffer.alloc(stat.size + 1)
+        // Like Rust's `take(MAX + 1)`, a file that grew since the stat is read up to the cap.
+        let buffer = Buffer.alloc(stat.size + 1)
         let total = 0
         for (;;) {
             if (total === buffer.length) {
-                throw new Error('exceeds the source file size limit')
+                if (total > MAX_SOURCE_FILE_BYTES) {
+                    throw new Error('exceeds the source file size limit')
+                }
+                const grown = Buffer.alloc(Math.min(buffer.length * 2, MAX_SOURCE_FILE_BYTES + 1))
+                buffer.copy(grown)
+                buffer = grown
             }
             const count = readSync(descriptor, buffer, total, buffer.length - total, null)
             if (count === 0) {
@@ -149,5 +164,13 @@ export function sourceStep(
         return undefined
     }
     const bundle = collectSources(paths, warnings)
+    // The sources, the manifest and the binary must fit a zip without ZIP64. posthog-cli's zip
+    // crate switches to ZIP64 there, which hog doesn't write, so it uploads the binary alone.
+    if (bundle.contents.size + 2 > MAX_ZIP_ENTRIES) {
+        warnings.push(
+            `The binary names ${bundle.contents.size} source files, more than one upload can hold, so hog uploads it without sources.`
+        )
+        return undefined
+    }
     return (zip) => addSources(zip, bundle)
 }

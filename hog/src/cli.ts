@@ -49,9 +49,37 @@ function shellQuote(arg: string): string {
     return SHELL_SAFE_ARG.test(arg) ? arg : `'${arg.replaceAll("'", "'\\''")}'`
 }
 
-function notPorted(path: string, legacy: Legacy, args: readonly string[]): HogError {
-    const invocation = [legacy.use, ...args.map(shellQuote)].join(' ')
-    return new HogError('not_ported', `\`hog ${path}\` isn't available yet. Run this instead:\n  ${invocation}`)
+// posthog-cli takes --host and --dotenv-file before the subcommand only. Every other argument
+// belongs to the legacy command, including an --output that names a path there.
+const LEGACY_GLOBALS = new Set(['host', 'dotenv-file'])
+
+function notPorted(argv: readonly string[], route: LegacyRoute): HogError {
+    const globals: string[] = []
+    const rest: string[] = []
+    const skip = new Set(route.pathIndices)
+    for (const token of route.tokens) {
+        if (token.kind !== 'option') {
+            continue
+        }
+        const beforePath = token.index < route.pathIndices[0]!
+        if (LEGACY_GLOBALS.has(token.name) || beforePath) {
+            skip.add(token.index)
+            if (token.value !== undefined && !token.inlineValue) {
+                skip.add(token.index + 1)
+            }
+            if (LEGACY_GLOBALS.has(token.name) && token.value !== undefined) {
+                globals.push(`--${token.name}`, token.value)
+            }
+        }
+    }
+    argv.forEach((arg, index) => {
+        if (!skip.has(index)) {
+            rest.push(arg)
+        }
+    })
+    const [binary, ...subcommand] = route.legacy.use.split(' ')
+    const invocation = [binary, ...globals.map(shellQuote), ...subcommand, ...rest.map(shellQuote)].join(' ')
+    return new HogError('not_ported', `\`hog ${route.path}\` isn't available yet. Run this instead:\n  ${invocation}`)
 }
 
 // A 403 names the scopes the command declares, which the API client doesn't know about.
@@ -121,25 +149,18 @@ function createProgram(runtime: Runtime, mode: Mode, state: { exitCode: number }
         })
     }
 
-    function addNode(parent: Commander, name: string, node: Command | Group | Legacy, path: string): void {
+    function addNode(parent: Commander, name: string, node: Command | Group | Legacy): void {
         const command = parent.command(name).description(node.description)
         switch (node.kind) {
             case 'group':
                 command.aliases(node.aliases ?? [])
                 for (const [childName, child] of Object.entries(node.commands)) {
-                    addNode(command, childName, child, `${path} ${childName}`)
+                    addNode(command, childName, child)
                 }
                 return
             case 'legacy':
-                command
-                    .helpGroup(LEGACY_HELP_GROUP)
-                    // `--help` reaches the action like any other argument, so it points to posthog-cli's help.
-                    .helpOption(false)
-                    .allowUnknownOption()
-                    .allowExcessArguments()
-                    .action((_options, self: Commander) => {
-                        throw notPorted(path, node, self.args)
-                    })
+                // Listed in help only: run() answers a legacy command before commander parses it.
+                command.helpGroup(LEGACY_HELP_GROUP)
                 return
             case 'command':
                 addRunnable(command, node)
@@ -165,7 +186,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: { exitCode: number }
         program.addOption(toOption(name, spec))
     }
     for (const [name, node] of Object.entries(COMMANDS)) {
-        addNode(program, name, node, name)
+        addNode(program, name, node)
     }
     return program
 }
@@ -177,9 +198,23 @@ const PRE_PARSE_OPTIONS: ParseArgsOptionsConfig = Object.fromEntries(
     ])
 )
 
+type Token = ReturnType<typeof parseArgs>['tokens'] extends (infer T)[] | undefined ? T : never
+
+interface PreParsed {
+    format: OutputFormat | undefined
+    tokens: Token[]
+}
+
+interface LegacyRoute {
+    legacy: Legacy
+    path: string
+    pathIndices: number[]
+    tokens: Token[]
+}
+
 // Reads the global options before commander runs, so hog knows the output format for errors
 // raised while parsing, and where the command name starts.
-function preParse(argv: readonly string[]): { format: OutputFormat | undefined; commandIndex: number | undefined } {
+function preParse(argv: readonly string[]): PreParsed {
     const { values, tokens } = parseArgs({
         args: [...argv],
         options: PRE_PARSE_OPTIONS,
@@ -189,7 +224,32 @@ function preParse(argv: readonly string[]): { format: OutputFormat | undefined; 
     })
     const output = values.output
     const format = GLOBAL_OPTIONS.output.choices.find((choice) => choice === output)
-    return { format, commandIndex: tokens.find((token) => token.kind === 'positional')?.index }
+    return { format, tokens }
+}
+
+function findLegacy(tokens: Token[]): LegacyRoute | undefined {
+    let tree: CommandTree = COMMANDS
+    const names: string[] = []
+    const pathIndices: number[] = []
+    for (const token of tokens) {
+        if (token.kind !== 'positional') {
+            continue
+        }
+        const node: CommandTree[string] | undefined = Object.hasOwn(tree, token.value) ? tree[token.value] : undefined
+        if (!node) {
+            return undefined
+        }
+        names.push(token.value)
+        pathIndices.push(token.index)
+        if (node.kind === 'legacy') {
+            return { legacy: node, path: names.join(' '), pathIndices, tokens }
+        }
+        if (node.kind === 'command') {
+            return undefined
+        }
+        tree = node.commands
+    }
+    return undefined
 }
 
 // Full names of commands in groups whose last word is `name`, so `hog login` can point to `hog auth login`.
@@ -264,7 +324,7 @@ function toHogError(caught: unknown): HogError {
 }
 
 export async function run(argv: readonly string[], runtime: Runtime): Promise<number> {
-    const { format, commandIndex } = preParse(argv)
+    const { format, tokens } = preParse(argv)
     const terminal = { isTTY: runtime.stdoutIsTTY, hasColors: runtime.stdoutHasColors, columns: runtime.stdoutColumns }
     const mode = resolveMode(runtime.env, terminal, format)
     const state = { exitCode: 0 }
@@ -273,12 +333,15 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
         program.outputHelp()
         return 0
     }
-    const args =
-        commandIndex !== undefined && argv[commandIndex] === 'help'
-            ? [...argv.slice(0, commandIndex), ...argv.slice(commandIndex + 1), '--help']
-            : [...argv]
+    const commandIndex = tokens.find((token) => token.kind === 'positional')?.index
+    const isHelp = commandIndex !== undefined && argv[commandIndex] === 'help'
+    const args = isHelp ? [...argv.slice(0, commandIndex), ...argv.slice(commandIndex + 1), '--help'] : [...argv]
 
     try {
+        const legacy = findLegacy(isHelp ? preParse(args).tokens : tokens)
+        if (legacy) {
+            throw notPorted(args, legacy)
+        }
         await program.parseAsync(args, { from: 'user' })
         return state.exitCode
     } catch (caught) {

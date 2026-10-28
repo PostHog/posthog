@@ -7,7 +7,7 @@ import { EXIT_USAGE, HogError } from '@/core/errors'
 
 import { cleanUp, cssTargets, jsTarget, type CleanupTarget } from './cleanup'
 import { contentHash } from './container'
-import { discover, isDsymBundle, listFiles, type Artifact, type Root } from './discover'
+import { discover, isDsymBundle, isIgnored, listFiles, type Artifact, type Root } from './discover'
 import { GitError, gitInfo, type GitInfo } from './git'
 import {
     injectEventMode,
@@ -156,15 +156,26 @@ const isBundle = (artifact: Artifact): boolean =>
     artifact.kind === 'js' || (artifact.kind === 'hermes' && isHermesBundlePath(artifact.path))
 
 function readPairs(
-    artifacts: Artifact[],
+    selection: Selection,
     options: ErrorTrackingOptions,
     skipped: Skip[]
 ): { pairs: SourcePair[]; artifacts: Map<SourcePair, Artifact> } {
     const seen = new Set<string>()
     const pairs: SourcePair[] = []
     const owners = new Map<SourcePair, Artifact>()
-    for (const artifact of artifacts.filter(isBundle)) {
+    for (const artifact of selection.artifacts.filter(isBundle)) {
         const pair = readPair(artifact.path, options.publicPathPrefix, skipped)
+        if (
+            pair &&
+            isIgnored(
+                artifact.root,
+                realpathSync(resolve(selection.cwd, artifact.root.path)),
+                realpathSync(pair.mapPath)
+            )
+        ) {
+            skipped.push({ path: artifact.display, reason: `its sourcemap matches an ignore pattern in posthog.json` })
+            continue
+        }
         if (pair && !seen.has(pair.sourcePath)) {
             seen.add(pair.sourcePath)
             pairs.push(pair)
@@ -192,7 +203,7 @@ export async function inject(
 ): Promise<InjectReport> {
     const skipped: Skip[] = []
     const warnings: string[] = []
-    const { pairs, artifacts: owners } = readPairs(selection.artifacts, options, skipped)
+    const { pairs, artifacts: owners } = readPairs(selection, options, skipped)
     if (pairs.length === 0) {
         throw new HogError(
             'no_bundles',
@@ -274,7 +285,8 @@ interface Planned {
 
 function proguardGit(ctx: Context, artifact: Artifact): GitInfo | undefined {
     try {
-        return gitInfo(ctx.runtime.env, dirname(artifact.path))
+        // posthog-cli resolves symlinks first, so a link outside the repository still finds it.
+        return gitInfo(ctx.runtime.env, dirname(realpathSync(artifact.path)))
     } catch (error) {
         if (error instanceof GitError) {
             throw new HogError(
@@ -314,7 +326,7 @@ export async function upload(
             }
         }
         for (const artifact of mappings) {
-            const chunkId = artifact.root.mapId ?? options.mapId
+            const chunkId = options.mapId ?? artifact.root.mapId
             if (!chunkId) {
                 throw new HogError(
                     'map_id_required',
@@ -341,9 +353,10 @@ export async function upload(
 
     const read = injected
         ? { pairs: injected.pairs, artifacts: injected.owners }
-        : readPairs(selection.artifacts, options, skipped)
+        : readPairs(selection, options, skipped)
     read.pairs = read.pairs.filter((pair) => read.artifacts.get(pair)?.kind === 'js')
-    let targets: CleanupTarget[] = []
+    let targets: { pair: SourcePair; target: CleanupTarget }[] = []
+    const chunkIds = new Map<SourcePair, string>()
     // posthog-cli stops before any cleanup when no bundle has an id to upload under.
     let jsUploadable = false
     const composed = selection.artifacts.filter(
@@ -363,7 +376,7 @@ export async function upload(
             )
         }
         if (options.deleteAfter) {
-            targets = uploadable.map(jsTarget)
+            targets = uploadable.map((pair) => ({ pair, target: jsTarget(pair) }))
         }
         if (
             options.releaseMode === 'symbol-set' &&
@@ -397,6 +410,7 @@ export async function upload(
             batchSize: options.batchSize ?? 50,
         }
         for (const { pair, upload: item } of prepared.uploads) {
+            chunkIds.set(pair, item.chunkId)
             planned.push({ artifact: read.artifacts.get(pair)!, upload: item, policy })
         }
     }
@@ -461,7 +475,19 @@ export async function upload(
         (artifact) => artifact.kind === 'elf' || artifact.kind === 'dsym'
     )
     if (nativeArtifacts.length > 0) {
-        const native = packageNative(nativeArtifacts, options.includeSource, skipped, warnings)
+        const before = skipped.length
+        const native = packageNative(nativeArtifacts, selection.cwd, options.includeSource, skipped, warnings)
+        if (native.length === 0 && planned.length === 0) {
+            const details = skipped
+                .slice(before)
+                .map((skip) => `\n  ${skip.path}: ${skip.reason}`)
+                .join('')
+            throw new HogError(
+                'no_debug_symbols',
+                `None of the native files or dSYM bundles could be uploaded:${details}`,
+                'Build with debug info and a build ID, and upload before stripping.'
+            )
+        }
         // Like `symbol-sets upload`, the release comes from the flags, then git around the first
         // path. A git error only drops the git metadata.
         let git: GitInfo | undefined
@@ -492,6 +518,18 @@ export async function upload(
         }
     }
 
+    // posthog-cli's Hermes upload fails when it finds nothing to upload, so a build step that lost
+    // its composed maps doesn't pass while every exception stays unreadable.
+    if (composed.length === 0 && selection.artifacts.some((artifact) => artifact.kind === 'hermes')) {
+        const message = 'hog found Hermes bundles but no composed Hermes sourcemaps'
+        const hint =
+            'Run `hog error-tracking clone` after the Hermes build, and upload the folder with its composed maps.'
+        if (planned.length === 0) {
+            throw new HogError('no_hermes_maps', `${message}, so nothing was uploaded.`, hint)
+        }
+        warnings.push(`${message}, so their stack traces stay unreadable. ${hint}`)
+    }
+
     const report = (item: Planned, status: SymbolSetReport['status']): SymbolSetReport => ({
         path: item.artifact.display,
         kind: item.artifact.kind,
@@ -515,7 +553,12 @@ export async function upload(
     const groups = new Map<string, Planned[]>()
     for (const item of planned) {
         const key = `${item.policy.force}:${item.policy.skipOnConflict}:${item.policy.batchSize}`
-        groups.set(key, [...(groups.get(key) ?? []), item])
+        const group = groups.get(key)
+        if (group) {
+            group.push(item)
+        } else {
+            groups.set(key, [item])
+        }
     }
     for (const group of groups.values()) {
         const client = await session.getClient()
@@ -532,8 +575,11 @@ export async function upload(
     if (options.deleteAfter && jsUploadable) {
         const rootPaths = selection.roots.map((root) => resolve(selection.cwd, root.path))
         const cleanup = cleanUp([
-            ...targets,
-            ...cssTargets(listFiles(selection.roots, selection.cwd), rootPaths, warnings),
+            // posthog-cli also deletes the maps it skipped as too large, which PostHog then never gets.
+            ...targets
+                .filter(({ pair }) => statuses.get(chunkIds.get(pair) ?? '') !== 'too_large')
+                .map(({ target }) => target),
+            ...cssTargets(listFiles(selection.roots, selection.cwd), rootPaths, options.publicPathPrefix, warnings),
         ])
         deletedMaps = cleanup.deletedMaps.map((path) => relative(realpathSync(selection.cwd), path))
         warnings.push(...cleanup.warnings)
@@ -646,6 +692,7 @@ const NATIVE_PROBLEMS: Record<NativeProblem, string> = {
 // split per slice, and a dSYM wins over a native file with the same ID.
 function packageNative(
     artifacts: Artifact[],
+    cwd: string,
     includeSource: boolean,
     skipped: Skip[],
     warnings: string[]
@@ -686,9 +733,11 @@ function packageNative(
         try {
             // Sources come from the whole binary, so every slice of a fat binary carries all of them.
             const steps = new Map<string, ReturnType<typeof sourceStep>>()
-            const uploads = dsymSlices(artifact.path).map((slice) => {
+            const folder = resolve(cwd, artifact.root.path)
+            const slices = dsymSlices(artifact.path, (member) => !isIgnored(artifact.root, folder, member))
+            const uploads = slices.map((slice) => {
                 if (includeSource && !steps.has(slice.path)) {
-                    steps.set(slice.path, sourceStep(readFileSync(slice.path), 'dsym', warnings))
+                    steps.set(slice.path, sourceStep(slice.file, 'dsym', warnings))
                 }
                 return dsymUpload(slice, steps.get(slice.path))
             })
@@ -706,12 +755,5 @@ function packageNative(
             reason: `a dSYM bundle has the same UUID ${dropped.chunkId}, so hog uploads the bundle.`,
         })
     )
-    if (merged.length === 0) {
-        throw new HogError(
-            'no_debug_symbols',
-            'None of the native files or dSYM bundles could be uploaded.',
-            'Check the skipped files above. Build with debug info and a build ID, and upload before stripping.'
-        )
-    }
     return merged.map((upload) => ({ artifact: owners.get(upload)!, upload }))
 }

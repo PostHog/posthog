@@ -100,15 +100,28 @@ describe('hog auth login', () => {
         expect(result.requests.filter((request) => request.url.endsWith('/poll/'))).toHaveLength(3)
     })
 
-    test('--wait stops when the code expires and forgets it', async () => {
+    test.each([
+        [
+            'stops when the code expires and forgets it',
+            { status: 400, body: { status: 'expired' } },
+            'login_expired',
+            false,
+        ],
+        [
+            'retries a server that keeps failing, then keeps the login to resume',
+            { status: 503, body: 'Service Unavailable' },
+            'login_interrupted',
+            true,
+        ],
+    ])('--wait %s', async (_name, final, code, keepsPending) => {
         const result = await runHog(['auth', 'login', '--wait'], {
             env: { CLAUDECODE: '1' },
             files: { [PENDING_FILE]: PENDING },
-            respond: deviceFlow(1, { status: 400, body: { status: 'expired' } }),
+            respond: deviceFlow(1, final),
         })
         expect(result.exitCode).toBe(1)
-        expect(result.error()).toMatchObject({ code: 'login_expired' })
-        expect(result.files[PENDING_FILE]).toBeUndefined()
+        expect(result.error()).toMatchObject({ code })
+        expect(result.files[PENDING_FILE] !== undefined).toBe(keepsPending)
         expect(result.files[CREDENTIALS_FILE]).toBeUndefined()
     })
 
@@ -124,6 +137,7 @@ describe('hog auth login', () => {
         const result = await runHog(['auth', 'login'], {
             stdoutIsTTY: true,
             env: { NO_COLOR: '1' },
+            files: { [PENDING_FILE]: PENDING },
             answers,
             respond: deviceFlow(1),
         })
@@ -131,6 +145,7 @@ describe('hog auth login', () => {
         expect(result.exitCode).toBe(0)
         expect(result.stdout).toContain(`Logged in to ${host}, project 42.`)
         expect(result.opened).toHaveLength(opensBrowser ? 1 : 0)
+        expect(result.files[PENDING_FILE]).toBeUndefined()
         expect(JSON.parse(result.files[CREDENTIALS_FILE] ?? '{}')).toMatchObject({
             host,
             token: 'phx_secret',
@@ -149,7 +164,7 @@ describe('hog auth login', () => {
             { authenticated: true, user: { email: 'ana@example.com' }, projectName: 'Shop' },
         ],
         ['a key without user:read', 403, 200, 0, { authenticated: true, user: null, projectName: 'Shop' }],
-        ['a deleted key', 401, 401, 1, { authenticated: false, problem: expect.any(String), next: 'hog auth login' }],
+        ['a deleted key', 401, 401, 1, { authenticated: false, error: expect.any(String), next: 'hog auth login' }],
     ])('status reports %s', async (_name, userStatus, projectStatus, exitCode, expected) => {
         const result = await runHog(['auth', 'status'], {
             env: { CLAUDECODE: '1' },
@@ -162,6 +177,16 @@ describe('hog auth login', () => {
         expect(result.exitCode).toBe(exitCode)
         expect(result.json()).toMatchObject({ host: 'https://eu.posthog.com', projectId: '42', ...expected })
         expect(result.stdout).not.toContain('phx_secret')
+    })
+
+    test('status fails when one request lacks a scope and the other fails', async () => {
+        const result = await runHog(['auth', 'status'], {
+            env: { CLAUDECODE: '1' },
+            files: { [CREDENTIALS_FILE]: STORED },
+            respond: (url) => (url.endsWith('/api/users/@me/') ? { status: 403, body: {} } : { status: 500, body: {} }),
+        })
+        expect(result.exitCode).toBe(1)
+        expect(result.error()).toMatchObject({ code: 'http_500' })
     })
 
     test('status without a key exits 1 and points to login', async () => {
