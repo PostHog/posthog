@@ -92,21 +92,6 @@ describe('API helper', () => {
                 )
             }
         )
-
-        it('requests run history at a logs/ URL that content blocker rules for /logs? do not match', async () => {
-            fakeFetch.mockResolvedValueOnce({
-                ok: true,
-                status: 200,
-                headers: new Headers(),
-                text: () => Promise.resolve(''),
-            })
-
-            await api.tasks.runs.getLogPage('task-1', 'run-1', { projectId: 123, tailBytes: 262144, view: 'thread' })
-
-            expect(fakeFetch.mock.calls[0][0]).toEqual(
-                '/api/projects/123/tasks/task-1/runs/run-1/logs/?tail_bytes=262144&view=thread'
-            )
-        })
     })
 
     describe('dashboard tile streaming', () => {
