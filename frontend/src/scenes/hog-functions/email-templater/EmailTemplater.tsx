@@ -24,6 +24,7 @@ import {
     insertTemplateReference,
     templateReferenceForOption,
 } from 'lib/components/CyclotronJob/cyclotronJobTemplateSuggestionsLogic'
+import { TagSelect } from 'lib/components/TagSelect'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -37,6 +38,7 @@ import { urls } from 'scenes/urls'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 
 import 'products/workflows/frontend/TemplateLibrary/MessageTemplatesGrid.scss'
+import { filterMessageTemplates } from 'products/workflows/frontend/TemplateLibrary/filterMessageTemplates'
 import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary/MessageTemplateCard'
 
 import { collapseToolsPanelCustomJs } from './custom-tools/collapseToolsPanel'
@@ -503,30 +505,73 @@ function LiquidSupportedText({
 export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
     const { templates } = useValues(emailTemplaterLogic)
     const { applyTemplate } = useActions(emailTemplaterLogic)
+    const [search, setSearch] = useState('')
+    const [tags, setTags] = useState<string[]>([])
+    const filteredTemplates = filterMessageTemplates(templates, { search, tags })
+
+    const close = (): void => {
+        setSearch('')
+        setTags([])
+        onClose()
+    }
 
     return (
-        <LemonModal isOpen={isOpen} onClose={onClose} title="Choose a starting point" width={880}>
-            <div className="flex flex-wrap gap-3">
-                <LemonCard
-                    className="w-48 h-56 flex flex-col gap-2 items-center justify-center cursor-pointer"
-                    onClick={onClose}
-                    data-attr="template-picker-blank"
-                >
-                    <IconPlus className="text-2xl" />
-                    <span>Blank template</span>
-                </LemonCard>
-                {templates.map((template, index) => (
-                    <div key={template.id} className="w-48 h-56">
-                        <MessageTemplateCard
-                            template={template}
-                            index={index}
-                            onClick={() => {
-                                applyTemplate(template)
-                                onClose()
-                            }}
+        <LemonModal
+            isOpen={isOpen}
+            onClose={close}
+            title="Choose a starting point"
+            width={880}
+            description={
+                <div className="flex flex-wrap gap-2 items-center">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search templates"
+                        value={search}
+                        onChange={setSearch}
+                        className="flex-1 min-w-48"
+                        autoFocus
+                        data-attr="template-picker-search"
+                    />
+                    {templates.some((template) => template.tags?.length) && (
+                        <TagSelect
+                            size="small"
+                            defaultLabel="Any tags"
+                            value={tags}
+                            onChange={setTags}
+                            listDataAttr="template-picker-tags-filter-list"
                         />
-                    </div>
-                ))}
+                    )}
+                </div>
+            }
+        >
+            <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap gap-3">
+                    <LemonCard
+                        className="w-48 h-56 flex flex-col gap-2 items-center justify-center cursor-pointer"
+                        onClick={close}
+                        data-attr="template-picker-blank"
+                    >
+                        <IconPlus className="text-2xl" />
+                        <span>Blank template</span>
+                    </LemonCard>
+                    {filteredTemplates.map((template, index) => (
+                        <div key={template.id} className="w-48 h-56">
+                            <MessageTemplateCard
+                                template={template}
+                                index={index}
+                                onClick={() => {
+                                    applyTemplate(template)
+                                    close()
+                                }}
+                            />
+                        </div>
+                    ))}
+                </div>
+                {templates.length > 0 && filteredTemplates.length === 0 && (
+                    <p className="text-secondary m-0" data-attr="template-picker-no-matches">
+                        No templates match. Try another search or clear the tag filter.
+                    </p>
+                )}
             </div>
         </LemonModal>
     )
