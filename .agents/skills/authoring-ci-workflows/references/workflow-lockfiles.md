@@ -15,6 +15,8 @@ gh actions-lock --verify .github/workflows/ci-paths-filter.yml
 
 Include the workflow and generated lockfile changes in the same changeset. Run verification before reporting done, including for lockfile-only changes. `--verify-local` checks coverage offline; use `--verify` to check upstream provenance as well.
 
+Preserve the trial's rule-specific `nosemgrep` annotations: Semgrep's mutable-action-tag rule does not read `actions.lock`. Keep these exceptions limited to references covered by the lockfile.
+
 Review the generated diff:
 
 - Confirm changed commits match the intended dependency update, and investigate changed repository or owner IDs.
