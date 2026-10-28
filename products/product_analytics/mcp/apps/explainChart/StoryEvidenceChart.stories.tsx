@@ -29,6 +29,8 @@ function LineChart(): ReactElement {
             theme={useChartTheme()}
             chart={{
                 type: 'line',
+                title: 'Hit rate per hour, UTC',
+                yAxisLabel: 'Hit rate',
                 labels: [
                     'Oct 26 18:00',
                     'Oct 26 19:00',

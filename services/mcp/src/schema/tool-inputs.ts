@@ -590,12 +590,26 @@ const ExplainChartEvidenceSchema = z.object({
     chart: z
         .object({
             type: z.enum(['line', 'bar']).describe('`line` for values over time, `bar` for a value per label.'),
+            title: z
+                .string()
+                .min(1)
+                .max(100)
+                .optional()
+                .describe(
+                    'What the chart shows, with the timezone when the labels are times, for example "Cache parse errors per hour, Pacific time".'
+                ),
+            yAxisLabel: z
+                .string()
+                .min(1)
+                .max(40)
+                .optional()
+                .describe('The unit of the values, for example "Hit rate (%)" or "Errors per hour".'),
             labels: z
                 .array(z.string())
                 .min(1)
                 .max(200)
                 .describe(
-                    'The x-axis labels in order, such as hours or referrers, written as the person should read them.'
+                    'The x-axis labels in order, such as hours or referrers, written as the person should read them. Each label must be different, so add the date to times that span more than one day, for example `Oct 27 11:00`. For a `line`, give every point at one even interval and skip none, because the chart spaces the points evenly.'
                 ),
             series: z
                 .array(
@@ -609,6 +623,9 @@ const ExplainChartEvidenceSchema = z.object({
         })
         .refine((chart) => chart.series.every((item) => item.values.length === chart.labels.length), {
             message: 'Each series needs one value per label.',
+        })
+        .refine((chart) => new Set(chart.labels).size === chart.labels.length, {
+            message: 'Each label must be different. Add the date to times that repeat, for example `Oct 27 11:00`.',
         })
         .optional()
         .describe(

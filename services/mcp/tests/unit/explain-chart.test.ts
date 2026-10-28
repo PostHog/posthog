@@ -182,7 +182,10 @@ describe('explain-chart', () => {
         ])
     })
 
-    it('refuses a chart whose series do not have one value per label', () => {
+    it.each([
+        ['series do not have one value per label', { ...hitRate, labels: ['20:00'] }],
+        ['labels repeat', { ...hitRate, labels: ['11:00', '11:00'] }],
+    ])('refuses a chart whose %s', (_, chart) => {
         const parsed = ExplainChartInputSchema.safeParse({
             insightId: 'abc12345',
             headline: 'One day stands out.',
@@ -190,7 +193,7 @@ describe('explain-chart', () => {
                 {
                     title: 'A spike on October 2',
                     start: '2026-10-02',
-                    evidence: [{ text: 'The hit rate fell.', chart: { ...hitRate, labels: ['20:00'] } }],
+                    evidence: [{ text: 'The hit rate fell.', chart }],
                 },
             ],
         })

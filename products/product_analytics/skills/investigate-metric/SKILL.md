@@ -163,6 +163,13 @@ Map the investigation onto it:
   for a commit or a deploy. Pass the `TrendsQuery` you ran where you have one: the
   chart explanation draws it as a chart, while any other query only becomes a link.
   For a finding from SQL, also pass `chart` with the numbers from its result: `line` over time or `bar` per label, the `labels`, and one `series` per line.
+  Give it a `title` that names the timezone when the labels are times, and a `yAxisLabel` with the unit.
+  On a `line`, keep every bucket of the query at one interval, and add the date to a time that repeats across days.
+  Prefer the series over time to two bars that compare before and after, so the user sees when the change happened.
+- **Zoomed-in evidence** → when the metric moved suddenly, add one finding that shows the hours around the change at the finest interval that fits.
+  For an hourly view, pass a `TrendsQuery` with `interval` `hour` and a `dateRange` of a day or less around the change.
+  For a finer view, run SQL bucketed with `toStartOfMinute` or `toStartOfFifteenMinutes` over at most 200 buckets, and pass the result as `chart`.
+  Use the same segment the cause points at, such as the affected region or event, so the user sees exactly when it moved.
 - A **headline** of one sentence with no numbers sums up the whole chart.
   Wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in `**double asterisks**` so the chart explanation highlights it.
   Do the same in each `cause`.

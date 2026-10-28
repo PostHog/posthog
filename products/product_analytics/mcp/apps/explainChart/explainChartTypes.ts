@@ -2,6 +2,8 @@ export type StoryConfidence = 'high' | 'medium' | 'low'
 
 export interface StoryEvidenceChartData {
     type: 'line' | 'bar'
+    title?: string | null
+    yAxisLabel?: string | null
     labels: string[]
     series: { name: string; values: number[] }[]
 }
