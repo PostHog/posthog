@@ -136,3 +136,57 @@ export const PII_MASKING_PRESET_COLORS = [
     { label: 'Purple', value: '#9988aa' },
     { label: 'Orange', value: '#aa9988' },
 ] as const
+
+export const getPiiMaskingWarnings = (posthog: PostHog): string[] => {
+    const warnings: string[] = []
+    if (posthog.sessionRecording?.status === 'active') {
+        if (
+            posthog.config.session_recording?.blockClass !== undefined &&
+            typeof posthog.config.session_recording?.blockClass !== 'string'
+        ) {
+            warnings.push(
+                "The toolbar's PII masking tool doesn't support non-string `session_recording.blockClass`. If you want to use PII masking, please set it to a string, or file a feature request at https://posthog.com/roadmap."
+            )
+        }
+        if (
+            posthog.config.session_recording?.maskTextClass !== undefined &&
+            typeof posthog.config.session_recording?.maskTextClass !== 'string'
+        ) {
+            warnings.push(
+                "The toolbar's PII masking tool doesn't support non-string `session_recording.maskTextClass`. If you want to use PII masking, please set it to a string, or file a feature request at https://posthog.com/roadmap."
+            )
+        }
+        if (
+            posthog.config.session_recording?.maskTextSelector !== undefined &&
+            typeof posthog.config.session_recording?.maskTextSelector !== 'string'
+        ) {
+            warnings.push(
+                "The toolbar's PII masking tool doesn't support non-string `session_recording.maskTextSelector`. If you want to use PII masking, please set it to a string, or file a feature request at https://posthog.com/roadmap."
+            )
+        }
+    }
+
+    return warnings
+}
+
+export const DEFAULT_PII_MASKING_COLOR = '#888888'
+
+/** Adds, updates or removes the masking preview stylesheet in the page's head. */
+export function applyPiiMaskingStylesheet(
+    styleId: string,
+    enabled: boolean,
+    color: string,
+    posthog: PostHog | null
+): void {
+    const existing = document.getElementById(styleId)
+    if (!enabled) {
+        existing?.remove()
+        return
+    }
+    const styleElement = existing ?? document.createElement('style')
+    styleElement.id = styleId
+    styleElement.textContent = generatePiiMaskingCSS(color, posthog)
+    if (!existing) {
+        document.head.appendChild(styleElement)
+    }
+}

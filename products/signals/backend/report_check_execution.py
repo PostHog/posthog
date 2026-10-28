@@ -1,6 +1,6 @@
-"""Coordinate interim check measurements during enabled Monitoring.
+"""Coordinate interim measurements and final metric verification during enabled Monitoring.
 
-Final verification and authored agent checks use separate execution contracts. The legacy verdict
+Authored agent checks use a separate execution contract. The legacy verdict
 utilities below do not run from the coordinator.
 """
 
@@ -48,6 +48,8 @@ from products.signals.backend.report_check_evaluation import (
     errored_check_explanation,
     evaluate_check_value,
 )
+from products.signals.backend.report_check_final_agents import run_due_final_agents
+from products.signals.backend.report_check_final_metrics import run_due_final_metrics
 from products.signals.backend.report_check_monitoring import (
     MonitoringWindowClosed,
     measure_monitoring_check,
@@ -893,7 +895,7 @@ def _arm_monitoring_checks(now: datetime, *, disabled_monitoring_organization_id
 
 
 def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK_RUNS_PER_TICK) -> CheckRunSummary:
-    """Expire stale checks and record due interim measurements during enabled Monitoring."""
+    """Record due final metric results and interim measurements during enabled Monitoring."""
 
     now = now or timezone.now()
     candidate_checks = SignalReportCheck.all_teams.filter(
@@ -915,7 +917,24 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
         "deferred": 0,
         "cancelled": 0,
     }
-    for check in collect_due_checks(now, limit=limit, disabled_monitoring_organization_ids=disabled_organizations):
+    final = run_due_final_metrics(now=now, deadline=deadline, limit=limit)
+    counts.update(
+        passed=final.passed,
+        failed=final.failed,
+        inconclusive=final.inconclusive,
+        errored=final.errored,
+        deferred=final.deferred,
+    )
+    remaining = max(0, limit - sum(counts.values()))
+    # Reserve both slots and time for interim measurements, including when agents only defer.
+    agent_limit = max(1, remaining // 2) if remaining else 0
+    agent_started = time.monotonic()
+    agent_deadline = agent_started + max(0, deadline - agent_started) / 2
+    agents = run_due_final_agents(now=now, deadline=agent_deadline, limit=agent_limit)
+    counts["dispatched"] += agents.dispatched
+    counts["deferred"] += agents.deferred
+    remaining = max(0, limit - sum(counts.values()))
+    for check in collect_due_checks(now, limit=remaining, disabled_monitoring_organization_ids=disabled_organizations):
         if time.monotonic() >= deadline:
             break
         try:

@@ -882,7 +882,8 @@ class Database(BaseModel):
         except ZoneInfoNotFoundError:
             raise ValueError(f"Unknown timezone: '{str(timezone)}'")
 
-        self._week_start_day = week_start_day
+        # The team model stores a plain integer, and printers read the enum's members.
+        self._week_start_day = WeekStartDay(week_start_day) if week_start_day is not None else None
         self._warehouse_table_names = []
         self._warehouse_self_managed_table_names = []
         self._view_table_names = []
@@ -1984,6 +1985,9 @@ class Database(BaseModel):
             DataWarehouseTable,
             ExternalDataSource,
         )
+        from products.warehouse_sources.backend.facade.source_inputs import (  # noqa: PLC0415 - avoids the model import cycle
+            SourceInputsStore,
+        )
         from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode  # noqa: PLC0415
 
         with timings.measure("team", emit_span=True):
@@ -2191,7 +2195,7 @@ class Database(BaseModel):
                 warehouse_tables: list[DataWarehouseTable] = []
                 # The virtual builder reads job_inputs (deferred above); hydrate it here so the
                 # build phase stays query-free.
-                _ = virtual_source.job_inputs
+                SourceInputsStore.load(virtual_source)
                 with timings.measure("select_virtual_schemas", emit_span=True):
                     # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
                     from products.data_warehouse.backend.facade.direct_query import (  # noqa: PLC0415

@@ -199,6 +199,7 @@ The report table runs one query per day, so pick the dimension and metrics to br
                     ),
                     SourceFieldInputConfig(
                         name="report_dimension",
+                        sync_setting=True,
                         label="Report dimension",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -207,6 +208,7 @@ The report table runs one query per day, so pick the dimension and metrics to br
                     ),
                     SourceFieldInputConfig(
                         name="report_metrics",
+                        sync_setting=True,
                         label="Report metrics",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -215,6 +217,7 @@ The report table runs one query per day, so pick the dimension and metrics to br
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

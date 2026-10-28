@@ -21,6 +21,7 @@ from products.alerts.backend.facade.destinations import (
     unbound_alert_destinations,
 )
 from products.alerts.backend.logic.destination_bucket_report import bucketed_destinations
+from products.alerts.backend.logic.destination_eligibility import STOCK_INPUT_VALUES
 from products.alerts.backend.logic.insight_alert_destinations import build_insight_alert_slack_config
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData, DestinationType
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -356,7 +357,14 @@ class TestDestinationEligibility(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("stock_blocks", {}, None, ()),
+            ("stock_message", {}, None, ()),
+            ("custom_attachments", {"attachments": [{"text": "Custom message"}]}, None, (DestinationHoldBack.MESSAGE,)),
+            (
+                "legacy_stock_blocks",
+                {"blocks": STOCK_INPUT_VALUES["template-slack"]["blocks"][0]},
+                None,
+                (),
+            ),
             ("text_edited_before_the_first_save", {"text": "Look at this"}, {}, (DestinationHoldBack.MESSAGE,)),
             ("text_edited_with_no_revision", {"text": "Look at this"}, None, (DestinationHoldBack.MESSAGE,)),
             ("an_emptied_text", {"text": ""}, None, ()),

@@ -29,6 +29,7 @@ export const SqlPieGraph = ({
     presetChartHeight,
     className,
     labelFormatter,
+    onSliceClick,
 }: SqlChartProps): JSX.Element => {
     const isDonut = visualizationType === ChartDisplayType.ActionsDonut
     const { theme, series, legendConfig, total, showTotal, formattingSettings, valueFormatter } =
@@ -119,6 +120,7 @@ export const SqlPieGraph = ({
                         centerLabel={centerLabel}
                         dataAttr="sql-pie-chart"
                         onError={handleChartError}
+                        onSliceClick={onSliceClick}
                     />
                 </div>
                 {legendAtSide && totalDisplay}

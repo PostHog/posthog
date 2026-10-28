@@ -360,6 +360,25 @@ impl PersonhogStore {
         Ok(self.inner.put(&key, router, Some(lease_id)).await?)
     }
 
+    pub async fn get_router_with_revision(
+        &self,
+        router_name: &str,
+    ) -> Result<(Option<RegisteredRouter>, i64)> {
+        count_call("get_router_with_revision");
+        let key = self.key(StoreKey::Router(router_name));
+        Ok(self.inner.get_with_revision(&key).await?)
+    }
+
+    pub async fn watch_router_from(
+        &self,
+        router_name: &str,
+        start_revision: i64,
+    ) -> Result<WatchStream> {
+        count_call("watch_router_from");
+        let key = self.key(StoreKey::Router(router_name));
+        Ok(self.inner.watch_key_from(&key, start_revision).await?)
+    }
+
     pub async fn list_routers(&self) -> Result<Vec<RegisteredRouter>> {
         count_call("list_routers");
         let key = self.key(StoreKey::RoutersPrefix);

@@ -3945,6 +3945,7 @@
       `_record_count` UInt64,
       `pattern` String,
       `pattern_version` UInt8,
+      `internal_source` LowCardinality(String) DEFAULT '',
       INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
       INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -4055,6 +4056,7 @@
       `severity_text` LowCardinality(String),
       `pattern_version` UInt8,
       `pattern` String,
+      `internal_source` LowCardinality(String),
       `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
@@ -4067,6 +4069,7 @@
       severity_text,
       pattern_version,
       pattern,
+      internal_source,
       maxSimpleState(retention_days) AS retention_days,
       sumSimpleState(1) AS log_count
   FROM
@@ -4092,11 +4095,12 @@
           lower(severity_text) AS severity_text,
           pattern_version,
           pattern,
+          internal_source,
           toUInt16(least(intDiv(greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0) + 86399999999, 86400000000), 3650)) AS retention_days
       FROM posthog_test.logs34
       WHERE pattern_version != 0
   )
-  GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern
+  GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern, internal_source
   
   '''
 # ---
@@ -4165,6 +4169,7 @@
       `namespace` LowCardinality(String),
       `environment` LowCardinality(String),
       `severity_text` LowCardinality(String),
+      `internal_source` LowCardinality(String),
       `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
@@ -4175,6 +4180,7 @@
       namespace,
       environment,
       severity_text,
+      internal_source,
       maxSimpleState(retention_days) AS retention_days,
       sumSimpleState(1) AS log_count
   FROM
@@ -4198,10 +4204,11 @@
               )
           ) AS environment,
           lower(severity_text) AS severity_text,
+          internal_source,
           toUInt16(least(intDiv(greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0) + 86399999999, 86400000000), 3650)) AS retention_days
       FROM posthog_test.logs34
   )
-  GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text
+  GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, internal_source
   
   '''
 # ---
@@ -4285,12 +4292,13 @@
       `severity_text` LowCardinality(String),
       `pattern_version` UInt8,
       `pattern` String,
+      `internal_source` LowCardinality(String),
       `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_pattern_buckets', '{replica}-{shard}')
   PARTITION BY toDate(time_bucket)
-  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern)
+  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern, internal_source)
   PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version)
   
   SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
@@ -4315,12 +4323,14 @@
       `namespace` LowCardinality(String),
       `environment` LowCardinality(String),
       `severity_text` LowCardinality(String),
+      `internal_source` LowCardinality(String),
       `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_volume_buckets', '{replica}-{shard}')
   PARTITION BY toDate(time_bucket)
-  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text)
+  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, internal_source)
+  PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text)
   
   SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
   
@@ -8227,7 +8237,7 @@
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))
   
-  SETTINGS ttl_only_drop_parts = 1
+  SETTINGS ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1
   
   '''
 # ---
@@ -12346,6 +12356,7 @@
       `_record_count` UInt64,
       `pattern` String,
       `pattern_version` UInt8,
+      `internal_source` LowCardinality(String) DEFAULT '',
       INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
       INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -12440,12 +12451,13 @@
       `severity_text` LowCardinality(String),
       `pattern_version` UInt8,
       `pattern` String,
+      `internal_source` LowCardinality(String),
       `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_pattern_buckets', '{replica}-{shard}')
   PARTITION BY toDate(time_bucket)
-  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern)
+  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern, internal_source)
   PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version)
   
   SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
@@ -12463,12 +12475,14 @@
       `namespace` LowCardinality(String),
       `environment` LowCardinality(String),
       `severity_text` LowCardinality(String),
+      `internal_source` LowCardinality(String),
       `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_volume_buckets', '{replica}-{shard}')
   PARTITION BY toDate(time_bucket)
-  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text)
+  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, internal_source)
+  PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text)
   
   SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
   
@@ -14141,7 +14155,7 @@
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))
   
-  SETTINGS ttl_only_drop_parts = 1
+  SETTINGS ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1
   
   '''
 # ---

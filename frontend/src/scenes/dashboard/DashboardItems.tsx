@@ -1,10 +1,10 @@
 import './DashboardItems.scss'
 
 import clsx from 'clsx'
-import { useActions, useAsyncActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Responsive as ReactGridLayout } from 'react-grid-layout'
+import { GridLayout, Responsive as ReactGridLayout } from 'react-grid-layout'
 import type { Layout, LayoutItem } from 'react-grid-layout'
 import { type PositionStrategy, setTransform } from 'react-grid-layout/core'
 
@@ -12,11 +12,13 @@ import { DashboardWidgetItem } from '@posthog/products-dashboards/frontend/compo
 import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboards/frontend/widgets/constants'
 
 import { ApiError } from 'lib/api'
+import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
 import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
+import { reportDashboardTileRepositioned } from 'scenes/dashboard/dashboardEvents'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import {
     BREAKPOINTS,
@@ -38,6 +40,7 @@ import { urls } from 'scenes/urls'
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { DashboardLayoutSize, DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
+import { biDashboardCrossFilterLogic } from 'products/business_intelligence/frontend/biDashboardCrossFilterLogic'
 import { DashboardGridBackground } from 'products/dashboards/frontend/components/DashboardGridBackground'
 import { DashboardInsightTile } from 'products/dashboards/frontend/components/DashboardInsightTile'
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
@@ -115,6 +118,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         effectiveBreakdownColors,
         dataColorThemeId,
         canEditDashboard,
+        copyGroupToDashboardLoading,
         widgetResultsByTileId,
         widgetRefreshStatus,
         scrollToBottomSignal,
@@ -125,7 +129,16 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         collapsedTileGroupKeys,
         tileGroupMoveOptions,
         activeTileGroupTab,
+        queryLoadQueue,
     } = useValues(dashboardLogic)
+    const canCrossFilter = placement === DashboardPlacement.Dashboard && !isSharedView() && !layoutEditMode
+    useMountedLogic(
+        biDashboardCrossFilterLogic({
+            dashboardId: dashboard?.id ?? 0,
+            tiles: canCrossFilter ? (tiles ?? []) : [],
+            loadQueue: queryLoadQueue,
+        })
+    )
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
         stageLayouts,
@@ -139,6 +152,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         applyWidgetIssueMetadataChange,
         moveToDashboard,
         copyToDashboard,
+        copyGroupToDashboard,
+        changeTileGroupDisplay,
         setDashboardEditing,
         toggleTileGroup,
         selectTileGroupTab,
@@ -146,7 +161,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         moveTileToSection,
     } = useActions(dashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
-    const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
+    // dashboard_tiles is empty because this selector covers a whole group, not one tile; the
+    // backend still rejects a destination that already has one of the group's tiles.
+    const { copyToDestinations } = useValues(
+        dashboardWidgetMenusLogic({ instanceKey: 'dashboard-groups', dashboardId: dashboard?.id, dashboard_tiles: [] })
+    )
     const { push } = useActions(router)
     const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({
         // Dashboard pages hide the survey suggestion in compact headers; notebook embeds also use this component and can show it.
@@ -256,6 +275,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const canEnterEditModeFromEdge =
         !!dashboard && canEditDashboard && !layoutEditMode && !isMobileView && isEditablePlacement
+
+    const onCopyGroupToDashboard = canEditDashboard && isEditablePlacement ? copyGroupToDashboard : undefined
+    const onChangeGroupDisplay = canEditDashboard && isEditablePlacement ? changeTileGroupDisplay : undefined
 
     const isLayoutZoomToggled = layoutEditMode && layoutZoom !== 1
 
@@ -485,6 +507,19 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             updateContainerWidth(gridWidth, BREAKPOINT_COLUMN_COUNTS[bandBreakpoint])
         }
     }, [showBands, gridWidth, bandBreakpoint, updateContainerWidth])
+    const bandGridConfig = useMemo(
+        () => ({
+            cols: BREAKPOINT_COLUMN_COUNTS[bandBreakpoint],
+            rowHeight,
+            margin,
+            containerPadding: CONTAINER_PADDING,
+        }),
+        [bandBreakpoint, rowHeight, margin]
+    )
+    const handleBandLayoutChange = useCallback(
+        (layout: Layout) => handleLayoutChange(layout, { [bandBreakpoint]: layout }),
+        [handleLayoutChange, bandBreakpoint]
+    )
 
     const handleResizeStart = useCallback(
         (
@@ -635,6 +670,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     key={tile.id}
                     tile={tile}
                     insight={insight}
+                    resultMenuEnabled={canCrossFilter}
+                    biDashboardTileId={canCrossFilter ? tile.id : undefined}
                     loadingQueued={loadingQueued}
                     loading={loading}
                     // The dashboard load queue owns this tile, so the card must not start its own query.
@@ -754,12 +791,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         dragConfig,
         resizeConfig,
         compactor: gridCompactor,
-        rowHeight,
-        margin,
-        containerPadding: CONTAINER_PADDING,
-        onLayoutChange: handleLayoutChange,
-        breakpoints: BREAKPOINTS,
-        cols: BREAKPOINT_COLUMN_COUNTS,
         onResizeStart: handleResizeStart,
         onResizeStop: handleResizeStop,
         onDragStart: handleDragStart,
@@ -789,9 +820,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         height={sectionRows * (rowHeight + margin[1]) - margin[1]}
                     />
                 )}
-                <ReactGridLayout
+                {/* Not Responsive: its layout copy and the inner grid's can swap on every render while tiles stream in. */}
+                <GridLayout
                     {...gridProps}
-                    // The grid takes a new tile's position from `layouts`, so a stable key lets tiles stream
+                    // The grid takes a new tile's position from `layout`, so a stable key lets tiles stream
                     // into a band without a remount that resets every chart already in it.
                     key={section.key}
                     width={gridWidth}
@@ -801,11 +833,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         layoutEditMode && (isLastSection ? 'pb-[40vh]' : 'pb-24'),
                         isDraggingOutOfSection && '[&_.react-grid-placeholder]:hidden'
                     )}
-                    breakpoint={bandBreakpoint}
-                    layouts={sectionLayouts}
+                    gridConfig={bandGridConfig}
+                    layout={sectionLayouts[bandBreakpoint] ?? []}
+                    onLayoutChange={handleBandLayoutChange}
                 >
                     {section.tiles.map(renderTile)}
-                </ReactGridLayout>
+                </GridLayout>
             </div>
         )
     }
@@ -818,6 +851,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             isDropTarget={dropTargetKey === section.key}
             collapsedTileGroupKeys={collapsedTileGroupKeys}
             onToggleTileGroup={toggleTileGroup}
+            copyToDestinations={copyToDestinations}
+            onCopyGroupToDashboard={onCopyGroupToDashboard}
+            copyLoading={copyGroupToDashboardLoading}
+            onChangeGroupDisplay={onChangeGroupDisplay}
         >
             {renderSectionGrid(section, index)}
         </DashboardTileSectionBand>
@@ -837,6 +874,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         sections={tileGroupSections}
                         activeSectionKey={tileGroupSections[activeTabIndex].key}
                         onSelect={selectTileGroupTab}
+                        copyToDestinations={copyToDestinations}
+                        onCopyGroupToDashboard={onCopyGroupToDashboard}
+                        copyLoading={copyGroupToDashboardLoading}
+                        onChangeGroupDisplay={onChangeGroupDisplay}
                     >
                         {renderSectionGrid(tileGroupSections[activeTabIndex], activeTabIndex)}
                     </DashboardTileGroupTabs>
@@ -864,6 +905,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
                     <ReactGridLayout
                         {...gridProps}
+                        rowHeight={rowHeight}
+                        margin={margin}
+                        containerPadding={CONTAINER_PADDING}
+                        breakpoints={BREAKPOINTS}
+                        cols={BREAKPOINT_COLUMN_COUNTS}
+                        onLayoutChange={handleLayoutChange}
                         width={gridWidth}
                         style={{ width: gridWidth }}
                         className={className}

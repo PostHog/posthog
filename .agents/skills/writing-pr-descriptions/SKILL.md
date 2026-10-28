@@ -6,7 +6,7 @@ description: >-
   States who is affected and what is wrong for them in Problem, taken from a source and never invented, then the visible effect and mechanism in Changes.
   Selects bullets, tables, diagrams, screenshots, or collapsed blocks for each fact.
   Removes unnecessary detail and checks one fact per bullet, sentences under 25 words, active voice, and no idioms.
-  Keeps the body complete without the diff, scales its length to the change, and links evidence or marks claims as unchecked.
+  Keeps the body complete without the diff, aims for 150 words and suggests a stack when the PR needs more, and links evidence or marks claims as unchecked.
   Checks the title and first lines of Problem and Changes.
   Not for commit messages (see AGENTS.md, "Commit types") or product copy (see `/writing-user-facing-copy`).
 ---
@@ -93,19 +93,19 @@ Nothing was added and nothing was cut. The reviewer now knows the stakes before 
 
 Prose is the slowest form on the page. Before writing a sentence, ask what carries the fact faster.
 
-| The fact you have                                                                    | The form that carries it                                  |
-| ------------------------------------------------------------------------------------ | --------------------------------------------------------- |
-| A visual change (any UI a person sees, including a flow through screens)             | Screenshot, before and after. Mandatory, not optional     |
-| A new action and its effect, which one screenshot cannot show                        | A feature reel in place of the "after" screenshot         |
-| An architecture or topology change one sentence cannot carry (defined under Mermaid) | Two branded `flowchart` blocks, before first              |
-| Several values compared across the same dimensions                                   | A markdown table                                          |
-| A config or setting change                                                           | A fenced `diff` block                                     |
-| Existing code a reviewer needs to see                                                | A line-range permalink, which GitHub renders as a snippet |
-| Test output, logs, long command transcripts                                          | A `<details>` block                                       |
-| A behavior change or a risk a reviewer must not miss                                 | `> [!WARNING]` or `> [!NOTE]`                             |
-| Anything else                                                                        | Bullets, under the shape rule in pass 4                   |
+| The fact you have                                                        | The form that carries it                                  |
+| ------------------------------------------------------------------------ | --------------------------------------------------------- |
+| A visual change (any UI a person sees, including a flow through screens) | Screenshot, before and after. Mandatory, not optional     |
+| A new action and its effect, which one screenshot cannot show            | A feature reel in place of the "after" screenshot         |
+| An architecture or topology change (defined under Mermaid)               | Two branded `flowchart` blocks, before first              |
+| Several values compared across the same dimensions                       | A markdown table                                          |
+| A config or setting change                                               | A fenced `diff` block                                     |
+| Existing code a reviewer needs to see                                    | A line-range permalink, which GitHub renders as a snippet |
+| Test output, logs, long command transcripts                              | A `<details>` block                                       |
+| A behavior change or a risk a reviewer must not miss                     | `> [!WARNING]` or `> [!NOTE]`                             |
+| Anything else                                                            | Bullets, under the shape rule in pass 4                   |
 
-No PR needs every form. Reach for one because it makes review faster, never as decoration. An empty section gets one bullet or "None".
+No PR needs every form. Reach for one because it makes review faster, never as decoration. An empty section gets one bullet: `- None.`
 
 ### Screenshots and reels
 
@@ -129,12 +129,14 @@ Touching UI code without a visible change is common, and the mandate has to be d
 
 ### Mermaid
 
-Draw a diagram only for an architecture or topology change that one sentence cannot carry.
+Draw before-and-after diagrams for every architecture or topology change, under one short sentence that states the change.
 Architecture and topology mean CI wiring, pipelines, services and the calls between them, or module and package boundaries.
 They also mean a state machine with several states, or a request path across systems.
+This includes a small change, such as one step added to a straight chain or one fallback added to a lookup.
+A reviewer sees a diagram at a glance, and can miss one sentence among the bullets.
+The sentence gives a scanner the point, and the diagrams carry the flow, so the sentence never grows complex to explain it.
 A UI flow or a linear sequence of screens is not a topology.
 It gets screenshots or a reel, not a diagram.
-When one sentence states the whole change, such as one step added to a straight chain, write the sentence instead.
 
 Keep diagrams simple. A syntax error renders as an error block. Pick `TD` for tall pipelines, `LR` for wide paths. Mermaid cannot read CSS vars, so use the hex directly, and pair every `fill` with a text `color` so nodes stay legible in GitHub light and dark.
 
@@ -175,15 +177,39 @@ Delete:
 - The follow-up sentence in any "here is the reason, and here is why the reason matters" pair.
 - Any bullet whose reader you cannot name.
 
-### Size tracks the change
+❌ Three bullets from a real draft, each true:
+
+> - The script prints 145 for this body and 199 for example 2.
+> - `hogli lint:skills` passes.
+> - The author decides whether to stack.
+
+✅ Delete all three.
+The first is a number the reviewer cannot use. CI already reports the second. The third tells the reviewer nothing to check or decide.
+
+### 150 words
 
 A body that would fit any PR tells a reader nothing about this one. A reader who meets a few learns to skip them all.
 When the diff is six lines, the body has to read as the body of a six-line change.
 
-- A one-file fix: 3 to 6 bullets across the whole body.
-- A typical PR: Problem and Changes together fit in about 10 bullets.
-- One line or "None" under every heading that does not apply. That is a complete answer, not a gap.
-- Numbers, file paths and identifiers survive cutting. Adjectives and second explanations do not.
+- Aim for 150 words or fewer across the whole body, table cells included. A reviewer reads a table as closely as a bullet, so moving a sentence into one shortens nothing.
+- Headings, diagrams, code blocks, images, HTML tags and `<details>` blocks do not count. Inline code counts.
+- Moving evidence and transcripts into `<details>` is the first cut. Problem and Changes never move there: a reviewer skips collapsed text, so a fact they need stays visible and counts.
+- The template's fixed lines, such as the release status and agent context labels, use about 25 of the 150 words.
+- Give a one-file fix 3 to 6 bullets across the whole body.
+- Write `- None.` under every heading that does not apply. That is a complete answer, not a gap. It is a bullet, like the release status line the changelog bot reads, so empty sections look the same.
+- Keep numbers, file paths and identifiers when you cut. Cut adjectives and second explanations.
+
+Run the counter on the body as GitHub stores it, after every `gh pr create` or `gh pr edit`, so you never paste the body twice. A new PR is a draft, so fix an over-count with `gh pr edit`:
+
+```sh
+gh pr view <number> --json body --jq .body | uv run .agents/skills/writing-pr-descriptions/scripts/count_words.py -
+```
+
+`uv run` installs the script's one dependency in its own environment and leaves the repo's virtualenv alone.
+
+When the count is still over 150 after cutting, the PR is probably too big to review in one pass.
+Suggest a stack to the PR author, name the layers you would split it into, and point to `/stacking-prs`.
+The author decides. If they keep one PR, ship the shortest body that still carries the change.
 
 Small does not mean partial. Three bullets still have to carry why the change is necessary and what it does.
 
@@ -207,7 +233,8 @@ Everything under them is evidence and provenance, and a reviewer reaches it last
 When the lower half outgrows the upper half, cut the lower half.
 
 - Testing: name the regression each new test catches, under the claim rules above. Transcripts go in a `<details>` block.
-- Agent context: autonomy, tool and exact model, skills invoked, and what changed across the session.
+- Agent context: autonomy, the tool with its exact model, and the skills invoked stay visible. Session notes, decisions and the rest go in the collapsed "More context for AI agents" block, in the template's field order.
+- Rewrite that block on every push so it describes the PR at that commit. A stale block misleads the next agent more than an empty one.
 - The reason your design beats the obvious alternative belongs in Changes. A reviewer needs it to review, and nobody scrolls past the release status section to find it.
 
 The test: **the body must come out shorter than your first draft.** Pass 5 checks it.
@@ -277,8 +304,8 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 ### The line check
 
 1. Is the body shorter than your first draft? If it is longer, you split without cutting. Go back to pass 3.
-2. Does the size of the body track the size of the diff? A six-line change under a full-length body reads as filler.
-3. Are Problem and Changes together longer than the sections under them? If not, cut the lower ones.
+2. Does the size of the body track the size of the diff, and does `scripts/count_words.py` print 150 or less? If not, cut, or suggest a stack as "150 words" says.
+3. Are Problem and Changes together longer than the sections under them, with nothing of theirs inside `<details>`? If not, cut the lower ones.
 4. Read the body with the diff closed. Can you say why the PR exists and what it does? If not, you cut something a reader needs.
 5. Does Problem state a need that no source in the request, an issue, or a thread gave? Delete it, and say the reason was not given.
 6. Read Changes alone. Can you say what a person will now see or do differently, or that nothing user-visible changed? If neither, go back to pass 1.
@@ -289,11 +316,11 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 11. Does any sentence take its author as the subject? Rewrite it around the change. "I", "me" and "my" appear nowhere.
 12. Does the PR change anything a person sees? Include before-and-after screenshots, or say why nothing looks different.
 13. Did you rewrite an existing body? Every image, video, link and ticked box a person put there still appears.
-14. Does the PR change architecture or topology in a way one sentence cannot carry, as defined under Mermaid? Include branded before-and-after diagrams. Delete any diagram of a UI flow or of what one sentence says.
+14. Does the PR change architecture or topology, as defined under Mermaid? Include branded before-and-after diagrams under one short sentence, also for a one-step change. Delete any diagram of a UI flow.
 15. Does prose compare several values across the same dimensions? Replace it with a table.
 16. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
-17. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
-18. Is the `## 🤖 Agent context` section filled, naming the exact model and listing the skills invoked?
+17. Did a `<!-- -->` template comment or any template placeholder text, such as `tool, model` or the bracketed test rationale, survive anywhere, collapsed blocks included? That field is unfilled. Fill it or delete it.
+18. Is the `## 🤖 Agent context` section filled, naming the exact model and listing the skills invoked? Does the collapsed block still describe the PR as pushed?
 19. Does the body claim manual testing that did not happen? Delete it.
 20. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
 
