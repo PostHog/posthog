@@ -19,9 +19,18 @@ const template = (id: string, name: string, tags: string[], createdBy: number, t
 
 describe('transactionalEmailsLogic', () => {
     let logic: ReturnType<typeof transactionalEmailsLogic.build>
+    let savedTags: string[][]
 
     beforeEach(async () => {
+        savedTags = []
         useMocks({
+            patch: {
+                '/api/projects/:team_id/messaging_templates/:id/': async ({ request }) => {
+                    const { tags } = (await request.json()) as { tags: string[] }
+                    savedTags.push(tags)
+                    return [200, { ...template('a', 'Password reset', [], 1), tags }]
+                },
+            },
             get: {
                 '/api/projects/:team_id/messaging_templates/': {
                     results: [
@@ -61,5 +70,16 @@ describe('transactionalEmailsLogic', () => {
 
         expect(logic.values.filters).toMatchObject({ search: 'reset', createdBy: 1 })
         expect(router.values.searchParams).toMatchObject({ search: 'reset' })
+    })
+
+    it('saves two quick tag edits as one write that keeps both tags', async () => {
+        const reset = logic.values.filteredTransactionalTemplates.find((t) => t.name === 'Password reset')!
+
+        logic.actions.saveTransactionalTags(reset, ['auth', 'security'])
+        const shown = logic.values.filteredTransactionalTemplates.find((t) => t.name === 'Password reset')!
+        logic.actions.saveTransactionalTags(shown, [...shown.tags!, 'urgent'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(savedTags).toEqual([['auth', 'security', 'urgent']])
     })
 })
