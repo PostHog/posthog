@@ -1149,13 +1149,15 @@ def update_url_source(
     crawl_config: dict | None = None,
     refresh_interval: str | None = None,
     always_include: bool | None = None,
-) -> KnowledgeSource | None:
+) -> tuple[KnowledgeSource, bool] | None:
     """
-    Update a URL source's metadata and optionally re-crawl.
+    Update a URL source's metadata and optionally claim a re-crawl.
 
     - name-only: single UPDATE, no network.
-    - url/crawl_mode/crawl_config change: update the fields, then trigger a
-      full refresh so the content matches the new config.
+    - url/crawl_mode/crawl_config change: update the fields, then claim a
+      refresh. The caller runs the claimed refresh, so the request never crawls.
+
+    Returns `(source, refresh_claimed)`.
     """
     try:
         source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
@@ -1208,7 +1210,9 @@ def update_url_source(
 
     if needs_recrawl:
         try:
-            return refresh_source(source_id=source.id, team_id=team_id)
+            return claim_refresh_source(source_id=source.id, team_id=team_id), True
+        except KnowledgeSource.DoesNotExist:
+            return None
         except SourceBusyError:
             # Refresh never started — revert config so the source doesn't
             # end up with a new URL but old content and no error signal.
@@ -1217,7 +1221,7 @@ def update_url_source(
             source.save(update_fields=[*list(old_values.keys()), "updated_at"])
             raise
 
-    return get_for_team(source.id, team_id) or source
+    return (get_for_team(source.id, team_id) or source), False
 
 
 @with_team_scope(canonical=True)
