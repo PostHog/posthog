@@ -468,7 +468,10 @@ export const sourceFieldToElement = (
                     className="ph-ignore-input"
                     data-attr={inputField.name}
                     placeholder={inputField.placeholder}
-                    type={inputField.type as 'text'}
+                    // A focused native number input steps its value on each mouse wheel event,
+                    // so a scroll over the form changes the port. A text input does not.
+                    type={inputField.type === 'number' ? 'text' : (inputField.type as 'text')}
+                    inputMode={inputField.type === 'number' ? 'numeric' : undefined}
                     value={value || ''}
                     onChange={onChange}
                 />

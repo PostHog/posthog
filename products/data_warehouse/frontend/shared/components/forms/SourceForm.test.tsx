@@ -82,6 +82,15 @@ const CONNECTION_STRING_FIELD: SourceFieldInputConfigApi = {
 
 const POSTGRES_CONFIG = { name: 'Postgres', fields: [] } as unknown as SourceConfigResponseApi
 
+const PORT_FIELD: SourceFieldInputConfigApi = {
+    type: 'number',
+    name: 'port',
+    label: 'Port',
+    required: true,
+    placeholder: '5432',
+    secret: false,
+}
+
 // Renders the connection string field at a given value and reports whether it tells the user the
 // string didn't parse.
 const connectionStringWarns = (value: string): boolean => {
@@ -138,4 +147,19 @@ describe('sourceFieldToElement', () => {
             childrenVisible: expected,
         })
     })
+
+    // jsdom does not step a number input on mouse wheel, so the test checks the input type that decides it.
+    it.each([
+        ['number', 'text', PORT_FIELD, 'numeric'],
+        ['password', 'password', { ...PORT_FIELD, type: 'password' }, null],
+    ] as [string, string, SourceFieldInputConfigApi, string | null][])(
+        'renders a %s field as an input of type %s',
+        (_name, expectedType, field, expectedInputMode) => {
+            const element = sourceFieldToElement(field, POSTGRES_CONFIG)
+            render(element.props.children({ value: '5432', onChange: jest.fn() }))
+            const input = screen.getByDisplayValue('5432')
+            expect(input).toHaveAttribute('type', expectedType)
+            expect(input.getAttribute('inputmode')).toBe(expectedInputMode)
+        }
+    )
 })
