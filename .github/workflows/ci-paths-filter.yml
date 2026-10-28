@@ -6,6 +6,7 @@ on:
             - '.github/actions/paths-filter/**'
             - '.github/actions/shared-image-releases/**'
             - '.github/workflows/ci-paths-filter.yml'
+            - '.github/workflows/actions.lock'
             - '.github/shared-image-releases.yaml'
             - '.github/workflows/container-images-cd.yml'
 
@@ -28,8 +29,8 @@ jobs:
             run:
                 working-directory: .github/actions/${{ matrix.action }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - uses: actions/checkout@v6.0.2
+            - uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
                   token: ${{ github.token }}
