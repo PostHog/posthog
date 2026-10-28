@@ -242,7 +242,8 @@ class MachObject implements NativeObject {
         let hasText = false
         let hasMain = false
         // goblin reads each command at the running offset, not bounded by sizeofcmds, and
-        // advances by cmdsize whatever its value.
+        // advances by cmdsize whatever its value. A cmdsize below the 8-byte header is the one
+        // difference: dyld rejects it, and here it would re-read one command for every ncmds.
         let position = is64 ? 32 : 28
         for (let index = 0; index < ncmds; index++) {
             if (position + 8 > source.size) {
@@ -253,6 +254,9 @@ class MachObject implements NativeObject {
             const cmdsize = command.u32()
             if (cmdsize > source.size - position) {
                 bad('load command larger than the file')
+            }
+            if (cmdsize < 8) {
+                bad('load command smaller than its header')
             }
             if (cmd === 0x19 || cmd === 0x1) {
                 const segment64 = cmd === 0x19

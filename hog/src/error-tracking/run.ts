@@ -473,7 +473,19 @@ export async function upload(
         (artifact) => artifact.kind === 'elf' || artifact.kind === 'dsym'
     )
     if (nativeArtifacts.length > 0) {
-        const native = packageNative(nativeArtifacts, skipped)
+        const before = skipped.length
+        const native = packageNative(nativeArtifacts, selection.cwd, skipped)
+        if (native.length === 0 && planned.length === 0) {
+            const details = skipped
+                .slice(before)
+                .map((skip) => `\n  ${skip.path}: ${skip.reason}`)
+                .join('')
+            throw new HogError(
+                'no_debug_symbols',
+                `None of the native files or dSYM bundles could be uploaded:${details}`,
+                'Build with debug info and a build ID, and upload before stripping.'
+            )
+        }
         // Like `symbol-sets upload`, the release comes from the flags, then git around the first
         // path. A git error only drops the git metadata.
         let git: GitInfo | undefined
@@ -675,7 +687,11 @@ const NATIVE_PROBLEMS: Record<NativeProblem, string> = {
 
 // `symbol-sets upload`: native files are parsed and deduplicated by debug ID, dSYM bundles are
 // split per slice, and a dSYM wins over a native file with the same ID.
-function packageNative(artifacts: Artifact[], skipped: Skip[]): { artifact: Artifact; upload: SymbolSetUpload }[] {
+function packageNative(
+    artifacts: Artifact[],
+    cwd: string,
+    skipped: Skip[]
+): { artifact: Artifact; upload: SymbolSetUpload }[] {
     const owners = new Map<SymbolSetUpload, Artifact>()
     const files: { file: NativeFile; artifact: Artifact }[] = []
     for (const artifact of artifacts.filter((candidate) => !isDsymBundle(candidate.path))) {
@@ -710,7 +726,8 @@ function packageNative(artifacts: Artifact[], skipped: Skip[]): { artifact: Arti
     const dsyms: SymbolSetUpload[] = []
     for (const artifact of artifacts.filter((candidate) => isDsymBundle(candidate.path))) {
         try {
-            for (const slice of dsymSlices(artifact.path)) {
+            const folder = resolve(cwd, artifact.root.path)
+            for (const slice of dsymSlices(artifact.path, (member) => !isIgnored(artifact.root, folder, member))) {
                 const upload = dsymUpload(slice)
                 owners.set(upload, artifact)
                 dsyms.push(upload)
@@ -725,12 +742,5 @@ function packageNative(artifacts: Artifact[], skipped: Skip[]): { artifact: Arti
             reason: `a dSYM bundle has the same UUID ${dropped.chunkId}, so hog uploads the bundle.`,
         })
     )
-    if (merged.length === 0) {
-        throw new HogError(
-            'no_debug_symbols',
-            'None of the native files or dSYM bundles could be uploaded.',
-            'Check the skipped files above. Build with debug info and a build ID, and upload before stripping.'
-        )
-    }
     return merged.map((upload) => ({ artifact: owners.get(upload)!, upload }))
 }
