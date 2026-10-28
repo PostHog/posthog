@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from products.messaging.backend.models.message_preferences import MessageRecipientPreference
 from products.messaging.backend.models.message_suppression import MessageSuppression
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.provider_imports import runs
@@ -125,6 +126,28 @@ class TestProviderImportRuns(BaseTest):
         assert run.status == "failed"
         assert run.progress["suppressions"]["checkpoint"] == {"suppression_type": "bounces", "offset": 2}
         assert self._suppressed() == {"a@example.com", "b@example.com"}
+
+    def test_opt_outs_step_completes_when_customerio_repeats_an_email(
+        self, mock_client_class: MagicMock, _start_workflow: MagicMock
+    ) -> None:
+        mock_client_class.return_value.get_globally_unsubscribed_customers.return_value = {
+            "identifiers": [
+                {"id": "1", "email": "shared@example.com"},
+                {"id": "2", "email": "shared@example.com"},
+                {"id": "3", "email": "other@example.com"},
+            ],
+            "next": "",
+        }
+        run = self._start(["opt_outs"])
+
+        runs.run_step(self.team.id, run.id, "opt_outs", attempt=1)
+
+        run.refresh_from_db()
+        assert run.progress["opt_outs"]["status"] == "completed"
+        assert run.progress["opt_outs"]["imported"] == 2
+        assert set(
+            MessageRecipientPreference.objects.filter(team_id=self.team.id).values_list("identifier", flat=True)
+        ) == {"shared@example.com", "other@example.com"}
 
     def test_category_warnings_never_carry_raw_exception_text(
         self, mock_client_class: MagicMock, _start_workflow: MagicMock

@@ -590,6 +590,9 @@ class CustomerIOImportService:
 
         Returns how many recipients were not already opted out of every category.
         """
+        # Customer.io can return several profiles with one email. A repeated address would add two rows for one
+        # recipient and fail the whole batch on the unique (team, identifier) constraint.
+        emails = list(dict.fromkeys(emails))
         changed = 0
         with transaction.atomic():
             # Fetch existing preferences
@@ -629,7 +632,8 @@ class CustomerIOImportService:
 
             # Bulk operations
             if to_create:
-                MessageRecipientPreference.objects.bulk_create(to_create, batch_size=500)
+                # ignore_conflicts covers a row an unsubscribe link or webhook inserts between the read and this write.
+                MessageRecipientPreference.objects.bulk_create(to_create, batch_size=500, ignore_conflicts=True)
 
             if to_update:
                 MessageRecipientPreference.objects.bulk_update(to_update, ["preferences", "updated_at"], batch_size=500)
