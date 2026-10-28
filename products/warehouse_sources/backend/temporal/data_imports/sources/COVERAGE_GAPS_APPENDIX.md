@@ -4449,7 +4449,7 @@ Note: The official EAS CLI generated GraphQL types supplied collection fields an
 
 ## EZOfficeInventory — gaps
 
-Today (12): `asset_checkout_history`, `asset_stocks`, `assets`, `groups`, `inventories`, `locations`, `member_stock_histories`, `members`, `purchase_orders`, `teams`, `vendors`, `work_orders`
+Today (14): `asset_checkout_history`, `asset_stocks`, `assets`, `custom_roles`, `groups`, `inventories`, `locations`, `member_stock_histories`, `members`, `purchase_orders`, `reservation_requests`, `teams`, `vendors`, `work_orders`
 
 Diffed against: <https://ezo.io/ezofficeinventory/developers/>
 
@@ -4457,10 +4457,10 @@ Diffed against: <https://ezo.io/ezofficeinventory/developers/>
 - [x] `GET /tasks.api (work orders) and /tasks/filter` — work orders with state, assignee and duration - a core analytical object with no coverage at all (high) — added as `work_orders`. `/tasks/filter` does not exist; the list endpoint takes a `filter` query param, and the table syncs the unfiltered list.
 - [ ] `GET /services.api` — service/maintenance records per asset, the basis for downtime and maintenance-cost reporting (high). Not readable: `assets/{id}/services.api` is POST/PUT only and v2 has no services resource, so there is no list endpoint to sync. The closest GET returns assets being serviced, not service records.
 - [x] `GET /teams.api` — team lookup resolving the team IDs carried on members and assignments (high) — added as `teams`
-- [ ] `GET /custom_roles.api` — role lookup resolving the role reference on every member row already synced (medium)
-- [ ] `GET /task_types.api` — work order type lookup, the primary breakdown dimension for work orders (medium)
-- [ ] `GET /reservation_requests.api and /checkout_requests/filter.api` — reservations and booking requests - forward-looking demand against the asset pool (medium)
-- [ ] `GET /baskets.api (carts)` — cart records grouping multi-item checkouts, needed to reconstruct a checkout event from its line items (medium)
+- [x] `GET /custom_roles.api` — role lookup resolving the role reference on every member row already synced (medium) — added as `custom_roles` (v2 `/api/v2/custom_roles`)
+- [ ] `GET /task_types.api` — work order type lookup, the primary breakdown dimension for work orders (medium). Not added: v2 has no task types resource and the v1 docs give no response envelope. Each `work_orders` row already carries `task_type` and `task_type_id`.
+- [x] `GET /reservation_requests.api and /checkout_requests/filter.api` — reservations and booking requests - forward-looking demand against the asset pool (medium) — added as `reservation_requests` (fan-out over members, v2 `/api/v2/members/{id}/reservation_requests`). `/checkout_requests/filter.api` is v1 only and returns requests that start on one given date, so it is not a table.
+- [ ] `GET /baskets.api (carts)` — cart records grouping multi-item checkouts, needed to reconstruct a checkout event from its line items (medium). Not added: v2 has no carts resource and the v1 docs give no response envelope. Reservation and history rows carry `basket_id`.
 - [ ] `GET /bundles.api` — asset bundle definitions and their membership, a grouping dimension for utilization (medium)
 - [ ] `GET /projects.api` — projects that assets, carts and checkouts are linked to - a cost-attribution dimension (medium)
 - [ ] `GET /depreciation_methods.api` — depreciation method lookup for asset valuation reporting (medium)
