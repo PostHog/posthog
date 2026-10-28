@@ -16,7 +16,11 @@ describe('endpointModelName', () => {
     describe('nodeEndpointModel', () => {
         it('prefers the stamped link over the name', () => {
             expect(
-                nodeEndpointModel({ type: 'endpoint', name: 'renamed_v9', endpoint: { name: 'signups', version: 2 } })
+                nodeEndpointModel({
+                    type: 'endpoint',
+                    name: 'renamed_v9',
+                    endpoint: { name: 'signups', version: 2, is_materialized: true },
+                })
             ).toEqual({ endpointName: 'signups', version: 2 })
         })
 

@@ -173,9 +173,8 @@ def _load_and_cache_materialization_state(
             ready=materialized_at is not None,
             materialized_at=materialized_at,
         )
-    # A backing saved query means materialization is enabled, so a first table can land at any
-    # moment without a request or an edit to refill this entry.
-    pending = not state.ready and endpoint_version.saved_query_id is not None
+    # An enabled materialization can finish without a request refilling this entry.
+    pending = not state.ready and bool(saved_query and saved_query.is_materialized)
     set_endpoint_materialization_state(team_id, endpoint_name, state, version=version, pending=pending)
     return state
 

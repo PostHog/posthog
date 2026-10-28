@@ -17,6 +17,7 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models.team import Team
 
+from products.data_modeling.backend.facade.contracts import UnknownParentError as UnknownParentError
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 
 LabelPath = list[str]
@@ -611,13 +612,3 @@ def get_parents_from_model_query(
                 join = join.next_join
 
     return parents
-
-
-class UnknownParentError(Exception):
-    """Exception raised when the parent for a model is not found."""
-
-    def __init__(self, parent: str, query: str):
-        super().__init__(
-            f"The parent name {parent} does not correspond to an existing PostHog table, Data Warehouse Table, or Data Warehouse Saved Query."
-        )
-        self.query = query

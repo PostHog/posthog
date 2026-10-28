@@ -33,6 +33,7 @@ from products.data_quality.backend.logic.subject_schedules import SubjectSchedul
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from products.data_quality.backend.presentation.serializers import DataQualitySuiteRunSerializer
 from products.data_quality.backend.presentation.views import DataQualityCheckViewSet
+from products.endpoints.backend.facade.models import Endpoint, EndpointVersion
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -1454,6 +1455,31 @@ class TestDataQualityCheckAPI(APIBaseTest):
         warehouse_ac.start()
         self.addCleanup(warehouse_ac.stop)
         cache.clear()
+
+    @parameterized.expand([("none", False, False), ("viewer", True, False), ("editor", True, True)])
+    def test_endpoint_grants_apply_to_project_checks_and_hogql(
+        self, access_level: str, readable: bool, editable: bool
+    ) -> None:
+        check = self._create_check()
+        self.view.origin = DataWarehouseSavedQuery.Origin.ENDPOINT
+        self.view.save(update_fields=["origin"])
+        endpoint = Endpoint.objects.create(team=self.team, name="published_orders")
+        EndpointVersion.objects.create(
+            endpoint=endpoint, team=self.team, version=1, saved_query=self.view, query=self.view.query
+        )
+        self._deny_object("endpoint", str(endpoint.id), access_level=access_level)
+
+        response = self.client.get(f"{self.url}/")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert (str(check.id) in {row["id"] for row in response.json()["results"]}) is readable
+        detail = self.client.get(f"{self.url}/{check.id}/")
+        assert detail.status_code == (status.HTTP_200_OK if readable else status.HTTP_403_FORBIDDEN), detail.content
+        update = self.client.patch(f"{self.url}/{check.id}/", {"description": "Required customer identifier"})
+        assert update.status_code == (status.HTTP_200_OK if editable else status.HTTP_403_FORBIDDEN), update.content
+
+        with patch("posthog.hogql.database.database.feature_enabled_or_false", return_value=False):
+            database = Database.create_for(team=self.team, user=self.user)
+        assert database.has_table(self.view.name) is readable
 
     def test_the_catalog_lists_a_subject_the_member_may_only_read_as_not_editable(self) -> None:
         self._deny_object("warehouse_view", str(self.view.id), access_level="viewer")

@@ -1,7 +1,7 @@
 """Materialization lifecycle for endpoint versions.
 
 ``EndpointMaterializationService`` owns enabling/disabling materialization
-(creating and reverting the backing ``DataWarehouseSavedQuery``), the
+(configuring and reverting the published model), the
 materialization preview, and the status payload. The AST-level analysis and
 query transforms live in ``products.endpoints.backend.materialization_transforms``.
 """
@@ -41,6 +41,7 @@ from products.data_modeling.backend.facade.api import (
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.endpoints.backend.constants import DATA_FRESHNESS_BUCKETS
 from products.endpoints.backend.logic.activity import EndpointContext
+from products.endpoints.backend.logic.publication import EndpointModelService
 from products.endpoints.backend.logic.strategies import apply_where_filter, strategy_for
 from products.endpoints.backend.materialization_transforms import (
     MaterializationNotSupportedError,
@@ -92,7 +93,7 @@ ELIGIBILITY_CHECK_FAILED_REASON = (
 
 def build_materialization_info(version: EndpointVersion, endpoint_name: str | None = None) -> dict:
     """Build the materialization status dict for a version."""
-    if version.saved_query:
+    if version.saved_query and version.saved_query.is_materialized:
         latest_job = latest_saved_query_materialization_job(version.saved_query)
         materialization_status = latest_job.status if latest_job else version.saved_query.status
         materialization_error = latest_job.error if latest_job else version.saved_query.latest_error
@@ -130,6 +131,7 @@ def build_materialization_info(version: EndpointVersion, endpoint_name: str | No
             "ready": False,
             "can_materialize": can_mat,
             "reason": reason if not can_mat else None,
+            "saved_query_id": str(version.saved_query_id) if version.saved_query_id else None,
         }
 
     if endpoint_name is not None:
@@ -157,10 +159,11 @@ class MaterializationPreview:
 class EndpointMaterializationService:
     """Enable, disable, and preview materialization for endpoint versions."""
 
-    def __init__(self, team: Team, request: Request):
+    def __init__(self, team: Team, request: Request) -> None:
         self.team = team
         self.request = request
-        self.user = cast(User, request.user)
+        self.user: User = cast(User, request.user)
+        self.models = EndpointModelService(team, self.user)
 
     def enable_materialization(
         self,
@@ -231,12 +234,9 @@ class EndpointMaterializationService:
         # node) instead of leaving a dangling materialization. schedule_materialization's side effect
         # is deferred to on_commit (tiered) or terminal (v1), so nothing rolls back after it fires.
         with transaction.atomic():
-            saved_query = self._get_or_build_saved_query(version)
-            # No live saved query row means materialization is being stood up fresh (first
-            # enable, re-enable after disable, or a version bump). Only that case gets an
-            # immediate first run; a retained enable (e.g. a metadata-only endpoint update
-            # re-reconciling materialization) must not restart the workflow.
-            newly_materialized = saved_query._state.adding
+            saved_query = self.models.get_or_build_saved_query(version)
+            # Metadata-only updates must not restart an already enabled workflow.
+            newly_materialized = not saved_query.is_materialized
             self._configure_saved_query(saved_query, version, data_freshness_seconds, bucket_overrides)
             version.enable_materialization(saved_query, bucket_overrides)
 
@@ -276,8 +276,7 @@ class EndpointMaterializationService:
 
             # NOTE: on v1, schedule_materialization only triggers an immediate run when it CREATES
             # the Temporal schedule; re-enabling an existing materialization just (re)syncs it.
-            # trigger_immediate_run mirrors that on v2: first run only for a newly created saved
-            # query (deferred to on_commit, so it sees the version link above).
+            # trigger_immediate_run mirrors that on v2 when an inline model becomes materialized.
             try:
                 saved_query.schedule_materialization(
                     trigger_immediate_run=newly_materialized, triggered_by_id=self.user.pk
@@ -296,33 +295,6 @@ class EndpointMaterializationService:
             saved_query.refresh_from_db(fields=["is_materialized"])
             if not saved_query.is_materialized:
                 raise APIException(f"Failed to schedule materialization for endpoint {endpoint.name}.")
-
-    def _get_or_build_saved_query(self, version: EndpointVersion) -> DataWarehouseSavedQuery:
-        """Find this version's saved query, or build a new (unsaved) one.
-
-        SECURITY: only adopt a saved query that this endpoint owns (ENDPOINT origin and not
-        linked to a different version). Without this, a user-created saved query whose name
-        happens to collide with {endpoint}_v{n} would be silently taken over — its query
-        overwritten and served as the endpoint's data.
-        """
-        name = version.materialized_view_name
-        existing = DataWarehouseSavedQuery.objects.filter(name=name, team=self.team, deleted=False).first()
-        if existing is None:
-            return DataWarehouseSavedQuery(
-                name=name,
-                team=self.team,
-                origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
-            )
-
-        is_foreign = existing.origin != DataWarehouseSavedQuery.Origin.ENDPOINT or (
-            EndpointVersion.objects.filter(saved_query=existing).exclude(pk=version.pk).exists()
-        )
-        if is_foreign:
-            raise ValidationError(
-                f"A saved query named '{name}' already exists and is not managed by this endpoint. "
-                "Rename or delete it before enabling materialization."
-            )
-        return existing
 
     def _configure_saved_query(
         self,
@@ -347,7 +319,7 @@ class EndpointMaterializationService:
 
     def disable_materialization(self, endpoint: Endpoint, version: EndpointVersion) -> None:
         """Disable materialization for an endpoint version."""
-        if version.saved_query:
+        if version.saved_query and version.saved_query.is_materialized:
             saved_query_id = str(version.saved_query.id)
             saved_query_name = version.saved_query.name
             try:
@@ -376,8 +348,7 @@ class EndpointMaterializationService:
         saved_query_id: str,
         saved_query_name: str,
     ) -> None:
-        # Two rows: the model's history reads the saved query, the endpoint's history reads the
-        # endpoint. A read-time join can't replace this, since disabling unlinks the saved query.
+        # Model and endpoint history use different scopes, so both need audit rows.
         for item_id, scope, name in (
             (saved_query_id, "DataWarehouseSavedQuery", saved_query_name),
             (str(endpoint.id), "EndpointVersion", endpoint.name),

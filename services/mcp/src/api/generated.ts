@@ -30802,7 +30802,7 @@ export namespace Schemas {
       readonly subject_uuid: string | null;
       /** Queryable name of the subject, refreshed on every run. */
       readonly subject_name: string;
-      /** 'orphaned' once the subject stops resolving. Orphaned checks are skipped, not deleted. */
+      /** Active when the check resolves. Orphaned when its subject is gone. Needs review when a copied check does not resolve against its new endpoint version; edit or remove it before running. */
       readonly subject_status: string;
       /**
          * Column the check applies to. Omit for table-scoped types like row_count.
@@ -30905,7 +30905,7 @@ export namespace Schemas {
       subject_uuid: string;
       /** Queryable name of the subject, refreshed on every run. */
       readonly subject_name: string;
-      /** 'orphaned' once the subject stops resolving. Orphaned checks are skipped, not deleted. */
+      /** Active when the check resolves. Orphaned when its subject is gone. Needs review when a copied check does not resolve against its new endpoint version; edit or remove it before running. */
       readonly subject_status: string;
       /**
          * Column the check applies to. Omit for table-scoped types like row_count.
@@ -31184,7 +31184,7 @@ export namespace Schemas {
       readonly subject_uuid: string | null;
       /** Queryable name of the subject, refreshed on every run. */
       readonly subject_name: string;
-      /** 'orphaned' once the subject stops resolving. Orphaned checks are skipped, not deleted. */
+      /** Active when the check resolves. Orphaned when its subject is gone. Needs review when a copied check does not resolve against its new endpoint version; edit or remove it before running. */
       readonly subject_status: string;
       /**
          * Column the check applies to. Omit for table-scoped types like row_count.
@@ -31971,6 +31971,15 @@ export namespace Schemas {
       Skipped: 'Skipped',
     } as const;
 
+    export interface SavedQueryEndpoint {
+      /** Name of the endpoint that publishes this model. */
+      name: string;
+      /** Endpoint version represented by this model. */
+      version: number;
+      /** Whether this is the endpoint's current version. */
+      is_current: boolean;
+    }
+
     /**
      * * `data_warehouse` - Data Warehouse
      * * `endpoint` - Endpoint
@@ -32036,6 +32045,8 @@ export namespace Schemas {
       readonly last_run_at: string | null;
       /** @nullable */
       readonly managed_viewset_kind: string | null;
+      /** Endpoint publication represented by this model, if any. */
+      readonly endpoint: SavedQueryEndpoint | null;
       /**
          * Optional folder ID used to organize this view in the SQL editor sidebar.
          * @nullable
@@ -32198,6 +32209,8 @@ export namespace Schemas {
       readonly last_run_at: string | null;
       /** @nullable */
       readonly managed_viewset_kind: string | null;
+      /** Endpoint publication represented by this model, if any. */
+      readonly endpoint: SavedQueryEndpoint | null;
       /** @nullable */
       readonly folder_id: string | null;
       /** @nullable */
@@ -42090,7 +42103,7 @@ export namespace Schemas {
       /** Last materialization error message, if any. */
       error?: string;
       /**
-         * UUID of the underlying saved query backing this materialization. Only populated when the version is materialized.
+         * UUID of the model backing this version, including versions that execute inline.
          * @nullable
          */
       saved_query_id?: string | null;
@@ -42221,6 +42234,16 @@ export namespace Schemas {
       is_materialized: boolean;
       /** Latest version number. */
       current_version: number;
+      /**
+         * Data model node for this endpoint version, whether materialized or inline.
+         * @nullable
+         */
+      node_id: string | null;
+      /**
+         * Why lineage and data quality are unavailable for this version, or null when available.
+         * @nullable
+         */
+      model_unavailable_reason: string | null;
       /**
          * UUID of the current EndpointVersion row.
          * @nullable
@@ -42356,6 +42379,16 @@ export namespace Schemas {
       is_materialized: boolean;
       /** Latest version number. */
       current_version: number;
+      /**
+         * Data model node for this endpoint version, whether materialized or inline.
+         * @nullable
+         */
+      node_id: string | null;
+      /**
+         * Why lineage and data quality are unavailable for this version, or null when available.
+         * @nullable
+         */
+      model_unavailable_reason: string | null;
       /**
          * UUID of the current EndpointVersion row.
          * @nullable
@@ -67466,10 +67499,12 @@ export namespace Schemas {
     }
 
     export interface NodeEndpoint {
-      /** Name of the endpoint this node's materialization backs. */
+      /** Name of the endpoint published by this model. */
       name: string;
-      /** Endpoint version this node's materialization backs. */
+      /** Endpoint version represented by this model. */
       version: number;
+      /** Whether materialization is enabled for this endpoint version. */
+      is_materialized: boolean;
     }
 
     /**
@@ -67523,7 +67558,7 @@ export namespace Schemas {
       readonly sync_interval: string | null;
       /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
       readonly suspended: NodeSuspended;
-      /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
+      /** The endpoint version published by this model, or null for other nodes. */
       readonly endpoint: NodeEndpoint | null;
     }
 
@@ -85595,7 +85630,7 @@ export namespace Schemas {
       readonly subject_uuid?: string | null;
       /** Queryable name of the subject, refreshed on every run. */
       readonly subject_name?: string;
-      /** 'orphaned' once the subject stops resolving. Orphaned checks are skipped, not deleted. */
+      /** Active when the check resolves. Orphaned when its subject is gone. Needs review when a copied check does not resolve against its new endpoint version; edit or remove it before running. */
       readonly subject_status?: string;
       /**
          * Column the check applies to. Omit for table-scoped types like row_count.
@@ -85811,6 +85846,8 @@ export namespace Schemas {
       readonly last_run_at?: string | null;
       /** @nullable */
       readonly managed_viewset_kind?: string | null;
+      /** Endpoint publication represented by this model, if any. */
+      readonly endpoint?: SavedQueryEndpoint | null;
       /**
          * Optional folder ID used to organize this view in the SQL editor sidebar.
          * @nullable
@@ -89013,7 +89050,7 @@ export namespace Schemas {
       readonly sync_interval?: string | null;
       /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
       readonly suspended?: PatchedNodeSuspended;
-      /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
+      /** The endpoint version published by this model, or null for other nodes. */
       readonly endpoint?: NodeEndpoint | null;
     }
 

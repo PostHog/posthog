@@ -14,6 +14,8 @@ from rest_framework import status
 
 from posthog.schema import EndpointLastExecutionTimesRequest
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -453,7 +455,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    def test_removing_endpoint_materialization_is_refused_when_a_model_depends_on_it(
+    def test_endpoint_model_dependencies_survive_materialization_changes(
         self,
         _name: str,
         method: str,
@@ -474,6 +476,8 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             name="blocked_endpoint_v1",
             query=self.sample_hogql_query,
+            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+            is_materialized=True,
         )
         version.enable_materialization(backing_query)
         dag = DAG.get_or_create_default(self.team)
@@ -509,22 +513,30 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", body, format="json"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["code"], "has_dependents")
-        if has_lineage_link:
-            self.assertEqual(response.json()["extra"], {"node_id": str(endpoint_node.id)})
+        if method == "delete":
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["code"], "has_dependents")
+            if has_lineage_link:
+                self.assertEqual(response.json()["extra"], {"node_id": str(endpoint_node.id)})
+            else:
+                self.assertNotIn("extra", response.json())
+            self.assertEqual(
+                response.json()["detail"],
+                f"{refusal} These read from it: {dependent_name} ({'endpoint' if reader == 'untracked_endpoint' else 'view'}). Update or delete them first.",
+            )
         else:
-            self.assertNotIn("extra", response.json())
-        self.assertEqual(
-            response.json()["detail"],
-            f"{refusal} These read from it: {dependent_name} ({'endpoint' if reader == 'untracked_endpoint' else 'view'}). Update or delete them first.",
-        )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            read_query = (
+                "SELECT 1 FROM downstream_view" if reader == "dag_view" else "SELECT 1 FROM blocked_endpoint_v1"
+            )
+            self.assertEqual(execute_hogql_query(read_query, team=self.team, user=self.user).results, [(1,)])
         endpoint.refresh_from_db()
         backing_query.refresh_from_db()
         version.refresh_from_db()
         self.assertFalse(endpoint.deleted)
-        self.assertTrue(endpoint.is_active)
+        self.assertEqual(endpoint.is_active, body is None or body.get("is_active", True))
         self.assertFalse(backing_query.deleted)
+        self.assertEqual(backing_query.is_materialized, method == "delete")
         self.assertEqual(version.saved_query_id, backing_query.id)
         self.assertTrue(Node.objects.filter(id=endpoint_node.id).exists())
 
@@ -1878,6 +1890,8 @@ class TestOptionalBreakdownProperties(ClickhouseTestMixin, APIBaseTest):
             optional_breakdown_properties=["$os"],
         )
         self.assertEqual(data["optional_breakdown_properties"], ["$os"])
+        self.assertIsNone(data["node_id"])
+        self.assertIn("List breakdowns", data["model_unavailable_reason"])
 
     def test_round_trip_on_patch(self):
         self._create("ep_patch", self.trends_with_breakdown)

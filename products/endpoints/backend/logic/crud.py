@@ -31,6 +31,7 @@ from products.endpoints.backend.constants import DEFAULT_DATA_FRESHNESS_SECONDS
 from products.endpoints.backend.logic.activity import EndpointContext
 from products.endpoints.backend.logic.materialization import EndpointMaterializationService
 from products.endpoints.backend.logic.materialization_dependencies import EndpointMaterializationDependencyService
+from products.endpoints.backend.logic.publication import EndpointModelService
 from products.endpoints.backend.logic.validation import validate_bucket_overrides
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.rate_limit import clear_endpoint_materialization_cache
@@ -65,6 +66,7 @@ class EndpointCrudService:
         self.request = request
         self.user = cast(User, request.user)
         self.materialization = EndpointMaterializationService(team, request)
+        self.models = EndpointModelService(team, self.user)
         self.materialization_dependencies = EndpointMaterializationDependencyService(team.pk)
 
     def _log_activity(self, *, item_id: str, scope: str, activity: str, detail: Detail) -> None:
@@ -101,6 +103,8 @@ class EndpointCrudService:
                 )
                 columns = None
 
+            definition = self.models.prepare_model(query_dict)
+
             # The endpoint and its initial version must exist together — a version-less
             # endpoint can't run and would squat on the name.
             with transaction.atomic():
@@ -127,6 +131,7 @@ class EndpointCrudService:
                     created_by=self.user,
                     columns=columns,
                 )
+                self.models.ensure_model(endpoint, version, definition=definition)
                 if data.is_materialized is True:
                     self.materialization.enable_materialization(
                         endpoint,
@@ -199,10 +204,7 @@ class EndpointCrudService:
             # get_version raises when no versions exist, so target_version is never None.
             target_version = target_version_override or current_version
             version_before_update = EndpointVersion.objects.get(pk=target_version.pk)
-            was_materialized = current_version.saved_query_id is not None
-
-            # Before any write, so a refused update leaves the endpoint as it was.
-            self._check_disable_breaks_no_reader(endpoint, data, target_version, version_targeted)
+            was_materialized = bool(current_version.saved_query and current_version.saved_query.is_materialized)
 
             step = "endpoint_activation"
             # Endpoint-level activation only — deactivating a single version must never
@@ -214,7 +216,7 @@ class EndpointCrudService:
                 # A deactivated endpoint serves no version, so none should keep a
                 # materialization schedule running — tear down every materialized
                 # version, not just the current one.
-                for materialized_version in endpoint.versions.filter(saved_query__isnull=False):
+                for materialized_version in endpoint.versions.filter(saved_query__is_materialized=True):
                     self.materialization.disable_materialization(endpoint, materialized_version)
             if data.is_active is not None and not version_targeted:
                 # Activation affects throttle classification — force a lazy re-check.
@@ -284,32 +286,6 @@ class EndpointCrudService:
             )
         return target_version_override
 
-    def _check_disable_breaks_no_reader(
-        self,
-        endpoint: Endpoint,
-        data: EndpointRequest,
-        target_version: EndpointVersion,
-        version_targeted: bool,
-    ) -> None:
-        """Raise HasDependentsError if the update would disable a saved query that other queries read.
-
-        Disabling soft-deletes the saved query, so every view or endpoint that selects from it fails.
-        Mirrors the disable decisions in `update` and `_reconcile_materialization`.
-        """
-        versions_to_disable: list[EndpointVersion] = []
-        if version_targeted:
-            if data.is_active is False or data.is_materialized is False:
-                versions_to_disable = [target_version]
-        elif data.is_active is False or (data.is_active is None and not endpoint.is_active):
-            versions_to_disable = list(endpoint.versions.filter(saved_query__isnull=False))
-        elif data.is_materialized is False and (
-            data.query is None or not endpoint.has_query_changed(data.query.model_dump())
-        ):
-            versions_to_disable = [target_version]
-
-        for version in versions_to_disable:
-            self.materialization_dependencies.check_deletable(version)
-
     def _apply_query_change(
         self,
         endpoint: Endpoint,
@@ -327,7 +303,18 @@ class EndpointCrudService:
 
         # Preserve bucketing across the version bump so materialization transfers cleanly.
         old_bucket_overrides = target_version.bucket_overrides if was_materialized else None
-        new_version = endpoint.create_new_version(query=new_query_dict, user=self.user)
+        previous_definition = (
+            self.models.prepare_model(target_version.query) if not target_version.saved_query_id else None
+        )
+        definition = self.models.prepare_model(new_query_dict)
+        try:
+            columns = EndpointVersion.extract_columns(new_query_dict, team_id=self.team.pk)
+        except Exception:
+            columns = None
+        with transaction.atomic():
+            self.models.ensure_model(endpoint, target_version, definition=previous_definition)
+            new_version = endpoint.create_new_version(query=new_query_dict, user=self.user, columns=columns)
+            self.models.ensure_model(endpoint, new_version, previous_version=target_version, definition=definition)
         # The "current" version changed — its cached throttle readiness no longer applies.
         clear_endpoint_materialization_cache(self.team.pk, endpoint.name)
         return new_version, True, old_bucket_overrides
@@ -395,7 +382,11 @@ class EndpointCrudService:
 
         # When targeting a specific version, check that version's materialization state.
         # Otherwise use the pre-update state so materialization transfers across a version bump.
-        check_was_materialized = target_version.saved_query_id is not None if version_targeted else was_materialized
+        check_was_materialized = (
+            bool(target_version.saved_query and target_version.saved_query.is_materialized)
+            if version_targeted
+            else was_materialized
+        )
 
         should_enable = data.is_materialized is True or (data.is_materialized is None and check_was_materialized)
         if data.is_materialized is False:
@@ -516,7 +507,7 @@ class EndpointCrudService:
 
         with transaction.atomic():
             # DAG cleanup only — the saved queries themselves are reverted and soft-deleted
-            # by endpoint.soft_delete() via version.disable_materialization().
+            # by endpoint.soft_delete().
             for version in endpoint.versions.filter(saved_query__isnull=False):
                 try:
                     if version.saved_query:

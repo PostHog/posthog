@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from typing import Any, cast
 from uuid import UUID
 
@@ -29,6 +30,7 @@ from products.data_modeling.backend.facade.models import (
     SAVED_QUERY_NODE_TYPES,
     DataModelingJob,
     DataModelingJobEngine,
+    DataWarehouseSavedQuery,
     Edge,
     LineageIssueKind,
     Node,
@@ -36,6 +38,7 @@ from products.data_modeling.backend.facade.models import (
 )
 from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
 from products.data_modeling.backend.presentation.views.metric_visibility import DELETE_DENIED, MetricNodeVisibilityMixin
+from products.endpoints.backend.facade.api import get_endpoint_publications
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
 
@@ -64,8 +67,11 @@ class NodeRunResponseSerializer(serializers.Serializer):
 
 
 class NodeEndpointSerializer(serializers.Serializer):
-    name = serializers.CharField(help_text="Name of the endpoint this node's materialization backs.")
-    version = serializers.IntegerField(help_text="Endpoint version this node's materialization backs.")
+    name = serializers.CharField(help_text="Name of the endpoint published by this model.")
+    version = serializers.IntegerField(help_text="Endpoint version represented by this model.")
+    is_materialized = serializers.BooleanField(
+        help_text="Whether materialization is enabled for this endpoint version."
+    )
 
 
 class LineageLookupError(Exception):
@@ -91,6 +97,16 @@ class LineageIssueSerializer(serializers.Serializer):
     at = serializers.DateTimeField(allow_null=True, help_text="When the issue was recorded.")
 
 
+class NodeListSerializer(serializers.ListSerializer):
+    def to_representation(self, data: models.Manager[Node] | Iterable[Node]) -> list[dict[str, Any]]:
+        nodes = list(data.all() if isinstance(data, models.Manager) else data)
+        if nodes:
+            self.context["endpoint_publications"] = get_endpoint_publications(
+                nodes[0].team_id, [str(node.saved_query_id) for node in nodes if node.saved_query_id]
+            )
+        return super().to_representation(nodes)
+
+
 class NodeSerializer(serializers.ModelSerializer):
     suspended = serializers.SerializerMethodField(read_only=True)
     endpoint = serializers.SerializerMethodField(read_only=True)
@@ -106,6 +122,7 @@ class NodeSerializer(serializers.ModelSerializer):
     warehouse_table_id = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
+        list_serializer_class = NodeListSerializer
         model = Node
         fields = [
             "id",
@@ -158,12 +175,30 @@ class NodeSerializer(serializers.ModelSerializer):
     @extend_schema_field(
         NodeEndpointSerializer(
             allow_null=True,
-            help_text="The endpoint version this node's materialization backs, or null for nodes that are not endpoints.",
+            help_text="The endpoint version published by this model, or null for other nodes.",
         )
     )
     def get_endpoint(self, node: Node) -> dict[str, Any] | None:
+        if node.saved_query_id and (
+            node.type == NodeType.ENDPOINT
+            or (node.saved_query and node.saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT)
+        ):
+            publications = self.context.get("endpoint_publications")
+            if publications is None:
+                publications = get_endpoint_publications(node.team_id, [str(node.saved_query_id)])
+            publication = publications.get(str(node.saved_query_id))
+            if publication:
+                return {**publication, "is_materialized": bool(node.saved_query and node.saved_query.is_materialized)}
         link = endpoint_link(node.properties)
-        return NodeEndpointSerializer(link).data if link else None
+        return (
+            {
+                "name": link.name,
+                "version": link.version,
+                "is_materialized": bool(node.saved_query and node.saved_query.is_materialized),
+            }
+            if link
+            else None
+        )
 
     def get_upstream_count(self, node: Node) -> int:
         counts = self.context.get("node_counts")
@@ -201,6 +236,12 @@ class NodeSerializer(serializers.ModelSerializer):
         return node.properties.get("user", {}).get("tag")
 
     def get_sync_interval(self, node: Node) -> str | None:
+        if (
+            node.saved_query
+            and node.saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT
+            and not node.saved_query.is_materialized
+        ):
+            return None
         # The node's freshness target is authoritative on tiered v2 teams (where the saved
         # query's interval is NULL); the saved-query interval covers v1 teams.
         target = get_declared_target(node)
@@ -241,6 +282,13 @@ class NodeSerializer(serializers.ModelSerializer):
             return None
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if (
+            self.instance is not None
+            and self.instance.saved_query is not None
+            and self.instance.saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT
+            and {"name", "type"}.intersection(attrs)
+        ):
+            raise serializers.ValidationError("This model is an endpoint version. Change it on its endpoint page.")
         # Managed viewsets (e.g. Revenue Analytics) own their views' nodes; the internal sync path
         # maintains them directly via the ORM and bypasses this serializer. Block users from
         # editing those nodes via the API.
@@ -374,6 +422,8 @@ class NodeViewSet(
             raise serializers.ValidationError("A view PostHog manages reads from this node, so it can't be deleted.")
         if instance.type == NodeType.METRIC:
             raise serializers.ValidationError("Metric nodes are deleted by deleting their metric.")
+        if instance.saved_query and instance.saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+            raise serializers.ValidationError("This model is an endpoint version. Delete it from its endpoint page.")
         delete_node(instance.team_id, instance.pk)
 
     def safely_get_object(self, queryset: models.QuerySet) -> Node:
@@ -458,6 +508,15 @@ class NodeViewSet(
 
         node = self.get_object()
 
+        if (
+            node.saved_query
+            and node.saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT
+            and not node.saved_query.is_materialized
+        ):
+            raise serializers.ValidationError(
+                "Enable materialization for this version on its endpoint page before running it."
+            )
+
         if node.type not in SAVED_QUERY_NODE_TYPES:
             return response.Response(
                 {"error": f"Cannot run a {node.type} node"},
@@ -541,9 +600,10 @@ class NodeViewSet(
         nodes = self._exclude_hidden_nodes(
             _node_queryset_with_latest_job().filter(id__in=all_ids, team_id=self.team_id)
         )
+        visible_ids = nodes.values("id")
         edges = self._exclude_hidden_edges(
             Edge.objects.select_related("source", "target", "dag").filter(
-                team_id=self.team_id, source_id__in=all_ids, target_id__in=all_ids
+                team_id=self.team_id, source_id__in=visible_ids, target_id__in=visible_ids
             )
         )
 
@@ -557,6 +617,15 @@ class NodeViewSet(
         from products.data_modeling.backend.facade.api import start_node_materialization
 
         node = self.get_object()
+
+        if (
+            node.saved_query
+            and node.saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT
+            and not node.saved_query.is_materialized
+        ):
+            raise serializers.ValidationError(
+                "Enable materialization for this version on its endpoint page before running it."
+            )
 
         if node.type not in SAVED_QUERY_NODE_TYPES:
             return response.Response(

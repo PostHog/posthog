@@ -104,10 +104,12 @@ export interface NodeSuspensionApi {
 }
 
 export interface NodeEndpointApi {
-    /** Name of the endpoint this node's materialization backs. */
+    /** Name of the endpoint published by this model. */
     name: string
-    /** Endpoint version this node's materialization backs. */
+    /** Endpoint version represented by this model. */
     version: number
+    /** Whether materialization is enabled for this endpoint version. */
+    is_materialized: boolean
 }
 
 /**
@@ -161,7 +163,7 @@ export interface NodeApi {
     readonly sync_interval: string | null
     /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
     readonly suspended: NodeApiSuspended
-    /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
+    /** The endpoint version published by this model, or null for other nodes. */
     readonly endpoint: NodeEndpointApi | null
 }
 
@@ -225,7 +227,7 @@ export interface PatchedNodeApi {
     readonly sync_interval?: string | null
     /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
     readonly suspended?: PatchedNodeApiSuspended
-    /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
+    /** The endpoint version published by this model, or null for other nodes. */
     readonly endpoint?: NodeEndpointApi | null
 }
 

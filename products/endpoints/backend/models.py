@@ -106,6 +106,8 @@ def can_materialize_query(query: dict | None) -> tuple[bool, str]:
     breakdown_filter = query.get("breakdownFilter") or {}
     if breakdown_filter.get("breakdown_type") == "cohort":
         return False, "Cohort breakdowns are not supported for materialized endpoints."
+    if isinstance(breakdown_filter.get("breakdown"), list):
+        return False, "List breakdowns are not supported for materialized endpoints. Use the breakdowns format instead."
     for breakdown in breakdown_filter.get("breakdowns") or []:
         if isinstance(breakdown, dict) and breakdown.get("type") == "cohort":
             return False, "Cohort breakdowns are not supported for materialized endpoints."
@@ -290,13 +292,10 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         self.save(update_fields=["saved_query", "bucket_overrides", "updated_at"])
 
     def disable_materialization(self) -> None:
-        """Disable materialization: revert and soft-delete the saved query, clear version fields."""
+        """Stop materialization while retaining the version's model and checks."""
         if not self.saved_query:
             return
         self.saved_query.revert_materialization()
-        self.saved_query.soft_delete()
-        self.saved_query = None
-        self.save(update_fields=["saved_query", "updated_at"])
 
     @property
     def is_materialized(self) -> bool:
@@ -316,13 +315,13 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         return can_materialize_query(self.query)
 
     @staticmethod
-    def extract_columns(query: dict, team_id: int) -> list[dict]:
+    def extract_column_types(query: dict, team_id: int) -> dict[str, str]:
         """Extract SELECT column names and types by describing the query against ClickHouse."""
         if query.get("kind") != "HogQLQuery":
-            return []
+            return {}
         hogql_string = query.get("query", "")
         if not hogql_string:
-            return []
+            return {}
         from posthog.hogql.query import HogQLQueryExecutor
 
         from posthog.clickhouse.client import sync_execute
@@ -339,7 +338,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         clickhouse_sql, clickhouse_context = executor.generate_clickhouse_sql()
 
         if not clickhouse_sql:
-            return []
+            return {}
 
         tag_queries(product=ProductKey.ENDPOINTS, feature=Feature.SCHEMA_INTROSPECTION)
 
@@ -351,7 +350,14 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
             readonly=True,
         )
 
-        return [{"name": row[0], "type": _clickhouse_type_to_serialized_type(row[1])} for row in rows]
+        return {str(row[0]): str(row[1]) for row in rows}
+
+    @staticmethod
+    def extract_columns(query: dict, team_id: int) -> list[dict]:
+        return [
+            {"name": name, "type": _clickhouse_type_to_serialized_type(column_type)}
+            for name, column_type in EndpointVersion.extract_column_types(query, team_id).items()
+        ]
 
 
 class Endpoint(Taggable, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTModel):
@@ -422,7 +428,9 @@ class Endpoint(Taggable, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields
         new_normalized = json.loads(json.dumps(new_query, sort_keys=True))
         return current_normalized != new_normalized
 
-    def create_new_version(self, query: dict[str, Any], user: User) -> "EndpointVersion":
+    def create_new_version(
+        self, query: dict[str, Any], user: User, *, columns: list[dict] | None = None
+    ) -> "EndpointVersion":
         """Create a new version with the given query.
 
         This increments current_version and creates an EndpointVersion record.
@@ -447,10 +455,6 @@ class Endpoint(Taggable, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields
         self.save(update_fields=["current_version", "updated_at"])
 
         # Create new version, inheriting settings from previous version
-        try:
-            columns: list[dict] | None = EndpointVersion.extract_columns(query, team_id=self.team_id)
-        except Exception:
-            columns = None
         version = EndpointVersion.objects.create(
             endpoint=self,
             team=self.team,
@@ -481,6 +485,8 @@ class Endpoint(Taggable, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields
     def soft_delete(self) -> None:
         for version in self.versions.filter(saved_query__isnull=False):
             version.disable_materialization()
+            if version.saved_query:
+                version.saved_query.soft_delete()
 
         self.deleted = True
         self.deleted_at = timezone.now()

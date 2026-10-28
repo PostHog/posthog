@@ -880,7 +880,7 @@ export const productConfiguration: Record<string, any> = {
     Models: {
         name: 'Models',
         projectBased: true,
-        description: 'Create and manage views and materialized views for transforming and organizing your data.',
+        description: 'Manage models and published endpoints, including their versions, lineage, and data quality.',
         iconType: 'data_modeling',
     },
     NodeDetail: { name: 'Model detail', projectBased: true },

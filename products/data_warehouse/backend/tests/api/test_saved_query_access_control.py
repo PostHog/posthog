@@ -2,7 +2,7 @@ import uuid
 from datetime import timedelta
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -10,10 +10,17 @@ from rest_framework import status
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
-from products.data_modeling.backend.facade.api import mark_node_suspended, set_declared_target, suspension_state
+from products.data_modeling.backend.facade.api import (
+    allowed_saved_query_ids,
+    mark_node_suspended,
+    set_declared_target,
+    suspension_state,
+)
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
+from products.endpoints.backend.facade.models import Endpoint, EndpointVersion
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -39,6 +46,113 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
             query={"kind": "HogQLQuery", "query": "select 1"},
             created_by=self.user,
         )
+
+    @parameterized.expand([("none", False), ("viewer", True)])
+    def test_endpoint_permission_applies_to_published_model(self, access_level: str, visible: bool) -> None:
+        self.saved_query.origin = DataWarehouseSavedQuery.Origin.ENDPOINT
+        self.saved_query.save(update_fields=["origin"])
+        endpoint = Endpoint.objects.create(team=self.team, name="published", created_by=self.user)
+        EndpointVersion.objects.create(
+            team=self.team,
+            endpoint=endpoint,
+            version=1,
+            query=self.saved_query.query,
+            saved_query=self.saved_query,
+            created_by=self.user,
+        )
+        dag = DAG.objects.create(team=self.team, name="published_models")
+        source = Node.objects.create(team=self.team, dag=dag, name="events", type=NodeType.TABLE)
+        node = Node.objects.create(team=self.team, dag=dag, saved_query=self.saved_query, type=NodeType.ENDPOINT)
+        edge = Edge.objects.create(team=self.team, dag=dag, source=source, target=node)
+        self._create_access_control(
+            self.viewer_user, resource="endpoint", resource_id=str(endpoint.id), access_level=access_level
+        )
+        self.client.force_login(self.viewer_user)
+
+        for route, object_id in [
+            ("warehouse_saved_queries", self.saved_query.id),
+            ("data_modeling_nodes", node.id),
+            ("data_modeling_edges", edge.id),
+        ]:
+            result = self.client.get(f"/api/environments/{self.team.id}/{route}/")
+            self.assertEqual(result.status_code, status.HTTP_200_OK, result.data)
+            self.assertEqual(str(object_id) in {row["id"] for row in result.data["results"]}, visible)
+            detail = self.client.get(f"/api/environments/{self.team.id}/{route}/{object_id}/")
+            self.assertEqual(
+                detail.status_code, status.HTTP_200_OK if visible else status.HTTP_404_NOT_FOUND, detail.data
+            )
+
+        lineage = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?node_id={source.id}")
+        self.assertEqual(lineage.status_code, status.HTTP_200_OK, lineage.data)
+        self.assertEqual(str(node.id) in {row["id"] for row in lineage.data["nodes"]}, visible)
+        self.assertEqual(str(edge.id) in {row["id"] for row in lineage.data["edges"]}, visible)
+        direct_lineage = self.client.get(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?saved_query_id={self.saved_query.id}"
+        )
+        self.assertEqual(direct_lineage.status_code, status.HTTP_200_OK if visible else status.HTTP_404_NOT_FOUND)
+        allowed = allowed_saved_query_ids(self.team.id, UserAccessControl(user=self.viewer_user, team=self.team))
+        self.assertEqual(self.saved_query.id in allowed, visible)
+        for upstream in [True, False]:
+            related_view = DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name="allowed_upstream" if upstream else "allowed_downstream",
+                query={"kind": "HogQLQuery", "query": "SELECT 1"},
+                created_by=self.user,
+            )
+            related_node = Node.objects.create(team=self.team, dag=dag, saved_query=related_view, type=NodeType.VIEW)
+            Edge.objects.create(
+                team=self.team,
+                dag=dag,
+                source=related_node if upstream else node,
+                target=node if upstream else related_node,
+            )
+            action = "descendants" if upstream else "ancestors"
+            result = self.client.post(
+                f"/api/projects/{self.team.id}/warehouse_saved_queries/{related_view.id}/{action}/",
+                {},
+            )
+            self.assertEqual(result.status_code, status.HTTP_200_OK, result.data)
+            self.assertEqual(str(self.saved_query.id) in result.data[action], visible)
+
+    @parameterized.expand([("none", False), ("viewer", False), ("editor", True)])
+    def test_dependency_run_requires_edit_access_to_related_endpoint(self, access_level: str, permitted: bool) -> None:
+        endpoint = Endpoint.objects.create(team=self.team, name="related_endpoint", created_by=self.user)
+        self.saved_query.origin = DataWarehouseSavedQuery.Origin.ENDPOINT
+        self.saved_query.is_materialized = True
+        self.saved_query.save(update_fields=["origin", "is_materialized"])
+        EndpointVersion.objects.create(
+            endpoint=endpoint, team=self.team, version=1, saved_query=self.saved_query, query=self.saved_query.query
+        )
+        dag = DAG.objects.create(team=self.team, name="related_run")
+        endpoint_node = Node.objects.create(
+            team=self.team, dag=dag, saved_query=self.saved_query, type=NodeType.ENDPOINT
+        )
+        allowed_view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="allowed_run", query={"kind": "HogQLQuery", "query": "SELECT 1"}, created_by=self.user
+        )
+        root = Node.objects.create(team=self.team, dag=dag, saved_query=allowed_view, type=NodeType.MAT_VIEW)
+        Edge.objects.create(team=self.team, dag=dag, source=root, target=endpoint_node)
+        mark_node_suspended(endpoint_node, engine="clickhouse", reason="failed", job_id=str(uuid.uuid4()))
+        endpoint_node.save()
+        self._create_access_control(
+            self.editor_user, resource="endpoint", resource_id=str(endpoint.id), access_level=access_level
+        )
+        self.client.force_login(self.editor_user)
+        temporal_client = AsyncMock()
+        with patch(
+            "products.data_modeling.backend.logic.node_materialization.sync_connect", return_value=temporal_client
+        ):
+            result = self.client.post(
+                f"/api/projects/{self.team.id}/data_modeling_nodes/{root.id}/run/", {"direction": "downstream"}
+            )
+        self.assertEqual(
+            result.status_code, status.HTTP_200_OK if permitted else status.HTTP_403_FORBIDDEN, result.data
+        )
+        self.assertEqual(temporal_client.start_workflow.call_count, int(permitted))
+        endpoint_node.refresh_from_db()
+        self.assertEqual(bool(suspension_state(endpoint_node)), not permitted)
+        if not permitted:
+            self.assertNotIn(str(endpoint_node.id), result.content.decode())
 
     def _list_url(self) -> str:
         return f"/api/environments/{self.team.pk}/warehouse_saved_queries/"
@@ -125,7 +239,8 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
         self.client.force_login(self.viewer_user)
         self.assertEqual(self.client.get(self._list_url()).status_code, status.HTTP_200_OK)
 
-    def test_resume_schedules_skips_a_query_the_caller_cannot_edit(self):
+    @parameterized.expand([("warehouse_view", "none"), ("endpoint", "none"), ("endpoint", "viewer")])
+    def test_resume_schedules_skips_a_query_the_caller_cannot_edit(self, resource: str, access_level: str):
         # Both queries are created by someone else, so the creator bypass cannot mask the deny.
         allowed = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -151,8 +266,15 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
             node.save()
             nodes[label] = node
 
+        denied_id = denied.id
+        if resource == "endpoint":
+            endpoint = Endpoint.objects.create(team=self.team, name="resume_endpoint", created_by=self.user)
+            EndpointVersion.objects.create(
+                endpoint=endpoint, team=self.team, version=1, saved_query=denied, query=denied.query
+            )
+            denied_id = endpoint.id
         self._create_access_control(
-            self.editor_user, resource="warehouse_view", resource_id=str(denied.id), access_level="none"
+            self.editor_user, resource=resource, resource_id=str(denied_id), access_level=access_level
         )
         self.client.force_login(self.editor_user)
 

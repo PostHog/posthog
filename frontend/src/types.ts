@@ -105,6 +105,7 @@ import type {
     DataWarehouseSavedQueryApiSuspended,
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
+import type { EndpointResponseApi } from 'products/endpoints/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
@@ -2725,6 +2726,8 @@ export interface InsightModel<R extends Node<Record<string, any>> = Node<Record<
 export type InsightFilterOverrideContext = InsightFilterOverrideContextApi
 
 export interface EndpointType extends WithAccessControl {
+    node_id?: EndpointResponseApi['node_id']
+    model_unavailable_reason?: EndpointResponseApi['model_unavailable_reason']
     id: string
     name: string
     description: string
@@ -6377,6 +6380,7 @@ export interface DataWarehouseSavedQuery {
     updated_at?: DataWarehouseSavedQueryApi['updated_at']
     run_history?: DataWarehouseSavedQueryRunHistory[]
     origin?: DataWarehouseSavedQueryOrigin
+    endpoint?: DataWarehouseSavedQueryApi['endpoint']
     is_test?: boolean
     expires_at?: string
     user_access_level?: AccessControlLevel

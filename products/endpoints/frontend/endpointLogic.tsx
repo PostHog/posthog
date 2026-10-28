@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -19,6 +19,7 @@ import { EndpointType, EndpointVersionType } from '~/types'
 import type { ProductIntentProperties } from '../../../frontend/src/lib/utils/product-intents'
 import type { EndpointVersionMaterializationType } from '../../../frontend/src/types'
 import { endpointsLogic } from './endpointsLogic'
+import { endpointsRetrieve } from './generated/api'
 import { insightPickerEndpointModalLogic } from './insightPickerEndpointModalLogic'
 
 export type CodeExampleTab = 'terminal' | 'python' | 'nodejs'
@@ -321,11 +322,14 @@ export const endpointLogic = kea<endpointLogicType>([
         endpoint: [
             null as EndpointVersionType | null,
             {
-                loadEndpoint: async (name: string) => {
+                loadEndpoint: async (name: string, breakpoint) => {
                     if (!name) {
                         return null
                     }
-                    return await api.endpoint.get(name)
+                    const endpoint = await endpointsRetrieve(String(ApiConfig.getCurrentTeamId()), name)
+                    breakpoint()
+                    // The scene still uses legacy query and user types.
+                    return endpoint as unknown as EndpointVersionType
                 },
             },
         ],

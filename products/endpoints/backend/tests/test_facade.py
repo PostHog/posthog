@@ -1,7 +1,10 @@
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.models.team import Team
 
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.endpoints.backend.facade import api as facade
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 
@@ -9,6 +12,27 @@ SAMPLE_QUERY = {"kind": "HogQLQuery", "query": "SELECT count(1) FROM query_log"}
 
 
 class TestEndpointsFacade(BaseTest):
+    @parameterized.expand([False, None, True])
+    def test_publication_reads_preserve_nullable_live_endpoints(self, deleted: bool | None) -> None:
+        endpoint = create_endpoint_with_version("published_endpoint", self.team, SAMPLE_QUERY, self.user)
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="published_endpoint_v1",
+            query=SAMPLE_QUERY,
+            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+        )
+        version = endpoint.get_version()
+        version.saved_query = saved_query
+        version.save(update_fields=["saved_query"])
+        endpoint.deleted = deleted
+        endpoint.save(update_fields=["deleted"])
+
+        publications = facade.get_endpoint_publications(self.team.id, [str(saved_query.id)])
+
+        assert publications == (
+            {} if deleted else {str(saved_query.id): {"name": endpoint.name, "version": version.version}}
+        )
+
     def test_endpoint_reads_are_team_scoped_and_exclude_deleted(self):
         endpoint = create_endpoint_with_version("live_endpoint", self.team, SAMPLE_QUERY, self.user)
         deleted = create_endpoint_with_version("deleted_endpoint", self.team, SAMPLE_QUERY, self.user)

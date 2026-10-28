@@ -31,6 +31,7 @@ from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from . import posthog_tables
 from .compiler import related_subject_ref
 from .contracts import SubjectRef
+from .copy_checks import check_resolves
 from .errors import (
     CheckConfigError,
     ConcurrentEditError,
@@ -312,6 +313,14 @@ def _commit_edit(
         # not as whoever created it years ago.
         check.definition_author = editor
         changed |= {*_ASSERTION_FIELDS, "fingerprint", "definition_author"}
+
+    if check.subject_status == SubjectStatus.NEEDS_REVIEW and _edits_the_assertion(requested):
+        if not check_resolves(check):
+            raise CheckConfigError(
+                "This check does not resolve against this version. Choose a column from this version or remove the check."
+            )
+        check.subject_status = SubjectStatus.ACTIVE
+        changed.add("subject_status")
 
     if changed:
         check.save(update_fields=[*changed, "updated_at"])
