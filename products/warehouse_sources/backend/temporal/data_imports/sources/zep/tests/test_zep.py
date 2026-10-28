@@ -198,6 +198,7 @@ class TestGraphFanOut:
         assert result.saved_states == [
             ZepResumeConfig(graph_scope="user", graph_owner_id="U1", graph_cursor="c1"),
             ZepResumeConfig(graph_scope="graph", graph_owner_id="G1"),
+            ZepResumeConfig(graph_finished=True),
         ]
 
     @parameterized.expand(
@@ -271,6 +272,17 @@ class TestGraphFanOut:
 
         assert result.raised is None
         assert result.rows == []
+
+    def test_resume_after_last_graph_reads_nothing_again(self) -> None:
+        result = _run(
+            "graph_edges",
+            route(self._owners(["U1"], [])),
+            resume_state=ZepResumeConfig(graph_finished=True),
+        )
+
+        assert result.raised is None
+        assert result.rows == []
+        assert result.requests == []
 
 
 class TestZepSourceResponse:

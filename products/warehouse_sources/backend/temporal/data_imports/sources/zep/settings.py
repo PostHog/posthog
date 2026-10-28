@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 ZEP_BASE_URL = "https://api.getzep.com/api/v2"
 
 
-@dataclass
+@dataclass(frozen=False)  # tests patch fields such as page_size
 class ZepEndpointConfig:
     name: str
     path: str

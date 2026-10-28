@@ -8,6 +8,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     make_tracked_session,
     retry_with_deadline,
@@ -32,7 +34,7 @@ class ZepRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ZepResumeConfig:
     # Page-based endpoints (users, threads): the next 1-based page to fetch.
     page_number: int | None = None
@@ -46,6 +48,14 @@ class ZepResumeConfig:
     graph_scope: str | None = None
     graph_owner_id: str | None = None
     graph_cursor: str | None = None
+    # Set once the last graph's rows are all yielded, so a resume after that reads nothing again.
+    graph_finished: bool = False
+
+
+@frozen
+class GraphOwner:
+    scope: str  # "user" or "graph"
+    owner_id: str
 
 
 def _headers(api_key: str) -> dict[str, str]:
@@ -312,12 +322,12 @@ def _iter_ids(
 
 def _iter_graph_owners(
     session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger
-) -> Iterator[tuple[str, str]]:
-    """Yield (scope, owner_id) for every user graph, then every standalone graph."""
+) -> Iterator[GraphOwner]:
+    """Yield every user graph, then every standalone graph."""
     for user_id in _iter_ids(session, headers, logger, "users", "user_id"):
-        yield "user", user_id
+        yield GraphOwner(scope="user", owner_id=user_id)
     for graph_id in _iter_ids(session, headers, logger, "graphs", "graph_id"):
-        yield "graph", graph_id
+        yield GraphOwner(scope="graph", owner_id=graph_id)
 
 
 def _graph_row(item: dict[str, Any], scope: str, owner_id: str) -> dict[str, Any]:
@@ -339,11 +349,14 @@ def _fan_out_graph_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     """Fan out over every user graph and standalone graph, yielding the graph's edges, nodes or episodes."""
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    owners: Iterator[tuple[str, str]] = iter(_iter_graph_owners(session, headers, logger))
+    if resume is not None and resume.graph_finished:
+        return
+
+    owners: Iterator[GraphOwner] = iter(_iter_graph_owners(session, headers, logger))
     resume_cursor: str | None = None
 
     if resume is not None and resume.graph_scope is not None and resume.graph_owner_id is not None:
-        target = (resume.graph_scope, resume.graph_owner_id)
+        target = GraphOwner(scope=resume.graph_scope, owner_id=resume.graph_owner_id)
         for owner in owners:
             if owner == target:
                 break
@@ -353,15 +366,17 @@ def _fan_out_graph_rows(
         owners = itertools.chain([target], owners)
         resume_cursor = resume.graph_cursor
 
-    def _stage_next_owner(nxt: tuple[str, str] | None) -> None:
-        if nxt is not None:
-            resumable_source_manager.save_state(ZepResumeConfig(graph_scope=nxt[0], graph_owner_id=nxt[1]))
+    def _stage_next_owner(nxt: GraphOwner | None) -> None:
+        if nxt is None:
+            resumable_source_manager.save_state(ZepResumeConfig(graph_finished=True))
+        else:
+            resumable_source_manager.save_state(ZepResumeConfig(graph_scope=nxt.scope, graph_owner_id=nxt.owner_id))
 
     # One owner of lookahead so the bookmark can point at the next graph before its rows exist.
     current = next(owners, None)
     while current is not None:
         nxt = next(owners, None)
-        scope, owner_id = current
+        scope, owner_id = current.scope, current.owner_id
         # user_id and graph_id are user-defined strings; escape path-significant characters.
         path = config.path.format(scope=scope, owner_id=quote(owner_id, safe=""))
         cursor, resume_cursor = resume_cursor, None
