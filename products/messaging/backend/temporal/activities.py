@@ -13,7 +13,7 @@ from products.messaging.backend.temporal.inputs import ProviderImportRunInputs, 
 @asyncify
 def run_provider_import_step_activity(inputs: ProviderImportStepInputs) -> None:
     with HeartbeaterSync():
-        run_step(inputs.team_id, UUID(inputs.run_id), inputs.step)
+        run_step(inputs.team_id, UUID(inputs.run_id), inputs.step, activity.info().attempt)
 
 
 @activity.defn(name="messaging-provider-import.finish_run")

@@ -27,7 +27,14 @@ STEP_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=10),
     backoff_coefficient=2.0,
     maximum_interval=timedelta(minutes=5),
-    non_retryable_error_types=["ImportCredentialsMissing", "UnknownImportStep", "UnknownImportProvider"],
+    non_retryable_error_types=[
+        "ImportCredentialsMissing",
+        "ImportCredentialsInvalid",
+        "ImportRunClosed",
+        "StaleImportAttempt",
+        "UnknownImportStep",
+        "UnknownImportProvider",
+    ],
 )
 FINISH_RETRY_POLICY = RetryPolicy(maximum_attempts=5, initial_interval=timedelta(seconds=5))
 
