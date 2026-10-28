@@ -98,6 +98,9 @@ const DeleteFeatureFlagSchema = () => {
         FeatureFlagsPartialUpdateParams.omit({ project_id: true })
             .extend(
                 FeatureFlagsPartialUpdateBody.omit({
+                    ask_rollback_reason: true,
+                    rollback_reason: true,
+                    rollback_reason_note: true,
                     key: true,
                     name: true,
                     filters: true,
