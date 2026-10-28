@@ -230,31 +230,48 @@ class TestSyncSavedQueryToDag(BaseTest):
         after.refresh_from_db()
         self.assertEqual(after.name, "updated_view")
 
-    def test_sync_deletes_old_edges_when_dependencies_change(self):
+    def test_sync_keeps_unchanged_incoming_edges(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="test_view",
             team=self.team,
             query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
         )
+        node = sync_saved_query_to_dag(saved_query)
+        edge = Edge.objects.get(target=node)
+        edge.properties = {"label": "events input"}
+        edge.save(update_fields=["properties"])
+        original_edge = (edge.id, edge.created_at, edge.updated_at, edge.properties)
+
+        sync_saved_query_to_dag(saved_query)
+
+        edge = Edge.objects.get(target=node)
+        self.assertEqual((edge.id, edge.created_at, edge.updated_at, edge.properties), original_edge)
+
+    def test_sync_deletes_old_edges_when_dependencies_change(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="test_view",
+            team=self.team,
+            query={
+                "query": "SELECT 1 FROM events CROSS JOIN persons",
+                "kind": "HogQLQuery",
+            },
+        )
 
         node = sync_saved_query_to_dag(saved_query)
+        original_edges = {edge.source.name: edge.id for edge in Edge.objects.filter(target=node)}
 
-        # initially depends on events
-        edge = Edge.objects.filter(target=node).first()
-        assert edge is not None
-        self.assertEqual(Edge.objects.filter(target=node).count(), 1)
-        self.assertEqual(edge.source.name, "events")
-
-        # change to depend on persons instead
-        saved_query.query = {"query": "SELECT * FROM persons", "kind": "HogQLQuery"}
+        saved_query.query = {
+            "query": "SELECT 1 FROM events CROSS JOIN groups",
+            "kind": "HogQLQuery",
+        }
         saved_query.save()
         sync_saved_query_to_dag(saved_query)
 
-        edge = Edge.objects.filter(target=node).first()
-        assert edge is not None
-        self.assertEqual(Edge.objects.filter(target=node).count(), 1)
-        self.assertEqual(edge.source.name, "persons")  # not events
-        self.assertFalse(Node.objects.filter(team=self.team, name="events", type=NodeType.TABLE).exists())
+        updated_edges = {edge.source.name: edge.id for edge in Edge.objects.filter(target=node)}
+        self.assertEqual(updated_edges["events"], original_edges["events"])
+        self.assertNotIn("persons", updated_edges)
+        self.assertIn("groups", updated_edges)
+        self.assertFalse(Node.objects.filter(team=self.team, name="persons", type=NodeType.TABLE).exists())
 
     def test_a_failed_resolution_leaves_the_previous_edges_in_place(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
