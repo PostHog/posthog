@@ -1232,6 +1232,30 @@ class TestAccountsTableQueryRunner(BaseTest):
         assert response.results[0].customProperties == {str(kept_definition.id): "enterprise"}
         assert response.results[0].customPropertyHistory == {}
 
+    @parameterized.expand([("filters",), ("filterGroups",)])
+    def test_rejects_filter_on_deleted_definition_even_when_selected_as_column(self, filter_location: str) -> None:
+        definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        definition_id = str(definition.id)
+        definition.delete()
+        filter_ = AccountsTableCustomPropertyFilter(
+            definitionId=definition_id,
+            operator=AccountsTableCustomPropertyOperator.IS_SET,
+            values=[],
+        )
+        name_filter = AccountsTableAccountFieldFilter(
+            field=AccountsTableAccountField.NAME,
+            operator=AccountsTableAccountFieldOperator.IS_SET,
+        )
+
+        with self.assertRaises(ValidationError):
+            self._run(
+                AccountsTableQuery(
+                    columns=[AccountsTableCustomPropertyColumn(definitionId=definition_id)],
+                    filters=[filter_] if filter_location == "filters" else [],
+                    filterGroups=[[filter_], [name_filter]] if filter_location == "filterGroups" else None,
+                )
+            )
+
     @parameterized.expand(["filter", "sort"])
     def test_rejects_filter_or_sort_definition_from_another_team(self, query_part: str) -> None:
         other_team = Team.objects.create(organization=self.organization)

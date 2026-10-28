@@ -31,6 +31,7 @@ Filters within each group use AND, while search, tags, assignment status, and se
 Saved views keep the groups. Older views without groups retain their AND behavior.
 A group that filters on churned or ignored accounts includes them only in that group. Other groups still exclude them by default.
 When a saved condition refers to a deleted property, the list keeps the valid conditions in that group.
+When a saved column refers to a deleted relationship or custom property, the list drops that column and any sort on it, and the column renders empty. A filter on a deleted definition still fails the query.
 
 The toolbar keeps a Filters button with a spaced, theme-aware accent count. The button highlights while the compact groups are open in a bordered area below it.
 Restored filters start collapsed. Relationship pills show member names using the same member list as the value picker. Adding the first condition opens the groups, and removing the last group restores the Filter button.

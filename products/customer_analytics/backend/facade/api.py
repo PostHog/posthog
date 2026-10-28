@@ -3211,10 +3211,10 @@ def _validate_account_table_definitions(
     # Saved views keep columns for definitions deleted later. With drop_unknown_columns, those columns
     # (and a sort on them) are dropped instead of failing the whole query. Unknown filters still fail.
     relationship_column_ids = set(selection.relationship_definition_ids)
-    relationship_ids = set(relationship_column_ids)
-    relationship_ids.update(
+    relationship_filter_ids = {
         filter_.definition_id for filter_ in filters if isinstance(filter_, contracts.AccountTableRelationshipFilter)
-    )
+    }
+    relationship_ids = relationship_column_ids | relationship_filter_ids
     if sort and sort.kind == contracts.AccountTableSortKind.RELATIONSHIP:
         if sort.definition_id is None:
             raise InvalidAccountTableColumn("Relationship sorting requires a definition.")
@@ -3228,7 +3228,7 @@ def _validate_account_table_definitions(
         )
         invalid_relationship_ids = relationship_ids - valid_relationship_ids
         if drop_unknown_columns:
-            dropped_ids.update(invalid_relationship_ids & relationship_column_ids)
+            dropped_ids.update((invalid_relationship_ids & relationship_column_ids) - relationship_filter_ids)
             invalid_relationship_ids -= dropped_ids
         if invalid_relationship_ids:
             invalid_ids = ", ".join(sorted(str(definition_id) for definition_id in invalid_relationship_ids))
@@ -3237,10 +3237,10 @@ def _validate_account_table_definitions(
     custom_property_column_ids = set(selection.custom_property_definition_ids) | set(
         selection.custom_property_history_windows
     )
-    custom_property_ids = set(custom_property_column_ids)
-    custom_property_ids.update(
+    custom_property_filter_ids = {
         filter_.definition_id for filter_ in filters if isinstance(filter_, contracts.AccountTableCustomPropertyFilter)
-    )
+    }
+    custom_property_ids = custom_property_column_ids | custom_property_filter_ids
     if sort and sort.kind == contracts.AccountTableSortKind.CUSTOM_PROPERTY:
         if sort.definition_id is None:
             raise InvalidAccountTableColumn("Custom property sorting requires a definition.")
@@ -3256,7 +3256,9 @@ def _validate_account_table_definitions(
         }
         invalid_custom_property_ids = custom_property_ids - set(custom_property_display_types)
         if drop_unknown_columns:
-            dropped_custom_property_ids = invalid_custom_property_ids & custom_property_column_ids
+            dropped_custom_property_ids = (
+                invalid_custom_property_ids & custom_property_column_ids
+            ) - custom_property_filter_ids
             dropped_ids.update(dropped_custom_property_ids)
             invalid_custom_property_ids -= dropped_custom_property_ids
         if invalid_custom_property_ids:
