@@ -42,6 +42,14 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueSummary,
     sync_issues_to_clickhouse,
 )
+from products.error_tracking.backend.temporal.lifecycle.issue_created import activities as issue_created_activities
+from products.error_tracking.backend.temporal.lifecycle.issue_created.activities import (
+    generate_issue_created_summary_activity,
+)
+from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
+    IssueCreatedSnapshot,
+    IssueCreatedWorkflowInputs,
+)
 from products.ml_inference.backend.facade.contracts import ChoiceAnswer, DecisionResult
 
 SUMMARY_REPLY = {
@@ -227,6 +235,7 @@ class TestIssueSummaryGeneration(BaseTest):
 
         properties = capture.call_args.kwargs["properties"]
         assert properties["outcome"] == outcome.value
+        assert properties["trigger"] == "read"
         assert properties["queue_ms"] == 2000
         assert stages <= {key for key in properties if key.endswith("_ms")}
 
@@ -355,16 +364,8 @@ class TestIssueSummaryGeneration(BaseTest):
         assert shown is not None
         assert (shown.generated_at, shown.checked_at) == (result.summary.generated_at, result.summary.checked_at)
 
-    def _generate_on_creation(
-        self, budget_key: str | None = None, budget: Budget = issue_summaries.ISSUE_SUMMARY_BUDGET
-    ) -> IssueSummaryOutcome:
-        return generate_issue_summary_from_event(
-            self.team.id,
-            self.issue.id,
-            {},
-            budget_key=budget_key or self._budget_key,
-            budget=budget,
-        ).outcome
+    def _generate_on_creation(self) -> IssueSummaryOutcome:
+        return generate_issue_summary_from_event(self.team.id, self.issue.id, {}).outcome
 
     def test_generation_on_creation_runs_once_and_keeps_a_stored_summary(self) -> None:
         with time_machine.travel(NOW, tick=False):
@@ -387,15 +388,79 @@ class TestIssueSummaryGeneration(BaseTest):
         assert capture.call_args.kwargs["event"] == issue_summaries.ISSUE_SUMMARY_TASK_EVENT
         properties = capture.call_args.kwargs["properties"]
         assert properties["outcome"] == IssueSummaryOutcome.GENERATED.value
+        assert properties["trigger"] == "write"
         assert {"total_ms", "inputs_ms", "model_ms"} <= properties.keys()
 
-    def test_generation_on_creation_spends_the_budget_its_caller_passes(self) -> None:
-        creation_key = f"{self._budget_key}:on-creation"
+    @parameterized.expand(
+        [
+            ("own_team_drained", 0, IssueSummaryOutcome.RATE_LIMITED),
+            ("other_team_drained", 1, IssueSummaryOutcome.GENERATED),
+        ]
+    )
+    def test_write_budget_is_per_team_and_never_holds_a_read(
+        self, _name: str, drained_team_offset: int, expected: IssueSummaryOutcome
+    ) -> None:
         tiny = Budget(burst=1, per_hour=1)
-        consume(creation_key, tiny)
+        self.enterContext(patch.object(issue_summaries, "ISSUE_SUMMARY_WRITE_BUDGET", tiny))
+        consume(f"{issue_summaries.ISSUE_SUMMARY_WRITE_BUDGET_KEY_PREFIX}:{self.team.id + drained_team_offset}", tiny)
 
-        assert self._generate_on_creation(budget_key=creation_key, budget=tiny) == IssueSummaryOutcome.RATE_LIMITED
-        assert self.llm_calls == 0
+        assert self._generate_on_creation() == expected
+        read = get_or_generate_issue_summary(self.team.id, self.issue.id)
+
+        assert read.summary is not None
+        assert self.llm_calls == 1
+
+    @parameterized.expand(
+        [
+            ("on_write_flag_off", {"error-tracking-issue-summaries-on-write"}, None, IssueSummaryOutcome.DISABLED),
+            ("read_flag_off", {"error-tracking-issue-summaries"}, None, IssueSummaryOutcome.DISABLED),
+            ("ai_not_approved", set(), lambda test: test._disapprove_ai(), IssueSummaryOutcome.AI_NOT_APPROVED),
+            (
+                "write_budget_drained",
+                set(),
+                lambda test: test._drain_write_budget(),
+                IssueSummaryOutcome.RATE_LIMITED,
+            ),
+            ("all_checks_pass", set(), None, IssueSummaryOutcome.GENERATED),
+        ]
+    )
+    def test_issue_created_activity_fails_closed(
+        self, _name: str, flags_off: set[str], arrange: Any, expected: IssueSummaryOutcome
+    ) -> None:
+        self.enterContext(
+            patch.object(
+                team_flags, "feature_enabled_or_false", side_effect=lambda flag, *_, **__: flag not in flags_off
+            )
+        )
+        fetch = self.enterContext(
+            patch.object(issue_created_activities, "fetch_event_properties", return_value={"$lib": "web"})
+        )
+        if arrange is not None:
+            arrange(self)
+
+        outcome = generate_issue_created_summary_activity(self._issue_created_inputs())
+
+        assert outcome == expected.value
+        assert self.llm_calls == (1 if expected == IssueSummaryOutcome.GENERATED else 0)
+        assert fetch.called is (issue_summaries.ISSUE_SUMMARY_ON_WRITE_FLAG not in flags_off)
+
+    def _drain_write_budget(self) -> None:
+        tiny = Budget(burst=1, per_hour=1)
+        self.enterContext(patch.object(issue_summaries, "ISSUE_SUMMARY_WRITE_BUDGET", tiny))
+        consume(f"{issue_summaries.ISSUE_SUMMARY_WRITE_BUDGET_KEY_PREFIX}:{self.team.id}", tiny)
+
+    def _issue_created_inputs(self) -> IssueCreatedWorkflowInputs:
+        return IssueCreatedWorkflowInputs(
+            notification_id="notification",
+            team_id=self.team.id,
+            issue_id=str(self.issue.id),
+            issue=IssueCreatedSnapshot(
+                name="TypeError", description=None, status="active", created_at=NOW.isoformat(), severity=None
+            ),
+            fingerprint="fp",
+            event_uuid="00000000-0000-0000-0000-000000000001",
+            event_timestamp=NOW.isoformat(),
+        )
 
     def test_merge_keeps_target_summary_and_deletes_source_summary(self) -> None:
         source = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
