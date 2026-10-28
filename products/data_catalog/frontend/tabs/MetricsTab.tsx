@@ -207,22 +207,7 @@ export function MetricsTab(): JSX.Element {
         {
             title: 'Definition',
             key: 'definition_kind',
-            render: (_, metric) => (
-                <div className="flex items-center gap-1.5 whitespace-nowrap">
-                    <LemonTag type="option">{humanizeDefinitionKind(metric.definition_kind)}</LemonTag>
-                    {/* An insight-linked metric copies its definition from the insight, which is what Refresh pulls from. */}
-                    {metric.source_insight_short_id && (
-                        <Link
-                            to={urls.insightView(metric.source_insight_short_id as InsightShortId)}
-                            target="_blank"
-                            className="text-xs"
-                            data-attr="data-catalog-metric-source-insight"
-                        >
-                            Insight
-                        </Link>
-                    )}
-                </div>
-            ),
+            render: (_, metric) => <LemonTag type="option">{humanizeDefinitionKind(metric.definition_kind)}</LemonTag>,
             sorter: (a, b) =>
                 compareText(humanizeDefinitionKind(a.definition_kind), humanizeDefinitionKind(b.definition_kind)),
         },
@@ -237,6 +222,7 @@ export function MetricsTab(): JSX.Element {
             key: 'owner',
             render: (_, metric) => (
                 <MetricOwnerSelect
+                    truncate
                     owner={metric.owner}
                     loading={!!actionsInFlight[metric.name]}
                     disabledReason={bulkBusyReason}
@@ -307,17 +293,27 @@ export function MetricsTab(): JSX.Element {
                 <div className="flex items-center justify-end gap-1">
                     {metric.is_drifted ? (
                         metric.source_insight_short_id && (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                loading={inFlight}
-                                disabledReason={bulkBusyReason}
-                                tooltip="Update the definition from the source insight"
-                                onClick={() => refreshMetricFromInsight(metric.name)}
-                                data-attr="data-catalog-review-queue-refresh"
-                            >
-                                Refresh
-                            </LemonButton>
+                            <>
+                                <Link
+                                    to={urls.insightView(metric.source_insight_short_id as InsightShortId)}
+                                    target="_blank"
+                                    className="text-xs whitespace-nowrap"
+                                    data-attr="data-catalog-metric-source-insight"
+                                >
+                                    Insight
+                                </Link>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    loading={inFlight}
+                                    disabledReason={bulkBusyReason}
+                                    tooltip="Update the definition from the source insight"
+                                    onClick={() => refreshMetricFromInsight(metric.name)}
+                                    data-attr="data-catalog-review-queue-refresh"
+                                >
+                                    Refresh
+                                </LemonButton>
+                            </>
                         )
                     ) : (
                         <LemonButton
