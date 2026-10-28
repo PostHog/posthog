@@ -229,9 +229,13 @@ class TestMetricsAlertEvaluation(APIBaseTest):
             ["firing", "resolved", "errored", "broken"],
             ["firing", "resolved"],
         )
-        assert [d["id"] for d in self.client.get(destinations_url).json()] == [
-            slack.json()["id"],
-            pagerduty.json()["id"],
+        listed = self.client.get(destinations_url).json()
+        assert [d["id"] for d in listed] == [slack.json()["id"], pagerduty.json()["id"]]
+        with team_scope(self.team.id):
+            stored = list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration_id)
+        assert [sorted(key for key in d.data if key.startswith("pagerduty_")) for d in stored] == [
+            [],
+            ["pagerduty_region", "pagerduty_routing_key", "pagerduty_severity"],
         ]
 
         self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000")))

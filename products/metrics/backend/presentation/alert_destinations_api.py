@@ -161,8 +161,18 @@ class MetricsAlertCreateDestinationSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        data = cast(AlertDestinationData, {key: value for key, value in attrs.items() if key != "event_kinds"})
-        data["type"] = DestinationType(attrs["type"])
+        destination_type = DestinationType(attrs["type"])
+        # The PagerDuty fields have defaults, so they arrive for every type. Only PagerDuty keeps them.
+        data = cast(
+            AlertDestinationData,
+            {
+                key: value
+                for key, value in attrs.items()
+                if key != "event_kinds"
+                and (destination_type == DestinationType.PAGERDUTY or not key.startswith("pagerduty_"))
+            },
+        )
+        data["type"] = destination_type
         try:
             validate_destination_data(data, allowed_destination_types=METRICS_ALERT_DESTINATION_TYPES)
         except AlertDestinationValidationError as error:
