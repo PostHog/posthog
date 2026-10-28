@@ -1,10 +1,12 @@
 import re
+from dataclasses import dataclass
 from uuid import UUID
 
 import structlog
 
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import GitHubIntegration, Integration
 
 from products.tasks.backend.facade import api as tasks_facade
@@ -14,6 +16,7 @@ from ..settings import WriterSettings, writer_settings
 from .launch import replace_entry_with
 from .records import (
     JOIN_STATE_KEY,
+    PUBLICATION_CLAIM_STATE_KEY,
     PULL_REQUEST_FAILURE_STATE_KEY,
     PULL_REQUEST_STATE_KEY,
     REQUEST_STATE_KEY,
@@ -66,10 +69,18 @@ def docs_github(team_id: int, docs_owner: str) -> GitHubIntegration | None:
     return None
 
 
-def writer_pull_request(listed: dict, docs_repository: str) -> WriterPullRequest | None:
+def github_app_login() -> str | None:
+    slug = get_instance_setting("GITHUB_APP_SLUG")
+    return f"{slug}[bot]".lower() if slug else None
+
+
+def writer_pull_request(listed: dict, docs_repository: str, app_login: str | None) -> WriterPullRequest | None:
     body = listed.get("body") or ""
     head = listed.get("head") or {}
     head_repository = str((head.get("repo") or {}).get("full_name", "")).lower()
+    author_login = str((listed.get("user") or {}).get("login", "")).lower()
+    if app_login is None or author_login != app_login:
+        return None
     if LINK_BACK_START not in body or head_repository != docs_repository.lower():
         return None
     section = SECTION_MARKER_PATTERN.search(body)
@@ -85,6 +96,7 @@ def open_writer_pull_requests(writer: WriterSettings) -> list[WriterPullRequest]
     github = docs_github(writer.team_id, writer.docs_repository.split("/", 1)[0])
     if github is None:
         return None
+    app_login = github_app_login()
     found: list[WriterPullRequest] = []
     for page in range(1, MAX_PULL_REQUEST_PAGES + 1):
         response = github.api_request(
@@ -99,7 +111,9 @@ def open_writer_pull_requests(writer: WriterSettings) -> list[WriterPullRequest]
         listed_page = response.json()
         found.extend(
             pull_request
-            for pull_request in (writer_pull_request(listed, writer.docs_repository) for listed in listed_page)
+            for pull_request in (
+                writer_pull_request(listed, writer.docs_repository, app_login) for listed in listed_page
+            )
             if pull_request is not None
         )
         if len(listed_page) < PULL_REQUESTS_PER_PAGE:
@@ -110,6 +124,17 @@ def open_writer_pull_requests(writer: WriterSettings) -> list[WriterPullRequest]
 
 class WriterPullRequestFailed(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class GitHubStepFailed:
+    step: str
+    status_code: int | None
+
+
+def github_step_failed(step: str, response: dict) -> GitHubStepFailed:
+    status_code = response.get("status_code")
+    return GitHubStepFailed(step=step, status_code=status_code if isinstance(status_code, int) else None)
 
 
 def open_or_join_pull_request(task_run_id: UUID, *, team_id: int) -> str | None:
@@ -125,29 +150,76 @@ def open_or_join_pull_request(task_run_id: UUID, *, team_id: int) -> str | None:
     published = tasks_facade.read_task_state_entry(run.task_id, team_id, PULL_REQUEST_STATE_KEY)
     if isinstance(published, dict):
         return pull_request_json.validate_python(published).url
-    request = request_json.validate_python(tasks_facade.read_task_state_entry(run.task_id, team_id, REQUEST_STATE_KEY))
+    if not claim_publication(run.task_id, team_id, task_run_id):
+        return None
+    try:
+        pull_request_url = publish_claimed_pull_request(run.task_id, team_id, task_run_id, writer, head_branch)
+    except Exception:
+        record_pull_request_failure(run.task_id, team_id, "github_request_failed")
+        release_publication_claim(run.task_id, team_id, task_run_id)
+        raise
+    if pull_request_url is None:
+        release_publication_claim(run.task_id, team_id, task_run_id)
+    return pull_request_url
+
+
+def claim_publication(task_id: UUID, team_id: int, task_run_id: UUID) -> bool:
+    def claim(current: object) -> tuple[object, bool]:
+        if current is not None:
+            return current, False
+        return str(task_run_id), True
+
+    return bool(tasks_facade.update_task_state_entry(task_id, team_id, PUBLICATION_CLAIM_STATE_KEY, claim))
+
+
+def release_publication_claim(task_id: UUID, team_id: int, task_run_id: UUID) -> None:
+    def release(current: object) -> tuple[object, None]:
+        if current != str(task_run_id):
+            return current, None
+        return None, None
+
+    tasks_facade.update_task_state_entry(task_id, team_id, PUBLICATION_CLAIM_STATE_KEY, release)
+
+
+def publish_claimed_pull_request(
+    task_id: UUID, team_id: int, task_run_id: UUID, writer: WriterSettings, head_branch: str
+) -> str | None:
+    request = request_json.validate_python(tasks_facade.read_task_state_entry(task_id, team_id, REQUEST_STATE_KEY))
     docs_owner, docs_name = writer.docs_repository.split("/", 1)
     github = docs_github(team_id, docs_owner)
     if github is None:
         logger.warning("knowledge_writer_no_docs_github_integration", team_id=team_id, task_run_id=str(task_run_id))
-        record_pull_request_failure(run.task_id, team_id, "no_github_integration")
+        record_pull_request_failure(task_id, team_id, "no_github_integration")
         return None
-    joined = tasks_facade.read_task_state_entry(run.task_id, team_id, JOIN_STATE_KEY)
-    pull_request = (
-        add_source_to_pull_request(github, docs_name, pull_request_json.validate_python(joined), request)
-        if isinstance(joined, dict)
-        else open_pull_request(github, docs_name, request, head_branch, section=read_section(run.task_id, team_id))
-    )
-    if pull_request is None:
+    joined = tasks_facade.read_task_state_entry(task_id, team_id, JOIN_STATE_KEY)
+    joined_pull_request = pull_request_json.validate_python(joined) if isinstance(joined, dict) else None
+    if joined_pull_request is not None and joined_pull_request.head_branch != head_branch:
         capture_exception(
-            WriterPullRequestFailed("knowledge writer docs pull request failed"),
+            WriterPullRequestFailed("knowledge writer pushed to a branch other than the joined pull request's"),
             {"team_id": team_id, "task_run_id": str(task_run_id)},
         )
-        record_pull_request_failure(run.task_id, team_id, "github_request_failed")
+        record_pull_request_failure(task_id, team_id, "joined_branch_mismatch")
+        return None
+    pull_request = (
+        add_source_to_pull_request(github, docs_name, joined_pull_request, request)
+        if joined_pull_request is not None
+        else open_pull_request(github, docs_name, request, head_branch, section=read_section(task_id, team_id))
+    )
+    if isinstance(pull_request, GitHubStepFailed):
+        capture_exception(
+            WriterPullRequestFailed("knowledge writer docs pull request failed"),
+            {
+                "team_id": team_id,
+                "task_run_id": str(task_run_id),
+                "step": pull_request.step,
+                "status_code": pull_request.status_code,
+            },
+        )
+        record_pull_request_failure(task_id, team_id, "github_request_failed")
         return None
     stored = pull_request_json.dump_python(pull_request, mode="json")
-    tasks_facade.update_task_state_entry(run.task_id, team_id, PULL_REQUEST_STATE_KEY, replace_entry_with(stored))
-    tasks_facade.update_task_state_entry(run.task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY, replace_entry_with(None))
+    tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_STATE_KEY, replace_entry_with(stored))
+    tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY, replace_entry_with(None))
     return pull_request.url
 
 
@@ -162,7 +234,7 @@ def read_section(task_id: UUID, team_id: int) -> str | None:
 
 def open_pull_request(
     github: GitHubIntegration, docs_name: str, request: DocsRequest, head_branch: str, *, section: str | None
-) -> WriterPullRequest | None:
+) -> WriterPullRequest | GitHubStepFailed:
     created = github.create_pull_request(
         docs_name,
         title=f"docs: update for {request.source_url}"[:255],
@@ -171,7 +243,7 @@ def open_pull_request(
         draft=True,
     )
     if not created.get("success"):
-        return None
+        return github_step_failed("create_pull_request", created)
     return WriterPullRequest(
         number=created["pr_number"], url=created["pr_url"], head_branch=head_branch, section=section
     )
@@ -179,13 +251,13 @@ def open_pull_request(
 
 def add_source_to_pull_request(
     github: GitHubIntegration, docs_name: str, pull_request: WriterPullRequest, request: DocsRequest
-) -> WriterPullRequest | None:
+) -> WriterPullRequest | GitHubStepFailed:
     current = github.get_pull_request(docs_name, pull_request.number)
     if not current.get("success"):
-        return None
+        return github_step_failed("get_pull_request", current)
     if current.get("state") != "open":
         return open_pull_request(github, docs_name, request, pull_request.head_branch, section=pull_request.section)
     commented = github.comment_on_pull_request(docs_name, pull_request.number, joined_source_comment(request))
     if not commented.get("success"):
-        return None
+        return github_step_failed("comment_on_pull_request", commented)
     return pull_request
