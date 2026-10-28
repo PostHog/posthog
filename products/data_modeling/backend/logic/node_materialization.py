@@ -4,7 +4,7 @@ from datetime import timedelta
 from uuid import UUID, uuid4
 
 from django.conf import settings
-from django.db import connection, transaction
+from django.db import transaction
 
 import structlog
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
@@ -46,6 +46,8 @@ logger = structlog.get_logger(__name__)
 
 RELATED_RUN_EDIT_ACCESS_REFUSAL = "You need edit access to every view in this run."
 MANAGED_WAREHOUSE_UNAVAILABLE_REFUSAL = "This organization has no managed warehouse set up."
+# Long enough for the state changes that follow the start to commit before the workflow first reads them.
+MANUAL_TRINO_RUN_START_DELAY = timedelta(seconds=5)
 TRINO_RUN_ALREADY_RUNNING_REFUSAL = (
     "A managed warehouse run is already in progress for this project's models. Try again once it finishes."
 )
@@ -93,6 +95,21 @@ def _get_node(team_id: int, node_id: UUID | str) -> Node:
         raise MissingDagNodeError(f"Node {node_id} not found")
 
 
+def _assert_user_can_run_nodes(node: Node, node_ids: set[str], user: User) -> None:
+    # A run materializes every node it touches, so it needs the same edit and data access checks as
+    # enabling materialization for each view.
+    database = Database.create_for(team_id=node.team_id, user=user)
+    access_control = UserAccessControl(user=user, team=node.team)
+    saved_queries = DataWarehouseSavedQuery.objects.filter(
+        team_id=node.team_id,
+        node__id__in=node_ids,
+    ).distinct()
+    for saved_query in saved_queries:
+        if not access_control.check_access_level_for_object(saved_query, "editor"):
+            raise MaterializationForbiddenError(RELATED_RUN_EDIT_ACCESS_REFUSAL)
+        assert_user_can_read_query(saved_query.query, node.team_id, user, database=database)
+
+
 def _related_node_ids(
     node: Node,
     *,
@@ -117,18 +134,7 @@ def _related_node_ids(
     node_ids = managed_view_node_ids if node.belongs_to_managed_viewset else node_ids - managed_view_node_ids
     node_ids.add(str(node.id))
 
-    # A dependency run materializes every node it touches, so it needs the same edit and data access checks as
-    # enabling materialization for each view.
-    database = Database.create_for(team_id=node.team_id, user=user)
-    access_control = UserAccessControl(user=user, team=node.team)
-    saved_queries = DataWarehouseSavedQuery.objects.filter(
-        team_id=node.team_id,
-        node__id__in=node_ids,
-    ).distinct()
-    for saved_query in saved_queries:
-        if not access_control.check_access_level_for_object(saved_query, "editor"):
-            raise MaterializationForbiddenError(RELATED_RUN_EDIT_ACCESS_REFUSAL)
-        assert_user_can_read_query(saved_query.query, node.team_id, user, database=database)
+    _assert_user_can_run_nodes(node, node_ids, user)
     return node_ids
 
 
@@ -194,6 +200,8 @@ def run_trino_node_materializations(
         node_ids = _related_node_ids(node, direction=direction, user=user, hidden_types=hidden_types)
     else:
         node_ids = {str(node.id)}
+        # The managed warehouse reads source tables without the caller's access control, so check it here.
+        _assert_user_can_run_nodes(node, node_ids, user)
 
     dag_id = str(node.dag_id)
     temporal = sync_connect()
@@ -205,41 +213,44 @@ def run_trino_node_materializations(
         shadow=True,
         manually_triggered_by_id=user.pk,
     )
-    # The state changes and the workflow start share one transaction, so a run that loses the race for the
-    # slot rolls its changes back instead of resetting the watermark and suspensions for a run it never started.
-    # The lock makes concurrent manual requests of one DAG take turns.
-    with transaction.atomic():
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"manual-trino-run:{dag_id}"])
-        # The scheduled shadow guards overlap only per tier, by its fixed id, so ask Temporal about every tier.
-        running = asyncio.run(temporal.count_workflows(query=trino_runs_of_dag_query(dag_id)))
-        if running.count > 0:
-            raise MaterializationAlreadyRunningError(TRINO_RUN_ALREADY_RUNNING_REFUSAL)
+    # The scheduled shadow guards overlap only per tier, by its fixed id, so ask Temporal about every tier.
+    running = asyncio.run(temporal.count_workflows(query=trino_runs_of_dag_query(dag_id)))
+    if running.count > 0:
+        raise MaterializationAlreadyRunningError(TRINO_RUN_ALREADY_RUNNING_REFUSAL)
 
-        if full_refresh and node.saved_query is not None:
-            clear_incremental_state(node.saved_query, scope=TRINO_INCREMENTAL_SCOPE)
-        unsuspend_nodes(
-            Node.objects.filter(team_id=node.team_id, id__in=node_ids),
-            by="manual_run",
-            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
-        )
-
-        try:
-            asyncio.run(
-                temporal.start_workflow(
-                    "data-modeling-execute-dag",
-                    asdict(inputs),
-                    # A fixed id makes Temporal refuse a second manual run that slipped past the count above.
-                    id=manual_trino_workflow_id(dag_id),
-                    task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
-                    id_conflict_policy=WorkflowIDConflictPolicy.FAIL,
-                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                    execution_timeout=TRINO_SHADOW_RUN_TIMEOUT,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
+    # Take the run slot before changing any state, so a run that loses the race for it changes nothing. The
+    # start is delayed so that the changes below commit before the workflow reads them.
+    try:
+        handle = asyncio.run(
+            temporal.start_workflow(
+                "data-modeling-execute-dag",
+                asdict(inputs),
+                # A fixed id makes Temporal refuse a second manual run that slipped past the count above.
+                id=manual_trino_workflow_id(dag_id),
+                task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
+                id_conflict_policy=WorkflowIDConflictPolicy.FAIL,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                execution_timeout=TRINO_SHADOW_RUN_TIMEOUT,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                start_delay=MANUAL_TRINO_RUN_START_DELAY,
             )
-        except WorkflowAlreadyStartedError:
-            raise MaterializationAlreadyRunningError(TRINO_RUN_ALREADY_RUNNING_REFUSAL)
+        )
+    except WorkflowAlreadyStartedError:
+        raise MaterializationAlreadyRunningError(TRINO_RUN_ALREADY_RUNNING_REFUSAL)
+
+    try:
+        with transaction.atomic():
+            if full_refresh and node.saved_query is not None:
+                clear_incremental_state(node.saved_query, scope=TRINO_INCREMENTAL_SCOPE)
+            unsuspend_nodes(
+                Node.objects.filter(team_id=node.team_id, id__in=node_ids),
+                by="manual_run",
+                engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+            )
+    except Exception:
+        # The run would otherwise start on state the caller did not ask for, while the caller sees an error.
+        asyncio.run(handle.terminate("Could not prepare the models for the run"))
+        raise
     return sorted(node_ids)
 
 

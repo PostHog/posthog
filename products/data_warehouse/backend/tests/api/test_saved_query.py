@@ -2937,6 +2937,7 @@ class TestSavedQueryRun(APIBaseTest):
         self.assertTrue(inputs["shadow"])
         self.assertEqual(inputs["manually_triggered_by_id"], self.user.pk)
         self.assertEqual(call.kwargs["id"], f"execute-dag-trino-{dag.id}-manual")
+        self.assertGreater(call.kwargs["start_delay"], timedelta(0))
         self.assertIn(f"execute-dag-trino-{dag.id}", mock_client.count_workflows.call_args.kwargs["query"])
         node.refresh_from_db()
         self.assertNotIn(DataModelingJobEngine.MANAGED_WAREHOUSE, suspension_state(node))
@@ -2952,6 +2953,27 @@ class TestSavedQueryRun(APIBaseTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/", {"engine": "trino"}
         )
+
+        self.assertEqual(response.status_code, 403, response.content)
+        mock_client.start_workflow.assert_not_called()
+
+    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_on_trino_checks_access_to_the_single_view(self, mock_sync_connect, mock_eligible):
+        saved_query, _dag, _node = self._make_saved_query_with_node("restricted_view")
+        mock_eligible.return_value = True
+        mock_client = AsyncMock()
+        mock_client.count_workflows.return_value = mock.Mock(count=0)
+        mock_sync_connect.return_value = mock_client
+
+        with patch(
+            "products.data_modeling.backend.logic.node_materialization.UserAccessControl.check_access_level_for_object",
+            return_value=False,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
+                {"engine": "trino"},
+            )
 
         self.assertEqual(response.status_code, 403, response.content)
         mock_client.start_workflow.assert_not_called()
