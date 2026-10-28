@@ -135,6 +135,7 @@ def observation_credits_for_model(model: str) -> int:
     return credits
 
 
+# nosemgrep: tuple-return-prefer-dataclass -- usage report rows are (team_id, total) pairs for convert_team_usage_rows_to_dict.
 def get_replay_vision_scanner_monthly_credits_by_team() -> list[tuple[int, int]]:
     """Each team's enabled scanners' 30-day credit rate, which billing forecasts the period's spend from.
 

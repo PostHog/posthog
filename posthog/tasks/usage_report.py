@@ -1283,6 +1283,7 @@ def get_teams_with_replay_vision_observation_count_in_period(begin: datetime, en
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+# nosemgrep: tuple-return-prefer-dataclass -- usage report rows are (team_id, total) pairs for convert_team_usage_rows_to_dict.
 def get_teams_with_replay_vision_scanner_monthly_credits() -> list[tuple[int, int]]:
     return get_replay_vision_scanner_monthly_credits_by_team()
 
