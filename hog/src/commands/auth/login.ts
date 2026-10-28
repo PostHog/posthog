@@ -1,6 +1,7 @@
 import { defineCommand } from '@/core/command'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
+import { escapeControls } from '@/core/output'
 import type { Prompts, Spinner } from '@/core/prompts'
 import { checkApiKey, checkHost, checkProjectId } from '@/posthog/credentials'
 import type { PendingLogin } from '@/posthog/device-auth'
@@ -147,7 +148,7 @@ export default defineCommand({
         if (!prompts) {
             return pendingResult(pending)
         }
-        prompts.note(`${pending.url}\n\nCode: ${pending.userCode}`, 'Approve the login in your browser')
+        prompts.note(`${pending.url}\n\nCode: ${escapeControls(pending.userCode)}`, 'Approve the login in your browser')
         // Over SSH, a browser would open on the remote machine, where nobody sees it.
         const overSsh = env.SSH_CONNECTION !== undefined || env.SSH_TTY !== undefined
         const opened = !overSsh && (await ctx.runtime.openUrl(pending.url))
@@ -163,7 +164,7 @@ export default defineCommand({
     human({ result, out }) {
         if (result.status === 'pending') {
             out.line(
-                `Open this link to approve the login, and check that it shows the code ${out.style(result.code, 'bold')}:`
+                `Open this link to approve the login, and check that it shows the code ${out.style(escapeControls(result.code), 'bold')}:`
             )
             out.line(`  ${result.url}`)
             out.line(`Then run ${out.style(result.next, 'bold')}.`)

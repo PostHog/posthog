@@ -179,6 +179,20 @@ describe('hog auth login', () => {
         expect(result.stdout).not.toContain('phx_secret')
     })
 
+    test('status escapes terminal control characters in the project name', async () => {
+        const result = await runHog(['auth', 'status'], {
+            stdoutIsTTY: true,
+            env: { NO_COLOR: '1' },
+            files: { [CREDENTIALS_FILE]: STORED },
+            respond: (url) =>
+                url.endsWith('/api/users/@me/')
+                    ? { status: 200, body: { email: 'ana@example.com' } }
+                    : { status: 200, body: { name: '\u001b]52;c;eA==\u0007Shop' } },
+        })
+        expect(result.stdout).toContain('Project: \\x1b]52;c;eA==\\x07Shop (42)')
+        expect(result.stdout).not.toContain('\u001b')
+    })
+
     test('status fails when one request lacks a scope and the other fails', async () => {
         const result = await runHog(['auth', 'status'], {
             env: { CLAUDECODE: '1' },
