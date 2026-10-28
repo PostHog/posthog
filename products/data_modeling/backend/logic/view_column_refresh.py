@@ -7,6 +7,7 @@ from django.utils import timezone
 
 import structlog
 
+from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
 from products.data_modeling.backend.logic.saved_query_reads import dependent_saved_query_ids
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
@@ -19,6 +20,8 @@ logger = structlog.get_logger(__name__)
 
 def refresh_view_columns(team: "Team", saved_query_ids: Collection[UUID | str], user: "User | None") -> set[UUID]:
     """Re-infer the stored columns of these views, upstream first, and return the ids whose columns changed."""
+    if _infers_masked_columns(team, user):
+        return set()
     views = {
         view.id: view
         for view in DataWarehouseSavedQuery.objects.select_related("team")
@@ -26,6 +29,10 @@ def refresh_view_columns(team: "Team", saved_query_ids: Collection[UUID | str], 
         .exclude(deleted=True)
     }
     return {view_id for view_id in _upstream_first(team.pk, set(views)) if _refresh_columns(views[view_id], user)}
+
+
+def _infers_masked_columns(team: "Team", user: "User | None") -> bool:
+    return bool(get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk))
 
 
 def _upstream_first(team_id: int, view_ids: set[UUID]) -> list[UUID]:

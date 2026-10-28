@@ -54,6 +54,7 @@ from posthog.hogql.direct_sql import (
     get_raw_adapter_for_source,
 )
 from posthog.hogql.errors import (
+    FIELD_NOT_FOUND_MESSAGE,
     UNRESOLVED_FIELD_MESSAGE,
     BaseHogQLError,
     ExposedHogQLError,
@@ -1179,8 +1180,11 @@ class HogQLQueryExecutor:
         ]
 
 
+_MISSING_COLUMN_MESSAGES = (UNRESOLVED_FIELD_MESSAGE, FIELD_NOT_FOUND_MESSAGE)
+
+
 def _names_a_missing_column(error: Exception) -> bool:
-    return isinstance(error, CHQueryErrorUnknownIdentifier) or str(error).startswith(UNRESOLVED_FIELD_MESSAGE)
+    return isinstance(error, CHQueryErrorUnknownIdentifier) or str(error).startswith(_MISSING_COLUMN_MESSAGES)
 
 
 def execute_hogql_query(*args, **kwargs) -> HogQLQueryResponse:
