@@ -1646,7 +1646,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             const projectId = String(values.currentProjectId)
             try {
                 await saves.run(async () => {
-                    actions.draftAutosaved(await createDraft(projectId, values))
+                    const created = await createDraft(projectId, values)
+                    actions.draftAutosaved(created)
+                    actions.draftAutosaved(await saveDraftSchedule(projectId, created, values))
                 })
                 actions.showSavedDraftUrl()
             } catch (error: any) {
@@ -1874,7 +1876,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         ? saveWithoutClobbering(projectId, values.broadcastId, values)
                         : createDraft(projectId, values)
                 })
-                actions.saveBroadcastFinished(saved)
+                // Store the draft before its schedule, so a failed schedule save can't make the next Continue
+                // create a second draft. The draft URL reloads the wizard from the server, which forgets
+                // a send time that only the page held.
+                actions.draftAutosaved(saved)
+                actions.saveBroadcastFinished(await saveDraftSchedule(projectId, saved, values))
                 // This save carried the email edits made before it started. A later one keeps its own autosave.
                 if (cache.emailEditGeneration === savedEditGeneration) {
                     cache.emailEditPending = false
@@ -2147,8 +2153,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     actions.draftAutosaved(saved)
                 } while (cache.emailEditGeneration !== savedEditGeneration)
                 cache.emailEditPending = false
-                await saveDraftSchedule(projectId, broadcastId, values)
-                actions.saveBroadcastFinished(values.broadcast)
+                actions.saveBroadcastFinished(await saveDraftSchedule(projectId, values.broadcast!, values))
             } catch (error: any) {
                 actions.saveBroadcastFinished(null)
                 if (error instanceof EditedElsewhereError) {
@@ -2360,16 +2365,19 @@ function wizardSchedule(values: broadcastWizardLogicType['values']): Partial<Hog
     }
 }
 
-/** Stores the timing picked in the wizard on the draft, so the workflow editor opens with it. The scheduler skips drafts. */
+/**
+ * Stores the timing picked in the wizard on the draft, so the workflow editor and a reload open with it.
+ * The scheduler skips drafts. Returns the draft with the schedules it now has.
+ */
 async function saveDraftSchedule(
     projectId: string,
-    broadcastId: string,
+    broadcast: HogFlowApi,
     values: broadcastWizardLogicType['values']
-): Promise<void> {
+): Promise<HogFlowApi> {
     if (values.stepValidationErrors.schedule.length > 0) {
-        return
+        return broadcast
     }
-    const existing = values.broadcast?.schedules ?? []
+    const existing = broadcast.schedules ?? []
     const wanted = values.scheduleMode === 'now' ? null : wizardSchedule(values)
     const unchanged = wanted
         ? existing.length === 1 &&
@@ -2378,14 +2386,13 @@ async function saveDraftSchedule(
           existing[0].timezone === wanted.timezone
         : existing.length === 0
     if (unchanged) {
-        return
+        return broadcast
     }
-    if (wanted) {
-        await hogFlowsSchedulesCreate(projectId, broadcastId, wanted as any)
-    }
+    const created = wanted ? await hogFlowsSchedulesCreate(projectId, broadcast.id, wanted as any) : null
     for (const schedule of existing) {
-        await hogFlowsSchedulesDestroy(projectId, broadcastId, schedule.id)
+        await hogFlowsSchedulesDestroy(projectId, broadcast.id, schedule.id)
     }
+    return { ...broadcast, schedules: created ? [created] : [] }
 }
 
 function seedTeamUtmDefaults(
