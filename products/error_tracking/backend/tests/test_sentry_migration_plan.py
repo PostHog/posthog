@@ -48,6 +48,14 @@ class TestSentryMigrationRuleMatching(BaseTest):
                 ],
             ),
             (
+                "underscore_in_contains_glob_stays_literal",
+                {"error_message_globs": ("*user_id*",)},
+                [
+                    ({"$exception_types": ["Error"], "$exception_values": ["unknown user_id"]}, True),
+                    ({"$exception_types": ["Error"], "$exception_values": ["unknown userXid"]}, False),
+                ],
+            ),
+            (
                 "type_prefixed_glob",
                 {"error_message_globs": ("TypeError: Failed to fetch*",)},
                 [

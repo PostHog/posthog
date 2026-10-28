@@ -32,15 +32,7 @@ export function SentryReviewStep(): JSX.Element {
                 title="Review and import"
                 description="Check what changes in PostHog. You can change or remove anything you import later, on this page."
             />
-            {changes.length > 0 ? (
-                <ul className="list-disc pl-5 mb-0 flex flex-col gap-1">
-                    {changes.map((change) => (
-                        <li key={change} className="text-sm">
-                            {change}
-                        </li>
-                    ))}
-                </ul>
-            ) : importResult ? (
+            {importResult && (
                 <LemonBanner
                     type="success"
                     action={{
@@ -51,11 +43,20 @@ export function SentryReviewStep(): JSX.Element {
                 >
                     {importSummary(importResult)}
                 </LemonBanner>
-            ) : (
+            )}
+            {changes.length > 0 ? (
+                <ul className="list-disc pl-5 mb-0 flex flex-col gap-1">
+                    {changes.map((change) => (
+                        <li key={change} className="text-sm">
+                            {change}
+                        </li>
+                    ))}
+                </ul>
+            ) : !importResult ? (
                 <p className="text-sm text-secondary mb-0">
                     Nothing is selected. Go back and select the settings you want to import.
                 </p>
-            )}
+            ) : null}
             <ImportWizardStepActions onBack={goToPreviousStep}>
                 <LemonButton
                     type="primary"
