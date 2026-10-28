@@ -192,11 +192,9 @@ def get_stored_primary_result(*, team_id: int, experiment_id: int) -> StoredPrim
     base = stats.baseline.mean
 
     def change(variant: VariantStats) -> float | None:
-        if variant.interval is None:
+        if variant.interval is None or base is None or base <= 0:
             return None
-        if not absolute:
-            return variant.interval.midpoint
-        return variant.interval.midpoint / base if base and base > 0 else None
+        return variant.interval.midpoint / base if absolute else variant.interval.midpoint
 
     definition = config.definition
     return StoredPrimaryResult(

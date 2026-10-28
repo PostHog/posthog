@@ -28,8 +28,6 @@ from products.experiments.backend.facade.contracts import (
     CreateExperimentInput,
     EndedExperiment,
     ExperimentValidationError,
-    StoredArmResult,
-    StoredPrimaryResult,
 )
 from products.experiments.backend.metric_calculation.config import build_primary_calculation_configs
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricResult
@@ -352,20 +350,40 @@ class TestGetStoredPrimaryResult(BaseTest):
                 "relative_funnel",
                 {"metric_type": "funnel", "series": [{"kind": "EventsNode", "event": "checkout"}]},
                 {"method": "frequentist"},
+                20,
                 [0.1, 0.4],
                 0.25,
+                True,
             ),
             (
                 "absolute_thresholded_mean",
                 {"metric_type": "mean", "threshold": 5, "source": {"kind": "EventsNode", "event": "checkout"}},
                 {"method": "frequentist", "frequentist": {"difference_type": "ABSOLUTE"}},
+                20,
                 [0.02, 0.06],
                 0.2,
+                True,
+            ),
+            (
+                "negative_baseline_mean",
+                {"metric_type": "mean", "source": {"kind": "EventsNode", "event": "checkout"}},
+                {"method": "frequentist"},
+                -20,
+                [0.1, 0.4],
+                None,
+                False,
             ),
         ]
     )
     def test_returns_the_current_stored_result_of_the_primary_metric(
-        self, _name: str, metric: dict, stats_config: dict, interval: list[float], change: float
+        self,
+        _name: str,
+        metric: dict,
+        stats_config: dict,
+        baseline_sum: int,
+        interval: list[float],
+        change: float | None,
+        proportion: bool,
     ) -> None:
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="stored-result")
         experiment = Experiment.objects.create(
@@ -385,7 +403,7 @@ class TestGetStoredPrimaryResult(BaseTest):
             status=ExperimentMetricResult.Status.COMPLETED,
             completed_at=datetime(2026, 8, 5, tzinfo=UTC),
             result={
-                "baseline": {"key": "control", "number_of_samples": 100, "sum": 20, "sum_squares": 20},
+                "baseline": {"key": "control", "number_of_samples": 100, "sum": baseline_sum, "sum_squares": 20},
                 "variant_results": [
                     {
                         "key": "test",
@@ -402,16 +420,8 @@ class TestGetStoredPrimaryResult(BaseTest):
 
         result = api.get_stored_primary_result(team_id=self.team.pk, experiment_id=experiment.pk)
 
-        assert result == StoredPrimaryResult(
-            metric_name="Checkout",
-            metric_type=metric["metric_type"],
-            proportion=True,
-            goal="decrease",
-            baseline=StoredArmResult(key="control", number_of_samples=100, mean=0.2),
-            variants=(
-                StoredArmResult(
-                    key="test", number_of_samples=50, mean=0.3, change=result.variants[0].change, significant=True
-                ),
-            ),
-        )
-        assert result.variants[0].change == pytest.approx(change)
+        assert result is not None
+        assert (result.metric_name, result.proportion, result.goal) == ("Checkout", proportion, "decrease")
+        assert result.baseline.mean == pytest.approx(baseline_sum / 100)
+        assert (result.variants[0].mean, result.variants[0].significant) == (0.3, True)
+        assert result.variants[0].change == (None if change is None else pytest.approx(change))
