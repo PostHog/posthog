@@ -107,7 +107,7 @@ Max-merge makes that harmless.
 
 ### Scanning
 
-One chunk is one streaming ClickHouse query:
+One chunk is one streaming ClickHouse query per table it reads:
 
 ```text
 SELECT <projected columns>, canonical person_id
@@ -121,6 +121,7 @@ WHERE team_id = <team>
   [AND hash(person) % bands = band]
 ```
 
+- **Flag calls table.** The run's pinned payload can name `flag_evaluations` in `flag_calls_table`. Then the chunk reads `$feature_flag_called` from `flag_evaluations` and its other event names from `events`, in two queries that fold into one set of tiles. Each query projects and filters only for the conditions on its own event names. The `flag_evaluations` query selects an empty `elements_chain`, because the table has none, and bounds arrival on `inserted_at` alone. A missing key reads as `events`, and an unknown value fails the run.
 - **Canonical persons.** The join maps each distinct id through the latest person override, so events of merged persons count toward the survivor.
 - **Timezone days.** The day's bounds are computed in the run's pinned timezone.
 - **Arrival bound.** Only events that reached ClickHouse before `S_chunk` count.
@@ -382,7 +383,8 @@ Ingestion writes event properties with `JSON.stringify` of a parsed object, so a
 `tests/ch_event_row_filter.rs` checks all of this against a live ClickHouse, with the VM as the oracle.
 
 Where possible, the test reads a materialized column instead of the blob.
-Before each chunk with a row filter or [column-backed keys](#column-backed-keys), the seeder looks in `system.columns` for a `String` column of `sharded_events` whose default expression is exactly that extraction for the key, and that also exists on `events`.
+Before each chunk with a row filter or [column-backed keys](#column-backed-keys), the seeder looks in `system.columns` for a `String` column of the scanned table's data table (`sharded_events` or `sharded_flag_evaluations`) whose default expression is exactly that extraction for the key, and that also exists on the table the scan reads.
+On `flag_evaluations` that finds `flag_key` for `$feature_flag`.
 The lookup serves both together, split into queries that each fit a GET.
 Only such a column is used, because a column with another expression, such as a typed `JSONExtract`, reads different values for the same row.
 The column holds '' for a blob ClickHouse cannot parse, so the test admits '' there instead of reading the blob.

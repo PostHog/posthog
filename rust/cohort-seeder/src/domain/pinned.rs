@@ -5,7 +5,8 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::str::FromStr;
 
-use chrono_tz::Tz;
+use chrono_tz::{Tz, UTC};
+use cohort_core::day_idx_in_tz;
 use cohort_core::eligibility::{CohortEligibility, ExcludedReason};
 use cohort_core::filters::tree::{BehavioralLeafConfig, BehavioralValue};
 use cohort_core::filters::{CohortId, FilterError, TeamFilters, TeamFiltersBuilder, TeamId};
@@ -18,7 +19,7 @@ use serde_json::Value;
 
 use super::chunk::{ChunkDomainError, ChunkSpec};
 use super::condition::{EventNameSet, Lookback, PinnedCondition};
-use super::ids::{ConditionHash, ConditionHashError, RunId, UtcMillis};
+use super::ids::{ConditionHash, ConditionHashError, DayIdx, RunId, UtcMillis};
 use super::window::{Boundary, SeedDomain};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +59,58 @@ impl FromStr for TriggerKind {
 #[error("unknown backfill trigger {0:?}")]
 pub struct UnknownTriggerKind(pub String);
 
+/// The only event `flag_evaluations` stores.
+const FLAG_CALLED_EVENT: &str = "$feature_flag_called";
+
+/// Mirrors `FLAG_EVALUATIONS_TTL_DAYS` in `posthog/models/flag_evaluations/sql.py`. Change both
+/// together.
+const FLAG_EVALUATIONS_TTL_DAYS: DayIdx = 90;
+
+/// The ClickHouse table a scan reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ScanTable {
+    Events,
+    FlagEvaluations,
+}
+
+impl ScanTable {
+    /// The table name, which is also the `table` metric label.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Events => "events",
+            Self::FlagEvaluations => "flag_evaluations",
+        }
+    }
+
+    /// Whether the TTL may already have dropped rows of `domain`'s day at `now_ms`. The TTL is
+    /// `toDate(timestamp) + 90 days`, so the day's first rows expire 90 days after the UTC date of
+    /// the day's start. A team east of UTC starts its day on the UTC date before. Django pins
+    /// `flag_evaluations` only for windows inside the TTL, but a chunk can run or retry days after
+    /// its run was created.
+    pub fn past_retention(self, domain: &SeedDomain, now_ms: i64) -> bool {
+        match self {
+            Self::Events => false,
+            Self::FlagEvaluations => {
+                day_idx_in_tz(domain.utc_range().start().as_i64(), UTC) + FLAG_EVALUATIONS_TTL_DAYS
+                    <= day_idx_in_tz(now_ms, UTC)
+            }
+        }
+    }
+
+    /// A payload without the key reads as `events`, which covers runs pinned before the key
+    /// existed. A `null` is not a name, so it fails like any other unknown value.
+    fn from_pinned(value: Option<Value>) -> Result<Self, PinnedError> {
+        let Some(value) = value else {
+            return Ok(Self::Events);
+        };
+        match value.as_str() {
+            Some("events") => Ok(Self::Events),
+            Some("flag_evaluations") => Ok(Self::FlagEvaluations),
+            _ => Err(PinnedError::UnknownFlagCallsTable(value)),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct PinnedRun {
     pub run_id: RunId,
@@ -68,6 +121,10 @@ pub struct PinnedRun {
     pub conditions: Vec<PinnedCondition>,
     pub event_names: EventNameSet,
     pub filters: TeamFilters,
+    /// The table the run reads `$feature_flag_called` from. Django pins it per run, so every chunk
+    /// and every retry reads the same table even if the organization changes where its flag calls
+    /// go.
+    pub flag_calls_table: ScanTable,
 }
 
 /// Proven coverable: [`PinnedRun::validate`] refuses a run with an uncovered participation.
@@ -287,12 +344,16 @@ pub enum PinnedError {
     UncoveredParticipations(UncoveredParticipations),
     #[error("surviving person conditions exceed the per-seed hash cap: {0}")]
     PersonConditionsOverCap(usize),
+    #[error("unknown flag_calls_table {0}")]
+    UnknownFlagCallsTable(Value),
 }
 
 #[derive(Debug, Deserialize)]
 struct PinnedPayload {
     schema_version: u32,
     conditions: Vec<RawPinnedCondition>,
+    #[serde(default, deserialize_with = "present")]
+    flag_calls_table: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -332,6 +393,15 @@ where
         .and_then(|number| i32::try_from(number).ok()))
 }
 
+/// `Some` for a key that is present, even as `null`. With `#[serde(default)]`, a missing key stays
+/// `None`.
+fn present<'de, D>(deserializer: D) -> Result<Option<Value>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Value::deserialize(deserializer).map(Some)
+}
+
 /// Coerce a JSON scalar to `Some(String)` only for a string; anything else becomes `None`, never
 /// an error. Replicates the former `json_string` tolerance byte-for-byte.
 fn lenient_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
@@ -345,6 +415,7 @@ where
 impl PinnedRun {
     pub fn validate(snapshot: PinnedRunSnapshot) -> Result<ValidatedPinnedRun, PinnedError> {
         let payload = parse_payload(snapshot.pinned)?;
+        let flag_calls_table = ScanTable::from_pinned(payload.flag_calls_table)?;
         let mut warnings = Vec::new();
         let tz = resolve_timezone(&snapshot.timezone, &mut warnings);
         let boundary = Boundary::new(UtcMillis::new(snapshot.boundary_at_ms), tz);
@@ -367,6 +438,7 @@ impl PinnedRun {
                 conditions,
                 event_names,
                 filters: participation.into_filters(),
+                flag_calls_table,
             },
             warnings,
         })
@@ -383,6 +455,15 @@ impl PinnedRun {
         cohort_ids
             .all(|cohort_id| cohort_id == first)
             .then_some(first)
+    }
+
+    /// The table that holds this run's rows of `event_name`.
+    pub fn table_for(&self, event_name: &str) -> ScanTable {
+        if event_name == FLAG_CALLED_EVENT {
+            self.flag_calls_table
+        } else {
+            ScanTable::Events
+        }
     }
 
     /// The seed domain for a claimed chunk, after proving the chunk belongs to this run/team. Named
@@ -673,23 +754,34 @@ fn derive_lookback(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::super::condition_analysis::{ConditionAnalyses, ConditionClass};
-    use chrono::NaiveDate;
-    use chrono_tz::UTC;
-    use cohort_core::day_idx_of_naive_date;
-    use serde_json::json;
+pub(crate) mod test_runs {
+    use std::collections::BTreeMap;
+
+    use cohort_core::filters::{CohortId, TeamId};
+    use serde_json::{json, Value};
     use uuid::Uuid;
 
-    use super::*;
+    use super::{
+        PinnedParticipation, PinnedParticipationState, PinnedRun, PinnedRunSnapshot, ScanTable,
+        TriggerKind,
+    };
+    use crate::domain::ids::RunId;
+    use crate::domain::row_filter::test_catalog::event_is;
 
-    const BYTECODE: &[Value] = &[];
+    /// One `performed_event` condition of a [`run_with`] run. `body` is its bytecode without the
+    /// `_H` header.
+    pub(crate) struct RunLeaf<'a> {
+        pub(crate) cohort_id: i32,
+        pub(crate) hash: &'a str,
+        pub(crate) event: &'a str,
+        pub(crate) body: Vec<Value>,
+    }
 
-    fn bytecode(event: &str) -> Value {
+    pub(crate) fn bytecode(event: &str) -> Value {
         json!(["_H", 1, 32, event, 32, "event", 1, 1, 11])
     }
 
-    fn condition(
+    pub(crate) fn condition(
         cohort_id: i32,
         hash: &str,
         value: &str,
@@ -712,7 +804,10 @@ mod tests {
         })
     }
 
-    fn snapshot(pinned: Value, participations: Vec<PinnedParticipation>) -> PinnedRunSnapshot {
+    pub(crate) fn snapshot(
+        pinned: Value,
+        participations: Vec<PinnedParticipation>,
+    ) -> PinnedRunSnapshot {
         PinnedRunSnapshot {
             run_id: RunId(Uuid::nil()),
             team_id: TeamId(2),
@@ -723,6 +818,99 @@ mod tests {
             participations,
         }
     }
+
+    /// A validated run of team 2 in UTC, pinned to `flag_calls_table`, with every leaf over the
+    /// last `window_days` days and every named cohort active.
+    pub(crate) fn run_with(
+        flag_calls_table: ScanTable,
+        window_days: u32,
+        leaves: &[RunLeaf<'_>],
+    ) -> PinnedRun {
+        let mut payload_conditions = Vec::new();
+        let mut values_by_cohort: BTreeMap<i32, Vec<Value>> = BTreeMap::new();
+        for leaf in leaves {
+            let mut raw = condition(
+                leaf.cohort_id,
+                leaf.hash,
+                "performed_event",
+                Some(leaf.event),
+                window_days,
+            );
+            raw["time_value"] = json!(window_days);
+            raw["time_interval"] = json!("day");
+            payload_conditions.push(raw);
+            let mut bytecode = vec![json!("_H"), json!(1)];
+            bytecode.extend(leaf.body.iter().cloned());
+            values_by_cohort
+                .entry(leaf.cohort_id)
+                .or_default()
+                .push(json!({
+                    "type": "behavioral",
+                    "value": "performed_event",
+                    "key": leaf.event,
+                    "conditionHash": leaf.hash,
+                    "time_value": window_days,
+                    "time_interval": "day",
+                    "bytecode": bytecode,
+                }));
+        }
+        let participations = values_by_cohort
+            .into_iter()
+            .map(|(cohort_id, values)| PinnedParticipation {
+                cohort_id: CohortId(cohort_id),
+                pinned_filters: json!({ "properties": { "type": "AND", "values": values } }),
+                state: PinnedParticipationState::Active,
+            })
+            .collect();
+        let event_names = leaves.iter().map(|leaf| leaf.event).collect::<Vec<_>>();
+        PinnedRun::validate(snapshot(
+            json!({
+                "schema_version": 1,
+                "flag_calls_table": flag_calls_table.as_str(),
+                "conditions": payload_conditions,
+                "event_names": event_names,
+            }),
+            participations,
+        ))
+        .expect("the fixture run validates")
+        .run
+    }
+
+    /// A validated `events` run carrying one 7-day `performed_event` condition per
+    /// `(cohort, event)` pair. Each hash is the event name padded to 16 characters.
+    pub(crate) fn run_over(conditions: &[(i32, &str)]) -> PinnedRun {
+        let hashes = conditions
+            .iter()
+            .map(|(_, event_name)| format!("{event_name:0<16}"))
+            .collect::<Vec<_>>();
+        let leaves = conditions
+            .iter()
+            .zip(&hashes)
+            .map(|((cohort_id, event), hash)| RunLeaf {
+                cohort_id: *cohort_id,
+                hash,
+                event,
+                body: event_is(event),
+            })
+            .collect::<Vec<_>>();
+        run_with(ScanTable::Events, 7, &leaves)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::condition_analysis::{ConditionAnalyses, ConditionClass};
+    use chrono::NaiveDate;
+    use chrono_tz::Australia::Sydney;
+    use chrono_tz::UTC;
+    use cohort_core::{day_idx_of_naive_date, start_of_day_ms_in_tz};
+    use serde_json::json;
+
+    use super::super::ids::SChunkMs;
+    use super::test_runs::{bytecode, condition, run_over, snapshot};
+    use super::*;
+
+    const BYTECODE: &[Value] = &[];
 
     #[test]
     fn validation_rejects_unknown_schema_and_malformed_hashes() {
@@ -772,6 +960,81 @@ mod tests {
                 configured: "not/a-zone".to_string(),
             }]
         );
+    }
+
+    fn pinned_with_flag_calls_table(value: Option<Value>) -> PinnedRunSnapshot {
+        let mut pinned = json!({ "schema_version": 1, "conditions": [], "event_names": [] });
+        if let Some(value) = value {
+            pinned["flag_calls_table"] = value;
+        }
+        snapshot(pinned, vec![])
+    }
+
+    /// A run Django created before it wrote the key keeps scanning `events`.
+    #[test]
+    fn the_flag_calls_table_reads_events_when_absent_and_each_known_name_as_itself() {
+        for (value, expected) in [
+            (None, ScanTable::Events),
+            (Some("events"), ScanTable::Events),
+            (Some("flag_evaluations"), ScanTable::FlagEvaluations),
+        ] {
+            let validated =
+                PinnedRun::validate(pinned_with_flag_calls_table(value.map(Value::from)))
+                    .unwrap_or_else(|error| panic!("{value:?} failed to validate: {error}"));
+            assert_eq!(validated.run.flag_calls_table, expected, "{value:?}");
+        }
+    }
+
+    /// Scanning `events` for a value the seeder cannot read would give a cohort in a
+    /// flag-evaluations-only organization an empty history that still counts as backfilled. Django
+    /// writes the key as a string, so a null or a non-string is a writer bug.
+    #[test]
+    fn an_unknown_flag_calls_table_fails_the_run_and_names_the_key() {
+        for value in [
+            json!("FLAG_EVALUATIONS"),
+            json!(" events"),
+            json!(""),
+            json!(null),
+            json!(1),
+            json!(["flag_evaluations"]),
+            json!({ "table": "flag_evaluations" }),
+        ] {
+            let error = match PinnedRun::validate(pinned_with_flag_calls_table(Some(value.clone())))
+            {
+                Ok(validated) => {
+                    panic!("{value} validated as {:?}", validated.run.flag_calls_table)
+                }
+                Err(error) => error,
+            };
+            assert!(
+                error.to_string().contains("flag_calls_table"),
+                "{value}: the error does not name the key: {error}"
+            );
+        }
+    }
+
+    /// A row expires 90 days after its own timestamp's UTC date, so the day's earliest row goes
+    /// first. `events` keeps its history, so it is never past retention.
+    #[test]
+    fn a_flag_evaluations_day_is_past_retention_once_the_ttl_reaches_its_first_utc_date() {
+        // Sydney's day 1 starts on 1970-01-01 in UTC, the date the TTL counts its first rows from.
+        for (tz, expires_ms) in [
+            (UTC, start_of_day_ms_in_tz(91, UTC)),
+            (Sydney, start_of_day_ms_in_tz(90, UTC)),
+        ] {
+            let domain = SeedDomain::new(1, tz, SChunkMs(200_000_000)).unwrap();
+            for (now_ms, expired) in [(expires_ms - 1, false), (expires_ms, true)] {
+                assert_eq!(
+                    ScanTable::FlagEvaluations.past_retention(&domain, now_ms),
+                    expired,
+                    "{tz} at {now_ms}"
+                );
+                assert!(
+                    !ScanTable::Events.past_retention(&domain, now_ms),
+                    "{tz} at {now_ms}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -1042,51 +1305,6 @@ mod tests {
                 )],
             }]
         );
-    }
-
-    /// A validated run carrying one 7-day `performed_event` condition per `(cohort, event)` pair,
-    /// every named cohort active.
-    fn run_over(conditions: &[(i32, &str)]) -> PinnedRun {
-        let mut payload_conditions = Vec::new();
-        let mut values_by_cohort: HashMap<i32, Vec<Value>> = HashMap::new();
-        for (cohort_id, event_name) in conditions {
-            let hash = format!("{event_name:0<16}");
-            let mut raw = condition(*cohort_id, &hash, "performed_event", Some(event_name), 7);
-            raw["time_value"] = json!(7);
-            raw["time_interval"] = json!("day");
-            payload_conditions.push(raw);
-            values_by_cohort.entry(*cohort_id).or_default().push(json!({
-                "type": "behavioral",
-                "value": "performed_event",
-                "key": event_name,
-                "conditionHash": hash,
-                "time_value": 7,
-                "time_interval": "day",
-                "bytecode": bytecode(event_name),
-            }));
-        }
-        let participations = values_by_cohort
-            .into_iter()
-            .map(|(cohort_id, values)| PinnedParticipation {
-                cohort_id: CohortId(cohort_id),
-                pinned_filters: json!({ "properties": { "type": "AND", "values": values } }),
-                state: PinnedParticipationState::Active,
-            })
-            .collect();
-        let event_names = conditions
-            .iter()
-            .map(|(_, event_name)| *event_name)
-            .collect::<Vec<_>>();
-        PinnedRun::validate(snapshot(
-            json!({
-                "schema_version": 1,
-                "conditions": payload_conditions,
-                "event_names": event_names,
-            }),
-            participations,
-        ))
-        .expect("the fixture run validates")
-        .run
     }
 
     /// `sole_cohort_id` picks the cohort a scan's `log_comment` is charged to, so it must name one

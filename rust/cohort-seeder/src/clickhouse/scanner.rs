@@ -3,6 +3,7 @@
 //! `sql`/`row` modules; never on `store` or `kafka`.
 
 use std::collections::BTreeSet;
+use std::iter;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,12 +29,12 @@ use super::sql::{
     ScanSpec,
 };
 use crate::domain::{
-    conditions_active_on, diff_tiles, ActiveConditions, AggregateError, CancelCause,
+    conditions_active_on, diff_tiles, table_scans, ActiveConditions, AggregateError, CancelCause,
     ChunkAccumulator, ChunkDomainError, ChunkProjection, ChunkSpec, ClaimedChunk, ColumnExactKeys,
-    ColumnUpgrade, ConditionAnalyses, DayIdx, EventNameSet, Halted, MaterializedColumns,
-    PinnedCondition, PinnedRun, ProjectedKeys, PropertiesSourcing, RecordOutcome, RecordStats,
-    ScanRowFilter, ScanVolume, ScannedChunk, SeedDomain, SeedTile, SourcedProjection, TileDiff,
-    UtcMillis,
+    ColumnUpgrade, ConditionAnalyses, DayIdx, Halted, MaterializedColumns, PinnedCondition,
+    PinnedRun, ProjectedKeys, PropertiesSourcing, RecordOutcome, RecordStats, ScanRowFilter,
+    ScanTable, ScanVolume, ScannedChunk, SeedDomain, SeedTile, SourcedProjection, TableScan,
+    TileDiff, UtcMillis,
 };
 use crate::observability::metrics::{
     team_label, MetricTimer, AGGREGATE_ENTRIES, CHUNKS_PROJECTED, CHUNKS_VACUOUS,
@@ -132,44 +133,58 @@ impl ChunkScanner {
             counter!(CHUNKS_VACUOUS, "reason" => "window_expired").increment(1);
             return Ok((Vec::new(), ScanVolume::default()));
         }
-        let event_names = active_event_names(run, &active);
-        let scan_spec = match plan_scan(spec.team_id, &domain, &event_names, spec.band) {
-            ScanPlan::Scan(scan_spec) => scan_spec,
-            ScanPlan::Vacuous => {
-                counter!(CHUNKS_VACUOUS, "reason" => "empty_scan").increment(1);
-                return Ok((Vec::new(), ScanVolume::default()));
+        let planned = table_scans(run, &active)
+            .into_iter()
+            .filter_map(|(table, scan)| {
+                match plan_scan(spec.team_id, &domain, &scan.event_names, spec.band, table) {
+                    ScanPlan::Scan(scan_spec) => Some((table, scan, scan_spec)),
+                    ScanPlan::Vacuous => None,
+                }
+            })
+            .collect::<Vec<_>>();
+        if planned.is_empty() {
+            counter!(CHUNKS_VACUOUS, "reason" => "empty_scan").increment(1);
+            return Ok((Vec::new(), ScanVolume::default()));
+        }
+        // A partial day would build tiles that undercount, and the run would still complete.
+        if let Some((expired, ..)) = planned
+            .iter()
+            .find(|(table, ..)| table.past_retention(&domain, now_ms))
+        {
+            return Err(ScanError::PastRetention {
+                table: expired.as_str(),
+                day: spec.day,
             }
-        };
-        let projection = analyses.projection(&active);
-        let exact = analyses.column_exact_keys(&active);
-        let row_filter = analyses.row_filter(&event_names, &run.filters, &active);
-        let columns = self
-            .lookup_columns(&column_lookup_keys(&projection, &exact, &row_filter))
-            .await;
+            .into());
+        }
         let comment = ScanLogComment::BehavioralChunk {
             spec,
             cohort_id: run.sole_cohort_id(),
         };
-        let sourcing = match projection.source_properties(&exact, &columns) {
-            PropertiesSourcing::Upgradable(upgrade) => {
-                self.probe_ambiguous_values(&scan_spec, upgrade, comment, lease_cancel, shutdown)
-                    .await?
-            }
-            decided @ PropertiesSourcing::Decided(_) => decided,
-        };
-        let narrowed = narrow_scan(scan_spec, sourcing, &row_filter, &columns);
-        self.record_narrowing(run.team_id, &narrowed);
-        let scan_spec = narrowed.filtered.spec;
-        let projection = narrowed.sourced.into_projection();
+        let mut arms = Vec::with_capacity(planned.len());
+        for (table, scan, scan_spec) in planned {
+            arms.push(
+                self.narrow_arm(
+                    run,
+                    analyses,
+                    table,
+                    &scan,
+                    scan_spec,
+                    comment,
+                    lease_cancel,
+                    shutdown,
+                )
+                .await?,
+            );
+        }
 
         let (tiles, volume, projected_fold) = self
-            .scan_once(
+            .scan_arms(
                 spec,
                 run,
                 &domain,
                 &active,
-                &scan_spec,
-                &projection,
+                arms.iter().map(ScanArm::parts),
                 ScanKind::Behavioral,
                 comment,
                 lease_cancel,
@@ -180,7 +195,7 @@ impl ChunkScanner {
         drop(timer);
 
         if self.shadow_compare {
-            match CompareSkip::of(&projection, projected_fold) {
+            match CompareSkip::of(arms.iter().map(|arm| &arm.projection), projected_fold) {
                 Some(skip) => {
                     let team = team_label(&self.allowlist, run.team_id);
                     counter!(SHADOW_COMPARE, "result" => skip.as_str(), "team_id" => team)
@@ -192,7 +207,7 @@ impl ChunkScanner {
                         run,
                         &domain,
                         &active,
-                        &scan_spec,
+                        &arms,
                         &tiles,
                         projected_fold,
                         lease_cancel,
@@ -205,49 +220,88 @@ impl ChunkScanner {
         Ok((tiles, volume))
     }
 
-    /// One rendering of this chunk's scan: build the cursor from [`scan_sql`], fold it through a
-    /// fresh accumulator, meter the moved bytes under `kind`, and return the sorted tiles.
+    /// Narrow one table's scan to the conditions its rows can reach: its projection, its row
+    /// filter, and the materialized columns of its table.
+    #[allow(clippy::too_many_arguments)]
+    async fn narrow_arm(
+        &self,
+        run: &PinnedRun,
+        analyses: &ConditionAnalyses,
+        table: ScanTable,
+        scan: &TableScan,
+        scan_spec: ScanSpec,
+        comment: ScanLogComment,
+        lease_cancel: &CancellationToken,
+        shutdown: &CancellationToken,
+    ) -> Result<ScanArm, ScanHalt> {
+        let projection = analyses.projection(&scan.active);
+        let exact = analyses.column_exact_keys(&scan.active);
+        let row_filter = analyses.row_filter(&scan.event_names, &run.filters, &scan.active);
+        let columns = self
+            .lookup_columns(table, &column_lookup_keys(&projection, &exact, &row_filter))
+            .await;
+        let sourcing = match projection.source_properties(&exact, &columns) {
+            PropertiesSourcing::Upgradable(upgrade) => {
+                self.probe_ambiguous_values(&scan_spec, upgrade, comment, lease_cancel, shutdown)
+                    .await?
+            }
+            decided @ PropertiesSourcing::Decided(_) => decided,
+        };
+        let narrowed = narrow_scan(scan_spec, sourcing, &row_filter, &columns);
+        self.record_narrowing(run.team_id, table, &narrowed);
+        Ok(ScanArm {
+            spec: narrowed.filtered.spec,
+            projection: narrowed.sourced.into_projection(),
+        })
+    }
+
+    /// One rendering of this chunk's scan: build a cursor from [`scan_sql`] for each table, fold
+    /// them all through one fresh accumulator, meter the moved bytes under `kind`, and return the
+    /// sorted tiles. One accumulator keeps a tile key from splitting across two tile sets.
     ///
     /// `kind` and `comment` co-vary at the two call sites. The per-row and per-chunk fold metrics
     /// are emitted for the authoritative [`ScanKind::Behavioral`] arm only, so a diagnostic
     /// re-scan of the same rows never doubles a throughput series.
     #[allow(clippy::too_many_arguments)]
-    async fn scan_once(
+    async fn scan_arms<'a>(
         &self,
         spec: ChunkSpec,
         run: &PinnedRun,
         domain: &SeedDomain,
         active: &ActiveConditions,
-        scan_spec: &ScanSpec,
-        projection: &ChunkProjection,
+        arms: impl IntoIterator<Item = (&'a ScanSpec, &'a ChunkProjection)>,
         kind: ScanKind,
         comment: ScanLogComment,
         lease_cancel: &CancellationToken,
         shutdown: &CancellationToken,
     ) -> Result<(Vec<SeedTile>, ScanVolume, FoldSummary), ScanHalt> {
-        let mut cursor = self
-            .client
-            .query(&scan_sql(scan_spec, projection))
-            .with_option(LOG_COMMENT_OPTION, comment.to_string())
-            .fetch::<EventRow>()
-            .map_err(ScanError::Query)?;
         let mut accumulator =
             ChunkAccumulator::new(run.team_id, &run.filters, active).map_err(ScanError::from)?;
-
-        // Every way out of the fold funnels back here, so the volume is metered once whether the
-        // scan finished, was cancelled, or failed mid-stream.
-        let folded = fold_cursor(
-            &mut cursor,
-            &mut accumulator,
-            domain,
-            run.team_id,
-            kind,
-            lease_cancel,
-            shutdown,
-        )
-        .await;
-        let volume = scan_volume::observe(kind, &cursor);
-        let summary = folded?;
+        let mut volume = ScanVolume::default();
+        let mut summary = FoldSummary::default();
+        for (scan_spec, projection) in arms {
+            let mut cursor = self
+                .client
+                .query(&scan_sql(scan_spec, projection))
+                .with_option(LOG_COMMENT_OPTION, comment.to_string())
+                .fetch::<EventRow>()
+                .map_err(ScanError::Query)?;
+            // Every way out of the fold funnels back here, so the volume is metered once whether
+            // the scan finished, was cancelled, or failed mid-stream.
+            let folded = fold_cursor(
+                &mut cursor,
+                &mut accumulator,
+                &mut summary,
+                domain,
+                run.team_id,
+                kind,
+                lease_cancel,
+                shutdown,
+            )
+            .await;
+            volume = volume + scan_volume::observe(kind, &cursor);
+            folded?;
+        }
         if kind == ScanKind::Behavioral {
             if summary.rows == RowsSeen::None {
                 counter!(CHUNKS_VACUOUS, "reason" => "no_rows").increment(1);
@@ -279,7 +333,7 @@ impl ChunkScanner {
         run: &PinnedRun,
         domain: &SeedDomain,
         active: &ActiveConditions,
-        scan_spec: &ScanSpec,
+        arms: &[ScanArm],
         projected_tiles: &[SeedTile],
         projected_fold: FoldSummary,
         lease_cancel: &CancellationToken,
@@ -289,14 +343,14 @@ impl ChunkScanner {
         // Spans the re-scan, its fold, and the diff. Records on every exit, so a cancelled or
         // failed compare still reports the time it held the chunk's slot and lease.
         let _timer = MetricTimer::start(SHADOW_COMPARE_DURATION_SECONDS);
+        let wide = ChunkProjection::FullColumns;
         let (legacy_tiles, legacy_fold) = match self
-            .scan_once(
+            .scan_arms(
                 spec,
                 run,
                 domain,
                 active,
-                scan_spec,
-                &ChunkProjection::FullColumns,
+                arms.iter().map(ScanArm::spec).zip(iter::repeat(&wide)),
                 ScanKind::BehavioralCompare,
                 ScanLogComment::BehavioralCompareChunk {
                     spec,
@@ -392,10 +446,10 @@ impl ChunkScanner {
     }
 
     /// A failed or timed-out lookup returns no columns, so the scan reads the blob.
-    async fn lookup_columns(&self, keys: &BTreeSet<&str>) -> MaterializedColumns {
+    async fn lookup_columns(&self, table: ScanTable, keys: &BTreeSet<&str>) -> MaterializedColumns {
         match tokio::time::timeout(
             MATERIALIZED_LOOKUP_TIMEOUT,
-            MaterializedColumns::lookup(&self.client, keys),
+            MaterializedColumns::lookup(&self.client, table, keys),
         )
         .await
         {
@@ -413,24 +467,28 @@ impl ChunkScanner {
 
     /// Publish what this chunk's scan narrowed to, so a team that stops projecting is visible
     /// before its scan cost is.
-    fn record_narrowing(&self, team_id: TeamId, narrowed: &NarrowedScan) {
+    fn record_narrowing(&self, team_id: TeamId, table: ScanTable, narrowed: &NarrowedScan) {
         let team = team_label(&self.allowlist, team_id);
+        let table = table.as_str();
         let projection = narrowed.sourced.projection();
         counter!(
             CHUNKS_PROJECTED,
             "outcome" => projection.outcome(),
+            "table" => table,
             "team_id" => team.clone(),
         )
         .increment(1);
         counter!(
             SCAN_PROPERTIES_SOURCE,
             "source" => narrowed.sourced.outcome().as_str(),
+            "table" => table,
             "team_id" => team.clone(),
         )
         .increment(1);
         counter!(
             SCAN_ROW_FILTER,
             "outcome" => narrowed.filtered.outcome.as_str(),
+            "table" => table,
             "team_id" => team.clone(),
         )
         .increment(1);
@@ -442,10 +500,34 @@ impl ChunkScanner {
             ("person_properties", plan.person_properties.key_count()),
         ] {
             if let Some(keys) = keys {
-                histogram!(PROJECTION_KEYS, "blob" => blob, "team_id" => team.clone())
-                    .record(keys as f64);
+                histogram!(
+                    PROJECTION_KEYS,
+                    "blob" => blob,
+                    "table" => table,
+                    "team_id" => team.clone(),
+                )
+                .record(keys as f64);
             }
         }
+    }
+}
+
+/// One table's narrowed scan within a chunk.
+#[derive(Debug)]
+struct ScanArm {
+    spec: ScanSpec,
+    projection: ChunkProjection,
+}
+
+/// Methods rather than closures, because a closure that returns a borrow of its argument fails the
+/// `Send` check on the spawned chunk future.
+impl ScanArm {
+    const fn spec(&self) -> &ScanSpec {
+        &self.spec
+    }
+
+    const fn parts(&self) -> (&ScanSpec, &ChunkProjection) {
+        (&self.spec, &self.projection)
     }
 }
 
@@ -568,19 +650,24 @@ enum CompareSkip {
     /// nothing to skip. Only the unfenced overrides join could put rows on one side, which is a
     /// divergence with no projection defect behind it.
     NoRows,
-    /// The authoritative scan was already wide, so `scan_sql` renders both arms identically and
-    /// the verdict is `match` by construction.
+    /// The authoritative scan was already wide on every table, so `scan_sql` renders both arms
+    /// identically and the verdict is `match` by construction.
     NotProjected,
 }
 
 impl CompareSkip {
-    /// `None` when the compare is worth running.
-    fn of(projection: &ChunkProjection, fold: FoldSummary) -> Option<Self> {
-        match (fold.rows, projection) {
-            (RowsSeen::None, _) => Some(Self::NoRows),
-            (RowsSeen::Some, ChunkProjection::FullColumns) => Some(Self::NotProjected),
-            (RowsSeen::Some, ChunkProjection::Projected(_)) => None,
+    /// `None` when the compare is worth running. `projections` holds one per table the chunk read.
+    fn of<'a>(
+        projections: impl IntoIterator<Item = &'a ChunkProjection>,
+        fold: FoldSummary,
+    ) -> Option<Self> {
+        if fold.rows == RowsSeen::None {
+            return Some(Self::NoRows);
         }
+        let projected = projections
+            .into_iter()
+            .any(|projection| matches!(projection, ChunkProjection::Projected(_)));
+        (!projected).then_some(Self::NotProjected)
     }
 
     const fn as_str(self) -> &'static str {
@@ -654,17 +741,18 @@ impl FoldSummary {
 
 /// Drive the cursor into the accumulator until it is exhausted, cancelled, or fails. Returns rather
 /// than metering, so the caller owns the single recording site.
+#[allow(clippy::too_many_arguments)]
 async fn fold_cursor(
     cursor: &mut RowCursor<EventRow>,
     accumulator: &mut ChunkAccumulator,
+    summary: &mut FoldSummary,
     domain: &SeedDomain,
     team_id: TeamId,
     kind: ScanKind,
     lease_cancel: &CancellationToken,
     shutdown: &CancellationToken,
-) -> Result<FoldSummary, ScanHalt> {
+) -> Result<(), ScanHalt> {
     let metered = kind == ScanKind::Behavioral;
-    let mut summary = FoldSummary::default();
     loop {
         let row = tokio::select! {
             biased;
@@ -673,7 +761,7 @@ async fn fold_cursor(
             row = cursor.next() => row.map_err(ScanError::Cursor)?,
         };
         let Some(row) = row else {
-            return Ok(summary);
+            return Ok(());
         };
         summary.rows = RowsSeen::Some;
         // The per-row series describe the authoritative scan. A diagnostic re-scan walks the same
@@ -727,25 +815,6 @@ fn active_conditions_at(
     conditions: &[PinnedCondition],
 ) -> ActiveConditions {
     conditions_active_on(day, day_idx_in_tz(now_ms, tz), conditions)
-}
-
-fn active_event_names(run: &PinnedRun, active: &ActiveConditions) -> EventNameSet {
-    EventNameSet::new(
-        run.event_names
-            .iter()
-            .filter(|event_name| {
-                run.filters
-                    .behavioral_by_event_name
-                    .get(*event_name)
-                    .is_some_and(|bucket| {
-                        bucket
-                            .conditions
-                            .iter()
-                            .any(|hash| active.get(hash).is_some())
-                    })
-            })
-            .cloned(),
-    )
 }
 
 fn fold_event(
@@ -830,6 +899,8 @@ pub enum ScanError {
     Cursor(#[source] clickhouse::error::Error),
     #[error("aggregating ClickHouse scan row")]
     Aggregate(#[from] AggregateError),
+    #[error("day {day} is past the retention of {table}, so the scan could miss rows")]
+    PastRetention { table: &'static str, day: DayIdx },
 }
 
 #[cfg(test)]
@@ -845,8 +916,9 @@ mod tests {
     use super::super::sql::MAX_GET_QUERY_BYTES;
     use super::*;
     use crate::domain::{
-        plan_days, BandSpec, BlobSource, Boundary, ClaimEpoch, ColumnPlan, ConditionHash, Lookback,
-        PlanCaps, PropertiesOutcome, PropertiesSource, RunId, SChunkMs, ScalarColumn,
+        plan_days, BandSpec, BlobSource, Boundary, ClaimEpoch, ColumnPlan, ConditionHash,
+        EventNameSet, Lookback, PlanCaps, PropertiesOutcome, PropertiesSource, RunId, SChunkMs,
+        ScalarColumn,
     };
 
     const HASH: &str = "aaaaaaaaaaaaaaaa";
@@ -979,6 +1051,7 @@ mod tests {
             &domain(),
             &EventNameSet::new(["$pageview".to_owned()]),
             BandSpec::new(0, 1).unwrap(),
+            ScanTable::Events,
         ) else {
             panic!("one event name on a one-day domain is a scan");
         };
@@ -1026,7 +1099,8 @@ mod tests {
     /// The projection metrics are the only report of what a chunk narrowed to, and a dashboard
     /// reads them by label. This pins the three sampling rules the recorder applies, which no test
     /// over the projection types themselves can see: a full blob takes no key sample at all, an
-    /// unread one takes a `0`, and the outcome label follows the arm.
+    /// unread one takes a `0`, and the outcome label follows the arm. Each series also names the
+    /// table its arm scanned, which is how a rollout tells the two tables apart.
     ///
     /// The recorder here is a plain one, not the configured one — which ladder
     /// [`PROJECTION_KEYS`] renders under is `observability::metrics`'s question, and answering it
@@ -1077,10 +1151,12 @@ mod tests {
         metrics::with_local_recorder(&recorder, || {
             scanner.record_narrowing(
                 TeamId(2),
+                ScanTable::Events,
                 &narrow(two_keys, &ColumnExactKeys::default(), &none),
             );
             scanner.record_narrowing(
                 TeamId(2),
+                ScanTable::Events,
                 &narrow(
                     ChunkProjection::FullColumns,
                     &ColumnExactKeys::default(),
@@ -1089,7 +1165,17 @@ mod tests {
             );
             scanner.record_narrowing(
                 TeamId(3),
+                ScanTable::Events,
                 &narrow(url, &ColumnExactKeys::exact(["$current_url"]), &url_column),
+            );
+            scanner.record_narrowing(
+                TeamId(2),
+                ScanTable::FlagEvaluations,
+                &narrow(
+                    ChunkProjection::FullColumns,
+                    &ColumnExactKeys::default(),
+                    &none,
+                ),
             );
         });
         let rendered = handle.render();
@@ -1097,20 +1183,20 @@ mod tests {
         for (team, source) in [(2, "rebuilt_inexact_key"), (2, "whole"), (3, "columns")] {
             assert!(
                 rendered.contains(&format!(
-                    "{SCAN_PROPERTIES_SOURCE}{{source=\"{source}\",team_id=\"{team}\"}} 1"
+                    "{SCAN_PROPERTIES_SOURCE}{{source=\"{source}\",table=\"events\",team_id=\"{team}\"}} 1"
                 )),
                 "team {team} did not count its chunk under {source}:\n{rendered}"
             );
         }
         assert!(
             rendered.contains(&format!(
-                "{SCAN_ROW_FILTER}{{outcome=\"none\",team_id=\"2\"}} 2"
+                "{SCAN_ROW_FILTER}{{outcome=\"none\",table=\"events\",team_id=\"2\"}} 2"
             )),
             "a chunk without a row filter was not counted:\n{rendered}"
         );
         assert!(
             rendered.contains(&format!(
-                "{PROJECTION_KEYS}_sum{{blob=\"properties\",team_id=\"3\"}} 1"
+                "{PROJECTION_KEYS}_sum{{blob=\"properties\",table=\"events\",team_id=\"3\"}} 1"
             )),
             "a column-backed key was not counted as a read key:\n{rendered}"
         );
@@ -1118,7 +1204,7 @@ mod tests {
         for outcome in ["projected", "full_columns"] {
             assert!(
                 rendered.contains(&format!(
-                    "{CHUNKS_PROJECTED}{{outcome=\"{outcome}\",team_id=\"2\"}} 1"
+                    "{CHUNKS_PROJECTED}{{outcome=\"{outcome}\",table=\"events\",team_id=\"2\"}} 1"
                 )),
                 "{outcome} chunk was not counted under its own label:\n{rendered}"
             );
@@ -1126,13 +1212,13 @@ mod tests {
         // Two keys read, and one blob read at nothing — the reading the whole change exists for.
         assert!(
             rendered.contains(&format!(
-                "{PROJECTION_KEYS}_sum{{blob=\"properties\",team_id=\"2\"}} 2"
+                "{PROJECTION_KEYS}_sum{{blob=\"properties\",table=\"events\",team_id=\"2\"}} 2"
             )),
             "the kept-key count is not the number of keys:\n{rendered}"
         );
         assert!(
             rendered.contains(&format!(
-                "{PROJECTION_KEYS}_sum{{blob=\"person_properties\",team_id=\"2\"}} 0"
+                "{PROJECTION_KEYS}_sum{{blob=\"person_properties\",table=\"events\",team_id=\"2\"}} 0"
             )),
             "an unread blob did not record a zero:\n{rendered}"
         );
@@ -1141,10 +1227,19 @@ mod tests {
         for blob in ["properties", "person_properties"] {
             assert!(
                 rendered.contains(&format!(
-                    "{PROJECTION_KEYS}_count{{blob=\"{blob}\",team_id=\"2\"}} 1"
+                    "{PROJECTION_KEYS}_count{{blob=\"{blob}\",table=\"events\",team_id=\"2\"}} 1"
                 )),
                 "{blob} took a sample from the full-columns chunk:\n{rendered}"
             );
+        }
+        // The flag arm's increments carry `table="flag_evaluations"`, so they leave the events
+        // series above unchanged.
+        for series in [
+            format!("{CHUNKS_PROJECTED}{{outcome=\"full_columns\",table=\"flag_evaluations\",team_id=\"2\"}} 1"),
+            format!("{SCAN_PROPERTIES_SOURCE}{{source=\"whole\",table=\"flag_evaluations\",team_id=\"2\"}} 1"),
+            format!("{SCAN_ROW_FILTER}{{outcome=\"none\",table=\"flag_evaluations\",team_id=\"2\"}} 1"),
+        ] {
+            assert!(rendered.contains(&series), "missing {series}:\n{rendered}");
         }
     }
 
@@ -1209,30 +1304,43 @@ mod tests {
     #[test]
     fn the_compare_is_issued_only_where_the_two_arms_can_disagree() {
         let projected = ChunkProjection::Projected(ColumnPlan::full());
+        let wide = ChunkProjection::FullColumns;
+        // A chunk that reads two tables projects each on its own, so one wide table must not skip
+        // the compare of the other.
         let cases = [
             (
                 fold(RowsSeen::None, 0),
-                &projected,
+                vec![&projected],
                 Some(CompareSkip::NoRows),
             ),
             (
                 fold(RowsSeen::None, 0),
-                &ChunkProjection::FullColumns,
+                vec![&wide],
                 Some(CompareSkip::NoRows),
             ),
             (
                 fold(RowsSeen::Some, 0),
-                &ChunkProjection::FullColumns,
+                vec![&wide],
                 Some(CompareSkip::NotProjected),
             ),
-            (fold(RowsSeen::Some, 0), &projected, None),
+            (fold(RowsSeen::Some, 0), vec![&projected], None),
+            (
+                fold(RowsSeen::Some, 0),
+                vec![&wide, &wide],
+                Some(CompareSkip::NotProjected),
+            ),
+            (fold(RowsSeen::Some, 0), vec![&wide, &projected], None),
+            (fold(RowsSeen::Some, 0), vec![&projected, &wide], None),
         ];
-        for (summary, projection, expected) in cases {
+        for (summary, projections, expected) in cases {
             assert_eq!(
-                CompareSkip::of(projection, summary),
+                CompareSkip::of(projections.iter().copied(), summary),
                 expected,
-                "{summary:?} on {}",
-                projection.outcome()
+                "{summary:?} on {:?}",
+                projections
+                    .iter()
+                    .map(|projection| projection.outcome())
+                    .collect::<Vec<_>>()
             );
         }
     }
@@ -1410,5 +1518,279 @@ mod tests {
         // Boundary day older than the window: live replay from the boundary covers the whole
         // window, so the seed correctly has nothing left to contribute.
         assert_eq!(admitted_at(108), Vec::<DayIdx>::new());
+    }
+
+    const PAGEVIEW_HASH: &str = "pageview00000000";
+    const FLAG_CALL_HASH: &str = "flagcall00000000";
+    /// Day 2, so a day-1 chunk sits inside a window of a week or more.
+    const NOW_MS: i64 = 200_000_000;
+
+    /// A run pinned to `flag_evaluations` whose one cohort ANDs `$pageview` with a
+    /// `$feature_flag_called` on `my-flag`, both over the last `window_days` days.
+    fn mixed_run(window_days: u32) -> PinnedRun {
+        use crate::domain::pinned::test_runs::{run_with, RunLeaf};
+        use crate::domain::row_filter::test_catalog::{event_and_property, event_is};
+
+        run_with(
+            ScanTable::FlagEvaluations,
+            window_days,
+            &[
+                RunLeaf {
+                    cohort_id: 1,
+                    hash: PAGEVIEW_HASH,
+                    event: "$pageview",
+                    body: event_is("$pageview"),
+                },
+                RunLeaf {
+                    cohort_id: 1,
+                    hash: FLAG_CALL_HASH,
+                    event: "$feature_flag_called",
+                    body: event_and_property("$feature_flag_called", "$feature_flag", "my-flag"),
+                },
+            ],
+        )
+    }
+
+    async fn scan_day_one(
+        scanner: &ChunkScanner,
+        run: &PinnedRun,
+        now_ms: i64,
+    ) -> Result<ScannedChunk, Halted<ClaimedChunk, ScanError>> {
+        use crate::domain::{AttemptCount, ChunkId, ChunkLease};
+
+        let chunk = ClaimedChunk::new(ChunkSpec {
+            lease: ChunkLease::new(ChunkId(Uuid::nil()), run.run_id, ClaimEpoch(1)),
+            team_id: run.team_id,
+            day: 1,
+            band: BandSpec::new(0, 1).unwrap(),
+            s_chunk: SChunkMs(200_000_000),
+            person_range: None,
+            attempt: AttemptCount::new(1),
+        });
+        let never = CancellationToken::new();
+        scanner
+            .scan_at(
+                chunk,
+                run,
+                &ConditionAnalyses::build(&run.conditions, &run.filters),
+                now_ms,
+                &never,
+                &never,
+            )
+            .await
+    }
+
+    fn failure_of(result: Result<ScannedChunk, Halted<ClaimedChunk, ScanError>>) -> ScanError {
+        use crate::domain::HaltReason;
+
+        match result {
+            Ok(scanned) => panic!("the chunk scanned {} tiles", scanned.tiles().len()),
+            Err(Halted {
+                reason: HaltReason::Cancelled(cause),
+                ..
+            }) => panic!("the chunk was cancelled: {cause:?}"),
+            Err(Halted {
+                reason: HaltReason::Failed(error),
+                ..
+            }) => error,
+        }
+    }
+
+    /// Tiles built from what the TTL left of a day would undercount while the run still completes.
+    /// The flag arm comes second, so a check of the first arm alone passes the chunk. The refusal
+    /// comes before any query, so the client needs no server.
+    #[tokio::test]
+    async fn a_chunk_whose_flag_calls_are_past_retention_fails_rather_than_scanning() {
+        let scanner = ChunkScanner::new(
+            ClickHouseClient::new(clickhouse::Client::default(), Default::default()),
+            TeamAllowlist::All,
+            false,
+        );
+        let run = mixed_run(120);
+
+        let error = failure_of(scan_day_one(&scanner, &run, 101 * 86_400_000).await);
+
+        assert!(
+            matches!(error, ScanError::PastRetention { .. }),
+            "the chunk failed for another reason: {error:?}"
+        );
+    }
+
+    /// The fold reads rows only from a ClickHouse cursor, so only a live server shows which rows
+    /// reach the chunk's tiles.
+    #[cfg(feature = "ch-test-support")]
+    mod live {
+        use std::collections::HashSet;
+
+        use envconfig::Envconfig;
+
+        use super::*;
+        use crate::clickhouse::client::build_client;
+        use crate::config::Config;
+
+        const FLAG_KEY_EXPRESSION: &str =
+            r#"replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag'), '^"|"$', '')"#;
+
+        const FLAG_EVALUATIONS_DDL: &str =
+            include_str!("../../tests/fixtures/flag_evaluations.sql");
+
+        fn connect(database: Option<&str>) -> ClickHouseClient {
+            let mut config =
+                Config::init_from_env().expect("the seeder config falls back to its defaults");
+            if let Some(database) = database {
+                config.clickhouse_database = database.to_owned();
+            }
+            build_client(&config).expect("the default ClickHouse client builds")
+        }
+
+        fn person(id: u128) -> Uuid {
+            Uuid::from_u128(id)
+        }
+
+        /// `$pageview` comes from `events`, and flag calls from `flag_evaluations`. `events` also
+        /// holds a flag call by person 4, which a run pinned to `flag_evaluations` must not count.
+        /// Each table pair backs `$feature_flag` with a column of its own name, so an arm that
+        /// reads the other pair's column fails.
+        async fn mixed_chunk_database(database: &str) -> ClickHouseClient {
+            let events_columns = "uuid UUID, event String, properties String, \
+                timestamp DateTime64(6, 'UTC'), distinct_id String, person_id UUID, \
+                person_properties String, elements_chain String, team_id Int64, \
+                inserted_at Nullable(DateTime64(6, 'UTC')), _timestamp DateTime";
+            let event_row = |uuid: u128, event: &str, properties: &str, person_id: u128| {
+                format!(
+                    "(toUUID('{}'), '{event}', '{properties}', toDateTime64(100000, 6, 'UTC'), \
+                     'distinct-{person_id}', toUUID('{}'), '{{}}', '', 2, toDateTime(100000, 'UTC'))",
+                    person(uuid),
+                    person(person_id),
+                )
+            };
+            let flag_row = |uuid: u128, flag: &str, person_id: u128| {
+                format!(
+                    "(toUUID('{}'), '$feature_flag_called', '{{\"$feature_flag\":\"{flag}\"}}', \
+                     toDateTime64(100000, 6, 'UTC'), 2, 'distinct-{person_id}', toUUID('{}'), \
+                     toDateTime(100000, 'UTC'))",
+                    person(uuid),
+                    person(person_id),
+                )
+            };
+            let admin = connect(None);
+            let flag_evaluations_tables = FLAG_EVALUATIONS_DDL
+                .split(';')
+                .map(str::trim)
+                .filter(|statement| !statement.is_empty())
+                .map(|statement| statement.replace("{database}", database));
+            let statements = [
+                format!("DROP DATABASE IF EXISTS {database}"),
+                format!("CREATE DATABASE {database}"),
+                format!(
+                    "CREATE TABLE {database}.sharded_events ({events_columns}, \
+                     `mat_$feature_flag` String DEFAULT {FLAG_KEY_EXPRESSION}) \
+                     ENGINE = MergeTree ORDER BY (team_id, toDate(timestamp), event)"
+                ),
+                format!(
+                    "CREATE TABLE {database}.events ({events_columns}, `mat_$feature_flag` String) \
+                     ENGINE = Merge('{database}', '^sharded_events$')"
+                ),
+                format!(
+                    "CREATE TABLE {database}.person_distinct_id_overrides (\
+                        team_id Int64, distinct_id String, person_id UUID, is_deleted Int8, version Int64\
+                     ) ENGINE = MergeTree ORDER BY (team_id, distinct_id)"
+                ),
+            ]
+            .into_iter()
+            .chain(flag_evaluations_tables)
+            .chain([
+                format!(
+                    "INSERT INTO {database}.sharded_events (uuid, event, properties, timestamp, \
+                     distinct_id, person_id, person_properties, elements_chain, team_id, _timestamp) \
+                     VALUES {}, {}",
+                    event_row(10, "$pageview", "{}", 2),
+                    event_row(11, "$feature_flag_called", r#"{"$feature_flag":"my-flag"}"#, 4),
+                ),
+                format!(
+                    "INSERT INTO {database}.sharded_flag_evaluations (uuid, event, properties, \
+                     timestamp, team_id, distinct_id, person_id, _timestamp) VALUES {}, {}, {}, {}",
+                    flag_row(20, "my-flag", 1),
+                    flag_row(21, "my-flag", 3),
+                    flag_row(22, "my-flag", 3),
+                    flag_row(23, "other-flag", 1),
+                ),
+            ]);
+            for statement in statements {
+                admin
+                    .query(&statement)
+                    .execute()
+                    .await
+                    .unwrap_or_else(|error| panic!("{error}\n{statement}"));
+            }
+            connect(Some(database))
+        }
+
+        fn scanner(client: ClickHouseClient, shadow_compare: bool) -> ChunkScanner {
+            ChunkScanner::new(
+                client,
+                TeamAllowlist::Only(HashSet::from([2])),
+                shadow_compare,
+            )
+        }
+
+        /// Tiles sort by person, and the expected order interleaves the tables. Two tile sets
+        /// joined end to end would put person 2 out of place whichever table came first.
+        #[tokio::test]
+        async fn a_mixed_chunk_folds_rows_from_both_tables_into_one_tile_set() {
+            let client = mixed_chunk_database("seeder_scanner_mixed_chunk").await;
+            let run = mixed_run(7);
+
+            let scanned = match scan_day_one(&scanner(client, false), &run, NOW_MS).await {
+                Ok(scanned) => scanned,
+                failed => panic!("{:?}", failure_of(failed)),
+            };
+
+            let flag_call = ConditionHash::parse(FLAG_CALL_HASH).unwrap();
+            let pageview = ConditionHash::parse(PAGEVIEW_HASH).unwrap();
+            assert_eq!(
+                scanned
+                    .tiles()
+                    .iter()
+                    .map(|tile| (tile.person_id(), tile.condition_hash(), tile.count()))
+                    .collect::<Vec<_>>(),
+                vec![
+                    (person(1), flag_call, 1),
+                    (person(2), pageview, 1),
+                    (person(3), flag_call, 2),
+                ]
+            );
+        }
+
+        /// The verdict the backfill gate reads. A compare that re-scanned one table, or read flag
+        /// calls from `events`, would report a diff on every mixed chunk.
+        #[test]
+        fn the_shadow_compare_of_a_mixed_chunk_rescans_both_tables() {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
+            let handle = recorder.handle();
+            metrics::with_local_recorder(&recorder, || {
+                runtime.block_on(async {
+                    let client = mixed_chunk_database("seeder_scanner_mixed_compare").await;
+                    let run = mixed_run(7);
+                    if let failed @ Err(_) =
+                        scan_day_one(&scanner(client, true), &run, NOW_MS).await
+                    {
+                        panic!("{:?}", failure_of(failed));
+                    }
+                });
+            });
+            let rendered = handle.render();
+
+            assert!(
+                rendered.contains(&format!(
+                    "{SHADOW_COMPARE}{{result=\"match\",team_id=\"2\"}} 1"
+                )),
+                "the mixed chunk's compare did not match:\n{rendered}"
+            );
+        }
     }
 }
