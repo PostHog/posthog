@@ -1,7 +1,9 @@
 import json
+import threading
 from datetime import UTC
 from typing import TYPE_CHECKING
 
+from django.conf import settings
 from django.utils.dateparse import parse_datetime
 
 import httpx
@@ -20,6 +22,7 @@ from posthog.models import Team
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
+from posthog.temporal.common.worker import DEFAULT_MAX_CONCURRENT_TASKS
 
 from products.error_tracking.backend.logic.severity_inference import (
     apply_inferred_severity,
@@ -283,10 +286,18 @@ def infer_issue_created_severity_activity(inputs: IssueCreatedWorkflowInputs) ->
     return result
 
 
+# A summary holds an activity slot for the whole model call, and alert dispatch shares this worker's slots.
+ISSUE_SUMMARY_WORKER_SLOTS = threading.BoundedSemaphore(
+    max(1, (settings.MAX_CONCURRENT_ACTIVITIES or DEFAULT_MAX_CONCURRENT_TASKS) // 4)
+)
+
+
 def _generate_issue_created_summary(inputs: IssueCreatedWorkflowInputs) -> "IssueSummaryOutcome":
     # issue_summaries imports the lifecycle rendering module, whose package imports this module.
     from products.error_tracking.backend.logic.issue_summaries import (  # noqa: PLC0415
+        ISSUE_SUMMARY_OUTCOMES,
         IssueSummaryOutcome,
+        IssueSummaryTrigger,
         generate_issue_summary_from_event,
         issue_summaries_on_write_enabled,
     )
@@ -294,9 +305,19 @@ def _generate_issue_created_summary(inputs: IssueCreatedWorkflowInputs) -> "Issu
     # Checked outside the generator, which reports every attempt as an event, so a team without the flag sends none.
     if not issue_summaries_on_write_enabled(inputs.team_id):
         return IssueSummaryOutcome.DISABLED
-    return generate_issue_summary_from_event(
-        inputs.team_id, inputs.issue_id, lambda team: fetch_event_properties(team, inputs)
-    ).outcome
+    # Skip instead of wait, because a waiting activity still holds its slot. The first read generates the summary.
+    if not ISSUE_SUMMARY_WORKER_SLOTS.acquire(blocking=False):
+        logger.warning("error_tracking_issue_summary_worker_busy", team_id=inputs.team_id, issue_id=inputs.issue_id)
+        ISSUE_SUMMARY_OUTCOMES.labels(
+            outcome=IssueSummaryOutcome.RATE_LIMITED.value, trigger=IssueSummaryTrigger.WRITE.value
+        ).inc()
+        return IssueSummaryOutcome.RATE_LIMITED
+    try:
+        return generate_issue_summary_from_event(
+            inputs.team_id, inputs.issue_id, lambda team: fetch_event_properties(team, inputs)
+        ).outcome
+    finally:
+        ISSUE_SUMMARY_WORKER_SLOTS.release()
 
 
 @activity.defn

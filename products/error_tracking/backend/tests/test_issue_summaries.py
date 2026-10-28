@@ -1,6 +1,7 @@
 import json
 import signal
 import socket
+import threading
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -201,16 +202,30 @@ class TestIssueSummaryGeneration(BaseTest):
 
     @parameterized.expand(
         [
-            ("lock_unavailable", "get_client", {"side_effect": RedisError("down")}),
-            ("budget_unavailable", "consume", {"return_value": BucketUnavailable(error="down")}),
+            (f"{name}_{trigger}", target, patch_kwargs, trigger, expected)
+            for name, target, patch_kwargs in [
+                ("lock_unavailable", "get_client", {"side_effect": RedisError("down")}),
+                ("budget_peek_unavailable", "peek", {"return_value": BucketUnavailable(error="down")}),
+                ("budget_unavailable", "consume", {"return_value": BucketUnavailable(error="down")}),
+            ]
+            for trigger, expected in [
+                ("read", IssueSummaryOutcome.GENERATED),
+                ("write", IssueSummaryOutcome.RATE_LIMITED),
+            ]
         ]
     )
-    def test_generates_when_redis_is_down(self, _name: str, target: str, patch_kwargs: dict[str, Any]) -> None:
+    def test_redis_outage_fails_open_on_read_and_closed_on_write(
+        self, _name: str, target: str, patch_kwargs: dict[str, Any], trigger: str, expected: IssueSummaryOutcome
+    ) -> None:
         self.enterContext(patch.object(issue_summaries, target, **patch_kwargs))
 
-        result = get_or_generate_issue_summary(self.team.id, self.issue.id)
+        if trigger == "read":
+            outcome = get_or_generate_issue_summary(self.team.id, self.issue.id).outcome
+        else:
+            outcome = self._generate_on_creation()
 
-        assert result.outcome == IssueSummaryOutcome.GENERATED
+        assert outcome == expected
+        assert self.llm_calls == (1 if expected == IssueSummaryOutcome.GENERATED else 0)
 
     @parameterized.expand(
         [
@@ -445,6 +460,27 @@ class TestIssueSummaryGeneration(BaseTest):
         assert self.llm_calls == (1 if expected == IssueSummaryOutcome.GENERATED else 0)
         assert fetch.called is (expected == IssueSummaryOutcome.GENERATED)
         assert capture.called is (ISSUE_SUMMARY_ON_WRITE_FLAG not in flags_off)
+
+    def test_issue_created_activity_skips_while_worker_summary_slots_are_full(self) -> None:
+        self.enterContext(patch.object(team_flags, "feature_enabled_or_false", return_value=True))
+        self.enterContext(
+            patch.object(issue_created_activities, "fetch_event_properties", return_value={"$lib": "web"})
+        )
+        slots = threading.BoundedSemaphore(1)
+        self.enterContext(patch.object(issue_created_activities, "ISSUE_SUMMARY_WORKER_SLOTS", slots))
+
+        slots.acquire()
+        assert (
+            generate_issue_created_summary_activity(self._issue_created_inputs())
+            == IssueSummaryOutcome.RATE_LIMITED.value
+        )
+        assert self.llm_calls == 0
+
+        slots.release()
+        assert (
+            generate_issue_created_summary_activity(self._issue_created_inputs()) == IssueSummaryOutcome.GENERATED.value
+        )
+        assert slots.acquire(blocking=False)
 
     def _drain_write_budget(self, team_id: int) -> None:
         tiny = Budget(burst=1, per_hour=1)

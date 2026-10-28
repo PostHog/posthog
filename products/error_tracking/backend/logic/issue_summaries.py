@@ -488,6 +488,10 @@ class _SummaryGeneration:
     budget: Budget
     build_inputs: Callable[[Team, IssueSummaryTimings], IssueSummaryInputs | IssueSummaryOutcome]
 
+    @property
+    def fails_closed(self) -> bool:
+        return self.trigger == IssueSummaryTrigger.WRITE
+
 
 def _get_or_generate_counted(
     team_id: int, issue_id: UUID | str, generation: _SummaryGeneration, timings: IssueSummaryTimings
@@ -520,7 +524,7 @@ def _get_or_generate(
     if (blocked := generation_blocked(team_id, stored, generation.due)) is not None:
         return IssueSummaryResult(outcome=blocked, summary=stored)
     claim = f"{LOCK_CLAIM_PREFIX}{uuid4().hex}"
-    if (held := _claim_generation(team_id, issue_id, claim)) is not None:
+    if (held := _claim_generation(team_id, issue_id, claim, fails_closed=generation.fails_closed)) is not None:
         return IssueSummaryResult(outcome=held, summary=stored)
 
     # A write attempt that leaves no summary deletes its claim instead of writing its outcome to the lock.
@@ -546,7 +550,7 @@ def _generate_claimed(
     budget_key, budget = generation.budget_key, generation.budget
     # The input queries run before `consume`, so an unchanged issue spends no token. This read keeps a team
     # with no tokens left from running them for every issue it opens. `consume` still makes the decision.
-    if _budget_exhausted(budget_key, budget):
+    if _budget_exhausted(budget_key, budget, fails_closed=generation.fails_closed):
         return IssueSummaryResult(outcome=IssueSummaryOutcome.RATE_LIMITED, summary=stored)
 
     team = Team.objects.get(id=team_id)
@@ -569,8 +573,10 @@ def _generate_claimed(
         case BucketDecision(allowed=False):
             return IssueSummaryResult(outcome=IssueSummaryOutcome.RATE_LIMITED, summary=stored)
         case BucketUnavailable(error=bucket_error):
-            # Fail open: the per-issue lock and the regenerate interval still bound the spend.
             logger.warning("error_tracking_issue_summary_budget_unavailable", team_id=team_id, error=bucket_error)
+            if generation.fails_closed:
+                return IssueSummaryResult(outcome=IssueSummaryOutcome.RATE_LIMITED, summary=stored)
+            # A read fails open: the per-issue lock and the regenerate interval still bound the spend.
 
     # Only the Go gateway honours privacy mode, so the Python gateway fallback is never used.
     if resolve_ai_gateway_config() is None:
@@ -611,16 +617,20 @@ def _generate_claimed(
     return IssueSummaryResult(outcome=IssueSummaryOutcome.GENERATED, summary=summary)
 
 
-def _budget_exhausted(budget_key: str, budget: Budget) -> bool:
+def _budget_exhausted(budget_key: str, budget: Budget, *, fails_closed: bool) -> bool:
     decision = peek(budget_key, budget)
-    return isinstance(decision, BucketDecision) and not decision.allowed
+    if isinstance(decision, BucketUnavailable):
+        return fails_closed
+    return not decision.allowed
 
 
 def _lock_key(team_id: int, issue_id: UUID | str) -> str:
     return f"{ISSUE_SUMMARY_LOCK_KEY_PREFIX}:{team_id}:{issue_id}"
 
 
-def _claim_generation(team_id: int, issue_id: UUID | str, claim: str) -> IssueSummaryOutcome | None:
+def _claim_generation(
+    team_id: int, issue_id: UUID | str, claim: str, *, fails_closed: bool
+) -> IssueSummaryOutcome | None:
     """None when this worker now holds the issue under `claim`, else the outcome that holds it."""
     try:
         held = get_client().register_script(CLAIM_LUA)(
@@ -628,9 +638,9 @@ def _claim_generation(team_id: int, issue_id: UUID | str, claim: str) -> IssueSu
             args=[LOCK_QUEUED, claim, ISSUE_SUMMARY_LOCK_TTL_SECONDS],
         )
     except RedisError:
-        # Fail open, as the budget does: a Redis outage can let two concurrent reads both pay.
         logger.warning("error_tracking_issue_summary_lock_unavailable", team_id=team_id, exc_info=True)
-        return None
+        # A read fails open, as the budget does: a Redis outage can let two concurrent reads both pay.
+        return IssueSummaryOutcome.RATE_LIMITED if fails_closed else None
     return _lock_outcome(held) if held is not None else None
 
 
