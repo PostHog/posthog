@@ -87,6 +87,38 @@ export const EndpointsHealthResponseApi = zod.object({
 export type EndpointsHealthResponseApi = zod.input<typeof EndpointsHealthResponseApi>
 export type EndpointsHealthResponseApiOutput = zod.output<typeof EndpointsHealthResponseApi>
 
+export const ServiceEdgeApi = zod.object({
+    caller: zod.string().describe('The calling service.'),
+    callee: zod.string().describe('The called service.'),
+    calls: zod.number().describe('Calls from the caller into the callee in the sampled traces.'),
+    error_count: zod.number().describe('Calls with an error status on the callee span.'),
+    p95_ms: zod.number().nullable().describe('95th percentile duration of the callee span, in ms.'),
+})
+
+export type ServiceEdgeApi = zod.input<typeof ServiceEdgeApi>
+export type ServiceEdgeApiOutput = zod.output<typeof ServiceEdgeApi>
+
+export const ServiceMapResponseApi = zod.object({
+    edges: zod
+        .array(
+            zod.object({
+                caller: zod.string().describe('The calling service.'),
+                callee: zod.string().describe('The called service.'),
+                calls: zod.number().describe('Calls from the caller into the callee in the sampled traces.'),
+                error_count: zod.number().describe('Calls with an error status on the callee span.'),
+                p95_ms: zod.number().nullable().describe('95th percentile duration of the callee span, in ms.'),
+            })
+        )
+        .describe('One edge per calling and called service, most calls first.'),
+    trace_count: zod.number().describe('Traces sampled to build the map.'),
+    environment: zod.string().describe('The environment the map was built for.'),
+    date_from: zod.iso.datetime({ offset: true }).describe('Start of the window used.'),
+    date_to: zod.iso.datetime({ offset: true }).describe('End of the window used.'),
+})
+
+export type ServiceMapResponseApi = zod.input<typeof ServiceMapResponseApi>
+export type ServiceMapResponseApiOutput = zod.output<typeof ServiceMapResponseApi>
+
 export const ServiceHealthApi = zod.object({
     service_name: zod.string().describe('The service.name resource attribute.'),
     environment: zod.string().describe('The environment the row was computed for.'),

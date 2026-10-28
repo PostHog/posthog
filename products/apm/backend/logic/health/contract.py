@@ -51,6 +51,17 @@ class EndpointHealth:
     status: HealthStatus = HealthStatus.GOOD
 
 
+@dataclass(frozen=True)
+class ServiceEdge:
+    """Calls from one service into another, counted on the callee spans whose parent is in the caller."""
+
+    caller: str
+    callee: str
+    calls: int
+    error_count: int
+    p95_ms: float | None
+
+
 def status_of(health: HealthRow) -> HealthStatus:
     rate = health.error_rate or 0.0
     if rate >= SERIOUS_ERROR_RATE:

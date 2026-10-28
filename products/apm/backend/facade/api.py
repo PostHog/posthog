@@ -48,12 +48,15 @@ from products.apm.backend.logic.health.contract import (
     EndpointHealth,
     HealthRow,
     HealthStatus,
+    ServiceEdge,
     ServiceHealth,
     rank_services,
     status_of,
 )
 from products.apm.backend.logic.health.sources import (
+    ServiceMapResult,
     ServicesHealthResult,
+    get_service_map as _get_service_map,
     list_endpoints_health as _list_endpoints_health,
     list_services_health as _list_services_health,
 )
@@ -67,8 +70,11 @@ __all__ = [
     "EndpointHealth",
     "HealthRow",
     "HealthStatus",
+    "ServiceEdge",
     "ServiceHealth",
+    "ServiceMapResult",
     "ServicesHealthResult",
+    "get_service_map",
     "list_endpoints_health",
     "list_services_health",
     "rank_services",
@@ -120,3 +126,8 @@ def list_endpoints_health(
     return _list_endpoints_health(
         team=team, date_from=date_from, date_to=date_to, environment=environment, service=service
     )
+
+
+def get_service_map(*, team: "Team", date_from: "datetime", date_to: "datetime", environment: str) -> ServiceMapResult:
+    """Service-to-service call edges in the environment and window, from a bounded sample of traces."""
+    return _get_service_map(team=team, date_from=date_from, date_to=date_to, environment=environment)

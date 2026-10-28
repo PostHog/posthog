@@ -11,7 +11,11 @@ import {
     applicationObservabilityLogic,
     drillDownParams,
 } from './applicationObservabilityLogic'
-import type { EndpointsHealthResponseApi, ServicesHealthResponseApi } from './generated/api.schemas'
+import type {
+    EndpointsHealthResponseApi,
+    ServiceMapResponseApi,
+    ServicesHealthResponseApi,
+} from './generated/api.schemas'
 
 const row = (service_name: string, status: 'good' | 'warning' | 'serious' | 'critical'): any => ({
     service_name,
@@ -45,14 +49,24 @@ const ENDPOINTS_RESPONSE: EndpointsHealthResponseApi = {
     date_to: '2026-06-02T08:00:00Z',
 }
 
+const MAP_RESPONSE: ServiceMapResponseApi = {
+    edges: [{ caller: 'web', callee: 'queue', calls: 10, error_count: 1, p95_ms: 5 }],
+    trace_count: 10,
+    environment: 'prod',
+    date_from: '2026-06-02T07:00:00Z',
+    date_to: '2026-06-02T08:00:00Z',
+}
+
 describe('applicationObservabilityLogic', () => {
     let logic: ReturnType<typeof applicationObservabilityLogic.build>
     let requests: string[]
     let endpointRequests: string[]
+    let mapRequests: string[]
 
     beforeEach(async () => {
         requests = []
         endpointRequests = []
+        mapRequests = []
         useMocks({
             get: {
                 '/api/projects/:team_id/apm/services/': ({ request }) => {
@@ -62,6 +76,10 @@ describe('applicationObservabilityLogic', () => {
                 '/api/projects/:team_id/apm/endpoints/': ({ request }) => {
                     endpointRequests.push(new URL(request.url).search)
                     return [200, ENDPOINTS_RESPONSE]
+                },
+                '/api/projects/:team_id/apm/service_map/': ({ request }) => {
+                    mapRequests.push(new URL(request.url).search)
+                    return [200, MAP_RESPONSE]
                 },
             },
         })
@@ -152,6 +170,7 @@ describe('applicationObservabilityLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
             expect(logic.values.tab).toBe('services')
             expect(endpointRequests).toHaveLength(0)
+            expect(mapRequests).toHaveLength(0)
         })
 
         it('ignores an unknown tab in the URL', async () => {
@@ -196,6 +215,57 @@ describe('applicationObservabilityLogic', () => {
             expect(endpointRequests[endpointRequests.length - 1]).not.toContain('service=')
             // The service filter only narrows endpoints, so service health must not reload with it.
             expect(requests.length).toBe(servicesRequestsBefore)
+        })
+
+        it('loads the map for the environment and lays out every service node', async () => {
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'map', environment: 'staging' })
+            await expectLogic(logic).toDispatchActions(['loadServiceMapSuccess', 'layoutServiceMapSuccess'])
+            await expectLogic(logic).toFinishAllListeners()
+            expect(mapRequests).toHaveLength(1)
+            expect(mapRequests[0]).toContain('environment=staging')
+            expect(logic.values.serviceMap?.trace_count).toBe(10)
+            const nodes = logic.values.serviceMapLayout?.nodes ?? []
+            expect(nodes.map((node) => node.id).sort()).toEqual(['api', 'queue', 'web'])
+            for (const node of nodes) {
+                expect(Number.isFinite(node.position.x)).toBe(true)
+                expect(Number.isFinite(node.position.y)).toBe(true)
+            }
+        })
+
+        it('drops health from map nodes when the health refresh for a new environment fails', async () => {
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'map' })
+            await expectLogic(logic).toDispatchActions(['layoutServiceMapSuccess'])
+            await expectLogic(logic).toFinishAllListeners()
+            const nodeHealth = (): Record<string, string | null> =>
+                Object.fromEntries(
+                    (logic.values.serviceMapLayout?.nodes ?? []).map((node) => [
+                        node.id,
+                        node.data.service?.status ?? null,
+                    ])
+                )
+            expect(nodeHealth().queue).toBe('serious')
+
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/apm/services/': () => [500, { detail: 'boom' }],
+                    '/api/projects/:team_id/apm/service_map/': () => [200, MAP_RESPONSE],
+                },
+            })
+            logic.actions.setEnvironment('staging')
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthFailure'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(nodeHealth()).toEqual({ queue: null, web: null })
+            expect(logic.values.serviceMapWarning).toBe('health')
+        })
+
+        it('reports a layout failure instead of an empty map', async () => {
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'map' })
+            await expectLogic(logic).toDispatchActions(['layoutServiceMapSuccess'])
+            expect(logic.values.serviceMapWarning).toBeNull()
+
+            logic.actions.layoutServiceMapFailure('elk failed')
+            expect(logic.values.serviceMapWarning).toBe('layout')
         })
     })
 })

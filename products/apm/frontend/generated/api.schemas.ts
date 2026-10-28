@@ -78,6 +78,35 @@ export interface EndpointsHealthResponseApi {
     date_to: string
 }
 
+export interface ServiceEdgeApi {
+    /** The calling service. */
+    caller: string
+    /** The called service. */
+    callee: string
+    /** Calls from the caller into the callee in the sampled traces. */
+    calls: number
+    /** Calls with an error status on the callee span. */
+    error_count: number
+    /**
+     * 95th percentile duration of the callee span, in ms.
+     * @nullable
+     */
+    p95_ms: number | null
+}
+
+export interface ServiceMapResponseApi {
+    /** One edge per calling and called service, most calls first. */
+    edges: ServiceEdgeApi[]
+    /** Traces sampled to build the map. */
+    trace_count: number
+    /** The environment the map was built for. */
+    environment: string
+    /** Start of the window used. */
+    date_from: string
+    /** End of the window used. */
+    date_to: string
+}
+
 export interface ServiceHealthApi {
     /** The service.name resource attribute. */
     service_name: string
@@ -130,6 +159,23 @@ export type ApmEndpointsListParams = {
      * @maxLength 400
      */
     service?: string
+}
+
+export type ApmServiceMapListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
+     * @minLength 1
+     * @maxLength 200
+     */
+    environment?: string
 }
 
 export type ApmServicesListParams = {

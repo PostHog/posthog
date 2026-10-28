@@ -20,6 +20,7 @@ from posthog.models import Team
 from products.apm.backend.logic.health.contract import (
     EndpointHealth,
     HealthRow,
+    ServiceEdge,
     ServiceHealth,
     rank_endpoints,
     rank_services,
@@ -28,6 +29,11 @@ from products.apm.backend.logic.health.contract import (
 SPARKLINE_POINTS = 24
 SERVICES_LIMIT = 500
 ENDPOINTS_LIMIT = 500
+# The map joins spans to their parents, so it reads a bounded sample of traces, not the whole window.
+MAP_TRACE_LIMIT = 2000
+MAP_EDGES_LIMIT = 1000
+# Caps the rows the self-join holds in memory, however many spans the sampled traces carry.
+MAP_SPAN_LIMIT = 200_000
 DEFAULT_ENVIRONMENT = "default"
 
 ENVIRONMENT_ATTRIBUTES = (
@@ -51,6 +57,12 @@ _TIME_BUCKET_DATE_RANGE_WHERE = (
 class ServicesHealthResult:
     services: list[ServiceHealth]
     environments: list[str]
+
+
+@dataclass(frozen=True)
+class ServiceMapResult:
+    edges: list[ServiceEdge]
+    trace_count: int
 
 
 def environment_expr() -> ast.Expr:
@@ -131,6 +143,69 @@ def _endpoints_query(date_from: datetime, date_to: datetime, environment: str, s
                 else ast.Constant(value=True)
             ),
             "limit": ast.Constant(value=ENDPOINTS_LIMIT),
+        },
+    )
+    assert isinstance(query, ast.SelectQuery)
+    return query
+
+
+def _sampled_traces_query(date_from: datetime, date_to: datetime, environment: str) -> ast.SelectQuery:
+    # DISTINCT with LIMIT stops reading once it has enough trace IDs, where GROUP BY would first
+    # aggregate every trace in the window.
+    query = parse_select(
+        """
+        SELECT DISTINCT trace_id
+        FROM posthog.trace_spans
+        WHERE {where} AND {env_expr} = {environment}
+        LIMIT {limit}
+        """,
+        placeholders={
+            "where": _window_where(date_from, date_to),
+            "env_expr": environment_expr(),
+            "environment": ast.Constant(value=environment),
+            "limit": ast.Constant(value=MAP_TRACE_LIMIT),
+        },
+    )
+    assert isinstance(query, ast.SelectQuery)
+    return query
+
+
+def _service_edges_query(
+    date_from: datetime, date_to: datetime, environment: str, trace_ids: list[str]
+) -> ast.SelectQuery:
+    # A call shows up as a callee span whose parent span belongs to another service, so each call
+    # counts once however many client spans the caller wraps around it. Both ends must be in the
+    # environment: a sampled trace can also hold spans from another environment. The CTE is read once
+    # per side of the join, so its span budget needs a stable order for both sides to see the same rows.
+    query = parse_select(
+        """
+        WITH spans AS (
+            SELECT trace_id, span_id, parent_span_id, service_name, status_code, duration_nano
+            FROM posthog.trace_spans
+            WHERE {where} AND {env_expr} = {environment} AND trace_id IN {trace_ids}
+            ORDER BY trace_id, span_id
+            LIMIT {span_limit}
+        )
+        SELECT
+            p.service_name AS caller,
+            s.service_name AS callee,
+            count() AS calls,
+            countIf(s.status_code = 2) AS error_count,
+            quantile(0.95)(s.duration_nano) / 1e6 AS p95_ms
+        FROM spans AS s
+        INNER JOIN spans AS p ON p.trace_id = s.trace_id AND p.span_id = s.parent_span_id
+        WHERE p.service_name != s.service_name
+        GROUP BY caller, callee
+        ORDER BY calls DESC, caller, callee
+        LIMIT {limit}
+        """,
+        placeholders={
+            "where": _window_where(date_from, date_to),
+            "env_expr": environment_expr(),
+            "environment": ast.Constant(value=environment),
+            "trace_ids": ast.Tuple(exprs=[ast.Constant(value=trace_id) for trace_id in trace_ids]),
+            "span_limit": ast.Constant(value=MAP_SPAN_LIMIT),
+            "limit": ast.Constant(value=MAP_EDGES_LIMIT),
         },
     )
     assert isinstance(query, ast.SelectQuery)
@@ -241,3 +316,23 @@ def list_endpoints_health(
         )
     ]
     return rank_endpoints(endpoints)
+
+
+def get_service_map(*, team: Team, date_from: datetime, date_to: datetime, environment: str) -> ServiceMapResult:
+    # The sample runs once, so the edges and the reported trace count describe the same traces.
+    trace_ids = [row[0] for row in _run(team, _sampled_traces_query(date_from, date_to, environment))]
+    if not trace_ids:
+        return ServiceMapResult(edges=[], trace_count=0)
+    edges = [
+        ServiceEdge(
+            caller=caller,
+            callee=callee,
+            calls=int(calls),
+            error_count=int(error_count),
+            p95_ms=float(p95_ms) if p95_ms is not None else None,
+        )
+        for caller, callee, calls, error_count, p95_ms in _run(
+            team, _service_edges_query(date_from, date_to, environment, trace_ids)
+        )
+    ]
+    return ServiceMapResult(edges=edges, trace_count=len(trace_ids))

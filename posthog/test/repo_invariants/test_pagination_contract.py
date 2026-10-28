@@ -32,6 +32,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.apm.backend.presentation.views.ServicesHealthViewSet",
     # Returns one bounded object (capped at ENDPOINTS_LIMIT rows), not a page of rows.
     "products.apm.backend.presentation.views.EndpointsHealthViewSet",
+    # Returns one bounded object (capped at MAP_EDGES_LIMIT edges over a bounded trace sample), not a page of rows.
+    "products.apm.backend.presentation.views.ServiceMapViewSet",
     "ee.api.billing.BillingViewset",
     "ee.api.quota_limits.QuotaLimitsViewSet",
     "products.subscriptions.backend.presentation.views.SubscriptionDeliveryViewSet",
