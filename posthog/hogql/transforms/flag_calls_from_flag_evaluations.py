@@ -25,6 +25,8 @@ from posthog.hogql.flag_called_warnings import FLAG_CALLED_EVENT
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
+from posthog.dataclasses import frozen
+
 # FLAG_EVALUATIONS_TTL_DAYS - 1. That constant lives in posthog/models/flag_evaluations/sql.py, and importing it
 # loads the posthog.models package, which the printer's import path avoids. The TTL can already have dropped the
 # day FLAG_EVALUATIONS_TTL_DAYS back.
@@ -34,9 +36,11 @@ _FLAG_KEY_PROPERTY = "$feature_flag"
 
 _Predicate = Callable[[ast.Expr], bool]
 
-# The earliest any zone's clock runs ahead of UTC.
-_EARLIEST_UTC_OFFSET = timedelta(hours=14)
-_DAY_IN_ANY_TIMEZONE = timedelta(days=1) + _EARLIEST_UTC_OFFSET
+# No zone's clock is more than 14 hours ahead of or behind UTC.
+_MAX_UTC_OFFSET = timedelta(hours=14)
+# How far before UTC midnight a date can start in some zone. A zone behind UTC can still be on the previous date, and
+# a zone 14 hours ahead of UTC starts that date 14 hours before UTC does.
+_DAY_IN_ANY_TIMEZONE = timedelta(days=1) + _MAX_UTC_OFFSET
 # A daylight-saving change moves calendar arithmetic in a timezone by up to an hour.
 _DST_MARGIN = timedelta(hours=1)
 
@@ -95,6 +99,7 @@ def can_read_flag_evaluations(
        flag_evaluations mode. A literal such as `'100'` also matches the number 100, which stays in `events`.
     5. The select list has no `*` or `COLUMNS(...)`, and the scan has no column aliases. `flag_evaluations` has
        other columns, so either one would change what the query reads.
+    6. The scan has no `FINAL` and no table arguments.
 
     With `only_in_flag_evaluations`, conditions 2 and 4 do not apply. Ingestion writes no new flag calls to events
     then, so the scan reads `flag_evaluations` even when that leaves out calls older than its coverage or calls
@@ -274,23 +279,26 @@ class _EventsScan:
         comparison = _comparison(expr)
         if comparison is None:
             return None
-        op, left, right = comparison
-        if op in (ast.CompareOperationOp.GtEq, ast.CompareOperationOp.Gt) and self._reads_timestamp(left):
-            return right
-        if op in (ast.CompareOperationOp.LtEq, ast.CompareOperationOp.Lt) and self._reads_timestamp(right):
-            return left
+        if comparison.op in (ast.CompareOperationOp.GtEq, ast.CompareOperationOp.Gt) and self._reads_timestamp(
+            comparison.left
+        ):
+            return comparison.right
+        if comparison.op in (ast.CompareOperationOp.LtEq, ast.CompareOperationOp.Lt) and self._reads_timestamp(
+            comparison.right
+        ):
+            return comparison.left
         return None
 
     def _reads_timestamp(self, expr: ast.Expr) -> bool:
         return self.column(expr) == ["timestamp"]
 
 
-def _comparison(expr: ast.Expr) -> tuple[ast.CompareOperationOp, ast.Expr, ast.Expr] | None:
-    """`expr` as an operator and its operands, whether it is written `a >= b` or `greaterOrEquals(a, b)`."""
+def _comparison(expr: ast.Expr) -> ast.CompareOperation | None:
+    """`expr` as a comparison, whether it is written `a >= b` or `greaterOrEquals(a, b)`."""
     if isinstance(expr, ast.CompareOperation):
-        return expr.op, expr.left, expr.right
+        return expr
     if isinstance(expr, ast.Call) and expr.name in HOGQL_COMPARISON_MAPPING and len(expr.args) == 2:
-        return HOGQL_COMPARISON_MAPPING[expr.name], expr.args[0], expr.args[1]
+        return ast.CompareOperation(op=HOGQL_COMPARISON_MAPPING[expr.name], left=expr.args[0], right=expr.args[1])
     return None
 
 
@@ -299,16 +307,16 @@ def _pinned_values(expr: ast.Expr, reads: _Predicate, accepts: _Predicate) -> li
     comparison = _comparison(expr)
     if comparison is None:
         return None
-    op, left, right = comparison
-    if op == ast.CompareOperationOp.Eq:
-        if reads(left) and accepts(right):
-            return [right]
-        if reads(right) and accepts(left):
-            return [left]
+    if comparison.op == ast.CompareOperationOp.Eq:
+        if reads(comparison.left) and accepts(comparison.right):
+            return [comparison.right]
+        if reads(comparison.right) and accepts(comparison.left):
+            return [comparison.left]
         return None
-    if op in (ast.CompareOperationOp.In, ast.CompareOperationOp.GlobalIn):
+    if comparison.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.GlobalIn):
+        right = comparison.right
         values = right.exprs if isinstance(right, (ast.Tuple, ast.Array)) else [right]
-        return values if reads(left) and values and all(accepts(value) for value in values) else None
+        return values if reads(comparison.left) and values and all(accepts(value) for value in values) else None
     return None
 
 
@@ -352,8 +360,7 @@ def _earliest_instant(expr: ast.Expr, now: datetime, timezone: ZoneInfo) -> date
         return _constant_instant(expr.value, (timezone, UTC))
     shift = _shift(expr)
     if shift is not None:
-        base, interval, sign = shift
-        return _shifted(_earliest_instant(base, now, timezone), interval, sign)
+        return _shifted(_earliest_instant(shift.base, now, timezone), shift.interval, shift.sign)
     if not isinstance(expr, ast.Call):
         return None
     name, args = expr.name, expr.args
@@ -405,7 +412,7 @@ def _zones_of(expr: ast.Expr, timezone: ZoneInfo) -> tuple[tzinfo, ...]:
     while True:
         shift = _shift(expr)
         if shift is not None:
-            expr = shift[0]
+            expr = shift.base
         elif isinstance(expr, ast.Call) and expr.name == "assumeNotNull" and len(expr.args) == 1:
             expr = expr.args[0]
         else:
@@ -426,20 +433,28 @@ def _zone(expr: ast.Expr) -> tuple[tzinfo, ...]:
     return ()
 
 
-def _shift(expr: ast.Expr) -> tuple[ast.Expr, tuple[int, str] | None, int] | None:
+@frozen
+class _Shift:
+    base: ast.Expr
+    interval: tuple[int, str] | None
+    sign: int
+
+
+def _shift(expr: ast.Expr) -> _Shift | None:
     """`expr` as a base, an interval and a sign when it adds an interval to a time or subtracts one."""
     if isinstance(expr, ast.ArithmeticOperation) and expr.op in (
         ast.ArithmeticOperationOp.Add,
         ast.ArithmeticOperationOp.Sub,
     ):
-        return expr.left, _interval(expr.right), 1 if expr.op == ast.ArithmeticOperationOp.Add else -1
+        sign = 1 if expr.op == ast.ArithmeticOperationOp.Add else -1
+        return _Shift(base=expr.left, interval=_interval(expr.right), sign=sign)
     if not isinstance(expr, ast.Call) or len(expr.args) != 2:
         return None
     if expr.name in ("plus", "minus"):
-        return expr.args[0], _interval(expr.args[1]), 1 if expr.name == "plus" else -1
+        return _Shift(base=expr.args[0], interval=_interval(expr.args[1]), sign=1 if expr.name == "plus" else -1)
     if expr.name in _SHIFT_FUNCTIONS and (count := _integer(expr.args[1])) is not None:
         sign, unit = _SHIFT_FUNCTIONS[expr.name]
-        return expr.args[0], (count, unit), sign
+        return _Shift(base=expr.args[0], interval=(count, unit), sign=sign)
     return None
 
 
@@ -466,7 +481,7 @@ def _rounded_down(instant: datetime | None, interval: tuple[int, str] | None) ->
     """The earliest instant that rounding `instant` down to a multiple of `interval` can give."""
     rounded = _shifted(instant, interval, -1)
     if rounded is not None and interval is not None and interval[1] in _DATE_UNITS:
-        return rounded - _EARLIEST_UTC_OFFSET
+        return rounded - _MAX_UTC_OFFSET
     return rounded
 
 
@@ -593,15 +608,26 @@ def swap_keeps_bindings(original: ast.AST, swapped: ast.AST) -> bool:
     expands to other columns, or a `FROM events` that read a CTE named `events`. The comparison ignores order,
     because the swap moves `PREWHERE` into `WHERE`.
     """
-    swapped_bindings = Counter(binding for binding in _bindings(swapped) if binding != _ADDED_FLAG_KEY_READ)
-    return Counter(_bindings(original)) == swapped_bindings
+    original_bindings = Counter(_bindings(original))
+    swapped_bindings = Counter(_bindings(swapped))
+    # Every binding of the original must survive the swap. The swapped query also reads flag_key once for each
+    # `flag_key IN (...)` predicate that the swap adds.
+    added = swapped_bindings - original_bindings
+    return not (original_bindings - swapped_bindings) and set(added) <= {_ADDED_FLAG_KEY_READ}
 
 
 # A field records the last part of its chain, so `e.person_id` and `person_id` match.
 _Binding = tuple[str, str | int, tuple[str, ...]]
 
-# events has no flag_key column. In a query that resolves on events, only the predicate the swap adds reads one.
+# events has no flag_key column, so the original query records this binding only for a select alias named flag_key
+# that reads the scan.
 _ADDED_FLAG_KEY_READ: _Binding = ("field", "flag_key", ("scan",))
+
+# flag_evaluations defines these events columns as constants because a flag call stores no elements. A read of one
+# returns what the events column holds for a flag call, so it counts as a read of the scan.
+_ELEMENT_STAND_INS = frozenset(
+    {"elements_chain", "elements_chain_href", "elements_chain_texts", "elements_chain_ids", "elements_chain_elements"}
+)
 
 
 def _bindings(node: ast.AST) -> list[_Binding]:
@@ -626,7 +652,9 @@ class _BindingCollector(_SyntaxVisitor):
         # after the field. The same field can be a plain column on events, so only the alias name and what the
         # expansion reads count.
         expansion = _bindings(node.expr)
-        reads_scan = bool(expansion) and all(target == ("scan",) for _, _, target in expansion)
+        reads_scan = all(target == ("scan",) for _, _, target in expansion) and (
+            bool(expansion) or node.alias in _ELEMENT_STAND_INS
+        )
         self.bindings.append(("field", node.alias, ("scan",) if reads_scan else ("expression",)))
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:

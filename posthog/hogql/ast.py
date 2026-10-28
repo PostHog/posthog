@@ -1378,7 +1378,7 @@ class RatioExpr(Expr):
     right: Optional[Constant] = None
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class SampleExpr(Expr):
     # k or n
     sample_value: RatioExpr

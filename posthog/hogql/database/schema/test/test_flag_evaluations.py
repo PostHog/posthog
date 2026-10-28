@@ -122,6 +122,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 "$session_id": SESSION_ID,
                 "$feature_flag_request_id": "req-456",
                 "$group_0": "acme",
+                "$window_id": "probe-window",
                 "probe": EVENT_PROBE,
                 "count": NUMERIC_PROBE,
             },
@@ -232,7 +233,8 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
     def test_every_field_reads_its_own_physical_column(self):
         results = self._select(
-            "flag_key, response, session_id, request_id, `$group_0`, person_id, person.id, person_mode, properties.probe"
+            "flag_key, response, session_id, request_id, `$group_0`, goe_0.key, `$window_id`, person_id, person.id, "
+            "person_mode, properties.probe"
         )
 
         assert results == [
@@ -242,6 +244,8 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 SESSION_ID,
                 "req-456",
                 "acme",
+                "acme",
+                "probe-window",
                 self.person_id,
                 self.person_id,
                 "full",
@@ -329,7 +333,9 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         merged_person_id = uuid.uuid4()
         self._override(merged_person_id, version=1)
 
-        assert self._select("person_id, person.id") == [(merged_person_id, merged_person_id)]
+        assert self._select("person_id, person.id, event_person_id") == [
+            (merged_person_id, merged_person_id, self.person_id)
+        ]
 
     def test_person_id_follows_the_latest_override_version(self):
         # A distinct_id collects one override row per merge, so the read has to pick the highest version.
@@ -421,6 +427,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ("session_id", "session_id", "$session_id", SESSION_ID),
             ("request_id", "request_id", "$feature_flag_request_id", "req-456"),
             ("group_key", "`$group_0`", "$group_0", "acme"),
+            ("group_key_through_goe", "goe_0.key", "$group_0", "acme"),
         ]
     )
     def test_column_copying_a_restricted_property_reads_and_filters_as_null(
@@ -639,6 +646,13 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 "AND e.properties.$feature_flag = 'probe-flag' AND e.timestamp >= now() - INTERVAL 7 DAY",
                 [(1,)],
             ),
+            (
+                "alias_named_flag_key_read_back",
+                "SELECT properties.$feature_flag AS flag_key, count() FROM events "
+                f"WHERE {FLAG_CALL_CONJUNCTS} GROUP BY flag_key",
+                [("probe-flag", 1)],
+            ),
+            ("element_column", f"SELECT elements_chain FROM events WHERE {FLAG_CALL_CONJUNCTS}", [("",)]),
             ("subquery_in_from", f"SELECT count() FROM (SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS})", [(1,)]),
             (
                 "cte",

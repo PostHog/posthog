@@ -8,6 +8,8 @@ from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
+from posthog.dataclasses import frozen
+
 # posthog/models/flag_evaluations/sql.py defines this name too. It imports django.conf, which this module keeps
 # off its import path, so the name is spelled out here.
 FLAG_CALLED_EVENT = "$feature_flag_called"
@@ -103,8 +105,14 @@ def flag_called_on_events_warnings(
     ]
 
 
-def flag_called_spans_read_from_flag_evaluations(prepared: ast.AST) -> set[tuple[int | None, int | None]]:
+@frozen
+class LiteralSpan:
+    start: int | None
+    end: int | None
+
+
+def flag_called_spans_read_from_flag_evaluations(prepared: ast.AST) -> set[LiteralSpan]:
     """The spans of the `$feature_flag_called` literals that a prepared AST compares to `flag_evaluations.event`."""
     finder = _FlagCalledLiteralFinder(FlagEvaluationsTable)
     finder.visit(prepared)
-    return {(literal.start, literal.end) for literal in finder.literals}
+    return {LiteralSpan(start=literal.start, end=literal.end) for literal in finder.literals}

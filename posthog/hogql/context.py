@@ -173,7 +173,7 @@ class HogQLContext:
     # HogQLQueryModifier, so a query can't disable enforcement.
     apply_events_retention_floor: bool = True
     # Backend-only switch for transforms/flag_calls_from_flag_evaluations.py. The data-deletion path sets it False, so a
-    # deletion predicate matches the rows it named before the swap existed, whatever the organization's mode.
+    # flag-call subquery in a deletion predicate keeps reading `events` whatever the organization's mode.
     rewrite_flag_calls_to_flag_evaluations: bool = True
 
     # Backend-only opt-in for transforms/events_read_in_order.py. The prefix is slower when the range is short or

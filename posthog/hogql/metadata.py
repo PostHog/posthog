@@ -38,6 +38,7 @@ from posthog.hogql.filters import replace_filters
 from posthog.hogql.flag_called_warnings import (
     FLAG_CALLED_EVENT,
     FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE,
+    LiteralSpan,
     flag_called_on_events_warnings,
     flag_called_spans_read_from_flag_evaluations,
 )
@@ -58,6 +59,7 @@ from posthog.hogql.type_system import runtime_type_from_constant_type
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.user import User
@@ -222,11 +224,9 @@ def get_hogql_metadata(
                 response.ch_table_names = get_table_names(prepared_ast)
 
             if source is None and FLAG_CALLED_EVENT in query.query:
-                flag_called_warnings, flag_called_notices = _flag_called_on_events_warnings(
-                    hogql_ast, prepared_ast, context, team
-                )
-                heuristic_warnings.extend(flag_called_warnings)
-                context.notices.extend(flag_called_notices)
+                flag_called_notices = _flag_called_notices(hogql_ast, prepared_ast, context, team)
+                heuristic_warnings.extend(flag_called_notices.move_warnings)
+                context.notices.extend(flag_called_notices.flag_evaluations_notices)
 
             if source is None and query.indexUsage and _index_usage_enabled(team):
                 _attach_index_usage(response, hogql_ast, context)
@@ -334,41 +334,47 @@ def _flag_called_announcement_url(payload: object) -> str | None:
     return None
 
 
-def _flag_called_on_events_warnings(
+@frozen
+class _FlagCalledNotices:
+    move_warnings: tuple[HogQLNotice, ...] = ()
+    flag_evaluations_notices: tuple[HogQLNotice, ...] = ()
+
+
+def _flag_called_notices(
     hogql_ast: Union[ast.SelectQuery, ast.SelectSetQuery],
     prepared_ast: ast.AST | None,
     context: HogQLContext,
     team: Team,
-) -> tuple[list[HogQLNotice], list[HogQLNotice]]:
+) -> _FlagCalledNotices:
     """The move warning on each flag-call literal that reads events, and a notice on each literal whose query
     reads posthog.flag_evaluations instead. `prepared_ast` is what the printer ran, so it says which scans it
     swapped."""
     try:
         move_notices = _flag_called_move_notices(team)
         if move_notices is None or not move_notices.enabled:
-            return [], []
+            return _FlagCalledNotices()
         warnings = flag_called_on_events_warnings(hogql_ast, context)
         if not warnings:
-            return [], []
+            return _FlagCalledNotices()
         url = _flag_called_announcement_url(move_notices.payload)
         swapped = flag_called_spans_read_from_flag_evaluations(prepared_ast) if prepared_ast is not None else set()
-        return (
-            [
+        return _FlagCalledNotices(
+            move_warnings=tuple(
                 warning.model_copy(update={"url": url})
                 for warning in warnings
-                if (warning.start, warning.end) not in swapped
-            ],
-            [
+                if LiteralSpan(start=warning.start, end=warning.end) not in swapped
+            ),
+            flag_evaluations_notices=tuple(
                 warning.model_copy(update={"message": FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE, "url": url})
                 for warning in warnings
-                if (warning.start, warning.end) in swapped
-            ],
+                if LiteralSpan(start=warning.start, end=warning.end) in swapped
+            ),
         )
     except Exception:
         # The warning is advisory. A query that compiles must not be reported as invalid because this
         # check failed, and the caller turns any exception here into an invalid query.
         logger.exception("hogql_flag_called_warning_failed", team_id=context.team_id)
-        return [], []
+        return _FlagCalledNotices()
 
 
 def _attach_index_usage(
