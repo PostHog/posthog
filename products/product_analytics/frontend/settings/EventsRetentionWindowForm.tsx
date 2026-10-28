@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { LemonButton, LemonDialog, LemonInput, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { LONGEST_PLAN_RETENTION_MONTHS } from 'scenes/insights/dataRetention/dataRetentionBannerLogic'
 import { urls } from 'scenes/urls'
@@ -91,6 +91,9 @@ export function EventsRetentionWindowForm({
 
     return (
         <div>
+            <LemonBanner type="warning" className="max-w-160 mb-4">
+                Events older than this window are deleted at the next monthly cleanup. Deleted events can't be restored.
+            </LemonBanner>
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInput
                     type="number"
@@ -107,6 +110,7 @@ export function EventsRetentionWindowForm({
                 />
                 <LemonButton
                     type="primary"
+                    status="danger"
                     onClick={confirmSave}
                     loading={saving}
                     disabledReason={saveDisabledReason}
