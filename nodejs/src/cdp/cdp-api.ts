@@ -64,7 +64,7 @@ import { GroupsManagerService } from './services/managers/groups-manager.service
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import { EMAIL_QUEUE_PRIORITY } from './services/messaging/email-priority'
-import { EMAIL_STATUS_FLUSH_MAX_WAIT_MS, EmailStatusService } from './services/messaging/email-status.service'
+import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
@@ -1267,7 +1267,7 @@ export class CdpApi {
             // Flushed together, and bounded, so the best-effort status row can't hold up the 202.
             await Promise.all([
                 this.invocationResultsService.invocationResultsRowsService.flush(),
-                this.emailStatusService.flushWithin(EMAIL_STATUS_FLUSH_MAX_WAIT_MS),
+                this.emailStatusService.flush(),
             ])
             // The run skips the trigger pipeline that counts runs for event-triggered workflows.
             this.hogFunctionMonitoringService.queueAppMetric(

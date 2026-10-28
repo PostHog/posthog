@@ -28,21 +28,22 @@ export type EmailStatusReason =
 
 // The rank is the high part of `version`, so a message's status only moves forward in the
 // ReplacingMergeTree, whatever order the rows arrive in. `failed` ranks below `sent` so that a
-// successful rerun of the same invocation replaces the failed attempt.
+// successful rerun of the same invocation replaces the failed attempt. The gaps let a failure take the
+// rank between two statuses. Never renumber a rank, because rows already written keep their versions.
 const STATUS_RANK: Record<EmailStatus, bigint> = {
     queued: 0n,
-    failed: 1n,
-    sent: 2n,
-    delivered: 3n,
-    bounced: 4n,
-    complained: 5n,
+    failed: 2n,
+    sent: 3n,
+    delivered: 5n,
+    bounced: 6n,
+    complained: 7n,
 }
 
 // 2^48 ms is past the year 10000, so the status time never reaches into the rank bits.
 const STATUS_AT_BITS = 48n
 
-// How long a request path waits for its status rows. See `flushWithin`.
-export const EMAIL_STATUS_FLUSH_MAX_WAIT_MS = 1000
+// How long a flush waits for its rows. See `flush`.
+const EMAIL_STATUS_FLUSH_MAX_WAIT_MS = 1000
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -111,7 +112,8 @@ export class EmailStatusService {
 
     constructor(
         private outputs: IngestionOutputs<EmailStatusOutput>,
-        private config: { EMAIL_STATUS_ENABLED: boolean }
+        private config: { EMAIL_STATUS_ENABLED: boolean },
+        private maxFlushWaitMs = EMAIL_STATUS_FLUSH_MAX_WAIT_MS
     ) {}
 
     queue(update: EmailStatusUpdate): void {
@@ -137,20 +139,19 @@ export class EmailStatusService {
         return Promise.resolve()
     }
 
-    // For request paths: the reply waits at most `maxWaitMs`, and rows still in flight are produced in the
-    // background. The status API already documents that a status can arrive a few seconds late.
-    async flushWithin(maxWaitMs: number): Promise<void> {
-        const flushed = this.flush()
-        await Promise.race([flushed, delay(maxWaitMs, undefined, { ref: false })])
-    }
-
+    // The caller waits at most `maxFlushWaitMs`, and rows still in flight are produced in the background.
+    // A stalled produce then cannot hold up the send API's reply, the SES webhook, or a worker batch past
+    // its timeout. The status API already documents that a status can arrive a few seconds late.
     async flush(): Promise<void> {
         if (this.queuedRows.length === 0) {
             return
         }
         const rows = this.queuedRows
         this.queuedRows = []
+        await Promise.race([this.produce(rows), delay(this.maxFlushWaitMs, undefined, { ref: false })])
+    }
 
+    private async produce(rows: EmailStatusRow[]): Promise<void> {
         await Promise.all(
             rows.map(async (row) => {
                 try {

@@ -24,8 +24,8 @@ describe('EmailStatusService', () => {
             team_id: 2,
             message_id: messageId,
             status: 'failed',
-            // 1 * 2^48 + status_at in ms, as a decimal string for ClickHouse's UInt64.
-            version: (1n * 2n ** 48n + BigInt(statusAt.getTime())).toString(),
+            // 2 * 2^48 + status_at in ms, as a decimal string for ClickHouse's UInt64.
+            version: (2n * 2n ** 48n + BigInt(statusAt.getTime())).toString(),
             created_at: '2026-01-02 03:04:05.678000',
             status_at: '2026-01-03 10:00:00.123000',
             reason: 'provider_error',
@@ -48,6 +48,20 @@ describe('EmailStatusService', () => {
 
         expect(versions).toEqual([...versions].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)))
         expect(new Set(versions).size).toEqual(statuses.length)
+    })
+
+    it('returns from a flush whose produce stalls once the wait runs out', async () => {
+        const produce = jest.fn(() => new Promise<void>(() => {}))
+        const service = new EmailStatusService(
+            { produce } as unknown as IngestionOutputs<EmailStatusOutput>,
+            { EMAIL_STATUS_ENABLED: true },
+            10
+        )
+
+        service.queue({ teamId: 2, messageId, status: 'sent' })
+
+        await expect(service.flush()).resolves.toBeUndefined()
+        expect(produce).toHaveBeenCalledTimes(1)
     })
 
     it.each([
