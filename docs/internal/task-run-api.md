@@ -26,6 +26,18 @@ Keep the task ID and inspect its runs before you retry.
 Do not repeat task creation to recover from a run failure.
 If a database read fails after dispatch, the response still includes the created run.
 
+The worker persists agent startup failures in `latest_run.state.startup_failure` from the failed readiness response for that run.
+The object contains `provider`, `phase`, nullable `reason`, and `retryability` (`requires_action`, `transient`, or `unknown`).
+Only validated provider reason codes can stop startup activity retries; log text is not used to classify them.
+Failures that require action include the configuration problem and a recovery step in the run's error message.
+`requires_action` means the current attempt needs a configuration or credential change before retrying, not that recovery is impossible.
+Unknown failures keep the existing retry policy. Credit exhaustion is a separate gateway-token refusal: a new attempt rechecks credit availability after a top-up; topping up does not automatically resume a failed run.
+Temporary Codex credential-service outages remain retryable. Missing or invalid subscription credentials preserve the provider's reconnect or token-relay instructions.
+The worker records `agent_startup_attempt` immediately before a real launch and `agent_startup_success` after readiness succeeds.
+Successful initialization clears the startup failure and clears the crash message while the run is non-terminal. A terminal run keeps its final error. A later failed attempt preserves the last completed startup as recovery evidence.
+These startup state fields cannot be written, appended to, or removed through the run PATCH API, including by sandbox clients.
+Older agents may omit these fields; consumers must preserve the existing behavior when they are absent or invalid.
+
 `branch` selects the base branch for the first run.
 Optional run hints can be `null`.
 Pi runs reject ACP runtime, model, reasoning-effort, and permission-mode hints.

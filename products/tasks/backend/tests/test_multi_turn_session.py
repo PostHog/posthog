@@ -39,6 +39,7 @@ from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner impor
     _EMPTY_TURN_RETRY_NUDGE,
     MultiTurnSession,
 )
+from products.tasks.backend.logic.services.startup_failure import AgentStartupFailed
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.tests.agent_log_fixtures import (
     FakeTaskRun,
@@ -1130,6 +1131,46 @@ class TestPollForTurnSurfacesAgentError:
     the exception, so a caller separates a retryable provider outage from a scout defect without
     matching the message text."""
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "reason,retryability,error_type,transient",
+        [
+            ("proxy_invalid", "requires_action", "SandboxExecutionError", False),
+            (None, "unknown", "SandboxExecutionError", True),
+            (None, "unknown", None, False),
+            ("session_held_by_background", "transient", None, True),
+        ],
+    )
+    async def test_startup_failure_survives_without_session_logs(self, reason, retryability, error_type, transient):
+        fake_task_run = FakeTaskRun(
+            status="failed",
+            state={
+                "failure_error_type": error_type,
+                "startup_failure": {
+                    "provider": "claude",
+                    "phase": "sdk_initialization",
+                    "reason": reason,
+                    "retryability": retryability,
+                },
+            },
+        )
+        with (
+            patch("posthog.storage.object_storage.read", return_value=None),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+        ):
+            with pytest.raises(AgentStartupFailed) as error:
+                await poll_for_turn(fake_task_run, skip_lines=0)
+
+        assert error.value.failure.reason == reason
+        assert error.value.failure.retryability == retryability
+        assert error.value.task_id == fake_task_run.task_id
+        assert error.value.run_id == fake_task_run.id
+        assert isinstance(error.value, SandboxRunFailed)
+        assert error.value.error_type == error_type
+        assert error.value.transient is transient
+
     @parameterized.expand(
         [
             ("upstream_provider_failure", "API Error: 429 rate_limit_error", True),
@@ -1233,6 +1274,7 @@ class TestPollForTurnSurfacesAgentError:
         "state,expected_error_type,expected_transient",
         [
             (None, None, False),
+            ({"startup_failure": {"reason": "proxy_invalid", "retryability": "requires_action"}}, None, False),
             ({"failure_error_type": "RepositoryCloneError"}, "RepositoryCloneError", True),
             ({"failure_error_type": "RepositoryAccessError"}, "RepositoryAccessError", False),
         ],
