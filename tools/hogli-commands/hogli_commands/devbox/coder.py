@@ -1627,11 +1627,21 @@ class _CoderApi:
 
     def __init__(self) -> None:
         whoami = _run(["coder", "whoami", "-o", "json"], capture_output=True)
-        token = _run(["coder", "login", "token"], capture_output=True)
-        if whoami.returncode != 0 or token.returncode != 0:
+        if whoami.returncode != 0:
             _fail(f"Could not read your Coder login. {RUNTIME_SETUP_HINT}", cause="coder_login_unreadable")
         self._base_url = f"{json.loads(whoami.stdout)[0]['url'].rstrip('/')}/api/v2"
-        self._headers = {"Coder-Session-Token": token.stdout.strip()}
+        self._headers = {"Coder-Session-Token": self._session_token()}
+
+    @staticmethod
+    def _session_token() -> str:
+        # The CLI authenticates with CODER_SESSION_TOKEN when it is set, but
+        # `coder login token` prints only the stored login (cli/login.go).
+        if token := os.environ.get("CODER_SESSION_TOKEN"):
+            return token
+        stored = _run(["coder", "login", "token"], capture_output=True)
+        if stored.returncode != 0:
+            _fail(f"Could not read your Coder login. {RUNTIME_SETUP_HINT}", cause="coder_login_unreadable")
+        return stored.stdout.strip()
 
     def request(self, method: str, path: str, *, body: dict[str, Any] | None = None) -> Any:
         try:

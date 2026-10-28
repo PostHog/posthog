@@ -1345,6 +1345,30 @@ class TestCapacityFallback:
 
         assert starts == expected_starts
 
+    @pytest.mark.parametrize(
+        "env_token, expected", [("env-token", "env-token"), (None, "stored-token")], ids=["env", "stored-login"]
+    )
+    def test_api_authenticates_with_the_token_the_cli_uses(
+        self, monkeypatch: pytest.MonkeyPatch, env_token: str | None, expected: str
+    ) -> None:
+        if env_token is None:
+            monkeypatch.delenv("CODER_SESSION_TOKEN", raising=False)
+        else:
+            monkeypatch.setenv("CODER_SESSION_TOKEN", env_token)
+        monkeypatch.setattr(
+            coder,
+            "_run",
+            lambda args, **kw: subprocess.CompletedProcess(
+                args, 0, '[{"url": "https://coder.example.com"}]' if "whoami" in args else "stored-token\n", ""
+            ),
+        )
+        request = MagicMock(return_value=MagicMock(ok=True, json=MagicMock(return_value=[])))
+        monkeypatch.setattr(coder.requests, "request", request)
+
+        coder._CoderApi().instance_type("b-1")
+
+        assert request.call_args.kwargs["headers"] == {"Coder-Session-Token": expected}
+
 
 class TestTemplatePresetResolution:
     """Test the runtime preset resolution that suppresses coder's picker."""
