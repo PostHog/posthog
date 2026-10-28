@@ -49,8 +49,6 @@ THEME_NAME_SAMPLES = 8
 THEME_NAMING_DAILY_CAP = 100
 MAX_THEME_LABEL_WORDS = 10
 _THEME_MODEL = "gemini-3.5-flash-lite"
-# A label is a few words, so a request that runs this long is stuck rather than slow.
-_NAMING_REQUEST_TIMEOUT_MS = 20_000
 _SAMPLE_CHARS = 400
 _IDENTIFIER = re.compile(r"https?://|www\.|@")
 
@@ -214,11 +212,7 @@ async def name_theme(team_id: int, theme_id: uuid.UUID, now: datetime) -> str | 
                 scanner_prompt=(prompt or "")[:600],
                 samples="\n".join(f"- {sample}" for sample in samples),
             ),
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=_ThemeName,
-                http_options=types.HttpOptions(timeout=_NAMING_REQUEST_TIMEOUT_MS),
-            ),
+            config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=_ThemeName),
             posthog_distinct_id=replay_vision_distinct_id(team_id),
             posthog_trace_id=str(uuid.uuid4()),
             posthog_properties={"$ai_span_name": "name_search_theme", "team_id": team_id},

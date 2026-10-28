@@ -52,7 +52,8 @@ _MAX_POLL_INTERVAL_S = 360.0
 _RETRY_WINDOW_S = 600.0
 # Any other error is unlikely to clear by waiting, and every partition waits behind it, so it gives up sooner.
 _ERROR_RETRY_WINDOW_S = 60.0
-# The model request has its own timeout, so this only catches a naming call stuck somewhere else.
+# Long enough for a naming call that waits behind ranking on the shared database thread, short enough that a hung
+# model call frees its slot.
 _NAMING_TIMEOUT_S = 120.0
 _NAMING_DRAIN_S = 20.0
 # A due theme left unnamed while this many are in flight is named when its next member arrives.
