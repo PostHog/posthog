@@ -36,6 +36,7 @@ from filelock import FileLock, Timeout
 from temporalio.testing import WorkflowEnvironment
 
 from posthog.dataclasses import frozen
+from posthog.test.download_deadline import call_with_deadline
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ MIN_BYTES_PER_SECOND = 1_000_000
 THROUGHPUT_GRACE_SECONDS = 5
 DOWNLOAD_DEADLINE_SECONDS = 60
 # Longer than ATTEMPTS bounded attempts plus backoff, so a waiting process outlasts the lock holder's retries.
-LOCK_TIMEOUT_SECONDS = 300
+LOCK_TIMEOUT_SECONDS = 360
 # xdist gives every worker of one run the same id, so a failure one worker records stops the others in that run
 # only, and a later run tries again.
 _RUN_ID = os.environ.get("PYTEST_XDIST_TESTRUNUID") or uuid.uuid4().hex
@@ -118,13 +119,11 @@ def _download(binary: ServerBinary, platform_params: dict[str, str], dest: Path)
         with requests.get(archive_url, stream=True, timeout=REQUEST_TIMEOUT) as response:
             response.raise_for_status()
             with archive_path.open("wb") as archive_file:
-                # chunk_size=None yields data as it arrives, so the checks below run after every read.
-                for chunk in response.iter_content(chunk_size=None):
+                # A read returns only when its whole chunk arrives, so a small chunk lets the check run during a trickle.
+                for chunk in response.iter_content(chunk_size=16 * 1024):
                     archive_file.write(chunk)
                     received += len(chunk)
                     elapsed = time.monotonic() - started
-                    if elapsed > DOWNLOAD_DEADLINE_SECONDS:
-                        raise TimeoutError(f"download took longer than {DOWNLOAD_DEADLINE_SECONDS}s")
                     if elapsed > THROUGHPUT_GRACE_SECONDS and received / elapsed < MIN_BYTES_PER_SECOND:
                         raise TimeoutError(f"download too slow: {received} bytes in {elapsed:.0f}s")
         # Reading the whole gzip stream checks its CRC, which reading one tar member can stop short of.
@@ -171,7 +170,7 @@ def ensure_binary(binary: ServerBinary) -> Path | None:
             if not failed_in_this_run:
                 for attempt in range(1, ATTEMPTS + 1):
                     try:
-                        _download(binary, platform_params, dest)
+                        call_with_deadline(lambda: _download(binary, platform_params, dest), DOWNLOAD_DEADLINE_SECONDS)
                         failed_marker.unlink(missing_ok=True)
                         return dest
                     except (

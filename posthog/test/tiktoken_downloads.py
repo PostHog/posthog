@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import time
 import logging
-import threading
 from collections.abc import Callable
 
 import requests
 import tiktoken.load
+
+from posthog.test.download_deadline import call_with_deadline
 
 logger = logging.getLogger(__name__)
 
@@ -28,37 +29,19 @@ DOWNLOAD_DEADLINE_SECONDS = 60
 
 
 def _download(url: str) -> bytes:
-    outcome: list[bytes | Exception] = []
-
-    def fetch() -> None:
-        try:
-            response = requests.get(url, timeout=REQUEST_TIMEOUT)
-            response.raise_for_status()
-            outcome.append(response.content)
-        except Exception as error:
-            outcome.append(error)
-
-    # A trickle that sends a few bytes before each read timeout keeps every read alive, and a streamed read
-    # blocks until its whole chunk arrives, so only a wall-clock deadline bounds the download. The thread is a
-    # daemon because the interpreter would otherwise wait for an abandoned download at exit.
-    thread = threading.Thread(target=fetch, daemon=True)
-    thread.start()
-    thread.join(DOWNLOAD_DEADLINE_SECONDS)
-    if not outcome:
-        raise TimeoutError(f"download of {url} took longer than {DOWNLOAD_DEADLINE_SECONDS}s")
-    if isinstance(outcome[0], Exception):
-        raise outcome[0]
-    return outcome[0]
+    response = requests.get(url, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    return response.content
 
 
 def _download_with_retries(url: str) -> bytes:
     for attempt in range(1, ATTEMPTS):
         try:
-            return _download(url)
+            return call_with_deadline(lambda: _download(url), DOWNLOAD_DEADLINE_SECONDS)
         except (requests.RequestException, TimeoutError) as error:
             logger.warning("tiktoken download attempt %d of %s failed: %s", attempt, url, error)
             time.sleep(2**attempt)
-    return _download(url)
+    return call_with_deadline(lambda: _download(url), DOWNLOAD_DEADLINE_SECONDS)
 
 
 def install() -> None:
