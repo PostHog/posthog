@@ -20,6 +20,8 @@ from posthog.temporal.mcp_analytics.intent_clustering.constants import (
 )
 
 from products.mcp_analytics.backend import intent_generation
+from products.mcp_analytics.backend.facade.api import custom_harness_rules
+from products.mcp_analytics.backend.facade.contracts import CustomHarnessRule
 from products.mcp_analytics.backend.models import (
     MCPAnalyticsSubmission,
     MCPCustomHarness,
@@ -674,16 +676,23 @@ class TestMCPCustomHarnessEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         over_limit = self.client.post(self._url(), {"name": "Extra", "match_pattern": "extra"}, format="json")
         assert over_limit.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_update_and_delete(self) -> None:
+    def test_update_and_delete_refresh_the_cached_rules(self) -> None:
+        assert custom_harness_rules(self.team) == ()
+
         created = self.client.post(self._url(), {"name": "One", "match_pattern": "one"}, format="json").json()
+        assert custom_harness_rules(self.team) == (CustomHarnessRule(name="One", pattern="one"),)
+        with self.assertNumQueries(0):
+            assert custom_harness_rules(self.team) == (CustomHarnessRule(name="One", pattern="one"),)
 
         updated = self.client.patch(self._url(f"{created['id']}/"), {"name": "Uno"}, format="json")
         assert updated.status_code == status.HTTP_200_OK
         assert updated.json()["name"] == "Uno"
+        assert custom_harness_rules(self.team) == (CustomHarnessRule(name="Uno", pattern="one"),)
 
         deleted = self.client.delete(self._url(f"{created['id']}/"))
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
         assert self.client.get(self._url()).json() == []
+        assert custom_harness_rules(self.team) == ()
 
     def test_other_teams_harnesses_are_not_listed(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other-team")
