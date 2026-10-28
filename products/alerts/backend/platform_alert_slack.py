@@ -4,6 +4,7 @@ from typing import Any, Final
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from posthog.slack.channels import clip_text
+from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.utils import absolute_uri
 
 from products.alerts.backend.logic.insight_alert_destinations import _slack_attachments, _slack_blocks
@@ -109,4 +110,6 @@ def render_insight_slack_message(
     )
     # The card lives in the attachment, but `text` is what Slack reads out in a push notification
     # and what a screen reader announces, so it repeats the fallback rather than going out empty.
-    return SlackMessageContent(text=fallback, blocks=[], attachments=attachments)
+    # Escaped, because `text` is mrkdwn and the name is user-written: `<!channel>` would broadcast.
+    # The attachment's own fallback and the rich-text elements are not mrkdwn, so they stay literal.
+    return SlackMessageContent(text=escape_slack_mrkdwn(fallback), blocks=[], attachments=attachments)

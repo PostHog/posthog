@@ -158,7 +158,15 @@ class TestInsightAlertMessage(SimpleTestCase):
         ]
         assert [link.split("/project/")[-1] for link in links] == ([f"1/insights/{short_id}"] if short_id else [])
 
-    def test_a_native_message_says_what_it_is_in_the_text_slack_notifies_with(self) -> None:
+    @parameterized.expand(
+        [
+            ("says_what_it_is", "Example alert", "Insight alert ‘Example alert’ triggered"),
+            # `text` is mrkdwn, so an alert a project member named `<!channel>` would otherwise
+            # broadcast to everyone in the channel on every firing.
+            ("cannot_speak_as_slack_markup", "<!channel>", "Insight alert ‘&lt;!channel&gt;’ triggered"),
+        ]
+    )
+    def test_the_text_slack_notifies_with(self, _name: str, alert_name: str, expected: str) -> None:
         # The card is an attachment, which a push notification and a screen reader do not read.
         now = datetime(2026, 1, 1, tzinfo=UTC)
         transition = AnnouncedTransition(
@@ -176,13 +184,15 @@ class TestInsightAlertMessage(SimpleTestCase):
         content = render_insight_slack_message(
             team_id=1,
             transition=transition,
-            alert_name="Example alert",
+            alert_name=alert_name,
             alert_url="https://example.com/alert",
             project=None,
             image=None,
         )
         assert content is not None
-        assert content.text == "Insight alert ‘Example alert’ triggered"
+        assert content.text == expected
+        # The attachment fallback is plain text, so it keeps the name as written.
+        assert alert_name in content.attachments[0]["fallback"]
 
     def test_native_anomaly_message_shows_the_affected_period(self) -> None:
         now = datetime(2026, 1, 2, tzinfo=UTC)
