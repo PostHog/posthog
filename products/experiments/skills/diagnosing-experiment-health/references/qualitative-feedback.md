@@ -48,8 +48,8 @@ Not an opening: any unresolved mechanical diagnostic (SRM, broken flag gate) —
 **The anchor is the moment, not the flag.**
 The survey belongs right after the user finishes the experimented flow — after submitting the form, completing the checkout.
 That is when they hold an opinion, and when the completion event fires in both variants, the ask is symmetric by construction (and `[MEDIUM]` converts better than an ambient popover).
-The app's own quick-create for an experiment builds another shape by default: no event trigger, always linked to the flag, launched at once (an event trigger and "Save as draft" are options the user has to pick).
-The shape below is the one to use over MCP.
+Attach the survey the way the app's quick-create for an experiment does: linked to the experiment's flag, and shown to everyone exposed to it rather than to one variant.
+Quick-create adds no event trigger and launches at once by default. Over MCP, add the completion event and create a draft (Decision 2).
 
 Create with `survey-create`:
 
@@ -60,19 +60,18 @@ Create with `survey-create`:
 | `appearance.surveyPopupDelaySeconds` | a few seconds, so it doesn't collide with the action                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `questions`                          | one 5-point rating, optionally one open follow-up — a single tap is a complete answer                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `enable_partial_responses`           | `true`. It defaults to **false** over the API. With `false`, posthog-js sends `survey sent` only when the user reaches the end of the survey: a rating followed by a dismiss arrives on `survey dismissed`, and one followed by leaving the page on `survey abandoned`, both with `$survey_partially_completed`. With `true`, it sends one `survey sent` per answered question, all with the same `$survey_submission_id`, and only the last carries `$survey_completed: true`. The queries below read all three events `[MEDIUM]` |
-| `linked_flag_id`                     | optional — see below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `linked_flag_id`                     | the experiment's `feature_flag.id`, always. See below                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `conditions.linkedFlagVariant`       | omit unless targeting one variant (Decision 1); requires `linked_flag_id`                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `start_date`                         | omit (Decision 2)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 Name the surface concretely in the question ("How was the new checkout?", not "This update?"), sentence case, short, not leading.
 Survey craft beyond this belongs to the surveys product's guidance.
 
-**When does `linked_flag_id` earn its place?**
-With an event trigger it buys one thing: hiding the survey from users the experiment never enrolled.
-On a full rollout that population is empty — skip the link, along with its side effects (Decision 2) and SDK constraints.
-On a partial rollout it is a real courtesy: without it, non-enrolled users who complete the flow get interrupted for answers the readout filters out.
-The experiment's User feedback tab lists only surveys that are linked to its flag, so a survey without the link does not show up there.
-Resolve `feature_flag.id` from `experiment-get`; the API takes the integer ID, not the flag key.
+**Always link the experiment's flag.**
+The app's quick-create always does, and the experiment's User feedback tab lists only surveys linked to its flag, so a survey without the link doesn't show up there.
+The link also hides the survey from users the experiment never enrolled, which matters on a partial rollout.
+It brings the exposure interaction in Decision 2, one more reason to create the survey as a draft.
+Resolve `feature_flag.id` from `experiment-get`. The API takes the integer ID, not the flag key.
 
 ## Decision 1: which variant to ask
 
