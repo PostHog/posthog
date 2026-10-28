@@ -24,7 +24,14 @@ from posthog.week_start_day import WeekStartDay
 
 from ..facade import contracts
 from ..facade.contracts import HighlightCandidate, HighlightFindings, HighlightSource
-from ..facade.enums import HighlightInterval, HighlightLabel, HighlightPinStatus, HighlightPriority, HighlightsStatus
+from ..facade.enums import (
+    HighlightInterval,
+    HighlightLabel,
+    HighlightMetricReason,
+    HighlightPinStatus,
+    HighlightPriority,
+    HighlightsStatus,
+)
 from ..feature_flags import pulse_ranking
 from ..models import TodayHighlights
 from ..temporal.inputs import (
@@ -49,7 +56,7 @@ START_LOCK_SECONDS = 30
 MAX_ITEMS = 6
 MAX_PER_FAMILY = 2
 MIN_SCORE = 0.2
-PULSE_TILES = 4
+PULSE_CANDIDATES = 6
 URGENT_RISK_SCORE = 0.75
 MINOR_OPPORTUNITY_SCORE = 0.4
 
@@ -217,7 +224,11 @@ def build_highlights(
             offered.setdefault(metric.key, metric)
     resolved = {**offered, **(pinned or {})}
     chosen = [resolved[key] for key in pins if key in resolved]
-    pulse = [*chosen, *(metric for key, metric in offered.items() if key not in pins)][:PULSE_TILES]
+    suggested = sorted(
+        (metric for key, metric in offered.items() if key not in pins),
+        key=lambda metric: metric.reason == HighlightMetricReason.POPULAR,
+    )
+    pulse = [*chosen, *suggested][:PULSE_CANDIDATES]
     ranked = rank([replace(c, source=name) for name, result in found.items() for c in result.items])
     return contracts.Highlights(
         status=HighlightsStatus.READY,
