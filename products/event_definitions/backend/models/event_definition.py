@@ -1,3 +1,4 @@
+from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.db.models.signals import post_delete, post_save, pre_save
@@ -48,11 +49,65 @@ class EventDefinition(Taggable, UUIDTModel):
     # DB column kept as `promoted_property` to avoid a Postgres column rename.
     primary_property = models.CharField(max_length=400, null=True, blank=True, db_column="promoted_property")
 
+    # Copies of the enterprise fields, written by EnterpriseEventDefinition.save(). See enterprise_copies.py.
+    # The user foreign keys have no database constraint, because adding one locks posthog_user.
+    base_description = models.TextField(null=True, blank=True, db_column="description")
+    base_owner = models.ForeignKey(
+        "posthog.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+        db_column="owner_id",
+    )
+    base_updated_at = models.DateTimeField(null=True, blank=True, db_column="updated_at")
+    base_updated_by = models.ForeignKey(
+        "posthog.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+        db_column="updated_by_id",
+    )
+    base_verified = models.BooleanField(default=False, db_default=False, blank=True, db_column="verified")
+    base_verified_at = models.DateTimeField(null=True, blank=True, db_column="verified_at")
+    base_verified_by = models.ForeignKey(
+        "posthog.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+        db_column="verified_by_id",
+    )
+    base_hidden = models.BooleanField(null=True, blank=True, default=False, db_default=False, db_column="hidden")
+    base_default_columns = ArrayField(models.TextField(), null=True, blank=True, db_column="default_columns")
+
     class Meta:
         db_table = "posthog_eventdefinition"
         indexes = [
             # Index on project_id foreign key
             models.Index(fields=["project"], name="posthog_eve_proj_id_f93fcbb0"),
+            # Deleting a user sets these to NULL, which needs an index to find the rows. Almost every row is
+            # NULL, so the indexes stay small.
+            models.Index(
+                fields=["base_owner"], name="posthog_eventdef_owner_idx", condition=models.Q(base_owner__isnull=False)
+            ),
+            models.Index(
+                fields=["base_updated_by"],
+                name="posthog_eventdef_upd_by_idx",
+                condition=models.Q(base_updated_by__isnull=False),
+            ),
+            models.Index(
+                fields=["base_verified_by"],
+                name="posthog_eventdef_ver_by_idx",
+                condition=models.Q(base_verified_by__isnull=False),
+            ),
             GinIndex(
                 name="index_event_definition_name",
                 fields=["name"],

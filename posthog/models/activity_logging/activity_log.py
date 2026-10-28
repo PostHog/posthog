@@ -928,6 +928,16 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "verified_at",
         "verified_by",
         "post_to_slack",
+        # Base-table copies of the enterprise fields, whose changes are already logged.
+        "base_description",
+        "base_owner",
+        "base_updated_at",
+        "base_updated_by",
+        "base_verified",
+        "base_verified_at",
+        "base_verified_by",
+        "base_hidden",
+        "base_default_columns",
     ],
     "PropertyDefinition": [
         "propertydefinition_ptr_id",
@@ -940,6 +950,14 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "verified_by",
         "post_to_slack",
         "property_type_format",
+        # Base-table copies of the enterprise fields, whose changes are already logged.
+        "base_description",
+        "base_updated_at",
+        "base_updated_by",
+        "base_verified",
+        "base_verified_at",
+        "base_verified_by",
+        "base_hidden",
     ],
     "Team": [
         "uuid",

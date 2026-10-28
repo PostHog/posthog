@@ -64,6 +64,7 @@ from posthog.taxonomy.definition_search import (
 from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
+from products.event_definitions.backend.models.enterprise_copies import EVENT_DEFINITION_COPIES
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
@@ -172,10 +173,16 @@ def create_event_definitions_sql(
     if order_expressions is None:
         order_expressions = []
 
+    # Qualified, because the base table carries copies of the enterprise columns under the same names.
+    # The copies stay out of the enterprise read: `.raw()` maps a result column to every field with that
+    # column name, and the copies are not filled in yet.
     event_definition_fields = {
-        f'"{f.column}"'
+        f'{f.model._meta.db_table}."{f.column}"'
         for f in event_definition_model(is_enterprise)._meta.get_fields()
-        if isinstance(f, Field) and f.column is not None and f.column not in ["deprecated_tags", "tags"]
+        if isinstance(f, Field)
+        and f.column is not None
+        and f.column not in ["deprecated_tags", "tags"]
+        and not (is_enterprise and f.name in EVENT_DEFINITION_COPIES.values())
     }
     # Django relies on PK being present in the result set to tell if it's a saved instance
     event_definition_fields.add("id as pk")
@@ -478,7 +485,9 @@ class EventDefinitionViewSet(
 
         exclude_hidden = self.request.GET.get("exclude_hidden", "false").lower() == "true"
         if exclude_hidden and EE_AVAILABLE:
-            filter_query += " AND (hidden IS NULL OR hidden = false)"
+            filter_query += (
+                " AND (ee_enterpriseeventdefinition.hidden IS NULL OR ee_enterpriseeventdefinition.hidden = false)"
+            )
 
         if exclude_stale:
             # `last_seen_at` is not indexed: the predicate runs after the project-scoped
@@ -493,11 +502,14 @@ class EventDefinitionViewSet(
 
         if verified_param is not None:
             if verified_param.lower() == "true":
-                filter_query += " AND (verified = true OR posthog_eventdefinition.name = ANY(%(core_events)s))"
+                filter_query += (
+                    " AND (ee_enterpriseeventdefinition.verified = true"
+                    " OR posthog_eventdefinition.name = ANY(%(core_events)s))"
+                )
                 params["core_events"] = CORE_EVENTS
             else:
                 filter_query += (
-                    " AND (verified IS NULL OR verified = false)"
+                    " AND (ee_enterpriseeventdefinition.verified IS NULL OR ee_enterpriseeventdefinition.verified = false)"
                     " AND NOT posthog_eventdefinition.name = ANY(%(core_events)s)"
                 )
                 params["core_events"] = CORE_EVENTS

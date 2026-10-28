@@ -502,6 +502,24 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_by"] is None
         assert response.json()["verified_at"] is None
 
+    def test_list_reads_enterprise_columns_while_base_copies_are_empty(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        definition = EnterprisePropertyDefinition.objects.create(
+            team=self.team, name="billing_plan_tier", description="Paid tier", verified=True
+        )
+        PropertyDefinition.objects.filter(pk=definition.pk).update(base_description=None, base_verified=False)
+
+        response = self.client.get(
+            "/api/projects/@current/property_definitions/?verified=true&search=billing_plan_tier"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [(row["name"], row["description"], row["verified"]) for row in response.json()["results"]] == [
+            ("billing_plan_tier", "Paid tier", True)
+        ]
+
     def test_list_property_definitions_verified_ordering(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)

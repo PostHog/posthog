@@ -1,12 +1,18 @@
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django.utils import timezone
 
 from products.event_definitions.backend.models import PropertyDefinition
+from products.event_definitions.backend.models.enterprise_copies import (
+    PROPERTY_DEFINITION_COPIES,
+    copy_enterprise_fields,
+)
 
 
 class EnterprisePropertyDefinition(PropertyDefinition):
     description = models.TextField(blank=True, null=True, default="")
-    updated_at = models.DateTimeField(auto_now=True)
+    # Set in save() instead of with auto_now, which only fills it after the base row is written.
+    updated_at = models.DateTimeField(editable=False, blank=True)
     updated_by = models.ForeignKey("posthog.User", null=True, on_delete=models.SET_NULL, blank=True)
 
     verified = models.BooleanField(default=False, blank=True)
@@ -30,3 +36,8 @@ class EnterprisePropertyDefinition(PropertyDefinition):
         default=None,
         db_column="tags",
     )
+
+    def save(self, *args, **kwargs) -> None:
+        self.updated_at = timezone.now()
+        kwargs["update_fields"] = copy_enterprise_fields(self, PROPERTY_DEFINITION_COPIES, kwargs.get("update_fields"))
+        super().save(*args, **kwargs)

@@ -41,6 +41,7 @@ from posthog.taxonomy.taxonomy import (
     QUERY_DEPRECATED_EVENT_PROPERTIES,
 )
 
+from products.event_definitions.backend.models.enterprise_copies import PROPERTY_DEFINITION_COPIES
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 tracer = trace.get_tracer(__name__)
@@ -394,9 +395,12 @@ class QueryContext:
     def with_verified_filter(self, verified: Optional[bool], use_enterprise_taxonomy: bool) -> Self:
         if verified is not None and use_enterprise_taxonomy:
             if verified:
-                verified_filter = " AND verified = true"
+                verified_filter = " AND ee_enterprisepropertydefinition.verified = true"
             else:
-                verified_filter = " AND (verified IS NULL OR verified = false)"
+                verified_filter = (
+                    " AND (ee_enterprisepropertydefinition.verified IS NULL"
+                    " OR ee_enterprisepropertydefinition.verified = false)"
+                )
             return dataclasses.replace(
                 self,
                 excluded_properties_filter=(
@@ -409,7 +413,7 @@ class QueryContext:
 
     def with_hidden_filter(self, exclude_hidden: bool, use_enterprise_taxonomy: bool) -> Self:
         if exclude_hidden and use_enterprise_taxonomy:
-            hidden_filter = " AND (hidden IS NULL OR hidden = false)"
+            hidden_filter = " AND (ee_enterprisepropertydefinition.hidden IS NULL OR ee_enterprisepropertydefinition.hidden = false)"
             return dataclasses.replace(
                 self,
                 excluded_properties_filter=(
@@ -438,7 +442,7 @@ class QueryContext:
         )
 
     def as_sql(self, order_by_verified: bool):
-        verified_ordering = "verified DESC NULLS LAST," if order_by_verified else ""
+        verified_ordering = "ee_enterprisepropertydefinition.verified DESC NULLS LAST," if order_by_verified else ""
         length_ordering = (
             f"length({self.property_definition_table}.name) ASC," if self.order_by_search_relevance else ""
         )
@@ -655,6 +659,9 @@ class PropertyDefinitionViewSet(
                         and f.column is not None
                         and f.column not in ["deprecated_tags", "tags"]
                         and hasattr(f, "cached_col")
+                        # `.raw()` maps a result column to every field with that column name, and the
+                        # base-table copies of the enterprise columns are not filled in yet.
+                        and f.name not in PROPERTY_DEFINITION_COPIES.values()
                     ]
                 )
 

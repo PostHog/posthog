@@ -1,1 +1,1 @@
-0067_remove_scimrequestlog_identity_provider_config_and_more
+0068_enterprise_definition_updated_at_set_in_save

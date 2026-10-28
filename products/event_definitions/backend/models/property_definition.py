@@ -110,11 +110,51 @@ class PropertyDefinition(Taggable, UUIDTModel):
     # Number of times an insight has been saved with this property in its filter in the last 30 rolling days (computed asynchronously when stars align)
     query_usage_30_day = models.IntegerField(default=None, null=True)
 
+    # Copies of the enterprise fields, written by EnterprisePropertyDefinition.save(). See enterprise_copies.py.
+    # The user foreign keys have no database constraint, because adding one locks posthog_user.
+    base_description = models.TextField(null=True, blank=True, db_column="description")
+    base_updated_at = models.DateTimeField(null=True, blank=True, db_column="updated_at")
+    base_updated_by = models.ForeignKey(
+        "posthog.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+        db_column="updated_by_id",
+    )
+    base_verified = models.BooleanField(default=False, db_default=False, blank=True, db_column="verified")
+    base_verified_at = models.DateTimeField(null=True, blank=True, db_column="verified_at")
+    base_verified_by = models.ForeignKey(
+        "posthog.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+        db_column="verified_by_id",
+    )
+    base_hidden = models.BooleanField(null=True, blank=True, default=False, db_default=False, db_column="hidden")
+
     class Meta:
         db_table = "posthog_propertydefinition"
         indexes = [
             # Index on project_id foreign key
             models.Index(fields=["project"], name="posthog_prop_proj_id_d3eb982d"),
+            # Deleting a user sets these to NULL, which needs an index to find the rows. Almost every row is
+            # NULL, so the indexes stay small.
+            models.Index(
+                fields=["base_updated_by"],
+                name="posthog_propdef_upd_by_idx",
+                condition=models.Q(base_updated_by__isnull=False),
+            ),
+            models.Index(
+                fields=["base_verified_by"],
+                name="posthog_propdef_ver_by_idx",
+                condition=models.Q(base_verified_by__isnull=False),
+            ),
             # This indexes the query in api/property_definition.py
             # :KLUDGE: django ORM typing is off here
             models.Index(
