@@ -24,7 +24,7 @@ describe('watchPicksLogic', () => {
             viewed: false,
             scanner_result: keyMomentMs === undefined ? null : { model_output: { key_moment_ms: keyMomentMs } },
         },
-        reason: { kind: 'signal_emitted' },
+        reason: { kind: 'embedding_pick' },
     })
 
     beforeEach(() => {
