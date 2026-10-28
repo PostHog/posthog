@@ -73,6 +73,12 @@ All operators take a single value except for `equals` and `doesn't equal` which 
 
 You should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, use last 30 days as a default time period.
 
+### Incomplete periods
+
+The last interval of a relative range is often still collecting data, so its value looks low.
+To leave that interval out, set `"excludeIncompletePeriods": true` in `dateRange`.
+Do not set `date_to` to `-1d` for this. It removes only today, and keeps the current week or month on a weekly or monthly chart.
+
 # Lifecycle guidelines
 
 Lifecycle insights analyze a **single event or action** over time. The `series` array must contain exactly one item. If the user mentions multiple events, pick the most relevant one or clarify.
