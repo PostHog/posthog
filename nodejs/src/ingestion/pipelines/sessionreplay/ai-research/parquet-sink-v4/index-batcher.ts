@@ -1,6 +1,7 @@
 /**
  * Buffers v4 index rows across Kafka batches and writes one Parquet file per index and write day on each flush. Offsets
- * are stored only after every file that holds their rows is written, so a failed write replays (at-least-once).
+ * are stored only after every file that holds their rows is written, so a failed write replays (at-least-once). A flush
+ * that succeeds then writes the watermark files of the partitions that this consumer still owns.
  */
 import { Message, TopicPartition, TopicPartitionOffset } from 'node-rdkafka'
 
@@ -15,6 +16,10 @@ import { V4ParquetSinkMetrics } from './metrics'
 export type IndexFileStore = {
     encode(index: V4Index, rows: readonly V4IndexRow[]): Promise<Buffer>
     put(index: V4Index, writeDay: string, body: Buffer, nowMs: number): Promise<string>
+}
+
+export type IndexWatermarkWriter = {
+    write(ownedOffsets: readonly TopicPartitionOffset[], nowMs: number): Promise<void>
 }
 
 export interface IndexBatcherOptions {
@@ -47,6 +52,7 @@ export class IndexBatcher {
     private rowCount = 0
     private bufferedBytes = 0
     private pendingOffsets = new Map<string, TopicPartitionOffset>()
+    private readonly storedOffsets = new Map<string, TopicPartitionOffset>()
     /** Partitions revoked since their last message. A flush that started before the revocation must not store their offsets. */
     private readonly revoked = new Set<string>()
     private lastFlushMs: number
@@ -55,6 +61,7 @@ export class IndexBatcher {
     constructor(
         private readonly store: IndexFileStore,
         private readonly offsetStore: OffsetStore,
+        private readonly watermarkFiles: IndexWatermarkWriter,
         private readonly options: IndexBatcherOptions,
         nowMs: number
     ) {
@@ -93,6 +100,7 @@ export class IndexBatcher {
         for (const key of keys) {
             this.revoked.add(key)
             this.pendingOffsets.delete(key)
+            this.storedOffsets.delete(key)
         }
         for (const [groupKey, group] of this.groups) {
             const kept = group.rows.filter((buffered) => !keys.has(buffered.partition))
@@ -146,6 +154,7 @@ export class IndexBatcher {
         heartbeats?.unref()
         try {
             await this.writeTaken(nowMs)
+            await this.watermarkFiles.write([...this.storedOffsets.values()], Date.now())
         } finally {
             if (heartbeats) {
                 clearInterval(heartbeats)
@@ -187,6 +196,9 @@ export class IndexBatcher {
             const assigned = [...offsets].filter(([partition]) => !this.revoked.has(partition))
             if (assigned.length > 0) {
                 this.offsetStore.offsetsStore(assigned.map(([, offset]) => offset))
+                for (const [partition, offset] of assigned) {
+                    this.storedOffsets.set(partition, offset)
+                }
             }
             if (offsets.size > 0) {
                 V4ParquetSinkMetrics.incFlush(wroteFiles ? 'written' : 'empty')

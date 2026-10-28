@@ -3,13 +3,23 @@ import { ParquetReader } from '@dsnp/parquetjs'
 import { Message } from 'node-rdkafka'
 import { register } from 'prom-client'
 
-import { OffsetStore } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
+import { parseJSON } from '~/common/utils/json-parse'
+import {
+    CAPTURE_TIMESTAMP_HEADER,
+    CaptureWatermark,
+    OffsetStore,
+    capturedRecords,
+    releasingOffsetStore,
+} from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 
 import { IndexBatcher, IndexBatcherOptions } from './index-batcher'
 import { BLOCK_INDEX_COLUMNS, V4Index } from './index-columns'
+import { indexCapturedData } from './index-message'
 import { IndexParquetStore } from './index-parquet-store'
+import { IndexWatermarkFiles, WATERMARK_FILE_INTERVAL_MS } from './index-watermark-files'
 
 const TOPIC = 'ai_research_v4_index'
+const WALL_CLOCK_MS = 1_790_000_000_000
 
 function blockRow(sessionId: string): Record<string, unknown> {
     const row: Record<string, unknown> = {}
@@ -62,6 +72,11 @@ function message(
     } as unknown as Message
 }
 
+const captured = (capturedAtMs: number, message: Message): Message => ({
+    ...message,
+    headers: [...(message.headers ?? []), { [CAPTURE_TIMESTAMP_HEADER]: Buffer.from(String(capturedAtMs)) }],
+})
+
 async function readColumn(body: Buffer, column: string): Promise<unknown[]> {
     const reader = await ParquetReader.openBuffer(body)
     const cursor = reader.getCursor()
@@ -78,21 +93,40 @@ async function rejected(reason: string): Promise<number> {
     return metric.values.find((value) => value.labels.reason === reason)?.value ?? 0
 }
 
+async function failedWatermarkWrites(): Promise<number> {
+    const metric = await register.getSingleMetric('ai_research_v4_parquet_sink_watermark_writes_total')!.get()
+    return (
+        metric.values.find((value) => value.labels.index === 'blocks' && value.labels.outcome === 'failed')?.value ?? 0
+    )
+}
+
 describe('IndexBatcher', () => {
     let puts: PutObjectCommandInput[]
     let send: jest.Mock
     let offsets: jest.Mocked<OffsetStore>
+    let watermark: CaptureWatermark
 
     const makeBatcher = (options: Partial<IndexBatcherOptions> = {}) =>
         new IndexBatcher(
             new IndexParquetStore({ send } as unknown as S3Client, 'rrweb-v4', 1_000),
-            offsets,
+            releasingOffsetStore(offsets, watermark),
+            new IndexWatermarkFiles({ send } as unknown as S3Client, 'rrweb-v4', watermark),
             { flushIntervalMs: 600_000, maxRows: 1_000, maxBytes: 1024 * 1024, ...options },
             0
         )
 
+    const deliver = (batcher: IndexBatcher, messages: Message[], nowMs: number): Promise<void> => {
+        watermark.hold(capturedRecords(messages, indexCapturedData))
+        return batcher.handleBatch(messages, nowMs)
+    }
+
     const keysOf = (index: V4Index): string[] =>
         puts.map((put) => put.Key!).filter((key) => key.startsWith(`index/${index}/`))
+
+    const watermarkPuts = (): PutObjectCommandInput[] => puts.filter((put) => put.Key!.includes('/_watermarks/'))
+
+    const watermarkFiles = (): Record<string, unknown> =>
+        Object.fromEntries(watermarkPuts().map((put) => [put.Key!, parseJSON(put.Body as string)]))
 
     beforeEach(() => {
         puts = []
@@ -101,6 +135,11 @@ describe('IndexBatcher', () => {
             return Promise.resolve({})
         })
         offsets = { offsetsStore: jest.fn() }
+        watermark = new CaptureWatermark('index-batcher-test', 0)
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
     })
 
     it('writes one file per index and write day, then stores the next offset of each partition', async () => {
@@ -282,5 +321,132 @@ describe('IndexBatcher', () => {
 
         expect(await readColumn(puts[0].Body as Buffer, 'session_id')).toEqual(['kept'])
         expect(offsets.offsetsStore).toHaveBeenCalledWith([{ topic: TOPIC, partition: 0, offset: 2 }])
+    })
+
+    it('writes the watermark files after the index files and the offsets, and never past a row still buffered', async () => {
+        jest.spyOn(Date, 'now').mockReturnValue(WALL_CLOCK_MS)
+        const steps: string[] = []
+        const record = (command: { input: PutObjectCommandInput }): void => {
+            puts.push(command.input)
+            steps.push(command.input.Key!.replace(/\d+-[0-9a-f]{16}\.parquet$/, '{file}'))
+        }
+        let finishUpload: ((value: unknown) => void) | undefined
+        send.mockImplementation((command: { input: PutObjectCommandInput }) => {
+            record(command)
+            return Promise.resolve({})
+        }).mockImplementationOnce((command: { input: PutObjectCommandInput }) => {
+            record(command)
+            return new Promise((resolve) => (finishUpload = resolve))
+        })
+        offsets.offsetsStore.mockImplementation(() => steps.push('store offsets'))
+        const batcher = makeBatcher()
+        await deliver(
+            batcher,
+            [
+                captured(5_000, message(10, 'blocks', '2026-10-15', blockRow('s1'))),
+                captured(4_000, message(11, 'images', '2026-10-15', imageRow('image:v4:7:2026-10:a'))),
+            ],
+            1
+        )
+
+        const flushed = batcher.flush(2)
+        while (!finishUpload) {
+            await new Promise((resolve) => setImmediate(resolve))
+        }
+        // The shutdown flush runs while batches still arrive, so this row is buffered but not in the files being written.
+        await deliver(batcher, [captured(3_000, message(12, 'blocks', '2026-10-15', blockRow('s2')))], 3)
+        finishUpload({})
+        await flushed
+
+        expect(steps).toEqual([
+            'index/blocks/dt=2026-10-15/{file}',
+            'index/images/dt=2026-10-15/{file}',
+            'store offsets',
+            'index/blocks/_watermarks/partition=0000.json',
+            'index/images/_watermarks/partition=0000.json',
+        ])
+        expect(watermarkFiles()).toEqual({
+            'index/blocks/_watermarks/partition=0000.json': {
+                partition: 0,
+                complete_up_to_capture_ms: 3_000,
+                committed_offset: 12,
+                written_at_ms: WALL_CLOCK_MS,
+            },
+            'index/images/_watermarks/partition=0000.json': {
+                partition: 0,
+                complete_up_to_capture_ms: 4_000,
+                committed_offset: 12,
+                written_at_ms: WALL_CLOCK_MS,
+            },
+        })
+        expect(watermarkPuts().map((put) => put.IfNoneMatch)).toEqual([undefined, undefined])
+    })
+
+    it('rewrites a watermark file at most once per interval, and only for partitions it still owns', async () => {
+        const clock = jest.spyOn(Date, 'now')
+        const batcher = makeBatcher()
+        const flushAt = async (wallClockMs: number, messages: Message[]): Promise<void> => {
+            clock.mockReturnValue(wallClockMs)
+            await deliver(batcher, messages, 1)
+            await batcher.flush(1)
+        }
+
+        await flushAt(WALL_CLOCK_MS, [
+            captured(1_000, message(1, 'blocks', '2026-10-15', blockRow('s1'))),
+            captured(2_000, message(1, 'blocks', '2026-10-15', blockRow('s2'), 1)),
+        ])
+        batcher.release([{ topic: TOPIC, partition: 1 }])
+        await flushAt(WALL_CLOCK_MS + WATERMARK_FILE_INTERVAL_MS - 1, [
+            captured(3_000, message(2, 'blocks', '2026-10-15', blockRow('s1'))),
+        ])
+        await flushAt(WALL_CLOCK_MS + WATERMARK_FILE_INTERVAL_MS, [
+            captured(4_000, message(3, 'blocks', '2026-10-15', blockRow('s1'))),
+        ])
+
+        expect(watermarkPuts().map((put) => put.Key)).toEqual([
+            'index/blocks/_watermarks/partition=0000.json',
+            'index/blocks/_watermarks/partition=0001.json',
+            'index/blocks/_watermarks/partition=0000.json',
+        ])
+        expect(watermarkFiles()['index/blocks/_watermarks/partition=0000.json']).toEqual({
+            partition: 0,
+            complete_up_to_capture_ms: 4_000,
+            committed_offset: 4,
+            written_at_ms: WALL_CLOCK_MS + WATERMARK_FILE_INTERVAL_MS,
+        })
+    })
+
+    it('keeps a flush successful when a watermark write fails, and writes the file on the next flush', async () => {
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(WALL_CLOCK_MS)
+        const failedBefore = await failedWatermarkWrites()
+        send.mockImplementation((command: { input: PutObjectCommandInput }) => {
+            if (command.input.Key!.includes('/_watermarks/')) {
+                return Promise.reject(new Error('s3 down'))
+            }
+            puts.push(command.input)
+            return Promise.resolve({})
+        })
+        const batcher = makeBatcher()
+        await deliver(batcher, [captured(1_000, message(1, 'blocks', '2026-10-15', blockRow('s1')))], 1)
+
+        await expect(batcher.flush(2)).resolves.toBeUndefined()
+        expect(offsets.offsetsStore).toHaveBeenCalledWith([{ topic: TOPIC, partition: 0, offset: 2 }])
+        expect(await failedWatermarkWrites()).toBe(failedBefore + 1)
+
+        send.mockImplementation((command: { input: PutObjectCommandInput }) => {
+            puts.push(command.input)
+            return Promise.resolve({})
+        })
+        clock.mockReturnValue(WALL_CLOCK_MS + 1)
+        await batcher.flush(3)
+
+        expect(watermarkFiles()).toEqual({
+            'index/blocks/_watermarks/partition=0000.json': {
+                partition: 0,
+                complete_up_to_capture_ms: 1_000,
+                committed_offset: 2,
+                written_at_ms: WALL_CLOCK_MS + 1,
+            },
+        })
     })
 })

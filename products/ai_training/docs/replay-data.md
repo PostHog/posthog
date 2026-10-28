@@ -486,6 +486,8 @@ Fetched images are partitioned by the key month of their reference.
 | `rrweb-v4`  | `blocks/dt={day}/`                            | One object per recorder flush: sealed blocks, each found by byte range          |
 | `rrweb-v4`  | `index/blocks/dt={day}/`                      | Parquet, one row per block                                                      |
 | `rrweb-v4`  | `index/images/dt={day}/`                      | Parquet, one row per stored inline image                                        |
+| `rrweb-v4`  | `index/blocks/_watermarks/`                   | JSON, one object per Kafka partition: how far the block index is complete       |
+| `rrweb-v4`  | `index/images/_watermarks/`                   | JSON, one object per Kafka partition: how far the image index is complete       |
 | `images-v4` | `images/packs/dt={day}/{team_id}/`            | One object per recorder flush and team: sealed images, each found by byte range |
 | `images-v4` | `images/url/month={YYYY-MM}/{team_id}/{hash}` | One sealed fetched image per URL reference                                      |
 
@@ -563,6 +565,43 @@ This holds for the blocks that one recorder process inspected. After a rebalance
 - `url_fingerprints` holds up to 10 distinct page URLs of the block as the first 16 hexadecimal characters of an HMAC-SHA256 of the URL. The key is derived from the session key with HKDF-SHA256, empty salt and info `ml-url-fingerprint-key`, so fingerprints can be compared only within one session. They count distinct URLs, where `navigations` counts URL changes.
 - `cold_start` is true when the recorder first sees a session after it started, for example after a partition rebalance, or after it dropped the session's DOM state to stay within its memory budget. Its playability columns then describe only the part of the session the recorder saw.
 
+#### Watermark files
+
+After a flush, the sink writes one JSON file per index and Kafka partition of `ai_research_v4_index`, so a reader can learn from the bucket how far the index is complete:
+
+- `index/blocks/_watermarks/partition={NNNN}.json` for block rows.
+- `index/images/_watermarks/partition={NNNN}.json` for image rows.
+
+`{NNNN}` is the partition number with four digits, for example `partition=0007.json`.
+Each file holds one object:
+
+| Field                       | Meaning                                                                                                                                                                                                                                                                                  |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `partition`                 | The Kafka partition.                                                                                                                                                                                                                                                                     |
+| `complete_up_to_capture_ms` | Every row that the sink read from the partition with an earlier capture time is in an index file in S3. It is the value of `ml_replay_capture_watermark_timestamp_seconds` for the partition, in milliseconds: `data="event_metadata"` for blocks and `data="inline_images"` for images. |
+| `committed_offset`          | The next offset to read on the partition. The sink stored it for commit after it wrote every row below it.                                                                                                                                                                               |
+| `written_at_ms`             | When the sink wrote the file.                                                                                                                                                                                                                                                            |
+
+The capture time of a row is the Kafka timestamp of the replay record that it came from, which the recorder sends in the `capture-timestamp-ms` header.
+The sink writes the files only after a flush wrote its index files and stored its offsets, and only for the partitions that it still owns.
+A row that the sink holds but has not written keeps the value at or below its capture time.
+The sink rewrites each file at most once every `WATERMARK_FILE_INTERVAL_MS` (`index-watermark-files.ts`), with a plain PUT that replaces the file.
+A failed write does not fail the flush. The sink counts it in `ai_research_v4_parquet_sink_watermark_writes_total`, logs it, and tries again on the next flush.
+S3 expires a file 30 days after its last write, as it does every object in the bucket.
+
+To learn how far an index is complete, a reader:
+
+1. Reads every file under that index's `_watermarks/`.
+2. Takes the minimum `complete_up_to_capture_ms` across the partitions.
+3. Treats a file whose `written_at_ms` is more than about 15 minutes old as a partition that is not progressing. While the sink makes progress, a file is at most the rewrite interval plus one flush interval old.
+
+Some limits apply:
+
+- A partition that delivers no records keeps its last value, as the gauge does. So a stalled partition holds the minimum down.
+- A partition that the sink has not flushed since it started to write these files has no file. A reader that needs every partition compares the number of files with the partition count of the topic.
+- The value covers only the rows that reached the sink. The recorder sends a row only after its own flush stores the block or image, so a row with an earlier capture time can still be in the recorder. A sink that has read all of its topic does not make the index complete.
+- A reader that lists `index/blocks/` or `index/images/` for Parquet files must skip `_watermarks/`. Hive-style readers such as Spark, Athena and pyarrow datasets ignore paths that start with `_`, and a `*.parquet` glob does not match the JSON files.
+
 ### Image index
 
 `index/images/` has one row per inline image in a pack: `team_id`, `key_month`, `image_ref`, `pack_s3_key`, `byte_start`, `byte_end`, `mime` and `byte_size`.
@@ -570,6 +609,7 @@ This holds for the blocks that one recorder process inspected. After a rebalance
 - Each frame in a pack is sealed under the team month key of the write month, as a fetched image is. A session deletion therefore does not make inline images unreadable (see [Deletion](#deletion)).
 - `image_ref` uses the team month image content key, so the same image has the same reference in every session of the team month. A pack holds one frame per distinct reference, so an image that two sessions show in one flush is stored once. A later flush stores it again.
 - A reader resolves an image of a block by (`team_id`, `image_ref`) and opens it with the team month key of `key_month`.
+- The sink writes [watermark files](#watermark-files) for this index too, under `index/images/_watermarks/`.
 
 ### Remote images
 
