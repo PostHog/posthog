@@ -21,6 +21,27 @@ MAX_METRICS_TO_SUMMARIZE = 50
 
 
 @frozen
+class StoredArmResult:
+    key: str
+    number_of_samples: int
+    mean: float | None
+    change: float | None = None
+    significant: bool | None = None
+
+
+@frozen
+class StoredPrimaryResult:
+    """The current stored result of an experiment's primary metric."""
+
+    metric_name: str
+    metric_type: str | None
+    proportion: bool
+    goal: str | None
+    baseline: StoredArmResult
+    variants: tuple[StoredArmResult, ...]
+
+
+@frozen
 class ExperimentSummaryData:
     """Result of fetching experiment data for the AI results summary."""
 
