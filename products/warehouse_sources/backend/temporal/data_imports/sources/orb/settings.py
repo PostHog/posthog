@@ -170,7 +170,9 @@ ORB_ENDPOINTS: dict[str, OrbEndpointConfig] = {
         fanout=_customer_fanout(),
     ),
     # Credit balances change as usage draws them down, so this is full refresh. Without
-    # include_all_blocks Orb returns only unexpired, non-zero blocks.
+    # include_all_blocks Orb returns only unexpired, non-zero blocks. Like CreditLedgerEntries, this
+    # reads Orb's default `credits` ledger: Orb has no endpoint that lists a customer's other ledger
+    # currencies to fan out over.
     "CreditBlocks": OrbEndpointConfig(
         name="CreditBlocks",
         path="/customers/{customer_id}/credits",

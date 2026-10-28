@@ -186,8 +186,9 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "CreditBlocks": {
-        "description": "The prepaid credit blocks of each customer, including expired and depleted blocks, "
-        "with their remaining balance. Synced per customer as a full refresh.",
+        "description": "The prepaid credit blocks of each customer in Orb's default credits ledger, including "
+        "expired and depleted blocks, with their remaining balance. Blocks in a real-world currency ledger are "
+        "not included. Synced per customer as a full refresh.",
         "docs_url": "https://docs.withorb.com/api-reference/credit/fetch-customer-credit-balance",
         "columns": {
             "id": "The Orb-assigned unique identifier for the credit block.",
