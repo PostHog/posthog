@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -7,8 +7,11 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 
 import { AvailableFeature } from '~/types'
 
+import { sidepanelTicketsLogic } from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
+
 export function SSFSetting(): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
+    const { canCreateTicket } = useValues(sidepanelTicketsLogic)
 
     return (
         <PayGateMini feature={AvailableFeature.SSF} featureDetail="organization-ssf">
@@ -19,10 +22,16 @@ export function SSFSetting(): JSX.Element {
                 <LemonButton
                     type="primary"
                     data-attr="ssf-request-access"
+                    disabledReason={
+                        canCreateTicket
+                            ? undefined
+                            : "Your plan doesn't include support tickets. Upgrade your plan to request access."
+                    }
                     onClick={() =>
                         openSupportForm({
                             kind: 'support',
                             message: "I'd like to request access to SSF (Shared Signals Framework).",
+                            isEmailFormOpen: true,
                         })
                     }
                 >

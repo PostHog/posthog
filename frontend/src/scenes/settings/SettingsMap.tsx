@@ -2592,6 +2592,7 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'organization',
         id: 'organization-ssf',
+        hideSelfHost: true,
         title: 'SSF',
         settings: [
             {
