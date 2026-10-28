@@ -8,7 +8,9 @@
  * last part, so the reply starts mid-sentence at whatever point the stream delta
  * ended. ACP's own `session/…` requests keep their boundary meaning, because a
  * prompt and a permission request do belong in the transcript. A `session/update`
- * that only reports session state is neutral: clients render no row for it.
+ * that changes session state or a tool call already on screen adds no row, so it
+ * is neutral. A tool call's updates always follow its `tool_call`, which stays a
+ * boundary, so the rule needs no state and every tracker agrees on it.
  *
  * A response carries no method, so its own line cannot say what it answers.
  * Tracking the outstanding `_posthog/` control calls is what separates the
@@ -39,11 +41,12 @@ const TRANSCRIPT_EVENT_NOTIFICATION_METHODS = new Set([
   "_posthog/user_message",
 ]);
 
-const SESSION_STATE_UPDATES = new Set<unknown>([
+const NEUTRAL_SESSION_UPDATES = new Set<unknown>([
   "available_commands_update",
   "config_option_update",
   "current_mode_update",
   "session_info_update",
+  "tool_call_update",
   "usage_update",
 ]);
 
@@ -85,7 +88,7 @@ export class TranscriptBoundaries {
         | { update?: { sessionUpdate?: unknown } }
         | null
         | undefined;
-      return SESSION_STATE_UPDATES.has(params?.update?.sessionUpdate);
+      return NEUTRAL_SESSION_UPDATES.has(params?.update?.sessionUpdate);
     }
     return (
       isPosthogMethod && !TRANSCRIPT_EVENT_NOTIFICATION_METHODS.has(method)
