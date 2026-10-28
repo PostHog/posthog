@@ -521,6 +521,30 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[3].target, "3_custom_event_3!")
         self.assertEqual(response[3].value, 1)
 
+    @parameterized.expand(
+        [
+            ("all_events", {}, ["1_custom_event_1"]),
+            ("hogql_only", {"includeEventTypes": ["hogql"], "pathsHogQLExpression": "event"}, ["1_custom_event_1"]),
+            ("flag_called_start_point", {"startPoint": "$feature_flag_called"}, []),
+        ]
+    )
+    def test_paths_exclude_feature_flag_called(self, _name: str, paths_filter: dict, expected_sources: list[str]):
+        _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
+        _create_event(distinct_id="person_1", event="custom_event_1", team=self.team, timestamp="2023-03-10 12:00:00")
+        _create_event(
+            distinct_id="person_1", event="$feature_flag_called", team=self.team, timestamp="2023-03-10 12:01:00"
+        )
+        _create_event(distinct_id="person_1", event="custom_event_2", team=self.team, timestamp="2023-03-10 12:02:00")
+
+        r = PathsQueryRunner(
+            query={"kind": "PathsQuery", "dateRange": {"date_from": "2023-03-01"}, "pathsFilter": paths_filter},
+            team=self.team,
+        ).run()
+        assert isinstance(r, CachedPathsQueryResponse)
+
+        assert [link.source for link in r.results] == expected_sources
+        assert all(link.target == "2_custom_event_2" for link in r.results)
+
     def test_screen_paths(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person_2a", "person_2b"])
