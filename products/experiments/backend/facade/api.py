@@ -12,6 +12,8 @@ from uuid import UUID
 import pydantic
 import structlog
 
+from posthog.schema import ExperimentEventExposureConfig
+
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -30,8 +32,14 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     normalize_to_exposure_criteria,
     resolve_default_exposure_event,
 )
+from products.experiments.backend.metric_calculation.config import (
+    build_primary_calculation_configs,
+    calculation_metric_name,
+)
+from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.models.experiment import Experiment as ExperimentModel
 from products.experiments.backend.running_time_target import load_running_time_target
+from products.experiments.stats.shared.enums import DifferenceType
 
 from .contracts import (
     CreateExperimentInput,
@@ -45,6 +53,8 @@ from .contracts import (
     ExperimentValidationError,
     RunningExperiment,
     RunningTimeMode,
+    StoredArmResult,
+    StoredPrimaryResult,
 )
 
 logger = structlog.get_logger(__name__)
@@ -172,6 +182,39 @@ def get_experiment_health_inputs(
     return health_inputs_payload(inputs)
 
 
+def get_stored_primary_result(*, team_id: int, experiment_id: int) -> StoredPrimaryResult | None:
+    """The current stored result of the experiment's primary metric. It reads Postgres only, not ClickHouse.
+
+    None for an experiment that reports absolute differences: the calculation key leaves out the difference type,
+    so the stored interval can be in either unit."""
+    experiment = ExperimentModel.objects.filter(team_id=team_id, pk=experiment_id, deleted=False).first()
+    config = next(iter(build_primary_calculation_configs(experiment)), None) if experiment else None
+    if experiment is None or config is None or config.settings.stats.difference_type == DifferenceType.ABSOLUTE:
+        return None
+    stats = MetricResultStore(experiment_id=experiment_id).current_result(config)
+    if stats is None:
+        return None
+    base = stats.baseline.mean
+    definition = config.definition
+    return StoredPrimaryResult(
+        metric_name=calculation_metric_name(experiment, config),
+        metric_type=definition.get("metric_type"),
+        proportion=definition.get("metric_type") == "funnel" or definition.get("threshold") is not None,
+        goal=definition.get("goal"),
+        baseline=StoredArmResult(key=stats.baseline.key, number_of_samples=stats.baseline.number_of_samples, mean=base),
+        variants=tuple(
+            StoredArmResult(
+                key=variant.key,
+                number_of_samples=variant.number_of_samples,
+                mean=variant.mean,
+                change=variant.interval.midpoint if variant.interval and base and base > 0 else None,
+                significant=variant.significant,
+            )
+            for variant in stats.variants
+        ),
+    )
+
+
 def get_running_time_target(
     *, team_id: int, experiment_id: int, mode: RunningTimeMode | None = None
 ) -> ExperimentRunningTimeTarget:
@@ -229,7 +272,9 @@ def _exposes_on_flag_calls(experiment_id: int, exposure_criteria: dict | None) -
     return criteria is None or (
         criteria.activation_config is None
         and is_default_exposure_config(criteria.exposure_config)
-        and not (criteria.exposure_config and criteria.exposure_config.properties)
+        and not (
+            isinstance(criteria.exposure_config, ExperimentEventExposureConfig) and criteria.exposure_config.properties
+        )
     )
 
 

@@ -127,6 +127,7 @@ export function DataTableVisualization({
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeCollectionId = insightVizDataCollectionId(insightProps, key)
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
+        loadQueue: context?.loadQueue,
         key: vizKey,
         query,
         dashboardId: insightProps.dashboardId,
@@ -144,6 +145,7 @@ export function DataTableVisualization({
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
+        loadQueue: context?.loadQueue,
         query: getBIVisualizationSource(query),
         retainResponseOnUnmount: insightProps.retainResponseOnUnmount,
         key: vizKey,
@@ -243,6 +245,9 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         query,
         filtersOverride: props.filtersOverride,
         variablesOverride: props.variablesOverride,
+        onFilterDashboard: !props.inSharedMode ? props.context?.onSelectBIMark : undefined,
+        isDashboardFilterSelected: !props.inSharedMode ? props.context?.isBIMarkActiveFilter : undefined,
+        getDashboardFilterUrl: !props.inSharedMode ? props.context?.getBIMarkDashboardUrl : undefined,
     }
     const drilldownLogic = biDrilldownLogic(drilldownProps)
     const { inspect: inspectResult, setInteraction, close: closeResultMenu } = useActions(drilldownLogic)

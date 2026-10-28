@@ -34,6 +34,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.apm.backend.presentation.views.EndpointsHealthViewSet",
     # Returns one bounded object (capped at MAP_EDGES_LIMIT edges over a bounded trace sample), not a page of rows.
     "products.apm.backend.presentation.views.ServiceMapViewSet",
+    # Returns the team's 20 most recent import runs, not a page of rows.
+    "products.messaging.backend.presentation.views.provider_imports.ProviderImportViewSet",
     "ee.api.billing.BillingViewset",
     "ee.api.quota_limits.QuotaLimitsViewSet",
     "products.subscriptions.backend.presentation.views.SubscriptionDeliveryViewSet",
@@ -169,6 +171,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.endpoints.backend.presentation.views.api.EndpointViewSet",
     "products.error_tracking.backend.presentation.views.alerts.ErrorTrackingAlertViewSet",
     "products.error_tracking.backend.presentation.views.assignment_rules.ErrorTrackingAssignmentRuleViewSet",
+    # Returns the fixed set of built-in filter definitions, one entry each, not a page of rows.
+    "products.error_tracking.backend.presentation.views.built_in_filters.ErrorTrackingBuiltInFilterViewSet",
     "products.error_tracking.backend.presentation.views.bypass_rules.ErrorTrackingBypassRuleViewSet",
     "products.error_tracking.backend.presentation.views.external_references.ErrorTrackingExternalReferenceViewSet",
     "products.error_tracking.backend.presentation.views.fingerprints.ErrorTrackingFingerprintViewSet",
