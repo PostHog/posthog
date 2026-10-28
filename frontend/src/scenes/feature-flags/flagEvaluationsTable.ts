@@ -25,8 +25,8 @@ export function storesFlagCallsOutsideEvents(team: TeamPublicType | TeamType | n
 
 /**
  * How long PostHog tells customers that flag_evaluations keeps a row. The events table keeps $feature_flag_called
- * forever. FLAG_EVALUATIONS_TTL_DAYS in posthog/models/flag_evaluations/sql.py is longer, so the table holds all of a
- * range that starts this many days back. That file says why.
+ * forever. Keep it equal to FLAG_EVALUATIONS_RETENTION_DAYS in posthog/models/flag_evaluations/sql.py.
+ * FLAG_EVALUATIONS_TTL_DAYS in that file is longer, so the table holds all of a range that starts this many days back.
  */
 export const FLAG_EVALUATIONS_RETENTION_DAYS = 90
 

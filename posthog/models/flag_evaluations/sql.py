@@ -40,10 +40,13 @@ FLAG_EVALUATIONS_WRITABLE_TABLE = f"writable_{FLAG_EVALUATIONS_TABLE}"
 KAFKA_FLAG_EVALUATIONS_TABLE = f"kafka_{FLAG_EVALUATIONS_TABLE}"
 FLAG_EVALUATIONS_MV_TABLE = f"{FLAG_EVALUATIONS_TABLE}_mv"
 
-# PostHog tells customers that this table keeps 90 days. A row dated day D expires when day
-# D + FLAG_EVALUATIONS_TTL_DAYS starts in UTC. A "Last 90 days" range starts at midnight 90 days back in the
-# team's timezone, up to 14 hours before that UTC midnight. The two extra days keep every such range inside
-# days that the table still holds in full.
+# PostHog tells customers that this table keeps this many days. The frontend mirrors this value as
+# FLAG_EVALUATIONS_RETENTION_DAYS in flagEvaluationsTable.ts. Change both together.
+FLAG_EVALUATIONS_RETENTION_DAYS = 90
+
+# A row dated day D expires when day D + FLAG_EVALUATIONS_TTL_DAYS starts in UTC. A "Last 90 days" range starts at
+# midnight 90 days back in the team's timezone. That midnight falls on the UTC day 90 or 91 days back, depending on
+# the timezone and the time of day. A 92-day TTL keeps every UTC day that such a range covers.
 # This value sets the TTL only when the table is created. Changing the TTL of an existing table takes a
 # migration, such as 0362_flag_evaluations_ttl_92_days.
 # The Node fork step mirrors this value in fork-flag-evaluations-step.ts. Change both together.
