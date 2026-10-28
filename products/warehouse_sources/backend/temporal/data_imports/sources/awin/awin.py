@@ -85,12 +85,16 @@ def _fetch(
     headers: dict[str, str],
     params: dict[str, Any],
     logger: FilteringBoundLogger,
+    json_body: Optional[dict[str, Any]] = None,
 ) -> Any:
     url = f"{AWIN_BASE_URL}{path}"
     if params:
         url = f"{url}?{urlencode(params)}"
 
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+    if json_body is not None:
+        response = session.post(url, headers=headers, json=json_body, timeout=REQUEST_TIMEOUT_SECONDS)
+    else:
+        response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
     if response.status_code == 429 or response.status_code >= 500:
         raise AwinRetryableError(f"Awin API error (retryable): status={response.status_code}, url={url}")
@@ -266,6 +270,53 @@ def _rows_from_response(
     return rows
 
 
+def _total_pages(config: AwinEndpointConfig, data: Any) -> Optional[int]:
+    if not isinstance(data, dict):
+        return None
+    if config.paginator == "page_number":
+        total_pages = data.get("totalPagesAvailable")
+        return total_pages if isinstance(total_pages, int) else None
+    pagination = data.get("pagination")
+    total = pagination.get("total") if isinstance(pagination, dict) else None
+    return -(-total // config.page_size) if isinstance(total, int) else None
+
+
+def _iter_pages(
+    config: AwinEndpointConfig,
+    session: requests.Session,
+    path: str,
+    headers: dict[str, str],
+    params: dict[str, Any],
+    logger: FilteringBoundLogger,
+    target: AwinFanoutTarget,
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield the rows of each page of one work item, or of its single response when unpaginated."""
+    if config.paginator is None:
+        yield _rows_from_response(config, _fetch(session, path, headers, params, logger), target)
+        return
+
+    page = 1
+    while True:
+        if config.paginator == "page_number":
+            page_params = {**params, "pageNumber": str(page), "pageSize": str(config.page_size)}
+            data = _fetch(session, path, headers, page_params, logger)
+        else:
+            body = {
+                "filters": dict(config.request_filters),
+                "pagination": {"page": page, "pageSize": config.page_size},
+            }
+            data = _fetch(session, path, headers, params, logger, json_body=body)
+
+        rows = _rows_from_response(config, data, target)
+        yield rows
+
+        total_pages = _total_pages(config, data)
+        # A short page ends the walk too, so a response without totals cannot loop forever.
+        if not rows or len(rows) < config.page_size or (total_pages is not None and page >= total_pages):
+            return
+        page += 1
+
+
 def _resume_index(
     work_items: list[tuple[Optional[tuple[datetime, datetime]], AwinFanoutTarget]], resume: Optional[AwinResumeConfig]
 ) -> int:
@@ -335,10 +386,9 @@ def get_rows(
         if config.kind == "publisher_programme_fanout":
             params["advertiserId"] = str(target.advertiser_id)
 
-        data = _fetch(session, _format_path(config, target), headers, params, logger)
-        rows = _rows_from_response(config, data, target)
-        if rows:
-            yield rows
+        for rows in _iter_pages(config, session, _format_path(config, target), headers, params, logger, target):
+            if rows:
+                yield rows
         # Save after processing each work item. A crash before this line re-fetches the same item on
         # resume: if it yielded rows they're re-yielded and merge dedupes on the primary key; an empty
         # window is simply re-fetched (a no-op).

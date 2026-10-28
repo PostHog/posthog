@@ -74,8 +74,7 @@ def _decrypted_sensitive_value(integration: "Integration", field_name: str) -> s
     if not isinstance(value, str) or not value.startswith(FERNET_TOKEN_PREFIX):
         return value
 
-    # django-stubs can't see through `field_access_control`, so it doesn't know this field name.
-    field = cast(EncryptedJSONField, integration._meta.get_field("sensitive_config"))  # type: ignore[misc]
+    field = cast(EncryptedJSONField, integration._meta.get_field("sensitive_config"))
     recovered = field.decrypt_all_layers(value)
 
     if recovered is None:

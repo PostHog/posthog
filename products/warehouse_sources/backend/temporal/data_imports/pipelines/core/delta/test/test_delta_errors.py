@@ -127,6 +127,44 @@ class TestIsTransientObjectStoreError:
                 ),
                 False,
             ),
+            (
+                # A warehouse bucket backed by Aliyun OSS reports its own 500 as this OSS-specific
+                # error shape instead of one of the S3 messages above - matched on the fixed `code`
+                # field since OSS's own InternalError `message` text isn't fixed the way S3's is.
+                "oss_internal_error",
+                OSError(
+                    "Generic Unexpected error: Unexpected (temporary) at list, context: { uri: "
+                    "https://example-bucket.oss-us-west-1.aliyuncs.com/?list-type=2&prefix=_delta_log/, "
+                    "response: Parts { status: 500, service: oss } } => "
+                    'OssError { code: "InternalError", message: "Please contact the server administrator, '
+                    'oss@service.aliyun.com", request_id: "6AE261CD76EC4B363925E506" }'
+                ),
+                True,
+            ),
+            (
+                # A different OSS error code sharing the same wrapper shape must not be swept up by
+                # the code-field match - only "InternalError" is a transient 5xx.
+                "oss_access_denied_not_transient",
+                OSError(
+                    "Generic Unexpected error: Unexpected at list, context: { uri: "
+                    "https://example-bucket.oss-us-west-1.aliyuncs.com/?list-type=2&prefix=_delta_log/ } => "
+                    'OssError { code: "AccessDenied", message: "Access denied by bucket policy" }'
+                ),
+                False,
+            ),
+            (
+                # Table-level operations (vacuum, optimize, commit) wrap the identical underlying
+                # object-store error in `DeltaError` instead of a bare `OSError` - the same OSS 500
+                # must still classify as transient through that wrapper.
+                "oss_internal_error_wrapped_in_delta_error",
+                deltalake.exceptions.DeltaError(
+                    "Generic error: Unexpected (temporary) at commit, context: { uri: "
+                    "https://example-bucket.oss-us-west-1.aliyuncs.com/_delta_log/00000000000000000001.json } => "
+                    'OssError { code: "InternalError", message: "Please contact the server administrator, '
+                    'oss@service.aliyun.com", request_id: "6AE261CD76EC4B363925E507" }'
+                ),
+                True,
+            ),
             # `get_delta_table` re-raises a recognized transient blip as this wrapper (see
             # `_capture_unless_transient`) instead of the original OSError/DeltaError. A caller
             # further up the stack that catches broadly and re-runs this classifier on the caught
