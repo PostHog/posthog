@@ -19,11 +19,26 @@ const imageHeaders = {
     'image/jpeg': Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
     'image/gif': Buffer.from('GIF89a', 'ascii'),
     'image/webp': Buffer.from('RIFF\x04\x00\x00\x00WEBP', 'binary'),
+    'image/svg+xml': Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>', 'utf8'),
 } satisfies Record<(typeof SUPPORTED_IMAGE_MEDIA_TYPES)[number], Buffer>
 
 describe('image transport', () => {
     test.each(SUPPORTED_IMAGE_MEDIA_TYPES)('accepts %s bytes that match the Kafka content-type', (contentType) => {
         expect(imageBytesMatchMediaType(imageHeaders[contentType], contentType)).toBe(true)
+    })
+
+    test.each([
+        [
+            'a prolog before the root',
+            '\uFEFF<?xml version="1.0"?>\n<!-- icon -->\n<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "x.dtd">\n<svg>',
+            true,
+        ],
+        ['an HTML page', '<!DOCTYPE html><html><svg></svg></html>', false],
+        ['a root that only starts with svg', '<svgx/>', false],
+        ['an unclosed comment', '<!-- <svg/>', false],
+        ['a doctype with an internal subset', '<!DOCTYPE svg [<!ENTITY a "b">]><svg/>', false],
+    ])('reads %s as SVG or not', (_case, text, isSvg) => {
+        expect(imageBytesMatchMediaType(Buffer.from(text, 'utf8'), 'image/svg+xml')).toBe(isSvg)
     })
 
     test.each([

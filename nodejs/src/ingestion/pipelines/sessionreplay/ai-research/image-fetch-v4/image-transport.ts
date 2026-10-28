@@ -7,7 +7,14 @@ export const CONTENT_ENCODING_HEADER = 'content-encoding'
 
 const MAX_CONTENT_ENCODING_LAYERS = 4
 
-export const SUPPORTED_IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
+/** Keep in step with `FETCHED_IMAGE_TYPES` in `replay-core-v4/src/url_policy.rs`, which tells the recorder what this lane stores. */
+export const SUPPORTED_IMAGE_MEDIA_TYPES = [
+    'image/png',
+    'image/jpeg',
+    'image/gif',
+    'image/webp',
+    'image/svg+xml',
+] as const
 
 export type SupportedImageMediaType = (typeof SUPPORTED_IMAGE_MEDIA_TYPES)[number]
 
@@ -149,7 +156,41 @@ export function imageBytesMatchMediaType(bytes: Buffer, contentType: SupportedIm
         }
         case 'image/webp':
             return bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP'
+        case 'image/svg+xml':
+            return isSvgDocument(bytes)
     }
+}
+
+/** A prolog longer than this is not read, so a body of comments cannot make the check scan the whole image. */
+const MAX_SVG_PROLOG_BYTES = 64 * 1024
+
+/**
+ * Whether the bytes are an XML document with an `svg` root. SVG has no signature, so the check skips what may come
+ * before the root: a byte order mark, whitespace, the XML declaration and other processing instructions, comments and a
+ * doctype. A doctype with an internal subset is refused, because its entities can change what the document holds.
+ */
+function isSvgDocument(bytes: Buffer): boolean {
+    const text = bytes.toString('utf8', 0, Math.min(bytes.length, MAX_SVG_PROLOG_BYTES)).replace(/^\uFEFF/, '')
+    let position = 0
+    for (;;) {
+        while (position < text.length && /\s/.test(text[position])) {
+            position++
+        }
+        const skipped = [
+            ['<?', '?>'],
+            ['<!--', '-->'],
+            ['<!DOCTYPE', '>'],
+        ].find(([open]) => text.startsWith(open, position))
+        if (!skipped) {
+            break
+        }
+        const end = text.indexOf(skipped[1], position + skipped[0].length)
+        if (end < 0 || (skipped[0] === '<!DOCTYPE' && text.slice(position, end).includes('['))) {
+            return false
+        }
+        position = end + skipped[1].length
+    }
+    return /^<svg[\s/>]/.test(text.slice(position, position + 5))
 }
 
 export async function prepareFetchedImage(
