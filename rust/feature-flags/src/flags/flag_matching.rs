@@ -358,8 +358,28 @@ impl ConditionAnswer {
     }
 }
 
-struct AnswerIfDependencyMatched {
-    failed_dependency: FeatureFlagId,
+/// Why a condition cannot settle the flag answer.
+enum UnknownCondition {
+    FailedDependency(FeatureFlagId),
+    /// The condition reads person, group, or cohort data that DB preparation did not load.
+    DbPreparationFailed(Arc<FlagError>),
+}
+
+impl UnknownCondition {
+    fn error(&self) -> FlagError {
+        match self {
+            UnknownCondition::FailedDependency(flag_id) => {
+                FlagError::DependencyFailed((*flag_id).into())
+            }
+            UnknownCondition::DbPreparationFailed(cause) => {
+                FlagError::DbPreparationFailed(Arc::clone(cause))
+            }
+        }
+    }
+}
+
+struct AnswerIfConditionMatched {
+    unknown: UnknownCondition,
     answer: ConditionAnswer,
 }
 
@@ -483,6 +503,9 @@ pub struct FeatureFlagMatcher {
     /// Every persons DB call in this evaluation fails once this instant passes. `None` leaves
     /// each call bounded only by the pool acquire timeout and statement_timeout.
     persons_db_deadline: Option<Instant>,
+    /// Set when DB preparation fails. A condition that reads the data it did not load cannot
+    /// settle its flag.
+    db_preparation_error: Option<Arc<FlagError>>,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -605,6 +628,7 @@ impl FeatureFlagMatcher {
             timezone: Tz::UTC,
             now: Utc::now(),
             persons_db_deadline: None,
+            db_preparation_error: None,
         }
     }
 
@@ -1259,7 +1283,7 @@ impl FeatureFlagMatcher {
             Err(e) => {
                 self.handle_db_preparation_error(
                     &flags_requiring_db_preparation,
-                    &e,
+                    e,
                     evaluated_flags_map,
                 );
                 true
@@ -1267,19 +1291,27 @@ impl FeatureFlagMatcher {
         }
     }
 
-    /// Handles errors during database preparation by creating error responses for affected flags.
+    /// Handles errors during database preparation. A v2 flag that needs the data gets an error
+    /// response at once. A v1 flag still evaluates: `get_match` fails it only when a condition
+    /// that reads the missing data can change its answer. A missing-data failure therefore does
+    /// not turn a settled answer into `null`.
     fn handle_db_preparation_error(
-        &self,
+        &mut self,
         flags_requiring_db_preparation: &[&FeatureFlag],
-        error: &FlagError,
+        error: FlagError,
         evaluated_flags_map: &mut HashMap<String, FlagDetails>,
     ) {
-        evaluated_flags_map.extend(flags_requiring_db_preparation.iter().map(|flag| {
-            (
-                flag.key.clone(),
-                FlagDetails::create_error(flag, error, None),
-            )
-        }));
+        evaluated_flags_map.extend(
+            flags_requiring_db_preparation
+                .iter()
+                .filter(|flag| flag.filters.supported_v2().is_some())
+                .map(|flag| {
+                    (
+                        flag.key.clone(),
+                        FlagDetails::create_error(flag, &error, None),
+                    )
+                }),
+        );
 
         error!(
             "Error preparing flag evaluation state for team {} distinct_id {}: {:?}",
@@ -1292,6 +1324,7 @@ impl FeatureFlagMatcher {
             &[("reason".to_string(), reason)],
             1,
         );
+        self.db_preparation_error = Some(Arc::new(error));
     }
 
     /// Evaluates a set of flags with a combination of property overrides and DB properties
@@ -1474,18 +1507,25 @@ impl FeatureFlagMatcher {
                         "Feature flag '{}' failed because the group type lookup failed: {:?}",
                         flag.key, cause
                     ),
+                    FlagError::DbPreparationFailed(cause) => debug!(
+                        "Feature flag '{}' failed because DB preparation failed: {:?}",
+                        flag.key, cause
+                    ),
                     _ => error!(
                         "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
                         flag.key, self.distinct_id, e
                     ),
                 }
 
-                let reason = e.evaluation_error_code();
-                inc(
-                    FLAG_EVALUATION_ERROR_COUNTER,
-                    &[("reason".to_string(), reason)],
-                    1,
-                );
+                // `handle_db_preparation_error` counts a DB preparation failure once per request.
+                if !matches!(e, FlagError::DbPreparationFailed(_)) {
+                    let reason = e.evaluation_error_code();
+                    inc(
+                        FLAG_EVALUATION_ERROR_COUNTER,
+                        &[("reason".to_string(), reason)],
+                        1,
+                    );
+                }
                 level_evaluated_flags_map
                     .insert(flag.key.clone(), FlagDetails::create_error(flag, e, None));
             }
@@ -1725,6 +1765,13 @@ impl FeatureFlagMatcher {
         // group-based flags.
         if flag.filters.feature_enrollment == Some(true) {
             let enrollment_key = FlagFilters::enrollment_key(&flag.key);
+            if let Some(error) = &self.db_preparation_error {
+                if !person_property_overrides
+                    .is_some_and(|overrides| overrides.contains_key(&enrollment_key))
+                {
+                    return Err(FlagError::DbPreparationFailed(Arc::clone(error)));
+                }
+            }
             let person_properties = self.get_person_properties(person_property_overrides)?;
 
             if let Some(v) = person_properties.get(&enrollment_key) {
@@ -1771,8 +1818,9 @@ impl FeatureFlagMatcher {
         // answer the flag would give if the failed flag matched it. The flag fails only when one
         // of those answers differs from the answer from its other conditions. Server SDKs read
         // `failed: true` as false. Failing every dependent would therefore turn a settled `true`
-        // into false.
-        let mut answers_if_dependency_matched: Vec<AnswerIfDependencyMatched> = Vec::new();
+        // into false. A condition that reads data a failed DB preparation did not load works the
+        // same way.
+        let mut answers_if_condition_matched: Vec<AnswerIfConditionMatched> = Vec::new();
         // A later condition that matches still settles the flag. The skipped condition could
         // have picked a different variant. With early exit, a skipped condition below 100%
         // rollout could instead stop evaluation with no match, so a later match cannot settle
@@ -1893,6 +1941,59 @@ impl FeatureFlagMatcher {
                 }
             }
 
+            if let Some(error) = self.db_preparation_error_for(
+                condition,
+                aggregation,
+                person_property_overrides,
+                group_property_overrides,
+            ) {
+                inc(
+                    FLAG_CONDITION_SKIPPED_COUNTER,
+                    &[("reason".to_string(), "db_preparation_failed".to_string())],
+                    1,
+                );
+                // The rollout check reads no DB data. A condition outside its rollout cannot
+                // match, whatever the missing data holds.
+                let (in_rollout, _) = self.check_rollout(
+                    flag,
+                    condition.rollout_percentage_unwrapped(),
+                    aggregation,
+                    hash_key_overrides,
+                    request_hash_key_override,
+                )?;
+                if in_rollout {
+                    let variant = self.condition_variant(
+                        flag,
+                        condition,
+                        aggregation,
+                        hash_key_overrides,
+                        request_hash_key_override,
+                    )?;
+                    answers_if_condition_matched.push(AnswerIfConditionMatched {
+                        unknown: UnknownCondition::DbPreparationFailed(error),
+                        answer: ConditionAnswer::Match(variant),
+                    });
+                } else {
+                    let (new_highest_match, new_highest_index) = self
+                        .get_highest_priority_match_evaluation(
+                            highest_match.clone(),
+                            highest_index,
+                            FeatureFlagMatchReason::OutOfRolloutBound,
+                            Some(index),
+                        );
+                    highest_match = new_highest_match;
+                    highest_index = new_highest_index;
+                    // With early exit, matching properties outside the rollout stop evaluation.
+                    if early_exit_enabled {
+                        answers_if_condition_matched.push(AnswerIfConditionMatched {
+                            unknown: UnknownCondition::DbPreparationFailed(error),
+                            answer: ConditionAnswer::NoMatch,
+                        });
+                    }
+                }
+                continue;
+            }
+
             // Lazily compute properties based on what the condition's filters reference.
             // A condition may have person filters, group filters, or both (mixed targeting).
             // Properties are cached per type so conditions sharing a property source reuse them.
@@ -1952,16 +2053,14 @@ impl FeatureFlagMatcher {
                 // If the failed flag matched, the flag would stop here with no match.
                 // Otherwise the later conditions decide.
                 if let Some(failed_dependency) = failed_dependency {
-                    answers_if_dependency_matched.push(AnswerIfDependencyMatched {
-                        failed_dependency,
+                    answers_if_condition_matched.push(AnswerIfConditionMatched {
+                        unknown: UnknownCondition::FailedDependency(failed_dependency),
                         answer: ConditionAnswer::NoMatch,
                     });
                 } else {
-                    if let Some(error) = self.no_match_error(
-                        flag,
-                        &answers_if_dependency_matched,
-                        group_lookup_error,
-                    ) {
+                    if let Some(error) =
+                        self.no_match_error(flag, &answers_if_condition_matched, group_lookup_error)
+                    {
                         return Err(error);
                     }
                     return Ok(FeatureFlagMatch {
@@ -1984,8 +2083,8 @@ impl FeatureFlagMatcher {
                         hash_key_overrides,
                         request_hash_key_override,
                     )?;
-                    answers_if_dependency_matched.push(AnswerIfDependencyMatched {
-                        failed_dependency,
+                    answers_if_condition_matched.push(AnswerIfConditionMatched {
+                        unknown: UnknownCondition::FailedDependency(failed_dependency),
                         answer: ConditionAnswer::Match(variant),
                     });
                     continue;
@@ -2011,13 +2110,13 @@ impl FeatureFlagMatcher {
                     hash_key_overrides,
                     request_hash_key_override,
                 )?;
-                if !answers_if_dependency_matched.is_empty() {
-                    if let Some(dependency) = self.dependency_that_changes_answer(
+                if !answers_if_condition_matched.is_empty() {
+                    if let Some(unknown) = self.unknown_condition_that_changes_answer(
                         flag,
-                        &answers_if_dependency_matched,
+                        &answers_if_condition_matched,
                         &ConditionAnswer::Match(variant.clone()),
                     ) {
-                        return Err(FlagError::DependencyFailed(dependency.into()));
+                        return Err(unknown.error());
                     }
                 }
                 if let Some(error) = group_lookup_error.filter(|_| group_lookup_skip_can_exit_early)
@@ -2038,7 +2137,7 @@ impl FeatureFlagMatcher {
         }
 
         if let Some(error) =
-            self.no_match_error(flag, &answers_if_dependency_matched, group_lookup_error)
+            self.no_match_error(flag, &answers_if_condition_matched, group_lookup_error)
         {
             return Err(error);
         }
@@ -2131,14 +2230,14 @@ impl FeatureFlagMatcher {
         })
     }
 
-    fn dependency_that_changes_answer(
+    fn unknown_condition_that_changes_answer<'a>(
         &self,
         flag: &FeatureFlag,
-        answers_if_dependency_matched: &[AnswerIfDependencyMatched],
+        answers_if_condition_matched: &'a [AnswerIfConditionMatched],
         answer: &ConditionAnswer,
-    ) -> Option<FeatureFlagId> {
+    ) -> Option<&'a UnknownCondition> {
         let compare_variants = !self.enabled_only_flag_keys.contains(&flag.key);
-        answers_if_dependency_matched
+        answers_if_condition_matched
             .iter()
             .find(|candidate| {
                 if compare_variants {
@@ -2147,21 +2246,21 @@ impl FeatureFlagMatcher {
                     candidate.answer.is_match() != answer.is_match()
                 }
             })
-            .map(|candidate| candidate.failed_dependency)
+            .map(|candidate| &candidate.unknown)
     }
 
     fn no_match_error(
         &self,
         flag: &FeatureFlag,
-        answers_if_dependency_matched: &[AnswerIfDependencyMatched],
+        answers_if_condition_matched: &[AnswerIfConditionMatched],
         group_lookup_error: Option<Arc<FlagError>>,
     ) -> Option<FlagError> {
-        self.dependency_that_changes_answer(
+        self.unknown_condition_that_changes_answer(
             flag,
-            answers_if_dependency_matched,
+            answers_if_condition_matched,
             &ConditionAnswer::NoMatch,
         )
-        .map(|dependency| FlagError::DependencyFailed(dependency.into()))
+        .map(UnknownCondition::error)
         .or_else(|| group_lookup_error.map(FlagError::GroupTypeLookupFailed))
     }
 
@@ -2257,12 +2356,13 @@ impl FeatureFlagMatcher {
                     // turns that error into no-match, so the condition fails closed. Only
                     // Pending gets this: Skipped and Fetched property maps are authoritative,
                     // so an absent key there genuinely means the person lacks the property.
-                    // This is defense in depth: in the batch flow a prep failure errors those
-                    // flags out before evaluation, so the guard protects any path that reaches
-                    // evaluation with the state still Pending. Cohort filters get the same
-                    // treatment below, refusing to evaluate outright since cohort membership
-                    // is unknowable under Pending. Group filters get the equivalent guard
-                    // keyed on their own group type — see `filter_needs_partial_props`.
+                    // This is defense in depth: in the batch flow `get_match` does not evaluate a
+                    // condition that reads data a failed prep did not load, so the guard
+                    // protects any path that reaches evaluation with the state still Pending.
+                    // Cohort filters get the same treatment below, refusing to evaluate outright
+                    // since cohort membership is unknowable under Pending. Group filters get the
+                    // equivalent guard keyed on their own group type — see
+                    // `filter_needs_partial_props`.
                     let partial_props = self.filter_needs_partial_props(filter, property_context);
                     if !match_property(
                         filter,
@@ -2400,6 +2500,24 @@ impl FeatureFlagMatcher {
                     .any(|filter| filter.group_filter_index(None).is_some())
         };
         outcome_unknown.then(|| Arc::clone(error))
+    }
+
+    /// The DB preparation error, when the condition reads data that the failed preparation
+    /// did not load. Uses the same test as `flags_require_db_preparation`.
+    fn db_preparation_error_for(
+        &self,
+        condition: &FlagPropertyGroup,
+        aggregation: Option<GroupTypeIndex>,
+        person_property_overrides: Option<&HashMap<String, Value>>,
+        group_property_overrides: Option<&HashMap<String, HashMap<String, Value>>>,
+    ) -> Option<Arc<FlagError>> {
+        let error = self.db_preparation_error.as_ref()?;
+        let overrides = person_property_overrides.unwrap_or(&EMPTY_PROPERTY_MAP);
+        let reads_db_data = condition.requires_cohort_filters()
+            || condition.requires_db_properties(overrides, &|filter| {
+                self.group_filter_needs_db_prep(filter, aggregation, group_property_overrides)
+            });
+        reads_db_data.then(|| Arc::clone(error))
     }
 
     /// Whether DB preparation would load anything this group filter can use. Selecting a
