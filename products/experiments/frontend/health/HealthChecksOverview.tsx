@@ -11,12 +11,14 @@ export function HealthChecksOverview({
     findings,
     isDraft,
     exposureChecksMissing,
+    onFindingActedOn,
 }: {
     checks: HealthPanelCheck[]
     /** Issues first, as `healthPanelFindings` sorts them. */
     findings: HealthPanelFinding[]
     isDraft: boolean
     exposureChecksMissing: boolean
+    onFindingActedOn: () => void
 }): JSX.Element {
     const listedChecks = listedHealthChecks(checks)
 
@@ -34,7 +36,11 @@ export function HealthChecksOverview({
                 // issues on its own.
                 <div className="divide-y border-t">
                     {findings.map((finding) => (
-                        <HealthFindingRow key={`${finding.code}:${finding.subcode ?? ''}`} finding={finding} />
+                        <HealthFindingRow
+                            key={`${finding.code}:${finding.subcode ?? ''}`}
+                            finding={finding}
+                            onActedOn={onFindingActedOn}
+                        />
                     ))}
                 </div>
             )}

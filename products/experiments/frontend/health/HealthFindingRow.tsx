@@ -17,7 +17,13 @@ const SEVERITY_LABELS: Record<HealthPanelFinding['severity'], string> = {
     critical: 'Critical',
 }
 
-export function HealthFindingRow({ finding }: { finding: HealthPanelFinding }): JSX.Element {
+export function HealthFindingRow({
+    finding,
+    onActedOn,
+}: {
+    finding: HealthPanelFinding
+    onActedOn?: () => void
+}): JSX.Element {
     const [isDetailOpen, setIsDetailOpen] = useState(false)
     const detailId = useId()
     const { reportOpened, reportActedOn } = useHealthFindingReporting({
@@ -69,7 +75,10 @@ export function HealthFindingRow({ finding }: { finding: HealthPanelFinding }): 
                             <HealthFindingActionButton
                                 key={actionKind}
                                 actionKind={actionKind}
-                                onClick={() => reportActedOn(actionKind)}
+                                onClick={() => {
+                                    reportActedOn(actionKind)
+                                    onActedOn?.()
+                                }}
                             />
                         ))}
                     </div>

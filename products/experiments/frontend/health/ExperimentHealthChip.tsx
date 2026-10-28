@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconWarning } from '@posthog/icons'
 import { LemonButton, LemonDropdown, Spinner } from '@posthog/lemon-ui'
@@ -12,6 +13,7 @@ import { healthChipState } from './healthPanelChecks'
 export function ExperimentHealthChip(): JSX.Element | null {
     const { healthFindings, healthChecks, healthExposureChecks, isExperimentDraft } = useValues(experimentLogic)
     const { reportHealthChecksOpened } = useActions(experimentLogic)
+    const [isOverviewOpen, setIsOverviewOpen] = useState(false)
     const state = healthChipState(healthFindings, healthChecks, healthExposureChecks)
 
     if (state.kind === 'hidden') {
@@ -34,11 +36,15 @@ export function ExperimentHealthChip(): JSX.Element | null {
                     findings={state.findings}
                     isDraft={isExperimentDraft}
                     exposureChecksMissing={healthExposureChecks === 'missing'}
+                    // Most actions open a modal, and a modal renders below a popover, so the overview closes first.
+                    onFindingActedOn={() => setIsOverviewOpen(false)}
                 />
             }
+            visible={isOverviewOpen}
             closeOnClickInside={false}
             placement="bottom-start"
             onVisibilityChange={(visible) => {
+                setIsOverviewOpen(visible)
                 if (visible) {
                     reportHealthChecksOpened('meta_bar')
                 }

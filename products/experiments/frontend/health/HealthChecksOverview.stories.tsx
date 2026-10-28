@@ -30,6 +30,7 @@ const meta: Meta<typeof HealthChecksOverview> = {
         layout: 'centered',
         testOptions: { snapshotBrowsers: ['chromium'] },
     },
+    args: { onFindingActedOn: () => {} },
 }
 export default meta
 
