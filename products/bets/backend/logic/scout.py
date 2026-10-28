@@ -88,7 +88,7 @@ def scout_job(bet: Bet) -> tuple[str, str]:
         return ("", f"You dismissed the last {DISMISS_LIMIT} ideas. Add your own idea to restart the Scout.")
     if wait := empty_runs_wait(bet, ideas):
         return ("", wait)
-    return (FIND, "Looking for ideas.")
+    return (FIND, "Checking your ideas." if unchecked else "Looking for ideas.")
 
 
 def empty_runs_wait(bet: Bet, ideas: QuerySet[WorkItem]) -> str:

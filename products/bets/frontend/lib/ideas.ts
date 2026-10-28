@@ -93,6 +93,14 @@ export function waitingIdeas(bet: BetWork): BetsWorkApi[] {
         .map(({ item }) => item)
 }
 
+export function isChecking(item: BetsWorkApi): boolean {
+    return item.source === 'owner' && !item.report_id
+}
+
+export function readyIdeas(bet: BetWork): BetsWorkApi[] {
+    return waitingIdeas(bet).filter((item) => !isChecking(item))
+}
+
 export function dismissedIdeas(bet: BetWork): BetsWorkApi[] {
     return bet.work.filter((item) => isCurrentIdea(item, bet) && item.stage === 'dismissed')
 }

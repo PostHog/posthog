@@ -1,7 +1,7 @@
 import { urls } from 'scenes/urls'
 
 import type { BetsDetailApi } from '../generated/api.schemas'
-import { waitingIdeas } from '../lib/ideas'
+import { isChecking, readyIdeas, waitingIdeas } from '../lib/ideas'
 import { isOpen } from '../lib/workStatus'
 import { BetResourceLink } from './BetResourceLink'
 
@@ -31,17 +31,19 @@ export function BetConfiguration({
                         title="Scout"
                         href={urls.inboxScout(bet.scout.name)}
                         detail={
-                            bet.scout.running
-                                ? 'Looking for the next idea'
-                                : bet.work.some((item) => item.kind === 'idea' && isOpen(item))
-                                  ? 'Paused while an idea is tested'
-                                  : waitingIdeas(bet).length
-                                    ? 'Waiting for you to choose an idea'
-                                    : bet.scout.enabled
-                                      ? 'Ready for the next search'
-                                      : bet.status === 'running'
-                                        ? 'Not searching right now'
-                                        : 'Paused'
+                            waitingIdeas(bet).some(isChecking)
+                                ? 'Checking your ideas'
+                                : bet.scout.running
+                                  ? 'Looking for the next idea'
+                                  : bet.work.some((item) => item.kind === 'idea' && isOpen(item))
+                                    ? 'Paused while an idea is tested'
+                                    : readyIdeas(bet).length
+                                      ? 'Waiting for you to choose an idea'
+                                      : bet.scout.enabled
+                                        ? 'Ready for the next search'
+                                        : bet.status === 'running'
+                                          ? 'Not searching right now'
+                                          : 'Paused'
                         }
                     />
                 )}

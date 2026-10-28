@@ -8,7 +8,7 @@ import { TodayRow } from 'scenes/project-homepage/today/TodayRow'
 import { urls } from 'scenes/urls'
 
 import type { BetsDetailApi } from '../generated/api.schemas'
-import { IDEA_ICON_COLOR, inProgressLabel, laterLabel } from '../lib/ideas'
+import { IDEA_ICON_COLOR, inProgressLabel, laterLabel, readyIdeas } from '../lib/ideas'
 import { betLogic } from '../logics/betLogic'
 import { BetAddIdeaForm } from './BetAddIdeaForm'
 import { BetBuildDialog } from './BetBuildDialog'
@@ -34,15 +34,18 @@ export function BetIdeas({ bet }: { bet: BetsDetailApi }): JSX.Element | null {
         return null
     }
     const listOpen = !ideaInProgress || laterOpen
-    const summary = waitingIdeas.length
-        ? `${waitingIdeas.length} ${waitingIdeas.length === 1 ? 'idea waits' : 'ideas wait'} for your choice.`
-        : scoutRunning
-          ? ''
-          : bet.status === 'closed'
-            ? 'No ideas wait for a choice.'
-            : bet.next_action?.id.endsWith(':scout-empty')
-              ? bet.next_action.description.split('\n\n')[0]
-              : 'No ideas wait for a choice. The Scout looks for new ideas on its next run.'
+    const ready = readyIdeas(bet).length
+    const summary = ready
+        ? `${ready} ${ready === 1 ? 'idea waits' : 'ideas wait'} for your choice.`
+        : waitingIdeas.length
+          ? 'The Scout checks your ideas against your data before you choose.'
+          : scoutRunning
+            ? ''
+            : bet.status === 'closed'
+              ? 'No ideas wait for a choice.'
+              : bet.next_action?.id.endsWith(':scout-empty')
+                ? bet.next_action.description.split('\n\n')[0]
+                : 'No ideas wait for a choice. The Scout looks for new ideas on its next run.'
     const blocked = bet.is_owner && waitingIdeas.length > 0 ? buildDisabledReason : null
     return (
         <section id="bet-ideas" className="flex min-w-0 flex-col gap-2 pb-2" aria-label="Ideas">

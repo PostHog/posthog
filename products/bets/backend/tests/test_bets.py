@@ -447,12 +447,15 @@ class TestBetLoop(APIBaseTest):
             ("supported", "**Supported.** People wait for the upload.", "ready", "supported"),
             ("no_marker", "People wait for the upload.", "ready", "pending"),
             ("needs_owner_input", "Not supported. Uploads finish in 2 s.", "pending_input", "not_supported"),
+            ("suppressed_by_the_inbox", "Not supported. Uploads finish in 2 s.", "suppressed", "not_supported"),
         ]
     )
     def test_owner_idea_gets_the_scout_check(self, _name: str, summary: str, status: str, expected: str) -> None:
         bet = self.running(ideas=["Show upload progress as a percent"])
         owner = WorkItem.objects.for_team(self.team.id).using(WRITER_DB).get(bet=bet, source="owner")
         assert owner.stage == "proposed" and owner.assessment == "pending"
+        assert scout_job(bet) == ("find", "Checking your ideas.")
+        assert "Choose an idea to build" not in [item["title"] for item in next_actions(bet)]
         self.new_report("Owner idea 1: Show upload progress as a percent", summary, status)
         self.tick(bet)
         owner.refresh_from_db(using=WRITER_DB)

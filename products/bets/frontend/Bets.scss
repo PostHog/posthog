@@ -241,7 +241,17 @@
     }
 
     .Bets__status {
-        grid-template-columns: auto minmax(0, 1fr);
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        padding: 12px 16px;
+        background: var(--today-card);
+        border: 1px solid var(--today-line);
+        border-radius: var(--radius-lg);
+    }
+
+    .Bets__statusAction {
+        grid-row: 1 / span 2;
+        grid-column: 3;
+        align-self: center;
     }
 
     .Bets__statusIdea {

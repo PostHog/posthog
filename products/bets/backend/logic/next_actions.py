@@ -91,11 +91,12 @@ def next_actions(bet: Bet) -> list[NextAction]:
                 0,
             )
         )
-    proposed = (
+    proposed_all = (
         WorkItem.objects.for_team(bet.team_id)
         .using(WRITER_DB)
         .filter(bet=bet, goal_version=bet.goal_version, stage=WorkStage.PROPOSED)
     )
+    proposed = proposed_all.exclude(report_id=None)
     building = (
         WorkItem.objects.for_team(bet.team_id)
         .using(WRITER_DB)
@@ -144,7 +145,7 @@ def next_actions(bet: Bet) -> list[NextAction]:
             )
         else:
             result.append(action(bet, f"{work.id}:stuck", work.title, work.note, "Needs attention", 0, work))
-    if bet.status == BetStatus.RUNNING and not count and not building.exists():
+    if bet.status == BetStatus.RUNNING and not proposed_all.exists() and not building.exists():
         empty = signals.empty_scout_run_summaries(bet.team_id, "bets", f"{bet.id}:v{bet.goal_version}")
         if len(empty) >= EMPTY_SCOUT_RUNS:
             result.append(

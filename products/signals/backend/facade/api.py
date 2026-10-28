@@ -1288,6 +1288,7 @@ def scout_reports_for_source(
     *,
     report_id: str | None = None,
     limit: int = 50,
+    include_suppressed: bool = False,
 ) -> list[ScoutReport]:
     """Reports filed by the scouts another product stood up for one of its objects, newest first.
 
@@ -1333,8 +1334,13 @@ def scout_reports_for_source(
     wanted = [report_id] if report_id is not None else list(filed)[:limit]
     # A deleted or suppressed report is one the platform decided not to show; surfacing it here
     # would route around that decision.
+    hidden = (
+        [SignalReport.Status.DELETED]
+        if include_suppressed
+        else [SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED]
+    )
     rows = SignalReport.objects.filter(team_id=team_id, id__in=[w for w in wanted if w in filed]).exclude(
-        status__in=[SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED]
+        status__in=hidden
     )
     by_id = {str(row.id): row for row in rows}
     reports: list[ScoutReport] = []

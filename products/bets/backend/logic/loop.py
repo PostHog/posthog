@@ -496,9 +496,11 @@ def ingest(bet: Bet) -> int:
     linked = {str(report) for report in items(bet).exclude(report_id=None).values_list("report_id", flat=True)}
     added = 0
     for report in sorted(
-        signals.scout_reports_for_source(bet.team_id, "bets", source_id(bet)), key=lambda report: report.filed_at
+        signals.scout_reports_for_source(bet.team_id, "bets", source_id(bet), include_suppressed=True),
+        key=lambda report: report.filed_at,
     ):
-        if report.status not in IDEA_REPORT_STATUSES or report.report_id in linked:
+        owner = OWNER_TITLE.match(report.title)
+        if (report.status not in IDEA_REPORT_STATUSES and not owner) or report.report_id in linked:
             continue
         if bet.baseline_at and report.filed_at < bet.baseline_at:
             continue
@@ -507,7 +509,6 @@ def ingest(bet: Bet) -> int:
         moves_metric = metric_match.group(1).strip("* ")[:255] if metric_match else ""
         audience_match = AUDIENCE.search(report.summary)
         audience = {"audience": int(audience_match.group(1).replace(",", ""))} if audience_match else {}
-        owner = OWNER_TITLE.match(report.title)
         target = (
             items(bet).filter(key=f"owner:{owner.group(1)}", stage=WorkStage.PROPOSED, report_id=None).first()
             if owner
