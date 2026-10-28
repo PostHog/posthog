@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import { createApiToolLibrary, toApiToolError } from '@/cli/library'
-import { ExecCommandError, PostHogApiError, PostHogPermissionError, PostHogRateLimitError } from '@/lib/errors'
+import {
+    ExecCommandError,
+    MCPToolResultError,
+    PostHogApiError,
+    PostHogPermissionError,
+    PostHogRateLimitError,
+    wrapError,
+} from '@/lib/errors'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 
 describe('CLI tool library', () => {
@@ -15,7 +22,9 @@ describe('CLI tool library', () => {
             const definition = getToolDefinition(tool.name)
             expect(tool.group).toBe(definition.category)
             expect(tool.requiredScopes).toEqual(definition.required_scopes ?? [])
+            expect(tool.requiresAiConsent).toBe(definition.requires_ai_consent === true)
         }
+        expect(tools.some((tool) => tool.requiresAiConsent)).toBe(true)
     })
 
     it.each([
@@ -52,6 +61,19 @@ describe('CLI tool library', () => {
             'an API error reads the DRF detail',
             new PostHogApiError({ status: 404, statusText: 'Not Found', body: '{"detail":"Not found."}', ...request }),
             { code: 'api_error', status: 404, message: 'Not found.' },
+        ],
+        [
+            'a wrapped refusal keeps its scope',
+            wrapError(
+                'Failed to get organizations',
+                new PostHogPermissionError({ detail: 'denied', missingScope: 'organization:read', ...request })
+            ),
+            { code: 'permission_denied', missingScope: 'organization:read' },
+        ],
+        [
+            'a failed backend tool keeps its error type',
+            new MCPToolResultError('Too many queries', 'rate_limited'),
+            { code: 'rate_limited' },
         ],
         [
             'a missing confirmation keeps its own code',
