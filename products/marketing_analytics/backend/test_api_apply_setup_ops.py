@@ -9,6 +9,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
+from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
 
@@ -419,25 +420,46 @@ class TestApplySetupOpsFeatureFlag(APIBaseTest):
         get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
         cache.clear()
 
-    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
-    def test_setup_availability(self, setup: bool, mcp: bool) -> None:
+    def apply(self):
+        return self.client.post(
+            self.url,
+            {"ops": [{"op": "add_custom_source_mapping", "integration": "MetaAds", "raw_utm_source": "fb-ads"}]},
+            format="json",
+        )
+
+    @parameterized.expand([(False,), (True,)])
+    def test_setup_availability(self, setup: bool) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        flags = {
-            "marketing-analytics-setup": setup,
-            "marketing-analytics-setup-plan-mcp": mcp,
-        }
-        with patch(_FLAG_TARGET, side_effect=lambda flag, *args, **kwargs: flags[flag]):
-            response = self.client.post(
-                self.url,
-                {"ops": [{"op": "add_custom_source_mapping", "integration": "MetaAds", "raw_utm_source": "fb-ads"}]},
-                format="json",
-            )
+        with patch(_FLAG_TARGET, return_value=setup):
+            response = self.apply()
 
         assert response.status_code == (200 if setup else 404)
         assert TeamMarketingAnalyticsConfig.objects.get(team=self.team).custom_source_mappings == (
             {"MetaAds": ["fb-ads"]} if setup else {}
         )
+
+    def test_the_flag_is_evaluated_once_per_request(self):
+        # A second call in the same request would fire a redundant `$feature_flag_called`.
+        with patch(_FLAG_TARGET, return_value=False) as flag:
+            self.apply()
+
+        assert flag.call_count == 1
+
+    def test_the_flag_is_evaluated_for_the_requesting_person(self):
+        # The flag targets people, and the frontend renders the Setup tab off that same
+        # per-person answer. Evaluating it against the team instead answers for nobody, so
+        # the tab lands on an endpoint that 404s. Two people to also catch an answer
+        # cached somewhere that outlives one request.
+        other_user = User.objects.create_and_join(self.organization, "second@posthog.com", None)
+
+        with patch(_FLAG_TARGET, return_value=False) as flag:
+            self.apply()
+            self.client.force_login(other_user)
+            self.apply()
+
+        assert [call.args[1] for call in flag.call_args_list] == [self.user.distinct_id, other_user.distinct_id]
+        assert flag.call_args.kwargs["groups"] == {"organization": str(self.team.organization.id)}
 
 
 class TestApplySetupOpsRequiresProjectAdmin(APIBaseTest):

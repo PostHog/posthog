@@ -77,7 +77,6 @@ describe('conversion setup feature flag', () => {
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP]: setup,
             [FEATURE_FLAGS.MARKETING_ANALYTICS_CONVERSION_SETUP_AI]: ai,
-            [FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING]: true,
         })
         sourcesDataLogic.mount()
         sourcesDataLogic.actions.loadSourcesSuccess({ count: 0, next: null, previous: null, results: [] })

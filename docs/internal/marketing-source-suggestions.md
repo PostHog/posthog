@@ -187,13 +187,10 @@ The initial source check shows separate loading states for Ad performance and Se
 Projects without sources show a connection card instead of empty metric placeholders.
 Search performance stays visible while the paid-source event scan runs, fails, or returns no platforms.
 Search performance remains behind `marketing-analytics-organic-keywords`.
-The paid-source onboarding and automatic dashboard scan are behind `marketing-analytics-source-onboarding`.
-Disabling this flag restores the original welcome, source connection, and conversion-goal wizard, including its source catalog and dashboard loading state.
-The source scan, enhanced catalog, dashboard section changes, and header feedback action require this flag.
 Google Search Console onboarding stays behind its independent `marketing-analytics-organic-keywords` flag.
 Mounting source setup state does not start the UTM audit; Integration health loads the audit when opened.
 Search onboarding stays independent under `marketing-analytics-organic-keywords`.
-The read-only setup plan is available with `marketing-analytics-source-onboarding` or `marketing-analytics-setup`; other setup operations keep their existing flag requirements.
+The read-only setup plan is available to every project, because the paid-source onboarding scan reads it; applying setup operations requires `marketing-analytics-setup`.
 
 Source setup uses a consistent panel for connection checks, event scanning, suggestions, empty results, and recoverable errors.
 Detected platforms show concise evidence with expandable details.
@@ -242,8 +239,7 @@ Integration buttons show the external-link icon because their connection panels 
 
 The native integration catalog uses a consistent display order: Google Ads, Meta Ads, Bing Ads, LinkedIn Ads, TikTok Ads, Reddit Ads, Pinterest Ads, Snapchat Ads, OpenAI Ads, Apple Ads, Amazon Ads, Rokt Ads, and X Ads. Google Search Console stays in the search section.
 
-The separate Ad performance tab appears when `marketing-analytics-organic-keywords` is on and `marketing-analytics-source-onboarding` is off.
-Otherwise paid and organic reporting stay inside the Dashboard tab.
+Paid and organic reporting stay inside the Dashboard tab.
 
 Detected-source suggestions keep the money hedgehog in the header, matching the empty state and manual catalog.
 
