@@ -76,7 +76,7 @@ class TaskProfile:
 
     Each product defines its own profiles and registers them when its app loads, so the tasks
     product never imports another product. A task keeps its profile for its whole life. Values
-    that change per call go in RunOptions, which can only choose from or narrow what the profile
+    that change per call go in TaskRunOptions, which can only choose from or narrow what the profile
     allows.
     """
 
@@ -88,7 +88,7 @@ class TaskProfile:
     origin_product: str
     # True lets callers create this kind of task through the public task API.
     public: bool
-    # The RunOptions fields a public API caller may set. The server refuses any other field from
+    # The TaskRunOptions fields a public API caller may set. The server refuses any other field from
     # a public caller.
     public_options: frozenset[str]
     # The kind of row that started the task, such as "signal_report". The server checks that the
@@ -131,7 +131,7 @@ class TaskProfile:
     # gets that agent's MCP servers instead of its creator's MCP store connections. None means the
     # task uses its creator's connections.
     mcp_agent: str | None
-    # The widest PostHog MCP scope preset the agent can get. RunOptions.mcp_scopes can narrow it
+    # The widest PostHog MCP scope preset the agent can get. TaskRunOptions.mcp_scopes can narrow it
     # but never widen it.
     mcp_scopes: PosthogMcpScopes
     # True installs the team's MCP store servers in the sandbox. False installs none, personal
@@ -148,7 +148,7 @@ class TaskProfile:
     # True lets runs open pull requests as the creator through their personal GitHub installation.
     # A creator without a usable installation falls back to the bot. False always uses the bot.
     user_authorable_prs: bool
-    # Who authors pull requests when the run does not set RunOptions.pr_authorship_mode.
+    # Who authors pull requests when the run does not set TaskRunOptions.pr_authorship_mode.
     default_pr_authorship: PrAuthorship
     # True gives the agent a finish tool that moves the task to done.
     finish_tool: bool
@@ -157,7 +157,7 @@ class TaskProfile:
     done_on_turn_close: bool
 
     # How long the sandbox stays up after a turn closes, in case someone replies. After that the
-    # task snapshots, releases the sandbox and goes idle. RunOptions.idle_minutes can lower it.
+    # task snapshots, releases the sandbox and goes idle. TaskRunOptions.idle_minutes can lower it.
     idle_minutes: int
     # How long an open turn may go without an agent heartbeat. After that the run fails, so a retry
     # can pick the task back up.
@@ -193,11 +193,11 @@ class Repository:
 
 
 @frozen
-class RunOptions:
+class TaskRunOptions:
     """Per-call settings for one task, checked against its TaskProfile.
 
-    A public API caller can only set the fields in TaskProfile.public_options. None or an empty
-    tuple means the profile's default.
+    A public API caller can only set the fields in TaskProfile.public_options. A field left at its
+    default falls back to the profile's value.
     """
 
     # "acp" or "pi". It must be one of TaskProfile.runtimes and cannot change after create.
@@ -222,9 +222,9 @@ class RunOptions:
     github_access: GithubAccess | None = None
     # It can narrow TaskProfile.mcp_scopes but never widen it.
     mcp_scopes: PosthogMcpScopes | None = None
-    # The MCP servers to install, by ID. Only server callers can set it. The profile must have an
-    # mcp_agent.
-    mcp_server_ids: tuple[str, ...] = ()
+    # The MCP servers to install, by ID. An empty tuple allows no servers. Only server callers can set
+    # it. The profile must have an mcp_agent.
+    mcp_server_ids: tuple[str, ...] | None = None
     # Context window size for models that support the 1M window.
     context_window: str | None = None
     # Fast mode for models that support it.
@@ -246,6 +246,10 @@ class TaskOrigin:
 
 
 class TaskProfileError(ValueError):
+    pass
+
+
+class TaskRunOptionsError(ValueError):
     pass
 
 

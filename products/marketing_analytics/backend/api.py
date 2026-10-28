@@ -150,7 +150,6 @@ def _setup_enabled(request: Request, team: Team, *, include_read_only: bool = Fa
         )
         for flag in (
             "marketing-analytics-setup",
-            "new-marketing-analytics-dashboard",
             *(
                 ("marketing-analytics-source-onboarding", "marketing-analytics-setup-plan-mcp")
                 if include_read_only

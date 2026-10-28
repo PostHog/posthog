@@ -449,6 +449,7 @@ def _resolve_sandbox_github_token(
     """
     if ctx.github_read_access:
         github_token = get_readonly_github_token(ctx.team_id, repositories=ctx.repositories) or ""
+        TaskRun.update_state_atomic(ctx.run_id, updates={"github_read_access_available": bool(github_token)})
         if github_token:
             log_with_activity_context("Read-only GitHub token minted for evidence gathering", run_id=ctx.run_id)
         else:

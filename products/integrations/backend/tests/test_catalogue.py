@@ -24,9 +24,68 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 BACKEND = REPO_ROOT / "products/integrations/backend"
 
 
+# The default auth type of a kind is stored data: a row without `config["auth_type"]` has it.
+# A change here needs a data migration for the rows of the kind, and a deliberate edit of this mapping.
+FROZEN_KIND_DEFAULTS: dict[str, str] = {
+    "anthropic": "token",
+    "apns": "credentials",
+    "apple-ads": "oauth",
+    "aws-redshift": "credentials",
+    "aws-s3": "credentials",
+    "azure-blob": "credentials",
+    "bing-ads": "oauth",
+    "clickup": "oauth",
+    "customerio-app": "token",
+    "customerio-track": "token",
+    "customerio-webhook": "token",
+    "databricks": "credentials",
+    "email": "credentials",
+    "firebase": "credentials",
+    "github": "oauth",
+    "gitlab": "token",
+    "google-ads": "oauth",
+    "google-analytics": "oauth",
+    "google-calendar": "oauth",
+    "google-cloud-service-account": "credentials",
+    "google-cloud-storage": "credentials",
+    "google-pubsub": "credentials",
+    "google-search-console": "oauth",
+    "google-sheets": "oauth",
+    "helpscout": "oauth",
+    "hubspot": "oauth",
+    "instagram": "oauth",
+    "intercom": "oauth",
+    "jira": "oauth",
+    "linear": "oauth",
+    "linkedin-ads": "oauth",
+    "meta-ads": "oauth",
+    "pardot": "oauth",
+    "pinterest-ads": "oauth",
+    "postgresql": "credentials",
+    "posthog": "oauth",
+    "reddit-ads": "oauth",
+    "resend": "oauth",
+    "s3-compatible": "credentials",
+    "salesforce": "oauth",
+    "slack": "oauth",
+    "slack-posthog-code": "oauth",
+    "snapchat": "oauth",
+    "snowflake": "credentials",
+    "stripe": "oauth",
+    "tiktok-ads": "oauth",
+    "twilio": "token",
+    "twitter-ads": "oauth",
+    "vercel": "oauth",
+    "youtube-analytics": "oauth",
+}
+
+
 class TestCatalogue(SimpleTestCase):
     def test_kinds_match_the_model_choices(self) -> None:
         assert set(KINDS) == set(Integration.IntegrationKind.values) == {kind.value for kind in IntegrationKind}
+
+    def test_kind_defaults_do_not_change(self) -> None:
+        assert {kind: spec.default.value for kind, spec in KINDS.items()} == FROZEN_KIND_DEFAULTS
 
     def test_generated_file_is_in_sync_with_the_catalogue(self) -> None:
         [projection] = [projection for projection in PROJECTIONS if projection.name == "integration-kinds"]

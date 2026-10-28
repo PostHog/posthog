@@ -102,6 +102,7 @@ products/review_hog/backend/repository_settings.py 2
 products/review_hog/backend/reviewer/status_comment.py 2
 products/review_hog/backend/temporal/activities.py 2
 products/review_hog/backend/temporal/resolution.py 2
+products/signals/backend/github_optional.py 2
 products/signals/backend/inbox_summary.py 1
 products/signals/backend/models.py 4
 products/signals/backend/onboarding_completion.py 2
@@ -112,6 +113,7 @@ products/signals/backend/scout_harness/slack_delivery.py 2
 products/signals/backend/serializers.py 2
 products/signals/backend/slack_inbox_notifications.py 4
 products/signals/backend/slack_notification_targets.py 2
+products/signals/backend/temporal/agentic/select_repository.py 2
 products/signals/backend/tracker_issues.py 4
 products/signals/backend/views.py 2
 products/skills/backend/api/community_publish_services.py 1
@@ -213,6 +215,7 @@ products/warehouse_sources/backend/temporal/data_imports/sources/twitter_ads/twi
 products/wizard/backend/logic/workers/repository_publisher.py 3
 products/workflows/backend/management/commands/delete_stale_ses_identity.py 2
 products/workflows/backend/management/commands/disable_ses_feedback_forwarding.py 2
+products/workflows/backend/services/customerio_import/content.py 3
 products/workflows/backend/services/data_suggestions/team_context.py 5
 products/workflows/backend/services/email_health.py 3
 products/workflows/backend/services/setup_status.py 2
