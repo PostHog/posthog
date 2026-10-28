@@ -369,7 +369,7 @@ class TestMembershipBackfill(BaseTest):
             sql: str, params: Mapping[str, object] | list[tuple[object, ...]], *, team_id: int | None = None
         ) -> list[tuple[object, ...]]:
             if (failure == "registry" and sql.startswith("INSERT")) or (
-                failure == "planning" and "minOrNull(timestamp)" in sql
+                failure == "planning" and "ORDER BY event_date" in sql
             ):
                 raise RuntimeError("Unavailable")
             return query(sql, params, team_id=team_id)
@@ -624,7 +624,13 @@ class TestMembershipBackfill(BaseTest):
                     timestamp=start + timedelta(minutes=5),
                 )
             snapshot = timezone.now() + timedelta(minutes=1)
-            plan = self.service.plan(self.team, 0, snapshot)
+            with patch.object(self.service, "query", wraps=self.service.query) as query:
+                plan = self.service.plan(self.team, 0, snapshot)
+            planning_windows = [call.args[1] for call in query.call_args_list if "minOrNull(timestamp)" in call.args[0]]
+            assert len(planning_windows) == 2
+            for window in planning_windows:
+                assert timedelta(0) < window["end"] - window["start"] <= timedelta(days=90)
+                assert window["snapshot_end"] == snapshot
             assert plan.historical_start == start + timedelta(minutes=5)
             assert plan.historical_end == snapshot
             assert plan.estimated_events == 3
@@ -741,7 +747,8 @@ class TestMembershipBackfill(BaseTest):
             assert result.rows == 1
             assert result.cursor is not None
             assert result.cursor.snapshot_end == snapshot_end
-            assert result.cursor.historical_end == future.replace(microsecond=0) + timedelta(seconds=1)
+            assert result.cursor.historical_end is not None
+            assert future < result.cursor.historical_end <= future + timedelta(days=1)
             assert result.cursor.accounts_completed == 1
             assert self.service.query(
                 "SELECT min(first_seen), max(last_seen) FROM person_group_membership WHERE team_id = %(team_id)s",

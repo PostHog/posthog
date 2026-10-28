@@ -1,6 +1,6 @@
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from math import ceil
 from time import monotonic, time_ns
@@ -136,6 +136,12 @@ class MembershipStep:
 
 
 @frozen
+class MembershipHistoryBounds:
+    start: datetime | None
+    end: datetime
+
+
+@frozen
 class MembershipPlan:
     team_id: int
     group_type_index: int
@@ -260,33 +266,63 @@ class MembershipBackfillService:
         self.check_attempt()
         return rows
 
+    def get_history_bounds(self, team_id: int, end: datetime) -> MembershipHistoryBounds:
+        table = events_read_table(use_new_events_schema(team_id))
+        days = []
+        for direction in ("ASC", "DESC"):
+            rows = self.query(
+                f"""SELECT toDate(timestamp) AS event_date FROM {table}
+                    WHERE team_id = %(team_id)s
+                    ORDER BY event_date {direction} LIMIT 1
+                    SETTINGS optimize_read_in_order = 1""",
+                {"team_id": team_id},
+                team_id=team_id,
+            )
+            if not rows:
+                return MembershipHistoryBounds(start=None, end=end)
+            days.append(datetime.combine(cast(date, rows[0][0]), datetime.min.time(), tzinfo=UTC))
+        return MembershipHistoryBounds(start=days[0], end=max(end, days[1] + timedelta(days=1)))
+
     def plan(self, team: Team, index: int, end: datetime, account_keys: tuple[str, ...] = ()) -> MembershipPlan:
+        bounds = self.get_history_bounds(team.id, end)
         native_json = use_new_events_schema(team.id)
         group_column = get_membership_group_column(index, native_json=native_json)
-        rows = self.query(
-            f"""SELECT minOrNull(timestamp), maxOrNull(timestamp), count() FROM {events_read_table(native_json)}
-               WHERE team_id = %(team_id)s AND (inserted_at IS NULL OR inserted_at < %(end)s)
-                 AND person_mode != 'propertyless'
-                 AND notEmpty({group_column})
-                 AND (empty(%(account_keys)s) OR {group_column} IN %(account_keys)s)""",
-            {"team_id": team.id, "end": end, "account_keys": list(account_keys)},
-            team_id=team.id,
-        )
-        start = cast(datetime | None, rows[0][0])
-        if start is not None:
-            start = start.replace(tzinfo=UTC)
-        last_timestamp = cast(datetime | None, rows[0][1])
-        history_end = (
-            max(end, last_timestamp.replace(tzinfo=UTC, microsecond=0) + timedelta(seconds=1))
-            if last_timestamp
-            else end
-        )
+        start: datetime | None = None
+        history_end = end
+        estimated_events = 0
+        window_end = bounds.end
+        while bounds.start is not None and window_end > bounds.start:
+            window_start = get_historical_window_start(bounds.start, window_end)
+            rows = self.query(
+                f"""SELECT minOrNull(timestamp), maxOrNull(timestamp), count() FROM {events_read_table(native_json)}
+                    PREWHERE team_id = %(team_id)s
+                      AND timestamp >= %(start)s AND timestamp < %(end)s
+                    WHERE (inserted_at IS NULL OR inserted_at < %(snapshot_end)s)
+                      AND person_mode != 'propertyless'
+                      AND notEmpty({group_column})
+                      AND (empty(%(account_keys)s) OR {group_column} IN %(account_keys)s)""",
+                {
+                    "team_id": team.id,
+                    "start": window_start,
+                    "end": window_end,
+                    "snapshot_end": end,
+                    "account_keys": list(account_keys),
+                },
+                team_id=team.id,
+            )
+            first_timestamp = cast(datetime | None, rows[0][0])
+            if first_timestamp is not None:
+                start = first_timestamp.replace(tzinfo=UTC)
+                last_timestamp = cast(datetime, rows[0][1]).replace(tzinfo=UTC, microsecond=0)
+                history_end = max(history_end, last_timestamp + timedelta(seconds=1))
+            estimated_events += cast(int, rows[0][2])
+            window_end = window_start
         return MembershipPlan(
             team_id=team.id,
             group_type_index=index,
             historical_start=start,
             historical_end=history_end,
-            estimated_events=cast(int, rows[0][2]),
+            estimated_events=estimated_events,
             windows=max(0, ceil((history_end - start) / HISTORICAL_WINDOW_SIZE)) if start else 0,
         )
 
@@ -580,17 +616,17 @@ class MembershipBackfillService:
             self.sync_registry(team, config, index, None)
             version = config.version
         end = timezone.now()
-        plan = self.plan(team, index, end, input.account_keys)
+        bounds = self.get_history_bounds(team.id, end)
         return MembershipCursor(
             team_id=team.id,
             version=version,
             group_type_index=index,
             account_keys=tuple(sorted(set(input.account_keys))),
             dry_run=input.dry_run,
-            historical_start=plan.historical_start,
-            historical_end=plan.historical_end,
+            historical_start=bounds.start,
+            historical_end=bounds.end,
             snapshot_end=end,
-            next_window_start=plan.historical_start or end,
+            next_window_start=bounds.start or end,
             started_at=end,
         )
 
