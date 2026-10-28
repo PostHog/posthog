@@ -1,6 +1,13 @@
 import re
+from typing import Any
+
+from django.http import HttpResponseBase
+
+from rest_framework.request import Request
 
 from posthog.api.snuffle_proxy import SnuffleProxyViewSet
+
+from products.metrics.backend.prometheus_usage import report_prometheus_api_usage
 
 _LABEL_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
 
@@ -27,3 +34,8 @@ class PrometheusQueryViewSet(SnuffleProxyViewSet):
         re.compile(r"alerts"),
         re.compile(r"status/buildinfo"),
     )
+
+    def finalize_response(self, request: Request, response: HttpResponseBase, *args: Any, **kwargs: Any) -> Any:
+        if self.action == "proxy" and response.status_code < 400:
+            report_prometheus_api_usage(request, self.team)
+        return super().finalize_response(request, response, *args, **kwargs)
