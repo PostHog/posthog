@@ -21,7 +21,7 @@ export function BIDashboardFilterBar({ dashboardId }: { dashboardId: number }): 
     const summary = selection.selection.labels.map(({ name, value }) => `${name}: ${value}`).join(', ')
     const clear = (): void => setSelection(null)
     const details = (
-        <div className="flex max-w-80 flex-col gap-2 text-xs">
+        <div className="ph-no-capture flex max-w-80 flex-col gap-2 text-xs">
             <span className="font-semibold break-words">{summary}</span>
             <span className="break-words">
                 <span>Filter from </span>
@@ -37,7 +37,7 @@ export function BIDashboardFilterBar({ dashboardId }: { dashboardId: number }): 
         </div>
     )
     return (
-        <div className="flex min-w-0 max-w-full" data-attr="bi-dashboard-filter-bar">
+        <div className="ph-no-capture flex min-w-0 max-w-full" data-attr="bi-dashboard-filter-bar">
             {todayRailNav ? (
                 <Popover>
                     <ButtonGroup className="min-w-0 max-w-full">
