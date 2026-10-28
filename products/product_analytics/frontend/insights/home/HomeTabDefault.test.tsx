@@ -15,6 +15,7 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import trendsNumber from '~/mocks/fixtures/api/projects/team_id/insights/trendsNumber.json'
+import { useMocks } from '~/mocks/jest'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { performQuery } from '~/queries/query'
 import type { DataNode } from '~/queries/schema/schema-general'
@@ -159,12 +160,12 @@ describe('HomeTabDefault query reuse', () => {
             />
         )
         const { container, rerender } = render(tile('-7d'))
-        await waitFor(() => expect(container.querySelector('[data-attr="metric-card-sparkline"]')).not.toBeNull())
+        await waitFor(() => expect(container.querySelector('[data-attr="metric-sparkline"]')).not.toBeNull())
         await act(async () => rerender(tile('-30d')))
         await waitFor(() => expect(screen.getByText('20')).toBeInTheDocument())
-        expect(container.querySelector('[data-attr="metric-card-sparkline"]')).toBeNull()
+        expect(container.querySelector('[data-attr="metric-sparkline"]')).toBeNull()
         await act(async () => finishTrend(trendResponse))
-        await waitFor(() => expect(container.querySelector('[data-attr="metric-card-sparkline"]')).not.toBeNull())
+        await waitFor(() => expect(container.querySelector('[data-attr="metric-sparkline"]')).not.toBeNull())
     })
 
     it('shows the metric details and opens the same total in the insight editor, outside the tile button', async () => {
@@ -216,7 +217,7 @@ describe('HomeTabDefault query reuse', () => {
         )
         for (const tile of container.querySelectorAll('[data-attr^="home-tab-metric-"]')) {
             expect(tile).toHaveAttribute('aria-busy', 'false')
-            expect(tile.querySelector('[data-attr="metric-card-sparkline"]')).not.toBeNull()
+            expect(tile.querySelector('[data-attr="metric-sparkline"]')).not.toBeNull()
         }
         expect(mockedQuery).not.toHaveBeenCalled()
         expect(screen.queryByText('No previous period data')).not.toBeInTheDocument()
@@ -235,5 +236,19 @@ describe('HomeTabDefault query reuse', () => {
                 within(screen.getByLabelText('Sessions', { selector: 'button' })).getByText('10')
             ).toBeInTheDocument()
         )
+    })
+
+    it('runs live queries once warehouse detection finds data for a project without events', async () => {
+        useMocks({ get: { '/api/projects/:team_id/external_data_sources/exists/': { exists: true } } })
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: false, is_demo: false })
+        const { container } = render(<HomeTabDefault />)
+
+        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(14))
+        await waitFor(() =>
+            expect(
+                within(screen.getByLabelText('Active users', { selector: 'button' })).getByText('10')
+            ).toBeInTheDocument()
+        )
+        expect(container.querySelector('[data-attr="insight-sample-data-tag"]')).toBeNull()
     })
 })

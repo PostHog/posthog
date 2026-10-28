@@ -602,7 +602,6 @@ describe('TaxonomicFilter', () => {
 
         // Searching an event this picker hides has to say so. Dropping it from the list and then
         // reporting "no results" tells someone who knows the event exists that it never did.
-        // The rebuild's half of this lives in menu/Combobox.test.tsx.
         describe('an event hidden because its data is moving', () => {
             beforeEach(() => {
                 setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number1)
@@ -1433,7 +1432,7 @@ describe('TaxonomicFilter', () => {
                     filterValue: '/pricing',
                     propertyFilterType: PropertyFilterType.Event,
                     // Tagged so commit telemetry can distinguish the URL-contains shortcut
-                    // from keyword shortcuts (parity with the rebuild's wasUrlContainsShortcut).
+                    // from keyword shortcuts.
                     isContainsShortcut: true,
                 })
             )

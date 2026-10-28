@@ -1,7 +1,7 @@
 """Contract types for warehouse_suggestions."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -17,6 +17,11 @@ from .enums import (
 )
 
 PAYLOAD_VERSION = 1
+WAREHOUSE_SCOPE_OBJECT: Final = "warehouse_objects"
+SUBJECT_SCOPE_OBJECTS = {
+    WarehouseSuggestionSubjectKind.SAVED_QUERY: "warehouse_view",
+    WarehouseSuggestionSubjectKind.TABLE: "warehouse_table",
+}
 
 
 @frozen

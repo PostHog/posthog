@@ -1,7 +1,7 @@
 {
     "id": "019ce1f1-5d12-0000-e318-4b3ebd4b2aea",
     "name": "New support ticket notification",
-    "description": "Notify your support team in Slack as soon as a new ticket comes in.",
+    "description": "Notify your support team in Slack or by email as soon as a new ticket comes in.",
     "version": 1,
     "created_at": "2026-03-12T12:06:57.554838Z",
     "created_by": {
@@ -15,7 +15,7 @@
         "hedgehog_config": null,
         "role_at_organization": null
     },
-    "updated_at": "2026-03-12T12:07:27.301356Z",
+    "updated_at": "2026-10-27T00:00:00Z",
     "trigger": {
         "type": "event",
         "filters": {
@@ -44,8 +44,13 @@
             "type": "continue"
         },
         {
-            "to": "exit_node",
+            "to": "action_function_email_826ffd05-91e4-4647-a7b2-d8ce81376b87",
             "from": "action_function_431166ee-1322-4d35-8186-958120346fc2",
+            "type": "continue"
+        },
+        {
+            "to": "exit_node",
+            "from": "action_function_email_826ffd05-91e4-4647-a7b2-d8ce81376b87",
             "type": "continue"
         }
     ],
@@ -78,7 +83,7 @@
         {
             "id": "action_function_431166ee-1322-4d35-8186-958120346fc2",
             "name": "Message in Slack channel",
-            "description": "Connect the right Slack channel and notify your support team.",
+            "description": "Connect the right Slack channel and write the message for your support team. Delete this step if you only want email.",
             "on_error": null,
             "created_at": 1773317149872,
             "updated_at": 1773317149872,
@@ -101,46 +106,53 @@
                         "templating": "hog"
                     },
                     "blocks": {
-                        "value": [
-                            {
-                                "text": {
-                                    "text": "🎫 *New support ticket created*\n\n*User:* {person.name}\n*Email:* {person.email}\n\nA user has submitted a new support request.",
-                                    "type": "mrkdwn"
-                                },
-                                "type": "section"
-                            },
-                            {
-                                "type": "actions",
-                                "elements": [
-                                    {
-                                        "url": "{person.url}",
-                                        "text": {
-                                            "text": "View user in PostHog",
-                                            "type": "plain_text"
-                                        },
-                                        "type": "button"
-                                    },
-                                    {
-                                        "url": "{source.url}",
-                                        "text": {
-                                            "text": "Open ticket",
-                                            "type": "plain_text"
-                                        },
-                                        "type": "button"
-                                    }
-                                ]
-                            }
-                        ],
+                        "value": [],
                         "templating": "hog"
                     },
                     "text": {
-                        "value": "*{person.name}* created a ticket: '{event.event}'",
+                        "value": "",
                         "templating": "hog"
                     }
                 },
                 "template_id": "template-slack"
             },
             "output_variable": null
+        },
+        {
+            "id": "action_function_email_826ffd05-91e4-4647-a7b2-d8ce81376b87",
+            "name": "Email your support team",
+            "description": "Add your support inbox as the recipient and write the email. Delete this step if you only want Slack.",
+            "on_error": null,
+            "created_at": 1793059200000,
+            "updated_at": 1793059200000,
+            "filters": null,
+            "type": "function_email",
+            "output_variable": null,
+            "config": {
+                "template_id": "template-email",
+                "inputs": {
+                    "email": {
+                        "value": {
+                            "to": {
+                                "name": "",
+                                "email": ""
+                            },
+                            "from": {
+                                "name": "",
+                                "email": ""
+                            },
+                            "html": "",
+                            "text": "",
+                            "design": null,
+                            "replyTo": "",
+                            "subject": "",
+                            "preheader": ""
+                        },
+                        "templating": "liquid"
+                    }
+                },
+                "message_category_type": "transactional"
+            }
         },
         {
             "id": "exit_node",
@@ -159,8 +171,8 @@
     ],
     "abort_action": null,
     "variables": [],
-    "billable_action_types": ["function"],
+    "billable_action_types": ["function", "function_email"],
     "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Template_cover_9_cc52152691.jpg",
-    "tags": ["slack", "support ticket", "support"],
+    "tags": ["slack", "email", "support ticket", "support"],
     "scope": "global"
 }

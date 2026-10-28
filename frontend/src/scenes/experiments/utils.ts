@@ -7,6 +7,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { SeriesNode, isActionsSeriesNode, isEventsSeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
 import {
+    ActionsNode,
     AnyEntityNode,
     Breakdown,
     CachedNewExperimentQueryResponse,
@@ -77,7 +78,13 @@ export function isEventExposureConfig(config: ExperimentExposureConfig): config 
 }
 
 export function getExposureConfigDisplayName(config: ExperimentExposureConfig): string {
-    return isEventExposureConfig(config) ? config.event || 'Unknown Event' : config.name || `Action ${config.id}`
+    if (isEventExposureConfig(config)) {
+        return config.event || 'Unknown Event'
+    }
+    if (config.kind === NodeKind.ExperimentWarehouseNativeExposureConfig) {
+        return 'Warehouse exposures'
+    }
+    return config.name || `Action ${config.id}`
 }
 
 export function getVariantColor(variantKey: string, featureFlagVariants: MultivariateFlagVariant[]): string {
@@ -546,7 +553,7 @@ export function exposureConfigToSeries(exposureConfig: ExperimentExposureConfig)
 /**
  * Only an event or an action can mark exposure, so any other series gives no config.
  */
-export function seriesToExposureConfig(series: SeriesNode[]): ExperimentExposureConfig | undefined {
+export function seriesToExposureConfig(series: SeriesNode[]): ExperimentEventExposureConfig | ActionsNode | undefined {
     const [node] = series
     if (isEventsSeriesNode(node)) {
         return {
@@ -735,6 +742,9 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
                     dataWarehouseNode.properties.length > 0 && { properties: dataWarehouseNode.properties }),
             },
         ])
+        .with({ kind: NodeKind.ExperimentWarehouseNativeNode }, () => {
+            throw new Error('Warehouse-native sources cannot be shown as an insight yet')
+        })
         .exhaustive()
 
     return series
