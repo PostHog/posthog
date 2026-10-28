@@ -14,6 +14,7 @@ from parameterized import parameterized
 from pydantic import ValidationError
 from rest_framework import status
 
+from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 
 from products.alerts.backend.facade.destinations import list_alert_destination_groups
@@ -198,10 +199,16 @@ class TestMetricsAlertEvaluation(APIBaseTest):
 
     def test_a_slack_destination_receives_the_firing_and_goes_with_the_alert(self) -> None:
         sync_template_to_db(template_slack)
+        workspace = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})
         destinations_url = f"/api/projects/{self.team.id}/metrics_alerts/{self.configuration_id}/destinations/"
         added = self.client.post(
             destinations_url,
-            {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C123", "slack_channel_name": "alerts"},
+            {
+                "type": "slack",
+                "slack_workspace_id": workspace.id,
+                "slack_channel_id": "C123",
+                "slack_channel_name": "alerts",
+            },
             format="json",
         )
         assert added.status_code == status.HTTP_201_CREATED, added.json()
@@ -238,3 +245,23 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/metrics_alerts/{self.configuration_id}/destinations/")
 
         assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
+            ("http_webhook", {"type": "webhook", "webhook_url": "http://example.com/alerts"}, "webhook_url"),
+            (
+                "unconnected_slack_workspace",
+                {"type": "slack", "slack_workspace_id": 999999, "slack_channel_id": "C123"},
+                "slack_workspace_id",
+            ),
+        ]
+    )
+    def test_a_destination_that_could_never_deliver_is_refused(
+        self, _name: str, body: dict[str, object], field: str
+    ) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics_alerts/{self.configuration_id}/destinations/", body, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == field

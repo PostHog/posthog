@@ -5,7 +5,9 @@ destinations are HogFunctions this product owns, matched on the alert's configur
 are managed here.
 """
 
+from functools import cached_property
 from typing import Any, Literal, cast
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.db import models, transaction
@@ -22,9 +24,11 @@ from rest_framework.views import APIView
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, as_drf_validation_error
-from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.models import Team, User
+from posthog.models.integration import SLACK_INTEGRATION_KINDS, Integration
+from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.facade.destinations import (
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
     MAX_DESTINATIONS_PER_ALERT,
@@ -145,6 +149,9 @@ class MetricsAlertCreateDestinationSerializer(serializers.Serializer):
             validate_destination_data(data, allowed_destination_types=METRICS_ALERT_DESTINATION_TYPES)
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
+        # Native delivery posts only to https, so an http webhook would be saved and never notify.
+        if data["type"] == DestinationType.WEBHOOK and urlsplit(attrs.get("webhook_url", "")).scheme != "https":
+            raise ValidationError({"webhook_url": "Use an https URL."})
         return attrs
 
 
@@ -175,12 +182,33 @@ class MetricsAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         access = "read" if request.method in SAFE_METHODS else "write"
         return [f"alert:{access}", f"{METRICS_RESOURCE}:{access}"]
 
+    @cached_property
+    def canonical_team(self) -> Team:
+        # The alert lives on the parent team, so a child environment reads its parent's.
+        if self.team.parent_team_id is None:
+            return self.team
+        parent_team = self.team.parent_team
+        assert parent_team is not None
+        # The scope check before the view ran saw only the URL's team, so a key confined to some
+        # projects must reach the parent as well.
+        scoped_teams = get_authenticator_scoped_team_ids(getattr(self.request, "successful_authenticator", None))
+        if scoped_teams is not None and parent_team.id not in scoped_teams:
+            raise PermissionDenied(f"API key does not have access to the requested project: ID {parent_team.id}.")
+        return parent_team
+
+    @cached_property
+    def user_access_control(self) -> UserAccessControl:
+        # Anchored on the team the alert lives on, so a deny on the project also holds for its environments.
+        return UserAccessControl(
+            user=cast(User, self.request.user), team=self.canonical_team, organization_id=self.organization_id
+        )
+
     def _alert(self, pk: str) -> PlatformAlertConfigurationView:
         level: Literal["viewer", "editor"] = "viewer" if self.request.method in SAFE_METHODS else "editor"
         if not self.user_access_control.check_access_level_for_resource(METRICS_RESOURCE, level):
             raise PermissionDenied("You don't have access to metrics in this project.")
         alert = get_configuration(
-            team_id=self.team_id,
+            team_id=self.canonical_team.id,
             source_kinds=METRICS_ALERT_KINDS,
             configuration_id=serializers.UUIDField().run_validation(pk),
         )
@@ -198,7 +226,7 @@ class MetricsAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
     def destinations(self, request: Request, pk: str, **kwargs: Any) -> Response:
         alert = self._alert(pk)
         groups = list_alert_destination_groups(
-            team_id=self.team_id, alert_id=str(alert.destination_alert_id), allowed_event_ids=EVENT_IDS
+            team_id=self.canonical_team.id, alert_id=str(alert.destination_alert_id), allowed_event_ids=EVENT_IDS
         )
         return Response(
             MetricsAlertDestinationSerializer(
@@ -232,6 +260,15 @@ class MetricsAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         serializer = MetricsAlertCreateDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = cast(AlertDestinationData, serializer.validated_data)
+        # Native delivery looks the workspace up by team and kind, so a destination naming any other
+        # integration would be saved and never notify.
+        if (
+            data["type"] == DestinationType.SLACK
+            and not Integration.objects.filter(
+                id=data["slack_workspace_id"], team_id=self.canonical_team.id, kind__in=SLACK_INTEGRATION_KINDS
+            ).exists()
+        ):
+            raise ValidationError({"slack_workspace_id": "Choose a Slack workspace connected to this project."})
         handled = {
             kind: spec for kind, spec in EVENT_KIND_CONFIG.items() if destination_handles_event_kind(data["type"], spec)
         }
@@ -251,14 +288,19 @@ class MetricsAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
                 # first leaves no row, and one that comes later waits, then removes these destinations too.
                 if (
                     get_configuration(
-                        team_id=self.team_id, source_kinds=METRICS_ALERT_KINDS, configuration_id=alert.id, lock=True
+                        team_id=self.canonical_team.id,
+                        source_kinds=METRICS_ALERT_KINDS,
+                        configuration_id=alert.id,
+                        lock=True,
                     )
                     is None
                 ):
                     raise NotFound()
                 # Each destination is another message every time the alert fires, so one alert has only a few.
                 existing = list_alert_destination_groups(
-                    team_id=self.team_id, alert_id=str(alert.destination_alert_id), allowed_event_ids=EVENT_IDS
+                    team_id=self.canonical_team.id,
+                    alert_id=str(alert.destination_alert_id),
+                    allowed_event_ids=EVENT_IDS,
                 )
                 if len(existing) >= MAX_DESTINATIONS_PER_ALERT:
                     raise ValidationError(
@@ -266,7 +308,7 @@ class MetricsAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
                     )
                 hog_function_ids = create_alert_destination_hog_functions(
                     configs,
-                    team_id=self.team_id,
+                    team_id=self.canonical_team.id,
                     created_by_id=cast(User, request.user).id,
                     alert_id=str(alert.destination_alert_id),
                     allowed_event_ids=EVENT_IDS,
@@ -302,7 +344,7 @@ class MetricsAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         hog_function_ids: list[UUID] = serializer.validated_data["hog_function_ids"]
         try:
             soft_delete_alert_destinations(
-                team_id=self.team_id,
+                team_id=self.canonical_team.id,
                 alert_id=str(alert.destination_alert_id),
                 allowed_event_ids=EVENT_IDS,
                 hog_function_ids=hog_function_ids,
