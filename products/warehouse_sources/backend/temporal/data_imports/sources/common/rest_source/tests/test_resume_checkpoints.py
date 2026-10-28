@@ -23,6 +23,7 @@ class PagedSession:
     def __init__(self, pages_by_path: dict[str, list[list[dict[str, Any]]]]) -> None:
         self.headers: dict[str, str] = {}
         self._pages_by_path = pages_by_path
+        self.requests: list[tuple[str, int]] = []
 
     def prepare_request(self, request: Request) -> PreparedRequest:
         return Session().prepare_request(request)
@@ -35,18 +36,22 @@ class PagedSession:
         response.status_code = 200
         response._content = json.dumps(pages[page] if page < len(pages) else []).encode()
         response.url = cast(str, prepared.url)
+        self.requests.append((parts.path, page))
         return response
 
 
 def paged_config(
-    pages_by_path: dict[str, list[list[dict[str, Any]]]], resources: list[Any], total_pages: Optional[int] = None
+    pages_by_path: dict[str, list[list[dict[str, Any]]]],
+    resources: list[Any],
+    total_pages: Optional[int] = None,
+    session: Optional[PagedSession] = None,
 ) -> RESTAPIConfig:
     return cast(
         RESTAPIConfig,
         {
             "client": {
                 "base_url": "https://api.example.com",
-                "session": PagedSession(pages_by_path),
+                "session": session or PagedSession(pages_by_path),
                 "paginator": {"type": "page_number", "base_page": 0, "total_path": None, "maximum_page": total_pages},
             },
             "resources": resources,
@@ -205,3 +210,52 @@ def test_a_fan_out_resumed_from_the_state_staged_with_a_page_reads_every_row_onc
     rows.extend(row["id"] for page in resumed for row in page)
 
     assert rows == ["a1", "a2", "b1"]
+
+
+PARENT_PER_PAGE = {
+    "/parents": [[{"id": parent}] for parent in "abcde"],
+    **{f"/parents/{parent}/children": [[{"id": f"{parent}1"}]] for parent in "abcde"},
+}
+POSITIONED_RESOURCES: list[Any] = ["parents", {**FANOUT_RESOURCES[1], "resume_parent_pagination": True}]
+
+
+@pytest.mark.parametrize("stop_after_pages", [1, 2, 3, 4])
+def test_a_fan_out_that_saves_the_parent_position_resumes_one_parent_page_back(stop_after_pages: int) -> None:
+    states: list[Any] = []
+    first = _resource(paged_config(PARENT_PER_PAGE, POSITIONED_RESOURCES), "children", states.append)
+    rows: list[str] = []
+    with activate_safe_point(lambda: None, covers_framework_checkpoints=True):
+        for index, page in enumerate(first, start=1):
+            rows.extend(row["id"] for row in page)
+            if index == stop_after_pages:
+                break
+
+    session = PagedSession(PARENT_PER_PAGE)
+    resumed = _resource(
+        paged_config(PARENT_PER_PAGE, POSITIONED_RESOURCES, session=session),
+        "children",
+        lambda _state: None,
+        states[-1],
+    )
+    rows.extend(row["id"] for page in resumed for row in page)
+
+    assert rows == ["a1", "b1", "c1", "d1", "e1"]
+    parent_pages = [page for path, page in session.requests if path == "/parents"]
+    assert parent_pages[0] == max(stop_after_pages - 2, 0)
+    finished = [f"/parents/{parent}/children" for parent in "abcde"[:stop_after_pages]]
+    # The parent fanned out last is still in progress, so only the one before it is kept as finished.
+    assert states[-1]["current"] == finished[-1]
+    assert states[-1]["completed"] == finished[-2:-1]
+
+
+def test_a_saved_state_without_a_parent_position_still_skips_its_finished_parents() -> None:
+    states: list[Any] = []
+    legacy = {"completed": ["/parents/a/children", "/parents/b/children"], "current": None, "child_state": None}
+    resumed = _resource(paged_config(PARENT_PER_PAGE, POSITIONED_RESOURCES), "children", states.append, legacy)
+
+    with activate_safe_point(lambda: None, covers_framework_checkpoints=True):
+        rows = [row["id"] for page in resumed for row in page]
+
+    assert rows == ["c1", "d1", "e1"]
+    assert states[-1]["parent"] == {"page": 3}
+    assert states[-1]["completed"] == ["/parents/d/children", "/parents/e/children"]
