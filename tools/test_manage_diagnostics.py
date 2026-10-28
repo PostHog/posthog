@@ -10,8 +10,11 @@ import subprocess
 from pathlib import Path
 
 import unittest
+from unittest.mock import patch
 
 from parameterized import parameterized
+
+from manage_diagnostics import relay_command_diagnostics
 
 MANAGE = Path(__file__).resolve().parents[1] / "manage.py"
 BOOTSTRAP = """
@@ -167,30 +170,65 @@ class ManageDiagnosticsTest(unittest.TestCase):
         self.assertEqual([], self.phases(output))
 
     @parameterized.expand(
-        [("full", "success", 0), ("full", "failure", 7), ("closed", "success", 0), ("closed", "failure", 7)]
+        [
+            ("full", "success", 0),
+            ("full", "failure", 7),
+            ("nonblocking_full", "success", 0),
+            ("nonblocking_full", "failure", 7),
+            ("closed", "success", 0),
+            ("closed", "failure", 7),
+        ]
     )
     def test_output_pressure_preserves_outcome_and_stderr_flags(
         self, sink: str, phase: str, expected_status: int
     ) -> None:
         read_fd, write_fd = os.pipe()
         try:
-            if sink == "full":
+            if sink != "closed":
                 os.set_blocking(write_fd, False)
                 with self.assertRaises(BlockingIOError):
                     while True:
                         os.write(write_fd, b"x" * 4096)
-                os.set_blocking(write_fd, True)
+                os.set_blocking(write_fd, sink == "full")
             else:
                 os.close(read_fd)
                 read_fd = -1
             process = self.start(phase, stderr=write_fd, native_pressure=True)
             process.communicate(timeout=5)
             self.assertEqual(expected_status, process.returncode)
-            self.assertTrue(os.get_blocking(write_fd))
+            self.assertEqual(sink != "nonblocking_full", os.get_blocking(write_fd))
         finally:
             os.close(write_fd)
             if read_fd >= 0:
                 os.close(read_fd)
+
+    def test_relay_resumes_after_temporary_backpressure(self) -> None:
+        read_fd, write_fd = os.pipe()
+        destination_read, destination_write = os.pipe()
+        os.set_blocking(destination_write, False)
+        write = os.write
+        write_sizes = iter((3, None, 4096))
+
+        def write_with_backpressure(descriptor: int, chunk: bytes) -> int:
+            size = next(write_sizes, 4096)
+            if size is None:
+                raise BlockingIOError
+            return write(descriptor, chunk[:size])
+
+        with (
+            os.fdopen(read_fd, "rb") as source,
+            os.fdopen(write_fd, "wb") as source_writer,
+            os.fdopen(destination_read, "rb") as destination,
+            os.fdopen(destination_write, "wb") as destination_writer,
+        ):
+            expected = b"first phase\nnext phase\n"
+            source_writer.write(expected)
+            source_writer.close()
+            with patch("manage_diagnostics.os.write", side_effect=write_with_backpressure):
+                relay_command_diagnostics(os.dup(source.fileno()), os.dup(destination_writer.fileno()))
+            self.assertFalse(os.get_blocking(destination_writer.fileno()))
+            destination_writer.close()
+            self.assertEqual(expected, destination.read())
 
 
 if __name__ == "__main__":

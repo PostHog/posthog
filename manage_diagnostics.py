@@ -3,6 +3,7 @@ import sys
 import json
 import math
 import time
+import select
 import faulthandler
 from collections.abc import Callable
 from threading import Thread
@@ -12,8 +13,14 @@ def relay_command_diagnostics(read_fd: int, destination_fd: int) -> None:
     try:
         while chunk := os.read(read_fd, 4096):
             while chunk:
-                written = os.write(destination_fd, chunk)
-                chunk = chunk[written:]
+                try:
+                    written = os.write(destination_fd, chunk)
+                except BlockingIOError:
+                    writable = select.poll()
+                    writable.register(destination_fd, select.POLLOUT)
+                    writable.poll()
+                else:
+                    chunk = chunk[written:]
     except OSError:
         pass
     finally:
