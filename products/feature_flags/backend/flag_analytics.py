@@ -33,7 +33,7 @@ CACHE_BUCKET_SIZE = 60 * 2  # duration in seconds
 # Per-team counts of the local evaluation requests that Django served, held until the next usage report.
 # The legacy local evaluation counter also holds requests that the Rust definitions service counted
 # and reported itself, so reporting from that counter would count those requests twice.
-LEGACY_LOCAL_EVALUATION_USAGE_KEY = "posthog:legacy_local_evaluation_usage"
+DJANGO_LOCAL_EVALUATION_USAGE_KEY = "posthog:django_local_evaluation_usage"
 # usage-ingestion rejects a request with more records than USAGE_INGESTION_MAX_BATCH_SIZE, which defaults to 500.
 USAGE_RECORDS_PER_REQUEST = 500
 
@@ -113,18 +113,26 @@ def increment_request_count(
         capture_exception(error)
 
 
-def increment_legacy_local_evaluation_usage(team_id: int) -> None:
+def increment_local_evaluation_request_counts(team_id: int) -> None:
+    # One round trip for both counters, so a Redis stall delays the flag list request once.
     try:
-        get_client().hincrby(LEGACY_LOCAL_EVALUATION_USAGE_KEY, str(team_id), 1)
+        pipe = get_client().pipeline(transaction=False)
+        pipe.hincrby(
+            get_team_request_key(team_id, FlagRequestType.LOCAL_EVALUATION),
+            str(int(time.time() / CACHE_BUCKET_SIZE)),
+            1,
+        )
+        pipe.hincrby(DJANGO_LOCAL_EVALUATION_USAGE_KEY, str(team_id), 1)
+        pipe.execute()
     except Exception as error:
         capture_exception(error)
 
 
-def report_legacy_local_evaluation_usage() -> None:
+def report_django_local_evaluation_usage() -> None:
     # One transaction reads and clears the counts, so a request counted after it waits for the next report.
     pipe = get_client().pipeline(transaction=True)
-    pipe.hgetall(LEGACY_LOCAL_EVALUATION_USAGE_KEY)
-    pipe.delete(LEGACY_LOCAL_EVALUATION_USAGE_KEY)
+    pipe.hgetall(DJANGO_LOCAL_EVALUATION_USAGE_KEY)
+    pipe.delete(DJANGO_LOCAL_EVALUATION_USAGE_KEY)
     counts, _ = pipe.execute()
     records = [
         UsageRecord(
@@ -138,7 +146,7 @@ def report_legacy_local_evaluation_usage() -> None:
         for team_id, count in counts.items()
     ]
     for chunk in batched(records, USAGE_RECORDS_PER_REQUEST, strict=False):
-        report_usage(chunk, site="legacy_flag_definitions")
+        report_usage(chunk, site="django_flag_definitions")
 
 
 def _extract_total_count_for_key_from_redis_hash(client: redis.Redis, key: str) -> tuple[int, int, int]:

@@ -33,7 +33,7 @@ from posthog.tasks.tasks import find_flags_with_enriched_analytics as find_flags
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.flag_analytics import (
-    LEGACY_LOCAL_EVALUATION_USAGE_KEY,
+    DJANGO_LOCAL_EVALUATION_USAGE_KEY,
     SDK_LIBRARIES,
     _enriched_flag_key_expr_sql,
     _extract_sdk_breakdown_from_redis,
@@ -44,9 +44,8 @@ from products.feature_flags.backend.flag_analytics import (
     get_cached_evaluations_7d_by_team,
     get_evaluations_7d_by_team,
     get_team_request_library_key,
-    increment_legacy_local_evaluation_usage,
     increment_request_count,
-    report_legacy_local_evaluation_usage,
+    report_django_local_evaluation_usage,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
@@ -912,9 +911,13 @@ class TestSdkBreakdown(BaseTest):
             )
 
 
-class TestLegacyLocalEvaluationUsage(SimpleTestCase):
+class TestDjangoLocalEvaluationUsage(SimpleTestCase):
     def setUp(self) -> None:
-        redis.get_client().delete(LEGACY_LOCAL_EVALUATION_USAGE_KEY)
+        redis.get_client().delete(DJANGO_LOCAL_EVALUATION_USAGE_KEY)
+
+    def _count(self, *team_ids: int) -> None:
+        for team_id in team_ids:
+            redis.get_client().hincrby(DJANGO_LOCAL_EVALUATION_USAGE_KEY, str(team_id), 1)
 
     def _report(self) -> list[list[tuple[int, int]]]:
         with (
@@ -922,7 +925,7 @@ class TestLegacyLocalEvaluationUsage(SimpleTestCase):
             patch("posthog.usage_ingestion.client.grpc.insecure_channel"),
             patch("posthog.usage_ingestion.client.service_pb2_grpc.UsageIngestionStub") as stub,
         ):
-            report_legacy_local_evaluation_usage()
+            report_django_local_evaluation_usage()
         requests = [call.args[0] for call in stub.return_value.IngestBillingUsage.call_args_list]
         for request in requests:
             for record in request.records:
@@ -933,19 +936,17 @@ class TestLegacyLocalEvaluationUsage(SimpleTestCase):
         return [sorted((record.team_id, record.quantity) for record in request.records) for request in requests]
 
     def test_reports_each_count_once(self) -> None:
-        for team_id in (1, 1, 1, 2):
-            increment_legacy_local_evaluation_usage(team_id)
+        self._count(1, 1, 1, 2)
 
         self.assertEqual(self._report(), [[(1, 3), (2, 1)]])
 
-        increment_legacy_local_evaluation_usage(1)
+        self._count(1)
         self.assertEqual(self._report(), [[(1, 1)]])
         self.assertEqual(self._report(), [])
 
     @patch("products.feature_flags.backend.flag_analytics.USAGE_RECORDS_PER_REQUEST", 2)
     def test_splits_records_at_the_ingestion_batch_limit(self) -> None:
-        for team_id in (1, 2, 3):
-            increment_legacy_local_evaluation_usage(team_id)
+        self._count(1, 2, 3)
 
         self.assertEqual(sorted(len(request) for request in self._report()), [1, 2])
 

@@ -4855,7 +4855,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # shouldn't add to local eval requests
         self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {})
-        self.assertIsNone(client.hget("posthog:legacy_local_evaluation_usage", str(self.team.pk)))
+        self.assertIsNone(client.hget("posthog:django_local_evaluation_usage", str(self.team.pk)))
 
         self.client.logout()
         # `local_evaluation` is called by logged out clients!
@@ -4869,7 +4869,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             response = self.client.get(f"/api/feature_flag/")
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
             self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {})
-            self.assertIsNone(client.hget("posthog:legacy_local_evaluation_usage", str(self.team.pk)))
+            self.assertIsNone(client.hget("posthog:django_local_evaluation_usage", str(self.team.pk)))
 
             response = self.client.get(
                 f"/api/feature_flag/?token={self.team.api_token}",
@@ -4880,7 +4880,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"),
                 {b"165192618": b"1"},
             )
-            self.assertEqual(client.hget("posthog:legacy_local_evaluation_usage", str(self.team.pk)), b"1")
+            self.assertEqual(client.hget("posthog:django_local_evaluation_usage", str(self.team.pk)), b"1")
 
             for _ in range(4):
                 response = self.client.get(
@@ -4893,7 +4893,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"),
                 {b"165192618": b"5"},
             )
-            self.assertEqual(client.hget("posthog:legacy_local_evaluation_usage", str(self.team.pk)), b"5")
+            self.assertEqual(client.hget("posthog:django_local_evaluation_usage", str(self.team.pk)), b"5")
 
     @parameterized.expand(
         [

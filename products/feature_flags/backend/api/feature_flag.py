@@ -141,7 +141,7 @@ from products.feature_flags.backend.facade.config_validation import ConfigValida
 from products.feature_flags.backend.facade.references import InvalidIds, references
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
 from products.feature_flags.backend.flag_analytics import (
-    increment_legacy_local_evaluation_usage,
+    increment_local_evaluation_request_counts,
     increment_request_count,
 )
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
@@ -4201,8 +4201,7 @@ class FeatureFlagViewSet(
     def list(self, request, *args, **kwargs):
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             # Add request for analytics only if request coming with personal API key authentication
-            increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
-            increment_legacy_local_evaluation_usage(self.team.pk)
+            increment_local_evaluation_request_counts(self.team.pk)
 
         response = super().list(request, *args, **kwargs)
         feature_flags_data = response.data.get("results", [])
