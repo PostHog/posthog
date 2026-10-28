@@ -6,7 +6,12 @@ on:
         - cron: '5 * * * 1-5'
 
 permissions:
+    actions: read
     pull-requests: read
+
+concurrency:
+    group: ${{ github.workflow }}
+    cancel-in-progress: false
 
 env:
     SUPPORT_AGENT_INFRA_CHANNEL: 'C0CB80UM50Q'
@@ -25,10 +30,24 @@ jobs:
               with:
                   script: |
                       const hourMs = 60 * 60 * 1000
+                      const dayMs = 24 * hourMs
                       const earlyAlertHours = [2, 8]
-                      const dailyAlertAfterHours = 24
                       const aiObservabilityAfterHours = 24
                       const { owner, repo } = context.repo
+
+                      const { data: thisRun } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: context.runId })
+                      const thisCheckAt = Date.parse(thisRun.created_at)
+                      const { data: successfulRuns } = await github.rest.actions.listWorkflowRuns({
+                          owner,
+                          repo,
+                          workflow_id: thisRun.workflow_id,
+                          status: 'success',
+                          per_page: 10,
+                      })
+                      const lastSuccess = successfulRuns.workflow_runs.find(
+                          (run) => run.id !== thisRun.id && Date.parse(run.created_at) < thisCheckAt
+                      )
+                      const lastCheckAt = lastSuccess ? Date.parse(lastSuccess.created_at) : thisCheckAt - hourMs
 
                       const prs = await github.paginate(
                           github.rest.pulls.list,
@@ -88,15 +107,16 @@ jobs:
                           .map((review) => Date.parse(review.submittedAt))
                       const approvedAt = reviewDecision === 'APPROVED' && approvals.length > 0 ? Math.min(...approvals) : null
 
-                      const scheduledHour = Math.floor(Date.now() / hourMs) * hourMs
-                      const hoursSince = (time) => Math.floor((scheduledHour - time) / hourMs)
+                      const stuckSince = approvedAt ?? waitingSince
+                      const nextDailyAlert = stuckSince + Math.max(1, Math.floor((lastCheckAt - stuckSince) / dayMs) + 1) * dayMs
+                      const alertTimes = [...earlyAlertHours.map((hours) => stuckSince + hours * hourMs), nextDailyAlert]
+                      const alertDue = alertTimes.some((time) => time > lastCheckAt && time <= thisCheckAt)
+
+                      const hoursSince = (time) => Math.floor((Date.now() - time) / hourMs)
                       const waitedHours = hoursSince(waitingSince)
-                      const stuckHours = hoursSince(approvedAt ?? waitingSince)
-                      const isAlertHour =
-                          earlyAlertHours.includes(stuckHours) ||
-                          (stuckHours >= dailyAlertAfterHours && stuckHours % dailyAlertAfterHours === 0)
-                      if (!isAlertHour) {
-                          core.info(`#${current.number} is ${reviewDecision}, stuck ${stuckHours}h, waited ${waitedHours}h: no alert this hour`)
+                      const stuckHours = hoursSince(stuckSince)
+                      if (!alertDue) {
+                          core.info(`#${current.number} is ${reviewDecision}, stuck ${stuckHours}h, waited ${waitedHours}h: no alert due`)
                           return
                       }
 
