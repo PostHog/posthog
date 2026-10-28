@@ -3136,6 +3136,10 @@ snapshots:
         hash: v1.k794b7964.dfeaf97789a0f52c2cb9f41f1dc4c430c8f1f8c4d26b450886b8fe1bf009a565.g5h8M4sn6ctmHk9PSgvmHWj4LQm_L5wCwYUDIEz7TPs
     errortracking-assigneedisplay--user-displays--light:
         hash: v1.k794b7964.5e5ff02390ffcbf925829bc3cb5be1d12eeae84cbfd4a5d0fb52511d448b1405.LJ4jfnPIbSE2F6dWW90mnaD_cEkywysIZEHPl7RXAls
+    errortracking-builtinfilterrow--some-rules-on--dark:
+        hash: v1.k794b7964.b3079597cf042fef576f7a3b95ed60f9e8414c5a042b97c2022f22861da5164f.2-KTykPV9V9wu2Nw1BMI5Q01qWfvsBHuLUlF51O9-5A
+    errortracking-builtinfilterrow--some-rules-on--light:
+        hash: v1.k794b7964.2bedaf9f4861ad95fc592898de2d754227a930a3e8e6c0c06a01409ef5abc890.BNT8SHV1WLgDPuYnfG1o0XqSc52E6YeTblBLre3x2mE
     errortracking-contextdisplay--context-display-empty--dark:
         hash: v1.k794b7964.3516484d01487339ed46bb0e58427cdc5e90c39309321ecbb7f50460a9231f52.9a39dHevx4udYZ6fNqvmvAyi-dzSt1m5brQ5l0vBuzg
     errortracking-contextdisplay--context-display-empty--light:
@@ -15255,9 +15259,9 @@ snapshots:
     scenes-app-settings-environment--settings-environment-error-tracking--light:
         hash: v1.k794b7964.adb6fd411ffdc03ea8e1b9a29f01536d41a5af4b6224c37881d7ad6b06630f84.WGucFxYafyt1RqQ5e0M6MzvBxP4nGZseNtgVciGxRWc
     scenes-app-settings-environment--settings-environment-error-tracking-configuration--dark:
-        hash: v1.k794b7964.ec06b32dd20c57ad9a82e1f94711678b9ccc586027958cb583102fa06bda94e5.R0Xah_fVqbKt8GSnJzj6Mb4HWqCK0VLaYPvmC-it9hQ
+        hash: v1.k794b7964.fefec3bbacd088c88914a8fcb41ecb8cb2ab327cca2d73788d27450e592c35f9.S75BhNkh_Gx5uOCqbImr0kf0CYnsY3BDW_EnFvIuZ8k
     scenes-app-settings-environment--settings-environment-error-tracking-configuration--light:
-        hash: v1.k794b7964.fe0b9b2717829dbcadc4b61a3366c48a9141440fc907ed6a12d5d171f231c2df.vJ-9wkHdToz9HblFJRGAvWp8-hVVmxNp-zPPlni1vHA
+        hash: v1.k794b7964.d203e510b1d56262b3ba6e0a19195c9e9ebefb79c6771f7d2748133d5c03a5fc.emVO0_18WGnSz9JoyR0RBg6aWOqHM40ssA-tRKisOSI
     scenes-app-settings-environment--settings-environment-experiments--dark:
         hash: v1.k794b7964.97267477544077ef369227235fde9b1c9380237167be329954cf2f4ce360283e.NgTCKnQHKhLyLWyje5QLi6KyJlx3k5fnuF9ODDZ9BFY
     scenes-app-settings-environment--settings-environment-experiments--light:
