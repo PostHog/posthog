@@ -1,9 +1,11 @@
 import json
 
 from django.contrib import admin
+from django.db.models import Prefetch
 from django.urls import reverse
 from django.utils.html import format_html
 
+from products.data_modeling.backend.facade.models import Node
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 
 
@@ -17,7 +19,6 @@ class EndpointVersionInline(admin.TabularInline):
         "version",
         "is_active",
         "query_kind",
-        "data_freshness_seconds",
         "is_materialized_display",
         "saved_query_name",
         "saved_query_status",
@@ -234,6 +235,14 @@ class EndpointVersionAdmin(admin.ModelAdmin):
             super()
             .get_queryset(request)
             .select_related("endpoint", "endpoint__team", "saved_query", "saved_query__table", "created_by")
+            # data_freshness_seconds reads the node target, so prefetch it once for the whole page.
+            .prefetch_related(
+                Prefetch(
+                    "saved_query__node_set",
+                    queryset=Node.objects.only("saved_query_id", "properties"),
+                    to_attr="prefetched_frequency_nodes",
+                )
+            )
         )
 
     @admin.display(description="Endpoint")
