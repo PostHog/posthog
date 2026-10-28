@@ -12,6 +12,7 @@ ENTITY_LEGAL_FORMS = "EntityLegalForms"
 REGISTRATION_AUTHORITIES = "RegistrationAuthorities"
 COUNTRIES = "Countries"
 JURISDICTIONS = "Jurisdictions"
+REGIONS = "Regions"
 
 ENDPOINTS = (
     LEI_RECORDS,
@@ -20,6 +21,7 @@ ENDPOINTS = (
     REGISTRATION_AUTHORITIES,
     COUNTRIES,
     JURISDICTIONS,
+    REGIONS,
 )
 
 ENDPOINT_PATHS: dict[str, str] = {
@@ -29,11 +31,12 @@ ENDPOINT_PATHS: dict[str, str] = {
     REGISTRATION_AUTHORITIES: "/registration-authorities",
     COUNTRIES: "/countries",
     JURISDICTIONS: "/jurisdictions",
+    REGIONS: "/regions",
 }
 
 # Only `lei-records` exposes a server-side timestamp filter (verified live:
 # `filter[registration.lastUpdateDate]=>=DATE`). The reference tables (issuers, legal forms,
-# registration authorities, countries, jurisdictions) change rarely and expose no filter, so
+# registration authorities, countries, jurisdictions, regions) change rarely and expose no filter, so
 # they sync full refresh only.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     LEI_RECORDS: [incremental_field("last_update_date")],
