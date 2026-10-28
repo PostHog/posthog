@@ -562,7 +562,7 @@ class TestTrainScoreSplit(BaseTest):
         self, insight: Insight, pick: InsightPick, now: datetime, data: list[float]
     ) -> tuple[ScoreInsightResult, list[dict[str, Any]]]:
         days = [(now - timedelta(days=len(data) - 1 - day)).strftime("%Y-%m-%d") for day in range(len(data))]
-        results = [{"action": {"order": 0}, "label": "pageview", "days": days, "data": data, "breakdown_value": None}]
+        results = [{"order": 0, "label": "pageview", "days": days, "data": data, "breakdown_value": None}]
         with (
             patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner,
             patch("products.signals.backend.anomaly_scores.tick.emit") as emit,

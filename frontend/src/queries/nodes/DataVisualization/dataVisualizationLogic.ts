@@ -57,6 +57,7 @@ import {
     getBIVisualizationResponse,
     getBIVisualizationSource,
 } from 'products/business_intelligence/frontend/biQueryResults'
+import { isBIPivotTable } from 'products/business_intelligence/frontend/biTableLayout'
 
 import type {
     DataNode,
@@ -75,7 +76,7 @@ import type {
     TraceSpansQueryResponse,
 } from '../../schema/schema-general'
 import type { TraceSpansTreeQueryResponse } from '../../schema/schema-general'
-import { dataNodeLogic } from '../DataNode/dataNodeLogic'
+import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
 import { getAutoBoxPlotSettings } from './Components/Charts/sqlBoxPlotAdapter'
 import { humanizeEventColumnValue } from './eventColumnLabels'
@@ -123,6 +124,7 @@ export interface AxisSeries<T> {
 }
 
 export interface DataVisualizationLogicProps {
+    loadQueue?: DataNodeLogicProps['loadQueue']
     key: string
     query: VisualizationNode
     editMode?: boolean
@@ -965,7 +967,8 @@ export interface dataVisualizationLogicMeta {
             visualizationType: ChartDisplayType,
             effectiveVisualizationType: ChartDisplayType,
             columns: Column[],
-            conditionalFormattingRules: ConditionalFormattingRule[]
+            conditionalFormattingRules: ConditionalFormattingRule[],
+            query: VisualizationNode
         ) => boolean
         hogVmLoadFailed: (needsHogVm: boolean, hogVmLoadError: unknown) => boolean
         isTableVisualization: (effectiveVisualizationType: ChartDisplayType) => boolean
@@ -990,6 +993,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             teamLogic,
             ['currentTeamId'],
             dataNodeLogic({
+                loadQueue: props.loadQueue,
                 cachedResults: props.cachedResults,
                 key: props.key,
                 query: getBIVisualizationSource(props.query),
@@ -1014,6 +1018,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         actions: [
             dataNodeLogic({
+                loadQueue: props.loadQueue,
                 cachedResults: props.cachedResults,
                 retainResponseOnUnmount: props.retainResponseOnUnmount,
                 key: props.key,
@@ -1925,15 +1930,23 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         // The Hog VM and its crypto polyfills are large, so only a table that shows formatting rules loads them.
         // Auto resolves to a table until columns arrive, so it waits for them before it decides.
         needsHogVm: [
-            (s) => [s.visualizationType, s.effectiveVisualizationType, s.columns, s.conditionalFormattingRules],
+            (s) => [
+                s.visualizationType,
+                s.effectiveVisualizationType,
+                s.columns,
+                s.conditionalFormattingRules,
+                s.query,
+            ],
             (
                 visualizationType: ChartDisplayType,
                 effectiveVisualizationType: ChartDisplayType,
                 columns: Column[],
-                rules: ConditionalFormattingRule[]
+                rules: ConditionalFormattingRule[],
+                query: VisualizationNode
             ): boolean =>
                 (visualizationType !== ChartDisplayType.Auto || columns.length > 0) &&
-                effectiveVisualizationType === ChartDisplayType.ActionsTable &&
+                (effectiveVisualizationType === ChartDisplayType.ActionsTable ||
+                    (query.kind === NodeKind.BIVisualizationNode && isBIPivotTable(query.config))) &&
                 rules.length > 0,
         ],
         hogVmLoadFailed: [

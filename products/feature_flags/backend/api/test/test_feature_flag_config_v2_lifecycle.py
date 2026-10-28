@@ -177,6 +177,14 @@ class TestV2SafetyWritesNeedNoAdmission(V2UpdateTestCase):
         (entry,) = self.activity(flag)
         assert entry.activity == "deleted"
 
+    def test_soft_deleting_without_the_row_version_names_it(self) -> None:
+        flag = self.flag(active=True)
+        response = self.patch_flag(flag, {"deleted": True})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (response.json()["attr"], response.json()["code"]) == ("version", "required")
+        flag.refresh_from_db()
+        assert (flag.deleted, flag.version) == (False, 3)
+
     @parameterized.expand(
         [
             ("missing_token", {"active": False}, status.HTTP_400_BAD_REQUEST),
