@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.models.integration import Integration
 
-from products.knowledge_writer.backend.adapters import REGISTRY
+from products.knowledge_writer.backend.adapters.registry import REGISTRY
 from products.knowledge_writer.backend.facade.contracts import DocsCommandRequest
 from products.knowledge_writer.backend.facade.enums import DocsRequestSource
 from products.knowledge_writer.backend.logic import caps, intake

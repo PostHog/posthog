@@ -1,4 +1,4 @@
-from ..adapters import REGISTRY
+from ..adapters.registry import REGISTRY
 from ..logic import intake
 from ..settings import writer_settings
 from .contracts import DocsCommandRequest, IntakeOutcome
