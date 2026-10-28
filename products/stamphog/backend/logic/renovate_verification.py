@@ -270,8 +270,9 @@ def update_refusal(change: VersionChange) -> str | None:
         return "a major update"
     if _numeric_version(change.new_version) < _numeric_version(change.old_version):
         return "a downgrade"
-    # A prerelease sorts below its release, so 1.2.0 -> 1.2.0-rc.1 is a downgrade the numbers miss.
-    if "-" in change.new_version and "-" not in change.old_version:
+    # The numeric comparison above ignores prerelease tags, so it cannot order 1.2.0-rc.2 against
+    # 1.2.0-rc.1 or 1.2.0. Every new prerelease needs a human.
+    if "-" in change.new_version:
         return "a prerelease"
     return None
 
