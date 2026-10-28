@@ -8,8 +8,9 @@ import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import type { Breadcrumb } from '~/types'
-import { SidePanelTab } from '~/types'
+import { ActivityScope, SidePanelTab } from '~/types'
 
 import { prefetchRunStream, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 import { tasksPullRequestTitlesCreate, tasksRetrieve } from 'products/tasks/frontend/generated/api'
@@ -94,6 +95,7 @@ export interface betLogicValues {
     planDrafts: Record<string, PlanDraft>
     pullRequestTitles: Record<string, string>
     pullRequestTitlesLoading: boolean
+    sidePanelContext: SidePanelSceneContext
     stoppingWork: string | null
     waitingIdeas: BetsWorkApi[]
     workToggled: boolean
@@ -428,6 +430,10 @@ export const betLogic = kea<betLogicType>([
         buildDialogOpen: [false, { openBuild: (_, { workId }) => workId !== null, resetIdeas: () => false }],
     }),
     selectors(({ props }) => ({
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [],
+            (): SidePanelSceneContext => ({ activity_scope: ActivityScope.BET, activity_item_id: props.id }),
+        ],
         busy: [(s) => [s.busyOperation], (operation: string | null): boolean => operation !== null],
         breadcrumbs: [
             (s) => [s.bet],
