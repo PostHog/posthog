@@ -166,6 +166,7 @@ class ReachableCondition:
     # The person or group property that the condition matches on alone, when its one value is the pinned variant's
     # key. The variant then comes from whatever sets that property, usually the customer's own assignment.
     variant_property: VariantProperty | None
+    cohort_ids: frozenset[int] = frozenset()
 
 
 @frozen
@@ -176,7 +177,6 @@ class FlagState:
     variants: tuple[FlagVariant, ...]
     # The release conditions that can serve a request, in evaluation order.
     reachable_conditions: tuple[ReachableCondition, ...]
-    cohort_ids: frozenset[int] = frozenset()
 
 
 @frozen
@@ -324,6 +324,40 @@ class FlagKeyFilter:
 
 ExposurePropertyType = Literal["event", "person"]
 
+# `semver_neq` is left out: it fails a missing scalar, but passes a missing array such as `$exception_types`, as every
+# negated operator does.
+_FAIL_WHEN_MISSING = frozenset(
+    {
+        PropertyOperator.EXACT,
+        PropertyOperator.ICONTAINS,
+        PropertyOperator.ICONTAINS_MULTI,
+        PropertyOperator.STARTS_WITH,
+        PropertyOperator.ENDS_WITH,
+        PropertyOperator.REGEX,
+        PropertyOperator.GT,
+        PropertyOperator.GTE,
+        PropertyOperator.LT,
+        PropertyOperator.LTE,
+        PropertyOperator.MIN,
+        PropertyOperator.MAX,
+        PropertyOperator.IS_SET,
+        PropertyOperator.IS_DATE_EXACT,
+        PropertyOperator.IS_DATE_BEFORE,
+        PropertyOperator.IS_DATE_AFTER,
+        PropertyOperator.BETWEEN,
+        PropertyOperator.IN_,
+        PropertyOperator.IS_CLEANED_PATH_EXACT,
+        PropertyOperator.SEMVER_EQ,
+        PropertyOperator.SEMVER_GT,
+        PropertyOperator.SEMVER_GTE,
+        PropertyOperator.SEMVER_LT,
+        PropertyOperator.SEMVER_LTE,
+        PropertyOperator.SEMVER_TILDE,
+        PropertyOperator.SEMVER_CARET,
+        PropertyOperator.SEMVER_WILDCARD,
+    }
+)
+
 
 @frozen
 class ExposurePropertyFilter:
@@ -335,6 +369,26 @@ class ExposurePropertyFilter:
     operator: PropertyOperator
     # None when the filter has no value. A list of values compiles differently from a missing value.
     values: tuple[str | float | bool, ...] | None
+    # The event that the filter applies to. None for an action, which can match several events.
+    event: str | None
+
+    @property
+    def fails_when_missing(self) -> bool:
+        """Whether no event without the property passes the filter. The query reads a missing property as null, and
+        `property_to_expr` compares null as false for these operators. The negated operators pass it."""
+        if self.operator == PropertyOperator.IS_SET:
+            # The test ignores a value, but an empty list of values matches every event.
+            return self.values is None or len(self.values) > 0
+        # Without a value, `exact` tests that the property is missing.
+        return self.operator in _FAIL_WHEN_MISSING and bool(self.values)
+
+    @property
+    def definition_recorded(self) -> bool:
+        """Whether ingestion writes a definition of the property when it arrives, so a missing one shows that the
+        project never received it."""
+        return _has_property_definition(self.type, self.key) and (
+            self.type == "person" or (self.event is not None and _records_event_properties(self.event))
+        )
 
 
 @frozen
@@ -366,6 +420,11 @@ class ExposureEvents:
     property_filters: tuple[ExposurePropertyFilter, ...] = ()
     # The filters inside an action's steps are not read.
     cohort_ids: tuple[int, ...] = ()
+
+    @property
+    def required_properties(self) -> tuple[ExposurePropertyFilter, ...]:
+        """The filters that no event passes without their property. `flag_key_filters` reads the flag key filter."""
+        return tuple(f for f in self.property_filters if f.key != "$feature_flag" and f.fails_when_missing)
 
 
 @frozen
@@ -455,21 +514,18 @@ def parse_flag_state(
             _reachable_condition(index + 1, conditions[index], variant_keys, aggregation_group_type_index)
             for index in reachable
         ),
-        cohort_ids=frozenset(
-            cohort_id for condition in conditions if isinstance(condition, dict) for cohort_id in _cohort_ids(condition)
-        ),
     )
 
 
-def _cohort_ids(condition: Mapping[str, Any]) -> list[int]:
+def _cohort_ids(condition: Mapping[str, Any]) -> frozenset[int]:
     properties = condition.get("properties")
-    return [
+    return frozenset(
         int(prop["value"])
         for prop in (properties if isinstance(properties, list) else [])
         if isinstance(prop, dict)
         and prop.get("type") == "cohort"
-        and (isinstance(prop.get("value"), int) or (isinstance(prop.get("value"), str) and prop["value"].isdigit()))
-    ]
+        and (isinstance(prop.get("value"), int) or (isinstance(prop.get("value"), str) and prop["value"].isdecimal()))
+    )
 
 
 def _reachable_condition(
@@ -480,6 +536,7 @@ def _reachable_condition(
         number=number,
         pinned_variant=pinned,
         variant_property=None if pinned is None else _variant_property(condition, pinned, flag_aggregation),
+        cohort_ids=_cohort_ids(condition),
     )
 
 
@@ -620,9 +677,8 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
     config = criteria.exposure_config if criteria else None
     properties = config.properties if isinstance(config, ExperimentEventExposureConfig) else []
     activation = criteria.activation_config if criteria and has_activation_config(criteria) else None
-    # The exposure query applies the filters of an action too, and those of the activation only next to the default
-    # exposure event.
-    filters = [*((config.properties or []) if config else []), *((activation.properties or []) if activation else [])]
+    # As in the exposure query, the activation's filters apply only next to the default exposure event.
+    filters = [(prop, source) for source in (config, activation) if source for prop in source.properties or []]
     return ExposureEvents(
         custom_event=event if event is not None and not reads_flag_calls else None,
         required_flag_key=flag_key if reads_flag_calls else None,
@@ -640,11 +696,12 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
                 key=prop.key,
                 operator=prop.operator or PropertyOperator.EXACT,
                 values=None if prop.value is None else _filter_values(prop.value),
+                event=source.event if isinstance(source, ExperimentEventExposureConfig) else None,
             )
-            for prop in filters
+            for prop, source in filters
             if isinstance(prop, EventPropertyFilter | PersonPropertyFilter)
         ),
-        cohort_ids=tuple(dict.fromkeys(prop.value for prop in filters if isinstance(prop, CohortPropertyFilter))),
+        cohort_ids=tuple(dict.fromkeys(prop.value for prop, _ in filters if isinstance(prop, CohortPropertyFilter))),
     )
 
 
@@ -671,6 +728,11 @@ def _has_event_definition(name: str) -> bool:
     return name not in _EVENTS_WITHOUT_DEFINITION and len(name.encode()) <= _MAX_EVENT_DEFINITION_NAME_BYTES
 
 
+def _records_event_properties(event: str) -> bool:
+    # Of `$groupidentify`, ingestion writes only the group properties in `$group_set`.
+    return _has_event_definition(event) and event != "$groupidentify"
+
+
 def _events_received(
     experiment: Experiment, metric_events: tuple[MetricEvents, ...], exposure_events: ExposureEvents | None
 ) -> dict[str, bool]:
@@ -692,7 +754,8 @@ _PROPERTIES_WITHOUT_DEFINITION: dict[ExposurePropertyType, frozenset[str]] = {
     "event": frozenset(
         {"$set", "$set_once", "$unset", "$groups", *(f"$group_{index}" for index in range(5)), "$elements_chain"}
     ),
-    "person": frozenset({"distinct_id"}),
+    # Ingestion sets `$creator_event_uuid` when it creates the person, outside `$set`.
+    "person": frozenset({"distinct_id", "$creator_event_uuid"}),
 }
 _PROPERTY_DEFINITION_TYPES: dict[ExposurePropertyType, int] = {
     "event": PropertyDefinition.Type.EVENT,
@@ -715,8 +778,8 @@ def _has_property_definition(property_type: ExposurePropertyType, key: str) -> b
 def _exposure_properties_received(
     experiment: Experiment, exposure_events: ExposureEvents | None
 ) -> dict[tuple[ExposurePropertyType, str], bool]:
-    filters = exposure_events.property_filters if exposure_events else ()
-    checked = {(f.type, f.key) for f in filters if _has_property_definition(f.type, f.key)}
+    filters = exposure_events.required_properties if exposure_events else ()
+    checked = {(f.type, f.key) for f in filters if f.definition_recorded}
     if not checked:
         return {}
     project_id = experiment.team.project_id
@@ -734,7 +797,7 @@ def _exposure_properties_received(
     # Ingestion can be set to keep no definitions for a project, so a project without any of a type proves nothing.
     unrecorded_types = {
         property_type
-        for property_type, _ in missing
+        for property_type in {property_type for property_type, _ in missing}
         if not _property_definitions(project_id, type=_PROPERTY_DEFINITION_TYPES[property_type]).exists()
     }
     # Ingestion writes a deleted definition again only once the property drops out of its cache, which no time bounds,
@@ -748,7 +811,6 @@ def _exposure_properties_received(
 
 
 def _property_definitions(project_id: int, **filters: Any) -> QuerySet[PropertyDefinition]:
-    # The project scope as `posthog_propdef_proj_uniq` stores it, so the lookup uses that index.
     return PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
         effective_project_id=project_id, **filters
     )
@@ -792,7 +854,7 @@ def _deleted_definition_names(
     scope: Literal["EventDefinition", "PropertyDefinition"],
     since: datetime | None,
 ) -> set[str]:
-    # Until ingestion writes a deleted definition again, the project can hold the event or property without one.
+    # Until ingestion writes a deleted definition again, the project can hold the event without a definition.
     if not names:
         return set()
     deletions = ActivityLog.objects.filter(

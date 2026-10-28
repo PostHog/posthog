@@ -960,8 +960,9 @@ class EnterpriseExperimentsViewSet(
         each check, so a check that found no problem can be told from one that did not apply or could
         not read an input.
 
-        The checks here read the experiment, its flag, its linked metrics, and the changes of the
-        flag's variant split since launch. The checks that read exposure counts come with the
+        The checks here read the experiment, its flag, its linked metrics, the project's event and
+        property definitions, the cohorts of the exposure criteria, and the changes of the flag's
+        variant split since launch. The checks that read exposure counts come with the
         exposure query. The split-change check compares the split changes with the exposures only
         for exposure criteria that name an event without property filters. When the split changed
         after launch and the criteria have filters or an action, or an API key lacks `query:read`,
@@ -982,16 +983,19 @@ class EnterpriseExperimentsViewSet(
         (`filter_on_another_flag`), and a filter on an event or person property that the project has
         no definition of, with an operator that a missing property fails
         (`filter_on_property_not_ingested`, the keys in `evidence.properties`). A property whose
-        definition was ever deleted is not checked. An event or property not received is info before
-        launch, in the first 24 hours after launch, and when only secondary metrics read it, and a
-        warning otherwise. `filter_on_another_flag` and `filter_on_property_not_ingested` report in
-        every state, and the other findings stop at the end.
+        definition was ever deleted is not checked, and neither is an event property filter on an
+        action or on `$groupidentify`, whose properties ingestion keeps no definitions of. An event
+        or property not received is info before launch, in the first 24 hours after launch, and when
+        only secondary metrics read it, and a warning otherwise. `filter_on_another_flag` is a
+        warning in every state, `filter_on_property_not_ingested` also reports after the end, and
+        the other findings stop at the end.
 
         `exposure_filters` reads the cohort and event property filters of the exposure criteria and
         of the activation, not the test account filters. `exposure_filter_on_dynamic_cohort` is a
         warning in every state: the results use the members of a dynamic cohort at the calculation,
-        not at exposure. Its subcode is `cohort_in_release_conditions` when the flag's release
-        conditions use the cohort too, and `evidence.cohort_ids` names the cohorts.
+        not at exposure. Its subcode is `cohort_forces_variant` when a release condition of the flag
+        gives the cohort one variant, `cohort_in_release_conditions` when the release conditions use
+        it otherwise, and `evidence.cohort_ids` names the cohorts.
         `exposure_filter_excludes_events` is info: a negated filter on an event property leaves out
         events, not users (`evidence.properties`).
 

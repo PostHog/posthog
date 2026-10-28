@@ -267,7 +267,7 @@ function exposureFiltersCheck(input: HealthDebugInput): HealthDebugCheck {
     return {
         check: 'exposure_filters',
         source: 'health endpoint',
-        reads: ['experiment', 'project'],
+        reads: ['experiment', 'flag', 'project'],
         ...serverResult('exposure_filters', input.health, (code) => EXPOSURE_FILTERS_FINDING_CODES.has(code)),
         browser: null,
         browserLabel: BROWSER_RULES,

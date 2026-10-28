@@ -37,41 +37,6 @@ EXPOSURE_EVENT_NOT_INGESTED = "exposure_event_not_ingested"
 FILTER_ON_ANOTHER_FLAG = "filter_on_another_flag"
 FILTER_ON_PROPERTY_NOT_INGESTED = "filter_on_property_not_ingested"
 
-# A filter with one of these operators matches no event that lacks the property: the query reads a missing property as
-# null, and `property_to_expr` compares null as false for them. The other operators match such an event.
-_REQUIRES_THE_PROPERTY = frozenset(
-    {
-        PropertyOperator.EXACT,
-        PropertyOperator.ICONTAINS,
-        PropertyOperator.ICONTAINS_MULTI,
-        PropertyOperator.STARTS_WITH,
-        PropertyOperator.ENDS_WITH,
-        PropertyOperator.REGEX,
-        PropertyOperator.GT,
-        PropertyOperator.GTE,
-        PropertyOperator.LT,
-        PropertyOperator.LTE,
-        PropertyOperator.MIN,
-        PropertyOperator.MAX,
-        PropertyOperator.IS_SET,
-        PropertyOperator.IS_DATE_EXACT,
-        PropertyOperator.IS_DATE_BEFORE,
-        PropertyOperator.IS_DATE_AFTER,
-        PropertyOperator.BETWEEN,
-        PropertyOperator.IN_,
-        PropertyOperator.IS_CLEANED_PATH_EXACT,
-        PropertyOperator.SEMVER_EQ,
-        PropertyOperator.SEMVER_NEQ,
-        PropertyOperator.SEMVER_GT,
-        PropertyOperator.SEMVER_GTE,
-        PropertyOperator.SEMVER_LT,
-        PropertyOperator.SEMVER_LTE,
-        PropertyOperator.SEMVER_TILDE,
-        PropertyOperator.SEMVER_CARET,
-        PropertyOperator.SEMVER_WILDCARD,
-    }
-)
-
 
 def exposure_criteria_cannot_match(ctx: HealthContext) -> CheckOutcome:
     if ctx.archived:
@@ -109,25 +74,16 @@ def _exposure_event_cannot_match(ctx: HealthContext, events: ExposureEvents) -> 
 
 
 def _property_filter_cannot_match(ctx: HealthContext, events: ExposureEvents) -> CheckOutcome:
-    filters = [f for f in events.property_filters if f.key != "$feature_flag" and _requires_the_property(f)]
+    filters = events.required_properties
     if not filters:
-        return not_applicable("The exposure criteria have no filter that requires a property")
+        return not_applicable("The exposure criteria have no filter that needs a property")
     received = ctx.exposure_properties_received
-    missing = [f for f in filters if received.get((f.type, f.key)) is False]
+    missing = [f for f in filters if f.definition_recorded and received.get((f.type, f.key)) is False]
     if missing:
         return _filter_on_property_not_ingested(ctx, missing)
-    if any((f.type, f.key) not in received for f in filters):
-        return not_checked("Couldn't check because PostHog keeps no record of a property that a filter names")
+    if any(not f.definition_recorded or (f.type, f.key) not in received for f in filters):
+        return not_checked("Couldn't check because PostHog can't tell whether the project received a filter's property")
     return None
-
-
-def _requires_the_property(property_filter: ExposurePropertyFilter) -> bool:
-    values = property_filter.values
-    if property_filter.operator == PropertyOperator.IS_SET:
-        # The test ignores a value, but an empty list of values matches every event.
-        return values is None or len(values) > 0
-    # Without a value, `exact` tests that the property is missing, and an empty list of values matches every event.
-    return property_filter.operator in _REQUIRES_THE_PROPERTY and bool(values)
 
 
 def _requires_another_flag(flag_filter: FlagKeyFilter, flag_key: str) -> bool:
@@ -180,23 +136,33 @@ def _filter_on_property_not_ingested(
 ) -> ExperimentHealthFinding:
     properties = list(dict.fromkeys(f'the {f.type} property "{f.key}"' for f in filters))
     one = len(properties) == 1
-    advice = (
-        f"Check the {'name' if one else 'names'} for a typo, or launch the experiment after your code starts sending "
-        f"{'it' if one else 'them'}."
-        if not ctx.is_launched
-        else f"Check that the {'name matches' if one else 'names match'} what your code sends, or remove the "
-        f"{'filter' if one else 'filters'}."
+    subject = (
+        f"{'A filter' if one else 'Filters'} in the exposure criteria {'needs' if one else 'need'} {joined(properties)}"
     )
+    the_filters = "the filter" if one else "the filters"
+    if ctx.has_ended:
+        detail = (
+            f"{subject}, which this project hasn't received. No event passed {the_filters}, so nobody was counted as "
+            f"exposed. Correct the {'name' if one else 'names'} or remove {the_filters} to count the exposures up to "
+            "the end."
+        )
+    else:
+        advice = (
+            f"Check the {'name' if one else 'names'} for a typo, or launch the experiment after your code starts "
+            f"sending {'it' if one else 'them'}."
+            if not ctx.is_launched
+            else f"Check that the {'name matches' if one else 'names match'} what your code sends, or remove "
+            f"{the_filters}."
+        )
+        detail = (
+            f"{subject}, which this project hasn't received yet. Until {'it arrives' if one else 'they arrive'}, no "
+            f"event passes {the_filters}, so nobody is counted as exposed. {advice}"
+        )
     return _finding(
         subcode=FILTER_ON_PROPERTY_NOT_INGESTED,
         severity=not_received_severity(ctx, affects_results=True),
         title="An exposure filter needs a property this project hasn't received",
-        detail=(
-            f"{'A filter' if one else 'Filters'} in the exposure criteria {'needs' if one else 'need'} "
-            f"{joined(properties)}, which this project hasn't received yet. Until "
-            f"{'it arrives' if one else 'they arrive'}, no event passes the {'filter' if one else 'filters'}, so "
-            f"nobody is counted as exposed. {advice}"
-        ),
+        detail=detail,
         evidence={"properties": ", ".join(dict.fromkeys(f.key for f in filters))},
     )
 

@@ -17,7 +17,9 @@ from products.experiments.backend.health.checks.exposure_criteria import (
 from products.experiments.backend.health.context import (
     ExposureEvents,
     ExposurePropertyFilter,
+    ExposurePropertyType,
     FlagKeyFilter,
+    FlagState,
     HealthContext,
 )
 from products.experiments.backend.health.skips import (
@@ -53,11 +55,15 @@ def _custom_event(received: dict[str, bool], **changes: Any) -> HealthContext:
     return replace(RUNNING_CONTEXT, exposure_events=events, events_received=received, **changes)
 
 
+FLAG = FlagState(active=True, deleted=False, release_groups=(), variants=(), reachable_conditions=())
+
+
 def _property_filter(
     received: bool | None,
     operator: PropertyOperator = EXACT,
     values: tuple[str | float | bool, ...] | None = ("pro",),
     *,
+    property_type: ExposurePropertyType = "person",
     custom_event: str | None = None,
     action: bool = False,
     **changes: Any,
@@ -67,14 +73,28 @@ def _property_filter(
         required_flag_key=None if custom_event or action else "checkout-test",
         variant_property="$feature/checkout-test" if custom_event or action else "$feature_flag_response",
         flag_key_filters=(),
-        property_filters=(ExposurePropertyFilter(type="person", key="plan", operator=operator, values=values),),
+        property_filters=(
+            ExposurePropertyFilter(
+                type=property_type,
+                key="plan",
+                operator=operator,
+                values=values,
+                event=None if action else custom_event or "$feature_flag_called",
+            ),
+        ),
     )
     return replace(
         RUNNING_CONTEXT,
+        flag=FLAG,
         exposure_events=events,
-        exposure_properties_received={} if received is None else {("person", "plan"): received},
+        exposure_properties_received={} if received is None else {(property_type, "plan"): received},
         **changes,
     )
+
+
+NOT_CHECKED_PROPERTY = not_checked(
+    "Couldn't check because PostHog can't tell whether the project received a filter's property"
+)
 
 
 class TestExposureCriteriaCannotMatch(TestCase):
@@ -135,9 +155,29 @@ class TestExposureCriteriaCannotMatch(TestCase):
                 (FILTER_ON_PROPERTY_NOT_INGESTED, Severity.WARNING),
             ),
             (
-                "property_not_received_on_an_action",
-                _property_filter(False, action=True, flag=None),
+                "property_not_received_after_the_end_of_a_custom_event",
+                _property_filter(False, custom_event="checkout_viewed", **ENDED),
                 (FILTER_ON_PROPERTY_NOT_INGESTED, Severity.WARNING),
+            ),
+            (
+                "person_property_not_received_on_an_action",
+                _property_filter(False, action=True),
+                (FILTER_ON_PROPERTY_NOT_INGESTED, Severity.WARNING),
+            ),
+            (
+                "event_property_on_an_action",
+                _property_filter(False, property_type="event", action=True),
+                NOT_CHECKED_PROPERTY,
+            ),
+            (
+                "event_property_of_a_group_identify_event",
+                _property_filter(
+                    False,
+                    property_type="event",
+                    custom_event="$groupidentify",
+                    events_received={"$groupidentify": True},
+                ),
+                NOT_CHECKED_PROPERTY,
             ),
             (
                 "is_set_without_a_value",
@@ -147,12 +187,10 @@ class TestExposureCriteriaCannotMatch(TestCase):
             ("property_received", _property_filter(True), None),
             ("a_missing_property_passes_a_negated_filter", _property_filter(False, PropertyOperator.IS_NOT), None),
             ("an_empty_list_matches_every_event", _property_filter(False, values=()), None),
+            ("is_set_with_an_empty_list", _property_filter(False, PropertyOperator.IS_SET, ()), None),
+            ("semver_neq_passes_a_missing_array", _property_filter(False, PropertyOperator.SEMVER_NEQ), None),
             ("exact_without_a_value_matches_a_missing_property", _property_filter(False, values=None), None),
-            (
-                "property_without_a_definition",
-                _property_filter(None),
-                not_checked("Couldn't check because PostHog keeps no record of a property that a filter names"),
-            ),
+            ("property_without_a_definition", _property_filter(None), NOT_CHECKED_PROPERTY),
             (
                 "custom_event_after_the_end_with_a_received_property",
                 _property_filter(True, custom_event="checkout_viewed", **ENDED),
