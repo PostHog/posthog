@@ -24,7 +24,7 @@ enum Outcome {
     Ok,
     /// 2xx, and at least one flag failed because a database or a timeout failed.
     Degraded,
-    /// 5xx, including the 503 that the request timeout returns.
+    /// 5xx, including the 503 that the request timeout returns, or a panic in the handler.
     Error,
     /// 4xx: rate limits, auth failures and bad requests.
     Rejected,
@@ -109,7 +109,7 @@ impl OutcomeMarks {
     }
 }
 
-/// Records `Abandoned` when dropped before `finish`.
+/// Records `Abandoned` when dropped before `finish`, or `Error` when a handler panic drops it.
 struct PendingOutcome(Option<OutcomeMarks>);
 
 impl PendingOutcome {
@@ -123,7 +123,14 @@ impl PendingOutcome {
 impl Drop for PendingOutcome {
     fn drop(&mut self) {
         if let Some(marks) = self.0.take() {
-            record(Outcome::Abandoned, marks.db_prep());
+            // Tokio drops a panicking task's future while it unwinds, so a handler panic gets here
+            // with `panicking()` true.
+            let outcome = if std::thread::panicking() {
+                Outcome::Error
+            } else {
+                Outcome::Abandoned
+            };
+            record(outcome, marks.db_prep());
         }
     }
 }

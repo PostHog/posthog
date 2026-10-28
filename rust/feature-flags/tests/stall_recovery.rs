@@ -1,4 +1,5 @@
-//! Persons DB faults under steady load, with production pool and timeout settings.
+//! Persons DB faults under steady load, with production pool and timeout settings, except the
+//! longer persons statement timeout that `Fault::LockWait` needs.
 //! Ignored because the faults lock `posthog_person` and would stall other tests: run alone with
 //! `cargo nextest run -p feature-flags -E 'binary(stall_recovery)' --run-ignored only --test-threads=1`.
 
