@@ -1008,7 +1008,7 @@ def _nudge_classifier_verdict(
     # drags the openai/anthropic SDKs (~200ms) in — only pay that once a message actually
     # reaches the classifier.
     from posthog.llm.gateway_client import (  # noqa: PLC0415 — keeps heavy SDKs off the setup path
-        build_openai_client,
+        build_anthropic_client,
         openai_gateway_configured,
     )
 
@@ -1020,7 +1020,7 @@ def _nudge_classifier_verdict(
     if files:
         content += f"\n\n[the message has {len(files)} file attachment(s)]"
     try:
-        client = build_openai_client(
+        client = build_anthropic_client(
             product="conversations",
             ai_product="conversations",
             distinct_id=f"team-{team_id}",
@@ -1032,12 +1032,12 @@ def _nudge_classifier_verdict(
                 "slack_thread_ts": message_ts,
             },
         )
-        response = client.chat.completions.create(
+        response = client.messages.create(
             model=NUDGE_CLASSIFIER_MODEL,
             max_tokens=8,
             temperature=0,
             timeout=NUDGE_CLASSIFIER_TIMEOUT_SECONDS,
-            user=f"team-{team_id}",
+            metadata={"user_id": f"team-{team_id}"},
             # slack_* keys mirror nudge_event_properties so a generation joins its funnel outcome.
             extra_headers={
                 "x-posthog-property-feature": NUDGE_CLASSIFIER_FEATURE,
@@ -1045,12 +1045,10 @@ def _nudge_classifier_verdict(
                 "x-posthog-property-slack_channel_id": channel,
                 "x-posthog-property-slack_thread_ts": message_ts,
             },
-            messages=[
-                {"role": "system", "content": NUDGE_CLASSIFIER_SYSTEM_PROMPT},
-                {"role": "user", "content": content},
-            ],
+            system=NUDGE_CLASSIFIER_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": content}],
         )
-        answer = (response.choices[0].message.content or "").strip().lower()
+        answer = "".join(block.text for block in response.content if block.type == "text").strip().lower()
     except Exception as e:
         logger.warning("slack_nudge_classifier_failed", team_id=team_id, error=str(e))
         return "error"

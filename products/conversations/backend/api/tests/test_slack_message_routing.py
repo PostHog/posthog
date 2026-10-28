@@ -811,7 +811,7 @@ class TestSlackNudge(BaseTest):
     )
     @override_settings(TEST=False, LLM_GATEWAY_URL="http://gateway.local", LLM_GATEWAY_API_KEY="test-key")
     @patch(f"{MODULE}.posthoganalytics.feature_enabled", return_value=True)
-    @patch("posthog.llm.gateway_client.build_openai_client")
+    @patch("posthog.llm.gateway_client.build_anthropic_client")
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
     def test_llm_gates_nudge_when_ai_processing_approved(
@@ -831,11 +831,11 @@ class TestSlackNudge(BaseTest):
         if llm_answer is None:
             # A gateway failure must be swallowed (no Celery retry storm) and fall back to
             # the heuristics-only nudge instead of silently disabling the feature.
-            mock_get_llm_client.return_value.chat.completions.create.side_effect = RuntimeError("gateway down")
+            mock_get_llm_client.return_value.messages.create.side_effect = RuntimeError("gateway down")
         else:
             completion = Mock()
-            completion.choices = [Mock(message=Mock(content=llm_answer))]
-            mock_get_llm_client.return_value.chat.completions.create.return_value = completion
+            completion.content = [Mock(type="text", text=llm_answer)]
+            mock_get_llm_client.return_value.messages.create.return_value = completion
 
         handle_support_message(
             {
@@ -866,7 +866,7 @@ class TestSlackNudge(BaseTest):
         assert event_props["llm_classifier_used"] is (expected_verdict in ("yes", "no"))
 
         # The generation must carry the funnel events' Slack keys so it joins to its outcome.
-        create_kwargs = mock_get_llm_client.return_value.chat.completions.create.call_args.kwargs
+        create_kwargs = mock_get_llm_client.return_value.messages.create.call_args.kwargs
         assert create_kwargs["extra_headers"] == {
             "x-posthog-property-feature": "slack_nudge_classifier",
             "x-posthog-property-$ai_span_name": "slack_nudge_classifier",
@@ -876,7 +876,7 @@ class TestSlackNudge(BaseTest):
 
     @override_settings(TEST=False, LLM_GATEWAY_URL="http://gateway.local", LLM_GATEWAY_API_KEY="test-key")
     @patch(f"{MODULE}.posthoganalytics.feature_enabled", return_value=True)
-    @patch("posthog.llm.gateway_client.build_openai_client")
+    @patch("posthog.llm.gateway_client.build_anthropic_client")
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
     def test_classifier_no_starts_cooldown_so_chatter_is_not_reclassified(
@@ -887,8 +887,8 @@ class TestSlackNudge(BaseTest):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         completion = Mock()
-        completion.choices = [Mock(message=Mock(content="no"))]
-        mock_get_llm_client.return_value.chat.completions.create.return_value = completion
+        completion.content = [Mock(type="text", text="no")]
+        mock_get_llm_client.return_value.messages.create.return_value = completion
 
         event = {
             "type": "message",
@@ -899,7 +899,7 @@ class TestSlackNudge(BaseTest):
         handle_support_message({**event, "ts": "1700000000.000100"}, self.team, "T123")
         handle_support_message({**event, "ts": "1700000000.000200"}, self.team, "T123")
 
-        assert mock_get_llm_client.return_value.chat.completions.create.call_count == 1
+        assert mock_get_llm_client.return_value.messages.create.call_count == 1
         mock_get_client.return_value.chat_postMessage.assert_not_called()
         mock_create_or_update.assert_not_called()
         # Only the first message reaches the classifier; the cooldown swallows the second,
@@ -915,7 +915,7 @@ class TestSlackNudge(BaseTest):
     )
     @override_settings(TEST=False, LLM_GATEWAY_URL="http://gateway.local", LLM_GATEWAY_API_KEY="test-key")
     @patch(f"{MODULE}.posthoganalytics.feature_enabled")
-    @patch("posthog.llm.gateway_client.build_openai_client")
+    @patch("posthog.llm.gateway_client.build_anthropic_client")
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
     def test_nudge_never_calls_llm_when_gated_off(
