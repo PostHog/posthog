@@ -54,28 +54,33 @@ def pick_new_key(before: set[str], after: dict[str, Path]) -> Path:
 class SecureEnclaveSigningSetup:
     def __init__(self, protection: str) -> None:
         self.protection = protection
+        self.previous_settings: dict[str, str | None] = {}
 
     def _check_platform(self) -> None:
         if platform.system() != "Darwin" or not PROVIDER.exists() or shutil.which("sc_auth") is None:
             raise click.ClickException(f"This needs macOS 26 or later, which ships {PROVIDER} and sc_auth.")
-        if KEY_PATH.exists():
-            raise click.ClickException(f"{KEY_PATH} already exists. Remove it first to create a new key.")
-
-    def _confirm(self) -> None:
-        click.echo(f"This creates a non-exportable Secure Enclave key labeled `{KEY_LABEL}`.")
-        if self.protection == "none":
-            click.echo("Protection: none. Any process running as you can sign, also while the screen is locked.")
-        else:
-            click.echo("Protection: bio. Each signature needs Touch ID, so signing stops while you are away.")
-        click.echo(f"It writes {KEY_PATH}, {KEY_PATH}.pub and {SIGN_PROGRAM_PATH}.")
-        click.echo("It changes these global git settings (current values shown):")
-        for setting in GIT_SETTINGS:
-            click.echo(f"  {setting} = {self._git_config_get(setting) or '(unset)'}")
-        click.confirm("Continue?", abort=True)
 
     def _git_config_get(self, setting: str) -> str | None:
         result = subprocess.run(["git", "config", "--global", "--get", setting], capture_output=True, text=True)
         return result.stdout.strip() or None
+
+    def _confirm(self) -> None:
+        if KEY_PATH.exists():
+            click.echo(f"Using the existing Secure Enclave key at {KEY_PATH}. --protection has no effect on it.")
+        else:
+            click.echo(f"This creates a new signing key labeled `{KEY_LABEL}` inside the Mac's Secure Enclave.")
+            click.echo("The private key never leaves the Secure Enclave and can't be exported.")
+            if self.protection == "none":
+                click.echo("Protection: none. Any process running as you can sign, also while the screen is locked.")
+            else:
+                click.echo("Protection: bio. Each signature needs Touch ID, so signing stops while you are away.")
+            click.echo(f"It writes a key handle to {KEY_PATH}. The handle only works with this Mac's Secure Enclave.")
+        click.echo("\ngit stops using your current signing key. These global git settings change:")
+        for setting in GIT_SETTINGS:
+            self.previous_settings[setting] = self._git_config_get(setting)
+            click.echo(f"  {setting} = {self.previous_settings[setting] or '(unset)'}")
+        click.echo("SSH logins and pushes keep using your current SSH agent.")
+        click.confirm("Continue?", abort=True)
 
     def _export_keys(self, directory: Path) -> dict[str, Path]:
         """Write a key handle for each Secure Enclave key into `directory`, keyed by public key identity.
@@ -108,6 +113,12 @@ class SecureEnclaveSigningSetup:
         KEY_PATH.chmod(0o600)
         shutil.copyfile(handle.with_name(f"{handle.name}.pub"), f"{KEY_PATH}.pub")
 
+    def _create_and_install_key(self) -> None:
+        with tempfile.TemporaryDirectory() as before_dir, tempfile.TemporaryDirectory() as after_dir:
+            before = set(self._export_keys(Path(before_dir)))
+            self._create_key()
+            self._install_key(pick_new_key(before, self._export_keys(Path(after_dir))))
+
     def _install_sign_program(self) -> None:
         SIGN_PROGRAM_PATH.write_text(SIGN_PROGRAM)
         SIGN_PROGRAM_PATH.chmod(0o755)
@@ -133,28 +144,70 @@ class SecureEnclaveSigningSetup:
             )
         if result.returncode != 0:
             raise click.ClickException(f"The test signature failed:\n{result.stderr.strip()}")
-        click.echo("A test signature with the new key worked.")
+        click.echo("A test signature with the key worked.")
 
-    def _print_next_steps(self) -> None:
-        click.echo("\nAdd the public key to GitHub as a signing key, so GitHub marks your commits as verified:")
-        click.echo("  gh auth refresh -s admin:ssh_signing_key")
-        click.echo(f'  gh ssh-key add {KEY_PATH}.pub --type signing --title "Secure Enclave ($(hostname -s))"')
-        click.echo("\nTo undo, set the git settings above back to their old values and delete the key:")
+    def _gh(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["gh", *args], capture_output=True, text=True)
+
+    def _is_on_github(self, login: str) -> bool:
+        # The list of a user's signing keys is public, so this needs no extra gh scope.
+        result = self._gh("api", f"users/{login}/ssh_signing_keys", "--jq", ".[].key")
+        public_key = public_key_identity(Path(f"{KEY_PATH}.pub").read_text())
+        return public_key in {public_key_identity(line) for line in result.stdout.splitlines()}
+
+    def _add_to_github(self) -> bool:
+        title = f"Secure Enclave ({platform.node().split('.')[0]})"
+        result = self._gh("ssh-key", "add", f"{KEY_PATH}.pub", "--type", "signing", "--title", title)
+        return result.returncode == 0
+
+    def _print_manual_github_steps(self) -> None:
+        subprocess.run(["pbcopy"], input=Path(f"{KEY_PATH}.pub").read_text(), text=True)
+        click.echo("Add the key to GitHub by hand. The public key is on your clipboard:")
+        click.echo("  1. Open https://github.com/settings/ssh/new")
+        click.echo("  2. Set the key type to Signing Key, paste the key and save.")
+
+    def _register_on_github(self) -> None:
+        if shutil.which("gh") is None:
+            self._print_manual_github_steps()
+            return
+        login = self._gh("api", "user", "--jq", ".login").stdout.strip()
+        if not login:
+            self._print_manual_github_steps()
+            return
+        if self._is_on_github(login):
+            click.echo(f"GitHub already has this signing key for {login}.")
+            return
+        if self._add_to_github():
+            click.echo(f"Added the signing key to GitHub for {login}.")
+            return
+        click.echo("gh needs the admin:ssh_signing_key scope to add a signing key. A browser login opens next.")
+        subprocess.run(["gh", "auth", "refresh", "--hostname", "github.com", "--scopes", "admin:ssh_signing_key"])
+        if self._add_to_github():
+            click.echo(f"Added the signing key to GitHub for {login}.")
+            return
+        self._print_manual_github_steps()
+
+    def _print_undo_steps(self) -> None:
+        click.echo("\nTo go back to your previous signing setup:")
+        for setting, value in self.previous_settings.items():
+            if value is None:
+                click.echo(f"  git config --global --unset {setting}")
+            else:
+                click.echo(f'  git config --global {setting} "{value}"')
+        click.echo("To delete the Secure Enclave key as well:")
         click.echo(f"  sc_auth list-ctk-identities   # find the hash of the `{KEY_LABEL}` key")
-        click.echo("  sc_auth delete-ctk-identity -h <hash>")
+        click.echo(f"  sc_auth delete-ctk-identity -h <hash> && rm {KEY_PATH} {KEY_PATH}.pub")
 
     def run(self) -> None:
         self._check_platform()
         self._confirm()
-        with tempfile.TemporaryDirectory() as before_dir, tempfile.TemporaryDirectory() as after_dir:
-            before = set(self._export_keys(Path(before_dir)))
-            self._create_key()
-            handle = pick_new_key(before, self._export_keys(Path(after_dir)))
-            self._install_key(handle)
+        if not KEY_PATH.exists():
+            self._create_and_install_key()
         self._install_sign_program()
         self._configure_git()
         self._test_sign()
-        self._print_next_steps()
+        self._register_on_github()
+        self._print_undo_steps()
 
 
 @click.command(name="git:signing-key")
@@ -166,10 +219,12 @@ class SecureEnclaveSigningSetup:
     help="bio asks for Touch ID on each signature. none signs without a prompt, also while the screen is locked.",
 )
 def signing_key(protection: str) -> None:
-    """Create a Secure Enclave commit-signing key (macOS 26 or later) and point git at it.
+    """Set up commit signing with a Secure Enclave key (macOS 26 or later) and register it on GitHub.
 
-    The key never leaves this Mac. It replaces the key that git uses for signing,
-    for example a key in 1Password or Secretive. SSH logins and pushes stay as they are.
+    Creates a new key inside the Secure Enclave, so the private key never leaves this Mac.
+    git uses it instead of your current signing key, for example one in 1Password or Secretive.
+    SSH logins and pushes stay as they are. Run it again to reuse the key and redo the git and
+    GitHub steps.
 
     \b
         hogli git:signing-key

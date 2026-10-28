@@ -1138,7 +1138,7 @@ devex:
         description: Send feedback about the dev experience to the devex team (humans and agents)
     git:signing-key:
         click: hogli_commands.git_signing:signing_key
-        description: Create a Secure Enclave commit-signing key (macOS 26 or later) and point git at it
+        description: Set up commit signing with a Secure Enclave key (macOS 26 or later) and register it on GitHub
 utilities:
     nuke:
         steps:
