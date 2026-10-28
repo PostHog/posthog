@@ -104,6 +104,57 @@ Native property-removal requests fail when the selected rows retain a requested 
 They also fail when that property class has quarantine diagnostics, because malformed raw data cannot prove that the requested value is absent.
 The gate runs before shard processing and again during verification, with the same event, time-range, and insertion-marker bounds.
 
+## Customer analytics membership
+
+`sharded_person_group_membership` has no age-based TTL.
+It stores distinct IDs and historical group associations, but no person properties.
+Cleanup checks current distinct-ID mappings and live persons before it removes membership.
+Deleted mappings and deleted persons count as missing identities.
+
+The `customer-analytics-membership-cleanup` Temporal schedule owns physical person and group cleanup.
+It does not change the existing person or group deletion processes.
+The schedule starts paused, runs hourly when enabled, and defaults to dry-run mode.
+Worker restarts preserve the existing schedule and its operator settings.
+
+Each batch checks at most 100 stored membership keys and 100 pending candidates.
+The job saves its team scan position and membership key position in Postgres.
+It discovers teams from stored membership, eligibility config, and saved scans, including disabled and deleted teams.
+Team discovery uses primary-key seeks instead of scanning all membership distinct IDs.
+Cleanup state has no project foreign key, so project deletion cannot remove pending erasure work.
+Team zero holds the coordinator cursor and never starts a team sweep.
+A lock on each team's scan row prevents concurrent batches, including activity attempts whose database threads still run.
+The coordinator processes at most 25 teams in sequence per run.
+
+For each missing side, the job records a candidate with `first_missing_at`.
+Repeated discovery preserves that timestamp.
+The job waits 24 hours from that timestamp, then checks current mappings, live persons, and groups again.
+Recovered matches clear their candidates.
+Failed or incomplete lookups leave candidates and scan positions unchanged.
+Membership timestamps do not shorten the grace period.
+
+Deletion requires `dry_run=false` and the team's ID in `delete_team_ids` in the schedule input.
+The job issues physical delete mutations on the storage shards, waits for replication, and checks for survivors through the distributed table.
+It removes candidates only after that check returns zero.
+Failed mutations and failed verification leave candidates pending for a later attempt.
+Each batch submits at most one membership mutation per shard, with one shard query at a time.
+A storage table with five pending mutations refuses more work.
+Queries have a 30-second execution limit, a 256 MiB memory limit, a 1 GiB read limit, and a 4 MiB result limit.
+Unavailable shards and overflow limits fail the query rather than return partial results.
+
+Deleted-team cleanup also removes eligibility config.
+A whole-team person purge leaves eligibility config in place while the team exists.
+Reusing a distinct ID or group key before cleanup can preserve old membership.
+Persistently missing profiles cause cleanup even if the profiles never existed.
+New events can recreate membership after cleanup.
+Event deletion and configured group-property deletion do not repair membership or its activity timestamps.
+That repair is separate from person and group cleanup.
+
+Before enabling deletion, inspect recovered-match counts, recovery time, full-scan duration, overdue candidates, and deletion failures.
+The cleanup metrics use the `customer_analytics_membership_` prefix.
+Start with a small team list after dry-run validation.
+Total cleanup time includes scan discovery, the grace period, schedule delay, and mutation completion.
+Stop ingestion and backfill on rollback. Keep cleanup until stored membership is erased.
+
 ## Tables on TTL alone
 
 Listed in `TTL_ONLY_TABLES`.

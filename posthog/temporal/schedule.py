@@ -96,6 +96,7 @@ from products.conversations.backend.temporal.schedule import create_support_repl
 from products.customer_analytics.backend.facade.temporal import (
     create_account_track_rule_coordinator_schedule,
     create_calendar_sync_coordinator_schedule,
+    create_membership_cleanup_schedule,
     create_ownership_claims_coordinator_schedule,
 )
 from products.data_catalog.backend.facade.temporal import create_data_catalog_weekly_digest_schedule
@@ -1013,6 +1014,7 @@ schedules = [
     create_channel_summary_coordinator_schedule,
     create_account_track_rule_coordinator_schedule,
     create_calendar_sync_coordinator_schedule,
+    create_membership_cleanup_schedule,
     create_ownership_claims_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
