@@ -1,3 +1,5 @@
+# Depot mirror of .github/actions/setup-python-cached. Only the tool cache restore differs: it
+# sets timeout-minutes and continue-on-error, so a stalled restore becomes a cache miss.
 name: Set up Python
 description: |
     Wraps actions/setup-python with a pre-seeded tool cache

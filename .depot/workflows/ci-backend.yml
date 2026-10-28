@@ -45,7 +45,8 @@
 #   setup-python-cached and setup-sqlx-cli mirrors set timeout-minutes and continue-on-error so
 #   that a stall becomes an early miss. Schema restores get 4 minutes so that one retry runs,
 #   because a schema miss means a from-scratch migrate. Saves stay unbounded, because a timeout
-#   drops what they write.
+#   drops what they write. The uv cache restore inside astral-sh/setup-uv stays unbounded too,
+#   because a timeout there also kills the uv install.
 # - The env block clears GITHUB_TOKEN and OTEL_SERVICE_NAME because Depot provides them by default.
 # - Token steps read vars.* and secrets.* from Depot's store. If a value is missing there,
 #   setup-action steps with continue-on-error fall back to the default GITHUB_TOKEN, a Depot
