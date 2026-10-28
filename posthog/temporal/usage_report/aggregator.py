@@ -57,6 +57,7 @@ _SANDBOX_COMPUTE_DESTINATION_KEYS = (
 )
 _LOGS_DISTINCT_PATTERNS_QUERY_NAME = "teams_with_logs_distinct_patterns_in_period"
 _TRANSACTIONAL_EMAILS_QUERY_NAME = "teams_with_workflow_transactional_emails_sent_in_period"
+_REPLAY_VISION_SCANNER_MONTHLY_CREDITS_QUERY_NAME = "teams_with_replay_vision_scanner_monthly_credits"
 
 
 def load_usage_counter_report(inputs: AggregateInputs) -> UsageCounterReport:
@@ -108,6 +109,13 @@ def add_pre_transactional_emails_patch_defaults(
 ) -> None:
     if not any(result.query_name == _TRANSACTIONAL_EMAILS_QUERY_NAME for result in query_results):
         all_data[_TRANSACTIONAL_EMAILS_QUERY_NAME] = {}
+
+
+def add_pre_replay_vision_scanner_monthly_credits_patch_defaults(
+    all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]
+) -> None:
+    if not any(result.query_name == _REPLAY_VISION_SCANNER_MONTHLY_CREDITS_QUERY_NAME for result in query_results):
+        all_data[_REPLAY_VISION_SCANNER_MONTHLY_CREDITS_QUERY_NAME] = {}
 
 
 def iter_chunk_lines(
