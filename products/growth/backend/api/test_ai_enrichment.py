@@ -530,7 +530,11 @@ class TestAIEnrichmentAPI(APIBaseTest):
             )
             _drain_ndjson(response.streaming_content)  # type: ignore[attr-defined]
 
-        get_client.assert_called_once_with(product="growth", ai_product="growth")
+        get_client.assert_called_once_with(
+            product="growth",
+            ai_product="growth",
+            properties={"ai_feature": "ai_enrichment", "surface": "staff_run"},
+        )
         client.with_options.assert_called_once_with(max_retries=0)
 
     def test_run_is_throttled_for_session_auth(self):

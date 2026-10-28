@@ -1,7 +1,7 @@
 """Classifier runner for versioned AI enrichment labels.
 
 Pure functions only: no persistence, no client construction. Callers build the OpenAI
-client via `build_openai_client(product="growth", ai_product="growth")` and pass it in —
+client via `build_openai_client(product="growth", ai_product="growth", properties=...)` and pass it in —
 this module just turns an archived Harmonic payload plus a prompt config into a stamped verdict.
 """
 
@@ -54,6 +54,8 @@ MAX_INPUT_DEPTH = 6
 # reasoning tokens, which are invisible in the reply and can consume it entirely. It's a cap and
 # not a reservation, so the headroom is free.
 MAX_OUTPUT_TOKENS = 4000
+
+AI_ENRICHMENT_FEATURE = "ai_enrichment"
 
 # Bounds on the prompt config's own authored content (prompt_text, output_fields) - not the
 # archived payload data above. Defined here, not in ai_enrichment_serializers.py, so any other

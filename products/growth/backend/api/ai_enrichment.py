@@ -58,6 +58,7 @@ from products.growth.backend.enrichment.lab import (
     stream_run_classifications,
 )
 from products.growth.backend.enrichment.labels import (
+    AI_ENRICHMENT_FEATURE,
     UNKNOWN,
     recent_latest_fetches_qs,
     signup_domain_for_organization,
@@ -237,7 +238,11 @@ class AIEnrichmentViewSet(viewsets.ViewSet):
         # stop_after_attempt(3)); the SDK's own internal retries underneath would multiply that
         # budget several-fold per fetch and actively worsen a 429 the tenacity layer is already
         # backing off from.
-        client = build_openai_client(product="growth", ai_product="growth").with_options(max_retries=0)
+        client = build_openai_client(
+            product="growth",
+            ai_product="growth",
+            properties={"ai_feature": AI_ENRICHMENT_FEATURE, "surface": "staff_run"},
+        ).with_options(max_retries=0)
 
         logger.info(
             "growth_ai_enrichment_run",
