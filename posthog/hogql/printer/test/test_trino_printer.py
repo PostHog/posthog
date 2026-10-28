@@ -742,6 +742,12 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             "__hogql_accurate_cast_value",
             "CAST(ceil(",
         ),
+        # Adding a float to a datetime keeps it a datetime, so toInt still reads the Unix timestamp.
+        (
+            "SELECT toInt(created_at + 1.0) FROM users",
+            "CAST(to_unixtime(date_add(",
+            "__hogql_accurate_cast_value",
+        ),
         (
             "SELECT range(1, length(user_id) + 1, 3) FROM users",
             "greatest(__hogql_range[2] - 1, __hogql_range[1]), 3)",
@@ -766,6 +772,18 @@ def test_lowers_clickhouse_semantics_trino_rejects(query: str, required: str, fo
 
     assert required in sql
     assert forbidden not in sql.replace(required, "")
+
+
+def test_deeply_nested_arithmetic_prints_without_repeated_type_lookups() -> None:
+    expression = "id"
+    for _ in range(22):
+        expression = f"coalesce({expression} + 1, 0)"
+
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT {expression} FROM users"), _context_with_trino_table(), "trino"
+    )
+
+    assert sql.count("coalesce(") == 22
 
 
 def test_first_regex_replacement_preserves_inline_flags() -> None:
