@@ -231,6 +231,12 @@ SupersessionOutcome = Literal[
 
 
 @frozen
+class UrlSourceUpdate:
+    source: KnowledgeSource
+    is_refresh_claimed: bool
+
+
+@frozen
 class KnowledgeSourceSupersession:
     outcome: SupersessionOutcome
     previous_ticket_number: int | None = None
@@ -1149,15 +1155,13 @@ def update_url_source(
     crawl_config: dict | None = None,
     refresh_interval: str | None = None,
     always_include: bool | None = None,
-) -> tuple[KnowledgeSource, bool] | None:
+) -> UrlSourceUpdate | None:
     """
     Update a URL source's metadata and optionally claim a re-crawl.
 
     - name-only: single UPDATE, no network.
     - url/crawl_mode/crawl_config change: update the fields, then claim a
       refresh. The caller runs the claimed refresh, so the request never crawls.
-
-    Returns `(source, refresh_claimed)`.
     """
     try:
         source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
@@ -1210,7 +1214,7 @@ def update_url_source(
 
     if needs_recrawl:
         try:
-            return claim_refresh_source(source_id=source.id, team_id=team_id), True
+            claimed_source = claim_refresh_source(source_id=source.id, team_id=team_id)
         except KnowledgeSource.DoesNotExist:
             return None
         except SourceBusyError:
@@ -1220,8 +1224,9 @@ def update_url_source(
                 setattr(source, field, value)
             source.save(update_fields=[*list(old_values.keys()), "updated_at"])
             raise
+        return UrlSourceUpdate(source=claimed_source, is_refresh_claimed=True)
 
-    return (get_for_team(source.id, team_id) or source), False
+    return UrlSourceUpdate(source=get_for_team(source.id, team_id) or source, is_refresh_claimed=False)
 
 
 @with_team_scope(canonical=True)

@@ -1018,7 +1018,7 @@ class TestCrawlSourceAutoScope(APIBaseTest):
                 "max_depth": 2,
             },
         )
-        mock_update.return_value = (source, False)
+        mock_update.return_value = logic.UrlSourceUpdate(source=source, is_refresh_claimed=False)
         response = self.client.patch(
             f"{self.api_url}{source.id}/",
             {
