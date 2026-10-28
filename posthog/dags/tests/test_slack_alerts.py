@@ -92,6 +92,7 @@ class TestSlackAlertsRouting:
             ("inbox_signal_embeddings",),
             ("inbox_ranking_model_candidate",),
             ("inbox_user_report_interactions",),
+            ("inbox_activity_summary_vectors",),
         ]
     )
     def test_asset_job_with_inbox_steps_routes_to_self_driving(self, step):
