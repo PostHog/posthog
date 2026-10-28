@@ -255,6 +255,7 @@ SOURCE_KIND_RESOURCE: dict[str, APIScopeObject] = {
     PlatformAlertConfigurationSourceKind.LOGS.value: "logs",
     PlatformAlertConfigurationSourceKind.WAREHOUSE_SOURCE.value: "external_data_source",
     PlatformAlertConfigurationSourceKind.WAREHOUSE_DESTINATION.value: "external_data_source",
+    PlatformAlertConfigurationSourceKind.METRICS.value: "metrics",
 }
 
 # Kinds the read API does not serve. An insight copy shows its insight's bound and firing state,
