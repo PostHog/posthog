@@ -2,8 +2,9 @@ import type { Meta, StoryFn, StoryObj } from '@storybook/react'
 import type { ReactElement } from 'react'
 
 import { McpThemeDecorator } from '@posthog/mcp-ui/storybook/decorator'
+import { useChartTheme } from '@posthog/quill-charts'
 
-import { EvidenceInlineChart } from './EvidenceInlineChart'
+import { StoryEvidenceChart } from './StoryEvidenceChart'
 
 // The chart measures its box with a ResizeObserver, so give it a definite width.
 const FixedWidth = (Story: StoryFn): ReactElement => (
@@ -21,10 +22,11 @@ export default meta
 
 type Story = StoryObj<{}>
 
-export const Line: Story = {
-    render: () => (
-        <EvidenceInlineChart
+function LineChart(): ReactElement {
+    return (
+        <StoryEvidenceChart
             className="h-[260px]"
+            theme={useChartTheme()}
             chart={{
                 type: 'line',
                 labels: [
@@ -41,5 +43,9 @@ export const Line: Story = {
                 ],
             }}
         />
-    ),
+    )
+}
+
+export const Line: Story = {
+    render: () => <LineChart />,
 }

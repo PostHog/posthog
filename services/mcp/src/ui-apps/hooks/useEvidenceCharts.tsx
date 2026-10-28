@@ -5,12 +5,13 @@ import { Button, Text } from '@posthog/quill'
 
 import type { StoryEvidence } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
 import type { StoryEvidenceCharts } from 'products/product_analytics/mcp/apps/explainChart/ExplainChartView'
+import { StoryEvidenceChart } from 'products/product_analytics/mcp/apps/explainChart/StoryEvidenceChart'
 import { isSeriesNamedIn } from 'products/product_analytics/mcp/apps/explainChart/storyNamedSeries'
 
 import { capture } from '../analytics/posthog'
 import { loadRenderUiData } from '../apps/render-ui-data'
 import { AppLoadingState } from '../components/AppLoadingState'
-import { EvidenceInlineChart } from '../components/EvidenceInlineChart'
+import { useMcpChartTheme } from '../components/charts/theme'
 import { TrendsVisualizer } from '../components/TrendsVisualizer'
 import type { TrendsQuery, TrendsResult, TrendsResultItem } from '../components/types'
 import { getSeriesLabel } from '../components/utils'
@@ -33,6 +34,7 @@ function trendsQueryOf(item: StoryEvidence): Record<string, unknown> | null {
 }
 
 export function useEvidenceCharts(app: App | null, chartClassName: string): StoryEvidenceCharts | undefined {
+    const theme = useMcpChartTheme()
     const [charts, setCharts] = useState<Record<string, EvidenceChart>>({})
     const requested = useRef(new Set<string>())
 
@@ -102,7 +104,7 @@ export function useEvidenceCharts(app: App | null, chartClassName: string): Stor
             },
             render: (item) => {
                 if (item.chart) {
-                    return <EvidenceInlineChart chart={item.chart} className={chartClassName} />
+                    return <StoryEvidenceChart chart={item.chart} theme={theme} className={chartClassName} />
                 }
                 const query = trendsQueryOf(item)
                 if (!query) {
@@ -148,5 +150,5 @@ export function useEvidenceCharts(app: App | null, chartClassName: string): Stor
                 )
             },
         }
-    }, [app, chartClassName, charts, load, prefetch])
+    }, [app, chartClassName, charts, load, prefetch, theme])
 }
