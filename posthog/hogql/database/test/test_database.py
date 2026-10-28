@@ -1103,9 +1103,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         # initialization team query doesn't run; the extra query is the single bulk credential fetch
         # (credentials are decrypted once each here instead of re-decrypted per table/view row),
-        # plus the saved-expressions fetch and the organization's flag_evaluations mode,
-        # plus the custom MCP harness lookup
-        with self.assertNumQueries(8):
+        # plus the saved-expressions fetch and the organization's flag_evaluations mode.
+        # The custom MCP harness rules come from Redis, which the first build filled.
+        with self.assertNumQueries(7):
             modifiers = create_default_modifiers_for_team(
                 self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
             )
