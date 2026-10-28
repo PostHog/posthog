@@ -291,7 +291,7 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
                                     "threshold compares each series' latest value with `threshold`. present fires for every series the query returns, for a query that already filters to the series in breach."
                                 ),
                             operator: zod
-                                .union([zod.enum(['>', '>=', '<', '<=', '==', '!=']), zod.null()])
+                                .union([zod.enum(['gt', 'gte', 'lt', 'lte', 'eq', 'ne']), zod.null()])
                                 .optional()
                                 .describe("How a series' value compares with `threshold`. Required for a threshold."),
                             threshold: zod
@@ -1077,7 +1077,7 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                                     "threshold compares each series' latest value with `threshold`. present fires for every series the query returns, for a query that already filters to the series in breach."
                                 ),
                             operator: zod
-                                .union([zod.enum(['>', '>=', '<', '<=', '==', '!=']), zod.null()])
+                                .union([zod.enum(['gt', 'gte', 'lt', 'lte', 'eq', 'ne']), zod.null()])
                                 .optional()
                                 .describe("How a series' value compares with `threshold`. Required for a threshold."),
                             threshold: zod
@@ -1862,7 +1862,7 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                                     "threshold compares each series' latest value with `threshold`. present fires for every series the query returns, for a query that already filters to the series in breach."
                                 ),
                             operator: zod
-                                .union([zod.enum(['>', '>=', '<', '<=', '==', '!=']), zod.null()])
+                                .union([zod.enum(['gt', 'gte', 'lt', 'lte', 'eq', 'ne']), zod.null()])
                                 .optional()
                                 .describe("How a series' value compares with `threshold`. Required for a threshold."),
                             threshold: zod

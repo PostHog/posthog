@@ -6,6 +6,7 @@ transition: the series labels are the group's labels.
 Imported from `ready()`, so it stays light: no models, no query layer.
 """
 
+from typing import Final
 from uuid import UUID
 
 from posthog.utils import absolute_uri
@@ -16,6 +17,8 @@ from products.alerts_platform.backend.facade.contracts import (
     MessageLink,
     SourceDescription,
 )
+
+OPERATOR_SYMBOLS: Final[dict[str, str]] = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<=", "eq": "==", "ne": "!="}
 
 
 def metrics_url(team_id: int) -> str:
@@ -34,7 +37,10 @@ def describe_transition(*, project_id: int, transition: AnnouncedTransition) -> 
     condition = transition.condition
     if condition.get("kind", "threshold") == "threshold" and "threshold" in condition:
         details.append(
-            MessageDetail(label="Threshold", value=f"{condition.get('operator')} {condition['threshold']:g}")
+            MessageDetail(
+                label="Threshold",
+                value=f"{OPERATOR_SYMBOLS.get(str(condition.get('operator')), condition.get('operator'))} {condition['threshold']:g}",
+            )
         )
     context = (
         (", ".join(f"{key}={value}" for key, value in sorted(transition.labels.items())),) if transition.labels else ()
