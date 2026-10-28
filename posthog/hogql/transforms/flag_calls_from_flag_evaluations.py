@@ -2,7 +2,8 @@
 
 On flag_evaluations mode 2, ingestion stops writing `$feature_flag_called` to `events`. This transform swaps a
 query's `events` scan for `posthog.flag_evaluations` when `flag_evaluations` holds every row the scan selects, so
-saved queries keep returning flag calls without a change.
+saved queries keep returning flag calls without a change. A scan spelled `posthog.events` reads the same table and
+swaps the same way.
 
 The swap runs before type resolution, so every rule here is syntactic. A shape the rules cannot classify keeps
 reading `events`. On mode 2, a second pass finds the scans those rules miss in the resolved query.
@@ -104,6 +105,8 @@ _UNMOVABLE_SHAPE = "it reads events in a shape that can't be moved to posthog.fl
 # An alias with one of these names can shadow the column in an unqualified read.
 _SCAN_COLUMNS = frozenset({"event", "timestamp", "properties"})
 
+_EVENTS_NAMES = frozenset({"events", "posthog.events"})
+
 
 def can_read_flag_evaluations(
     node: ast.SelectQuery,
@@ -141,7 +144,7 @@ def can_read_flag_evaluations(
     `resolve_flag_calls_from_flag_evaluations` checks the rest after resolution: every name in the swapped query
     binds as it did before.
     """
-    scan = EventsScan.of(node, lambda: flag_key_compares_as_string)
+    scan = EventsScan.of(node, lambda: flag_key_compares_as_string, frozenset(node.ctes or ()))
     return scan is not None and _qualifies(
         scan, node, filter_conjuncts(node), now, timezone, only_in_flag_evaluations=only_in_flag_evaluations
     )
@@ -293,21 +296,32 @@ class EventsScan:
         self.has_other_sources = has_other_sources
         self.flag_key_compares_as_string = flag_key_compares_as_string
         self.shadowed: frozenset[str] = frozenset()
+        self.qualifier_shadows: frozenset[str] = frozenset()
 
     @classmethod
-    def of(cls, node: ast.SelectQuery, flag_key_compares_as_string: Callable[[], bool]) -> "EventsScan | None":
+    def of(
+        cls, node: ast.SelectQuery, flag_key_compares_as_string: Callable[[], bool], ctes: frozenset[str]
+    ) -> "EventsScan | None":
+        """The scan of `node`, or None when `node` does not read `events`. `ctes` holds the CTE names in scope. The
+        resolver reads a CTE when one has the table's dotted name."""
         join = node.select_from
-        if join is None or not isinstance(join.table, ast.Field) or join.table.chain != ["events"]:
+        if join is None or not isinstance(join.table, ast.Field):
+            return None
+        name = ".".join(str(part) for part in join.table.chain)
+        if name not in _EVENTS_NAMES or name in ctes:
             return None
         scan = cls(
             join=join,
-            alias=join.alias or "events",
+            alias=join.alias or "__".join(str(part) for part in join.table.chain),
             # A field without a table prefix can bind to a joined table or an ARRAY JOIN alias instead.
             has_other_sources=join.next_join is not None or bool(node.array_join_list),
             flag_key_compares_as_string=flag_key_compares_as_string,
         )
         collector = _AliasCollector(node)
         collector.visit(node)
+        # The resolver tries a CTE and a select alias before it reads a qualifier such as `posthog.events` as the
+        # name of a table.
+        scan.qualifier_shadows = ctes.union(name for name, _ in collector.aliases)
         # An alias such as `e.timestamp AS timestamp` reads the column it names, so it changes no read.
         scan.shadowed = frozenset(
             name for name, expr in collector.aliases if name in _SCAN_COLUMNS and scan.column(expr) != [name]
@@ -325,7 +339,22 @@ class EventsScan:
             return expr.chain[1:]
         if self.has_other_sources or expr.chain[0] in self.shadowed:
             return None
+        qualifier_length = self._dotted_qualifier_length(expr.chain)
+        if qualifier_length is not None:
+            return expr.chain[qualifier_length:]
         return expr.chain
+
+    def _dotted_qualifier_length(self, chain: list[str | int]) -> int | None:
+        """How many segments of `chain` spell `posthog.events`, or None. Without an alias, `FROM posthog.events` puts
+        the table in scope as `posthog__events`, and a read can spell that name as `posthog.events` or
+        `` `posthog.events` ``."""
+        if self.alias != "posthog__events" or str(chain[0]) in self.qualifier_shadows:
+            return None
+        if chain[0] == "posthog.events" and len(chain) > 1:
+            return 1
+        if chain[:2] == ["posthog", "events"] and len(chain) > 2:
+            return 2
+        return None
 
     def shape_refusal(self, node: ast.SelectQuery) -> str | None:
         """Why `flag_evaluations` cannot stand in for this scan whatever its filters say, or None."""
@@ -748,7 +777,7 @@ class _FlagCalledConstantFinder(SyntaxVisitor):
 
 
 class ScanVisitor(SyntaxVisitor):
-    """Calls `visit_scan_query` for each SELECT whose `FROM events` can read the events table, not a CTE."""
+    """Calls `visit_scan_query` for each SELECT. `ctes` then holds the CTE names in scope, which `EventsScan.of` needs."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -776,8 +805,7 @@ class ScanVisitor(SyntaxVisitor):
         for cte in (node.ctes or {}).values():
             self.visit(cte.expr)
             self.ctes = self.ctes.union([cte.name])
-        if "events" not in self.ctes:
-            self.visit_scan_query(node)
+        self.visit_scan_query(node)
         super().visit_select_query(node)
         self.ctes = outer
 
@@ -804,7 +832,7 @@ class _EventsScanSwapper(ScanVisitor):
         self.refusals: list[str] = []
 
     def visit_scan_query(self, node: ast.SelectQuery) -> None:
-        scan = EventsScan.of(node, self.flag_key_compares_as_string)
+        scan = EventsScan.of(node, self.flag_key_compares_as_string, self.ctes)
         if scan is None:
             return
         conjuncts = filter_conjuncts(node)
