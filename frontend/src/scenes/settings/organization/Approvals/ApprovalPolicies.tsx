@@ -173,9 +173,10 @@ export function ApprovalPolicies(): JSX.Element {
                             <p className="m-0">
                                 Launching, pausing, and changing an experiment's rollout, variant split, or targeting
                                 now follow the experiment policies. An "Update experiment" policy with no conditions
-                                also covers freezing exposure and resetting the experiment. Feature flag policies cover
-                                the flags that no product manages, so flags that a survey, product tour, or early access
-                                feature manages no longer need approval. Surveys will get their own policies soon.{' '}
+                                also covers freezing exposure, unfreezing it, and resetting the experiment. Feature flag
+                                policies cover the flags that no product manages, so flags that a survey, product tour,
+                                or early access feature manages no longer need approval. Surveys will get their own
+                                policies soon.{' '}
                                 <Link
                                     to="https://posthog.com/docs/settings/approvals#experiment-policies"
                                     target="_blank"

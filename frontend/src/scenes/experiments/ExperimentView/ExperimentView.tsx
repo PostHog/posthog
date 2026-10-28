@@ -196,6 +196,13 @@ export function ExperimentView(): JSX.Element {
                             context="experiment"
                         />
                     )}
+                    {typeof experiment.id === 'number' && (
+                        <PendingChangeRequestBanner
+                            resourceType="experiment"
+                            resourceId={experiment.id}
+                            context="experiment"
+                        />
+                    )}
                     <ExperimentMetaBar />
                     <ExperimentHealthPanel />
                     <ExperimentHeader />

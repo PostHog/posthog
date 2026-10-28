@@ -16,10 +16,13 @@ import {
     IconUnlock,
 } from '@posthog/icons'
 
+import { approvalsGateLogic } from 'lib/approvals/approvalsGateLogic'
 import { LemonMenuItemLeafCallback } from 'lib/lemon-ui/LemonMenu'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { changeRequestsLogic } from 'scenes/approvals/changeRequestsLogic'
+import { ApprovalActionKey, ApprovalResourceType } from 'scenes/approvals/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
@@ -35,6 +38,7 @@ import {
     confirmFreezeExposure,
     confirmResetExperiment,
     confirmUnfreezeExposure,
+    pendingApprovalReason,
 } from 'products/experiments/frontend/experimentActions'
 import { isExperimentExposureFrozen, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
 import { getTotalExposures } from 'products/experiments/frontend/health/exposureHealth'
@@ -82,6 +86,10 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
     } = useActions(modalsLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const { isExperimentOperationApprovalRequired } = useValues(approvalsGateLogic)
+    const { pendingActionKeys } = useValues(
+        changeRequestsLogic({ resourceType: ApprovalResourceType.EXPERIMENT, resourceId: experiment?.id ?? 'new' })
+    )
 
     // `experiment` defaults to the NEW_EXPERIMENT placeholder (id 'new') while the real
     // experiment loads — don't offer actions (e.g. Delete) against the placeholder.
@@ -168,8 +176,15 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
             canFreezeExposure(experiment) && {
                 label: 'Freeze exposure',
                 icon: <IconLock />,
-                onClick: () => confirmFreezeExposure(() => freezeExposure(), getTotalExposures(exposures)),
-                disabledReason: freezeExposureLoading ? 'Freezing exposure...' : undefined,
+                onClick: () =>
+                    confirmFreezeExposure(
+                        () => freezeExposure(),
+                        getTotalExposures(exposures),
+                        isExperimentOperationApprovalRequired(ApprovalActionKey.EXPERIMENT_FREEZE_EXPOSURE)
+                    ),
+                disabledReason: freezeExposureLoading
+                    ? 'Freezing exposure...'
+                    : pendingApprovalReason(ApprovalActionKey.EXPERIMENT_FREEZE_EXPOSURE, pendingActionKeys),
                 'data-attr': `${dataAttrPrefix}freeze-exposure`,
             },
         showStateActions &&
@@ -177,8 +192,14 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
             isExperimentExposureFrozen(experiment) && {
                 label: 'Unfreeze exposure',
                 icon: <IconUnlock />,
-                onClick: () => confirmUnfreezeExposure(() => unfreezeExposure()),
-                disabledReason: unfreezeExposureLoading ? 'Unfreezing exposure...' : undefined,
+                onClick: () =>
+                    confirmUnfreezeExposure(
+                        () => unfreezeExposure(),
+                        isExperimentOperationApprovalRequired(ApprovalActionKey.EXPERIMENT_UNFREEZE_EXPOSURE)
+                    ),
+                disabledReason: unfreezeExposureLoading
+                    ? 'Unfreezing exposure...'
+                    : pendingApprovalReason(ApprovalActionKey.EXPERIMENT_UNFREEZE_EXPOSURE, pendingActionKeys),
                 'data-attr': `${dataAttrPrefix}unfreeze-exposure`,
             },
         showStateActions &&
@@ -194,6 +215,7 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
             icon: <IconRefresh />,
             status: 'danger',
             onClick: () => confirmResetExperiment(experiment, resetRunningExperiment),
+            disabledReason: pendingApprovalReason(ApprovalActionKey.EXPERIMENT_RESET, pendingActionKeys),
             'data-attr': `${dataAttrPrefix}reset-experiment`,
         },
     ]

@@ -86,6 +86,13 @@ export function LegacyExperimentView(): JSX.Element {
                             context="experiment"
                         />
                     )}
+                    {typeof experiment.id === 'number' && (
+                        <PendingChangeRequestBanner
+                            resourceType="experiment"
+                            resourceId={experiment.id}
+                            context="experiment"
+                        />
+                    )}
 
                     <LegacyExperimentInfo />
 

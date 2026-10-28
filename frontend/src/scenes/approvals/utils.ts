@@ -110,18 +110,12 @@ const APPROVAL_RESOURCE_CONFIG: Record<string, { label: string; urlBuilder: (id:
     [ApprovalResourceType.EXPERIMENT]: { label: 'Experiment', urlBuilder: (id) => `/experiments/${id}` },
 }
 
-export function getApprovalResourceUrl(
-    resourceType: string,
-    resourceId: string | null,
-    intent?: Record<string, any>
-): string | null {
-    // An experiment operation is a POST, so its request stores no resource id. The intent names the experiment.
-    const id = resourceId ?? (resourceType === ApprovalResourceType.EXPERIMENT ? intent?.experiment_id : null)
-    if (id === null || id === undefined) {
+export function getApprovalResourceUrl(resourceType: string, resourceId: string | null): string | null {
+    if (!resourceId) {
         return null
     }
     const config = APPROVAL_RESOURCE_CONFIG[resourceType]
-    return config ? config.urlBuilder(String(id)) : null
+    return config ? config.urlBuilder(resourceId) : null
 }
 
 export function getApprovalResourceLabel(resourceType: string): string {

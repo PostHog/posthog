@@ -67,6 +67,7 @@ export interface changeRequestsLogicValues {
     buttonVisibility: ChangeRequestButtonVisibility | null
     changeRequests: ChangeRequest[]
     changeRequestsLoading: boolean
+    pendingActionKeys: Set<string>
     pendingChangeRequest: ChangeRequest | null
     shouldShowBanner: boolean
 }
@@ -117,6 +118,7 @@ export interface changeRequestsLogicActions {
 export interface changeRequestsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        pendingActionKeys: (changeRequests: ChangeRequest[]) => Set<string>
         pendingChangeRequest: (changeRequests: ChangeRequest[]) => ChangeRequest | null
         shouldShowBanner: (pendingChangeRequest: ChangeRequest | null) => boolean
         buttonVisibility: (pendingChangeRequest: ChangeRequest | null) => ChangeRequestButtonVisibility | null
@@ -154,6 +156,10 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
                     if (!values.currentTeamId || !values.hasAvailableFeature(AvailableFeature.APPROVALS)) {
                         return []
                     }
+                    // A page that has not loaded its resource yet passes the placeholder id.
+                    if (String(props.resourceId) === 'new') {
+                        return []
+                    }
 
                     const params: Record<string, string> = {
                         resource_type: props.resourceType,
@@ -176,6 +182,18 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
     })),
 
     selectors({
+        pendingActionKeys: [
+            (s) => [s.changeRequests],
+            (changeRequests: ChangeRequest[]): Set<string> =>
+                new Set(
+                    changeRequests
+                        .filter(
+                            (cr) => cr.state === ChangeRequestState.Pending || cr.state === ChangeRequestState.Approved
+                        )
+                        .map((cr) => cr.action_key)
+                ),
+        ],
+
         pendingChangeRequest: [
             (s) => [s.changeRequests],
             (changeRequests: ChangeRequest[]): ChangeRequest | null => {

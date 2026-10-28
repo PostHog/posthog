@@ -1748,6 +1748,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         "freeze this experiment's exposure",
                         error.data.code
                     )
+                    dispatchChangeRequestCreated({ resourceType: 'experiment', resourceId: values.experimentId })
                 } else {
                     lemonToast.error(error.detail || 'Failed to freeze exposure')
                 }
@@ -1775,6 +1776,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         "unfreeze this experiment's exposure",
                         error.data.code
                     )
+                    dispatchChangeRequestCreated({ resourceType: 'experiment', resourceId: values.experimentId })
                 } else {
                     lemonToast.error(error.detail || 'Failed to unfreeze exposure')
                 }
@@ -1971,6 +1973,7 @@ export const experimentLogic = kea<experimentLogicType>([
             } catch (error: any) {
                 if (isApprovalRequiredError(error)) {
                     showApprovalRequiredToast(error.data.change_request_id, 'reset this experiment', error.data.code)
+                    dispatchChangeRequestCreated({ resourceType: 'experiment', resourceId: values.experimentId })
                 } else {
                     lemonToast.error(error.detail || 'Failed to reset experiment')
                 }

@@ -3,6 +3,7 @@ import { LemonBanner, LemonCheckbox, LemonDialog } from '@posthog/lemon-ui'
 
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { getApprovalActionDescription } from 'scenes/approvals/utils'
 
 import { Experiment } from '~/types'
 
@@ -57,8 +58,18 @@ export function canFreezeExposure(
     )
 }
 
+export function pendingApprovalReason(actionKey: string, pendingActionKeys: Set<string>): string | undefined {
+    return pendingActionKeys.has(actionKey)
+        ? `A request to ${getApprovalActionDescription(actionKey)} is waiting for approval.`
+        : undefined
+}
+
 /** `exposedUsers` is 0 when the exposure count has not loaded, and the dialog then shows no estimate. */
-export function confirmFreezeExposure(onConfirm: () => Promise<void>, exposedUsers: number): void {
+export function confirmFreezeExposure(
+    onConfirm: () => Promise<void>,
+    exposedUsers: number,
+    needsApproval: boolean
+): void {
     LemonDialog.open({
         title: 'Freeze exposure?',
         content: (
@@ -76,7 +87,12 @@ export function confirmFreezeExposure(onConfirm: () => Promise<void>, exposedUse
                     From a frozen state you can end an experiment or ship a variant at any time. You can unfreeze as
                     well to reopen enrollment.
                 </p>
-                {exposedUsers > 0 ? (
+                {needsApproval ? (
+                    <LemonBanner type="info">
+                        Freezing needs approval in this project. Confirming sends a request to your approvers, and the
+                        freeze runs when it's approved, using the users exposed at that point.
+                    </LemonBanner>
+                ) : exposedUsers > 0 ? (
                     <LemonBanner type="info" icon={<IconClock className="LemonBanner__icon" />}>
                         <div className="font-semibold">
                             Freezing takes {formatFreezeExposureDuration(estimateFreezeExposureSeconds(exposedUsers))}
@@ -93,7 +109,7 @@ export function confirmFreezeExposure(onConfirm: () => Promise<void>, exposedUse
         ),
         shouldAwaitSubmit: true,
         primaryButton: {
-            children: 'Freeze exposure',
+            children: needsApproval ? 'Request approval' : 'Freeze exposure',
             type: 'primary',
             onClick: () => onConfirm(),
             size: 'small',
@@ -106,7 +122,7 @@ export function confirmFreezeExposure(onConfirm: () => Promise<void>, exposedUse
     })
 }
 
-export function confirmUnfreezeExposure(onConfirm: () => Promise<void>): void {
+export function confirmUnfreezeExposure(onConfirm: () => Promise<void>, needsApproval: boolean): void {
     LemonDialog.open({
         title: 'Unfreeze exposure?',
         content: (
@@ -119,12 +135,19 @@ export function confirmUnfreezeExposure(onConfirm: () => Promise<void>): void {
                     Heads up: users enrolled before the freeze and after the unfreeze joined at different times, which
                     can mix populations and cause bias in your results.
                 </p>
-                <p>Unfreezing can take a little while on projects with many users, so keep this dialog open.</p>
+                {needsApproval ? (
+                    <LemonBanner type="info">
+                        Unfreezing needs approval in this project. Confirming sends a request to your approvers, and new
+                        users can enroll again when it's approved.
+                    </LemonBanner>
+                ) : (
+                    <p>Unfreezing can take a little while on projects with many users, so keep this dialog open.</p>
+                )}
             </div>
         ),
         shouldAwaitSubmit: true,
         primaryButton: {
-            children: 'Unfreeze exposure',
+            children: needsApproval ? 'Request approval' : 'Unfreeze exposure',
             type: 'primary',
             onClick: () => onConfirm(),
             size: 'small',
