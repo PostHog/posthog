@@ -21,6 +21,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
 
+from products.tasks.backend.facade.profiles import TaskProfileError, get_task_profile
 from products.tasks.backend.models import (
     MAX_PENDING_FOLLOWUP_CONTENT_CHARS,
     MAX_PENDING_FOLLOWUP_MESSAGES,
@@ -33,6 +34,8 @@ from products.tasks.backend.models import (
     TaskThreadMessage,
     bump_task_activity,
 )
+
+BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
 
 # Far enough back that any bump is unambiguously forward, and stable so a test can assert the
 # clock did *not* move.
@@ -127,6 +130,50 @@ class TestTask(TestCase):
         task_run = TaskRun.objects.get(id=call_args.kwargs["run_id"])
         self.assertEqual(task_run.task, task)
         self.assertEqual(task_run.status, TaskRun.Status.QUEUED)
+
+    @parameterized.expand(
+        [
+            (f"{entry}_{path}", entry, origin_kwargs, expected_profile)
+            for entry in ("create_and_run", "create_without_run")
+            for path, origin_kwargs, expected_profile in (
+                ("origin", {"origin_product": Task.OriginProduct.BUSINESS_KNOWLEDGE, "internal": True}, None),
+                ("profile", {"profile": BUSINESS_KNOWLEDGE}, "business_knowledge"),
+            )
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_task_creation_stores_the_same_origin_from_an_origin_or_a_profile(
+        self, name: str, entry: str, origin_kwargs: dict, expected_profile: str | None, _mock_execute_workflow
+    ) -> None:
+        user = User.objects.create(email=f"{name}@test.com")
+
+        task = getattr(Task, entry)(team=self.team, title="t", description="d", user_id=user.id, **origin_kwargs)
+
+        task.refresh_from_db()
+        self.assertEqual(
+            (task.origin_product, task.internal, task.profile), ("business_knowledge", True, expected_profile)
+        )
+
+    @parameterized.expand(
+        [
+            (f"{entry}_{path}", entry, origin_kwargs)
+            for entry in ("create_and_run", "create_without_run")
+            for path, origin_kwargs in (
+                ("neither", {}),
+                ("internal_only", {"internal": True}),
+                ("empty_origin", {"origin_product": ""}),
+            )
+        ]
+    )
+    def test_task_creation_refuses_a_task_with_no_profile_or_origin(
+        self, name: str, entry: str, origin_kwargs: dict
+    ) -> None:
+        user = User.objects.create(email=f"{name}@test.com")
+
+        with self.assertRaises(TaskProfileError):
+            getattr(Task, entry)(team=self.team, title="t", description="d", user_id=user.id, **origin_kwargs)
+
+        self.assertFalse(Task.objects.filter(team=self.team).exists())
 
     @parameterized.expand([("committed", False), ("rolled_back", True)])
     def test_create_and_run_captures_only_committed_tasks(self, _name: str, rolled_back: bool) -> None:

@@ -23,7 +23,13 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { getMathProperties, getQuery, seriesToMetricConfig, seriesToMetricSource } from './metricQueryUtils'
+import {
+    getMathProperties,
+    getQuery,
+    metricSourcesToSeries,
+    seriesToMetricConfig,
+    seriesToMetricSource,
+} from './metricQueryUtils'
 
 // getQuery builds date_from/date_to from dayjs() at call time, formatted to the minute.
 // The expected values below recompute dayjs() independently, so a minute rollover between
@@ -175,7 +181,7 @@ describe('seriesToMetricConfig', () => {
     ])('stores the funnel steps the picker emits after %s', (_label, edit, expectedSteps) => {
         const onChange = jest.fn()
         const logic = entityFilterLogic({
-            series: funnelSteps,
+            series: metricSourcesToSeries(funnelSteps),
             onChange,
             typeKey: 'experiment-metric',
             dataWarehouseNodeKind: NodeKind.ExperimentDataWarehouseNode,

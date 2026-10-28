@@ -363,6 +363,11 @@ SIGNUP_ENRICHMENT_TASK_QUEUE = _set_temporal_task_queue(
 # dispatching services. Setting it first strands builds on a pollerless queue until the
 # workflow execution timeout closes them.
 CANVAS_BUILD_TASK_QUEUE = _set_temporal_task_queue(os.getenv("CANVAS_BUILD_TASK_QUEUE", "general-purpose-task-queue"))
+# Messaging provider imports (for example Customer.io suppressions) share the general-purpose fleet. To move them to a
+# dedicated worker, deploy a worker polling the new queue before setting this env on the dispatching services.
+MESSAGING_IMPORT_TASK_QUEUE = _set_temporal_task_queue(
+    os.getenv("MESSAGING_IMPORT_TASK_QUEUE", "general-purpose-task-queue")
+)
 EXPERIMENTS_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue("experiments-recalculation-task-queue")
 EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE = _set_temporal_task_queue(
     "experiments-recalculation-activity-task-queue"
@@ -411,6 +416,17 @@ if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS <= 0:
     raise ImproperlyConfigured(
         "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS must be a positive integer, or no platform insight check starts"
     )
+# Insight batch keys the platform starts per tick, across every team. A key is one team's checks due
+# in one slot. With a tick a minute, 60 times this must cover the keys due per hour, or hourly alerts
+# fall behind their cadence. The pool above bounds concurrent queries, not this. A key that finds the
+# pool full polls for a slot within its tick, so a high value costs waiting runs rather than load.
+# The default is never below the pool size, so a larger pool is never left idle. Discovery returns
+# every key in one activity result, so the cap keeps it at the 1000 keys the other sources use.
+ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK: int = get_from_env(
+    "ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK", max(200, ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS), type_cast=int
+)
+if not 0 < ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK <= 1000:
+    raise ImproperlyConfigured("ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK must be between 1 and 1000")
 # Chart renders for platform insight firings allowed to run at once, across every worker. A render
 # blocks a worker thread for up to 90 seconds, so this keeps renders from taking the slots that
 # planning and recording need.
