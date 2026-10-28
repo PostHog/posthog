@@ -52,4 +52,18 @@ describe('reportActions', () => {
 
         expect(canCreateImplementationPr(report)).toBe(expected)
     })
+
+    it.each([
+        ['without a repository', null, false],
+        ['with a repository', 'posthog/posthog', true],
+    ] as const)('offers implementation on a scout self-improvement report %s: %s', (_, repoSlug, expected) => {
+        expect(
+            canCreateImplementationPr({
+                id: 'report',
+                status: SignalReportStatus.PENDING_INPUT,
+                is_self_improvement_report: true,
+                repo_slug: repoSlug,
+            } as SignalReport)
+        ).toBe(expected)
+    })
 })

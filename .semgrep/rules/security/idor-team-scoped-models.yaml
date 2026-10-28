@@ -350,6 +350,7 @@ rules:
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
+                              |ReplayObservationAnchorSimilarity
                               |ReplayObservationFeedDismissal
                               |ReplayObservationFeedImpression
                               |ReplayObservationLabel
@@ -359,6 +360,9 @@ rules:
                               |ReplayObservationView
                               |ReplayScanner
                               |ReplayScannerBackfill
+                              |ReplayScannerFeedGroup
+                              |ReplayScannerSearchTheme
+                              |ReplayScannerSemanticCenter
                               |ReplayVisionLearnedRuleset
                               |Repo
                               |RepoRoutingRule
@@ -414,6 +418,8 @@ rules:
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
                               |SignalSpend
+                              |LegacySignalSpend
+
                               |AnomalyScoringState
                               |SignalScratchpad
                               |SignalProjectProfile
@@ -830,6 +836,7 @@ rules:
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
+                        |ReplayObservationAnchorSimilarity
                         |ReplayObservationFeedDismissal
                         |ReplayObservationFeedImpression
                         |ReplayObservationLabel
@@ -839,6 +846,9 @@ rules:
                         |ReplayObservationView
                         |ReplayScanner
                         |ReplayScannerBackfill
+                        |ReplayScannerFeedGroup
+                        |ReplayScannerSearchTheme
+                        |ReplayScannerSemanticCenter
                         |ReplayVisionLearnedRuleset
                         |Repo
                         |RepoRoutingRule
@@ -894,6 +904,8 @@ rules:
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
                         |SignalSpend
+                        |LegacySignalSpend
+
                         |AnomalyScoringState
                         |SignalScratchpad
                         |SignalProjectProfile
