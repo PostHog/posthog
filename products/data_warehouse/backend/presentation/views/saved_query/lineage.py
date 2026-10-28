@@ -1,9 +1,15 @@
 """Walking a saved query's ancestors and descendants through the data modeling DAG."""
 
+from typing import cast
+
+from django.db.models import Model
+
 from rest_framework import request, serializers
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_modeling.backend.facade.api import reachable_node_ids, saved_query_node_ids
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Node, NodeType
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 class SavedQueryLineageRequestSerializer(serializers.Serializer):
@@ -48,7 +54,13 @@ def _parse_level(request: request.Request) -> int | None:
     return serializer.validated_data.get("level")
 
 
-def _related_saved_queries(saved_query: DataWarehouseSavedQuery, *, upstream: bool, max_depth: int | None) -> set[str]:
+def _related_saved_queries(
+    saved_query: DataWarehouseSavedQuery,
+    user_access_control: UserAccessControl,
+    *,
+    upstream: bool,
+    max_depth: int | None,
+) -> set[str]:
     """Walk the data modeling graph from a saved query and identify what it reaches.
 
     The walk starts from every node that stands for the query and unions what they reach.
@@ -64,17 +76,42 @@ def _related_saved_queries(saved_query: DataWarehouseSavedQuery, *, upstream: bo
 
     reached = reachable_node_ids(saved_query.team_id, start_node_ids, upstream=upstream, max_depth=max_depth)
 
-    identifiers: set[str] = set()
+    visible_identifiers: set[str] = set()
+    saved_query_ids: set[str] = set()
+    warehouse_table_ids: set[str] = set()
     for node_type, saved_query_id, name, properties in Node.objects.filter(
         team=saved_query.team, id__in=reached
     ).values_list("type", "saved_query_id", "name", "properties"):
         properties = properties or {}
         if node_type == NodeType.METRIC:
             continue
-        if saved_query_id is not None:
-            identifiers.add(str(saved_query_id))
+        if properties.get("origin") == "posthog":
+            visible_identifiers.add(name)
+        elif saved_query_id is not None:
+            saved_query_ids.add(str(saved_query_id))
         elif properties.get("warehouse_table_id"):
-            identifiers.add(str(properties["warehouse_table_id"]))
-        else:
-            identifiers.add(name)
-    return identifiers
+            warehouse_table_ids.add(str(properties["warehouse_table_id"]))
+
+    if saved_query_ids:
+        creators = DataWarehouseSavedQuery.objects.filter(
+            id__in=saved_query_ids, team_id=saved_query.team_id
+        ).values_list("id", "created_by_id")
+        levels = user_access_control.bulk_object_access_levels(
+            "warehouse_view", [(str(saved_query_id), created_by_id) for saved_query_id, created_by_id in creators]
+        )
+        visible_identifiers.update(
+            saved_query_id for saved_query_id, level in levels.items() if level is not None and level != "none"
+        )
+
+    if warehouse_table_ids:
+        tables = list(
+            DataWarehouseTable.objects.filter(id__in=warehouse_table_ids, team_id=saved_query.team_id).exclude(
+                deleted=True
+            )
+        )
+        user_access_control.preload_object_access_controls(cast(list[Model], tables))
+        visible_identifiers.update(
+            str(table.id) for table in tables if user_access_control.check_access_level_for_object(table, "viewer")
+        )
+
+    return visible_identifiers
