@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import fields
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -85,7 +86,7 @@ def test_batch_projection_is_scoped_and_bounded(catching_up: bool, native_json: 
         assert "PREWHERE team_id = %(team_id)s" in sql
         assert f"LIMIT {BATCH_SIZE}" in sql
         assert "distinct_id > %(last_distinct_id)s" in sql
-        assert "inserted_at < %(snapshot_end)s" in sql
+        assert "(inserted_at IS NULL OR inserted_at < %(snapshot_end)s)" in sql
     assert "min(timestamp), max(timestamp)" in sql
     assert ("inserted_at >=" in sql) == catching_up
     assert ("FROM events_json" in sql) == native_json
@@ -314,7 +315,7 @@ class TestMembershipBackfill(BaseTest):
             config.account_group_type_index = 4
             config.save(update_fields=["account_group_type_index"])
         with (
-            patch.object(self.service, "query", return_value=[(child.id, (0, 1, 1))]),
+            patch.object(self.service, "query", return_value=[]),
             patch(f"{MODULE}.is_customer_analytics_active", return_value=True) as gate,
             self.assertNumQueries(3),
         ):
@@ -325,6 +326,60 @@ class TestMembershipBackfill(BaseTest):
             self.organization.id,
             other.organization_id,
         }
+        assert not TeamCustomerAnalyticsConfig.objects.filter(team_id=child.id).exists()
+        with patch(f"{MODULE}.PAGE_SIZE", 1):
+            page = self.service.sync_page(child.id - 1, dry_run=False)
+        assert [team.team_id for team in page.teams] == [child.id]
+        assert page.next_team_id == child.id
+        assert self.get_state(child.id).group_type_index == 0
+
+    @parameterized.expand([("cancelled",), ("expired",)])
+    def test_coordinator_stops_before_registry_writes(self, reason: str) -> None:
+        stopped = False
+        service = MembershipBackfillService(deadline=float("inf"), should_stop=lambda: stopped)
+
+        def stop_during_flag_check(*args: object, **kwargs: object) -> bool:
+            nonlocal stopped
+            if reason == "expired":
+                service.deadline = 0
+            else:
+                stopped = True
+            return True
+
+        with (
+            patch(f"{MODULE}.is_customer_analytics_active", side_effect=stop_during_flag_check),
+            pytest.raises(RuntimeError, match="attempt expired"),
+        ):
+            service.sync_page(0, dry_run=False)
+        self.config.refresh_from_db()
+        assert "membership" not in self.config.properties
+        assert self.service.query(
+            "SELECT count() FROM distributed_person_group_membership_config WHERE team_id = %(team_id)s",
+            {"team_id": self.team.id},
+        ) == [(0,)]
+
+    @parameterized.expand([("registry",), ("planning",)])
+    def test_prepared_version_marks_initial_batch_failed(self, failure: str) -> None:
+        prepared = self.service.prepare_backfill(MembershipTeam(team_id=self.team.id))
+        assert prepared.version > 0
+        assert prepared.version == self.get_state(self.team.id).version
+        query = self.service.query
+
+        def fail_query(
+            sql: str, params: Mapping[str, object] | list[tuple[object, ...]], *, team_id: int | None = None
+        ) -> list[tuple[object, ...]]:
+            if (failure == "registry" and sql.startswith("INSERT")) or (
+                failure == "planning" and "minOrNull(timestamp)" in sql
+            ):
+                raise RuntimeError("Unavailable")
+            return query(sql, params, team_id=team_id)
+
+        with patch.object(self.service, "query", side_effect=fail_query):
+            with pytest.raises(RuntimeError, match="Unavailable"):
+                self.service.process_batch(prepared)
+        self.service.fail(self.team.id, prepared.version, "Unavailable")
+        assert self.get_state(self.team.id).status == MembershipReadiness.FAILED
+        assert self.get_state(self.team.id).version == prepared.version
 
     def test_unknown_flag_keeps_registry_and_cursor(self) -> None:
         state = self.create_state()
@@ -700,6 +755,54 @@ class TestMembershipBackfill(BaseTest):
             assert caught_up.cursor is not None
             assert caught_up.cursor.next_window_start == snapshot_end - timedelta(minutes=5)
 
+    def test_initial_snapshot_includes_null_insertion_timestamps(self) -> None:
+        end = timezone.now() - timedelta(hours=1)
+        start = end - timedelta(days=1)
+        create_person(team=self.team, distinct_ids=["identified"], is_identified=True)
+        with (
+            patch(f"{MODULE}.use_new_events_schema", return_value=False),
+            override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False),
+        ):
+            self.service.query(
+                """INSERT INTO writable_events
+                    (uuid, event, team_id, distinct_id, timestamp, properties, person_mode, inserted_at) VALUES""",
+                [
+                    (
+                        uuid4(),
+                        "example_action",
+                        self.team.id,
+                        "identified",
+                        start,
+                        '{"$group_0":"account-a"}',
+                        "full",
+                        None,
+                    ),
+                    (
+                        uuid4(),
+                        "example_action",
+                        self.team.id,
+                        "identified",
+                        start,
+                        '{"$group_0":"late-account"}',
+                        "full",
+                        end + timedelta(minutes=1),
+                    ),
+                ],
+            )
+            plan = self.service.plan(self.team, 0, end)
+            assert plan.estimated_events == 1
+            assert plan.historical_start == start
+            state = self.create_state(
+                historical_start=start, historical_end=end, current_group_key="", snapshot_end=end
+            )
+            assert self.process_batch(state).rows == 1
+            assert state.accounts_completed == 1
+        assert self.service.query(
+            "SELECT group_key, min(first_seen), max(last_seen) FROM person_group_membership "
+            "WHERE team_id = %(team_id)s GROUP BY group_key",
+            {"team_id": self.team.id},
+        ) == [("account-a", start, start)]
+
     @parameterized.expand([(False,), (True,)])
     def test_history_visits_each_account_through_empty_windows(self, native_json: bool) -> None:
         end = timezone.now()
@@ -736,8 +839,19 @@ class TestMembershipBackfill(BaseTest):
                     timestamp=timestamp,
                 )
             state.snapshot_end = timezone.now() + timedelta(minutes=1)
-            for _ in range(6):
+            assert self.process_batch(state).status == "backfilling"
+            assert state.discovery_window_end == end - timedelta(days=90)
+            assert state.accounts_completed == 0
+            with patch.object(self.service, "query", side_effect=RuntimeError("Unavailable")):
+                with pytest.raises(RuntimeError, match="Unavailable"):
+                    self.process_batch(state)
+            assert state.discovery_window_end == end - timedelta(days=90)
+            for _ in range(20):
                 assert self.process_batch(state).status == "backfilling"
+                if state.accounts_completed == 2:
+                    break
+            assert state.accounts_completed == 2
+            assert state.windows_completed == 6
             assert state.current_group_key == ""
             assert state.last_group_key == "account-b"
             assert self.service.query(

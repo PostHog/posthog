@@ -8,7 +8,7 @@ from typing import cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import F, Func, IntegerField, JSONField, OuterRef, Subquery, Value
+from django.db.models import Exists, F, Func, IntegerField, JSONField, OuterRef, Subquery, Value
 from django.db.models.expressions import CombinedExpression
 from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
@@ -115,6 +115,7 @@ class MembershipCursor:
     last_distinct_id: str = ""
     last_group_key: str = ""
     pending_group_keys: tuple[str, ...] = ()
+    discovery_window_end: datetime | None = None
     snapshot_end: datetime | None = None
     error_type: str = ""
     accounts_completed: int = 0
@@ -130,7 +131,7 @@ class MembershipCursor:
 class MembershipStep:
     status: str
     rows: int = 0
-    lag_seconds: float = 0
+    lag_seconds: float | None = None
     cursor: MembershipCursor | None = None
 
 
@@ -216,7 +217,8 @@ def get_membership_batch_sql(*, group_type_index: int, catching_up: bool, native
               AND timestamp >= %(start)s AND timestamp < %(end)s
               AND {group_column} = %(group_key)s
               AND person_mode != 'propertyless'
-            WHERE distinct_id > %(last_distinct_id)s AND inserted_at < %(snapshot_end)s
+            WHERE distinct_id > %(last_distinct_id)s
+              AND (inserted_at IS NULL OR inserted_at < %(snapshot_end)s)
             GROUP BY distinct_id ORDER BY distinct_id LIMIT {BATCH_SIZE}
         """
     return f"""
@@ -263,7 +265,7 @@ class MembershipBackfillService:
         group_column = get_membership_group_column(index, native_json=native_json)
         rows = self.query(
             f"""SELECT minOrNull(timestamp), maxOrNull(timestamp), count() FROM {events_read_table(native_json)}
-               WHERE team_id = %(team_id)s AND inserted_at < %(end)s
+               WHERE team_id = %(team_id)s AND (inserted_at IS NULL OR inserted_at < %(end)s)
                  AND person_mode != 'propertyless'
                  AND notEmpty({group_column})
                  AND (empty(%(account_keys)s) OR {group_column} IN %(account_keys)s)""",
@@ -289,12 +291,16 @@ class MembershipBackfillService:
         )
 
     def sync_page(self, after_team_id: int, *, dry_run: bool) -> MembershipSyncPage:
+        self.check_attempt()
+        configured = TeamCustomerAnalyticsConfig.objects.filter(
+            team_id=Coalesce(OuterRef("parent_team_id"), OuterRef("id")),
+            account_group_type_index__isnull=False,
+        )
         config_ids = list(
-            TeamCustomerAnalyticsConfig.objects.filter(
-                team_id__gt=after_team_id, account_group_type_index__isnull=False
-            )
-            .order_by("team_id")
-            .values_list("team_id", flat=True)[:PAGE_SIZE]
+            Team.objects.filter(id__gt=after_team_id)
+            .filter(Exists(configured))
+            .order_by("id")
+            .values_list("id", flat=True)[:PAGE_SIZE]
         )
         registry_rows = self.query(
             f"""SELECT team_id, argMax(tuple(group_type_index, enabled, version), version) AS config
@@ -320,6 +326,7 @@ class MembershipBackfillService:
         pending = []
         enabled = changed = 0
         for team_id in team_ids:
+            self.check_attempt()
             team = teams.get(team_id)
             index = indices.get(team_id)
             enabled += int(index is not None)
@@ -352,10 +359,11 @@ class MembershipBackfillService:
             team_id=team_id,
         )
 
-    def sync_team(self, team: Team, index: int | None, existing: tuple[int, int, int] | None) -> MembershipState:
+    def configure_team(self, team: Team, index: int | None, existing: tuple[int, int, int] | None) -> MembershipState:
         self.check_attempt()
         with transaction.atomic():
             config, _ = TeamCustomerAnalyticsConfig.objects.select_for_update().get_or_create(team_id=team.id)
+            self.check_attempt()
             state = MembershipState.model_validate(config.properties.get("membership", {}))
             reset = index is not None and (
                 state.version == 0
@@ -377,12 +385,18 @@ class MembershipBackfillService:
                 TeamCustomerAnalyticsConfig.objects.filter(team_id=team.id).update(
                     properties=get_membership_properties_update(state.model_dump(mode="json"))
                 )
+        return state
+
+    def sync_registry(
+        self, team: Team, state: MembershipState, index: int | None, existing: tuple[int, int, int] | None
+    ) -> MembershipState:
         if (
             state.synced_at is None
             or existing is None
             or existing != (state.group_type_index, int(index is not None), state.version)
         ):
             self.write_registry(team.id, state.group_type_index, index is not None, state.version)
+            self.check_attempt()
             synced_at = timezone.now()
             updated = TeamCustomerAnalyticsConfig.objects.filter(
                 team_id=team.id, properties__membership__version=state.version
@@ -390,6 +404,27 @@ class MembershipBackfillService:
             if updated:
                 state.synced_at = synced_at
         return state
+
+    def sync_team(self, team: Team, index: int | None, existing: tuple[int, int, int] | None) -> MembershipState:
+        return self.sync_registry(team, self.configure_team(team, index, existing), index, existing)
+
+    def prepare_backfill(self, input: MembershipTeam) -> MembershipTeam:
+        self.check_attempt()
+        if input.version or input.dry_run:
+            return input
+        team = Team.objects.get(id=input.team_id)
+        index = get_membership_group_type_index(team)
+        if index is None:
+            return input
+        rows = self.query(
+            f"""SELECT argMax(tuple(group_type_index, enabled, version), version)
+                FROM {DISTRIBUTED_PERSON_GROUP_MEMBERSHIP_CONFIG_TABLE} WHERE team_id = %(team_id)s""",
+            {"team_id": team.id},
+            team_id=team.id,
+        )
+        existing = cast(tuple[int, int, int], rows[0][0]) if rows else None
+        state = self.configure_team(team, index, existing)
+        return replace(input, version=state.version)
 
     def get_active_state(self, team_id: int, version: int) -> MembershipState | None:
         self.check_attempt()
@@ -428,6 +463,38 @@ class MembershipBackfillService:
             for row in rows
         ]
 
+    def discover_accounts(self, state: MembershipCursor) -> bool:
+        assert state.historical_start is not None and state.historical_end is not None
+        if state.discovery_window_end is None:
+            state.discovery_window_end = state.historical_end
+        if state.discovery_window_end == state.historical_start:
+            return False
+        start = get_historical_window_start(state.historical_start, state.discovery_window_end)
+        native_json = use_new_events_schema(state.team_id)
+        group_column = get_membership_group_column(state.group_type_index, native_json=native_json)
+        rows = self.query(
+            f"""SELECT {group_column} AS group_key FROM {events_read_table(native_json)}
+                PREWHERE team_id = %(team_id)s
+                  AND timestamp >= %(start)s AND timestamp < %(end)s
+                WHERE group_key > %(after)s AND person_mode != 'propertyless'
+                  AND (inserted_at IS NULL OR inserted_at < %(snapshot_end)s)
+                GROUP BY group_key ORDER BY group_key LIMIT {PAGE_SIZE}""",
+            {
+                "team_id": state.team_id,
+                "start": start,
+                "end": state.discovery_window_end,
+                "snapshot_end": state.snapshot_end or state.historical_end,
+                "after": state.last_group_key,
+            },
+            team_id=state.team_id,
+        )
+        state.pending_group_keys = tuple(
+            sorted(set(state.pending_group_keys) | {cast(str, row[0]) for row in rows})[:PAGE_SIZE]
+        )
+        state.discovery_window_end = start
+        self.save_progress(state)
+        return start > state.historical_start
+
     def process_history(self, state: MembershipCursor) -> MembershipStep:
         assert state.historical_end is not None
         snapshot_end = state.snapshot_end or state.historical_end
@@ -435,28 +502,8 @@ class MembershipBackfillService:
             if state.account_keys:
                 accounts = tuple(key for key in state.account_keys if key > state.last_group_key)[:1]
             else:
-                if not state.pending_group_keys:
-                    native_json = use_new_events_schema(state.team_id)
-                    group_column = get_membership_group_column(state.group_type_index, native_json=native_json)
-                    state.pending_group_keys = tuple(
-                        cast(str, row[0])
-                        for row in self.query(
-                            f"""SELECT {group_column} AS group_key FROM {events_read_table(native_json)}
-                                PREWHERE team_id = %(team_id)s
-                                  AND timestamp >= %(start)s AND timestamp < %(end)s
-                                WHERE group_key > %(after)s AND person_mode != 'propertyless'
-                                  AND inserted_at < %(snapshot_end)s
-                                GROUP BY group_key ORDER BY group_key LIMIT {PAGE_SIZE}""",
-                            {
-                                "team_id": state.team_id,
-                                "start": state.historical_start,
-                                "end": state.historical_end,
-                                "snapshot_end": snapshot_end,
-                                "after": state.last_group_key,
-                            },
-                            team_id=state.team_id,
-                        )
-                    )
+                if self.discover_accounts(state):
+                    return MembershipStep(status=MembershipReadiness.BACKFILLING)
                 accounts = state.pending_group_keys[:1]
                 state.pending_group_keys = state.pending_group_keys[1:]
             if accounts:
@@ -512,6 +559,8 @@ class MembershipBackfillService:
                 state.last_group_key = state.current_group_key
                 state.current_group_key = ""
                 state.next_window_end = None
+                if not state.pending_group_keys:
+                    state.discovery_window_end = None
         state.status = MembershipReadiness.BACKFILLING
         state.error_type = ""
         self.save_progress(state)
@@ -524,16 +573,11 @@ class MembershipBackfillService:
             return None
         version = input.version
         if not input.dry_run:
-            existing_rows = self.query(
-                f"""SELECT argMax(tuple(group_type_index, enabled, version), version)
-                    FROM {DISTRIBUTED_PERSON_GROUP_MEMBERSHIP_CONFIG_TABLE} WHERE team_id = %(team_id)s""",
-                {"team_id": team.id},
-                team_id=team.id,
-            )
-            existing = cast(tuple[int, int, int], existing_rows[0][0]) if existing_rows else None
-            config = self.sync_team(team, index, existing)
-            if version and version != config.version:
+            prepared = self.prepare_backfill(input)
+            config = self.get_active_state(team.id, prepared.version)
+            if config is None:
                 return None
+            self.sync_registry(team, config, index, None)
             version = config.version
         end = timezone.now()
         plan = self.plan(team, index, end, input.account_keys)
