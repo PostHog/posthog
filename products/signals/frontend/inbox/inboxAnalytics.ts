@@ -839,12 +839,13 @@ export function captureSignalSourceInterest(source: string): void {
 
 export type SignalSourceCatalogOrigin = 'catalog' | 'recommendation'
 
-/** The add-source catalog opened. Pairs with {@link captureSignalSourceConnected} to show how many opens end in a connection. */
+/** Pairs catalog visits with source connections; the event name stays fixed for existing funnels. */
 export function captureSignalSourceCatalogOpened(params: {
     recommendationCount: number
     connectedCount: number
 }): void {
     captureInboxEvent(INBOX_EVENTS.SOURCE_CATALOG_OPENED, {
+        surface: 'sources_tab',
         recommendation_count: params.recommendationCount,
         connected_count: params.connectedCount,
     })
