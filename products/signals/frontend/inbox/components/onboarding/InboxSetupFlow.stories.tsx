@@ -442,6 +442,35 @@ export const QuickEntry: Story = {
     ],
 }
 
+export const GithubOptional: Story = {
+    ...QuickEntry,
+    name: 'GitHub-optional pilot',
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'control',
+            [FEATURE_FLAGS.SELF_DRIVING_GITHUB_OPTIONAL]: true,
+        },
+    },
+    play: async ({ canvas }) => {
+        await canvas.findByText('Activate Self-Driving')
+        await expect(canvas.queryByText('Connect GitHub')).not.toBeInTheDocument()
+        await expect(canvas.queryByLabelText(`Copy command: ${SELF_DRIVING_WIZARD_COMMAND}`)).not.toBeInTheDocument()
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/onboarding/': {
+                    draft: null,
+                    completed_at: null,
+                    github_optional_available: true,
+                },
+                '/api/projects/:id/signals/scout/configs/': [quickGeneralScout],
+                '/api/projects/:id/integrations/': { results: [], next: null, count: 0 },
+            },
+        }),
+    ],
+}
+
 export const QuickConnected: Story = {
     ...QuickEntry,
     name: 'Quick setup with GitHub connected',

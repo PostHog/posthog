@@ -11876,6 +11876,10 @@ snapshots:
         hash: v1.k794b7964.59805bf93bed4319e9bbec23d802d06ca76b990c4ed497ee2a1922b9e689540a.NZJPllw6kwGCITFHxI98NqU-x8Rvnafak466IuSkGNA
     scenes-app-inbox-detail--report-with-metrics--light:
         hash: v1.k794b7964.05b603c03895df2f00e1e385c05ae580743592a99444592fa8996bc50ed905c4.f0VUnsaVAEZJV-2OYrQIpYxuv2rBy0IMbBb3Lnx8wc8
+    scenes-app-inbox-detail--report-without-code-access--dark:
+        hash: v1.k794b7964.8516b4f177bb16c77dc041db16b278f9eaf4adf2f4ce2cd9d3939d31613b6f7d.TVrbH6bbkoTZ2WtU4hpNqashX_YLVRroHcvgwrYF1Zw
+    scenes-app-inbox-detail--report-without-code-access--light:
+        hash: v1.k794b7964.2d1d1f3632c379bd41ce62eea2aadff7540fd9ffbcf0ada37fe2fcf1e135cc86.yaCrhH50Jvl2Z204maL2xsLfTNwnKaGa4Y-NyfzLPG8
     scenes-app-inbox-detail--run-failed--dark:
         hash: v1.k794b7964.e82d63bd21d2d441d8c2c13cc22279805acdec1bb01ec04f2fbef3ad418adaeb.hXPwtY6-D5RdgQZYCCVXmnz_VtcZdDkAGuQlkAizdvY
     scenes-app-inbox-detail--run-failed--light:
@@ -12072,6 +12076,10 @@ snapshots:
         hash: v1.k794b7964.7cbc08f42385a0c5e3724905cd168889ea285773047dec630d44f44ae3214ff3.87cUu_WLwNEGkXed2dbxjbzN3Qnnq1ooUzoNQjCGRF4
     scenes-app-inbox-focused-setup--github-already-connected--light:
         hash: v1.k794b7964.0c4e46e52d6fd87cfda72f60455771998ed40646fd21942f80380322da453354.3sHKex8XGnDIU5-Q1CC-G9FaHEtRtR_vTBBQK3RfwsY
+    scenes-app-inbox-focused-setup--github-optional--dark:
+        hash: v1.k794b7964.bba2fa4658875d6bfd7d5bf4199b7e3d44098355552abd7d13a0ad11921ce76b.lQ5yHGLJE-aFK5h5vvcaC_VgVItjr4mqLYOfcK8duC8
+    scenes-app-inbox-focused-setup--github-optional--light:
+        hash: v1.k794b7964.2978442299d25c651fd91387489339b48a22842ead681bd2400ed587b3b3efe5._NCkiNtNaSkfNWxU6R-lU8FVQfneGUUN1Q2_l9em5J8
     scenes-app-inbox-focused-setup--github-without-automatic-implementation--dark:
         hash: v1.k794b7964.65add98c7b7ca1ef5c937f57e619c355e7350b680f78d2823a7fcfcb4c14b9c4.HzFGZjD0QK7T2fN0qIXfMF9bDGuHcg0wdH0h2jXMj0E
     scenes-app-inbox-focused-setup--github-without-automatic-implementation--light:
@@ -12128,6 +12136,10 @@ snapshots:
         hash: v1.k794b7964.04e3f5a9e20f0032cff25e7878e16328871b41813d2a4e3064e731f91d3b876c.hVFY_MWjWZDX4fr9y2vacAy3wHZuNHwp5cYjveu_KfE
     scenes-app-inbox-implementbutton--choices--light:
         hash: v1.k794b7964.a179eeb16be74806e49a273f5e2df6c06e6c729f4696b7ea08806c515c508a5d.oPurfCP4WUVbo_EKSrjGF6FooFGZbvNcJjXEp9VK-R8
+    scenes-app-inbox-implementbutton--connect-github--dark:
+        hash: v1.k794b7964.79bf4d12ec94f3d54b3b088261dd19e12b9802e8f6eb18f59a4684f497cf598d.4x5a8Y85BRXcjgVaKywwtNL0aOuog8qQ4Y_s8vzWX-k
+    scenes-app-inbox-implementbutton--connect-github--light:
+        hash: v1.k794b7964.b2f2c36d151e7c067cda71fdc51f621c170cc694e7c329f6672a00a6723f24df.fXT2eIm-l-T4hQS1nKp9y0IOuCBeDDBp6W2WHAynHH8
     scenes-app-inbox-implementbutton--default--dark:
         hash: v1.k794b7964.f2b5351f205a0abb1531706c02950c727ede9d9f7cf220869b571442805a5a24.NvzH40X-7cVbDTiW0u9CRIwI3ENeZ37ePippBtcZg2M
     scenes-app-inbox-implementbutton--default--light:
