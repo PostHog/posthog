@@ -1693,7 +1693,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Let business knowledge read these repositories when answering a question. It searches file names and the README, then reads a file. It does not index the code.',
                 component: <GithubReposSetting />,
-                flag: 'BUSINESS_KNOWLEDGE_GITHUB_REPOS',
                 keywords: ['business', 'knowledge', 'github', 'repository', 'code'],
             },
         ],

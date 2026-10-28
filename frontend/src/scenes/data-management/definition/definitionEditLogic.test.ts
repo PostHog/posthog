@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -70,5 +72,52 @@ describe('definitionEditLogic', () => {
 
         // navigated away from the edit page back to the definition detail page
         expect(router.values.location.pathname.endsWith(detailUrl)).toBe(true)
+    })
+
+    // The form holds the owner as a user object, but the API takes a user id
+    it.each([
+        {
+            change: 'assigns',
+            savedOwner: null,
+            editedOwner: MOCK_DEFAULT_BASIC_USER,
+            sentOwner: MOCK_DEFAULT_BASIC_USER.id,
+        },
+        {
+            change: 'keeps',
+            savedOwner: MOCK_DEFAULT_BASIC_USER,
+            editedOwner: undefined,
+            sentOwner: MOCK_DEFAULT_BASIC_USER.id,
+        },
+        { change: 'clears', savedOwner: MOCK_DEFAULT_BASIC_USER, editedOwner: null, sentOwner: null },
+    ])('$change the event owner on save', async ({ savedOwner, editedOwner, sentOwner }) => {
+        let requestBody: Record<string, unknown> | undefined
+        useMocks({
+            get: {
+                '/api/projects/:team/event_definitions/:id': { ...mockEventDefinitions[0], owner: savedOwner },
+            },
+            patch: {
+                '/api/projects/:team/event_definitions/:id': async ({ request }) => {
+                    requestBody = (await request.json()) as Record<string, unknown>
+                    return [
+                        200,
+                        { ...mockEventDefinitions[0], owner: requestBody.owner ? MOCK_DEFAULT_BASIC_USER : null },
+                    ]
+                },
+            },
+        })
+        router.actions.push(urls.eventDefinitionEdit('1'))
+        const logic = definitionEditLogic({ id: '1' })
+        logic.mount()
+        await expectLogic(definitionLogic({ id: '1' })).toDispatchActions(['loadDefinitionSuccess'])
+        expect(logic.values.editDefinition).toMatchObject({ owner: savedOwner })
+        if (editedOwner !== undefined) {
+            logic.actions.setEditDefinitionValue('owner', editedOwner)
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.saveDefinition({})
+        }).toDispatchActions(['saveDefinitionSuccess'])
+
+        expect(requestBody?.owner).toBe(sentOwner)
     })
 })

@@ -47,6 +47,9 @@ import {
 } from '~/types'
 
 import type { AlertType } from 'products/alerts/frontend/types'
+import { isCrossFilterWorksheet } from 'products/business_intelligence/frontend/biDashboardCrossFilters'
+import { BIDashboardFilterStatus } from 'products/business_intelligence/frontend/BIDashboardFilterStatus'
+import { BIDashboardTile } from 'products/business_intelligence/frontend/BIDashboardTile'
 import { DashboardInsightResultMenu } from 'products/dashboards/frontend/components/DashboardInsightResultMenu'
 import type { TileGroupMoveOptions } from 'products/dashboards/frontend/dashboardTileSections'
 
@@ -92,6 +95,7 @@ type AlertModalState = {
 }
 
 export interface InsightCardProps extends Resizeable {
+    biDashboardTileId?: number
     resultMenuEnabled?: boolean
     /** Insight to display. */
     insight: InsightModel
@@ -213,6 +217,7 @@ function InsightCardInternal(
         filtersOverride,
         variablesOverride,
         resultMenuEnabled,
+        biDashboardTileId,
         children,
         projectId,
         projectTimezone,
@@ -402,6 +407,17 @@ function InsightCardInternal(
         if (BlockingEmptyState) {
             return BlockingEmptyState
         }
+        if (biDashboardTileId !== undefined && dashboardId && isCrossFilterWorksheet(insight.query)) {
+            return (
+                <BIDashboardTile
+                    dashboardId={dashboardId}
+                    tileId={biDashboardTileId}
+                    insight={insight}
+                    query={insight.query}
+                    loadPriority={loadPriority}
+                />
+            )
+        }
         return (
             <Query
                 query={insight.query}
@@ -429,6 +445,9 @@ function InsightCardInternal(
         placement,
         renderVizWhenMounted,
         resultMenuEnabled,
+        biDashboardTileId,
+        dashboardId,
+        loadPriority,
     ])
 
     const vizContent = shouldRenderViz ? (
@@ -463,6 +482,11 @@ function InsightCardInternal(
             <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
                 <BindLogic logic={insightLogic} props={insightLogicProps}>
                     <InsightMeta
+                        headerStatus={
+                            biDashboardTileId !== undefined && dashboardId ? (
+                                <BIDashboardFilterStatus dashboardId={dashboardId} tileId={biDashboardTileId} />
+                            ) : undefined
+                        }
                         tile={tile}
                         insight={insight}
                         projectId={projectId}

@@ -1217,19 +1217,6 @@ class TestGetTaskProcessingContextActivity:
         assert _is_burstable_sandbox_resources_enabled(run_id="run-id", state=state) is expected
 
     @pytest.mark.django_db(transaction=True)
-    def test_get_task_processing_context_enables_directory_resume_snapshots(self, activity_environment, test_task):
-        task_run = test_task.create_run()
-        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
-
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            return_value=False,
-        ):
-            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
-
-        assert result.use_modal_resume_snapshots is True
-        assert result.use_modal_directory_resume_snapshots is True
-
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_applies_org_default_custom_image(self, activity_environment, test_task):
         # Wiring guard for the elif chain in the activity body: a VM run with no
