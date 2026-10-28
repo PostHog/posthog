@@ -529,7 +529,9 @@ def _send_one(
         except WorkflowsEmailError as err:
             if err.status_code == 422 and err.code in WORKFLOWS_UNDELIVERABLE_422_CODES:
                 # The send API replays an idempotency key before it checks the recipient, so this refusal also
-                # means that no earlier attempt queued the email.
+                # means that no earlier attempt queued the email. The pin keeps a retry of the batch on Workflows, so a
+                # flag change cannot send this recipient through Customer.io, where the email would hard bounce.
+                _pin_to_workflows(idempotency_key, workflows_template_id)
                 logger.info("email_workflows_recipient_undeliverable", template_name=template_name)
                 _capture_email_event(
                     capture,

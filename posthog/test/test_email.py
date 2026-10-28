@@ -728,6 +728,45 @@ class TestEmail(BaseTest):
     @patch("posthog.email.ph_scoped_capture")
     @patch("posthog.email.posthoganalytics.feature_enabled")
     @patch("posthog.email.requests.post")
+    def test_batch_retry_keeps_an_unreachable_recipient_off_customer_io(
+        self, mock_post: MagicMock, mock_feature_enabled: MagicMock, _mock_capture: MagicMock
+    ) -> None:
+        mock_feature_enabled.return_value = True
+        unreachable = MagicMock(status_code=422, text="error")
+        unreachable.json.return_value = {"type": "invalid_request", "code": "recipient_unreachable"}
+        unavailable = MagicMock(status_code=503, text="error")
+        unavailable.json.return_value = {"code": "delivery_unavailable"}
+        accepted = MagicMock(status_code=202, json=MagicMock(return_value={"message_id": "m1"}))
+        mock_post.side_effect = [unreachable, unavailable, unreachable, accepted]
+
+        with (
+            override_instance_config("EMAIL_HOST", "localhost"),
+            self.settings(
+                CUSTOMER_IO_API_KEY="cio-key",
+                POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
+                POSTHOG_HOST="https://us.posthog.com",
+            ),
+            patch.dict("posthog.email.WORKFLOWS_TEMPLATE_ID_MAP", {"password_reset": "tmpl-1"}),
+        ):
+            message = EmailMessage(
+                campaign_key="unreachable_batch", subject="Test subject", template_name="password_reset", use_http=True
+            )
+            message.add_recipient("unreachable@example.com")
+            message.add_recipient("ok@example.com")
+            with self.assertRaises(WorkflowsEmailError):
+                message.send(send_async=False, retry=False)
+            mock_feature_enabled.return_value = False
+            message.send(send_async=False, retry=False)
+
+        self.assertTrue(all(call.args[0].startswith("https://us.posthog.com") for call in mock_post.call_args_list))
+        self.assertEqual(
+            [call.kwargs["json"]["to"] for call in mock_post.call_args_list],
+            ["unreachable@example.com", "ok@example.com", "unreachable@example.com", "ok@example.com"],
+        )
+
+    @patch("posthog.email.ph_scoped_capture")
+    @patch("posthog.email.posthoganalytics.feature_enabled")
+    @patch("posthog.email.requests.post")
     def test_retry_after_failing_to_mark_a_workflows_send_replays_it_on_workflows(
         self, mock_post: MagicMock, mock_feature_enabled: MagicMock, _mock_capture: MagicMock
     ) -> None:
