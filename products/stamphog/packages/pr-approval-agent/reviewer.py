@@ -939,21 +939,21 @@ class Reviewer:
     def _format_renovate(self, cl: dict) -> str:
         """The TRUSTED proof block for a verified Renovate update, or "" for every other review.
 
-        The server proved what the lockfiles install before this review started. The block states
+        The server proved the shape of the update before this review started. The block states
         those facts so the reviewer can judge the update itself: the size of each version jump, a
         changelog the PR body quotes, and whether the code that calls the package still fits.
         """
         changes = cl.get("renovate_changes") or []
         if not changes:
             return ""
-        lines = "\n".join(f"  {c['ecosystem']} {c['name']}: {c['old_version']} -> {c['new_version']}" for c in changes)
-        minimum_age = int(cl.get("renovate_minimum_release_age_days") or 0)
+        lines = "\n".join(f"  {c['name']}: {c['old_version']} -> {c['new_version']}" for c in changes)
         return (
             "\nProvenance: Renovate opened this PR, and the platform verified it as one commit by Renovate, "
-            "signed by GitHub. The platform also proved these locked version changes against the public "
-            f"registries: each is a minor or patch update at least {minimum_age} days old, its hash matches the registry, it "
-            "keeps the provenance its previous version had, and it adds no install script. No other package was "
-            f"added. The deny-list and size gate no longer count the lockfiles for that reason.\n{lines}\n"
+            "signed by GitHub. The platform also proved these locked version changes from the lockfiles: each "
+            "is a minor or patch update of a package already locked, resolved from the registry, and no other "
+            "package was added. The repository's pnpm settings make pnpm refuse a version below its minimum "
+            "release age or with less provenance than earlier releases. The deny-list and size gate no longer "
+            f"count the lockfiles for that reason.\n{lines}\n"
             "Those checks say where the code came from, not whether the upgrade is safe for this codebase. "
             "Refuse a change of maintainer or source that the PR body reveals, or an upgrade whose breaking "
             "changes reach code in this repository. The author is a bot, so author "

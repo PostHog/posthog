@@ -666,7 +666,7 @@ def _fetch_review_context(input: StamphogReviewInput) -> dict:
         history: ReviewHistory = history_future.result()
         renovate_verification = None
         if is_renovate_review:
-            # The engine refuses whatever this does not verify. A GitHub or registry error raises here,
+            # The engine refuses whatever this does not verify. A GitHub error raises here,
             # so the activity retries instead of refusing an update over a blip. The review history
             # swallows a failed merge-base lookup, so a missing merge base is read again.
             with timer.step("renovate_verification"):
@@ -679,7 +679,6 @@ def _fetch_review_context(input: StamphogReviewInput) -> dict:
                     or client.get_merge_base_sha(repo, str((pr.get("base") or {}).get("sha") or ""), run.head_sha),
                     head_sha=run.head_sha,
                     read_file=lambda path, ref: client.get_file_text(repo, path, ref=ref),
-                    now=timezone.now(),
                 ).to_context()
 
         context = {

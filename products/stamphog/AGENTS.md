@@ -180,15 +180,17 @@ narrow:
 
 ## The Renovate carve-out (the other exception to the bot-author refusal)
 
-A Renovate dependency update is reviewed only when the repo opts in, and only when the server proves what its lockfiles install.
+A Renovate npm dependency update is reviewed only when the repo opts in, and only when the server proves the shape of its lockfile change.
 The proof replaces the "no harmless file" rule for those lockfiles. It never marks a file harmless: it checks every locked version change line by line.
+What each new version is (its release age, provenance and integrity) is left to pnpm, so the proof also requires the pnpm settings that make pnpm check it. Do not add registry reads back: they repeat what pnpm enforces when Renovate resolves the lockfile and again on every frozen install.
+Python updates are refused: `uv sync --frozen` installs `uv.lock` as written, so nothing outside stamphog would check them.
 
 - The opt-in is `renovate: {enabled: true}` in the default-branch `.stamphog/policy.yml` (`logic/renovate_config.py`). It is a server-only key, so a PR cannot opt its own repo in. Any other shape reads as off.
 - `_renovate_carve_out` admits a delivery only when GitHub attests the PR as Renovate's (`is_renovate_pr`: the numeric bot id, a repo-native `renovate/` head), the delivery's `sender` is Renovate, and the action is `opened`, `reopened`, `synchronize` or `ready_for_review`. The sender check binds the run's head to a push Renovate made. A push by anyone else to a Renovate branch keeps the refusal, and its skip path still retracts approvals.
 - `_rereview_waiting_run` re-runs a Renovate WAIT only at the head that run reviewed, so the sender check still holds. It reads the PR identity and the opt-in again, and copies `renovate_review` to the new run.
 - The run stamps `renovate_review` provenance and the `renovate` trigger, and it bypasses the review-mode and author-write-permission gates like an inbox run. Drafts stay refused.
 - The context fetch runs `verify_renovate_update` (`logic/renovate_verification.py`) and stores the result as `run.output["renovate_verification"]`. It requires exactly one commit, the reviewed head, authored by Renovate and signed by GitHub, because Renovate rebuilds its branch as one commit. The commit author alone proves nothing: GitHub maps it from an email any committer can set.
-- The verification fails closed on anything it cannot prove: a non-manifest file, a manifest change beyond a version specifier, a specifier with no matching lockfile change, a new package, a non-registry resolution, a `link:`/`file:` reference, a major or 0.x-minor update, a release younger than 7 days, a hash mismatch, lost provenance, or a new install script.
+- The verification fails closed on anything it cannot prove: a file other than an npm manifest or `pnpm-lock.yaml`, a manifest change beyond a version specifier, a specifier with no matching lockfile change, a new package, a non-registry resolution, a `link:`/`file:` reference, a major or 0.x-minor update, or a lockfile whose `pnpm-workspace.yaml` at the merge base does not set `minimumReleaseAge` and `trustPolicy: no-downgrade`.
 - The engine (`Pipeline(renovate_verification=...)`) refuses with the problem list unless the proof is verified. A verified proof lifts only the `deps_toolchain` deny for the lockfiles it covers, and drops them from the size gate. Every other category still denies, so a lockfile under stamphog's own engine needs a human. The LLM review still runs, with a TRUSTED block that lists the proven version changes.
 - Problem strings can quote lockfile text, so they reach only the deterministic refusal, which goes through `scrub_credentials` and `neutralize_active_markdown`. They never enter the reviewer prompt. The version changes in the TRUSTED block are names and versions the verifier checked against strict patterns.
 

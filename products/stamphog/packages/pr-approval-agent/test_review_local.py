@@ -554,7 +554,7 @@ def test_self_driving_flag_reviews_the_bot_authored_draft(monkeypatch) -> None:
     assert result["classification"]["self_driving"] is True  # provenance rides into the output contract
 
 
-_RENOVATE_CHANGE = {"ecosystem": "npm", "name": "left-pad", "old_version": "1.0.0", "new_version": "1.1.0"}
+_RENOVATE_CHANGE = {"name": "left-pad", "old_version": "1.0.0", "new_version": "1.1.0"}
 _ENGINE_LOCKFILE = "products/stamphog/packages/pr-approval-agent/pnpm-lock.yaml"
 
 
@@ -568,9 +568,9 @@ def _verified_renovate(*cleared_paths: str) -> dict:
         ("pnpm-lock.yaml", None, "REFUSED", "is a bot"),
         (
             "pnpm-lock.yaml",
-            {"verified": False, "problems": ["left-pad@1.1.0 was published less than 7 days ago."]},
+            {"verified": False, "problems": ["left-pad 1.0.0 -> 2.0.0 is a major update."]},
             "REFUSED",
-            "7 days",
+            "a major update",
         ),
         ("pnpm-lock.yaml", "not a mapping", "REFUSED", "could not verify"),
         ("pnpm-lock.yaml", _verified_renovate(), "DENIED", None),

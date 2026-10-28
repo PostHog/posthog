@@ -590,7 +590,6 @@ class Pipeline:
             # Empty renders the Renovate block empty. The server checked every name and version
             # against a strict pattern, so the block can quote them as trusted facts.
             "renovate_changes": self._renovate_proof.get("changes") or [],
-            "renovate_minimum_release_age_days": self._renovate_proof.get("minimum_release_age_days"),
             "review_trigger": self.review_trigger,
         }
 
