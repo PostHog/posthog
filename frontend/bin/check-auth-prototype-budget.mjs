@@ -7,7 +7,7 @@ import { authPrototypeBootBytes } from './auth-prototype-graph.mjs'
 
 const frontendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const metaPath = path.join(frontendDir, 'auth-prototype-esbuild-meta.json')
-const budgetBytes = 3_700_000
+const budgetBytes = 2_900_000
 
 try {
     const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'))

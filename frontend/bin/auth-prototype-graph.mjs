@@ -22,6 +22,7 @@ export function authPrototypeBootBytes({ inputs, outputs }) {
         }
         return output
     })
+    const entryStylesheet = outputs[queue[0]].cssBundle
     for (const file of queue) {
         chunks.add(file)
     }
@@ -36,14 +37,11 @@ export function authPrototypeBootBytes({ inputs, outputs }) {
     }
 
     const files = new Set(chunks)
-    for (const file of chunks) {
-        const css = outputs[file].cssBundle
-        if (css) {
-            if (!outputs[css]) {
-                throw new Error(`No auth prototype CSS output for ${file}: ${css}`)
-            }
-            files.add(css)
+    if (entryStylesheet) {
+        if (!outputs[entryStylesheet]) {
+            throw new Error(`No auth prototype CSS output: ${entryStylesheet}`)
         }
+        files.add(entryStylesheet)
     }
     return { bytes: [...files].reduce((total, file) => total + outputs[file].bytes, 0), files: files.size }
 }

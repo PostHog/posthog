@@ -45,8 +45,8 @@ function fixture() {
     }
 }
 
-test('counts the deduplicated boot graph, including CSS, but not later imports', () => {
-    assert.deepEqual(authPrototypeBootBytes(fixture()), { bytes: 112, files: 7 })
+test('counts the boot scripts and linked entry CSS without unlinked CSS or later imports', () => {
+    assert.deepEqual(authPrototypeBootBytes(fixture()), { bytes: 108, files: 6 })
 })
 
 for (const missing of required) {
@@ -63,6 +63,6 @@ test('fails when a required output or stylesheet is missing', () => {
     assert.throws(() => authPrototypeBootBytes(meta), /No auth prototype output chunk/)
 
     const other = fixture()
-    delete other.outputs['dist/app.css']
+    delete other.outputs['dist/entry.css']
     assert.throws(() => authPrototypeBootBytes(other), /No auth prototype CSS output/)
 })
