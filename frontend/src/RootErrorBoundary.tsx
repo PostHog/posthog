@@ -3,6 +3,14 @@ import React from 'react'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { redactMetricVariableUrl } from 'lib/utils/metricVariableUrlRedaction'
 
+function hasAssignedLoginEntry(): boolean {
+    const variant = window.POSTHOG_USER_IDENTITY_WITH_FLAGS?.featureFlags?.['standalone-login-entry']
+    return (
+        (window.location.pathname === '/login' || window.location.pathname === '/login/') &&
+        (variant === 'control' || variant === 'test')
+    )
+}
+
 function readBootIdentity(apiKey: string): { distinctId?: string; deviceId?: string } {
     let distinctId: string | undefined
     let deviceId: string | undefined
@@ -14,7 +22,7 @@ function readBootIdentity(apiKey: string): { distinctId?: string; deviceId?: str
     } catch {
         // storage unavailable or corrupt — report anonymously
     }
-    if (!distinctId || !deviceId) {
+    if (!distinctId || !deviceId || hasAssignedLoginEntry()) {
         try {
             const key = `ph_${apiKey}_posthog=`
             const cookie = document.cookie.split('; ').find((part) => part.startsWith(key))

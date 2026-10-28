@@ -130,6 +130,42 @@ describe('RootErrorBoundary', () => {
     })
 
     it.each([
+        { variant: 'control', path: '/login', cookie: 'valid', expected: 'cookie' },
+        { variant: 'test', path: '/login/', cookie: 'valid', expected: 'cookie' },
+        { variant: false, path: '/login', cookie: 'valid', expected: 'local' },
+        { variant: 'test', path: '/project/1', cookie: 'valid', expected: 'local' },
+        { variant: 'test', path: '/login', cookie: 'missing', expected: 'local' },
+        { variant: 'test', path: '/login', cookie: 'invalid', expected: 'local' },
+    ])('uses $expected identity for $variant at $path with $cookie cookie', ({ variant, path, cookie, expected }) => {
+        window.history.replaceState({}, '', path)
+        window.POSTHOG_USER_IDENTITY_WITH_FLAGS = { featureFlags: { 'standalone-login-entry': variant } }
+        window.localStorage.setItem(
+            'ph_test-api-key_posthog',
+            JSON.stringify({ distinct_id: 'synthetic-local-person', $device_id: 'synthetic-local-device' })
+        )
+        if (cookie !== 'missing') {
+            const value =
+                cookie === 'valid'
+                    ? encodeURIComponent(
+                          JSON.stringify({
+                              distinct_id: 'synthetic-cookie-person',
+                              $device_id: 'synthetic-cookie-device',
+                          })
+                      )
+                    : 'invalid-json'
+            document.cookie = `ph_test-api-key_posthog=${value}; path=/`
+        }
+        render(
+            <RootErrorBoundary>
+                <ThrowRenderError />
+            </RootErrorBoundary>
+        )
+        const event = JSON.parse(sendBeacon.mock.calls[0][1])
+        expect(event.distinct_id).toBe(`synthetic-${expected}-person`)
+        expect(event.properties.$device_id).toBe(`synthetic-${expected}-device`)
+    })
+
+    it.each([
         ['login with nested next URL', '/login?next=%2Freset%3Ftoken%3Dexample#section', '/login'],
         ['login with nested reset URL', '/login/?reset=%2Freset%3Ftoken%3Dexample#section', '/login/'],
         ['other page', '/project/1?next=%2Fproject%2F2#section', '/project/1?next=%2Fproject%2F2#section'],
