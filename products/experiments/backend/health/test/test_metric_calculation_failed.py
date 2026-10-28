@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded
 from posthog.models.scoping import team_scope
 
 from products.experiments.backend.facade.api import get_experiment_health
@@ -110,12 +111,7 @@ class TestMetricCalculationFailed(TestCase):
             ),
             (
                 "cluster_out_of_memory",
-                _failure(
-                    "We're under heavy load right now and couldn't finish this query. Please try again in a few "
-                    "minutes.",
-                    error_type="out_of_memory",
-                    retriable=False,
-                ),
+                _failure(str(ClickHouseClusterMemoryLimitExceeded()), error_type="out_of_memory", retriable=False),
                 {},
                 ("busy", INFO, None, "PostHog was too busy"),
             ),

@@ -13,6 +13,7 @@ from dataclasses import replace
 from enum import StrEnum
 
 from posthog.dataclasses import frozen
+from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded
 
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
@@ -65,14 +66,16 @@ _QUERY_SIZE_LIMIT = "query_size"
 # A failure stored before calculations stored the class of the error has only its message, and some classes are too
 # wide, so these rules read the message. They follow the messages of `ClickHouseAtCapacity`, of the ClickHouse
 # limits, of the calculation's own time limit and of the friendly texts in `ERROR_TYPE_MESSAGES`.
-# `ClickHouseClusterMemoryLimitExceeded` is stored as out of memory, because it subclasses the memory limit of one
-# query, but the cluster was full and the query can be fine, so its message counts as busy. A socket timeout is stored
-# as a timeout, but PostHog words it as a temporary problem of the database, so it counts as busy too.
+# A socket timeout is stored as a timeout, but PostHog words it as a temporary problem of the database, so it counts as
+# busy.
 _BUSY_MESSAGE = re.compile(
-    r"too busy|Too many queries|maximum concurrency|under heavy load|temporary problem"
-    r"|while (?:reading from|writing to) socket",
+    r"too busy|Too many queries|maximum concurrency|temporary problem|while (?:reading from|writing to) socket",
     re.IGNORECASE,
 )
+# Stored as out of memory, because the class subclasses the memory limit of one query, but the cluster was full and the
+# query can be fine, so it counts as busy. The rule reads the class's own text, so a change of the wording can't turn
+# the failure into a query limit.
+_CLUSTER_MEMORY_FULL = str(ClickHouseClusterMemoryLimitExceeded.default_detail)
 _QUERY_SIZE = re.compile(r"query size exceeded", re.IGNORECASE)
 _READ_LIMIT = re.compile(r"Limit for rows or bytes to read exceeded")
 _MEMORY_LIMIT = re.compile(r"ran out of memory|using too much memory|memory limit", re.IGNORECASE)
@@ -215,7 +218,7 @@ def _word(failure: MetricCalculationFailure, *, ended: bool, exposure_query_fail
 def _word_error(failure: MetricCalculationFailure, *, exposure_query_fails: bool) -> _Wording:
     error_type = failure.error_type
     message = failure.message
-    if error_type == "rate_limited" or _BUSY_MESSAGE.search(message):
+    if error_type == "rate_limited" or _CLUSTER_MEMORY_FULL in message or _BUSY_MESSAGE.search(message):
         return _BUSY
     limit = _limit(error_type, message)
     if limit is not None:
