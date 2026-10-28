@@ -1,6 +1,7 @@
 """Brings observations ranked before the consumer wrote everything it writes today up to date: category scores,
 anchor similarities, feed groups and search themes, so the feed and the suggestions start from history."""
 
+import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
 from itertools import batched
@@ -74,25 +75,37 @@ def backfill_team_semantics(team_id: int, since: datetime, *, dry_run: bool = Fa
         return SemanticBackfillResult(observations=pending.count(), assigned=0, named=0)
 
     anchors = async_to_sync(anchor_vectors)(team_id)
-    rows = (
-        _Pending(
-            observation_id=str(observation_id),
-            scanner_id=str(scanner_id),
-            created_at=created_at,
-            needs_group=group is None,
-            needs_scores=scores is None,
-            needs_similarities=not has_row,
-        )
-        for observation_id, scanner_id, created_at, group, scores, has_row in pending.order_by("created_at", "id")
-        .values_list("id", "scanner_id", "created_at", "watch_rank__group", "watch_rank__scores", "has_similarities")
-        .iterator(chunk_size=_SLICE_ROWS)
-    )
     observations = 0
     assigned = 0
-    # One slice at a time, so memory stays at one slice of rows however large the team's window is.
-    for slice_rows in batched(rows, _SLICE_ROWS, strict=False):
+    # One page per query and per slice, because a pooled connection buffers a whole result however it is iterated.
+    after: tuple[datetime, uuid.UUID] | None = None
+    while True:
+        page = pending.order_by("created_at", "id")
+        if after:
+            page = page.filter(Q(created_at__gt=after[0]) | Q(created_at=after[0], id__gt=after[1]))
+        values = list(
+            page.values_list(
+                "id", "scanner_id", "created_at", "watch_rank__group", "watch_rank__scores", "has_similarities"
+            )[:_SLICE_ROWS]
+        )
+        if not values:
+            break
+        slice_rows = [
+            _Pending(
+                observation_id=str(observation_id),
+                scanner_id=str(scanner_id),
+                created_at=created_at,
+                needs_group=group is None,
+                needs_scores=scores is None,
+                needs_similarities=not has_row,
+            )
+            for observation_id, scanner_id, created_at, group, scores, has_row in values
+        ]
         observations += len(slice_rows)
-        assigned += _backfill_slice(team_id, list(slice_rows), anchors)
+        assigned += _backfill_slice(team_id, slice_rows, anchors)
+        if len(values) < _SLICE_ROWS:
+            break
+        after = (values[-1][2], values[-1][0])
     return SemanticBackfillResult(observations=observations, assigned=assigned, named=_name_suggestable_themes(team_id))
 
 

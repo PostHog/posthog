@@ -162,9 +162,9 @@ def naming_candidates(team_id: int, now: datetime) -> QuerySet[ReplayScannerSear
     """Themes due a name among those a suggestion could show, so the daily naming budget never goes to themes nobody
     sees."""
     active = ReplayScannerSearchTheme.objects.for_team(team_id).filter(last_member_at__gte=now - THEME_ACTIVE_WINDOW)
-    return active.annotate(scanner_rank=_scanner_rank()).filter(
-        scanner_rank__lte=_SUGGESTION_CANDIDATES, member_count__gte=F("rename_at_member_count")
-    )
+    # The rank comes from all active themes, since a filter beside it would rank only the due ones.
+    shown = active.annotate(scanner_rank=_scanner_rank()).filter(scanner_rank__lte=_SUGGESTION_CANDIDATES)
+    return active.filter(id__in=shown.values("id"), member_count__gte=F("rename_at_member_count"))
 
 
 def _is_naming_candidate(team_id: int, theme_id: uuid.UUID, now: datetime) -> bool:

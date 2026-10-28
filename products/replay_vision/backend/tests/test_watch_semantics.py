@@ -30,6 +30,7 @@ from products.replay_vision.backend.semantic_space import (
     SemanticSpace,
     nearest_cluster,
     pack,
+    scanner_space,
     semantic_vector,
     unit,
 )
@@ -38,7 +39,7 @@ from products.replay_vision.backend.watch_feed_groups import feed_group_cache
 from products.replay_vision.backend.watch_rank import ANCHOR_VERSION
 from products.replay_vision.backend.watch_semantics import SemanticItem, assign_semantics, assign_semantics_batch
 from products.replay_vision.backend.watch_semantics_backfill import backfill_team_semantics
-from products.replay_vision.backend.watch_themes import belongs_in_theme, finalize_label, name_theme
+from products.replay_vision.backend.watch_themes import belongs_in_theme, finalize_label, name_theme, naming_candidates
 
 _THEMES = "products.replay_vision.backend.watch_themes"
 _BACKFILL = "products.replay_vision.backend.watch_semantics_backfill"
@@ -97,6 +98,14 @@ class TestThemeRules(SimpleTestCase):
         expected = int(np.argmax(unit(sums / counts[:, None] - mean) @ unit(vector - mean)))
 
         assert nearest_cluster(sums, counts, np.einsum("ij,ij->i", sums, sums), space, -1.0, -1.0) == expected
+
+    def test_a_cluster_whose_mean_matches_the_scanner_mean_still_takes_its_own_vector(self) -> None:
+        common, rare = np.eye(SEMANTIC_DIMENSIONS, dtype=np.float32)[:2]
+        sums = np.stack([common * 10_000, rare])
+        counts = np.array([10_000, 1], dtype=np.float32)
+        space = scanner_space(common * 10_000 + rare, 10_001, common)
+
+        assert nearest_cluster(sums, counts, np.einsum("ij,ij->i", sums, sums), space, 0.65, 0.90) == 0
 
 
 class TestAssignSemantics(BaseTest):
@@ -312,6 +321,26 @@ class TestAssignSemantics(BaseTest):
     def test_a_theme_is_due_a_name_at_its_fifth_member(self) -> None:
         due = [self._assign(self._observation(), _vector(1.0)).theme.name_due for _ in range(5)]
         assert due == [False, False, False, False, True]
+
+    def test_only_themes_a_suggestion_can_show_are_due_a_name(self) -> None:
+        def theme(member_count: int, rename_at: int) -> ReplayScannerSearchTheme:
+            return ReplayScannerSearchTheme.objects.for_team(self.team.id).create(
+                team=self.team,
+                scanner=self.scanner,
+                vector_sum=pack(semantic_vector(_vector(1.0))),
+                member_count=member_count,
+                rename_at_member_count=rename_at,
+                last_member_at=timezone.now(),
+            )
+
+        # The eight largest fill every suggestion slot and are named already, so the due ninth never shows.
+        for size in range(20, 28):
+            theme(size, rename_at=size * 2)
+        theme(10, rename_at=5)
+        assert list(naming_candidates(self.team.id, timezone.now())) == []
+
+        shown = theme(30, rename_at=5)
+        assert list(naming_candidates(self.team.id, timezone.now())) == [shown]
 
     def test_naming_writes_the_label_once_per_doubling_and_retries_a_failed_call(self) -> None:
         for _ in range(5):

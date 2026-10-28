@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 import numpy as np
 
 from posthog.dataclasses import frozen
+from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.replay_vision.backend.models.replay_scanner_semantics import (
     ReplayScannerFeedGroup,
@@ -82,6 +83,12 @@ def nearest_cluster(
     if space.centring:
         projections -= float(space.mean @ direction)
         lengths_squared += float(space.mean @ space.mean) - 2 * dots[:, 1] / counts
+    # The expansion subtracts near-equal terms when a cluster's mean sits close to the scanner mean, so those few
+    # lengths are taken directly instead.
+    if space.centring and len(close := np.nonzero(lengths_squared < 1e-3 * squared_norms / counts**2)[0]):
+        lengths_squared[close] = np.einsum(
+            "ij,ij->i", sums[close] / counts[close, None] - space.mean, sums[close] / counts[close, None] - space.mean
+        )
     lengths = np.sqrt(np.maximum(lengths_squared, 0))
     similarities = np.divide(projections, lengths, out=np.full_like(projections, -np.inf), where=lengths > 1e-6)
     if eligible is not None:
@@ -189,6 +196,8 @@ class ClusterWrites:
     ) -> None:
         self._model = model
         self._team_id = team_id
+        # A bulk insert skips the save that moves a child environment's row to its project, so the id is resolved here.
+        self._row_team_id = resolve_effective_team_id(team_id)
         self._scanner_id = scanner_id
         self._rows: dict[uuid.UUID, ReplayScannerFeedGroup | ReplayScannerSearchTheme] = {}
 
@@ -196,7 +205,7 @@ class ClusterWrites:
         # Values are absolute: every writer holds the centre lock, and a cache behind Postgres reloads before it assigns.
         self._rows[clusters.ids[index]] = self._model(
             id=clusters.ids[index],
-            team_id=self._team_id,
+            team_id=self._row_team_id,
             scanner_id=self._scanner_id,
             vector_sum=pack(clusters.sums[index]),
             member_count=int(clusters.counts[index]),
