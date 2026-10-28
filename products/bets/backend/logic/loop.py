@@ -58,7 +58,7 @@ from .plan import (
 )
 from .prompts import instructions
 from .scout import scout_body, scout_job
-from .spend import reconcile_spend, spend_pending
+from .spend import reconcile_spend, spend_pending, usage_sources
 from .stages import ACTIVE, LIVE, OPEN
 from .state import NO_ACCESS, build_refusal, failure_note, goal_confirm_at
 from .step_models import run_settings
@@ -445,10 +445,12 @@ def follow_cleanup(team: Team, user: User, bet: Bet, idea: WorkItem) -> None:
 def goal_reached(team: Team, user: User, bet: Bet) -> bool:
     refresh_metrics(team, user, [bet.goal_insight])
     values = metric(team, user, bet.goal_insight, complete=True).values[-GOAL_POINTS:]
-    if not values or bet.target is None:
+    if len(values) < GOAL_POINTS or bet.target is None:
         return False
-    current = fmean(values)
-    return current <= float(bet.target) if bet.direction == "decrease" else current >= float(bet.target)
+    target = float(bet.target)
+    met = [value <= target if bet.direction == "decrease" else value >= target for value in values]
+    average = fmean(values)
+    return sum(met) >= GOAL_POINTS - 1 and (average <= target if bet.direction == "decrease" else average >= target)
 
 
 def goal_check(team: Team, user: User, bet: Bet, idea_open: bool) -> bool:
@@ -794,6 +796,8 @@ END_NOTES = {
 
 
 def return_unused(bet: Bet) -> None:
+    if any(source.waiting for source in usage_sources(bet)):
+        return
     available = totals(bet.team_id, bet).available_cents
     if available > 0:
         entries = LedgerEntry.objects.for_team(bet.team_id, canonical=True).using(WRITER_DB).filter(bet=bet).count()

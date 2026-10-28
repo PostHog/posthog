@@ -370,6 +370,9 @@ class TestBetLoop(APIBaseTest):
         assert self.world.concluded == [(idea.experiment_id, "won", "test")]
         cleanup = self.only(bet, "cleanup")
         assert cleanup.task_id == self.world.cleanup_task and cleanup.stage == "working"
+        self.world.metric_values = [0.2, 0.25, 0.5]
+        self.tick(bet)
+        assert bet.status == "running" and bet.goal_met_since is None
         self.world.metric_values = [0.31, 0.32, 0.33]
         self.tick(bet)
         assert bet.status == "reached"
