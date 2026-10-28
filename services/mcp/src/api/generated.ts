@@ -2837,6 +2837,8 @@ export namespace Schemas {
       inCohortVia?: InCohortVia | null;
       inlineCohortCalculation?: InlineCohortCalculation | null;
       materializationMode?: MaterializationMode | null;
+      /** Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag. */
+      materializeRepeatedCTEs?: boolean | null;
       materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationMode | null;
       /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
       mergeFederatedAggregateJoins?: boolean | null;
@@ -26122,6 +26124,20 @@ export namespace Schemas {
       token: string;
     }
 
+    /**
+     * * `info` - Info
+     * * `warn` - Warn
+     * * `error` - Error
+     */
+    export type ConsoleLogLevelEnum = typeof ConsoleLogLevelEnum[keyof typeof ConsoleLogLevelEnum];
+
+
+    export const ConsoleLogLevelEnum = {
+      Info: 'info',
+      Warn: 'warn',
+      Error: 'error',
+    } as const;
+
     export interface ContentAutopilotBriefCompetitor {
       /** Product to compare against. */
       name: string;
@@ -40682,6 +40698,14 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
+    }
+
+    export interface EdgeSummary {
+      readonly id: string;
+      /** ID of the upstream node. */
+      readonly source_id: string;
+      /** ID of the downstream node. */
+      readonly target_id: string;
     }
 
     export interface ReviewerState {
@@ -76861,13 +76885,13 @@ export namespace Schemas {
       results: EarlyAccessFeature[];
     }
 
-    export interface PaginatedEdgeList {
+    export interface PaginatedEdgeSummaryList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: Edge[];
+      results: EdgeSummary[];
     }
 
     export interface PaginatedElementList {
@@ -79810,6 +79834,80 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `claude` - Claude
+     * * `codex` - Codex
+     * * `pi` - Pi
+     */
+    export type StartupProviderEnum = typeof StartupProviderEnum[keyof typeof StartupProviderEnum];
+
+
+    export const StartupProviderEnum = {
+      Claude: 'claude',
+      Codex: 'codex',
+      Pi: 'pi',
+    } as const;
+
+    /**
+     * * `session_setup` - Session setup
+     * * `sdk_initialization` - SDK initialization
+     * * `setup_hooks` - Setup hooks
+     */
+    export type StartupPhaseEnum = typeof StartupPhaseEnum[keyof typeof StartupPhaseEnum];
+
+
+    export const StartupPhaseEnum = {
+      SessionSetup: 'session_setup',
+      SdkInitialization: 'sdk_initialization',
+      SetupHooks: 'setup_hooks',
+    } as const;
+
+    /**
+     * * `requires_action` - Requires action
+     * * `transient` - Transient
+     * * `unknown` - Unknown
+     */
+    export type StartupRetryabilityEnum = typeof StartupRetryabilityEnum[keyof typeof StartupRetryabilityEnum];
+
+
+    export const StartupRetryabilityEnum = {
+      RequiresAction: 'requires_action',
+      Transient: 'transient',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface ReportStartupFailure {
+      /** Agent provider that failed to start.
+       *
+       * * `claude` - Claude
+       * * `codex` - Codex
+       * * `pi` - Pi */
+      provider: StartupProviderEnum;
+      /** Startup stage that failed.
+       *
+       * * `session_setup` - Session setup
+       * * `sdk_initialization` - SDK initialization
+       * * `setup_hooks` - Setup hooks */
+      phase: StartupPhaseEnum;
+      /**
+         * Validated provider reason code, when available.
+         * @nullable
+         */
+      reason: string | null;
+      /** Whether an unchanged startup can be retried.
+       *
+       * * `requires_action` - Requires action
+       * * `transient` - Transient
+       * * `unknown` - Unknown */
+      retryability: StartupRetryabilityEnum;
+      /** Research task that could not start. */
+      task_id: string;
+      /** Failed research task run. */
+      run_id: string;
+      /** Safe explanation and suggested next action. */
+      message: string;
+    }
+
+    /**
      * Snapshot-only metric shape for report lists.
      *
      * Omitting query definitions keeps the paginated inbox payload bounded.
@@ -80315,6 +80413,8 @@ export namespace Schemas {
       readonly signals_at_run: number;
       /** How many scout notes this report received beyond the few its work log keeps as entries. 0 when nothing was dropped. These say the finding still holds, so the count is shown in place of the entries. */
       readonly collapsed_note_count: number;
+      /** Startup failure from the latest failed research attempt, when available. */
+      readonly startup_failure: ReportStartupFailure | null;
       readonly created_at: string;
       readonly updated_at: string;
       readonly artefact_count: number;
@@ -103153,6 +103253,8 @@ export namespace Schemas {
       readonly signals_at_run: number;
       /** How many scout notes this report received beyond the few its work log keeps as entries. 0 when nothing was dropped. These say the finding still holds, so the count is shown in place of the entries. */
       readonly collapsed_note_count: number;
+      /** Startup failure from the latest failed research attempt, when available. */
+      readonly startup_failure: ReportStartupFailure | null;
       readonly created_at: string;
       readonly updated_at: string;
       readonly artefact_count: number;
@@ -109203,7 +109305,7 @@ export namespace Schemas {
     }
 
     export interface SearchSuggestionsResponse {
-      /** Up to 4 example searches naming themes in recent observations. Empty until a scheduled refresh has run for a scanner someone viewed. */
+      /** Up to 4 example searches naming the largest active themes in recent issue observations. Empty until a scanner has a named theme. */
       queries: string[];
     }
 
@@ -109692,6 +109794,32 @@ export namespace Schemas {
       total_requested: number;
       /** Session IDs that were found but could not be deleted. These can be retried. */
       failed_ids: string[];
+    }
+
+    export interface SessionRecordingConsoleLogEntry {
+      /** When the browser logged the message. */
+      timestamp: string;
+      /** Console level of the message.
+       *
+       * * `info` - Info
+       * * `warn` - Warn
+       * * `error` - Error */
+      level: ConsoleLogLevelEnum;
+      /** The logged text. String arguments are joined with spaces, and non-string arguments are left out. Cut to 3000 characters. */
+      message: string;
+      /** True when the message was cut to fit the length limit. */
+      truncated: boolean;
+    }
+
+    export interface SessionRecordingConsoleLogsResponse {
+      /** Console log entries in chronological order. */
+      results: SessionRecordingConsoleLogEntry[];
+      /** True when more entries exist after this page. */
+      has_more: boolean;
+      /** Whether the project captures console logs now. When false, an empty result means that nothing was captured, not that the session had no console output. */
+      console_log_capture_enabled: boolean;
+      /** True when the recording started longer ago than the console log retention period. The recording can still exist after its console log entries are deleted. Entries expire one at a time, so a recording close to the retention period can already miss its earliest entries while this is false. */
+      logs_expired: boolean;
     }
 
     export type SessionReplayListWidgetCatalogEntryOpenApiWidgetType = typeof SessionReplayListWidgetCatalogEntryOpenApiWidgetType[keyof typeof SessionReplayListWidgetCatalogEntryOpenApiWidgetType];
@@ -121010,6 +121138,13 @@ export namespace Schemas {
       hasError: boolean;
     }
 
+    export interface TraceGit {
+      /** The git branch checked out when the trace ran. */
+      branch: string;
+      /** The repository as owner/name, or null when the branch's event has none. */
+      repo: string | null;
+    }
+
     export interface Trace {
       id: string;
       name: string | null;
@@ -121025,6 +121160,8 @@ export namespace Schemas {
       threadNodeIds: string[];
       defaultNodeId: string;
       nodeIdsByAlias: TraceNodeIdsByAlias;
+      /** The branch the trace's work ran on: the latest stamped branch other than main or master, else the first stamp. Null when no event carries a branch. */
+      git: TraceGit | null;
     }
 
     export type TraceEvaluationResultOutcomeEnum = typeof TraceEvaluationResultOutcomeEnum[keyof typeof TraceEvaluationResultOutcomeEnum];
@@ -139753,6 +139890,46 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type SessionRecordingsConsoleLogsRetrieveParams = {
+    /**
+     * Only return entries at or after this ISO 8601 timestamp. The results never extend outside the recording's own start and end time.
+     */
+    after?: string;
+    /**
+     * Only return entries at or before this ISO 8601 timestamp. The results never extend outside the recording's own start and end time.
+     */
+    before?: string;
+    /**
+     * Only return entries at this level. Omit to return every level.
+     *
+     * * `info` - Info
+     * * `warn` - Warn
+     * * `error` - Error
+     * @minLength 1
+     */
+    level?: SessionRecordingsConsoleLogsRetrieveLevel;
+    /**
+     * Maximum number of entries to return (1-500, default 100).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of entries to skip. Use with `limit` to page through a long recording.
+     * @minimum 0
+     */
+    offset?: number;
+    };
+
+    export type SessionRecordingsConsoleLogsRetrieveLevel = typeof SessionRecordingsConsoleLogsRetrieveLevel[keyof typeof SessionRecordingsConsoleLogsRetrieveLevel];
+
+
+    export const SessionRecordingsConsoleLogsRetrieveLevel = {
+      Info: 'info',
+      Warn: 'warn',
+      Error: 'error',
+    } as const;
 
     export type SignalsActivitySummaryVersionsRetrieveParams = {
     /**

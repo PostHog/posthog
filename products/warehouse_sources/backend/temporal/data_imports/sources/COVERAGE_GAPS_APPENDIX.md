@@ -7604,7 +7604,7 @@ Note: The URLs supplied in the payload (documentation.mailgun.com/docs/mailgun/a
 
 ## Mailjet — gaps
 
-Today (13): `bouncestatistics`, `campaign`, `campaigndraft`, `clickstatistics`, `contact`, `contactmetadata`, `contactslist`, `listrecipient`, `message`, `messageevent`, `openinformation`, `statcounters`, `template`
+Today (15): `bouncestatistics`, `campaign`, `campaigndraft`, `clickstatistics`, `contact`, `contactdata`, `contactmetadata`, `contactslist`, `listrecipient`, `message`, `messageevent`, `messageinformation`, `openinformation`, `statcounters`, `template`
 
 Diffed against: <https://dev.mailjet.com/email/reference/messages/>
 
@@ -7612,10 +7612,10 @@ Diffed against: <https://dev.mailjet.com/email/reference/messages/>
 - [ ] `messagesentstatistics` — skipped: Mailjet lists it as a deprecated legacy statistics resource replaced by `/statcounters`.
 - [ ] `messagehistory` — skipped: only exposed as `/messagehistory/{message_ID}`, so it would take one request per message ever sent. The webhook-fed `messageevent` table already carries this event stream.
 - [x] `bouncestatistics` — Bounce events with reason codes; we sync clicks and opens but not bounces (high)
-- [ ] `campaignstatistics` — Aggregate performance per campaign, resolving the campaign rows we already sync (high)
-- [ ] `contactdata` — Actual custom property values per contact - we sync contactmetadata (the schema) but not the values (high)
-- [ ] `openstatistics` — Open events aggregated per message/campaign, complementing the openinformation rows we sync (medium)
-- [ ] `messageinformation` — Per-message metadata linking messages to campaigns, senders and spam assassin scores (medium)
+- [ ] `campaignstatistics` — skipped: Mailjet's OpenAPI spec marks it as a deprecated legacy endpoint and points to `/statcounters`, which we already sync.
+- [x] `contactdata` — Actual custom property values per contact - we sync contactmetadata (the schema) but not the values (high). Added as `contactdata`: full refresh, because the API has no change filter.
+- [ ] `openstatistics` — skipped: Mailjet's OpenAPI spec marks it as a deprecated legacy endpoint and points to `/statcounters`, which we already sync.
+- [x] `messageinformation` — Per-message metadata linking messages to campaigns, senders and spam assassin scores (medium). Added as `messageinformation`: incremental on `CreatedAt` through `FromTS`.
 - [ ] `newsletter` — Newsletter objects that campaign and campaigndraft rows reference (medium)
 - [ ] `sender` — Lookup table resolving the sender IDs carried on campaigns and messages (medium)
 - [ ] `listrecipientstatistics` — Engagement metrics per list subscription, joining to the listrecipient rows we sync (medium)
@@ -8949,12 +8949,12 @@ Diffed against: <https://raw.githubusercontent.com/orbcorp/orb-node/main/api.md>
 - [x] `GET /metrics (billable metrics)` — lookup resolving the billable-metric IDs that prices reference; without it usage-based charges are unexplainable (high)
 - [x] `GET /customers/{customer_id}/credits/ledger` — credit grant/decrement transaction log — the ledger a warehouse user needs for prepaid-balance analysis (high)
 - [x] `GET /customers/{customer_id}/balance_transactions` — customer account balance movements over time, joined to synced customers and invoices (high)
-- [ ] `GET /customers/{customer_id}/costs` — per-customer cost breakdown by price/metric over a timeframe — Orb's headline revenue metric (high)
+- [x] `GET /customers/{customer_id}/costs` — per-customer cost breakdown by price/metric over a timeframe — Orb's headline revenue metric (high)
 - [ ] `GET /subscriptions/{subscription_id}/usage` — usage quantities per billable metric per subscription, the raw driver of every invoice line (medium)
 - [ ] `GET /subscription_changes` — state-transition history for the subscriptions table already synced (upgrades, downgrades, cancellations) (medium)
-- [ ] `GET /subscriptions/{subscription_id}/schedule` — plan-over-time schedule per subscription — resolves which plan applied in which period (medium)
-- [ ] `GET /customers/{customer_id}/credits` — outstanding credit block balances per customer (medium)
-- [ ] `GET /subscriptions/{subscription_id}/costs` — cost breakdown at subscription grain, complementing the customer-level view (medium)
+- [x] `GET /subscriptions/{subscription_id}/schedule` — plan-over-time schedule per subscription — resolves which plan applied in which period (medium)
+- [x] `GET /customers/{customer_id}/credits` — outstanding credit block balances per customer (medium)
+- [x] `GET /subscriptions/{subscription_id}/costs` — cost breakdown at subscription grain, complementing the customer-level view (medium)
 - [ ] `GET /events/volume` — ingested event volume over time — useful for reconciling usage against billing (low)
 - [ ] `GET /dimensional_price_groups` — lookup for dimensional pricing groups referenced by prices (low)
 
@@ -9008,12 +9008,12 @@ Diffed against: <https://jsapi.apiary.io/apis/amplifyv01/api-description-documen
 - [x] `/reports/marketers/{id}/publishers` — publisher breakdown, the core Outbrain optimization dimension (high)
 - [x] `/reports/marketers/{id}/sections` — section/placement breakdown - the finest-grained supply dimension advertisers block or bid on (high)
 - [x] `/marketers/{id}/conversionEvents` — lookup table resolving the conversion event ids that appear in every report's conversion details (high)
-- [ ] `/reports/marketers/{id}/campaigns/periodic` — daily per-campaign time series; campaign_performance today is only a date-range rollup (high)
+- [x] `/reports/marketers/{id}/campaigns/periodic` — daily per-campaign time series; campaign_performance today is only a date-range rollup (high)
 - [ ] `/reports/marketers/{id}/geo` — geo breakdown with country/region granularity (medium)
 - [ ] `/reports/marketers/{id}/platforms` — device/platform breakdown (medium)
-- [ ] `/reports/marketers/{id}/interests` — interest-targeting breakdown (medium)
-- [ ] `/marketers/{id}/segments` — audience segments lookup for segment-targeted campaigns (medium)
-- [ ] `/campaigns/{campaignId}/locations` — campaign geo targeting rows, needed to interpret geo report deltas (medium)
+- [x] `/reports/marketers/{id}/interests` — interest-targeting breakdown (medium)
+- [x] `/marketers/{id}/segments` — audience segments lookup for segment-targeted campaigns (medium)
+- [x] `/campaigns/{campaignId}/locations` — campaign geo targeting rows, needed to interpret geo report deltas (medium)
 - [ ] `/marketers/{id}/engagementMetrics` — marketer-level engagement metrics not present in the periodic report (low)
 - [ ] `/campaigns/{campaignId}/promotedLinksSequences` — sequence grouping for promoted links (low)
 
@@ -9178,15 +9178,15 @@ Note: The docs page embeds a full OpenAPI document (91 operationIds) which I par
 
 ## PartnerStack — **thin**
 
-Today (4): `customers`, `deals`, `leads`, `partnerships`
+Today (8): `customers`, `deal_stages`, `deals`, `lead_stages`, `leads`, `partnerships`, `rewards`, `transactions`
 
 Diffed against: <https://docs.partnerstack.com/llms.txt>
 
-- [ ] `GET /v2/transactions` — the commission ledger; without it partner revenue cannot be measured at all (high)
-- [ ] `GET /v2/rewards` — reward records earned by partners, the payout-side counterpart to transactions (high)
+- [x] `GET /v2/transactions` — the commission ledger; without it partner revenue cannot be measured at all (high)
+- [x] `GET /v2/rewards` — reward records earned by partners, the payout-side counterpart to transactions (high)
 - [ ] `GET /v2/payouts` — money actually paid out to partners (high)
 - [ ] `GET /v2/actions` — tracked partner actions/events - the raw attribution events behind customers and deals (high)
-- [ ] `GET /v2/sales-cycles/{object_type}/stages` — lookup resolving the stage ids carried on the deals and leads we already sync (high)
+- [x] `GET /v2/sales-cycles/{object_type}/stages` — lookup resolving the stage ids carried on the deals and leads we already sync (high)
 - [ ] `GET /v2/groups` — lookup resolving the group each partnership belongs to (high)
 - [ ] `GET /v2/tiers (and /v2/tiers/collection)` — lookup resolving partnership tier ids, which drive commission rates (high)
 - [ ] `GET /v2/links/{partnership_identifier}` — per-partner referral links, the attribution key between traffic and customers (medium)
@@ -9195,7 +9195,7 @@ Diffed against: <https://docs.partnerstack.com/llms.txt>
 - [ ] `GET /v2/product-book` — product book definitions that scope which products a partner can sell (medium)
 - [ ] `GET /v2/partner-team/{team_key}` — partner team membership resolving individual members behind a partnership (medium)
 
-Note: Only 4 of roughly 20 listable v2 collections are exposed. Everything monetary - transactions, rewards, payouts - and every lookup that resolves ids on the objects we already sync (groups, tiers, sales cycle stages, products) is missing, so the current tables cannot be joined into a partner revenue model.
+Note: The source syncs 8 tables. Transactions, rewards, and the deal and lead sales cycle stages are synced; the stages path is `/v2/sales_cycles/{object_type}/stages` (underscore). `GET /v2/payouts` exists only in the Partner API (partner bearer token), not the Vendor API this source authenticates against, so it stays unticked. The groups, tiers, and products lookups are still missing.
 
 ## PayFit — gaps
 
@@ -9203,10 +9203,10 @@ Today (4): `absences`, `collaborators`, `contracts`, `payslips`
 
 Diffed against: <https://developers.payfit.io/llms.txt>
 
-- [ ] `/companies/{companyId}/contracts/time (worked time by contract)` — actual hours worked per pay period - the core time analytics table alongside absences (high)
-- [ ] `/companies/{companyId}/accounting-v2` — payroll accounting entries broken down by analytical code and employee, the finance-facing dataset (high)
-- [ ] `/companies/{companyId}` — company lookup resolving the company ID every other table is scoped by (medium)
-- [ ] `/companies/{companyId}/payroll-status` — payroll state per pay period, needed to know which periods are final (medium)
+- [x] `/companies/{companyId}/contracts/time (worked time by contract)` — actual hours worked per pay period - the core time analytics table alongside absences (high)
+- [x] `/companies/{companyId}/accounting-v2` — payroll accounting entries broken down by analytical code and employee, the finance-facing dataset (high)
+- [x] `/companies/{companyId}` — company lookup resolving the company ID every other table is scoped by (medium)
+- [x] `/companies/{companyId}/payroll-status` — payroll state per pay period, needed to know which periods are final (medium)
 - [ ] `/companies/{companyId}/collaborators/meal-vouchers` — per-month meal voucher entitlements per collaborator (FR) (medium)
 - [ ] `/companies/{companyId}/health-insurance-contracts` — benefit contract lookup joined to employee contracts already synced (medium)
 - [ ] `/companies/{companyId}/provident-fund-contracts` — provident fund contract lookup, same join as health insurance (low)
@@ -9270,10 +9270,10 @@ Today (5): `accounts`, `features`, `guides`, `pages`, `visitors`
 Diffed against: <https://engageapi.pendo.io/api/collections/16265887/Tzm6jvKG>
 
 - [ ] `aggregation source: events` — the raw usage event stream - Pendo's headline dataset and the basis of every engagement metric (high)
-- [ ] `aggregation source: featureEvents` — feature click events joined to the features table already synced (high)
-- [ ] `aggregation source: pageEvents` — page view events joined to the pages table already synced (high)
-- [ ] `GET /api/v1/tracktype` — lookup resolving custom track event type IDs; also needed to interpret trackEvents (high)
-- [ ] `aggregation source: trackEvents` — custom-instrumented events, the analog of product analytics custom events (high)
+- [x] `aggregation source: featureEvents` — feature click events joined to the features table already synced (high)
+- [x] `aggregation source: pageEvents` — page view events joined to the pages table already synced (high)
+- [x] `GET /api/v1/tracktype` — lookup resolving custom track event type IDs; also needed to interpret trackEvents (high)
+- [x] `aggregation source: trackEvents` — custom-instrumented events, the analog of product analytics custom events (high)
 - [ ] `aggregation source: guideEvents (plus guidesSeen)` — guide impressions and interactions for the guides table already synced (medium)
 - [ ] `aggregation source: pollEvents / pollsSeen` — poll and NPS responses, the source of Pendo's NPS reporting (medium)
 - [ ] `aggregation source: surveyResponses` — survey response rows for voice-of-customer analysis (medium)
@@ -9937,10 +9937,10 @@ Today (7): `distributions`, `divisions`, `groups`, `survey_questions`, `survey_r
 
 Diffed against: <https://stoplight.io/api/v1/projects/cHJqOjk3NDQ/table-of-contents>
 
-- [ ] `Directory contacts (GET /API/v3/directories/{directoryId}/contacts)` — analyze respondent identities, external references, and opt-out status across surveys (high)
-- [ ] `Mailing lists (GET /API/v3/directories/{directoryId}/mailinglists)` — identify distribution audiences and compare results by mailing list (high)
-- [ ] `Directories (GET /API/v3/directories)` — identify contact directories and discover parents for audience tables (high)
-- [ ] `Distribution history (GET /API/v3/distributions/{distributionId}/history)` — measure recipient delivery and participation for existing survey distributions (high)
+- [x] `Directory contacts (GET /API/v3/directories/{directoryId}/contacts)` — analyze respondent identities, external references, and opt-out status across surveys (high)
+- [x] `Mailing lists (GET /API/v3/directories/{directoryId}/mailinglists)` — identify distribution audiences and compare results by mailing list (high)
+- [x] `Directories (GET /API/v3/directories)` — identify contact directories and discover parents for audience tables (high)
+- [x] `Distribution history (GET /API/v3/distributions/{distributionId}/history)` — measure recipient delivery and participation for existing survey distributions (high)
 - [ ] `Mailing list contacts (GET /API/v3/directories/{directoryId}/mailinglists/{mailingListId}/contacts)` — analyze audience membership and compare response rates across recipient segments (medium)
 - [ ] `Group members (GET /API/v3/groups/{groupId}/members)` — connect existing groups and users to analyze organizational membership (medium)
 - [ ] `Contact transactions (GET /API/v3/directories/{directoryId}/contacts/{contactId}/transactions)` — connect customer interactions with survey feedback (medium)
@@ -11940,8 +11940,8 @@ Diffed against: <https://developer.systeme.io/llms.txt>
 - [ ] `Email statistics (GET /api/mailing/statistics/newsletters; GET /api/mailing/statistics/campaign-steps; GET /api/mailing/statistics/automation-emails)` — compare messages sent, opens, clicks, bounces, and spam reports across email types (high)
 - [x] `Digital products (GET /api/payment/digital-products)` — analyze the digital product catalog alongside courses and subscription offerings (medium)
 - [x] `Physical products (GET /api/payment/physical-products)` — analyze physical product offerings and compare them with digital products (medium)
-- [ ] `Campaigns (GET /api/mailing/campaigns)` — analyze automated email campaigns alongside newsletters (medium)
-- [ ] `Campaign steps (GET /api/mailing/campaigns/{campaignId}/steps)` — connect email performance to each message and its position in a campaign (medium)
+- [x] `Campaigns (GET /api/mailing/campaigns)` — analyze automated email campaigns alongside newsletters (medium)
+- [x] `Campaign steps (GET /api/mailing/campaigns/{campaignId}/steps)` — connect email performance to each message and its position in a campaign (medium)
 - [ ] `Funnels (GET /api/funnels)` — identify marketing funnels for comparisons with contacts and their source URLs (medium)
 - [ ] `Funnel steps (GET /api/funnels/{funnelId}/steps)` — describe funnel pages and their sequence for acquisition analysis (medium)
 - [ ] `Bookings (GET /api/booking-calendar/bookings)` — analyze appointment demand and booking activity alongside contact growth (medium)
@@ -13533,9 +13533,9 @@ Today (3): `documents`, `signers`, `templates`
 
 Diffed against: <https://docs.zapsign.com.br/english/sitemap-pages.xml>
 
-- [ ] `docs/signer-log/{doc_token} (document audit trail)` — per-document signature event history (viewed, signed, refused, timestamps) - the state-transition table behind document status (high)
-- [ ] `users (GET /api/v1/users/, account users)` — lookup table resolving the created_by / account user IDs already carried on documents (medium)
-- [ ] `signer-verification-details/{signer_token}` — authentication and identity-verification outcome per signer, needed to analyze signing friction and failures (medium)
+- [x] `docs/signer-log/{doc_token} (document audit trail)` — per-document signature event history (viewed, signed, refused, timestamps) - the state-transition table behind document status (high)
+- [x] `users (GET /api/v1/users/, account users)` — lookup table resolving the created_by / account user IDs already carried on documents (medium)
+- [x] `signer-verification-details/{signer_token}` — authentication and identity-verification outcome per signer, needed to analyze signing friction and failures (medium)
 - [ ] `checks/{check_id} and checks/{check_id}/details (background checks)` — background-check status and results tied to signers; no list endpoint, so it must fan out from signers (low)
 
 Note: Docs are a GitBook site with no OpenAPI spec; the English sitemap enumerates every endpoint page and each page embeds the literal api.zapsign.com.br path, which is what I diffed against. Webhook create/delete/logs endpoints exist but were excluded as plumbing.
