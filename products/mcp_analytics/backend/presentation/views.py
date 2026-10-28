@@ -414,7 +414,12 @@ class MCPCustomHarnessViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet[MCPCustomHarness]) -> QuerySet[MCPCustomHarness]:
         # Rows save under the parent team (`TeamScopedRootMixin.save()`), so a child environment filters on it too.
-        return queryset.filter(team_id=self.team.parent_team_id or self.team_id)
+        return queryset.filter(team_id=self.team.parent_team_id or self.team.pk)
+
+    def _should_skip_parents_filter(self) -> bool:
+        # The default parent-lookup filter adds the raw URL team id, which hides the rows a child environment
+        # saved under its parent. safely_get_queryset already scopes every read.
+        return True
 
     def _invalidate_harness_caches(self) -> None:
         api.refresh_custom_harness_rules(self.team)
