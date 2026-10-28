@@ -10,6 +10,8 @@ export interface QuillComposerLayoutProps {
     send: ReactNode
     controls?: ReactNode
     meta?: ReactNode
+    /** Keeps the controls on one row: the meta group shrinks, so its contents wrap inside instead of the row breaking. */
+    singleRow?: boolean
 }
 
 export function QuillComposerLayout({
@@ -20,6 +22,7 @@ export function QuillComposerLayout({
     send,
     controls,
     meta,
+    singleRow = false,
 }: QuillComposerLayoutProps): JSX.Element {
     const chipsRowRef = useRef<HTMLDivElement>(null)
     const chipsContentRef = useRef<HTMLDivElement>(null)
@@ -77,10 +80,10 @@ export function QuillComposerLayout({
                 <div className="relative w-full min-w-0">{field}</div>
                 <div
                     data-quill
-                    className="@container/composer flex w-full flex-wrap items-center gap-1 pr-1 pb-1 pl-1.5 text-[var(--muted-foreground)]"
+                    className={`@container/composer flex w-full items-center gap-1 pr-1 pb-1 pl-1.5 text-[var(--muted-foreground)] ${singleRow ? 'flex-nowrap' : 'flex-wrap'}`}
                 >
                     {controls}
-                    <div className="ml-auto flex shrink-0 items-center gap-1">
+                    <div className={`ml-auto flex items-center gap-1 ${singleRow ? 'min-w-0 shrink' : 'shrink-0'}`}>
                         {meta}
                         {send}
                     </div>
