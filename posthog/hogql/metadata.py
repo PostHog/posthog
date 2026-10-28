@@ -25,7 +25,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.compiler.bytecode import create_bytecode
-from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.constants import FLAG_CALLED_EVENT, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
@@ -36,7 +36,6 @@ from posthog.hogql.errors import (
 )
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.flag_called_warnings import (
-    FLAG_CALLED_EVENT,
     FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE,
     LiteralSpan,
     flag_called_on_events_warnings,

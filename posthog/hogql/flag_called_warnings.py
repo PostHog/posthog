@@ -1,6 +1,7 @@
 from posthog.schema import HogQLNotice
 
 from posthog.hogql import ast
+from posthog.hogql.constants import FLAG_CALLED_EVENT
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.events import EventsTable
@@ -9,10 +10,6 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
-
-# posthog/models/flag_evaluations/sql.py defines this name too. It imports django.conf, which this module keeps
-# off its import path, so the name is spelled out here.
-FLAG_CALLED_EVENT = "$feature_flag_called"
 
 # Orgs that can't query posthog.flag_evaluations yet get this warning too, so the copy speaks of the move in the future.
 FLAG_CALLED_ON_EVENTS_WARNING = (

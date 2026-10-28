@@ -16,12 +16,12 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
+from posthog.hogql.constants import FLAG_CALLED_EVENT
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts
 from posthog.hogql.errors import QueryError
-from posthog.hogql.flag_called_warnings import FLAG_CALLED_EVENT
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -36,7 +36,6 @@ _FLAG_KEY_PROPERTY = "$feature_flag"
 
 _Predicate = Callable[[ast.Expr], bool]
 
-# No zone's clock is more than 14 hours ahead of or behind UTC.
 _MAX_UTC_OFFSET = timedelta(hours=14)
 # How far before UTC midnight a date can start in some zone. A zone behind UTC can still be on the previous date, and
 # a zone 14 hours ahead of UTC starts that date 14 hours before UTC does.
