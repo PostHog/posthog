@@ -209,6 +209,20 @@ For information from a private repository or another explicitly private source, 
 Each candidate carries a private, public, or unknown label from the cached GitHub repository list, so the agent does not query GitHub for visibility.
 These broader context checks remain prompt guidance; the source-repository restriction does not validate selections made outside the shared selector.
 
+### GitHub-optional research
+
+The boolean `self-driving-github-optional` flag targets the canonical project group (project UUID, with its numeric `id` as a group property). It defaults to off, including in development.
+
+Flagged research continues without code when no repository is selected or GitHub is unavailable. Its `repo_selection` artefact records `research_context.mode` (`code` or `data_only`) and `repository_status`. Recognized repository authentication and clone failures can retry once without a checkout or GitHub credentials. Other failures keep their normal handling. Findings remain code-focused; missing code access alone is not a product decision requiring human input.
+
+Research without a repository preserves structured agent startup failures and clears their health issues after a successful startup, using the same provider and runtime scope as research with code.
+
+A saved repository is reused before checking GitHub availability. A data-only fallback leaves that selection and its recorded context unchanged, so a transient failure cannot replace a reviewer's pinned target.
+
+Disable the flag to restore legacy behavior on subsequent research passes. Running passes finish with their recorded decision. Previous blocked reports are not automatically rerun.
+
+Without a repository, legacy ownership lookup is skipped. Existing human assignments remain intact.
+
 ## Reviewer notifications
 
 With `signals-research-reviewer-selection` enabled, the research agent chooses report recipients in relevance order.
