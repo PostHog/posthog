@@ -120,7 +120,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
                 edit=PlatformAlertConfigurationEdit(
                     name="Consumer lag",
                     enabled=True,
-                    source_config={"query": _QUERY, "condition": {"operator": ">", "threshold": 1000}},
+                    source_config={"query": _QUERY, "condition": {"operator": "gt", "threshold": 1000}},
                     grouping=Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("group",)),
                     schedule_restriction=None,
                     evaluation_periods=1,

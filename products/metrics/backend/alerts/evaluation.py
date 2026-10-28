@@ -91,12 +91,12 @@ _UNEXPECTED_ERROR: Final = "Alert check failed unexpectedly. PostHog has been no
 _INVALID_CONFIG: Final = "The alert's configuration is no longer valid. Edit the alert to fix it."
 
 _COMPARE: Final[dict[str, Callable[[float, float], bool]]] = {
-    ">": operator.gt,
-    ">=": operator.ge,
-    "<": operator.lt,
-    "<=": operator.le,
-    "==": operator.eq,
-    "!=": operator.ne,
+    "gt": operator.gt,
+    "gte": operator.ge,
+    "lt": operator.lt,
+    "lte": operator.le,
+    "eq": operator.eq,
+    "ne": operator.ne,
 }
 
 Decision = tuple[PlatformAlertOutcome, AlertDeliveryRequest | None]
