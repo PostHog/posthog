@@ -1,6 +1,6 @@
 ---
 name: building-the-toolbar
-description: Builds, watches, checks and verifies the PostHog toolbar in both of its forms, the floating toolbar that posthog-js loads on customer pages and the browser extension that shows the toolbar in a Chrome side panel or Firefox sidebar. Use when changing anything under frontend/src/toolbar/ (floating toolbar or extension), frontend/toolbar-config.mjs, or the toolbar build and guard scripts, or when asked to build, watch, load unpacked, or test the toolbar or the toolbar extension in a browser. Covers `pnpm build:toolbars` and `pnpm watch:toolbars`, the check-toolbar-size, check-toolbar-graph and check-toolbar-csp-eval guards, why both forms must be built and kept in sync, and how to check each one in a real browser.
+description: Builds, watches, checks and verifies the PostHog toolbar in both of its forms, the floating toolbar that posthog-js loads on customer pages and the browser extension that shows the toolbar in a Chrome side panel or Firefox sidebar. Use when changing anything under frontend/src/toolbar/ (floating toolbar or extension), frontend/toolbar-config.mjs, or the toolbar build and guard scripts, or when asked to build, watch, load unpacked, or test the toolbar or the toolbar extension in a browser. Covers `pnpm build:toolbar-all` and `pnpm watch:toolbar-all`, the check-toolbar-size, check-toolbar-graph and check-toolbar-csp-eval guards, why both forms must be built and kept in sync, and how to check each one in a real browser.
 ---
 
 # Building the toolbar
@@ -49,24 +49,24 @@ So any change under `toolbar/shared/`, or in `toolbar-config.mjs`, can break eit
 From `frontend/`:
 
 ```sh
-pnpm build:toolbars    # production floating toolbar, then the extension
-pnpm watch:toolbars    # rebuild both on change
+pnpm build:toolbar-all    # production floating toolbar, then the extension
+pnpm watch:toolbar-all    # rebuild both on change
 ```
 
 To build one form only:
 
 | Form              | Build                          | Watch                          |
 | ----------------- | ------------------------------ | ------------------------------ |
-| Floating toolbar  | `node ./bin/build-toolbar.mjs` | `pnpm watch:toolbar`           |
+| Floating toolbar  | `pnpm build:toolbar-floating`  | `pnpm watch:toolbar-floating`  |
 | Browser extension | `pnpm build:toolbar-extension` | `pnpm watch:toolbar-extension` |
 
-The dev stack (`hogli start`) already runs `pnpm watch:toolbar` through `start-vite`.
+The dev stack (`hogli start`) already runs `pnpm watch:toolbar-floating` through `start-vite`.
 While it runs, start `pnpm watch:toolbar-extension` alone, so two watchers don't write the same files.
 
 ## Run the guards
 
 The guards read `toolbar-esbuild-meta.json` and `dist/toolbar*`, which the floating toolbar build writes.
-CI runs them on a production build, so run them after `pnpm build:toolbars`, not after a watch build:
+CI runs them on a production build, so run them after `pnpm build:toolbar-all`, not after a watch build:
 
 ```sh
 pnpm check-toolbar-size      # loader size, eager-set budget, every file under the CloudFront gzip limit
