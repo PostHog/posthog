@@ -242,7 +242,8 @@ interface Planned {
 
 function proguardGit(ctx: Context, artifact: Artifact): GitInfo | undefined {
     try {
-        return gitInfo(ctx.runtime.env, dirname(artifact.path))
+        // posthog-cli resolves symlinks first, so a link outside the repository still finds it.
+        return gitInfo(ctx.runtime.env, dirname(realpathSync(artifact.path)))
     } catch (error) {
         if (error instanceof GitError) {
             throw new HogError(
@@ -282,7 +283,7 @@ export async function upload(
             }
         }
         for (const artifact of mappings) {
-            const chunkId = artifact.root.mapId ?? options.mapId
+            const chunkId = options.mapId ?? artifact.root.mapId
             if (!chunkId) {
                 throw new HogError(
                     'map_id_required',

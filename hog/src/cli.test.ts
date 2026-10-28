@@ -36,10 +36,23 @@ describe('hog', () => {
         }
     )
 
-    test('help for an unported command points to its posthog-cli help', async () => {
-        const result = await runHog(['help', 'dsym', 'upload'])
+    test.each([
+        ['help for an unported command', ['help', 'dsym', 'upload'], 'posthog-cli dsym upload --help'],
+        ['an unported subcommand of a ported group', ['query', 'editor'], 'posthog-cli exp query editor'],
+        [
+            'hog globals that posthog-cli takes before the subcommand',
+            ['-o', 'json', '--host', 'https://eu.example.com', 'dsym', 'upload', '--dotenv-file=p.env', '--dir', 'x'],
+            'posthog-cli --host https://eu.example.com --dotenv-file p.env dsym upload --dir x',
+        ],
+        [
+            'an --output that the legacy command owns',
+            ['endpoints', 'pull', 'example', '--output', './queries'],
+            'posthog-cli exp endpoints pull example --output ./queries',
+        ],
+    ])('%s points to posthog-cli', async (_name, argv, invocation) => {
+        const result = await runHog(argv)
         expect(result.exitCode).toBe(1)
-        expect(result.error().message).toContain('posthog-cli dsym upload --help')
+        expect(result.error().message).toEndWith(`Run this instead:\n  ${invocation}`)
     })
 
     test.each([
@@ -85,6 +98,7 @@ describe('hog', () => {
             'auth status',
             'query run',
             'query check',
+            'query editor',
             'error-tracking inject',
             'error-tracking upload',
             'error-tracking process',
