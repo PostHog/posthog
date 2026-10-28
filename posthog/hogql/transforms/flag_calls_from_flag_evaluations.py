@@ -12,6 +12,7 @@ import json
 from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
+from functools import cache, partial
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import structlog
@@ -122,7 +123,7 @@ def can_read_flag_evaluations(
     `resolve_flag_calls_from_flag_evaluations` checks the rest after resolution: every name in the swapped query
     binds as it did before.
     """
-    scan = _EventsScan.of(node, flag_key_compares_as_string)
+    scan = _EventsScan.of(node, lambda: flag_key_compares_as_string)
     return scan is not None and _qualifies(
         scan, node, _filter_conjuncts(node), now, timezone, only_in_flag_evaluations=only_in_flag_evaluations
     )
@@ -158,7 +159,8 @@ def resolve_flag_calls_from_flag_evaluations(
             now=datetime.now(UTC),
             timezone=ZoneInfo(database.get_timezone()),
             only_in_flag_evaluations=only_in_flag_evaluations,
-            flag_key_compares_as_string=_flag_key_compares_as_string(context),
+            # The lookup reads Postgres, so it runs only when a scan pins `$feature_flag`.
+            flag_key_compares_as_string=cache(partial(_flag_key_compares_as_string, context)),
         )
         swapper.visit(rewritten)
     if swapper.refusals:
@@ -220,7 +222,13 @@ def _qualifies(
 
 
 class _EventsScan:
-    def __init__(self, join: ast.JoinExpr, alias: str, has_other_sources: bool, flag_key_compares_as_string: bool):
+    def __init__(
+        self,
+        join: ast.JoinExpr,
+        alias: str,
+        has_other_sources: bool,
+        flag_key_compares_as_string: Callable[[], bool],
+    ):
         self.join = join
         self.alias = alias
         self.has_other_sources = has_other_sources
@@ -228,7 +236,7 @@ class _EventsScan:
         self.shadowed: frozenset[str] = frozenset()
 
     @classmethod
-    def of(cls, node: ast.SelectQuery, flag_key_compares_as_string: bool) -> "_EventsScan | None":
+    def of(cls, node: ast.SelectQuery, flag_key_compares_as_string: Callable[[], bool]) -> "_EventsScan | None":
         join = node.select_from
         if join is None or not isinstance(join.table, ast.Field) or join.table.chain != ["events"]:
             return None
@@ -301,12 +309,10 @@ class _EventsScan:
 
     def flag_keys(self, conjuncts: list[ast.Expr]) -> list[str]:
         """The keys a top-level conjunct pins `$feature_flag` to, or an empty list when no top-level conjunct does."""
-        if not self.flag_key_compares_as_string:
-            return []
         for conjunct in conjuncts:
             keys = self._flag_keys_in(conjunct)
             if keys is not None:
-                return keys
+                return keys if self.flag_key_compares_as_string() else []
         return []
 
     def _reads_event(self, expr: ast.Expr) -> bool:
@@ -609,7 +615,11 @@ class _FlagCalledConstantFinder(_SyntaxVisitor):
 
 class _EventsScanSwapper(_SyntaxVisitor):
     def __init__(
-        self, now: datetime, timezone: ZoneInfo, only_in_flag_evaluations: bool, flag_key_compares_as_string: bool
+        self,
+        now: datetime,
+        timezone: ZoneInfo,
+        only_in_flag_evaluations: bool,
+        flag_key_compares_as_string: Callable[[], bool],
     ) -> None:
         super().__init__()
         self.now = now
