@@ -1457,6 +1457,12 @@ class TestSignalReportListAPI(APIBaseTest):
         ids = {r["id"] for r in response.json()["results"]}
         assert ids == {str(resolved.id)}
 
+        for unclaimed in ("true", "false"):
+            response = self.client.get(self._list_url(unclaimed=unclaimed))
+            assert response.status_code == status.HTTP_200_OK
+            ids = {row["id"] for row in response.json()["results"]}
+            assert (str(resolved.id) in ids) is (unclaimed == "false")
+
     @parameterized.expand(
         [("disabled", False), ("enabled", True), ("unavailable", RuntimeError("flag service unavailable"))]
     )

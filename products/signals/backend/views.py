@@ -1711,7 +1711,7 @@ class SignalReportViewSet(
             return queryset
         has_review_pr = implementation_pr_report_filter(team_id=self.team.id, active_only=True)
         is_unclaimed = (
-            ~Q(status__in={SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING})
+            ~Q(status__in={SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING, SignalReport.Status.CLOSED})
             & ~reports_with_active_claim(team_id=self.team_id)
             & ~has_review_pr
         )

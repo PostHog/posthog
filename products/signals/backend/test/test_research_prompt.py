@@ -1,6 +1,7 @@
 import logging
 from dataclasses import replace
 from datetime import datetime
+from typing import Literal
 from xml.etree import ElementTree
 
 import pytest
@@ -15,6 +16,7 @@ from products.signals.backend.report_generation.research import (
     MAX_LINKED_REPORT_CONTEXT_CHARS,
     FixVerificationOutput,
     LinkedReportContext,
+    RecurrenceReportContext,
     ReportPresentationOutput,
     SignalFinding,
     _render_linked_report_context,
@@ -124,19 +126,25 @@ class TestBuildInitialResearchPrompt:
         for snippet in extra_checks:
             assert snippet in prompt
 
-    def test_resolved_report_context_present_when_provided(self):
+    @pytest.mark.parametrize("parent_status", ["resolved", "closed"])
+    def test_recurrence_report_context_preserves_outcome(self, parent_status: Literal["resolved", "closed"]) -> None:
         signal = _make_signal({})
         prompt = build_initial_research_prompt(
             signal,
             1,
-            resolved_report_title="fix(funnel): drop off after step 2",
-            resolved_report_summary="Users were falling out of the funnel.",
+            recurrence_report=RecurrenceReportContext(
+                title="fix(funnel): drop off after step 2",
+                summary="Users were falling out of the funnel.",
+                status=parent_status,
+            ),
         )
         assert "## Previously closed report" in prompt
         assert "fix(funnel): drop off after step 2" in prompt
         assert "Users were falling out of the funnel." in prompt
+        assert ("marked as **fixed**" in prompt) is (parent_status == "resolved")
+        assert ("without proving resolution" in prompt) is (parent_status == "closed")
 
-    def test_resolved_report_context_absent_by_default(self):
+    def test_recurrence_report_context_absent_by_default(self) -> None:
         signal = _make_signal({})
         prompt = build_initial_research_prompt(signal, 1)
         assert "## Previously closed report" not in prompt

@@ -80,6 +80,8 @@ class TestPlanRollup(BaseTest):
                 SignalReport.Status.CLOSED,
                 SignalReport.Status.CLOSED,
             ),
+            ("archived_closed_parent_keeps_outcome", ["resolved"], "suppressed", "closed", True),
+            ("archived_closed_parent_keeps_archive", ["suppressed"], "suppressed", "closed", True),
             (
                 "monitoring_parent_needs_manual_verification",
                 ["resolved"],
@@ -89,9 +91,16 @@ class TestPlanRollup(BaseTest):
         ]
     )
     def test_a_plan_takes_the_verdict_of_its_steps(
-        self, _name: str, child_statuses: list[str], expected: str, parent_status: str = SignalReport.Status.READY
+        self,
+        _name: str,
+        child_statuses: list[str],
+        expected: str,
+        parent_status: str = SignalReport.Status.READY,
+        archive_parent: bool = False,
     ) -> None:
         parent = self._report("plan", status=parent_status)
+        if archive_parent:
+            self._close(parent, SignalReport.Status.SUPPRESSED)
         children = [self._report(f"step-{index}") for index in range(len(child_statuses))]
         for child in children:
             self._part_of(child, parent)
@@ -102,7 +111,9 @@ class TestPlanRollup(BaseTest):
 
         parent.refresh_from_db()
         assert parent.status == expected
-        if expected == SignalReport.Status.SUPPRESSED:
+        if archive_parent:
+            assert parent.status_before_suppression == parent_status
+        elif expected == SignalReport.Status.SUPPRESSED:
             feedback = SignalReportArtefact.latest_content(
                 team_id=self.team.id, report_id=str(parent.id), model=Dismissal
             )
