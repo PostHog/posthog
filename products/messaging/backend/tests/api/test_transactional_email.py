@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -200,20 +201,27 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("timeout", requests.ReadTimeout()),
-            ("cdp_api_error", MagicMock(status_code=500)),
+            ("timeout", requests.ReadTimeout(), "timeout"),
+            ("connect_timeout", requests.ConnectTimeout(), "timeout"),
+            ("connection_error", requests.ConnectionError(), "connection_error"),
+            ("cdp_api_error", MagicMock(status_code=500), "5xx"),
         ]
     )
-    def test_a_send_the_pipeline_does_not_confirm_is_unavailable(self, mock_post, _flag, _capture, _name, outcome):
+    def test_a_send_the_pipeline_does_not_confirm_is_unavailable(
+        self, mock_post, _flag, _capture, _name, outcome, expected_result
+    ):
         if isinstance(outcome, Exception):
             mock_post.side_effect = outcome
         else:
             mock_post.return_value = outcome
+        metric = "messaging_transactional_email_cdp_requests_total"
+        before = REGISTRY.get_sample_value(metric, {"result": expected_result}) or 0
 
         response = self.client.post(self.url, self.body, format="json")
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert response.json()["code"] == "delivery_unavailable"
+        assert REGISTRY.get_sample_value(metric, {"result": expected_result}) == before + 1
 
     @parameterized.expand(
         [

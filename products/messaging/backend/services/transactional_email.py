@@ -2,12 +2,15 @@
 per send, so sends get the workflow's metrics, run history and versions."""
 
 import re
-from typing import TYPE_CHECKING, Any
+import time
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
 
+import requests
 import structlog
+from prometheus_client import Counter, Histogram
 
 from posthog.models.integration import Integration
 from posthog.models.team import Team
@@ -47,10 +50,33 @@ from products.workflows.backend.facade.transactional_emails import (
     update_transactional_email_workflow,
 )
 
-if TYPE_CHECKING:
-    import requests
-
 logger = structlog.get_logger(__name__)
+
+CDP_SEND_DURATION = Histogram(
+    "messaging_transactional_email_cdp_request_duration_seconds",
+    "Time for the CDP service to answer a request to queue one transactional email, including failed requests.",
+    buckets=(0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 7.5, 10, 15),
+)
+CDP_SEND_RESULTS = Counter(
+    "messaging_transactional_email_cdp_requests_total",
+    "Requests to the CDP service to queue one transactional email, by result: success (202), the HTTP status class "
+    "of any other answer, timeout, connection_error, or error.",
+    labelnames=["result"],
+)
+
+
+def _cdp_error_result(error: Exception) -> str:
+    # ConnectTimeout is both a Timeout and a ConnectionError, so the timeout check goes first.
+    if isinstance(error, requests.Timeout):
+        return "timeout"
+    if isinstance(error, requests.ConnectionError):
+        return "connection_error"
+    return "error"
+
+
+def _cdp_response_result(status_code: int) -> str:
+    return "success" if status_code == 202 else f"{status_code // 100}xx"
+
 
 # The CDP service names the reason it refused a send in the body's `error`. A retry of the same request gets the
 # same refusal, so each of these reaches the caller as a 4xx and not as a retryable 503.
@@ -324,11 +350,16 @@ def send_transactional_email(
     if idempotency_key is not None:
         # The CDP service holds the key, because only it knows whether the email was queued.
         payload["idempotency_key"] = idempotency_key
+    started_at = time.monotonic()
     try:
         response = run_transactional_workflow(team.id, str(hog_flow_id), payload, timeout=timeout)
     except Exception as e:
+        CDP_SEND_DURATION.observe(time.monotonic() - started_at)
+        CDP_SEND_RESULTS.labels(result=_cdp_error_result(e)).inc()
         logger.exception("transactional_email_queue_failed", team_id=team.id, template_id=str(template_id))
         raise DeliveryUnavailable() from e
+    CDP_SEND_DURATION.observe(time.monotonic() - started_at)
+    CDP_SEND_RESULTS.labels(result=_cdp_response_result(response.status_code)).inc()
 
     if response.status_code != 202:
         refusal = PIPELINE_REFUSALS.get(_refusal_code(response) or "")
@@ -347,7 +378,7 @@ def send_transactional_email(
     return QueuedEmail(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
 
 
-def _refusal_code(response: "requests.Response") -> str | None:
+def _refusal_code(response: requests.Response) -> str | None:
     try:
         body = response.json()
     except ValueError:

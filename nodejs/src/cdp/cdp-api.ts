@@ -63,7 +63,7 @@ import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
-import { EMAIL_QUEUE_PRIORITY } from './services/messaging/email-priority'
+import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from './services/messaging/email-priority'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
@@ -1215,8 +1215,9 @@ export class CdpApi {
             const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
             // Straight to the email queue: the flow's only step is the email, so a hop through the
             // workflow queue would only add latency to a password reset or a verification code.
+            const priorityClass: EmailQueuePriorityClass = 'fast'
             invocation.queue = 'email'
-            invocation.queuePriority = EMAIL_QUEUE_PRIORITY.fast
+            invocation.queuePriority = EMAIL_QUEUE_PRIORITY[priorityClass]
 
             const idempotencyKeys = this.transactionalEmailIdempotencyKeys
             const fingerprint = IdempotencyKeys.fingerprint([hogFlow.id, to, distinctId, variables])
@@ -1254,6 +1255,7 @@ export class CdpApi {
                     this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocation.id])
                     throw error
                 }
+                cdpEmailQueuedTotal.labels(priorityClass).inc()
             } catch (error) {
                 // Nothing was queued, so the caller's retry with the same key must be able to send.
                 if (idempotencyKey) {
