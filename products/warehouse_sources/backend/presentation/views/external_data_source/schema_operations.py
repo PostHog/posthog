@@ -42,6 +42,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     new_source_requires_ssl,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.logic.column_sensitivity import classify_column_sensitivity
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     FULL_REFRESH_TIME_OF_DAY_HELP_TEXT,
     ExternalDataSchemaSerializer,
@@ -476,7 +477,13 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 "description": schema.description,
                 "should_sync_default": schema.should_sync_default,
                 "available_columns": [
-                    {"field": col_name, "label": col_name, "type": col_type, "nullable": nullable}
+                    {
+                        "field": col_name,
+                        "label": col_name,
+                        "type": col_type,
+                        "nullable": nullable,
+                        "sensitivity": classify_column_sensitivity(col_name, col_type),
+                    }
                     for col_name, col_type, nullable in schema.columns
                 ],
                 "detected_primary_keys": schema.detected_primary_keys,

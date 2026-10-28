@@ -23,5 +23,6 @@ from products.warehouse_sources.backend.facade.types import (
     PartitionSettings as PartitionSettings,
     UploadedFileFormat as UploadedFileFormat,
     WarehouseColumnAnnotationDescriptionSource as WarehouseColumnAnnotationDescriptionSource,
+    WarehouseColumnSensitivity as WarehouseColumnSensitivity,
     external_data_source_type_choices as external_data_source_type_choices,
 )

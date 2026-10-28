@@ -94,7 +94,9 @@ from products.warehouse_sources.backend.facade.types import (
     ExternalDataSourceType,
     IncrementalFieldType,
     IncrementalSyncBlockedReason,
+    WarehouseColumnSensitivity,
 )
+from products.warehouse_sources.backend.logic.column_sensitivity import classify_column_sensitivity
 from products.warehouse_sources.backend.presentation.history_tracking import report_history_change
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     DestinationLinkSerializer,
@@ -471,6 +473,14 @@ def _refuse_reserved_cdc_column(instance: ExternalDataSchema) -> None:
             "Change data capture can't sync a column named _ph_cdc_seq, because PostHog uses that name. "
             "Rename the column on your database, or choose another sync method for this table."
         )
+
+
+SENSITIVITY_SCHEMA = {
+    "type": "string",
+    "nullable": True,
+    "enum": [*WarehouseColumnSensitivity.values, None],
+    "description": "The kind of personal or secret data the column's name and type suggest, or null.",
+}
 
 
 MASKING_KEY_IS_PUBLIC_ERROR = (
@@ -950,6 +960,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     "name": {"type": "string"},
                     "data_type": {"type": "string"},
                     "is_nullable": {"type": "boolean"},
+                    "sensitivity": SENSITIVITY_SCHEMA,
                 },
                 "required": ["name"],
             },
@@ -961,9 +972,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if isinstance(columns, list):
             sql_columns = [
                 {
-                    "name": column.get("name"),
+                    "name": column["name"],
                     "data_type": column.get("data_type"),
                     "is_nullable": column.get("is_nullable"),
+                    "sensitivity": classify_column_sensitivity(column["name"], column.get("data_type")),
                 }
                 for column in columns
                 if isinstance(column, dict) and isinstance(column.get("name"), str)
@@ -976,7 +988,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # or not yet reloaded. Fall back to the synced table's universal column store so the Descriptions
         # UI can still list columns (and surface their existing annotations) and let users edit them.
         table = schema.table
-        return table.get_user_facing_columns() if table is not None else []
+        return [
+            {**column, "sensitivity": classify_column_sensitivity(column["name"], column.get("data_type"))}
+            for column in (table.get_user_facing_columns() if table is not None else [])
+        ]
 
     def get_source_column_metadata_available(self, schema: ExternalDataSchema) -> bool:
         metadata = schema.schema_metadata or {}
@@ -2868,7 +2883,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "supports_webhooks": schema.supports_webhooks,
             "webhook_only": schema.webhook_only,
             "available_columns": [
-                {"field": col_name, "label": col_name, "type": col_type, "nullable": nullable}
+                {
+                    "field": col_name,
+                    "label": col_name,
+                    "type": col_type,
+                    "nullable": nullable,
+                    "sensitivity": classify_column_sensitivity(col_name, col_type),
+                }
                 for col_name, col_type, nullable in schema.columns
             ],
             "detected_primary_keys": schema.detected_primary_keys,

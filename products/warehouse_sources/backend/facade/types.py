@@ -1627,6 +1627,20 @@ class WarehouseColumnAnnotationDescriptionSource(LabeledStrEnum):
     USER_EDITED = "user_edited", "User edited"
 
 
+class WarehouseColumnSensitivity(LabeledStrEnum):
+    """The kind of personal or secret data a column's name and type suggest it holds."""
+
+    EMAIL = "email", "Email"
+    PHONE = "phone", "Phone"
+    NAME = "name", "Name"
+    ADDRESS = "address", "Address"
+    DATE_OF_BIRTH = "date_of_birth", "Date of birth"
+    IP_ADDRESS = "ip_address", "IP address"
+    TOKEN = "token", "Token"
+    SECRET = "secret", "Secret"
+    CARD_NUMBER = "card_number", "Card number"
+
+
 class UploadedFileFormat(LabeledStrEnum):
     """How an uploaded file is read: CSV with a header row, JSON one object per line, or Parquet."""
 

@@ -11,6 +11,9 @@ joins without guessing. Two sources feed the descriptions:
    from `DataWarehouseTable.columns`), the source/endpoint and its API docs link, the foreign-key
    graph, and the team's business context (core memory), to draft the rest.
 
+Before the descriptions, each column's sensitivity is classified from its name and type
+(`logic/column_sensitivity.py`). That step sends nothing to the LLM, so it runs without AI consent.
+
 Descriptions land in `WarehouseColumnAnnotation`. Anything a user has edited (`is_user_edited`) is
 never touched, and the whole activity is idempotent — a column that already has an annotation is
 left alone, so it enriches once on first sync and fills in only newly-added columns later.
@@ -49,6 +52,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.warehouse_sources.backend.logic.column_sensitivity import classify_table_columns
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_table_definitions import get_hogql_column_name_mapping
@@ -319,13 +323,6 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     def emit_completed(status: str, **props: Any) -> None:
         capture_enrichment_event(team, EVENT_COMPLETED, {"status": status, **event_props, **props})
 
-    # Respect the org's AI data-processing opt-out: this path ships table/column metadata and core
-    # memory to the LLM gateway.
-    if team.organization.is_ai_data_processing_approved is not True:
-        log.info("warehouse_enrichment.skipped", reason="ai_data_processing_not_approved")
-        emit_completed("skipped", reason="ai_data_processing_not_approved")
-        return {"status": "skipped", "reason": "ai_data_processing_not_approved"}
-
     # The schema can be legitimately gone by the time this fire-and-forget child workflow runs
     # (deleted between the post-import gate check and now) — not a bug, so skip like the other
     # not-found cases below rather than let DoesNotExist reach the activity's except block and
@@ -355,12 +352,28 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
         return {"status": "skipped", "reason": "no_table"}
     event_props["table_id"] = str(table.id)
     log = log.bind(table_id=str(table.id))
+
+    # Classified from names and types alone, so it runs before the opt-out check and sends nothing out.
+    sensitivity_changes = retry_internal_db_operation(lambda: classify_table_columns(team_id, table))
+    if sensitivity_changes:
+        log.info("warehouse_enrichment.sensitivity_classified", changed_columns=sensitivity_changes)
+
+    # Respect the org's AI data-processing opt-out: this path ships table/column metadata and core
+    # memory to the LLM gateway.
+    if team.organization.is_ai_data_processing_approved is not True:
+        log.info("warehouse_enrichment.skipped", reason="ai_data_processing_not_approved")
+        emit_completed("skipped", reason="ai_data_processing_not_approved")
+        return {"status": "skipped", "reason": "ai_data_processing_not_approved"}
+
     log.info("warehouse_enrichment.started")
     capture_enrichment_event(team, EVENT_STARTED, event_props)
 
+    # A row with an empty description only carries a sensitivity flag, so its column still needs a description.
     existing = {
         annotation.column_name: annotation
-        for annotation in WarehouseColumnAnnotation.objects.for_team(team_id).filter(table_id=table.id)
+        for annotation in WarehouseColumnAnnotation.objects.for_team(team_id)
+        .filter(table_id=table.id)
+        .exclude(description="")
     }
 
     # Columns + types come from `table.columns`, populated for every source type after sync — so this

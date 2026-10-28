@@ -56,6 +56,10 @@ class WarehouseColumnAnnotationViewSet(BaseColumnAnnotationViewSet):
     parent_field_name = "table"
     parent_query_param = "table_id"
 
+    def safely_get_queryset(self, queryset: Any) -> Any:
+        # A row with an empty description only carries a sensitivity flag, so it describes nothing yet.
+        return super().safely_get_queryset(queryset).exclude(description="")
+
     @extend_schema(
         parameters=[
             OpenApiParameter(

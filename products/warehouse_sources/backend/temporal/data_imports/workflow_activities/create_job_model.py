@@ -17,6 +17,7 @@ from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import delete_external_data_schedule
+from products.warehouse_sources.backend.logic.column_sensitivity import column_sensitivity_pending
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -145,12 +146,22 @@ def _enrichment_pending(team_id: int, table: DataWarehouseTable | None, schema: 
     annotated = set(
         WarehouseColumnAnnotation.objects.for_team(team_id)
         .filter(table_id=table.id)
+        .exclude(description="")
         .values_list("column_name", flat=True)
     )
     new_columns = columns - annotated
     # "" is the table-level annotation; absent description on both schema and annotations means work.
     table_needs_description = not bool(schema.description) and "" not in annotated
     return bool(new_columns or table_needs_description)
+
+
+def enrichment_needed_for(
+    team_id: int, table: DataWarehouseTable | None, schema: ExternalDataSchema, ai_data_processing_approved: bool
+) -> bool:
+    """Whether the enrichment workflow has work. Its sensitivity step needs no AI consent, its description step does."""
+    if ai_data_processing_approved and _enrichment_pending(team_id, table, schema):
+        return True
+    return table is not None and column_sensitivity_pending(team_id, table)
 
 
 def _verify_v3_lock_still_held(team_id: int, schema_id: uuid.UUID) -> None:
@@ -319,7 +330,8 @@ class CreateExternalDataJobModelActivityOutputs:
     # term: it reads only the Delta log and writes to our own DB — nothing leaves our infra.
     statistics_enabled: bool = False
     # True when enrichment is permitted AND there is actually work to do (unannotated columns or a missing
-    # table description). The workflow gates the child on this so a steady-state sync — which re-fires
+    # table description), or when a column's sensitivity is not stored yet, which needs no consent.
+    # The workflow gates the child on this so a steady-state sync — which re-fires
     # every few minutes — doesn't spawn a workflow + activity that just no-ops.
     enrichment_needed: bool = False
     # True when statistics are permitted AND stale (no row yet, or older than the recompute interval).
@@ -468,7 +480,7 @@ def create_external_data_job_model_activity(
         # Narrow "permitted" down to "permitted AND has work to do" so steady-state syncs don't spawn
         # no-op metadata workflows. The activities re-check this themselves as a safety net.
         table = schema.table
-        enrichment_needed = ai_data_processing_approved and _enrichment_pending(inputs.team_id, table, schema)
+        enrichment_needed = enrichment_needed_for(inputs.team_id, table, schema, ai_data_processing_approved)
         statistics_needed = statistics_should_run and _statistics_stale(inputs.team_id, table)
 
         # Whether this schema feeds any enabled person-target Customer analytics source (owned by
