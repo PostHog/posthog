@@ -72,11 +72,18 @@ class ExternalDataSourceMigrationApplyMixin(ExternalDataSourceSetupMixin, Extern
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        item = migrations.claim_migration_item(self.team_id, data["item_id"])
+        item = migrations.claim_migration_item(self.team_id, data["item_id"], prefix_override=data.get("prefix"))
         if item is None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "This item is not supported, already applied, skipped, or being applied right now."},
+            )
+        if item.recovered_source_id is not None:
+            return Response(
+                ApplyMigrationItemResponseSerializer(
+                    {"source_id": item.recovered_source_id, "caveats": item.caveats}
+                ).data,
+                status=status.HTTP_201_CREATED,
             )
 
         planned: PlannedMigrationSchemas | None = None
@@ -94,8 +101,8 @@ class ExternalDataSourceMigrationApplyMixin(ExternalDataSourceSetupMixin, Extern
                 source_type=item.source_type,
                 payload={"credential_id": str(data["credential_id"])},
                 build_schemas=build_schemas,
-                prefix=data.get("prefix", item.prefix) or None,
-                description=f"Imported from the migrated connection {item.name}.",
+                prefix=item.prefix,
+                description=item.description,
                 created_via=data["created_via"],
                 destination_ids=data.get("destination_ids"),
                 webhook_tables=lambda: planned.planned if planned else (),

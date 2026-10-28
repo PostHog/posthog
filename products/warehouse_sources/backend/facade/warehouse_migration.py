@@ -1,5 +1,6 @@
 """Fivetran migration import, for the warehouse presentation endpoints."""
 
+import dataclasses
 from collections.abc import Mapping
 from datetime import timedelta
 from uuid import UUID
@@ -15,6 +16,7 @@ from products.warehouse_sources.backend.migration import service
 from products.warehouse_sources.backend.migration.apply import build_planned_schemas
 from products.warehouse_sources.backend.migration.flags import is_migration_import_enabled
 from products.warehouse_sources.backend.migration.types import ItemProposal
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as _ExternalDataSource
 from products.warehouse_sources.backend.models.warehouse_migration import (
     WarehouseMigration as _WarehouseMigration,
     WarehouseMigrationItem as _WarehouseMigrationItem,
@@ -115,8 +117,14 @@ def find_migration_item(team_id: int, item_id: UUID) -> contracts.WarehouseMigra
     return _to_item(item) if item else None
 
 
-def claim_migration_item(team_id: int, item_id: UUID) -> contracts.ClaimedWarehouseMigrationItem | None:
-    """Mark the item as being applied. Returns None when it is unsupported, done, skipped, or claimed."""
+def claim_migration_item(
+    team_id: int, item_id: UUID, *, prefix_override: str | None = None
+) -> contracts.ClaimedWarehouseMigrationItem | None:
+    """Mark the item as being applied. Returns None when it is unsupported, done, skipped, or claimed.
+
+    When an earlier attempt created the source and then failed or died, the claim links that source and
+    applies the item, and returns it in `recovered_source_id` instead of letting the caller create another.
+    """
     items = _WarehouseMigrationItem.objects.for_team(team_id).filter(id=item_id, proposal__isnull=False)
     item = items.first()
     if item is None:
@@ -136,19 +144,55 @@ def claim_migration_item(team_id: int, item_id: UUID) -> contracts.ClaimedWareho
             updated_at=now,
         )
         return None
-    if not items.filter(claimable).update(status=_WarehouseMigrationItem.Status.APPLYING, updated_at=now):
+    prefix = (proposal.prefix if prefix_override is None else prefix_override) or None
+    if not items.filter(claimable).update(
+        status=_WarehouseMigrationItem.Status.APPLYING, updated_at=now, claimed_at=now, claimed_prefix=prefix
+    ):
         return None
-    return contracts.ClaimedWarehouseMigrationItem(
+    claimed = contracts.ClaimedWarehouseMigrationItem(
         id=item.id,
         migration_id=item.migration_id,
         name=item.name,
         caveats=list(item.caveats),
         source_type=proposal.source_type,
-        prefix=proposal.prefix,
+        prefix=prefix,
+        description=_source_description(item),
         sync_frequency=proposal.sync_frequency,
         start_paused=proposal.start_paused,
         proposal=item.proposal or {},
     )
+    # `item` still holds the previous claim, which is the attempt that may have left a source behind.
+    leftover = _source_created_since_claim(item, proposal.source_type)
+    if leftover is None:
+        return claimed
+    caveats = [*item.caveats, _LEFTOVER_CAVEAT]
+    finish_migration_item(team_id, item.id, source_id=leftover, caveats=caveats)
+    return dataclasses.replace(claimed, caveats=caveats, recovered_source_id=leftover)
+
+
+_LEFTOVER_CAVEAT = "An earlier attempt created this source but did not finish. Check its tables and sync schedule."
+
+
+def _source_description(item: _WarehouseMigrationItem) -> str:
+    return f"Imported from the migrated connection {item.name}."
+
+
+def _source_created_since_claim(item: _WarehouseMigrationItem, source_type: str) -> UUID | None:
+    """The source an apply of this item created after its claim, if one exists. Apply is its only creator:
+    the type, prefix and description match it, and the claim time rules out older sources."""
+    if item.claimed_at is None:
+        return None
+    sources = _ExternalDataSource.objects.filter(
+        team_id=item.team_id,
+        source_type=source_type,
+        description=_source_description(item),
+        created_at__gte=item.claimed_at,
+    ).exclude(deleted=True)
+    if item.claimed_prefix:
+        sources = sources.filter(prefix=item.claimed_prefix)
+    else:
+        sources = sources.filter(Q(prefix__isnull=True) | Q(prefix=""))
+    return sources.order_by("created_at").values_list("id", flat=True).first()
 
 
 def plan_migration_schemas(
@@ -174,6 +218,21 @@ def finish_migration_item(team_id: int, item_id: UUID, *, source_id: UUID, cavea
 
 
 def fail_migration_item(team_id: int, item_id: UUID, error: str) -> None:
+    """Mark the item failed, unless the attempt created the source before it failed: then link it."""
+    item = _WarehouseMigrationItem.objects.for_team(team_id).filter(id=item_id).first()
+    if item is None:
+        return
+    try:
+        source_type = ItemProposal.from_json(item.proposal or {}).source_type
+    except ValidationError:
+        source_type = None
+    leftover = _source_created_since_claim(item, source_type) if source_type else None
+    if leftover is not None:
+        caveat = (
+            f"Creating the source failed partway ({error}). The source exists, so check its tables and sync schedule."
+        )
+        finish_migration_item(team_id, item_id, source_id=leftover, caveats=[*item.caveats, caveat])
+        return
     _WarehouseMigrationItem.objects.for_team(team_id).filter(id=item_id).update(
         status=_WarehouseMigrationItem.Status.FAILED, error=error, updated_at=timezone.now()
     )

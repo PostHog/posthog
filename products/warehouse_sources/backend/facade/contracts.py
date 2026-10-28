@@ -415,11 +415,15 @@ class ClaimedWarehouseMigrationItem:
     name: str
     caveats: list[str]
     source_type: str
-    prefix: str
+    # The prefix this attempt creates the source with: the caller's override, else the planned one.
+    prefix: str | None
+    description: str
     sync_frequency: str
     start_paused: bool
     # The stored plan, passed back to `plan_migration_schemas`.
     proposal: dict[str, Any]
+    # Set when an earlier attempt already created the source: the claim linked it and applied the item.
+    recovered_source_id: UUID | None = None
 
 
 @dataclass(frozen=True)

@@ -181,6 +181,7 @@ _NO_VIEW_SYNC = patch(
     "products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views"
 )
 _APPLY_FLAG = f"{_FACADE}.is_migration_import_enabled"
+_SOURCE_SETUP = "products.warehouse_sources.backend.presentation.views.external_data_source.source_setup"
 
 
 class TestApplyMigrationItem(APIBaseTest):
@@ -223,8 +224,8 @@ class TestApplyMigrationItem(APIBaseTest):
             payload={"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_stored"}},
         )
 
-    def _apply(self, credential: PendingSourceCredential) -> Any:
-        return self.client.post(self.url, {"item_id": str(self.item.id), "credential_id": str(credential.id)})
+    def _apply(self, credential: PendingSourceCredential, **extra: str) -> Any:
+        return self.client.post(self.url, {"item_id": str(self.item.id), "credential_id": str(credential.id), **extra})
 
     def test_creates_the_planned_source_once(self) -> None:
         credential = self._credential()
@@ -339,3 +340,48 @@ class TestApplyMigrationItem(APIBaseTest):
         assert self._apply(self._credential()).status_code == 400
         self.item.refresh_from_db()
         assert self.item.status == expected_status
+
+    def test_a_source_created_before_a_failure_is_linked_not_created_again(self) -> None:
+        # Raises after the source row exists, as revenue view setup or a database error can.
+        with patch(f"{_SOURCE_SETUP}.report_user_action", side_effect=RuntimeError("after create")):
+            assert self._apply(self._credential()).status_code == 500
+
+        source = ExternalDataSource.objects.get(team_id=self.team.pk)
+        self.item.refresh_from_db()
+        assert (self.item.status, self.item.external_data_source_id) == (
+            WarehouseMigrationItem.Status.APPLIED,
+            source.id,
+        )
+        assert any("failed partway" in caveat for caveat in self.item.caveats), self.item.caveats
+
+        # A retry with another prefix must not create a second source.
+        assert self._apply(self._credential(), prefix="stripe_retry").status_code == 400
+        assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 1
+
+    def test_a_retry_after_a_dead_apply_links_the_source_it_created(self) -> None:
+        claimed_at = timezone.now() - timedelta(minutes=20)
+        WarehouseMigrationItem.objects.for_team(self.team.pk).filter(id=self.item.id).update(
+            status=WarehouseMigrationItem.Status.APPLYING,
+            updated_at=claimed_at,
+            claimed_at=claimed_at,
+            claimed_prefix="stripe_main",
+        )
+        orphan = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="fake-source",
+            connection_id="fake-connection",
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="stripe_main",
+            description="Imported from the migrated connection stripe_main.",
+        )
+
+        response = self._apply(self._credential())
+
+        assert response.status_code == 201, response.json()
+        assert response.json()["source_id"] == str(orphan.id)
+        assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 1
+        self.item.refresh_from_db()
+        assert (self.item.status, self.item.external_data_source_id) == (
+            WarehouseMigrationItem.Status.APPLIED,
+            orphan.id,
+        )
