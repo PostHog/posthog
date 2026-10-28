@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
@@ -238,6 +240,18 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
             return True
         return [c.get("properties", []) for c in self.conditions] != [c.get("properties", []) for c in stored]
 
+    def _stored_hog_bytecode_if_source_unchanged(self) -> list[Any] | None:
+        if self._state.adding:
+            return None
+        stored = (
+            Evaluation.objects.filter(pk=self.pk, team_id=self.team_id)
+            .values_list("evaluation_config", flat=True)
+            .first()
+        )
+        if not stored or stored.get("source") != self.evaluation_config["source"]:
+            return None
+        return stored.get("bytecode") or None
+
     def save(self, *args, **kwargs):
         from products.cdp.backend.filters import compile_filters_bytecode
 
@@ -274,8 +288,7 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
 
         update_fields = kwargs.get("update_fields")
 
-        # Compile Hog source to bytecode. Saves that do not write evaluation_config skip this, so status
-        # changes still work for source that a newer compiler rejects.
+        # Compile Hog source to bytecode
         writes_evaluation_config = update_fields is None or "evaluation_config" in update_fields
         if (
             writes_evaluation_config
@@ -284,9 +297,14 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         ):
             try:
                 bytecode = compile_ai_observability_hog(self.evaluation_config["source"], "destination")
-                self.evaluation_config["bytecode"] = bytecode
             except Exception as e:
-                raise ValidationError({"evaluation_config": f"Failed to compile Hog code: {e}"})
+                # A newer compiler can reject source that an older one accepted. Keep the stored bytecode so the
+                # owner can still pause or delete the evaluation, but never let broken code start to run again.
+                activating = self.status == EvaluationStatus.ACTIVE and self._initial_status != self.status
+                bytecode = None if activating else self._stored_hog_bytecode_if_source_unchanged()
+                if bytecode is None:
+                    raise ValidationError({"evaluation_config": f"Failed to compile Hog code: {e}"})
+            self.evaluation_config["bytecode"] = bytecode
 
         # Compile bytecode for each condition
         compiled_conditions = []
