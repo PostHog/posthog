@@ -567,6 +567,12 @@ def _send_via_http(
     if not is_http_email_service_available():
         raise Exception("Missing Customer.io API key")
 
+    if not current_task or current_task.request.is_eager:
+        # The dedicated client blocks on its flush, which would hold the request. The web process keeps running,
+        # so the global client delivers in the background. ScopedCapture keeps the cloud-only guard.
+        _send_via_http_batch(ScopedCapture(posthoganalytics), to, campaign_key, template_name, properties, will_retry)
+        return
+
     # A dedicated client, because the global one may never flush before a Celery worker exits.
     with ph_scoped_capture(event_region=get_instance_region()) as capture:
         _send_via_http_batch(capture, to, campaign_key, template_name, properties, will_retry)
