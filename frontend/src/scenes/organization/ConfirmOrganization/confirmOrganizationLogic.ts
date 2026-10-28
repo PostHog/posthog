@@ -14,6 +14,7 @@ export interface ConfirmOrganizationFormValues {
     role_at_organization?: string
     referral_source?: string
     referral_source_ai_prompt?: string
+    referral_source_influencer?: string
 }
 
 const LOGIC_PATH = ['scenes', 'organization', 'confirmOrganizationLogic']
@@ -26,6 +27,7 @@ const FIELDS_IN_RENDER_ORDER: (keyof ConfirmOrganizationFormValues)[] = [
     'role_at_organization',
     'referral_source',
     'referral_source_ai_prompt',
+    'referral_source_influencer',
 ]
 
 // kea-forms ids each field input `<logic path>.<form key>.<field>`
@@ -146,6 +148,7 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
                 // The partner that started the OAuth connection is where this person heard about PostHog
                 referral_source: readPendingOAuthConnection()?.clientName ?? '',
                 referral_source_ai_prompt: '',
+                referral_source_influencer: '',
             } as ConfirmOrganizationFormValues,
             errors: ({ organization_name, first_name, role_at_organization }) => ({
                 first_name: !first_name?.trim() ? 'Please enter your name' : undefined,

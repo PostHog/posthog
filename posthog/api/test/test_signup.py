@@ -128,7 +128,7 @@ class TestSignupAPI(APIBaseTest):
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthoganalytics.capture")
-    def test_api_sign_up_with_ai_referral_source(self, mock_capture):
+    def test_api_sign_up_with_referral_source_follow_up_answers(self, mock_capture):
         response = self.client.post(
             "/api/signup/",
             {
@@ -139,6 +139,7 @@ class TestSignupAPI(APIBaseTest):
                 "role_at_organization": "product",
                 "referral_source": "ChatGPT recommended it",
                 "referral_source_ai_prompt": "What is the best product analytics tool?",
+                "referral_source_influencer": "The Hedgehog Dev channel",
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -148,8 +149,10 @@ class TestSignupAPI(APIBaseTest):
         event_props = signup_calls[0].kwargs["properties"]
         self.assertEqual(event_props["referral_source"], "ChatGPT recommended it")
         self.assertEqual(event_props["referral_source_ai_prompt"], "What is the best product analytics tool?")
+        self.assertEqual(event_props["referral_source_influencer"], "The Hedgehog Dev channel")
         self.assertEqual(event_props["$set"]["referral_source"], "ChatGPT recommended it")
         self.assertEqual(event_props["$set"]["referral_source_ai_prompt"], "What is the best product analytics tool?")
+        self.assertEqual(event_props["$set"]["referral_source_influencer"], "The Hedgehog Dev channel")
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.email_verification_code_verifier.send_code")

@@ -44,6 +44,7 @@ export interface SignupPanelOnboardingForm {
     role_at_organization: string
     referral_source: string
     referral_source_ai_prompt: string
+    referral_source_influencer: string
 }
 
 export interface PendingInvite {
@@ -468,6 +469,7 @@ export const signupLogic = kea<signupLogicType>([
                 // The partner that started the OAuth connection is where this person heard about PostHog
                 referral_source: readPendingOAuthConnection()?.clientName ?? '',
                 referral_source_ai_prompt: '',
+                referral_source_influencer: '',
             } as SignupPanelOnboardingForm,
             errors: ({ name, role_at_organization }) => ({
                 name: !name?.trim() ? 'Please enter your name' : undefined,
@@ -492,6 +494,7 @@ export const signupLogic = kea<signupLogicType>([
                         role_at_organization: payload.role_at_organization,
                         referral_source: payload.referral_source,
                         referral_source_ai_prompt: payload.referral_source_ai_prompt,
+                        referral_source_influencer: payload.referral_source_influencer,
                         next_url: nextUrl ?? undefined,
                     }
 

@@ -72,7 +72,52 @@ const AI_REFERRAL_PATTERNS = [
     'ia', // Spanish, Italian, Portuguese, French abbreviation for AI
     'ki', // German abbreviation (Künstliche Intelligenz)
 ]
-const AI_REFERRAL_PATTERN = new RegExp(`\\b(${AI_REFERRAL_PATTERNS.join('|')})\\b`, 'i')
+export const AI_REFERRAL_PATTERN = new RegExp(`\\b(${AI_REFERRAL_PATTERNS.join('|')})\\b`, 'i')
+
+// Used to trigger the influencer prompt when the user mentions a social network or creator channel. This is a simple heuristic and can be adjusted as needed.
+const SOCIAL_REFERRAL_PATTERNS = [
+    // Social networks
+    'instagram',
+    'insta',
+    'ig',
+    'tik ?tok',
+    'you ?tube',
+    'you ?tuber',
+    'yt',
+    'twitter',
+    'tweet',
+    'x',
+    'x.com',
+    'linked ?in',
+    'facebook',
+    'fb',
+    'threads',
+    'blue ?sky',
+    'mastodon',
+    'reddit',
+    'twitch',
+    'snap ?chat',
+    'discord',
+    'telegram',
+    'whats ?app',
+    'we ?chat',
+    'weibo',
+    'pinterest',
+    'social ?media',
+    'social ?network',
+    // Creator channels
+    'influencer',
+    'creator',
+    'content ?creator',
+    'streamer',
+    'blogger',
+    'vlogger',
+    'podcast',
+    'podcaster',
+    'news ?letter',
+    'substack',
+]
+export const SOCIAL_REFERRAL_PATTERN = new RegExp(`\\b(${SOCIAL_REFERRAL_PATTERNS.join('|')})\\b`, 'i')
 
 export default function SignupReferralSource({ disabled }: { disabled: boolean }): JSX.Element {
     return (
@@ -93,21 +138,38 @@ export default function SignupReferralSource({ disabled }: { disabled: boolean }
                 whole signup panel. */}
             <KeaField name="referral_source" noStyle>
                 {({ value }) => (
-                    <AnimatedCollapsible collapsed={!AI_REFERRAL_PATTERN.test(value ?? '')}>
-                        <LemonField
-                            name="referral_source_ai_prompt"
-                            label="What prompt or search led you to PostHog?"
-                            help="Paste the prompt or search queries if you remember, even roughly"
-                            showOptional
-                        >
-                            <LemonInput
-                                className="ph-ignore-input"
-                                data-attr="signup-referral-source-ai-prompt"
-                                placeholder="e.g. Product analytics tool with error tracking"
-                                disabled={disabled}
-                            />
-                        </LemonField>
-                    </AnimatedCollapsible>
+                    <>
+                        <AnimatedCollapsible collapsed={!AI_REFERRAL_PATTERN.test(value ?? '')}>
+                            <LemonField
+                                name="referral_source_ai_prompt"
+                                label="What prompt or search led you to PostHog?"
+                                help="Paste the prompt or search queries if you remember, even roughly"
+                                showOptional
+                            >
+                                <LemonInput
+                                    className="ph-ignore-input"
+                                    data-attr="signup-referral-source-ai-prompt"
+                                    placeholder="e.g. Product analytics tool with error tracking"
+                                    disabled={disabled}
+                                />
+                            </LemonField>
+                        </AnimatedCollapsible>
+                        <AnimatedCollapsible collapsed={!SOCIAL_REFERRAL_PATTERN.test(value ?? '')}>
+                            <LemonField
+                                name="referral_source_influencer"
+                                label="Which account or person led you to PostHog?"
+                                help="Name the account, channel, or person if you remember"
+                                showOptional
+                            >
+                                <LemonInput
+                                    className="ph-ignore-input"
+                                    data-attr="signup-referral-source-influencer"
+                                    placeholder="e.g. a YouTube channel, or an X account"
+                                    disabled={disabled}
+                                />
+                            </LemonField>
+                        </AnimatedCollapsible>
+                    </>
                 )}
             </KeaField>
         </>
