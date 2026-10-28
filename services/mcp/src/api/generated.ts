@@ -42003,6 +42003,62 @@ export namespace Schemas {
       error_message: string;
     }
 
+    /**
+     * * `good` - Good
+     * * `warning` - Warning
+     * * `serious` - Serious
+     * * `critical` - Critical
+     */
+    export type HealthStatusEnum = typeof HealthStatusEnum[keyof typeof HealthStatusEnum];
+
+
+    export const HealthStatusEnum = {
+      Good: 'good',
+      Warning: 'warning',
+      Serious: 'serious',
+      Critical: 'critical',
+    } as const;
+
+    export interface HealthRow {
+      /**
+         * Requests per second over the window.
+         * @nullable
+         */
+      request_rate: number | null;
+      /**
+         * Share of requests with an error status, 0 to 1.
+         * @nullable
+         */
+      error_rate: number | null;
+      /**
+         * 95th percentile request duration in milliseconds.
+         * @nullable
+         */
+      p95_ms: number | null;
+      /** Requests counted in the window. */
+      span_count: number;
+      /** Requests with an error status in the window. */
+      error_count: number;
+    }
+
+    export interface EndpointHealth {
+      /** The service.name resource attribute. */
+      service_name: string;
+      /** The entry span name, for example the HTTP route or the job name. */
+      endpoint: string;
+      /** The environment the row was computed for. */
+      environment: string;
+      /** Health band from the error rate.
+       *
+       * * `good` - Good
+       * * `warning` - Warning
+       * * `serious` - Serious
+       * * `critical` - Critical */
+      status: HealthStatusEnum;
+      /** The health row every surface renders. */
+      health: HealthRow;
+    }
+
     export interface EndpointLastExecutionTimesRequest {
       names: string[];
     }
@@ -42345,6 +42401,22 @@ export namespace Schemas {
       version_updated_at: string | null;
       /** User who created this version. */
       readonly version_created_by: UserBasic | null;
+    }
+
+    export interface EndpointsHealthResponse {
+      /** One row per service and endpoint, worst status first. */
+      results: EndpointHealth[];
+      /** The environment the rows were computed for. */
+      environment: string;
+      /**
+         * The service filter applied, if any.
+         * @nullable
+         */
+      service: string | null;
+      /** Start of the window used. */
+      date_from: string;
+      /** End of the window used. */
+      date_to: string;
     }
 
     export type EndpointsUsageOverviewItemKey = typeof EndpointsUsageOverviewItemKey[keyof typeof EndpointsUsageOverviewItemKey];
@@ -57927,44 +57999,6 @@ export namespace Schemas {
       /** Counts for active, non-dismissed issues whose snooze has not expired yet. Reported separately so callers can decide for themselves whether a snoozed issue is worth surfacing. */
       snoozed: HealthIssueCounts;
     }
-
-    export interface HealthRow {
-      /**
-         * Requests per second over the window.
-         * @nullable
-         */
-      request_rate: number | null;
-      /**
-         * Share of requests with an error status, 0 to 1.
-         * @nullable
-         */
-      error_rate: number | null;
-      /**
-         * 95th percentile request duration in milliseconds.
-         * @nullable
-         */
-      p95_ms: number | null;
-      /** Requests counted in the window. */
-      span_count: number;
-      /** Requests with an error status in the window. */
-      error_count: number;
-    }
-
-    /**
-     * * `good` - Good
-     * * `warning` - Warning
-     * * `serious` - Serious
-     * * `critical` - Critical
-     */
-    export type HealthStatusEnum = typeof HealthStatusEnum[keyof typeof HealthStatusEnum];
-
-
-    export const HealthStatusEnum = {
-      Good: 'good',
-      Warning: 'warning',
-      Serious: 'serious',
-      Critical: 'critical',
-    } as const;
 
     export interface HeatmapCapturePage {
       /** A page URL that currently sends heatmap data. */
@@ -108991,6 +109025,22 @@ export namespace Schemas {
       policies?: ToolPolicyEntry[];
     }
 
+    export interface ServiceEdge {
+      /** The calling service. */
+      caller: string;
+      /** The called service. */
+      callee: string;
+      /** Calls from the caller into the callee in the sampled traces. */
+      calls: number;
+      /** Calls with an error status on the callee span. */
+      error_count: number;
+      /**
+         * 95th percentile duration of the callee span, in ms.
+         * @nullable
+         */
+      p95_ms: number | null;
+    }
+
     export interface ServiceHealth {
       /** The service.name resource attribute. */
       service_name: string;
@@ -109265,6 +109315,19 @@ export namespace Schemas {
       truncated: boolean;
       /** Caveats about this result. */
       notes: string[];
+    }
+
+    export interface ServiceMapResponse {
+      /** One edge per calling and called service, most calls first. */
+      edges: ServiceEdge[];
+      /** Traces sampled to build the map. */
+      trace_count: number;
+      /** The environment the map was built for. */
+      environment: string;
+      /** Start of the window used. */
+      date_from: string;
+      /** End of the window used. */
+      date_to: string;
     }
 
     export interface ServicesHealthResponse {
@@ -129123,6 +129186,46 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ApmEndpointsListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string;
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
+     * @minLength 1
+     * @maxLength 200
+     */
+    environment?: string;
+    /**
+     * Only list the endpoints of this service.
+     * @minLength 1
+     * @maxLength 400
+     */
+    service?: string;
+    };
+
+    export type ApmServiceMapListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string;
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
+     * @minLength 1
+     * @maxLength 200
+     */
+    environment?: string;
     };
 
     export type ApmServicesListParams = {
