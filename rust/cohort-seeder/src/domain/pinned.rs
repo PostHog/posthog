@@ -67,8 +67,11 @@ const FLAG_CALLED_EVENT: &str = "$feature_flag_called";
 const FLAG_EVALUATIONS_TTL_DAYS: DayIdx = 90;
 
 /// The ClickHouse table a scan reads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ScanTable {
+    /// Also what a payload without `flag_calls_table` reads as.
+    #[default]
     Events,
     FlagEvaluations,
 }
@@ -94,19 +97,6 @@ impl ScanTable {
                 day_idx_in_tz(domain.utc_range().start().as_i64(), UTC) + FLAG_EVALUATIONS_TTL_DAYS
                     <= day_idx_in_tz(now_ms, UTC)
             }
-        }
-    }
-
-    /// A payload without the key reads as `events`, which covers runs pinned before the key
-    /// existed. A `null` is not a name, so it fails like any other unknown value.
-    fn from_pinned(value: Option<Value>) -> Result<Self, PinnedError> {
-        let Some(value) = value else {
-            return Ok(Self::Events);
-        };
-        match value.as_str() {
-            Some("events") => Ok(Self::Events),
-            Some("flag_evaluations") => Ok(Self::FlagEvaluations),
-            _ => Err(PinnedError::UnknownFlagCallsTable(value)),
         }
     }
 }
@@ -344,16 +334,16 @@ pub enum PinnedError {
     UncoveredParticipations(UncoveredParticipations),
     #[error("surviving person conditions exceed the per-seed hash cap: {0}")]
     PersonConditionsOverCap(usize),
-    #[error("unknown flag_calls_table {0}")]
-    UnknownFlagCallsTable(Value),
+    #[error("flag_calls_table flag_evaluations needs pinned schema version 2, not {0}")]
+    FlagEvaluationsBeforeSchemaVersion2(u32),
 }
 
 #[derive(Debug, Deserialize)]
 struct PinnedPayload {
     schema_version: u32,
     conditions: Vec<RawPinnedCondition>,
-    #[serde(default, deserialize_with = "present")]
-    flag_calls_table: Option<Value>,
+    #[serde(default)]
+    flag_calls_table: ScanTable,
 }
 
 #[derive(Debug, Deserialize)]
@@ -393,15 +383,6 @@ where
         .and_then(|number| i32::try_from(number).ok()))
 }
 
-/// `Some` for a key that is present, even as `null`. With `#[serde(default)]`, a missing key stays
-/// `None`.
-fn present<'de, D>(deserializer: D) -> Result<Option<Value>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    Value::deserialize(deserializer).map(Some)
-}
-
 /// Coerce a JSON scalar to `Some(String)` only for a string; anything else becomes `None`, never
 /// an error. Replicates the former `json_string` tolerance byte-for-byte.
 fn lenient_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
@@ -415,7 +396,7 @@ where
 impl PinnedRun {
     pub fn validate(snapshot: PinnedRunSnapshot) -> Result<ValidatedPinnedRun, PinnedError> {
         let payload = parse_payload(snapshot.pinned)?;
-        let flag_calls_table = ScanTable::from_pinned(payload.flag_calls_table)?;
+        let flag_calls_table = payload.flag_calls_table;
         let mut warnings = Vec::new();
         let tz = resolve_timezone(&snapshot.timezone, &mut warnings);
         let boundary = Boundary::new(UtcMillis::new(snapshot.boundary_at_ms), tz);
@@ -481,12 +462,15 @@ impl PinnedRun {
     }
 }
 
+/// A seeder that predates `flag_calls_table` ignores the key and would scan `events`. Django pins
+/// `flag_evaluations` only under version 2, which that seeder refuses.
 fn parse_payload(pinned: Value) -> Result<PinnedPayload, PinnedError> {
     let payload: PinnedPayload = serde_json::from_value(pinned)?;
-    if payload.schema_version != 1 {
-        return Err(PinnedError::SchemaVersion(payload.schema_version));
+    match (payload.schema_version, payload.flag_calls_table) {
+        (1, ScanTable::Events) | (2, _) => Ok(payload),
+        (1, ScanTable::FlagEvaluations) => Err(PinnedError::FlagEvaluationsBeforeSchemaVersion2(1)),
+        (version, _) => Err(PinnedError::SchemaVersion(version)),
     }
-    Ok(payload)
 }
 
 pub(super) fn resolve_timezone(configured: &str, warnings: &mut Vec<PinnedWarning>) -> Tz {
@@ -865,7 +849,7 @@ pub(crate) mod test_runs {
         let event_names = leaves.iter().map(|leaf| leaf.event).collect::<Vec<_>>();
         PinnedRun::validate(snapshot(
             json!({
-                "schema_version": 1,
+                "schema_version": 2,
                 "flag_calls_table": flag_calls_table.as_str(),
                 "conditions": payload_conditions,
                 "event_names": event_names,
@@ -921,12 +905,12 @@ mod tests {
             state: PinnedParticipationState::Active,
         };
         let unknown = snapshot(
-            json!({ "schema_version": 2, "conditions": [], "event_names": [] }),
+            json!({ "schema_version": 3, "conditions": [], "event_names": [] }),
             vec![participation()],
         );
         assert!(matches!(
             PinnedRun::validate(unknown),
-            Err(PinnedError::SchemaVersion(2))
+            Err(PinnedError::SchemaVersion(3))
         ));
 
         for malformed in ["0123456789abcde", "0123456789abcdefg"] {
@@ -962,8 +946,8 @@ mod tests {
         );
     }
 
-    fn pinned_with_flag_calls_table(value: Option<Value>) -> PinnedRunSnapshot {
-        let mut pinned = json!({ "schema_version": 1, "conditions": [], "event_names": [] });
+    fn pinned_with_flag_calls_table(version: u32, value: Option<Value>) -> PinnedRunSnapshot {
+        let mut pinned = json!({ "schema_version": version, "conditions": [], "event_names": [] });
         if let Some(value) = value {
             pinned["flag_calls_table"] = value;
         }
@@ -972,43 +956,47 @@ mod tests {
 
     #[test]
     fn the_flag_calls_table_reads_events_when_absent_and_each_known_name_as_itself() {
-        for (value, expected) in [
-            (None, ScanTable::Events),
-            (Some("events"), ScanTable::Events),
-            (Some("flag_evaluations"), ScanTable::FlagEvaluations),
+        for (version, value, expected) in [
+            (1, None, ScanTable::Events),
+            (1, Some("events"), ScanTable::Events),
+            (2, None, ScanTable::Events),
+            (2, Some("events"), ScanTable::Events),
+            (2, Some("flag_evaluations"), ScanTable::FlagEvaluations),
         ] {
-            let validated =
-                PinnedRun::validate(pinned_with_flag_calls_table(value.map(Value::from)))
-                    .unwrap_or_else(|error| panic!("{value:?} failed to validate: {error}"));
-            assert_eq!(validated.run.flag_calls_table, expected, "{value:?}");
+            let validated = PinnedRun::validate(pinned_with_flag_calls_table(
+                version,
+                value.map(Value::from),
+            ))
+            .unwrap_or_else(|error| panic!("{version} {value:?} failed: {error}"));
+            assert_eq!(
+                validated.run.flag_calls_table, expected,
+                "{version} {value:?}"
+            );
         }
     }
 
     /// Scanning `events` for a value the seeder cannot read would give a cohort in a
-    /// flag-evaluations-only organization an empty history that still counts as backfilled. Django
-    /// writes the key as a string, so a null or a non-string is a writer bug.
+    /// flag-evaluations-only organization an empty history that still counts as backfilled.
     #[test]
-    fn an_unknown_flag_calls_table_fails_the_run_and_names_the_key() {
-        for value in [
-            json!("FLAG_EVALUATIONS"),
-            json!(" events"),
-            json!(""),
-            json!(null),
-            json!(1),
-            json!(["flag_evaluations"]),
-            json!({ "table": "flag_evaluations" }),
+    fn a_flag_calls_table_the_seeder_cannot_read_fails_the_run() {
+        for (version, value) in [
+            (1, json!("flag_evaluations")),
+            (2, json!("FLAG_EVALUATIONS")),
+            (2, json!(" events")),
+            (2, json!("")),
+            (2, json!(null)),
+            (2, json!(1)),
+            (2, json!(["flag_evaluations"])),
+            (2, json!({ "table": "flag_evaluations" })),
         ] {
-            let error = match PinnedRun::validate(pinned_with_flag_calls_table(Some(value.clone())))
+            if let Ok(validated) =
+                PinnedRun::validate(pinned_with_flag_calls_table(version, Some(value.clone())))
             {
-                Ok(validated) => {
-                    panic!("{value} validated as {:?}", validated.run.flag_calls_table)
-                }
-                Err(error) => error,
-            };
-            assert!(
-                error.to_string().contains("flag_calls_table"),
-                "{value}: the error does not name the key: {error}"
-            );
+                panic!(
+                    "{version} {value} validated as {:?}",
+                    validated.run.flag_calls_table
+                );
+            }
         }
     }
 
