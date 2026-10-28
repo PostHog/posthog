@@ -2,7 +2,7 @@ import { dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, dateStringToDayJs } from 'lib/utils/dateFilters'
 
 import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
-import { CompareFilter } from '~/queries/schema/schema-general'
+import { CompareFilter, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import type { TeamPublicType, TeamType } from '~/types'
 
 // Not a root table, so the `posthog.` prefix is part of the name. A team on the Events mode has no
@@ -49,7 +49,7 @@ function dateInTimezone(instant: dayjs.Dayjs, timezone: string): string {
     return `${part('year')}-${part('month')}-${part('day')}`
 }
 
-export function flagEvaluationsRetentionStartDate(timezone: string, asOf: dayjs.Dayjs = dayjs()): string {
+function flagEvaluationsRetentionStartDate(timezone: string, asOf: dayjs.Dayjs = dayjs()): string {
     // The subtraction runs on a UTC date so that no DST change can shift it.
     return dayjs
         .utc(dateInTimezone(asOf, timezone))
@@ -57,13 +57,15 @@ export function flagEvaluationsRetentionStartDate(timezone: string, asOf: dayjs.
         .format('YYYY-MM-DD')
 }
 
-type ResolvedRange = { date_from?: string | null; date_to?: string | null } | null
-
 export interface FlagCallsInsightResponse {
     timezone?: string | null
     last_refresh?: string | null
-    resolved_date_range?: ResolvedRange
-    resolved_compare_date_range?: ResolvedRange
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    resolved_compare_date_range?: ResolvedDateRangeResponse | null
+}
+
+function insightTimezone(response: FlagCallsInsightResponse | null | undefined): string {
+    return response?.timezone || 'UTC'
 }
 
 export function insightFlagEvaluationsRetentionStartDate(
@@ -71,7 +73,7 @@ export function insightFlagEvaluationsRetentionStartDate(
 ): string {
     // The backend counts 90 days back from when the query ran, so a cached result counts back from then.
     const asOf = response?.last_refresh ? dayjs(response.last_refresh) : dayjs()
-    return flagEvaluationsRetentionStartDate(response?.timezone || 'UTC', asOf)
+    return flagEvaluationsRetentionStartDate(insightTimezone(response), asOf)
 }
 
 // Start of the oldest day that FLAG_EVALUATIONS_RETENTION_DAYS covers. dateStringToDayJs resolves the ranges this is
@@ -126,10 +128,8 @@ export function insightReachesPastFlagEvaluationsRetention({
         : resolvedComparedFrom
           ? dayjs(resolvedComparedFrom)
           : shiftToComparedPeriod(start, resolvedDateRange.date_to, compareFilter.compare_to)
-    // The window covers whole days in the team timezone. This compares dates, not instants, because a DST change
-    // can repeat midnight. The backend resolves the 90-day preset to the first midnight, and a boundary at the
-    // second midnight would flag the preset.
-    return (
-        dateInTimezone(comparedStart, response?.timezone || 'UTC') < insightFlagEvaluationsRetentionStartDate(response)
-    )
+    // The window covers whole days in the team timezone. This compares dates, not instants. A DST change can
+    // repeat midnight. The backend starts the 90-day preset at the first midnight. An instant comparison against
+    // the second midnight would show the notice for the preset.
+    return dateInTimezone(comparedStart, insightTimezone(response)) < insightFlagEvaluationsRetentionStartDate(response)
 }
