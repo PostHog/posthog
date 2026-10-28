@@ -5,7 +5,7 @@ from posthog.otel_metrics import OtelInstrumentFactory
 
 
 def record_membership_operation(
-    operation: str, outcome: str, count: int = 1, *, rows: int = 0, lag_seconds: float = 0
+    operation: str, outcome: str, count: int = 1, *, rows: int = 0, lag_seconds: float | None = None
 ) -> None:
     client = posthoganalytics.default_client
     if client is None:
@@ -15,7 +15,8 @@ def record_membership_operation(
             "customer_analytics.membership.operations", count, attributes={"operation": operation, "outcome": outcome}
         )
         client.metrics.count("customer_analytics.membership.rows", rows)
-        client.metrics.histogram("customer_analytics.membership.lag", lag_seconds, unit="s")
+        if lag_seconds is not None:
+            client.metrics.histogram("customer_analytics.membership.lag", lag_seconds, unit="s")
     except Exception:
         pass
 

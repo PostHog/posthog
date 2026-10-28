@@ -22,6 +22,7 @@ from products.customer_analytics.backend.temporal.membership_backfill import (
     backfill_membership_batch_activity,
     fail_membership_backfill_activity,
     observe_membership_backfill_activity,
+    prepare_membership_backfill_activity,
     sync_membership_page_activity,
 )
 from products.customer_analytics.backend.temporal.ownership_claims import (
@@ -47,6 +48,7 @@ ACTIVITIES = [
     fail_membership_backfill_activity,
     sync_membership_page_activity,
     observe_membership_backfill_activity,
+    prepare_membership_backfill_activity,
     account_track_rule_collect_configs_activity,
     account_track_rule_create_scheduled_run_activity,
     account_track_rule_fail_run_activity,

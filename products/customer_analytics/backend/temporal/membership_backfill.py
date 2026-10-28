@@ -1,5 +1,4 @@
 import json
-import asyncio
 from dataclasses import replace
 from datetime import timedelta
 from threading import Event
@@ -17,7 +16,7 @@ from temporalio.client import (
     ScheduleState,
 )
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
+from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlreadyStartedError
 
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
@@ -86,9 +85,11 @@ def get_membership_workflow_id(team_id: int) -> str:
 
 @activity.defn
 async def sync_membership_page_activity(input: MembershipCoordinatorInput) -> MembershipSyncPage:
+    stopped = Event()
+    service = MembershipBackfillService(deadline=monotonic() + 585, should_stop=stopped.is_set)
     try:
         async with Heartbeater():
-            page = await database_sync_to_async(MembershipBackfillService().sync_page, thread_sensitive=False)(
+            page = await database_sync_to_async(service.sync_page, thread_sensitive=False)(
                 input.after_team_id, dry_run=input.dry_run
             )
         record_membership_operation("sync", "candidates", page.candidates)
@@ -98,6 +99,19 @@ async def sync_membership_page_activity(input: MembershipCoordinatorInput) -> Me
     except Exception:
         record_membership_operation("sync", "failed")
         raise
+    finally:
+        stopped.set()
+
+
+@activity.defn
+async def prepare_membership_backfill_activity(input: MembershipTeam) -> MembershipTeam:
+    stopped = Event()
+    service = MembershipBackfillService(deadline=monotonic() + 105, should_stop=stopped.is_set)
+    try:
+        async with Heartbeater():
+            return await database_sync_to_async(service.prepare_backfill, thread_sensitive=False)(input)
+    finally:
+        stopped.set()
 
 
 @activity.defn
@@ -115,12 +129,11 @@ async def backfill_membership_batch_activity(input: MembershipTeam) -> Membershi
                 result.cursor.lag_seconds = result.lag_seconds
         record_membership_operation("backfill", result.status, rows=result.rows, lag_seconds=result.lag_seconds)
         return result
-    except asyncio.CancelledError:
-        stopped.set()
-        raise
     except Exception:
         record_membership_operation("backfill", "failed")
         raise
+    finally:
+        stopped.set()
 
 
 @activity.defn
@@ -196,16 +209,27 @@ class MembershipBackfillWorkflow:
         self.cancel_requested = True
 
     async def observe(self, event: str) -> None:
-        await workflow.execute_activity(
-            observe_membership_backfill_activity,
-            MembershipObservation(
-                input=self.input, run_id=self.run_id, event=event, status=self.status, error_type=self.error_type
-            ),
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        try:
+            await workflow.execute_activity(
+                observe_membership_backfill_activity,
+                MembershipObservation(
+                    input=self.input, run_id=self.run_id, event=event, status=self.status, error_type=self.error_type
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        except ActivityError:
+            workflow.logger.warning("Membership backfill observation failed", extra={"backfill_event": event})
 
     async def process_batch(self) -> MembershipStep:
+        if not self.input.cursor and not self.input.version and not self.input.dry_run:
+            self.input = await workflow.execute_activity(
+                prepare_membership_backfill_activity,
+                self.input,
+                start_to_close_timeout=timedelta(minutes=2),
+                heartbeat_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
         result = await workflow.execute_activity(
             backfill_membership_batch_activity,
             self.input,
@@ -254,18 +278,21 @@ class MembershipBackfillWorkflow:
                 self.error_type = (
                     cause.type if isinstance(cause, ApplicationError) and cause.type else type(cause).__name__
                 )
-                await workflow.execute_activity(
-                    fail_membership_backfill_activity,
-                    MembershipFailure(
-                        team_id=input.team_id,
-                        version=self.input.cursor.version if self.input.cursor else input.version,
-                        error_type=self.error_type,
-                        account_keys=input.account_keys,
-                        dry_run=input.dry_run,
-                    ),
-                    start_to_close_timeout=timedelta(minutes=1),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
+                try:
+                    await workflow.execute_activity(
+                        fail_membership_backfill_activity,
+                        MembershipFailure(
+                            team_id=input.team_id,
+                            version=self.input.cursor.version if self.input.cursor else self.input.version,
+                            error_type=self.error_type,
+                            account_keys=input.account_keys,
+                            dry_run=input.dry_run,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=1),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                except ActivityError:
+                    workflow.logger.warning("Membership backfill failure update failed")
                 await self.observe("failed")
                 await workflow.wait_condition(lambda: self.resume_requested or self.cancel_requested)
                 self.resume_requested = False

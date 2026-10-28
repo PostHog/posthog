@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from threading import Event
 from uuid import uuid4
@@ -19,6 +20,7 @@ from temporalio.worker import Replayer, Worker
 
 from products.customer_analytics.backend.logic.membership_backfill import (
     PAGE_SIZE,
+    MembershipBackfillService,
     MembershipCursor,
     MembershipStep,
     MembershipSyncPage,
@@ -35,6 +37,8 @@ from products.customer_analytics.backend.temporal.membership_backfill import (
     create_membership_schedule,
     get_membership_workflow_id,
     observe_membership_backfill_activity,
+    prepare_membership_backfill_activity,
+    sync_membership_page_activity,
 )
 
 
@@ -161,26 +165,43 @@ async def test_retry_overlap_worker_restart_and_replay() -> None:
 
 
 @pytest.mark.asyncio
-async def test_failed_run_keeps_its_cursor_for_resume_and_can_be_cancelled() -> None:
+@pytest.mark.parametrize(
+    "has_cursor,bookkeeping_fails,observation_fails",
+    [(True, False, False), (True, True, True), (False, False, False)],
+)
+async def test_failed_run_keeps_its_cursor_for_resume_and_can_be_cancelled(
+    has_cursor: bool, bookkeeping_fails: bool, observation_fails: bool
+) -> None:
     logging.getLogger("temporalio.activity").setLevel(logging.INFO)
     logging.getLogger("temporalio.workflow").setLevel(logging.INFO)
     observations: asyncio.Queue[MembershipObservation] = asyncio.Queue()
+    failures: list[MembershipFailure] = []
+    account_keys = ("account-a",) if has_cursor else ()
     failed = True
+
+    @activity.defn(name="prepare_membership_backfill_activity")
+    async def prepare(input: MembershipTeam) -> MembershipTeam:
+        return replace(input, version=7)
 
     @activity.defn(name="backfill_membership_batch_activity")
     async def backfill(input: MembershipTeam) -> MembershipStep:
+        assert (input.cursor.version if input.cursor else input.version) == 7
         if failed:
             raise ApplicationError("Unavailable", type="ExampleUnavailable", non_retryable=True)
-        assert input.account_keys == ("account-a",)
+        assert input.account_keys == account_keys
         return MembershipStep(status="waiting_for_dictionary", cursor=input.cursor)
 
     @activity.defn(name="fail_membership_backfill_activity")
-    async def fail(_input: MembershipFailure) -> None:
-        pass
+    async def fail(input: MembershipFailure) -> None:
+        failures.append(input)
+        if bookkeeping_fails:
+            raise ApplicationError("Unavailable", non_retryable=True)
 
     @activity.defn(name="observe_membership_backfill_activity")
     async def observe(input: MembershipObservation) -> None:
         await observations.put(input)
+        if observation_fails and input.event == "failed":
+            raise ApplicationError("Unavailable", non_retryable=True)
 
     async def wait_for_event(event: str) -> MembershipObservation:
         while True:
@@ -195,14 +216,14 @@ async def test_failed_run_keeps_its_cursor_for_resume_and_can_be_cancelled() -> 
                 env.client,
                 task_queue=queue,
                 workflows=[MembershipBackfillWorkflow],
-                activities=[backfill, fail, observe],
+                activities=[prepare, backfill, fail, observe],
             ):
                 handle = await env.client.start_workflow(
                     MembershipBackfillWorkflow.run,
                     MembershipTeam(
                         team_id=17,
-                        account_keys=("account-a",),
-                        dry_run=True,
+                        account_keys=account_keys,
+                        dry_run=has_cursor,
                         cursor=MembershipCursor(
                             team_id=17,
                             version=7,
@@ -211,7 +232,9 @@ async def test_failed_run_keeps_its_cursor_for_resume_and_can_be_cancelled() -> 
                             dry_run=True,
                             historical_end=datetime(2026, 1, 1, tzinfo=UTC),
                             windows_completed=3,
-                        ),
+                        )
+                        if has_cursor
+                        else None,
                     ),
                     id=get_membership_workflow_id(17),
                     task_queue=queue,
@@ -219,6 +242,7 @@ async def test_failed_run_keeps_its_cursor_for_resume_and_can_be_cancelled() -> 
                 )
                 assert (await wait_for_event("failed")).error_type == "ExampleUnavailable"
                 assert (await handle.query(MembershipBackfillWorkflow.get_status)).status == "failed"
+                assert failures[0].version == 7
                 failed = False
                 await handle.signal(MembershipBackfillWorkflow.resume)
                 await wait_for_event("resumed")
@@ -226,34 +250,62 @@ async def test_failed_run_keeps_its_cursor_for_resume_and_can_be_cancelled() -> 
                 await handle.signal(MembershipBackfillWorkflow.cancel)
                 assert await asyncio.wait_for(handle.result(), timeout=30) == "cancelled"
                 observation = await wait_for_event("cancelled")
-                assert observation.input.account_keys == ("account-a",)
-                assert observation.input.cursor is not None
-                assert observation.input.cursor.windows_completed == 3
-                assert observation.input.cursor.historical_end == datetime(2026, 1, 1, tzinfo=UTC)
+                assert observation.input.account_keys == account_keys
+                if has_cursor:
+                    assert observation.input.cursor is not None
+                    assert observation.input.cursor.windows_completed == 3
+                    assert observation.input.cursor.historical_end == datetime(2026, 1, 1, tzinfo=UTC)
+                else:
+                    assert observation.input.version == 7
+        await Replayer(workflows=[MembershipBackfillWorkflow]).replay_workflow(await handle.fetch_history())
 
 
 @pytest.mark.asyncio
-async def test_activity_cancellation_stops_the_database_thread() -> None:
+@pytest.mark.parametrize("operation", ["batch", "sync", "prepare"])
+async def test_activity_cancellation_stops_the_database_thread(operation: str) -> None:
     loop = asyncio.get_running_loop()
     started = asyncio.Event()
     checked = asyncio.Event()
     release = Event()
     stopped: list[bool] = []
 
-    def process_batch(_input: MembershipTeam, *, deadline: float, should_stop: Callable[[], bool]) -> MembershipStep:
+    def wait_for_cancellation(should_stop: Callable[[], bool]) -> None:
         loop.call_soon_threadsafe(started.set)
         if not release.wait(timeout=10):
             raise RuntimeError("Database thread did not finish")
         stopped.append(should_stop())
         loop.call_soon_threadsafe(checked.set)
+
+    def process_batch(_input: MembershipTeam, *, deadline: float, should_stop: Callable[[], bool]) -> MembershipStep:
+        wait_for_cancellation(should_stop)
         return MembershipStep(status="backfilling")
 
+    def sync_page(service: MembershipBackfillService, _after: int, *, dry_run: bool) -> MembershipSyncPage:
+        assert service.should_stop is not None and service.deadline is not None
+        wait_for_cancellation(service.should_stop)
+        return MembershipSyncPage(teams=(), next_team_id=None, candidates=0, enabled=0, changed=0)
+
+    def prepare(service: MembershipBackfillService, input: MembershipTeam) -> MembershipTeam:
+        assert service.should_stop is not None and service.deadline is not None
+        wait_for_cancellation(service.should_stop)
+        return input
+
     env = ActivityEnvironment()
-    with patch(
-        "products.customer_analytics.backend.temporal.membership_backfill.MembershipBackfillService.process_activity_batch",
-        side_effect=process_batch,
+
+    async def run_activity() -> None:
+        if operation == "batch":
+            await env.run(backfill_membership_batch_activity, MembershipTeam(team_id=17))
+        elif operation == "sync":
+            await env.run(sync_membership_page_activity, MembershipCoordinatorInput())
+        else:
+            await env.run(prepare_membership_backfill_activity, MembershipTeam(team_id=17))
+
+    with (
+        patch.object(MembershipBackfillService, "process_activity_batch", side_effect=process_batch),
+        patch.object(MembershipBackfillService, "sync_page", autospec=True, side_effect=sync_page),
+        patch.object(MembershipBackfillService, "prepare_backfill", autospec=True, side_effect=prepare),
     ):
-        task = asyncio.create_task(env.run(backfill_membership_batch_activity, MembershipTeam(team_id=17)))
+        task = asyncio.create_task(run_activity())
         try:
             await asyncio.wait_for(started.wait(), timeout=10)
             env.cancel()
