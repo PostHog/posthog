@@ -338,7 +338,7 @@ class TestMembershipBackfill(BaseTest):
     @parameterized.expand([("cancelled",), ("expired",)])
     def test_coordinator_stops_before_registry_writes(self, reason: str) -> None:
         stopped = False
-        service = MembershipBackfillService(deadline=float("inf"), should_stop=lambda: stopped)
+        service = MembershipBackfillService(should_stop=lambda: stopped)
 
         def stop_during_flag_check(*args: object, **kwargs: object) -> bool:
             nonlocal stopped
@@ -819,7 +819,7 @@ class TestMembershipBackfill(BaseTest):
             override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False),
         ):
             self.service.query(
-                """INSERT INTO writable_events
+                """INSERT INTO sharded_events
                     (uuid, event, team_id, distinct_id, timestamp, properties, person_mode, inserted_at) VALUES""",
                 [
                     (
