@@ -150,6 +150,16 @@ class LazyJoinExpressionReplacer(CloningVisitor):
         return super().visit_call(node)
 
 
+class WrappedTableFieldReplacer(TraversingVisitor):
+    def __init__(self, original: ast.TableOrSelectType, replacement: ast.SelectQueryAliasType) -> None:
+        self.original = original
+        self.replacement = replacement
+
+    def visit_field_type(self, node: ast.FieldType) -> None:
+        if node.table_type is self.original:
+            node.table_type = self.replacement
+
+
 class LazyFinder(TraversingVisitor):
     found_lazy: bool = False
     max_type_visits: int = 1
@@ -255,10 +265,12 @@ class LazyTableResolver(TraversingVisitor):
         assert subquery.type is not None
 
         # Replace the table with the subquery
+        original_table_type = select_type.tables[table_alias]
         join_ptr.table = subquery
         join_ptr.alias = table_alias
         join_ptr.type = ast.SelectQueryAliasType(alias=table_alias, select_query_type=subquery.type)
         select_type.tables[table_alias] = join_ptr.type
+        WrappedTableFieldReplacer(original_table_type, join_ptr.type).visit(node)
 
         # Collect LazyJoinType IDs for this table's lazy joins, filtered by table_alias for self-joins
         lazy_join_field_names = {

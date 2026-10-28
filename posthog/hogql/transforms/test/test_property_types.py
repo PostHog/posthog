@@ -140,6 +140,29 @@ class _NewEventsSchemaArraySubcolumnsHelpers:
 class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers, SimpleTestCase):
     @parameterized.expand(
         [
+            (f"{conversion}_{windowed}", conversion, windowed)
+            for conversion in ("toFloat", "toInt")
+            for windowed in (False, True)
+        ]
+    )
+    def test_grouped_numeric_conversion_reads_the_group_key(self, _name: str, conversion: str, windowed: bool) -> None:
+        value = f"{conversion}(properties.value)"
+        if windowed:
+            value = f"sum({value}) OVER ()"
+        printed = self._print_select(f"SELECT {value}, count() FROM events GROUP BY properties.value")
+        assert f"accurateCastOrNull({json_dynamic_read_sql('events.properties', ['value'])}," in printed
+
+    def test_grouped_comparisons_preserve_group_key_and_scan_optimizations(self) -> None:
+        printed = self._print_select(
+            "SELECT toString(properties.value) AS value, "
+            "if(toString(properties.value) = 'ready', 1, 0), countIf(properties.value = 'ready') "
+            "FROM events WHERE properties.value = 'ready' GROUP BY value"
+        )
+        assert printed.count(f"toString({json_dynamic_read_sql('events.properties', ['value'])})") == 2
+        assert printed.count("CAST(events.properties.value, 'Nullable(String)')") == 2
+
+    @parameterized.expand(
+        [
             ("dynamic", "properties.value = '5'", "CAST(events.properties.value, 'Nullable(String)')"),
             ("declared", "properties.$browser IN ('Chrome', 'Firefox')", "in(events.properties.`$browser`, tuple("),
             (
@@ -467,6 +490,78 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 @pytest.mark.usefixtures("clickhouse_database")
 class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolumnsHelpers, SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "comparison",
+                "SELECT toString(properties.value) AS value, "
+                "if(toString(properties.value) = 'ready', 1, 0), count() "
+                "FROM events GROUP BY value ORDER BY value",
+                ['{"value":"done"}', '{"value":"ready"}', '{"value":"ready"}'],
+                [("done", 0, 1), ("ready", 1, 2)],
+            ),
+            (
+                "numeric",
+                "SELECT toFloat(properties.value) AS value, count() "
+                "FROM events GROUP BY properties.value ORDER BY value",
+                ['{"value":"2"}', '{"value":7}', '{"value":7}'],
+                [(2.0, 1), (7.0, 2)],
+            ),
+        ]
+    )
+    def test_native_grouped_property_queries(
+        self, _name: str, query: str, documents: list[str], expected: list[tuple[str | float | int, ...]]
+    ) -> None:
+        context = self._context()
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(parse_select(query), context, "clickhouse")
+        rows = sync_execute(
+            "WITH events_json AS (SELECT 1 AS team_id, CAST(arrayJoin(%(documents)s), 'JSON') AS properties) "
+            + printed,
+            {**context.values, "documents": documents},
+        )
+        assert rows == expected
+
+    @parameterized.expand(
+        [
+            ("true", "properties['$feature/example'] = true", 2),
+            ("false", "false = properties['$feature/example']", 1),
+            ("not_equal", "properties['$feature/example'] != true", 3),
+            ("in", "properties['$feature/example'] IN (true, false)", 3),
+            ("not_in", "properties['$feature/example'] NOT IN (true, false)", 2),
+            ("call", "equals(properties['$feature/example'], true)", 2),
+            ("map", "properties.$feature_flags.example = true", 2),
+            ("placeholder", "properties['$feature/example'] IN {variants}", 3),
+        ]
+    )
+    def test_native_flag_properties_compare_with_boolean_literals(
+        self, _name: str, predicate: str, expected: int
+    ) -> None:
+        context = self._context()
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(
+                parse_select(
+                    f"SELECT countIf({predicate}) FROM events",
+                    placeholders={"variants": ast.Constant(value=[True, False])},
+                ),
+                context,
+                "clickhouse",
+            )
+        documents = [
+            '{"$feature_flags":{"example":"true"}}',
+            '{"$feature_flags":{"example":"false"}}',
+            '{"$feature_flags":{"example":"$true"}}',
+            '{"$feature_flags":{"example":"ready"}}',
+            "{}",
+        ]
+        rows = sync_execute(
+            "WITH events_json AS (SELECT 1 AS team_id, "
+            "CAST(arrayJoin(%(documents)s), %(json_type)s) AS properties) " + printed,
+            {**context.values, "documents": documents, "json_type": EVENTS_PROPERTIES_JSON_TYPE()},
+            settings={"transform_null_in": 1},
+        )
+        assert rows == [(expected,)]
+
     @parameterized.expand([("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON")])
     def test_string_paths_read_empty_as_null(self, _name: str, json_type: str) -> None:
         context = self._context()

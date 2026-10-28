@@ -1,7 +1,8 @@
 from typing import Any
+from uuid import UUID
 
 import pytest
-from posthog.test.base import BaseTest, NewEventsSchemaSnapshotExtension
+from posthog.test.base import BaseTest, NewEventsSchemaSnapshotExtension, _create_event
 from unittest.mock import patch
 
 from django.conf import settings
@@ -12,10 +13,11 @@ from parameterized import parameterized
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, _use_person_id_from_person_overrides
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property_metadata import PropertyMetadata
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.models import Organization, Team
@@ -46,16 +48,55 @@ class TestNamespacedLazyTables(SimpleTestCase):
         actual = self._compile(query.format(table=f"posthog.{table}"))
         self.assertEqual(actual.replace(f"posthog__{table}", table), expected)
 
-    def _compile(self, query: str) -> str:
+    @parameterized.expand(
+        [
+            (f"{field}_{native}", field, native)
+            for field in (
+                "$session_id",
+                "$window_id",
+                "$session_id_uuid",
+                "$group_0",
+                "$group_1",
+                "$group_2",
+                "$group_3",
+                "$group_4",
+            )
+            for native in (False, True)
+        ]
+    )
+    def test_wrapped_events_join_reads_exported_columns(self, _name: str, field: str, native: bool) -> None:
+        printed = self._compile(
+            f"SELECT joined.{field} FROM events AS initial "
+            "JOIN events AS joined ON initial.person_id = joined.person_id",
+            use_new_events_schema=native,
+            person_overrides=True,
+        )
+        assert printed.startswith(f"SELECT joined.`{field}` AS")
+        assert "JOIN (SELECT" in printed
+
+    @parameterized.expand([("legacy", False), ("native", True)])
+    def test_wrapped_events_join_reads_exported_properties(self, _name: str, native: bool) -> None:
+        printed = self._compile(
+            "SELECT joined.properties.label FROM events AS initial "
+            "JOIN events AS joined ON initial.person_id = joined.person_id",
+            use_new_events_schema=native,
+            person_overrides=True,
+        )
+        assert "JSONExtractRaw(joined.properties," in printed.split(" FROM ", 1)[0]
+
+    def _compile(self, query: str, use_new_events_schema: bool = False, person_overrides: bool = False) -> str:
         context = HogQLContext(
             team_id=1,
             team=Team(id=1, organization=Organization()),
             database=Database(),
             enable_select_queries=True,
-            use_new_events_schema=False,
+            use_new_events_schema=use_new_events_schema,
             apply_events_retention_floor=False,
             restricted_properties=set(),
         )
+        if person_overrides:
+            assert context.database is not None
+            _use_person_id_from_person_overrides(context.database)
         with patch("posthog.hogql.transforms.property_types.load_property_metadata", return_value=PropertyMetadata()):
             return prepare_and_print_ast(parse_select(query), context, "clickhouse")[0]
 
@@ -63,6 +104,25 @@ class TestNamespacedLazyTables(SimpleTestCase):
 class TestLazyJoins(BaseTest):
     snapshot: Any
     maxDiff = None
+
+    def test_wrapped_events_join_executes_exported_property_reads(self) -> None:
+        _create_event(
+            team=self.team,
+            event="joined-event",
+            distinct_id="joined-user",
+            person_id=UUID("00000000-0000-4000-8000-000000000001"),
+            properties={"$session_id": "00000000-0000-4000-8000-000000000002", "label": "ready"},
+        )
+        result = execute_hogql_query(
+            "SELECT related.$session_id, related.properties.label FROM events AS source "
+            "JOIN events AS related ON source.person_id = related.person_id "
+            "WHERE source.event = 'joined-event' AND related.event = 'joined-event'",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+            ),
+        )
+        assert [tuple(row) for row in result.results] == [("00000000-0000-4000-8000-000000000002", "ready")]
 
     def _schema_snapshot(self, printed: str):
         self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
