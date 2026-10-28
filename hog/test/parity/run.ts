@@ -35,12 +35,6 @@ const strictUtf8 = new TextDecoder('utf-8', { fatal: true })
 // readable, so a golden diff shows what changed.
 const INLINE_LIMIT = 2048
 
-function digestFile(bytes: Uint8Array, full: boolean): string {
-    return full || bytes.length <= INLINE_LIMIT
-        ? encodeFile(bytes)
-        : `sha512:${createHash('sha512').update(bytes).digest('hex')}`
-}
-
 export function encodeFile(bytes: Uint8Array): string {
     try {
         return `utf8:${strictUtf8.decode(bytes)}`
@@ -57,26 +51,41 @@ export function decodeFile(text: string): Uint8Array {
 }
 
 // Only what differs from the inputs, so goldens don't repeat fixture files the run left alone.
+// Random chunk ids become placeholders before a large file is hashed, so the hash still compares
+// where the ids go. `full` keeps every file whole and unchanged, for scenarios others start from.
 function changedFiles(
     folder: string,
     inputs: Record<string, string | Uint8Array>,
-    full: boolean
+    options: { full: boolean; randomIds: boolean }
 ): Record<string, string | null> {
     const before: Record<string, string> = {}
     for (const [path, contents] of Object.entries(inputs)) {
-        before[path] = digestFile(typeof contents === 'string' ? Buffer.from(contents) : contents, full)
+        before[path] = encodeFile(typeof contents === 'string' ? Buffer.from(contents) : contents)
     }
-    const after = snapshot(folder, full)
-    const changed: Record<string, string | null> = {}
+    const after = snapshot(folder)
+    let changed: Record<string, string | null> = {}
     for (const path of [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()) {
         if (before[path] !== after[path]) {
             changed[path] = after[path] ?? null
         }
     }
-    return changed
+    if (options.full) {
+        return changed
+    }
+    if (options.randomIds) {
+        changed = withoutRandomIds({ exitCode: 0, requests: [], files: changed }).files!
+    }
+    return Object.fromEntries(
+        Object.entries(changed).map(([path, text]) => [
+            path,
+            text === null || text.length <= INLINE_LIMIT
+                ? text
+                : `sha512:${createHash('sha512').update(text).digest('hex')}`,
+        ])
+    )
 }
 
-function snapshot(folder: string, full: boolean): Record<string, string> {
+function snapshot(folder: string): Record<string, string> {
     const files: Record<string, string> = {}
     const visit = (path: string): void => {
         for (const entry of readdirSync(path, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
@@ -84,7 +93,7 @@ function snapshot(folder: string, full: boolean): Record<string, string> {
             if (entry.isDirectory() && entry.name !== '.git') {
                 visit(entryPath)
             } else if (entry.isFile()) {
-                files[relative(folder, entryPath)] = digestFile(readFileSync(entryPath), full)
+                files[relative(folder, entryPath)] = encodeFile(readFileSync(entryPath))
             }
         }
     }
@@ -143,7 +152,14 @@ export async function runScenario(scenario: ParityScenario, cli: { rust: string 
         return {
             exitCode,
             requests: normalize(server.requests),
-            ...(scenario.snapshot ? { files: changedFiles(folder, inputs, scenario.fullSnapshot === true) } : {}),
+            ...(scenario.snapshot
+                ? {
+                      files: changedFiles(folder, inputs, {
+                          full: scenario.fullSnapshot === true,
+                          randomIds: scenario.randomIds === true,
+                      }),
+                  }
+                : {}),
         }
     } finally {
         server.stop()

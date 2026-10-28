@@ -370,3 +370,34 @@ SCENARIOS.push(
     download('dsym-by-ref', ['--ref', 'Shop.dSYM'], ['Shop.dSYM']),
     download('unknown-ref', ['--ref', 'missing.js.map'], ['missing.js.map'])
 )
+
+// Real Xcode, Rust and React Native output from getsentry/symbolic, described in real/README.md.
+const realApple = (): Files => readTree(join(import.meta.dir, 'real', 'apple'), 'apple')
+const realReactNative = (): Files => readTree(join(import.meta.dir, 'real', 'react-native'), 'rn')
+const realRelease = ['--release-name', 'com.example.app', '--release-version', '4.0.0']
+const RN_MAP = 'rn/react-native-metro.js.map'
+const RN_HERMES_MAP = 'rn/react-native-hermes.map'
+
+SCENARIOS.push(
+    native('real-dsyms', 'apple', realApple, { args: realRelease }),
+    native('real-dsyms-sources', 'apple', realApple, { args: ['--include-source', ...realRelease] }),
+    native('real-dsyms-hash-mismatch', 'apple', realApple, {
+        args: [...realRelease, '--skip-on-conflict'],
+        server: 'hash-mismatch',
+    }),
+    hermes('real-inject', hermesArgs.inject('rn'), realReactNative),
+    hermes('real-inject-symbol-set', hermesArgs.inject('rn', [...realRelease, ...symbolSet]), realReactNative, {
+        randomIds: true,
+    }),
+    hermes('real-clone', hermesArgs.clone(RN_MAP, RN_HERMES_MAP), realReactNative, {
+        before: [hermesArgs.inject('rn')],
+    }),
+    hermes(
+        'real-clone-symbol-set',
+        hermesArgs.clone(RN_MAP, RN_HERMES_MAP, [...realRelease, ...symbolSet]),
+        realReactNative,
+        {
+            before: [hermesArgs.inject('rn')],
+        }
+    )
+)

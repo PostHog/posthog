@@ -166,7 +166,7 @@
     "dist/inline.css.map": null,
     "dist/site.css": "utf8:.a{color:red}\n",
     "dist/site.css.map": null,
-    "esbuild-cjs/index.cjs": "sha512:f0c36fd58fc6f7ec0843860c7ad603b0c36c27428457e29d7c9d6c23a1d76940e8e7f15f9874ea00ea5548daae0965a44fd5ee68935ce13d248147986a76f72c",
+    "esbuild-cjs/index.cjs": "sha512:5c5a3205d61deba47f5e78da8310b96164d85549f68966c72fbf592446a511488b38ca932310b277754eee314fc91de04b86a57b0347efa16c15f4dde4f3db85",
     "esbuild-cjs/index.cjs.map": null,
     "esbuild/chunk-QCGVITVN.js": "utf8:!function(){try{var e=\"undefined\"!=typeof window?window:\"undefined\"!=typeof global?global:\"undefined\"!=typeof globalThis?globalThis:\"undefined\"!=typeof self?self:{};e._posthogReleaseId=e._posthogReleaseId||\"e7ccdce0-e172-5444-b00e-bec22162f00f\";var n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]=\"7f049abd-6283-5ecf-925b-d4ce9b1a514d\")}catch(e){}}();function e(r){if(!r)throw new Error(\"Missing product\");return[{productId:r,stars:5,text:\"Works as described\"}]}export{e as fetchReviews};\n\n//# chunkId=7f049abd-6283-5ecf-925b-d4ce9b1a514d",
     "esbuild/chunk-QCGVITVN.js.map": null,
@@ -180,7 +180,7 @@
     "terser/badge.min.js.map": null,
     "webpack/213.eef13598.js": "utf8:!function(){try{var e=\"undefined\"!=typeof window?window:\"undefined\"!=typeof global?global:\"undefined\"!=typeof globalThis?globalThis:\"undefined\"!=typeof self?self:{};e._posthogReleaseId=e._posthogReleaseId||\"e7ccdce0-e172-5444-b00e-bec22162f00f\";var n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]=\"eaaf9a0d-6c5a-4568-a743-6f4fa42549a4\")}catch(e){}}();\"use strict\";(self.webpackChunk=self.webpackChunk||[]).push([[213],{213(e,s,r){function t(e){if(!e)throw new Error(\"Missing product\");return[{productId:e,stars:5,text:\"Works as described\"}]}r.d(s,{fetchReviews:()=>t})}}]);\n//# debugId=eaaf9a0d-6c5a-4568-a743-6f4fa42549a4\n//# chunkId=eaaf9a0d-6c5a-4568-a743-6f4fa42549a4",
     "webpack/213.eef13598.js.map": null,
-    "webpack/main.24954514.js": "sha512:5524742ca8a529c1ae19cb19bd8949826c08decef37a75cfaafba3eea56217af50f6a517c22fc7c9cfaa8c273d93d59cb292d8e2624460af4981565767a3456b",
+    "webpack/main.24954514.js": "sha512:8abe67dad22e068bc24ead8c5c783b95c070f06ba02956745ac1f4b4b470fd9873dce03dc04ef2c3b2a82059159525981697bf4c03ebda15bd8450a38378156c",
     "webpack/main.24954514.js.map": null
   }
 }

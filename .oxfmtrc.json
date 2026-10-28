@@ -155,6 +155,7 @@
         "products/metrics/agent/tests/**/golden/**",
         "hog/test/parity/bundles/**",
         "hog/test/parity/native/bin/**",
+        "hog/test/parity/real/**",
         "hog/test/parity/golden/**",
         "frontend/dist/",
         "frontend/**/*LogicType.ts",
