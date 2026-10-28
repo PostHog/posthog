@@ -33,3 +33,11 @@ def test_mcp_properties_mirrors_every_mcp_event_property() -> None:
     expected = {key for key in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"] if key.startswith("$mcp_")}
     assert expected, "expected $mcp_* keys in event_properties"
     assert set(CORE_FILTER_DEFINITIONS_BY_GROUP["mcp_properties"]) == expected
+
+def test_event_properties_includes_pageview_title_and_navigation_type() -> None:
+    event_props = CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"]
+    assert "title" in event_props
+    assert event_props["title"]["label"] == "Page title"
+    assert "navigation_type" in event_props
+    assert event_props["navigation_type"]["label"] == "Navigation type"
+
