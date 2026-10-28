@@ -30,7 +30,7 @@ from hypothesis import (
 from hypothesis.extra.django import TestCase as HypothesisDjangoTestCase
 from parameterized import parameterized
 
-from posthog.schema import HogQLQueryModifiers, MaterializationMode
+from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -2449,7 +2449,9 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
             f"Expected PK to use {expected_timestamp_key}, got Keys={pk_keys}"
         )
 
-    def _compile_hogql(self, hogql: str, timezone: str = "UTC") -> tuple[str, dict]:
+    def _compile_hogql(
+        self, hogql: str, timezone: str = "UTC", persons_on_events_mode: PersonsOnEventsMode | None = None
+    ) -> tuple[str, dict[str, object]]:
         self.team.timezone = timezone
         self.team.save()
         # This class asserts the structural shape of toTimeZone stripping (a PropertySwapper concern).
@@ -2459,7 +2461,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
-            modifiers=HogQLQueryModifiers(pushDownPredicates=False),
+            modifiers=HogQLQueryModifiers(pushDownPredicates=False, personsOnEventsMode=persons_on_events_mode),
         )
         node = parse_select(hogql)
         clickhouse_sql, _ = prepare_and_print_ast(node, context=context, dialect="clickhouse")
@@ -2555,18 +2557,25 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         assert re.search(r"greaterOrEquals\([\w.]*scheduled_at, ", sql), sql
         assert not re.search(r"ifNull\(greaterOrEquals\([\w.]*scheduled_at", sql), sql
 
-    def test_toTimeZone_not_stripped_in_join_on(self):
-        """toTimeZone should NOT be stripped from JOIN ON comparisons — only WHERE benefits from pruning."""
+    @parameterized.expand(
+        [
+            ("identity_join", PersonsOnEventsMode.DISABLED),
+            ("person_overrides", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
+        ]
+    )
+    def test_toTimeZone_not_stripped_in_join_on(self, _name: str, persons_on_events_mode: PersonsOnEventsMode) -> None:
         sql, _ = self._compile_hogql(
             "SELECT e.timestamp FROM events e LEFT JOIN events e2 "
             "ON e.person_id = e2.person_id AND e2.timestamp >= e.timestamp "
             "WHERE e.timestamp >= '2024-03-01' AND e.timestamp < '2024-04-01'",
             timezone="America/New_York",
+            persons_on_events_mode=persons_on_events_mode,
         )
-        # The JOIN ON greaterOrEquals should still have toTimeZone wrapping
-        assert re.search(r"greaterOrEquals\(toTimeZone\(", sql), (
-            f"Expected toTimeZone preserved in JOIN ON greaterOrEquals, got:\n{sql}"
-        )
+        if persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+            assert re.search(r"toTimeZone\(e2\.timestamp, %\(hogql_val_\d+\)s\) AS timestamp", sql), sql
+            assert re.search(r"greaterOrEquals\(e2\.timestamp, toTimeZone\(e\.timestamp,", sql), sql
+        else:
+            assert re.search(r"greaterOrEquals\(toTimeZone\(e2\.timestamp,", sql), sql
         # The WHERE comparisons should have toTimeZone stripped (bare e.timestamp)
         assert re.search(r"greaterOrEquals\(e\.timestamp,", sql), (
             f"Expected bare e.timestamp in WHERE greaterOrEquals, got:\n{sql}"
