@@ -860,6 +860,9 @@ the goal is to make it easier to generate HogQL queries from typed schemas
 than from freeform SQL.
 A `schema.json` integration into the codegen pipeline is planned.
 
+For SQL table insights, set `query.tableSettings.columns[].settings.display.description` in `insight-create` or `insight-update`.
+For updates, read the saved query first and retain its other fields.
+
 ## Agent skills that support the MCP server
 
 - **`querying-posthog-data`** – HogQL query patterns, system model schemas, and available functions.

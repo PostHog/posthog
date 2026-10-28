@@ -536,11 +536,12 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
         default=None,
         description="Custom color for this series as a hex string (e.g. `#1d4aff`).",
     )
-    displayType: DisplayType | None = Field(default=None, description="Chart type. `auto` uses `display`.")
-    label: str | None = Field(
+    description: str | None = Field(
         default=None,
-        description="Series label in legends and tooltips; replaces the column name.",
+        description="Table column description shown in the header tooltip.",
     )
+    displayType: DisplayType | None = Field(default=None, description="Chart type. `auto` uses `display`.")
+    label: str | None = Field(default=None, description="Label that replaces the column name.")
     trendLine: bool | None = Field(
         default=None,
         description=("Draw a linear trend line for this series. Only meaningful for line, bar, and area charts."),
@@ -560,9 +561,8 @@ class AssistantDataVisualizationAxisFormatting(BaseModel):
     style: Style | None = Field(
         default=None,
         description=(
-            "`none`: unformatted; `number`: thousands separators; `short`:"
-            " abbreviations (1.2k, 3.4M). `percent`: multiplies by 100 and adds `%`."
-            " Pass a 0–1 ratio (`a / b`) and omit the `%` suffix to avoid doubling it."
+            "`none`: raw. `number`: thousands separators. `short`: 1.2k. `percent`: 0–1"
+            " ratio × 100 with `%`. Omit a `%` suffix."
         ),
     )
     suffix: str | None = Field(
@@ -1152,6 +1152,7 @@ class ChartSettingsDisplay(BaseModel):
         extra="forbid",
     )
     color: str | None = None
+    description: str | None = None
     displayType: DisplayType | None = None
     label: str | None = None
     trendLine: bool | None = None

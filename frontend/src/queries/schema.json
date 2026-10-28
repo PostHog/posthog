@@ -2467,13 +2467,17 @@
                     "description": "Custom color for this series as a hex string (e.g. `#1d4aff`).",
                     "type": "string"
                 },
+                "description": {
+                    "description": "Table column description shown in the header tooltip.",
+                    "type": "string"
+                },
                 "displayType": {
                     "description": "Chart type. `auto` uses `display`.",
                     "enum": ["auto", "line", "bar", "area"],
                     "type": "string"
                 },
                 "label": {
-                    "description": "Series label in legends and tooltips; replaces the column name.",
+                    "description": "Label that replaces the column name.",
                     "type": "string"
                 },
                 "trendLine": {
@@ -2500,7 +2504,7 @@
                     "type": "string"
                 },
                 "style": {
-                    "description": "`none`: unformatted; `number`: thousands separators; `short`: abbreviations (1.2k, 3.4M). `percent`: multiplies by 100 and adds `%`. Pass a 0–1 ratio (`a / b`) and omit the `%` suffix to avoid doubling it.",
+                    "description": "`none`: raw. `number`: thousands separators. `short`: 1.2k. `percent`: 0–1 ratio × 100 with `%`. Omit a `%` suffix.",
                     "enum": ["none", "number", "short", "percent"],
                     "type": "string"
                 },
@@ -17864,6 +17868,9 @@
             "additionalProperties": false,
             "properties": {
                 "color": {
+                    "type": "string"
+                },
+                "description": {
                     "type": "string"
                 },
                 "displayType": {

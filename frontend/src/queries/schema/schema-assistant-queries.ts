@@ -1888,8 +1888,10 @@ export interface AssistantDataVisualizationAxisDisplaySettings {
     displayType?: 'auto' | 'line' | 'bar' | 'area'
     /** Draw a linear trend line for this series. Only meaningful for line, bar, and area charts. */
     trendLine?: boolean
-    /** Series label in legends and tooltips; replaces the column name. */
+    /** Label that replaces the column name. */
     label?: string
+    /** Table column description shown in the header tooltip. */
+    description?: string
     /** Custom color for this series as a hex string (e.g. `#1d4aff`). */
     color?: string
 }
@@ -1900,8 +1902,8 @@ export interface AssistantDataVisualizationAxisFormatting {
     /** Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`. */
     suffix?: string
     /**
-     * `none`: unformatted; `number`: thousands separators; `short`: abbreviations (1.2k, 3.4M).
-     * `percent`: multiplies by 100 and adds `%`. Pass a 0–1 ratio (`a / b`) and omit the `%` suffix to avoid doubling it.
+     * `none`: raw. `number`: thousands separators. `short`: 1.2k.
+     * `percent`: 0–1 ratio × 100 with `%`. Omit a `%` suffix.
      */
     style?: 'none' | 'number' | 'short' | 'percent'
     /** Number of decimal places to display. */
