@@ -133,6 +133,28 @@ class TestSeriesNames(SimpleTestCase):
         assert found is not None
         self.assertEqual({name: name in found.averaged_series for name in found.series}, expected)
 
+    def test_non_finite_trend_values_are_zero(self) -> None:
+        results = [
+            {
+                "label": "signed up",
+                "order": 0,
+                "days": ["2026-10-09", "2026-10-10", "2026-10-11", "2026-10-12"],
+                "data": [1, float("nan"), float("inf"), float("-inf")],
+            }
+        ]
+        with patch.object(insight_series, "_run", return_value={"results": results}):
+            found = insight_series.insight_series(
+                cast(Team, None),
+                cast(User, None),
+                short_id="abc",
+                name="Sign-ups",
+                query={"kind": "TrendsQuery", "series": [SIGNED_UP]},
+                dashboard=None,
+            )
+
+        assert found is not None
+        self.assertEqual([value for _, value in found.series["signed up"]], [1.0, 0.0, 0.0, 0.0])
+
 
 def _sql_query(display: str = "ActionsLineGraph", **chart_settings: Any) -> dict[str, Any]:
     return {
@@ -189,6 +211,13 @@ class TestSqlSeries(SimpleTestCase):
                 "a chart that shows nulls as zero keeps the zero",
                 _sql_query(showNullsAsZero=True),
                 _weekly(["2026-10-04", 1], ["2026-10-11", None]),
+                WeekStartDay.SUNDAY,
+                ("week", {"p50": [1.0, 0.0]}, None, None),
+            ),
+            (
+                "a non-finite value becomes zero",
+                _sql_query(),
+                _weekly(["2026-10-04", 1], ["2026-10-11", float("nan")]),
                 WeekStartDay.SUNDAY,
                 ("week", {"p50": [1.0, 0.0]}, None, None),
             ),

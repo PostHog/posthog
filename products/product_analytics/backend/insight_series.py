@@ -1,4 +1,5 @@
 import json
+import math
 from copy import deepcopy
 from datetime import date
 from typing import Any
@@ -99,6 +100,11 @@ def _decimal_places(places: Any) -> int | None:
     return None if places is None else min(max(int(places), 0), 9)
 
 
+def _finite_float(value: Any) -> float:
+    converted = float(value or 0)
+    return converted if math.isfinite(converted) else 0.0
+
+
 def _axis_settings(axis: dict[str, Any], key: str) -> dict[str, Any]:
     return (axis.get("settings") or {}).get(key) or {}
 
@@ -160,7 +166,7 @@ def _sql_series(
                 value = row[position[axis["column"]]]
                 if value is None and not zero_fill:
                     with_gaps.add(key)
-                points[day] = float(value or 0)
+                points[day] = _finite_float(value)
     except (KeyError, TypeError, ValueError):
         return None
     series = {key: points for key, points in series.items() if key not in with_gaps}
@@ -266,7 +272,7 @@ def insight_series(
         while label in series:
             label += " (2)"
         series[label] = [
-            (date.fromisoformat(str(d)[:10]), float(v or 0)) for d, v in zip(result["days"], result["data"])
+            (date.fromisoformat(str(d)[:10]), _finite_float(v)) for d, v in zip(result["days"], result["data"])
         ]
         if formula or ((node or {}).get("math") or "total") not in ADDITIVE_MATH:
             averaged.append(label)
