@@ -1,0 +1,2 @@
+from products.tasks.backend.facade.local_demo_contracts import local_demo_task_ids as local_demo_task_ids
+from products.tasks.backend.logic.services.local_demo import seed_local_demo_task as seed_local_demo_task
