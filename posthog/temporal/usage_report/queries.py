@@ -85,6 +85,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_rows_synced_in_period,
     get_teams_with_sdk_logs_records_in_period,
     get_teams_with_signals_credits_used_in_period,
+    get_teams_with_signals_spend_credits_used_in_period,
     get_teams_with_survey_responses_count_in_period,
     get_teams_with_task_sandbox_usage_in_period,
     get_teams_with_zero_duration_recording_count_in_period,
@@ -499,6 +500,10 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_signals_credits_used_in_period",
         fn=get_teams_with_signals_credits_used_in_period,
+    ),
+    QuerySpec(
+        name="teams_with_signals_spend_credits_used_in_period",
+        fn=get_teams_with_signals_spend_credits_used_in_period,
     ),
     QuerySpec(
         name="teams_with_posthog_code_credits_used_in_period",

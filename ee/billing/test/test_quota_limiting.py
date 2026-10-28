@@ -2472,6 +2472,7 @@ def _full_usage_counters(**overrides: int) -> UsageCounters:
         llm_events=0,
         ai_credits=0,
         signals_credits=0,
+        signals_spend_credits=0,
         posthog_code_credits=0,
         posthog_code_token_credits=0,
         sandbox_compute_credits=0,

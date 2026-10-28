@@ -55,6 +55,7 @@ class UsageCounter(StrEnum):
     LOGS_RETENTION_BYTE_DAYS = "teams_with_logs_retention_byte_days_in_period"
     AI_CREDITS = "teams_with_ai_credits_used_in_period"
     SIGNALS_CREDITS = "teams_with_signals_credits_used_in_period"
+    SIGNALS_SPEND_CREDITS = "teams_with_signals_spend_credits_used_in_period"
     POSTHOG_CODE_CREDITS = "teams_with_posthog_code_credits_used_in_period"
     SANDBOX_COMPUTE_CREDITS = "teams_with_sandbox_compute_credits_used_in_period"
     REPLAY_VISION_CREDITS = "teams_with_replay_vision_credits_used_in_period"
@@ -382,6 +383,7 @@ class UsageCounterService:
             UsageCounter.LOGS_RETENTION_BYTE_DAYS: usage_report.get_teams_with_logs_retention_byte_days_in_period,
             UsageCounter.AI_CREDITS: usage_report.get_teams_with_ai_credits_used_in_period,
             UsageCounter.SIGNALS_CREDITS: usage_report.get_teams_with_signals_credits_used_in_period,
+            UsageCounter.SIGNALS_SPEND_CREDITS: usage_report.get_teams_with_signals_spend_credits_used_in_period,
             UsageCounter.POSTHOG_CODE_CREDITS: usage_report.get_teams_with_posthog_code_credits_used_in_period,
             UsageCounter.SANDBOX_COMPUTE_CREDITS: lambda begin, end: self._sandbox_compute_query(begin, end).credits,
             UsageCounter.REPLAY_VISION_CREDITS: usage_report.get_teams_with_replay_vision_credits_used_in_period,

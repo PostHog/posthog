@@ -83,10 +83,15 @@ class TestEnforceSelfDrivingRunQuotaActivity:
             )
         test_task_run.output = {"pr_url": "https://github.com/x/y/pull/1"}
         test_task_run.save(update_fields=["output"])
-        flag = (timezone.now() + timedelta(days=cutoff_days)).date().isoformat() if cutoff_days is not None else False
+        if cutoff_days is not None:
+            organization = test_task.team.organization
+            organization.usage = {
+                "signals_spend_credits": {
+                    "billing_start_date": (timezone.now() + timedelta(days=cutoff_days)).date().isoformat()
+                }
+            }
+            organization.save(update_fields=["usage"])
         with (
-            patch("products.signals.backend.spend_billing.posthoganalytics.get_feature_flag", return_value=flag),
-            patch("products.signals.backend.spend_billing.posthoganalytics.feature_enabled", return_value=False),
             patch(f"{MODULE}.self_driving_quota_gate", return_value=SelfDrivingQuotaGate(limited=True, enforced=True)),
             patch(f"{MODULE}.capture_signal_report_quota_paused"),
             patch(

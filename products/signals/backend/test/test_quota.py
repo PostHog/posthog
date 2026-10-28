@@ -16,8 +16,15 @@ if TYPE_CHECKING:
 
 
 def _team() -> "Team":
-    # The gate only reads api_token / organization_id, so a stub keeps these tests DB-free.
-    return cast("Team", SimpleNamespace(api_token="phc_token", organization_id="0195a000-0000-0000-0000-000000000000"))
+    # Keep quota-gate tests independent of the database.
+    return cast(
+        "Team",
+        SimpleNamespace(
+            api_token="phc_token",
+            organization_id="0195a000-0000-0000-0000-000000000000",
+            organization=SimpleNamespace(usage={}),
+        ),
+    )
 
 
 @pytest.mark.parametrize(

@@ -1,7 +1,7 @@
 import copy
 import json
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from enum import Enum
 from functools import lru_cache, partial
 from itertools import batched, groupby
@@ -85,6 +85,7 @@ class QuotaResource(Enum):
     ROWS_EXPORTED = "rows_exported"
     AI_CREDITS = "ai_credits"
     SIGNALS_CREDITS = "signals_credits"
+    SIGNALS_SPEND_CREDITS = "signals_spend_credits"
     POSTHOG_CODE_CREDITS = "posthog_code_credits"
     WORKFLOW_EMAILS = "workflow_emails"
     WORKFLOW_PUSH = "workflow_push"
@@ -97,6 +98,14 @@ class QuotaResource(Enum):
 class QuotaLimitingCaches(Enum):
     QUOTA_LIMITER_CACHE_KEY = "@posthog/quota-limits/"
     QUOTA_LIMITING_SUSPENDED_KEY = "@posthog/quota-limiting-suspended/"
+
+
+def self_driving_quota_resource(organization: Organization) -> QuotaResource:
+    summary = (organization.usage or {}).get("signals_spend_credits") or {}
+    cutoff = summary.get("billing_start_date")
+    if cutoff is not None and date.fromisoformat(cutoff) <= timezone.now().date():
+        return QuotaResource.SIGNALS_SPEND_CREDITS
+    return QuotaResource.SIGNALS_CREDITS
 
 
 OVERAGE_BUFFER = {
@@ -112,6 +121,7 @@ OVERAGE_BUFFER = {
     QuotaResource.ROWS_EXPORTED: 0,
     QuotaResource.AI_CREDITS: 0,
     QuotaResource.SIGNALS_CREDITS: 0,
+    QuotaResource.SIGNALS_SPEND_CREDITS: 0,
     QuotaResource.POSTHOG_CODE_CREDITS: 0,
     QuotaResource.WORKFLOW_EMAILS: 0,
     QuotaResource.WORKFLOW_PUSH: 0,
@@ -124,6 +134,7 @@ OVERAGE_BUFFER = {
 GRACE_PERIOD_EXEMPT_RESOURCES: set[QuotaResource] = {
     QuotaResource.AI_CREDITS,
     QuotaResource.SIGNALS_CREDITS,
+    QuotaResource.SIGNALS_SPEND_CREDITS,
     QuotaResource.REPLAY_VISION_CREDITS,
     QuotaResource.POSTHOG_CODE_CREDITS,
 }
@@ -143,6 +154,7 @@ class UsageCounters(TypedDict):
     rows_exported: int
     ai_credits: int
     signals_credits: int
+    signals_spend_credits: int
     posthog_code_credits: int
     posthog_code_token_credits: int
     sandbox_compute_credits: int
@@ -457,6 +469,9 @@ def org_quota_limited_until(
     todays_usage = summary.get("todays_usage") or 0
     current_usage = usage + todays_usage
     limit = summary.get("limit")
+    if resource in {QuotaResource.SIGNALS_CREDITS, QuotaResource.SIGNALS_SPEND_CREDITS}:
+        if resource != self_driving_quota_resource(organization):
+            limit = None
     quota_limited_until = summary.get("quota_limited_until", None)
     quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
 
@@ -490,7 +505,10 @@ def org_quota_limited_until(
         resource,
         limit is not None and current_usage >= limit + OVERAGE_BUFFER[resource],
     )
-    if resource == QuotaResource.SIGNALS_CREDITS and current_usage - refund_offset < limit:
+    if (
+        resource in {QuotaResource.SIGNALS_CREDITS, QuotaResource.SIGNALS_SPEND_CREDITS}
+        and current_usage - refund_offset < limit
+    ):
         active_persisted_limit = quota_limited_until is not None and quota_limited_until > timezone.now().timestamp()
         if team_tokens is None and previously_quota_limited_team_tokens and not active_persisted_limit:
             team_tokens = get_team_attribute_by_quota_resource(organization)
@@ -504,7 +522,10 @@ def org_quota_limited_until(
             period_end = dateutil.parser.isoparse(organization.usage["period"][1])
             try:
                 period_usage = get_self_driving_credits_used_in_period_for_org(
-                    organization.id, period_start, period_end
+                    organization.id,
+                    period_start,
+                    period_end,
+                    spend_billing=resource == QuotaResource.SIGNALS_SPEND_CREDITS,
                 )
             except Exception as error:
                 capture_exception(error, {"organization_id": str(organization.id)})
@@ -991,6 +1012,20 @@ def set_org_usage_summary(
 
     new_usage = copy.deepcopy(new_usage)
 
+    spend_usage = new_usage.get("signals_spend_credits")
+    previous_spend_usage = original_usage.get("signals_spend_credits")
+    if not spend_usage:
+        if previous_spend_usage:
+            new_usage["signals_spend_credits"] = previous_spend_usage
+        else:
+            new_usage.pop("signals_spend_credits", None)
+    else:
+        cutoff = spend_usage.get("billing_start_date")
+        if not isinstance(cutoff, str) or date.fromisoformat(cutoff).isoformat() != cutoff:
+            raise ValueError("Inbox spend billing requires a canonical billing_start_date")
+        if previous_spend_usage and previous_spend_usage.get("billing_start_date") != cutoff:
+            raise ValueError("Inbox spend billing_start_date cannot change")
+
     for resource in QuotaResource:
         field = resource.value
         original_field_usage = original_usage.get(field, {}) if original_usage else {}
@@ -1267,6 +1302,7 @@ def _aggregate_quota_usage(teams: Sequence[Team], all_data: dict[str, dict[int, 
             llm_events=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
             ai_credits=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
             signals_credits=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
+            signals_spend_credits=all_data["teams_with_signals_spend_credits_used_in_period"].get(team.id, 0),
             posthog_code_credits=all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),
             posthog_code_token_credits=all_data["teams_with_posthog_code_token_credits_used_in_period"].get(team.id, 0),
             sandbox_compute_credits=all_data["teams_with_sandbox_compute_credits_used_in_period"].get(team.id, 0),
@@ -1330,6 +1366,7 @@ def update_all_orgs_billing_quotas(
             UsageCounter.LOGS_BYTES,
             UsageCounter.AI_CREDITS,
             UsageCounter.SIGNALS_CREDITS,
+            UsageCounter.SIGNALS_SPEND_CREDITS,
             UsageCounter.POSTHOG_CODE_CREDITS,
             UsageCounter.SANDBOX_COMPUTE_CREDITS,
             UsageCounter.REPLAY_VISION_CREDITS,
@@ -1369,6 +1406,9 @@ def update_all_orgs_billing_quotas(
         "teams_with_ai_event_count_in_period": dict(counter_report.counts[UsageCounter.AI_EVENTS]),
         "teams_with_ai_credits_used_in_period": dict(counter_report.counts[UsageCounter.AI_CREDITS]),
         "teams_with_signals_credits_used_in_period": dict(counter_report.counts[UsageCounter.SIGNALS_CREDITS]),
+        "teams_with_signals_spend_credits_used_in_period": dict(
+            counter_report.counts[UsageCounter.SIGNALS_SPEND_CREDITS]
+        ),
         "teams_with_posthog_code_credits_used_in_period": {
             team_id: combine_posthog_code_credits(token_credits.get(team_id, 0), compute_credits.get(team_id, 0))
             for team_id in token_credits.keys() | compute_credits.keys()

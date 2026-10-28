@@ -725,6 +725,7 @@ class BillingManager:
                 llm_events=usage_summary.get("llm_events", {}),
                 ai_credits=usage_summary.get("ai_credits", {}),
                 signals_credits=usage_summary.get("signals_credits", {}),
+                signals_spend_credits=usage_summary.get("signals_spend_credits", {}),
                 posthog_code_credits=usage_summary.get("posthog_code_credits", {}),
                 posthog_code_token_credits=usage_summary.get("posthog_code_token_credits", {}),
                 sandbox_compute_credits=usage_summary.get("sandbox_compute_credits", {}),

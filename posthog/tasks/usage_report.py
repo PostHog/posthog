@@ -76,6 +76,7 @@ from products.replay_vision.backend.billing import (
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.signals.backend.billing import credited_refund_credits_for_org, get_signals_billing_credits_by_team
+from products.signals.backend.spend_billing import get_signals_spend_billing_credits_by_team
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
     SurveyEventProperties,
@@ -302,6 +303,7 @@ class UsageReportCounters:
 
     # Signals Billing Credits (flat credits per report whose implementation shipped a PR)
     signals_credits_used_in_period: int
+    signals_spend_credits_used_in_period: int
 
     # PostHog Desktop Billing Credits
     posthog_code_credits_used_in_period: int
@@ -2089,6 +2091,13 @@ def get_teams_with_signals_credits_used_in_period(
     return get_signals_billing_credits_by_team(begin, end)
 
 
+@timed_log()
+def get_teams_with_signals_spend_credits_used_in_period(
+    begin: datetime, end: datetime
+) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass -- counter API rows
+    return get_signals_spend_billing_credits_by_team(begin, end)
+
+
 def get_signals_credited_refund_credits_for_org(
     organization_id: str | uuid.UUID, begin: datetime, end: datetime
 ) -> int:
@@ -2119,7 +2128,7 @@ def get_self_driving_credits_used_in_period_for_orgs(
 
 
 def get_self_driving_credits_used_in_period_for_org(
-    organization_id: str | uuid.UUID, begin: datetime, end: datetime
+    organization_id: str | uuid.UUID, begin: datetime, end: datetime, *, spend_billing: bool = False
 ) -> int:
     """Live self-driving credits used in `[begin, end)` across one org's teams.
 
@@ -2127,9 +2136,8 @@ def get_self_driving_credits_used_in_period_for_org(
     fresher number than the cron-patched `todays_usage`. Re-exported from this posthog-layer
     module for the same boundary reason as the helper above.
     """
-    return sum(
-        credits for _, credits in get_signals_billing_credits_by_team(begin, end, organization_id=organization_id)
-    )
+    counter = get_signals_spend_billing_credits_by_team if spend_billing else get_signals_billing_credits_by_team
+    return sum(credits for _, credits in counter(begin, end, organization_id=organization_id))
 
 
 @timed_log()
@@ -2985,6 +2993,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.ai_event_count_in_period > 0
         or report.ai_credits_used_in_period > 0
         or report.signals_credits_used_in_period > 0
+        or report.signals_spend_credits_used_in_period > 0
         or report.posthog_code_credits_used_in_period > 0
         or report.task_sandbox_seconds_in_period > 0
         or report.logs_bytes_in_period > 0
@@ -3549,6 +3558,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
         signals_credits_used_in_period=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
+        signals_spend_credits_used_in_period=all_data["teams_with_signals_spend_credits_used_in_period"].get(
+            team.id, 0
+        ),
         posthog_code_credits_used_in_period=combine_posthog_code_credits(
             all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),
             all_data["teams_with_sandbox_compute_credits_used_in_period"].get(team.id, 0),

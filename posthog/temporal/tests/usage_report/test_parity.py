@@ -303,6 +303,7 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
         (UsageCounter.LOGS_RETENTION_BYTE_DAYS, "get_teams_with_logs_retention_byte_days_in_period"),
         (UsageCounter.AI_CREDITS, "get_teams_with_ai_credits_used_in_period"),
         (UsageCounter.SIGNALS_CREDITS, "get_teams_with_signals_credits_used_in_period"),
+        (UsageCounter.SIGNALS_SPEND_CREDITS, "get_teams_with_signals_spend_credits_used_in_period"),
         (UsageCounter.POSTHOG_CODE_CREDITS, "get_teams_with_posthog_code_credits_used_in_period"),
         (UsageCounter.REPLAY_VISION_CREDITS, "get_teams_with_replay_vision_credits_used_in_period"),
         (UsageCounter.EVENTS, "get_teams_with_billable_event_count_in_period"),

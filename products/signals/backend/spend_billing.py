@@ -1,3 +1,4 @@
+from collections.abc import Collection
 from datetime import UTC, date, datetime, time
 from uuid import UUID
 
@@ -7,14 +8,13 @@ from django.db.models.functions import TruncDate
 import structlog
 import posthoganalytics
 
-from posthog.models import Team
+from posthog.models import Organization, Team
 
 from products.signals.backend.enums import SignalSourceProduct
 from products.signals.backend.free_trial import SELF_DRIVING_FREE_TRIAL_FLAG
 from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
 
 logger = structlog.get_logger(__name__)
-USAGE_BILLING_FLAG = "self-driving-usage-based-billing"
 
 
 def system_source_exempt(source_product: str | None) -> bool:
@@ -48,38 +48,26 @@ def trial_spend_exempt(team_id: int) -> bool:
     )
 
 
-def usage_billing_cutoff(organization_id: UUID) -> datetime | None:
-    try:
-        org_id = str(organization_id)
-        value = posthoganalytics.get_feature_flag(
-            USAGE_BILLING_FLAG,
-            org_id,
-            groups={"organization": org_id},
-            group_properties={"organization": {"id": org_id}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-        if not isinstance(value, str):
-            return None
+def usage_billing_cutoffs(
+    organization_id: str | UUID | None = None,
+    organization_ids: Collection[str | UUID] | None = None,
+) -> dict[UUID, datetime]:
+    organizations = Organization.objects.filter(usage__signals_spend_credits__has_key="billing_start_date")
+    if organization_id is not None:
+        organizations = organizations.filter(id=organization_id)
+    if organization_ids is not None:
+        organizations = organizations.filter(id__in=organization_ids)
+    cutoffs: dict[UUID, datetime] = {}
+    for org_id, value in organizations.values_list("id", "usage__signals_spend_credits__billing_start_date"):
         cutoff = date.fromisoformat(value)
         if cutoff.isoformat() != value:
-            return None
-        # Trials, including an unknown trial status, retain the report meter.
-        trial = posthoganalytics.feature_enabled(
-            SELF_DRIVING_FREE_TRIAL_FLAG,
-            org_id,
-            groups={"organization": org_id},
-            group_properties={"organization": {"id": org_id}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-        return datetime.combine(cutoff, time.min, UTC) if trial is False else None
-    except ValueError:
-        logger.warning("signals.spend.billing_cutoff_invalid", organization_id=str(organization_id))
-        return None
-    except Exception:
-        logger.exception("signals.spend.billing_flag_unavailable", organization_id=str(organization_id))
-        return None
+            raise ValueError(f"Invalid Inbox billing cutoff for organization {org_id}")
+        cutoffs[org_id] = datetime.combine(cutoff, time.min, UTC)
+    return cutoffs
+
+
+def usage_billing_cutoff(organization_id: UUID) -> datetime | None:
+    return usage_billing_cutoffs(organization_id).get(organization_id)
 
 
 def task_run_uses_usage_billing(team: Team, run_id: UUID) -> bool:
@@ -111,6 +99,19 @@ def spend_billing_credits_by_team(begin: datetime, end: datetime, *, cutoffs: di
         team_id = total["team_id"]
         credits[team_id] = credits.get(team_id, 0) + round(total["total_spend"])
     return {team_id: amount for team_id, amount in credits.items() if amount}
+
+
+def get_signals_spend_billing_credits_by_team(
+    begin: datetime,
+    end: datetime,
+    organization_id: str | UUID | None = None,
+    organization_ids: Collection[str | UUID] | None = None,
+) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass — usage-counter contract
+    return list(
+        spend_billing_credits_by_team(
+            begin, end, cutoffs=usage_billing_cutoffs(organization_id, organization_ids)
+        ).items()
+    )
 
 
 def apply_report_billing(spend: SignalSpend, report: SignalReport) -> None:
