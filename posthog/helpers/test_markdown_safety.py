@@ -6,6 +6,7 @@ from markdown_it import MarkdownIt
 from parameterized import parameterized
 
 from posthog.helpers.markdown_safety import strip_external_links_markdown
+from posthog.slack.markdown import slack_rich_text
 
 
 class TestStripExternalLinks(SimpleTestCase):
@@ -128,6 +129,27 @@ class TestStripExternalLinks(SimpleTestCase):
         # so the defanged output must not gain a second closing paren.
         out = strip_external_links_markdown("[x](https://evil.example.com\nmore)")
         self.assertEqual(out, "[x](`https://evil.example.com`\nmore)")
+
+    @parameterized.expand(
+        [
+            # Slack linkifies a URL in a plain text element, so each of these shapes used to reach a
+            # channel as a live link: the bare-URL rule skipped a URL after `<`, a backtick or `@`,
+            # and wrapping a URL inside a padded code span split the span open.
+            ("unterminated_autolink", "See <https://evil.example.com/report"),
+            ("at_prefixed", "Ping @https://evil.example.com/hook"),
+            ("unpaired_backtick", "See `https://evil.example.com/x"),
+            ("padded_code_span", "see ` https://evil.example.com/x ` here"),
+        ]
+    )
+    def test_defanged_urls_never_reach_a_plain_slack_element(self, _label: str, markdown: str) -> None:
+        content = slack_rich_text(strip_external_links_markdown(markdown), allowed_root="https://us.posthog.com")
+        plain_text = [
+            element["text"]
+            for section in content["elements"]
+            for element in section["elements"]
+            if not element.get("style", {}).get("code")
+        ]
+        self.assertNotIn("evil.example.com", "".join(plain_text))
 
     @parameterized.expand(
         [

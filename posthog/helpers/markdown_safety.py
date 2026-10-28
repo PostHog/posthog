@@ -30,7 +30,10 @@ _MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
 # the bare-URL rule skips — defang it here as a safety net.
 _ORPHAN_DEST_RE = re.compile(r"\]\(((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)
 _AUTOLINK_RE = re.compile(r"<(https?://[^\s>]+)>", re.IGNORECASE)
-_BARE_URL_RE = re.compile(r"(?<!\]\()(?<![<`@])((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)
+_BARE_URL_RE = re.compile(r"(?<!\]\()((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)
+# A closed code span: a backtick run, then content, then a run of the same length. Content inside one
+# is already inert, and wrapping it again would split the span and release the URL as plain text.
+_CODE_SPAN_RE = re.compile(r"(?<!`)(`+)(?!`).+?(?<!`)\1(?!`)", re.DOTALL)
 
 
 def is_allowed_link_url(url: str, additional_allowed_origin: str | None = None) -> bool:
@@ -78,6 +81,17 @@ def _neutralize_bare_url(match: re.Match[str]) -> str:
     return _neutralize_url(url)
 
 
+def _neutralize_urls_outside_code(markdown: str) -> str:
+    parts: list[str] = []
+    cursor = 0
+    for span in _CODE_SPAN_RE.finditer(markdown):
+        parts.append(_BARE_URL_RE.sub(_neutralize_bare_url, markdown[cursor : span.start()]))
+        parts.append(span.group(0))
+        cursor = span.end()
+    parts.append(_BARE_URL_RE.sub(_neutralize_bare_url, markdown[cursor:]))
+    return "".join(parts)
+
+
 def _strip_inline_links(markdown: str, additional_allowed_origin: str | None) -> str:
     md = _MARKDOWN_IMAGE_RE.sub(lambda m: m.group(1) or "", markdown)
     md = _MARKDOWN_LINK_RE.sub(
@@ -91,7 +105,7 @@ def _strip_inline_links(markdown: str, additional_allowed_origin: str | None) ->
         md,
     )
     md = _AUTOLINK_RE.sub(lambda m: _neutralize_url(m.group(1), keep_as=m.group(0)), md)
-    md = _BARE_URL_RE.sub(_neutralize_bare_url, md)
+    md = _neutralize_urls_outside_code(md)
     return md
 
 
