@@ -9,7 +9,7 @@ use super::downloader::CheckpointDownloader;
 use super::error::DownloadCancelledError;
 use super::lineage::CheckpointLineage;
 use super::metadata::{CheckpointMetadata, METADATA_FILENAME};
-use super::s3_client::create_s3_client;
+use super::s3_client::{create_s3_client, retry_file};
 use crate::observability::metrics::{
     CHECKPOINT_FILES_DOWNLOADED_TOTAL, CHECKPOINT_FILES_FETCH_DURATION_SECONDS,
     CHECKPOINT_FILE_FETCH_DURATION_SECONDS, CHECKPOINT_FILE_FETCH_STORE_DURATION_SECONDS,
@@ -21,7 +21,6 @@ use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use futures::stream;
 use futures::{StreamExt, TryStreamExt};
-use object_store::limit::LimitStore;
 use object_store::path::Path as ObjectPath;
 use object_store::{ObjectStore, ObjectStoreExt};
 use tokio::io::AsyncWriteExt;
@@ -104,7 +103,7 @@ fn s3_error_kind(e: &object_store::Error) -> &'static str {
 /// memory.
 #[derive(Debug)]
 pub struct S3Downloader {
-    store: Arc<LimitStore<object_store::aws::AmazonS3>>,
+    store: Arc<dyn ObjectStore>,
     s3_bucket: String,
     /// The lineage's remote directory: every attempt this downloader lists lives under it.
     remote_dir: String,
@@ -318,11 +317,22 @@ impl CheckpointDownloader for S3Downloader {
             })
             .collect();
 
+        // Stops the siblings of a failed file even without a caller token.
+        let siblings = cancel_token.cloned().unwrap_or_default();
         let mut stream = stream::iter(download_tasks)
-            .map(|(remote_key, local_filepath)| async move {
-                self.download_and_store_file_cancellable(&remote_key, &local_filepath, cancel_token)
+            .map(|(remote_key, local_filepath)| {
+                let siblings = &siblings;
+                async move {
+                    retry_file(&remote_key, siblings, || {
+                        self.download_and_store_file_cancellable(
+                            &remote_key,
+                            &local_filepath,
+                            Some(siblings),
+                        )
+                    })
                     .await
                     .with_context(|| format!("Failed to download: {remote_key}"))
+                }
             })
             .buffer_unordered(self.max_concurrent_file_downloads);
 
@@ -331,9 +341,7 @@ impl CheckpointDownloader for S3Downloader {
         while let Some(result) = stream.next().await {
             if let Err(e) = result {
                 first_error = Some(e);
-                if let Some(token) = cancel_token {
-                    token.cancel();
-                }
+                siblings.cancel();
                 break;
             }
         }
@@ -388,6 +396,55 @@ impl CheckpointDownloader for S3Downloader {
 mod tests {
     use super::*;
     use chrono::TimeZone;
+    use object_store::memory::InMemory;
+    use tempfile::TempDir;
+
+    use crate::store::durability::flaky_store::FlakyStore;
+
+    #[tokio::test(start_paused = true)]
+    async fn a_file_that_fails_mid_stream_downloads_again_without_its_siblings() {
+        let dir = "819f7b67/checkpoints/cohort_stream_state/0";
+        let attempt = format!("{dir}/2026-10-25T10-49-00-000Z");
+        let objects: [(&str, &[u8]); 3] = [
+            ("000007.sst", b"first sst"),
+            ("000008.sst", b"second sst"),
+            ("MANIFEST-000005", b"manifest"),
+        ];
+        let inner = InMemory::new();
+        let mut keys = Vec::new();
+        for (name, body) in objects {
+            let key = format!("{attempt}/{name}");
+            inner
+                .put(&ObjectPath::from(key.as_str()), body.to_vec().into())
+                .await
+                .unwrap();
+            keys.push(key);
+        }
+        let store = Arc::new(FlakyStore::new(inner, &keys[0]));
+        let downloader = S3Downloader {
+            store: store.clone(),
+            s3_bucket: String::new(),
+            remote_dir: dir.to_owned(),
+            checkpoint_import_window_hours: 20,
+            max_concurrent_file_downloads: 3,
+        };
+        let stage = TempDir::new().unwrap();
+
+        downloader
+            .download_files_cancellable(&keys, stage.path(), Some(&CancellationToken::new()))
+            .await
+            .unwrap();
+
+        for (name, body) in objects {
+            assert_eq!(
+                std::fs::read(stage.path().join(name)).unwrap(),
+                body,
+                "{name}"
+            );
+        }
+        let gets: Vec<usize> = keys.iter().map(|key| store.gets(key)).collect();
+        assert_eq!(gets, [2, 1, 1]);
+    }
 
     #[test]
     fn the_listing_keeps_attempts_inside_the_window_newest_first() {

@@ -447,6 +447,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconFlask,
         inMenu: false,
     },
+    [NodeKind.ExperimentWarehouseNativeNode]: {
+        name: 'Experiment Warehouse-native Node',
+        description: 'Experiment metric source run in the customer warehouse.',
+        icon: IconFlask,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentWarehouseNativeExposureConfig]: {
+        name: 'Experiment Warehouse-native Exposure Config',
+        description: 'Experiment exposures run in the customer warehouse.',
+        icon: IconFlask,
+        inMenu: false,
+    },
     [NodeKind.TeamTaxonomyQuery]: {
         name: 'Team Taxonomy',
         icon: IconHogQL,

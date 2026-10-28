@@ -21,6 +21,10 @@
         "id": {
             "type": "string"
         },
+        "latest_send_first": {
+            "description": "Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last.",
+            "type": "boolean"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"
@@ -40,6 +44,10 @@
         },
         "search": {
             "description": "Case-insensitive search. Matches workflow name, description and tag names first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.",
+            "type": "string"
+        },
+        "source_record": {
+            "description": "Filter to workflows started from this record, as '<kind>:<id>', e.g. `early_access:<id>`.",
             "type": "string"
         },
         "status": {

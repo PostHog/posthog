@@ -21,7 +21,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
@@ -1079,6 +1079,7 @@ class TestCalculateActivity(BaseTest):
         mock_runner.assert_called_once()
         kwargs = mock_runner.call_args.kwargs
         assert kwargs["as_of"] == datetime.fromisoformat(_QUERY_TO)
+        assert kwargs["workload"] == Workload.OFFLINE
 
     def test_query_from_matches_experiment_start_date_on_result_row(self):
         # Companion to test_query_to_is_passed_as_as_of_to_runner: the lower bound of the run's

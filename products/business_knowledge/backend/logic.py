@@ -24,27 +24,36 @@ from django.db import (
     connection as db_connection,
     transaction,
 )
-from django.db.models import Count, Exists, F, IntegerField, Max, OuterRef, Q, QuerySet, Subquery, Value
+from django.db.models import (
+    BigIntegerField,
+    Count,
+    Exists,
+    F,
+    Func,
+    IntegerField,
+    Max,
+    OuterRef,
+    Q,
+    QuerySet,
+    Subquery,
+    Value,
+)
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast, Coalesce, Substr
 from django.utils import timezone
 
 import structlog
-from langchain_core.messages import HumanMessage, SystemMessage
 
 from posthog.api.embedding_worker import EmbeddingResponse, async_generate_embedding, generate_embedding
 from posthog.dataclasses import frozen
 from posthog.helpers.full_text_search import process_query
-from posthog.models.organization import OrganizationMembership
+from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, team_distinct_id
 from posthog.models.scoping import team_scope, with_team_scope
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
-from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
-
-from ee.hogai.llm import MaxChatAnthropic
 
 from . import crawl, discover, file_parse, html_parse, llm_telemetry, url_fetch
 from .constants import (
@@ -58,6 +67,7 @@ from .constants import (
     BK_QUERY_EMBEDDING_TIMEOUT,
     BK_RERANK_MODEL,
     BK_RERANK_SNIPPET_CHARS,
+    BK_RERANK_TIMEOUT,
     BK_RRF_K,
     BK_RRF_SCORE_FLOOR,
     BK_SEARCH_MAX_LIMIT,
@@ -76,6 +86,7 @@ from .constants import (
     MAX_ALWAYS_ON_CONTEXT_CHARS,
     MAX_CHUNKS_PER_TEAM,
     MAX_LEARNED_SOURCES_PER_TEAM,
+    MAX_PARSED_FILE_TEXT_BYTES,
     MAX_SOURCES_PER_TEAM,
     MAX_TEXT_SIZE_BYTES,
     MAX_URLS_PER_SOURCE,
@@ -270,14 +281,24 @@ def chunk_text(text: str) -> list[_Chunk]:
 
     for paragraph in paragraphs:
         # Hard-split any mega paragraph before we try to pack it.
-        while len(paragraph) > CHUNK_HARD_MAX_CHARS:
-            cut = paragraph.rfind(" ", 0, CHUNK_HARD_MAX_CHARS)
-            if cut <= 0:
-                cut = CHUNK_HARD_MAX_CHARS
-            head, paragraph = paragraph[:cut].rstrip(), paragraph[cut:].lstrip()
+        # Walk indexes. Slicing off the tail copies the rest of the paragraph,
+        # which is quadratic on a file with no spaces.
+        start = 0
+        length = len(paragraph)
+        while length - start > CHUNK_HARD_MAX_CHARS:
+            cut = paragraph.rfind(" ", start, start + CHUNK_HARD_MAX_CHARS)
+            if cut <= start:
+                cut = start + CHUNK_HARD_MAX_CHARS
+            head = paragraph[start:cut].rstrip()
             if current:
                 flush()
             buckets.append(head)
+            start = cut
+            while start < length and paragraph[start].isspace():
+                start += 1
+        paragraph = paragraph[start:]
+        if not paragraph:
+            continue
 
         if not current:
             current = paragraph
@@ -300,6 +321,11 @@ def _chunk_id(source_id: UUID, document_stable_id: str, heading_path: str, ordin
     return uuid.uuid5(_CHUNK_NAMESPACE, f"{source_id}|{document_stable_id}|{heading_path}|{ordinal}")
 
 
+# Postgres rejects a statement with more than 65535 parameters. Each chunk row
+# binds every column, so one INSERT of a long file exceeds that.
+_CHUNK_INSERT_BATCH = 500
+
+
 def _bulk_create_chunks(
     *,
     source: KnowledgeSource,
@@ -320,7 +346,8 @@ def _bulk_create_chunks(
                 char_count=len(c.content),
             )
             for c in chunks
-        ]
+        ],
+        batch_size=_CHUNK_INSERT_BATCH,
     )
     # Populate the FTS vector here (the single chunk-creation choke point) so it
     # stays correct everywhere — including the test schema, which is built from
@@ -568,7 +595,7 @@ def _library_ids_subquery() -> Subquery:
     return Subquery(
         KnowledgeLibrarySource.objects.filter(source_id=OuterRef("pk"))
         .values("source_id")
-        .annotate(_ids=ArrayAgg("library_id", ordering="library_id"))
+        .annotate(_ids=ArrayAgg("library_id", order_by="library_id"))
         .values("_ids")[:1]
     )
 
@@ -1208,6 +1235,15 @@ def delete_source(source_id: UUID, team_id: int) -> bool:
 # --- File sources ------------------------------------------------------------
 
 
+def _size_cap_label(num_bytes: int) -> str:
+    """Print a byte cap. Integer division by 1 MiB prints 0 MB for any cap under 1 MiB."""
+    mebibytes = num_bytes / (1024 * 1024)
+    if mebibytes >= 0.1:
+        shown = round(mebibytes) if mebibytes >= 10 else round(mebibytes, 1)
+        return f"{shown:g} MB"
+    return f"{num_bytes:,} bytes"
+
+
 @with_team_scope(canonical=True)
 def create_file_source(
     *,
@@ -1232,10 +1268,10 @@ def create_file_source(
     parsed = file_parse.parse_file(file_data, original_filename)
     text = parsed.content
 
-    if len(text.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
+    if len(text.encode("utf-8")) > MAX_PARSED_FILE_TEXT_BYTES:
         raise file_parse.FileTooLargeError(
-            f"Parsed content exceeds the {MAX_TEXT_SIZE_BYTES // (1024 * 1024)} MB text cap. "
-            "Try a shorter document or split it into multiple sources."
+            f"This file's text is over the {_size_cap_label(MAX_PARSED_FILE_TEXT_BYTES)} cap. "
+            "Split it into smaller files."
         )
 
     chunks = chunk_text(text)
@@ -2896,18 +2932,6 @@ Return ONLY chunk_id UUIDs in order from most to least relevant, one UUID per li
 Do not include any other text."""
 
 
-def _resolve_active_org_user(team: Team) -> User:
-    membership = (
-        OrganizationMembership.objects.select_related("user")
-        .filter(organization=team.organization, user__is_active=True)
-        .order_by("id")
-        .first()
-    )
-    if not membership:
-        raise RuntimeError(f"No active users in organization '{team.organization.name}' (team {team.id})")
-    return membership.user
-
-
 def _build_rerank_user_prompt(query: str, results: list[KnowledgeSearchResult]) -> str:
     lines = [f"Query: {query}", "", "Candidates:"]
     for index, result in enumerate(results, start=1):
@@ -2961,34 +2985,25 @@ def rerank_chunks(
     valid_ids = {result.chunk_id for result in results}
     id_to_result = {result.chunk_id: result for result in results}
 
-    properties = llm_telemetry.retrieval_properties(
-        team_id=team.id, trace=trace, feature=llm_telemetry.RETRIEVAL_RERANK_FEATURE
-    )
     try:
-        user = _resolve_active_org_user(team)
-        llm = MaxChatAnthropic(
-            model=BK_RERANK_MODEL,
-            streaming=False,
-            user=user,
-            team=team,
-            max_tokens=1024,
-            billable=False,
-            inject_context=False,
-            posthog_properties=properties,
+        client = build_ai_gateway_anthropic_client(
+            ai_product=llm_telemetry.BK_AI_PRODUCT,
+            trace_id=trace.trace_id,
+            distinct_id=team_distinct_id(team.id),
+            team_id=team.id,
+            properties={"ai_feature": llm_telemetry.RETRIEVAL_RERANK_FEATURE, "surface": trace.surface},
         )
-        # MaxChatAnthropic captures no $ai_generation by itself. The cost reaches analytics only through this callback.
-        callback = llm_telemetry.trace_callback(team.id, trace_id=trace.trace_id, properties=properties)
-        response = llm.invoke(
-            [
-                SystemMessage(content=_RERANK_SYSTEM_PROMPT),
-                HumanMessage(content=_build_rerank_user_prompt(query, results)),
-            ],
-            config={"callbacks": [callback]} if callback is not None else None,
-        )
-        content = response.content
-        if isinstance(content, list):
-            content = "".join(str(item) for item in content)
-        ranked_ids = _parse_reranked_chunk_ids(str(content), valid_ids)
+        with client.with_options(timeout=BK_RERANK_TIMEOUT, max_retries=3) as bounded:
+            response = bounded.messages.create(
+                model=BK_RERANK_MODEL,
+                max_tokens=1024,
+                system=_RERANK_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": _build_rerank_user_prompt(query, results)}],
+                # Prompts and outputs contain customer content, so only token counts reach analytics.
+                extra_headers={"X-PostHog-Billable": "false", "X-PostHog-Privacy-Mode": "true"},
+            )
+        content = "".join(block.text for block in response.content if block.type == "text")
+        ranked_ids = _parse_reranked_chunk_ids(content, valid_ids)
         if ranked_ids is None:
             return original_order[:top_k]
 
@@ -3099,11 +3114,13 @@ def get_chunks_by_ids(team_id: int, chunk_ids: list[UUID]) -> list[KnowledgeSear
 # Bound how much one coordinator pass touches so a large backlog can't blow up
 # a single workflow run; the hourly cadence drains the rest on later passes.
 DUE_SOURCES_SCAN_CAP = 500
-# Kept deliberately small: each pending doc now carries up to
-# CLASSIFY_MAX_TOTAL_CHARS (~1 MB) of content so the classifier can inspect the
-# WHOLE searchable span (not just a 12 KB prefix). At 50 that's ~50 MB resident
-# in the activity worst case; raising it scales memory linearly.
+# Count cap for one classification pass. Memory is bounded separately: a file
+# can be as large as the upload cap, so a fixed count of those would not fit.
 PENDING_CLASSIFICATION_SCAN_CAP = 50
+# Resident document text one coordinator pass may load, for classification and
+# embedding. A document bigger than this still goes through alone, so it is not
+# stuck behind the budget. The count caps still apply.
+COORDINATOR_PASS_CONTENT_BYTES = 50 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -3156,11 +3173,40 @@ def list_due_refresh_sources(
     return due
 
 
-def list_documents_pending_classification(
+def _content_num_bytes() -> Func:
+    return Func(F("content"), function="octet_length", output_field=BigIntegerField())
+
+
+def _ids_within_byte_budget(sized_ids: list[tuple[UUID, int]], budget: int) -> list[UUID]:
+    """Keep leading ids until the next one would pass the budget.
+
+    The first id always stays, so a document larger than the budget still moves.
+    """
+    chosen: list[UUID] = []
+    total = 0
+    for doc_id, size in sized_ids:
+        nbytes = size or 0
+        if chosen and total + nbytes > budget:
+            break
+        chosen.append(doc_id)
+        total += nbytes
+    return chosen
+
+
+def _page_has_more(*, fetched: int, chosen: int, limit: int) -> bool:
+    """True when this page is not the end of the queue.
+
+    A full candidate page may have rows past `limit`. A byte budget that keeps
+    only a prefix leaves the rest of this page for the next pass.
+    """
+    return fetched >= limit or chosen < fetched
+
+
+def load_documents_pending_classification(
     *,
     limit: int = PENDING_CLASSIFICATION_SCAN_CAP,
     exclude_ids: list[UUID] | None = None,
-) -> list[PendingDocument]:
+) -> tuple[list[PendingDocument], bool]:
     """
     Return documents whose ``safety_verdict`` is still ``unknown``.
 
@@ -3179,9 +3225,11 @@ def list_documents_pending_classification(
     forever.
     """
     # The classifier inspects the whole document, but we cap how much we pull
-    # into memory per doc at CLASSIFY_MAX_TOTAL_CHARS + 1 — the classifier
+    # into memory per doc at CLASSIFY_MAX_TOTAL_CHARS + 1. The classifier
     # fails closed on anything longer than the cap, and the +1 lets it detect
-    # that the content was truncated here without a second Length() round-trip.
+    # that the content was truncated here without a second length round-trip.
+    # Lengths are loaded first so a pass stops at COORDINATOR_PASS_CONTENT_BYTES
+    # instead of materializing `limit` max-size documents.
     pending = KnowledgeDocument.objects.unscoped().filter(
         safety_verdict=SafetyVerdict.UNKNOWN,
         tombstoned_at__isnull=True,
@@ -3191,13 +3239,22 @@ def list_documents_pending_classification(
     # Empty NOT IN is invalid SQL. Skip the clause when this run has tried nothing yet.
     if exclude_ids:
         pending = pending.exclude(id__in=exclude_ids)
-    rows = (
-        pending.annotate(content_capped=Substr("content", 1, CLASSIFY_MAX_TOTAL_CHARS + 1))
+    sized = list(
+        pending.annotate(content_bytes=_content_num_bytes())
         .order_by("classification_attempts", "id")
-        .values_list("team_id", "id", "source_id", "source__source_type", "content_capped", "content_hash")[:limit]
+        .values_list("id", "content_bytes")[:limit]
     )
-    return [
-        PendingDocument(
+    chosen = _ids_within_byte_budget(sized, COORDINATOR_PASS_CONTENT_BYTES)
+    has_more = _page_has_more(fetched=len(sized), chosen=len(chosen), limit=limit)
+    if not chosen:
+        return [], False
+    rows = (
+        pending.filter(id__in=chosen)
+        .annotate(content_capped=Substr("content", 1, CLASSIFY_MAX_TOTAL_CHARS + 1))
+        .values_list("team_id", "id", "source_id", "source__source_type", "content_capped", "content_hash")
+    )
+    by_id = {
+        doc_id: PendingDocument(
             team_id=team_id,
             document_id=doc_id,
             source_id=source_id,
@@ -3206,11 +3263,47 @@ def list_documents_pending_classification(
             content_hash=content_hash,
         )
         for team_id, doc_id, source_id, source_type, content, content_hash in rows
-    ]
+    }
+    return [by_id[doc_id] for doc_id in chosen if doc_id in by_id], has_more
+
+
+def list_documents_pending_classification(
+    *,
+    limit: int = PENDING_CLASSIFICATION_SCAN_CAP,
+    exclude_ids: list[UUID] | None = None,
+) -> list[PendingDocument]:
+    documents, _has_more = load_documents_pending_classification(limit=limit, exclude_ids=exclude_ids)
+    return documents
+
+
+def record_classification_attempts(docs: list[PendingDocument]) -> None:
+    """Count a classification pass before the model runs.
+
+    A pass that dies in the activity writes no verdict. The document would stay
+    at zero attempts and stay first in the queue on every later run.
+    """
+    for doc in docs:
+        KnowledgeDocument.objects.unscoped().filter(
+            team_id=doc.team_id,
+            id=doc.document_id,
+            content_hash=doc.content_hash,
+            safety_verdict=SafetyVerdict.UNKNOWN,
+        ).update(
+            classification_attempts=F("classification_attempts") + 1,
+            updated_at=timezone.now(),
+        )
 
 
 @with_team_scope(canonical=True)
-def set_document_safety(*, team_id: int, document_id: UUID, verdict: str, content_hash: str, reason: str = "") -> None:
+def set_document_safety(
+    *,
+    team_id: int,
+    document_id: UUID,
+    verdict: str,
+    content_hash: str,
+    reason: str = "",
+    attempt_already_recorded: bool = False,
+) -> None:
     """
     Persist a classifier outcome on a single document (team-scoped write).
 
@@ -3237,10 +3330,11 @@ def set_document_safety(*, team_id: int, document_id: UUID, verdict: str, conten
         safety_verdict=SafetyVerdict.UNKNOWN,
     )
     if verdict == SafetyVerdict.UNKNOWN:
-        base.update(
-            classification_attempts=F("classification_attempts") + 1,
-            updated_at=timezone.now(),
-        )
+        if not attempt_already_recorded:
+            base.update(
+                classification_attempts=F("classification_attempts") + 1,
+                updated_at=timezone.now(),
+            )
         return
     base.update(
         safety_verdict=verdict,
@@ -3358,15 +3452,20 @@ def _chunk_ids_by_document(document_ids: list[UUID]) -> dict[UUID, list[UUID]]:
     return by_doc
 
 
-def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP) -> list[DocumentToEmbed]:
+def load_documents_pending_embedding(
+    *,
+    limit: int = PENDING_EMBEDDING_SCAN_CAP,
+    exclude_ids: list[UUID] | None = None,
+) -> tuple[list[DocumentToEmbed], bool]:
     """
     Return SAFE documents that have not yet had their chunks produced to the
     embedding pipeline (``embeddings_emitted_at IS NULL``).
 
-    Bounded by ``limit`` (loads chunk content per doc into memory, same rationale
-    as ``list_documents_pending_classification``). The first post-deploy pass
+    Bounded by ``limit`` and ``COORDINATOR_PASS_CONTENT_BYTES`` (loads chunk
+    content per doc into memory, same rationale as
+    ``list_documents_pending_classification``). The first post-deploy pass
     backfills every existing SAFE doc across all teams, so the cap is what lets
-    the hourly coordinator drain that over many passes. Cross-team — coordinator
+    the hourly coordinator drain that over many passes. Cross-team. Coordinator
     only.
 
     Timestamp strategy: young docs use the stable ``created_at`` so a re-emit
@@ -3380,16 +3479,28 @@ def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP)
     """
     now = timezone.now()
     ttl_cutoff = now - EMBEDDING_STABLE_TS_MAX_AGE
-    rows = list(
-        _embeddable_documents_qs()
-        .filter(embeddings_emitted_at__isnull=True)
-        # Stable id order so a doc stamped by this chunk is not selected again,
-        # and the next chunk continues past it.
-        .order_by("id")
-        .values_list("team_id", "id", "source_id", "source__source_type", "created_at")[:limit]
+    pending = _embeddable_documents_qs().filter(embeddings_emitted_at__isnull=True)
+    # Empty NOT IN is invalid SQL. Skip the clause when this run has failed nothing yet.
+    if exclude_ids:
+        pending = pending.exclude(id__in=exclude_ids)
+    # Stable id order so a doc stamped by this chunk is not selected again,
+    # and the next chunk continues past it.
+    sized = list(
+        pending.annotate(content_bytes=_content_num_bytes()).order_by("id").values_list("id", "content_bytes")[:limit]
     )
-    chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id, *_rest in rows])
-    return [
+    chosen = _ids_within_byte_budget(sized, COORDINATOR_PASS_CONTENT_BYTES)
+    has_more = _page_has_more(fetched=len(sized), chosen=len(chosen), limit=limit)
+    if not chosen:
+        return [], False
+    rows = {
+        document_id: (team_id, document_id, source_id, source_type, created_at)
+        for team_id, document_id, source_id, source_type, created_at in pending.filter(id__in=chosen).values_list(
+            "team_id", "id", "source_id", "source__source_type", "created_at"
+        )
+    }
+    ordered = [rows[document_id] for document_id in chosen if document_id in rows]
+    chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id, *_rest in ordered])
+    documents = [
         DocumentToEmbed(
             team_id=team_id,
             document_id=document_id,
@@ -3398,8 +3509,18 @@ def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP)
             timestamp=now if created_at < ttl_cutoff else created_at,
             chunks=chunks_by_doc.get(document_id, []),
         )
-        for team_id, document_id, source_id, source_type, created_at in rows
+        for team_id, document_id, source_id, source_type, created_at in ordered
     ]
+    return documents, has_more
+
+
+def list_documents_pending_embedding(
+    *,
+    limit: int = PENDING_EMBEDDING_SCAN_CAP,
+    exclude_ids: list[UUID] | None = None,
+) -> list[DocumentToEmbed]:
+    documents, _has_more = load_documents_pending_embedding(limit=limit, exclude_ids=exclude_ids)
+    return documents
 
 
 def list_documents_for_embedding_reconciliation(
@@ -3442,6 +3563,7 @@ def list_documents_for_embedding_refresh(
     now: datetime.datetime | None = None,
     window: datetime.timedelta = EMBEDDING_TTL_REFRESH_WINDOW,
     limit: int = REEMIT_EMBEDDING_SCAN_CAP,
+    exclude_ids: list[UUID] | None = None,
 ) -> list[DocumentToEmbed]:
     """
     Return already-emitted SAFE docs (oldest-emitted first) whose vectors are
@@ -3458,13 +3580,25 @@ def list_documents_for_embedding_refresh(
     """
     now = now or timezone.now()
     cutoff = now - window
-    rows = list(
-        _embeddable_documents_qs()
-        .filter(embeddings_emitted_at__isnull=False, embeddings_emitted_at__lt=cutoff)
+    pending = _embeddable_documents_qs().filter(embeddings_emitted_at__isnull=False, embeddings_emitted_at__lt=cutoff)
+    if exclude_ids:
+        pending = pending.exclude(id__in=exclude_ids)
+    sized = list(
+        pending.annotate(content_bytes=_content_num_bytes())
         .order_by("embeddings_emitted_at")
-        .values_list("team_id", "id", "source_id", "source__source_type")[:limit]
+        .values_list("id", "content_bytes")[:limit]
     )
-    chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id, *_rest in rows])
+    chosen = _ids_within_byte_budget(sized, COORDINATOR_PASS_CONTENT_BYTES)
+    if not chosen:
+        return []
+    rows = {
+        document_id: (team_id, document_id, source_id, source_type)
+        for team_id, document_id, source_id, source_type in pending.filter(id__in=chosen).values_list(
+            "team_id", "id", "source_id", "source__source_type"
+        )
+    }
+    ordered = [rows[document_id] for document_id in chosen if document_id in rows]
+    chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id, *_rest in ordered])
     return [
         DocumentToEmbed(
             team_id=team_id,
@@ -3474,7 +3608,7 @@ def list_documents_for_embedding_refresh(
             timestamp=now,
             chunks=chunks_by_doc.get(document_id, []),
         )
-        for team_id, document_id, source_id, source_type in rows
+        for team_id, document_id, source_id, source_type in ordered
     ]
 
 

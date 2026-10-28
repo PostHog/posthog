@@ -239,12 +239,16 @@ class TestScoutReportAPI(APIBaseTest):
         assert report.metrics[0]["query"] == metric["query"]
         embed_mock.assert_called_once()
 
-    def test_emit_report_retry_returns_the_first_report(self) -> None:
+    @parameterized.expand([(False, False), (True, False), (True, True)])
+    def test_emit_report_retry_returns_the_first_report(self, first_report: bool, close_gate: bool) -> None:
         # The failure this exists for: the caller times out at a proxy, the server keeps working, and
         # the scout resends. The resend reads its report back instead of doubling it, judge unpaid.
-        run = _make_run(self.team)
+        run = _make_run(self.team, skill_name="signals-scout-first-report" if first_report else "signals-scout-general")
+        LLMSkill.objects.filter(team=self.team, name="signals-scout-general").update(name=run.skill_name)
         with _safe_judge() as judge, patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
             first = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+            if close_gate:
+                SignalSourceConfig.objects.filter(team=self.team, source_product="signals_scout").update(enabled=False)
             with patch(CAPTURE_PATH) as capture:
                 retry = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
         assert retry["report_id"] == first["report_id"]
@@ -255,6 +259,7 @@ class TestScoutReportAPI(APIBaseTest):
         judge.assert_awaited_once()
         # The report already surfaced, so its draft PR must not be started a second time.
         autostart.assert_awaited_once()
+        assert autostart.call_args.kwargs["implementation_spend_kind"] == "scout_triggered_implementation"
         event = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_emitted")
         assert event.kwargs["properties"]["outcome"] == "idempotent_replay"
 
@@ -546,7 +551,8 @@ class TestScoutReportAPI(APIBaseTest):
         resolved = SignalReport.objects.create(team=self.team, status=SignalReport.Status.RESOLVED, title="fixed")
         gate_at_autostart: list[AutostartSkip | None] = []
 
-        async def _read_gates(*, team_id: int, report_id: str) -> None:
+        async def _read_gates(*, team_id: int, report_id: str, implementation_spend_kind: str) -> None:
+            assert implementation_spend_kind == "scout_triggered_implementation"
             gate_at_autostart.append(await sync_to_async(_evaluate_link_gates)(team_id, report_id))
 
         payload = self._payload(

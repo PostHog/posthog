@@ -13,10 +13,11 @@ import { CdpApi } from '~/cdp/cdp-api'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '~/cdp/types'
 import { setupExpressApp } from '~/common/api/router'
 import { defaultConfig } from '~/common/config/config'
-import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-topics'
+import { KAFKA_APP_METRICS_2, KAFKA_EMAIL_STATUS, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import * as envUtils from '~/common/utils/env-utils'
+import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
@@ -444,15 +445,24 @@ describe('EmailTrackingService', () => {
                 functionId,
                 parentRunId,
                 workflowVersion,
+                transactionalMessageId,
             }: {
                 functionId: string
                 parentRunId?: string
                 workflowVersion?: number
+                // Sends the bounce as SES reports it for a transactional email with this message id.
+                transactionalMessageId?: string
             }): Promise<supertest.Response> => {
                 // Third arg opts into the versioned payload, which `generate` won't emit by default
                 // until phase two of the rollout — see EMIT_VERSIONED_PAYLOAD in tracking-code.ts.
                 const trackingCode = signer.generate(
-                    { functionId, id: invocationId, teamId: team.id, parentRunId, workflowVersion },
+                    {
+                        functionId,
+                        id: transactionalMessageId ?? invocationId,
+                        teamId: team.id,
+                        parentRunId,
+                        workflowVersion,
+                    },
                     false,
                     workflowVersion !== undefined
                 )
@@ -464,6 +474,12 @@ describe('EmailTrackingService', () => {
                         messageId: 'ses-message-id',
                         destination: ['user@example.com'],
                         headers: [{ name: TRACKING_CODE_HEADER_NAME, value: trackingCode }],
+                        ...(transactionalMessageId
+                            ? {
+                                  commonHeaders: { to: ['user@example.com'] },
+                                  tags: { ph_email_status: ['true'] },
+                              }
+                            : {}),
                     },
                     bounce: {
                         bounceType: 'Permanent',
@@ -517,6 +533,30 @@ describe('EmailTrackingService', () => {
                     metric_name: 'email_bounced',
                     metric_kind: 'email',
                 })
+            })
+
+            it('records the bounced status of a transactional email', async () => {
+                const hogFlow = await insertHogFlow(
+                    hub.postgres,
+                    new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                )
+                const messageId = new UUIDT().toString()
+
+                const res = await postBounce({ functionId: hogFlow.id, transactionalMessageId: messageId })
+                expect(res.status).toBe(200)
+
+                // The webhook flushes the status row before it answers.
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)).toEqual([
+                    expect.objectContaining({
+                        key: messageId,
+                        value: expect.objectContaining({
+                            team_id: team.id,
+                            message_id: messageId,
+                            status: 'bounced',
+                            reason: 'hard',
+                        }),
+                    }),
+                ])
             })
 
             it('records the metric but writes no log entry when the bounce resolves to a hog_function', async () => {
