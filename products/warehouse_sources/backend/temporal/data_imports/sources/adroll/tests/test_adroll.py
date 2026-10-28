@@ -16,11 +16,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adroll import AdRollSourceConfig
 
 CAMPAIGNS_PATH = ADROLL_ENDPOINTS["campaigns"].path
+ADVERTISABLES_PATH = ADROLL_ENDPOINTS["advertisables"].path
+PIXEL_PATH = ADROLL_ENDPOINTS["pixels"].path
+RULES_PATH = ADROLL_ENDPOINTS["rules"].path
 
 
 def _driver() -> SourceDriver:
@@ -84,6 +88,79 @@ class TestRows:
         assert isinstance(result.raised, Exception)
         assert "401" in str(result.raised)
         assert len(result.requests) == 1
+
+
+class TestPixelFanOut:
+    @pytest.mark.parametrize(
+        "endpoint, pixel_answers, rules_answers, expected_rows, expected_rule_pixels",
+        [
+            (
+                "pixels",
+                [
+                    ScriptedResponse(json={"results": {"eid": "PIX1", "status": "active"}}),
+                    ScriptedResponse(json={"results": {"eid": "PIX2", "status": "inactive"}}),
+                ],
+                [],
+                [
+                    {"eid": "PIX1", "status": "active", "_advertisable_eid": "ADV1"},
+                    {"eid": "PIX2", "status": "inactive", "_advertisable_eid": "ADV2"},
+                ],
+                [],
+            ),
+            (
+                "rules",
+                [
+                    ScriptedResponse(json={"results": {"eid": "PIX1"}}),
+                    ScriptedResponse(json={"results": {"eid": "PIX2"}}),
+                ],
+                [_page([{"eid": "R1", "type": "c"}, {"eid": "R2", "type": "s"}]), _page([{"eid": "R3", "type": "b"}])],
+                [
+                    {"eid": "R1", "type": "c", "_pixel_eid": "PIX1"},
+                    {"eid": "R2", "type": "s", "_pixel_eid": "PIX1"},
+                    {"eid": "R3", "type": "b", "_pixel_eid": "PIX2"},
+                ],
+                ["PIX1", "PIX2"],
+            ),
+            (
+                "rules",
+                [ScriptedResponse(json={"results": None}), ScriptedResponse(json={"results": {"eid": "PIX2"}})],
+                [_page([{"eid": "R3", "type": "b"}])],
+                [{"eid": "R3", "type": "b", "_pixel_eid": "PIX2"}],
+                ["PIX2"],
+            ),
+            (
+                "rules",
+                [ScriptedResponse(json={"results": {}}), ScriptedResponse(json={"results": {"status": "inactive"}})],
+                [],
+                [],
+                [],
+            ),
+        ],
+    )
+    def test_fan_out_through_advertisable_pixel(
+        self,
+        endpoint: str,
+        pixel_answers: list[ScriptedResponse],
+        rules_answers: list[ScriptedResponse],
+        expected_rows: list[dict[str, Any]],
+        expected_rule_pixels: list[str],
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    ADVERTISABLES_PATH: [_page([{"eid": "ADV1"}, {"eid": "ADV2"}])],
+                    PIXEL_PATH: pixel_answers,
+                    RULES_PATH: rules_answers,
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+        assert [r.param("advertisable") for r in result.requests if r.path == PIXEL_PATH] == ["ADV1", "ADV2"]
+        assert [r.param("pixel") for r in result.requests if r.path == RULES_PATH] == expected_rule_pixels
+        assert all(r.param("apikey") == "cid" for r in result.requests)
 
 
 class TestFanOutResume:
