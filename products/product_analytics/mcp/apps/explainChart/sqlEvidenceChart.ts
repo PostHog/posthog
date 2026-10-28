@@ -1,95 +1,99 @@
 import type { StoryEvidenceChartData } from './explainChartTypes'
 
+type Series = StoryEvidenceChartData['series']
+
+interface Points {
+    points: string[]
+    series: Series
+}
+
 const MAX_POINTS = 200
 const MAX_BREAKDOWN_SERIES = 10
-const TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/
+const TIMESTAMP = /^\d{4}-(?<month>\d{2})-(?<day>\d{2})(?:[T ](?<time>\d{2}:\d{2}))?/
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-function toNumber(value: unknown): number | null {
+function numberOrNull(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
-function isNumericColumn(rows: unknown[][], index: number): boolean {
+function isNumberColumn(rows: unknown[][], index: number): boolean {
     return (
-        rows.some((row) => toNumber(row[index]) !== null) &&
-        rows.every((row) => row[index] === null || toNumber(row[index]) !== null)
+        rows.some((row) => numberOrNull(row[index]) !== null) &&
+        rows.every((row) => row[index] === null || numberOrNull(row[index]) !== null)
     )
 }
 
-function unique(values: string[]): string[] {
-    return [...new Set(values)]
+function isLongShape(rows: unknown[][]): boolean {
+    return rows[0]!.length >= 3 && !isNumberColumn(rows, 1) && isNumberColumn(rows, 2)
+}
+
+/** `hour, safari, chrome`: one series per number column. */
+function wideSeries(columns: string[], rows: unknown[][]): Points {
+    const kept = rows.slice(0, MAX_POINTS)
+    const valueColumns = columns.map((_, index) => index).filter((index) => index > 0 && isNumberColumn(rows, index))
+    return {
+        points: kept.map((row) => String(row[0])),
+        series: valueColumns.map((index) => ({
+            name: columns[index]!,
+            values: kept.map((row) => numberOrNull(row[index])),
+        })),
+    }
+}
+
+/** `hour, browser, failures`: one series per browser, with a gap where a browser has no row for an hour. */
+function longSeries(rows: unknown[][]): Points {
+    const points = [...new Set(rows.map((row) => String(row[0])))].slice(0, MAX_POINTS)
+    const valuesByName = new Map<string, Map<string, number | null>>()
+    for (const [x, rawName, value] of rows) {
+        const name = String(rawName ?? 'None')
+        const values = valuesByName.get(name) ?? new Map<string, number | null>()
+        values.set(String(x), numberOrNull(value))
+        valuesByName.set(name, values)
+    }
+    const total = (values: (number | null)[]): number => values.reduce<number>((sum, value) => sum + (value ?? 0), 0)
+    const series = [...valuesByName].map(([name, values]) => ({
+        name,
+        values: points.map((point) => values.get(point) ?? null),
+    }))
+    return {
+        points,
+        series: series.sort((left, right) => total(right.values) - total(left.values)).slice(0, MAX_BREAKDOWN_SERIES),
+    }
 }
 
 /** HogQL returns times in the project's timezone, so the labels keep the wall-clock time as written. */
-function timeLabels(points: string[]): { labels: string[]; ticks: string[] } | null {
-    const matches = points.map((point) => TIMESTAMP.exec(point))
-    if (matches.some((match) => !match)) {
+function dateLabels(points: string[]): { labels: string[]; ticks: string[] } | null {
+    const dates = points.map((point) => TIMESTAMP.exec(point)?.groups)
+    if (dates.some((date) => !date)) {
         return null
     }
-    const hasTime = matches.some((match) => match![4] !== undefined && `${match![4]}:${match![5]}` !== '00:00')
-    const labels: string[] = []
-    const ticks: string[] = []
-    matches.forEach((match, index) => {
-        const [, , month, day, hour = '00', minute = '00'] = match!
-        const date = `${MONTHS[Number(month) - 1]} ${Number(day)}`
-        const time = `${hour}:${minute}`
-        const sameDay = index > 0 && matches[index - 1]![0].slice(0, 10) === match![0].slice(0, 10)
-        labels.push(hasTime ? `${date} ${time}` : date)
-        ticks.push(!hasTime ? date : sameDay ? time : `${date} ${time}`)
-    })
+    const dayOf = (index: number): string => `${MONTHS[Number(dates[index]!.month) - 1]} ${Number(dates[index]!.day)}`
+    const timeOf = (index: number): string => dates[index]!.time ?? '00:00'
+    const showTime = dates.some((_, index) => timeOf(index) !== '00:00')
+
+    const labels = points.map((_, index) => (showTime ? `${dayOf(index)} ${timeOf(index)}` : dayOf(index)))
+    const ticks = labels.map((label, index) =>
+        showTime && index > 0 && dayOf(index - 1) === dayOf(index) ? timeOf(index) : label
+    )
     return { labels, ticks }
 }
 
-/**
- * Draws SQL rows as a chart. The first column is the x-axis. When the second column is text, it breaks the first
- * numeric column after it down into one series per value. Otherwise each numeric column is a series.
- */
+/** Draws SQL rows as a chart, with the first column as the x-axis. */
 export function sqlEvidenceChart(columns: string[], rows: unknown[][]): StoryEvidenceChartData | null {
     if (columns.length < 2 || rows.length === 0) {
         return null
     }
-    const xOf = (row: unknown[]): string => String(row[0] ?? '')
-    const breakdown = columns.length >= 3 && !isNumericColumn(rows, 1)
-    const valueIndexes = columns
-        .map((_, index) => index)
-        .filter((index) => index > (breakdown ? 1 : 0) && isNumericColumn(rows, index))
-    if (!valueIndexes.length) {
+    const long = isLongShape(rows)
+    const { points, series } = long ? longSeries(rows) : wideSeries(columns, rows)
+    if (!series.length) {
         return null
     }
-
-    let points: string[]
-    let series: StoryEvidenceChartData['series']
-    let yAxisLabel: string | null
-    if (breakdown) {
-        const valueIndex = valueIndexes[0]!
-        const nameOf = (row: unknown[]): string => String(row[1] ?? 'None')
-        points = unique(rows.map(xOf)).slice(0, MAX_POINTS)
-        const cells = new Map(rows.map((row) => [`${xOf(row)}\u0000${nameOf(row)}`, toNumber(row[valueIndex])]))
-        const totals = new Map<string, number>()
-        for (const row of rows) {
-            totals.set(nameOf(row), (totals.get(nameOf(row)) ?? 0) + (toNumber(row[valueIndex]) ?? 0))
-        }
-        series = [...totals.keys()]
-            .sort((left, right) => totals.get(right)! - totals.get(left)!)
-            .slice(0, MAX_BREAKDOWN_SERIES)
-            .map((name) => ({ name, values: points.map((point) => cells.get(`${point}\u0000${name}`) ?? null) }))
-        yAxisLabel = columns[valueIndex]!
-    } else {
-        const kept = rows.slice(0, MAX_POINTS)
-        points = kept.map(xOf)
-        series = valueIndexes.map((index) => ({
-            name: columns[index]!,
-            values: kept.map((row) => toNumber(row[index])),
-        }))
-        yAxisLabel = valueIndexes.length === 1 ? columns[valueIndexes[0]!]! : null
-    }
-
-    const time = timeLabels(points)
+    const dates = dateLabels(points)
     return {
-        type: time ? 'line' : 'bar',
-        labels: time?.labels ?? points,
-        ticks: time?.ticks ?? points,
+        type: dates ? 'line' : 'bar',
+        labels: dates?.labels ?? points,
+        ticks: dates?.ticks ?? points,
         series,
-        yAxisLabel,
+        yAxisLabel: long ? columns[2]! : series.length === 1 ? series[0]!.name : null,
     }
 }
