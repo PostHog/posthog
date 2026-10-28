@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.db import IntegrityError, connection, transaction
@@ -11,6 +11,7 @@ from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+import numpy as np
 import requests
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -20,6 +21,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.api.tagged_item import set_tags_on_object
+from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.llm.system_one import NoulAnswer, SystemOneResult
 from posthog.models import Organization, PersonalAPIKey, Team, User
@@ -31,6 +33,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value,
 from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.experiments.backend.models.experiment import Experiment
 from products.replay_vision.backend.api.scanners import (
     WATCH_FEED_CANDIDATE_CAP,
@@ -60,12 +63,14 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
+from products.replay_vision.backend.models.replay_scanner_semantics import ReplayScannerSearchTheme
 from products.replay_vision.backend.queries import ESTIMATE_STALE_AFTER, SAVE_ESTIMATE_BUDGET
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.queries.scanner_volume_estimate import estimate_scanner_session_volume
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft
 from products.replay_vision.backend.search import ObservationMatch
+from products.replay_vision.backend.semantic_space import SEMANTIC_DIMENSIONS, pack
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
@@ -4068,6 +4073,103 @@ class TestObservationSearchAction(_VisionAPITestCase):
         self.assertEqual(self.client.get(f"{self.search_url}?q=anything").status_code, 429)
 
 
+class TestSearchSuggestionsAction(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.checkout = self._create_scanner(name="checkout")
+        self.signup = self._create_scanner(name="signup")
+        now = timezone.now()
+        stories = np.eye(SEMANTIC_DIMENSIONS, dtype=np.float32)
+        near_coupon = stories[0] + 0.1 * stories[5]
+        for scanner, label, members, last_member_at, direction in [
+            (self.checkout, "coupon rejected", 10, now, stories[0]),
+            (self.checkout, "card declined", 8, now, stories[1]),
+            (self.checkout, "address form loops", 6, now, stories[2]),
+            (self.checkout, "", 20, now, stories[3]),
+            (self.checkout, "old checkout crash", 50, now - timedelta(days=31), stories[4]),
+            (self.signup, "discount code refused", 9, now, near_coupon),
+            (self.signup, "email never arrives", 7, now, stories[6]),
+        ]:
+            ReplayScannerSearchTheme.objects.for_team(self.team.id).create(
+                team=self.team,
+                scanner=scanner,
+                vector_sum=pack(direction * members),
+                member_count=members,
+                name=label,
+                last_member_at=last_member_at,
+            )
+
+    @property
+    def url(self) -> str:
+        return f"/api/environments/{self.team.id}/vision/observations/search_suggestions/"
+
+    @parameterized.expand(
+        [
+            (
+                "cross_scanner_caps_each_scanner_and_drops_the_same_story",
+                None,
+                ["coupon rejected", "card declined", "email never arrives"],
+            ),
+            ("one_scanner", "checkout", ["coupon rejected", "card declined", "address form loops"]),
+        ]
+    )
+    def test_suggestions_are_the_largest_active_named_themes(
+        self, _name: str, scanner: str | None, expected: list[str]
+    ) -> None:
+        query = f"?scanner_id={self.checkout.id}" if scanner else ""
+        resp = self.client.get(f"{self.url}{query}")
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"queries": expected})
+
+    @parameterized.expand(
+        [
+            (
+                "cross_scanner_drops_the_unreadable_scanner",
+                "",
+                200,
+                ["coupon rejected", "card declined", "address form loops"],
+            ),
+            ("unreadable_scanner_is_not_found", "signup", 404, None),
+        ]
+    )
+    def test_suggestions_never_name_a_scanner_the_viewer_cannot_read(
+        self, _name: str, scanner: str, status: int, expected: list[str] | None
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="replay_scanner", resource_id=str(self.signup.id), access_level="none"
+        )
+
+        resp = self.client.get(f"{self.url}?scanner_id={self.signup.id}" if scanner else self.url)
+
+        self.assertEqual(resp.status_code, status)
+        if expected is not None:
+            self.assertEqual(resp.json(), {"queries": expected})
+
+    @parameterized.expand([("ai_processing_on", True), ("ai_processing_off", False)])
+    @patch("products.replay_vision.backend.api.observations.warm_query_vectors")
+    def test_a_view_warms_the_suggestions_only_with_ai_processing_on(
+        self, _name: str, approved: bool, mock_warm: MagicMock
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = approved
+        self.organization.save()
+
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/vision/observations/search_viewed/",
+            {"scanner_id": str(self.signup.id)},
+        )
+
+        self.assertEqual(resp.status_code, 204)
+        if approved:
+            mock_warm.assert_called_once_with(ANY, ["discount code refused", "email never arrives"])
+        else:
+            mock_warm.assert_not_called()
+
+
 class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
     @property
     def estimate_url(self) -> str:
@@ -6366,8 +6468,8 @@ class TestScannerActivityLogging(_VisionAPITestCase):
         scanner = self._create_scanner()
         ActivityLog.objects.all().delete()
 
-        scanner.search_suggestions = ["checkout errors"]
-        scanner.save(update_fields=["search_suggestions"])
+        scanner.admission_credits_since_refresh = 7
+        scanner.save(update_fields=["admission_credits_since_refresh"])
 
         self.assertEqual(self._logs(str(scanner.id)), [])
 
