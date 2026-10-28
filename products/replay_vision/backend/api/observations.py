@@ -1260,7 +1260,7 @@ class ReplayObservationViewSet(
         """Record that the calling user opened this observation. Idempotent."""
         observation = self.get_object()
         ReplayObservationView.objects.get_or_create(
-            team_id=observation.team_id, observation=observation, user=request.user
+            team_id=observation.team_id, observation=observation, user=cast(User, request.user)
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 

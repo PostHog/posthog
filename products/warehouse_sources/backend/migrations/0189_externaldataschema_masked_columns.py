@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("warehouse_sources", "0187_repin_teamtailor_api_version")]
+    dependencies = [("warehouse_sources", "0188_reset_trunkio_v2_failing_tests")]
 
     operations = [
         migrations.AddField(
