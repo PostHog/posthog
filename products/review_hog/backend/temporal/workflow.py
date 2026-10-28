@@ -65,6 +65,7 @@ from products.review_hog.backend.temporal.activities import (
     PublishInput,
     PublishResult,
     RecordTurnMarkerInput,
+    RemoveTriggerLabelInput,
     ResolveActingUserInput,
     ReviewChunkInput,
     ReviewMeta,
@@ -99,6 +100,7 @@ from products.review_hog.backend.temporal.activities import (
     publish_review_activity,
     record_turn_marker_activity,
     remove_review_reaction_activity,
+    remove_trigger_label_activity,
     resolve_acting_user_activity,
     review_chunk_activity,
     select_perspectives_activity,
@@ -115,6 +117,7 @@ from products.review_hog.backend.temporal.scheduling import ReviewPRQueueWorkflo
 from products.review_hog.backend.temporal.types import (
     TRIGGER_AUTOMATIC,
     TRIGGER_INBOX,
+    TRIGGER_LABEL,
     ResolvePRWorkflowInputs,
     ReviewPRQueueInputs,
     ReviewPRWorkflowInputs,
@@ -441,8 +444,27 @@ class ReviewPRWorkflow:
             raise ApplicationError(str(e), non_retryable=True, type=cause.type) from e
         finally:
             terminal = completed or non_retryable or _out_of_attempts()
-            # Histories that carry the patch marker replay with deprecate_patch; delete it once those runs drain.
-            workflow.deprecate_patch("remove-reviewhog-trigger-label-2026-08")
+            # Label run histories from before the deploy can hold a scheduled label removal; delete once they drain.
+            if (
+                workflow.patched("remove-reviewhog-trigger-label-2026-08")
+                and terminal
+                and inputs.trigger_source == TRIGGER_LABEL
+                and inputs.pr_number is not None
+            ):
+                try:
+                    await workflow.execute_activity(
+                        remove_trigger_label_activity,
+                        RemoveTriggerLabelInput(
+                            team_id=inputs.team_id,
+                            owner=inputs.owner,
+                            repo=inputs.repo,
+                            pr_number=inputs.pr_number,
+                        ),
+                        start_to_close_timeout=_QUICK_TIMEOUT,
+                        retry_policy=_RETRY,
+                    )
+                except Exception:
+                    workflow.logger.warning("Could not remove the ReviewHog trigger label")
             if self._requests.pending:
                 requests = list(self._requests.pending.values())
                 if not completed and not terminal:

@@ -1,6 +1,7 @@
 import hmac
 import json
 from collections.abc import Mapping
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -24,6 +25,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.review_hog.backend.facade.review_status_types import HeadReviewState, HeadReviewStatus
 from products.review_hog.backend.models import (
     ReviewInstallationClaim,
     ReviewProjectSettings,
@@ -37,12 +39,14 @@ from products.review_hog.backend.pull_request_events import accept_pull_request_
 from products.review_hog.backend.receivers import queue_stamphog_handoff
 from products.review_hog.backend.tasks import process_authored_pr_event, process_stamphog_handoff
 from products.review_hog.backend.webhook_consumers import WEBHOOK_CONSUMERS
-from products.stamphog.backend.facade.review_handoff import RefusedSelfDrivingPullRequest
+from products.stamphog.backend.facade.enums import ReviewRunStatus, ReviewVerdict
+from products.stamphog.backend.facade.finished_review_hooks import FinishedReviewRun
 
 _QUEUE = "products.review_hog.backend.tasks.process_authored_pr_event.delay"
 _HANDOFF_QUEUE = "products.review_hog.backend.tasks.process_stamphog_handoff.delay"
 _START = "products.review_hog.backend.temporal.client.start_review_pr_workflow"
 _BUSY = "products.review_hog.backend.temporal.client.workflow_running"
+_HEAD_STATUS = "products.review_hog.backend.stamphog_handoff.HeadReviewStatusLookup.status"
 _SECRET = "test-review-hog-webhook-secret"
 _HEAD_SHA = "a" * 40
 _DISPATCH_METRIC = "posthog_review_hog_authored_pr_review_total"
@@ -444,19 +448,26 @@ class TestStamphogHandoffTask(BaseTest):
             team=self.team, installation_id=_INSTALLATION_ID, full_name="PostHog/posthog", selected=True
         )
         self.enterContext(patch(_BUSY, return_value=False))
+        self.enterContext(patch(_HEAD_STATUS, return_value=None))
         self.start = self.enterContext(patch(_START))
 
-    def _queued_handoff(self, author_login: str) -> Mapping[str, object]:
-        refused = RefusedSelfDrivingPullRequest(
-            team_id=self.team.id,
-            installation_id=_INSTALLATION_ID,
+    def _finished(self, author_login: str, *, request_external_review: bool = True) -> FinishedReviewRun:
+        return FinishedReviewRun(
+            run_id=uuid4(),
+            team_id=self.team.id + 1000,
             repository="PostHog/posthog",
             pr_number=42,
+            status=ReviewRunStatus.COMPLETED,
+            verdict=ReviewVerdict.REFUSED,
+            head_sha=_HEAD_SHA,
             author_login=author_login,
             head_branch="feature",
+            request_external_review=request_external_review,
         )
+
+    def _queued_handoff(self, author_login: str) -> Mapping[str, object]:
         with patch(_HANDOFF_QUEUE) as enqueue:
-            queue_stamphog_handoff(refused)
+            queue_stamphog_handoff(self._finished(author_login))
         enqueue.assert_called_once()
         return enqueue.call_args.kwargs
 
@@ -476,7 +487,14 @@ class TestStamphogHandoffTask(BaseTest):
             publish=True,
             trigger_source="stamphog",
             review_mode="flash",
+            requested_head_sha=_HEAD_SHA,
         )
+
+    def test_a_finished_run_that_asks_for_no_review_queues_nothing(self) -> None:
+        with patch(_HANDOFF_QUEUE) as enqueue:
+            queue_stamphog_handoff(self._finished("octocat", request_external_review=False))
+
+        enqueue.assert_not_called()
 
     def test_a_handoff_after_a_published_deep_review_runs_deep(self) -> None:
         # A Standard request after a published Deep review is dropped, so the handoff would do nothing.
@@ -497,15 +515,23 @@ class TestStamphogHandoffTask(BaseTest):
         [
             ("repository_not_added", "repository_not_added"),
             ("no_run_user", "no_run_user"),
+            ("head_pending", "head_already_reviewed"),
+            ("head_completed", "head_already_reviewed"),
         ]
     )
-    def test_a_handoff_without_an_owning_project_or_run_user_starts_nothing(self, change: str, outcome: str) -> None:
+    def test_a_handoff_that_has_nothing_to_start_starts_nothing(self, change: str, outcome: str) -> None:
         queued = self._queued_handoff("stranger")
         if change == "repository_not_added":
             self.repository.delete()
-        else:
+        elif change == "no_run_user":
             self.integration.created_by = None
             self.integration.save(update_fields=["created_by"])
+        else:
+            state = HeadReviewState.PENDING if change == "head_pending" else HeadReviewState.COMPLETED
+            status = HeadReviewStatus(
+                state=state, review_kind="", findings_count=0, published=False, head_sha=_HEAD_SHA
+            )
+            self.enterContext(patch(_HEAD_STATUS, return_value=status))
         before = REGISTRY.get_sample_value("posthog_review_hog_stamphog_handoff_total", {"outcome": outcome}) or 0.0
 
         process_stamphog_handoff.run(**queued)

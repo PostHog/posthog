@@ -228,6 +228,7 @@ from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbe
 from products.review_hog.backend.temporal.types import (
     REQUESTED_TRIGGERS,
     TRIGGER_AUTOMATIC,
+    TRIGGER_LABEL,
     TRIGGER_MANUAL,
     TRIGGER_STAMPHOG,
 )
@@ -560,6 +561,14 @@ class PublishResult:
     # publishable no-ops), and its GitHub permalink when known — feeds the code_review artefact.
     posted: bool = False
     review_url: str | None = None
+
+
+@dataclass(frozen=True)
+class RemoveTriggerLabelInput:
+    team_id: int
+    owner: str
+    repo: str
+    pr_number: int
 
 
 @dataclass
@@ -1029,7 +1038,7 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
         acting_user_id, resolved_from = owner.user_id, "author"
         # Stamphog-handoff fallback: the review was explicitly asked for, so borrow the run user the
         # trigger already resolved. Other triggers keep the owner-only contract and skip.
-        if acting_user_id is None and input.trigger_source == TRIGGER_STAMPHOG:
+        if acting_user_id is None and input.trigger_source in (TRIGGER_STAMPHOG, TRIGGER_LABEL):
             acting_user_id, resolved_from = input.default_user_id, "default"
     automatic_allowed = input.trigger_source == TRIGGER_AUTOMATIC and _automatic_review_allowed(input, acting_user_id)
     flash_after_full = _flash_after_full(input)
@@ -2161,6 +2170,32 @@ async def publish_review_activity(input: PublishInput) -> PublishResult:
         return await database_sync_to_async(_publish, thread_sensitive=False)(input)
     except GitHubRateLimitError as error:
         raise _wait_for_github_reset(error) from error
+
+
+_LEGACY_REVIEW_LABEL = "posthog-review"
+
+
+def _remove_trigger_label(input: RemoveTriggerLabelInput) -> None:
+    token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
+    try:
+        github_api_request(
+            "DELETE",
+            f"/repos/{input.owner}/{input.repo}/issues/{input.pr_number}/labels/{_LEGACY_REVIEW_LABEL}",
+            token=token,
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
+            installation_id=installation_id,
+        )
+    except GitHubAPIError as error:
+        if error.status != 404:
+            raise
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def remove_trigger_label_activity(input: RemoveTriggerLabelInput) -> None:
+    """Remove the review label of a label run started before the label trigger was removed."""
+    await database_sync_to_async(_remove_trigger_label, thread_sensitive=False)(input)
 
 
 def _review_event_identity(report: ReviewReport) -> str:

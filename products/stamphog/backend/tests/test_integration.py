@@ -31,8 +31,8 @@ from products.stamphog.backend.facade.enums import (
     ReviewRunStatus,
     ReviewVerdict,
 )
+from products.stamphog.backend.facade.finished_review_hooks import FinishedReviewRun
 from products.stamphog.backend.facade.review_evidence import ReviewEvidence, ReviewEvidenceProvider, ReviewEvidenceState
-from products.stamphog.backend.facade.review_handoff import RefusedSelfDrivingPullRequest
 from products.stamphog.backend.logic.channel_resolution import (
     RoutingContext,
     build_routing_context,
@@ -205,8 +205,12 @@ def _make_pr_with_review(
 @pytest.fixture
 def handoff():
     hook = MagicMock()
-    with patch.object(activities, "get_review_handoff_hooks", return_value=(hook,)):
+    with patch(FINISHED_REVIEW_HOOKS, return_value=(hook,)):
         yield hook
+
+
+def _external_review_requests(hook: MagicMock) -> list[FinishedReviewRun]:
+    return [c.args[0] for c in hook.call_args_list if c.args[0].request_external_review]
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -304,7 +308,7 @@ def test_signed_webhook_drives_review_and_posts_approval(
     assert [r["reaction_id"] for r in removals] == [additions[0]["id"]]
 
     # An APPROVED verdict never hands off to ReviewHog — the handoff is a refusal-only signal.
-    handoff.assert_not_called()
+    assert _external_review_requests(handoff) == []
 
 
 def _api_file(filename: str) -> dict:
@@ -2224,7 +2228,7 @@ def test_refused_verdict_strips_trigger_label_only_in_label_mode(
     # Neither mode hands off to ReviewHog: this PR has a human author who reads the refusal, so a
     # second unrequested bot review is not stamphog's call to make. Only self-driving runs hand off
     # (test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving).
-    handoff.assert_not_called()
+    assert _external_review_requests(handoff) == []
 
 
 @pytest.mark.parametrize(
@@ -2278,19 +2282,8 @@ def test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving(
 
     run.refresh_from_db()
     assert run.verdict == ReviewVerdict.REFUSED
-    expected = [
-        call(
-            RefusedSelfDrivingPullRequest(
-                team_id=team.id,
-                installation_id=repo_config.installation_id,
-                repository=REPO,
-                pr_number=101,
-                author_login="devex-dev",
-                head_branch="",
-            )
-        )
-    ]
-    assert handoff.call_args_list == (expected if expect_handoff else [])
+    requests = [(r.repository, r.pr_number, r.head_sha) for r in _external_review_requests(handoff)]
+    assert requests == ([(REPO, 101, head_sha)] if expect_handoff else [])
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

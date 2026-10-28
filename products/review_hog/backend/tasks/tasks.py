@@ -54,16 +54,16 @@ def process_authored_pr_event(
 )
 def process_stamphog_handoff(
     *,
-    installation_id: str,
     repository: str,
     pr_number: int,
+    head_sha: str,
     author_login: str,
     head_branch: str,
 ) -> None:
     StamphogHandoff(
-        installation_id=installation_id,
         repository=repository,
         pr_number=pr_number,
+        head_sha=head_sha,
         author_login=author_login,
         head_branch=head_branch,
     ).start()

@@ -46,13 +46,16 @@ from products.review_hog.backend.preferences import ReviewPreferences
 from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.report_generation.priority import persisted_report_priority
+from products.stamphog.backend.facade.finished_review_hooks import (
+    FinishedReviewRun,
+    register_finished_review_hook as register_stamphog_finished_review_hook,
+)
 from products.stamphog.backend.facade.inbox_hooks import register_inbox_acting_reviewer_resolver
 from products.stamphog.backend.facade.review_evidence import (
     ReviewEvidence,
     ReviewEvidenceState,
     register_review_evidence_provider,
 )
-from products.stamphog.backend.facade.review_handoff import RefusedSelfDrivingPullRequest, register_review_handoff_hook
 from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
 
 # This module loads during django.setup() (AppConfig.ready() wires the receiver), and
@@ -75,21 +78,23 @@ def connect() -> None:
     # Stamphog waits for a pending review of the head it judges and counts a completed one as
     # assurance. The same dependency cycle rules out a direct import.
     register_review_evidence_provider(review_evidence_for_stamphog)
-    # Stamphog hands a refused or escalated self-driving PR over for a review. The same dependency
+    # Stamphog asks for a review of a self-driving PR it refused or escalated. The same dependency
     # cycle rules out a direct import.
-    register_review_handoff_hook(queue_stamphog_handoff)
+    register_stamphog_finished_review_hook(queue_stamphog_handoff)
 
 
-def queue_stamphog_handoff(refused: RefusedSelfDrivingPullRequest) -> None:
-    """Queue the review Stamphog hands over, off Stamphog's activity."""
+def queue_stamphog_handoff(finished: FinishedReviewRun) -> None:
+    """Queue the review Stamphog asks for, off Stamphog's activity."""
+    if not finished.request_external_review:
+        return
     from products.review_hog.backend.tasks import process_stamphog_handoff  # noqa: PLC0415
 
     process_stamphog_handoff.delay(
-        installation_id=refused.installation_id,
-        repository=refused.repository,
-        pr_number=refused.pr_number,
-        author_login=refused.author_login,
-        head_branch=refused.head_branch,
+        repository=finished.repository,
+        pr_number=finished.pr_number,
+        head_sha=finished.head_sha,
+        author_login=finished.author_login,
+        head_branch=finished.head_branch,
     )
 
 

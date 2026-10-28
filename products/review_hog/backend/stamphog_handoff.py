@@ -1,13 +1,15 @@
 """The Stamphog handoff: Stamphog refused or escalated a self-driving pull request, so PostHog Review
-reviews it. The review is Standard, or Deep once the pull request has a published Deep review.
+reviews the head Stamphog judged. The review is Standard, or Deep once the pull request has a published
+Deep review.
 
-Stamphog calls the hook `receivers.py` registers, after the refusal wins its terminal save. The hook
-queues a Celery task, and the task starts the review here.
+Stamphog calls the finished-review callback `receivers.py` registers, after the refusal wins its terminal
+save. The callback queues a Celery task, and the task starts the review here.
 
-- The review runs in the project that owns the repository (`ownership.py`), which can differ from
-  the Stamphog project.
+- The review runs in the project that owns the repository (`ownership.py`), found by name. Stamphog's
+  project and GitHub App installation play no part.
 - It runs as the pull request owner (`pr_owner.py`). Without an owner it runs as the person who
   connected the installation, with default settings and no resolution.
+- A head that already has a pending or completed review is not reviewed again.
 """
 
 import logging
@@ -20,7 +22,9 @@ from posthog.models.integration import Integration
 from posthog.otel_metrics import OtelInstrumentFactory
 
 from products.review_hog.backend.automatic_reviews import connector_user_id
-from products.review_hog.backend.ownership import RepositoryOwnership, RepositoryRef
+from products.review_hog.backend.facade.review_status_types import HeadReviewState
+from products.review_hog.backend.head_review_status import HeadReviewStatusLookup
+from products.review_hog.backend.ownership import RepositoryOwnership
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.review_request_rules import trigger_review_mode
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FULL
@@ -31,7 +35,8 @@ _otel = OtelInstrumentFactory("review_hog")
 
 StamphogHandoffOutcome = Literal[
     "repository_not_added",
-    "installation_mismatch",
+    "integration_missing",
+    "head_already_reviewed",
     "no_run_user",
     "resolution_running",
     "started",
@@ -53,16 +58,12 @@ def _observe(outcome: StamphogHandoffOutcome) -> None:
 
 @frozen
 class StamphogHandoff:
-    installation_id: str
     repository: str
     pr_number: int
+    head_sha: str
     author_login: str
     # Stamphog reviews only same-repository pull requests, so the head branch is in the base repository.
     head_branch: str
-
-    @property
-    def ref(self) -> RepositoryRef:
-        return RepositoryRef(installation_id=self.installation_id, github_repo_id=None, full_name=self.repository)
 
     def start(self) -> None:
         # The temporal package registers the activities, which pull in the sandbox runtime.
@@ -76,18 +77,25 @@ class StamphogHandoff:
             review_pr_workflow_id,
         )
 
-        owner = RepositoryOwnership.find(self.ref)
+        owner = RepositoryOwnership.find_by_name(self.repository)
         if owner is None:
             _observe("repository_not_added")
             return
         team_id = owner.team_id
-        if not Integration.objects.filter(team_id=team_id, kind="github", integration_id=self.installation_id).exists():
-            _observe("installation_mismatch")
+        if not Integration.objects.filter(
+            team_id=team_id, kind="github", integration_id=owner.installation_id
+        ).exists():
+            _observe("integration_missing")
+            return
+        # A lookup that fails raises, so the task retries instead of reading an outage as "no review".
+        status = HeadReviewStatusLookup(team_id, self.repository, self.pr_number, self.head_sha).status()
+        if status is not None and status.state in (HeadReviewState.PENDING, HeadReviewState.COMPLETED):
+            _observe("head_already_reviewed")
             return
         pr_owner = PullRequestOwnerResolver.resolve(
             team_id, repository=self.repository, author_login=self.author_login, head_branch=self.head_branch
         )
-        run_user_id = pr_owner.user_id or connector_user_id(team_id=team_id, installation_id=self.installation_id)
+        run_user_id = pr_owner.user_id or connector_user_id(team_id=team_id, installation_id=owner.installation_id)
         if run_user_id is None:
             _observe("no_run_user")
             return
@@ -111,6 +119,7 @@ class StamphogHandoff:
             publish=True,
             trigger_source=TRIGGER_STAMPHOG,
             review_mode=review_mode,
+            requested_head_sha=self.head_sha,
         )
         # Standard is excluded for the same reason as on the comment path: the lift rewrites the
         # persisted arm, so the cheaper review must not raise what later turns cost.

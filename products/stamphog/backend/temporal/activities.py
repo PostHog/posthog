@@ -72,7 +72,6 @@ from products.stamphog.backend.facade.review_evidence import (
     ReviewEvidenceState,
     get_review_evidence_providers,
 )
-from products.stamphog.backend.facade.review_handoff import RefusedSelfDrivingPullRequest, get_review_handoff_hooks
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.engine_pregate import (
@@ -1925,41 +1924,19 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         return {"verdict": "skipped_superseded"}
 
     # Right after the save wins: the GitHub steps below can still fail the activity, and the
-    # outcome must not wait on them.
-    _notify_finished_review(run, input.team_id, ReviewRunStatus(run.status))
-
-    # Hand a refused/escalated PR to ReviewHog only AFTER the refusal verdict wins the terminal save
-    # above — running it before would trigger ReviewHog for a stale refusal that a superseding delivery
-    # then overrode (a newer run might approve the same head). ReviewHog starts its review from the
-    # registered handoff hook.
+    # outcome must not wait on them. Running it before the save would hand a stale refusal to
+    # ReviewHog after a superseding delivery overrode it (a newer run might approve the same head).
     #
-    # Only self-driving runs hand off. A human PR has an author who reads the refusal and decides what
-    # to do about it, and in ALL mode the handoff would fire on PRs nobody asked stamphog to look at.
-    # A self-driving PR has no such author — the refusal sits unread until Inbox triage — so ReviewHog's
-    # deeper review is the next step rather than a second unrequested opinion.
-    #
-    # This is a secondary, cross-product notification that must never jeopardize the verdict — the
-    # refusal is already durably saved, so it is single-shot best-effort: a hook belongs to another
-    # product, and catching every exception it raises keeps a retry from re-running the side effects
-    # above. The sticky upsert above is idempotent, so a missed handoff is a missed handoff, not corruption.
-    if is_refusal and trigger == ReviewTrigger.SELF_DRIVING.value:
-        refused = RefusedSelfDrivingPullRequest(
-            team_id=input.team_id,
-            installation_id=repo_config.installation_id,
-            repository=repo,
-            pr_number=pull_request.pr_number,
-            author_login=pull_request.author_login,
-            head_branch=pull_request.head_branch,
-        )
-        for hook in get_review_handoff_hooks():
-            try:
-                hook(refused)
-            except Exception:
-                # Format repo/pr into the message — activity.logger is a stdlib LoggerAdapter that
-                # raises TypeError on arbitrary kwargs, which would escape this best-effort catch.
-                activity.logger.exception(
-                    f"stamphog: reviewhog handoff failed for {repo}#{pull_request.pr_number}; verdict still posted"
-                )
+    # Only a self-driving refusal asks for an external review. A human PR has an author who reads the
+    # refusal and decides what to do about it, and in ALL mode the handoff would fire on PRs nobody
+    # asked stamphog to look at. A self-driving PR has no such author — the refusal sits unread until
+    # Inbox triage — so ReviewHog's deeper review is the next step rather than a second unrequested opinion.
+    _notify_finished_review(
+        run,
+        input.team_id,
+        ReviewRunStatus(run.status),
+        request_external_review=is_refusal and trigger == ReviewTrigger.SELF_DRIVING.value,
+    )
 
     # Close the merge-before-approval race only AFTER this run's APPROVED verdict is durably saved. If
     # the PR auto-merged the instant GitHub recorded the approval, the closed webhook may run before this
@@ -1985,7 +1962,9 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     return {"verdict": str(parsed.verdict), "waited_on_external_review": _waited_on_external_review(run)}
 
 
-def _notify_finished_review(run: ReviewRun, team_id: int, status: ReviewRunStatus) -> None:
+def _notify_finished_review(
+    run: ReviewRun, team_id: int, status: ReviewRunStatus, *, request_external_review: bool = False
+) -> None:
     """Tell the registered callbacks the outcome the run just saved. Called after the terminal save."""
     pull_request = run.pull_request
     finished = FinishedReviewRun(
@@ -1995,6 +1974,10 @@ def _notify_finished_review(run: ReviewRun, team_id: int, status: ReviewRunStatu
         pr_number=pull_request.pr_number,
         status=status,
         verdict=ReviewVerdict(run.verdict),
+        head_sha=run.head_sha,
+        author_login=pull_request.author_login,
+        head_branch=pull_request.head_branch,
+        request_external_review=request_external_review,
     )
     for hook in get_finished_review_hooks():
         # A callback belongs to another product, and the outcome is already saved and posted.

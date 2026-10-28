@@ -907,9 +907,11 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   settings comes from the core GitHub integration's cached repository list (`repository_overview`), which the
   core `installation_repositories` webhook keeps fresh. A repository write must match a name and id in that list,
   so a project cannot reserve a repository id the installation does not report.
-- **Stamphog handoff** — Stamphog calls the hook `receivers.py` registers in its `facade/review_handoff.py`
-  (`backend/stamphog_handoff.py`). No label, GitHub Action, shared secret, or environment variable is involved. See
-  the triggers paragraph below.
+- **Stamphog handoff** — Stamphog calls the finished-review callback `receivers.py` registers in its
+  `facade/finished_review_hooks.py`, and the run carries `request_external_review` (`backend/stamphog_handoff.py`).
+  The handoff finds the owning project by repository name and reviews the head Stamphog judged, unless that head
+  already has a pending or completed review. No label, GitHub Action, shared secret, or environment variable is
+  involved. See the triggers paragraph below.
 - **Automatic authored-PR trigger** runs in the owning project and requires that project's GitHub integration for
   the delivery's installation. The rules in `backend/automatic_review_rules.py` decide, highest first: the
   author's choice for the repository (`ReviewUserRepositoryChoice`, flash/off, stored only when it differs from

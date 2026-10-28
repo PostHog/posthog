@@ -300,7 +300,7 @@ _TIER_BY_PRIORITY: dict[ReportPriority, ReviewTier] = {
 # (`upsert_review_report`). Spelled out here because persistence cannot import the temporal
 # package (its `__init__` imports the activities, which import persistence); `test_constants.py`
 # locks the set to the trigger constants.
-HUMAN_TRIGGER_SOURCES = frozenset({"stamphog", "manual", "ui", "comment"})
+HUMAN_TRIGGER_SOURCES = frozenset({"stamphog", "label", "manual", "ui", "comment"})
 
 
 def select_review_tier(*, agent_pr: bool, signal_priority: ReportPriority | None) -> ReviewTier:
