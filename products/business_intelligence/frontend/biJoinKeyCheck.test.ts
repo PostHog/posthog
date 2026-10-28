@@ -19,8 +19,22 @@ it('quotes table names and refuses expression keys instead of checking a differe
     expect(
         joinKeyCheckQuery({ id: 'example', joining_table_name: 'example orders', joining_table_key: 'id' })
     ).toContain('FROM "example orders"')
-    expect(
-        joinKeyCheckQuery({ id: 'example', joining_table_name: 'example_accounts', joining_table_key: 'lower(email)' })
-    ).toBeNull()
+    for (const key of [
+        '"Account ID"',
+        'properties."account-id"',
+        '"account.id"',
+        '`Account ID`',
+        '"account""id"',
+        '"account\\"id"',
+    ]) {
+        expect(
+            joinKeyCheckQuery({ id: 'example', joining_table_name: 'example_accounts', joining_table_key: key })
+        ).toContain(`SELECT ${key} AS join_key`)
+    }
+    for (const key of ['lower(email)', '"id', '"id"; SELECT 1', 'id -- comment', 'id + 1']) {
+        expect(
+            joinKeyCheckQuery({ id: 'example', joining_table_name: 'example_accounts', joining_table_key: key })
+        ).toBeNull()
+    }
     expect(joinKeyCheckQuery({ id: 'example', joining_table_name: 'example_accounts' })).toBeNull()
 })
