@@ -29,7 +29,8 @@ ISSUE_SUMMARY_WRITE_BUDGET = Budget(burst=200, per_hour=60)
 # A changed input hash regenerates a summary at most this often.
 ISSUE_SUMMARY_MIN_REGENERATE_INTERVAL = timedelta(hours=24)
 
-# Holds one generation per issue at a time. It is never released, so it also spaces out retries after a failure.
+# Holds one generation per issue at a time. A read never releases its claim, so the lock also spaces out read retries
+# after a failure. A write that leaves no summary deletes its claim, so it never delays a read.
 ISSUE_SUMMARY_LOCK_TTL_SECONDS = 300
 # Marks a queued task until a worker claims it, so page polls queue at most one task per issue in this window.
 # A lost task keeps reads on "generating" for this long, so it stays short.

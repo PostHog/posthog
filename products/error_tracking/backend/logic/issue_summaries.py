@@ -506,6 +506,7 @@ def _get_or_generate_counted(
         team_id=team_id,
         issue_id=str(issue_id),
         outcome=result.outcome.value,
+        trigger=generation.trigger.value,
         has_summary=result.summary is not None,
         **timings.ms,
     )
@@ -522,7 +523,8 @@ def _get_or_generate(
     if (held := _claim_generation(team_id, issue_id, claim)) is not None:
         return IssueSummaryResult(outcome=held, summary=stored)
 
-    # A write attempt that leaves no summary deletes its claim, so the write budget or a write failure never holds a read.
+    # A write attempt that leaves no summary deletes its claim instead of writing its outcome to the lock.
+    # The next read then generates at once, so the write budget or a write failure never blocks a read.
     release = generation.trigger == IssueSummaryTrigger.WRITE
     try:
         result = _generate_claimed(team_id, issue_id, generation, timings)

@@ -150,7 +150,8 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
             if workflow.patched(ALERT_DISPATCH_PATCH)
             else None
         )
-        # Patched for the same reason. Nothing waits for the summary.
+        # Patched for the same reason. The alert and the emit activities do not wait for the summary.
+        # The workflow awaits it before it completes, because a task left unawaited is dropped when the workflow returns.
         summary = (
             asyncio.create_task(self._generate_summary(inputs)) if workflow.patched(SUMMARY_ON_WRITE_PATCH) else None
         )
