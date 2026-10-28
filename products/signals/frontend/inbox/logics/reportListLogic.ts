@@ -117,8 +117,8 @@ function teammateUuidFromScope(scope: string): string | undefined {
 function requestContextFromValues(values: {
     scope: InboxScope
     searchQuery: string
-    sourceProductFilter: string[]
-    scoutFilter: string[]
+    activeSourceProductFilter: string[]
+    activeScoutFilter: string[]
     priorityFilter: SignalReportPriority[]
     activeSortField: InboxSortField
     activeSortDirection: InboxSortDirection
@@ -128,8 +128,8 @@ function requestContextFromValues(values: {
         scope: values.scope,
         hasActiveFilters:
             values.searchQuery.trim().length > 0 ||
-            values.sourceProductFilter.length > 0 ||
-            values.scoutFilter.length > 0 ||
+            values.activeSourceProductFilter.length > 0 ||
+            values.activeScoutFilter.length > 0 ||
             values.priorityFilter.length > 0 ||
             values.activeCreatedWindow !== null,
         sortField: values.activeSortField,
@@ -165,15 +165,15 @@ export function shouldDefaultToEntireProject(input: {
 export interface reportListLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     activeCreatedWindow: InboxCreatedWindow | null // inboxFiltersLogic
+    activeScoutFilter: string[] // inboxFiltersLogic
     activeSortDirection: InboxSortDirection // inboxFiltersLogic
     activeSortField: InboxSortField // inboxFiltersLogic
+    activeSourceProductFilter: string[] // inboxFiltersLogic
     hasUserChosenScope: boolean // inboxFiltersLogic
     isScopedToMe: boolean // inboxFiltersLogic
     priorityFilter: SignalReportPriority[] // inboxFiltersLogic
     scope: InboxScope // inboxFiltersLogic
-    scoutFilter: string[] // inboxFiltersLogic
     searchQuery: string // inboxFiltersLogic
-    sourceProductFilter: string[] // inboxFiltersLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
     count: number | null
@@ -233,6 +233,12 @@ export interface reportListLogicActions {
     ) => {
         direction: InboxSortDirection
         field: InboxSortField
+    } // inboxFiltersLogic
+    setSourceFilter: (selection: null | import('./inboxFiltersLogic').InboxSourceSelection) => {
+        selection: null | import('./inboxFiltersLogic').InboxSourceSelection
+    } // inboxFiltersLogic
+    sourceFilterAvailabilityChanged: () => {
+        value: true
     } // inboxFiltersLogic
     togglePriority: (priority: SignalReportPriority) => {
         priority: SignalReportPriority
@@ -380,8 +386,8 @@ export interface reportListLogicMeta {
             searchQuery: string,
             activeSortField: InboxSortField,
             activeSortDirection: InboxSortDirection,
-            sourceProductFilter: string[],
-            scoutFilter: string[],
+            activeSourceProductFilter: string[],
+            activeScoutFilter: string[],
             priorityFilter: SignalReportPriority[],
             scopeReviewerUuid: string | undefined,
             scopeAssignee: 'mine' | undefined,
@@ -436,8 +442,8 @@ export const reportListLogic = kea<reportListLogicType>([
                 'searchQuery',
                 'activeSortField',
                 'activeSortDirection',
-                'sourceProductFilter',
-                'scoutFilter',
+                'activeSourceProductFilter',
+                'activeScoutFilter',
                 'priorityFilter',
                 'activeCreatedWindow',
             ],
@@ -456,6 +462,8 @@ export const reportListLogic = kea<reportListLogicType>([
                 'resetUnavailableSort',
                 'toggleSourceProduct',
                 'toggleScout',
+                'setSourceFilter',
+                'sourceFilterAvailabilityChanged',
                 'togglePriority',
                 'setPriorityFilter',
                 'setScope',
@@ -666,8 +674,8 @@ export const reportListLogic = kea<reportListLogicType>([
                 s.searchQuery,
                 s.activeSortField,
                 s.activeSortDirection,
-                s.sourceProductFilter,
-                s.scoutFilter,
+                s.activeSourceProductFilter,
+                s.activeScoutFilter,
                 s.priorityFilter,
                 s.scopeReviewerUuid,
                 s.scopeAssignee,
@@ -896,6 +904,8 @@ export const reportListLogic = kea<reportListLogicType>([
         applyDefaultCreatedWindow: () => actions.refresh(),
         toggleSourceProduct: () => actions.refresh(),
         toggleScout: () => actions.refresh(),
+        setSourceFilter: () => actions.refresh(),
+        sourceFilterAvailabilityChanged: () => actions.refresh(),
         togglePriority: () => actions.refresh(),
         setPriorityFilter: () => actions.refresh(),
         setScope: () => actions.refresh(),
