@@ -673,6 +673,7 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
  * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export const featureFlagsPartialUpdateBodyFiltersOneEarlyExitDefault = false
+export const featureFlagsPartialUpdateBodyVersionMin = 0
 
 export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
     key: zod.string().optional().describe('Feature flag key.'),
@@ -1035,6 +1036,13 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID"
+        ),
+    version: zod
+        .number()
+        .min(featureFlagsPartialUpdateBodyVersionMin)
+        .optional()
+        .describe(
+            "The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2: the update is then refused with 409 if anyone else changed the flag after that version. Other flags do not check it."
         ),
 })
 

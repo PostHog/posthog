@@ -97,7 +97,7 @@ When it is a walkthrough:
 - Add "Show the walkthrough (Step 5)" as the last item of your plan or to-do list.
 - Keep the `TrendsQuery` behind each finding, such as an event count with a breakdown or a property filter.
   The walkthrough draws a `TrendsQuery` as a chart beside the finding, and any other query only as a link.
-  Use SQL for the findings that a `TrendsQuery` cannot express.
+  Use SQL for the findings that a `TrendsQuery` cannot express, and pass its numbers as the evidence's `chart` so they draw too.
 
 ## Step 2 — Common opening moves
 
@@ -159,6 +159,7 @@ Map the investigation onto it:
 - **Evidence** → `evidence`, each finding with the `query` that produced it, or a `url`
   for a commit or a deploy. Pass the `TrendsQuery` you ran where you have one: the
   walkthrough draws it as a chart, while any other query only becomes a link.
+  For a finding from SQL, also pass `chart` with the numbers from its result: `line` over time or `bar` per label, the `labels`, and one `series` per line.
 - A **headline** of one sentence with no numbers sums up the whole chart.
   Wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in `**double asterisks**` so the walkthrough highlights it.
   Do the same in each `cause`.

@@ -2305,6 +2305,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `no_metric` - No Metric
  * * `metric_event_not_ingested` - Metric Event Not Ingested
  * * `metric_cannot_compile` - Metric Cannot Compile
+ * * `metric_calculation_failed` - Metric Calculation Failed
  * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
  * * `srm` - Sample Ratio Mismatch
  * * `zero_exposures` - Zero Exposures
@@ -2329,6 +2330,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     NoMetric: 'no_metric',
     MetricEventNotIngested: 'metric_event_not_ingested',
     MetricCannotCompile: 'metric_cannot_compile',
+    MetricCalculationFailed: 'metric_calculation_failed',
     ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
     Srm: 'srm',
     ZeroExposures: 'zero_exposures',
@@ -2396,6 +2398,7 @@ export interface ExperimentHealthFindingApi {
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
@@ -2445,6 +2448,7 @@ export interface ExperimentHealthFindingApi {
  * * `no_metric` - No Metric
  * * `metric_event_not_ingested` - Metric Event Not Ingested
  * * `metric_cannot_compile` - Metric Cannot Compile
+ * * `metric_calculation_failed` - Metric Calculation Failed
  * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
  * * `early_significance` - Early Significance
  * * `zero_exposures` - Zero Exposures
@@ -2467,6 +2471,7 @@ export const ExperimentHealthCheckKeyEnumApi = {
     NoMetric: 'no_metric',
     MetricEventNotIngested: 'metric_event_not_ingested',
     MetricCannotCompile: 'metric_cannot_compile',
+    MetricCalculationFailed: 'metric_calculation_failed',
     ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
     EarlySignificance: 'early_significance',
     ZeroExposures: 'zero_exposures',
@@ -2505,6 +2510,7 @@ export interface ExperimentHealthCheckResultApi {
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
@@ -3287,6 +3293,40 @@ export interface ExperimentHealthInputsMetricCompilesApi {
     failures: ExperimentHealthInputsMetricCompileFailureApi[]
 }
 
+export interface ExperimentHealthInputsMetricCalculationFailureApi {
+    /** The metric's name as the experiment shows it. */
+    name: string
+    /** 'primary' or 'secondary'. */
+    role: string
+    /**
+     * The class that the calculation stored for the error, such as 'timeout' or 'rate_limited'. Null for a failure stored without a class.
+     * @nullable
+     */
+    error_type: string | null
+    /**
+     * The step of the calculation that failed, such as 'calculation'. Null when the failure names none.
+     * @nullable
+     */
+    step: string | null
+    /** Whether the results page shows a button to try the metric again, which it does for a retriable error. */
+    retriable: boolean
+    /**
+     * The stored message as the results page shows it, without the names that HogQL suggests and the list of a scope's fields. Null when it can hold evaluation rules that the AI evaluation markers keep out of the browser.
+     * @nullable
+     */
+    message: string | null
+}
+
+export interface ExperimentHealthInputsLatestCalculationApi {
+    /**
+     * When the latest calculation that the results page shows finished. Null when none has finished.
+     * @nullable
+     */
+    finished_at: string | null
+    /** The metrics whose latest calculation failed, with the error that the results page shows. */
+    failures: ExperimentHealthInputsMetricCalculationFailureApi[]
+}
+
 /**
  * * `split` - Split
  * * `bucketing` - Bucketing
@@ -3704,6 +3744,8 @@ export interface ExperimentHealthInputsApi {
     events_received: ExperimentHealthInputsApiEventsReceived
     /** The compile of each metric's query without running it, as the reader, which the metric queries check reads. A metric that compiles is cached per reader for a day, and a failing metric compiles again on every request. Null when the compile itself failed. */
     metric_compiles: ExperimentHealthInputsMetricCompilesApi | null
+    /** The latest finished calculation of the metrics, which the metric results check reads. Null before launch, on an archived experiment, or when the read failed. */
+    latest_calculation: ExperimentHealthInputsLatestCalculationApi | null
     /** The changes of the flag since launch that can move exposed people. Null when the experiment is not running, is archived, its flag is missing or deleted, or the read failed. */
     flag_history: ExperimentHealthInputsFlagHistoryApi | null
     /** Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the experiment is launched and some but not all release conditions pin a variant that has a share of the split and is not excluded from the analysis. The release-condition check needs it when such an override was removed after launch.
