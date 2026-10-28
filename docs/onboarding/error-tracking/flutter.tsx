@@ -3,10 +3,12 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 import { getFlutterSteps as getFlutterStepsPA } from '../product-analytics/flutter'
 import { StepDefinition } from '../steps'
 
+const FLUTTER_ERROR_TRACKING_MIN_VERSION = '5.58.0'
+
 export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
 
-    const installSteps = getFlutterStepsPA(ctx)
+    const installSteps = getFlutterStepsPA(ctx, FLUTTER_ERROR_TRACKING_MIN_VERSION)
 
     const exceptionAutocaptureStep: StepDefinition = {
         title: 'Set up exception autocapture',
@@ -22,7 +24,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                 </CalloutBox>
                 <Markdown>
                     {dedent`
-                        Dart AOT symbolication and background isolate listeners require \`posthog_flutter\` 5.58.0 or later. If your project uses an earlier version, set \`posthog_flutter: ^5.58.0\` in \`pubspec.yaml\` and run \`flutter pub get\`.
+                        Dart AOT symbolication and background isolate listeners require \`posthog_flutter\` ${FLUTTER_ERROR_TRACKING_MIN_VERSION} or later. If your project uses an earlier version, set \`posthog_flutter: ^${FLUTTER_ERROR_TRACKING_MIN_VERSION}\` in \`pubspec.yaml\` and run \`flutter pub get\`.
                     `}
                 </Markdown>
                 <Markdown>
