@@ -9,8 +9,11 @@ from products.mcp_analytics.backend.intent_topics.corpus import DistinctIntent
 from products.mcp_analytics.backend.intent_topics.embedding_sync import emit_intent_embeddings, select_intents_to_emit
 
 
-def _intent(text: str, calls: int = 1, tool: str = "query-trends") -> DistinctIntent:
-    return DistinctIntent(hash=f"hash-{text}", text=text, calls=calls, top_tool=tool, intent_source="context_parameter")
+def _intent(text: str, calls: int = 1) -> DistinctIntent:
+    return DistinctIntent(hash=f"hash-{text}", text=text, calls=calls)
+
+
+NOW = datetime(2026, 10, 19, 10, 0, tzinfo=UTC)
 
 
 class TestSelectIntentsToEmit:
@@ -24,14 +27,12 @@ class TestSelectIntentsToEmit:
 
 class TestEmitIntentEmbeddings(APIBaseTest):
     @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
-    def test_emits_one_request_per_intent_with_the_256_model_and_metadata(self, mock_emit) -> None:
+    def test_emits_one_request_per_intent_with_the_256_model_and_only_the_call_count(self, mock_emit) -> None:
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         now = datetime(2026, 10, 19, 10, 0, tzinfo=UTC)
 
-        emitted = emit_intent_embeddings(
-            self.team, [_intent("list flags", calls=3, tool="feature-flag-get-all")], now=now
-        )
+        emitted = emit_intent_embeddings(self.team, [_intent("list flags", calls=3)], now=now)
 
         assert emitted == 1
         mock_emit.assert_called_once_with(
@@ -43,7 +44,7 @@ class TestEmitIntentEmbeddings(APIBaseTest):
             document_id="hash-list flags",
             models=["text-embedding-3-small-256"],
             timestamp=now,
-            metadata={"calls": 3, "tool": "feature-flag-get-all", "intent_source": "context_parameter"},
+            metadata={"calls": 3},
         )
 
     @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
@@ -52,7 +53,7 @@ class TestEmitIntentEmbeddings(APIBaseTest):
         self.organization.save()
 
         try:
-            emit_intent_embeddings(self.team, [_intent("a")], now=datetime.now(tz=UTC))
+            emit_intent_embeddings(self.team, [_intent("a")], now=NOW)
         except IntentGenerationUnavailable:
             pass
         else:
@@ -64,7 +65,7 @@ class TestEmitIntentEmbeddings(APIBaseTest):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
 
-        assert emit_intent_embeddings(self.team, [], now=datetime.now(tz=UTC)) == 0
+        assert emit_intent_embeddings(self.team, [], now=NOW) == 0
         mock_emit.assert_not_called()
 
     @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
@@ -78,6 +79,6 @@ class TestEmitIntentEmbeddings(APIBaseTest):
         mock_emit.side_effect = [delivered, failed]
 
         with pytest.raises(KafkaException):
-            emit_intent_embeddings(self.team, [_intent("a"), _intent("b")], now=datetime.now(tz=UTC))
+            emit_intent_embeddings(self.team, [_intent("a"), _intent("b")], now=NOW)
 
         delivered.get.assert_called_once()

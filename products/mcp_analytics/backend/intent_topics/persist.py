@@ -19,6 +19,8 @@ from products.mcp_analytics.backend.intent_topics.topic_registry import Existing
 from products.mcp_analytics.backend.models import MCPIntentClusteringRun, MCPIntentTopic
 
 PCA_BASIS_PARAM = "pca_basis"
+# Runs are stored on the project, so each run records the environment whose events it read.
+SOURCE_TEAM_PARAM = "source_team_id"
 
 
 @dataclass(frozen=True)
@@ -57,13 +59,27 @@ def start_run(
     team: Team, *, kind: str, run_id: str, window_start: datetime, window_end: datetime
 ) -> MCPIntentClusteringRun:
     return MCPIntentClusteringRun.objects.create(
-        team=project_team(team), kind=kind, run_id=run_id, window_start=window_start, window_end=window_end
+        team=project_team(team),
+        kind=kind,
+        run_id=run_id,
+        window_start=window_start,
+        window_end=window_end,
+        params={SOURCE_TEAM_PARAM: team.pk},
     )
 
 
-def finish_run(run: MCPIntentClusteringRun, *, status: str, error_message: str = "", **counts: int) -> None:
+def finish_run(
+    run: MCPIntentClusteringRun,
+    *,
+    status: str,
+    error_message: str = "",
+    window_end: datetime | None = None,
+    **counts: int,
+) -> None:
     run.status = status
     run.error_message = error_message
+    if window_end is not None:
+        run.window_end = window_end
     for name, value in counts.items():
         setattr(run, name, value)
     run.finished_at = timezone.now()

@@ -7,6 +7,7 @@
 """
 
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -14,6 +15,7 @@ import numpy as np
 import structlog
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -35,6 +37,7 @@ from products.mcp_analytics.backend.intent_topics.constants import (
     EMBEDDING_PRODUCT,
     FIT_LOOKBACK_DAYS,
     FIT_SAMPLE_SIZE,
+    MAX_INTENTS_PER_SYNC,
     MIN_INTENTS_FOR_FIT,
 )
 from products.mcp_analytics.backend.intent_topics.topic_registry import match_clusters_to_topics
@@ -54,15 +57,21 @@ def _query_tags(team: Team):  # noqa: ANN202
 DEFAULT_SYNC_LOOKBACK = timedelta(hours=1, minutes=15)
 SYNC_RESUME_OVERLAP = timedelta(minutes=15)
 MAX_SYNC_CATCH_UP = timedelta(days=3)
+SYNC_SLICE = timedelta(hours=1)
 
 
 def sync_window_start(team: Team, *, now: datetime) -> datetime:
-    """Where the next sync starts: just before the last successful sync's end, so missed runs are drained.
+    """Where the next sync starts: just before this environment's last successful sync end, so missed runs are drained.
 
     The catch-up is bounded; a longer outage drops intents older than MAX_SYNC_CATCH_UP that never recur.
     """
     last = (
-        MCPIntentClusteringRun.objects.filter(team=persist.project_team(team), kind=Kind.SYNC, status=Status.SUCCEEDED)
+        MCPIntentClusteringRun.objects.filter(
+            team=persist.project_team(team),
+            kind=Kind.SYNC,
+            status=Status.SUCCEEDED,
+            **{f"params__{persist.SOURCE_TEAM_PARAM}": team.pk},
+        )
         .exclude(window_end=None)
         .order_by("-window_end")
         .values_list("window_end", flat=True)
@@ -78,7 +87,21 @@ def _run_id(kind: str, now: datetime) -> str:
     return f"{kind}-{now.strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:6]}"
 
 
-def _run_sync(team: Team, *, window_start: datetime, window_end: datetime) -> RunOutcome:
+@dataclass(frozen=True)
+class SyncSlice:
+    start: datetime
+    end: datetime
+
+
+def _sync_slices(window_start: datetime, window_end: datetime) -> Iterator[SyncSlice]:
+    cursor = window_start
+    while cursor < window_end:
+        slice_end = min(cursor + SYNC_SLICE, window_end)
+        yield SyncSlice(start=cursor, end=slice_end)
+        cursor = slice_end
+
+
+def _run_sync(team: Team, *, window_start: datetime, window_end: datetime, budget: int, page_size: int) -> RunOutcome:
     run = persist.start_run(
         team, kind=Kind.SYNC, run_id=_run_id(Kind.SYNC, window_end), window_start=window_start, window_end=window_end
     )
@@ -87,16 +110,37 @@ def _run_sync(team: Team, *, window_start: datetime, window_end: datetime) -> Ru
     except IntentGenerationUnavailable as e:
         persist.finish_run(run, status=Status.SKIPPED_NO_CONSENT, error_message=str(e))
         return RunOutcome(run.run_id, Kind.SYNC, Status.SKIPPED_NO_CONSENT, error_message=str(e))
+    n_intents = 0
+    emitted = 0
+    drained_until = window_start
+    # An intent called in two slices of one run is sent once; the worker has not stored the first vector yet.
+    handled: set[str] = set()
     try:
-        intents = corpus.fetch_distinct_intents(team, since=window_start, until=window_end)
-        seen = corpus.fetch_seen_hashes(team, [intent.hash for intent in intents], now=window_end)
-        to_emit = embedding_sync.select_intents_to_emit(intents, seen)
-        emitted = embedding_sync.emit_intent_embeddings(team, to_emit, now=window_end)
+        for sync_slice in _sync_slices(window_start, window_end):
+            if n_intents >= budget:
+                break
+            for page in corpus.iter_distinct_intent_pages(
+                team, since=sync_slice.start, until=sync_slice.end, page_size=page_size
+            ):
+                fresh = [intent for intent in page if intent.hash not in handled]
+                handled.update(intent.hash for intent in fresh)
+                seen = corpus.fetch_seen_hashes(team, [intent.hash for intent in fresh], now=window_end)
+                to_emit = embedding_sync.select_intents_to_emit(fresh, seen)
+                emitted += embedding_sync.emit_intent_embeddings(team, to_emit, now=window_end)
+                n_intents += len(fresh)
+            drained_until = sync_slice.end
     except Exception as e:
         persist.finish_run(run, status=Status.FAILED, error_message=str(e)[:500])
         raise
-    persist.finish_run(run, status=Status.SUCCEEDED, n_intents=len(intents), n_embeddings_requested=emitted)
-    return RunOutcome(run.run_id, Kind.SYNC, Status.SUCCEEDED, n_intents=len(intents), n_embeddings_requested=emitted)
+    # The run claims only the hours it read whole, so the next run resumes where this one stopped.
+    persist.finish_run(
+        run,
+        status=Status.SUCCEEDED,
+        window_end=drained_until,
+        n_intents=n_intents,
+        n_embeddings_requested=emitted,
+    )
+    return RunOutcome(run.run_id, Kind.SYNC, Status.SUCCEEDED, n_intents=n_intents, n_embeddings_requested=emitted)
 
 
 _ASSIGNMENT_COUNTS_SQL = """
@@ -273,9 +317,16 @@ def _run_refit(
     )
 
 
-def run_sync(team: Team, *, window_start: datetime, window_end: datetime) -> RunOutcome:
+def run_sync(
+    team: Team,
+    *,
+    window_start: datetime,
+    window_end: datetime,
+    budget: int = MAX_INTENTS_PER_SYNC,
+    page_size: int = MAX_SELECT_RETURNED_ROWS,
+) -> RunOutcome:
     with team_scope(team.pk), _query_tags(team):
-        return _run_sync(team, window_start=window_start, window_end=window_end)
+        return _run_sync(team, window_start=window_start, window_end=window_end, budget=budget, page_size=page_size)
 
 
 def run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> RunOutcome:
