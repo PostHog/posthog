@@ -30,7 +30,13 @@ from posthog.hogql.database.schema.log_entries import (
 )
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.database.trino_unnest_table import resolve_internal_trino_table_function
-from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
+from posthog.hogql.errors import (
+    UNRESOLVED_FIELD_MESSAGE,
+    ImpossibleASTError,
+    NotImplementedError,
+    QueryError,
+    ResolutionError,
+)
 from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
@@ -2543,7 +2549,7 @@ class Resolver(CloningVisitor):
                 #
                 # One likely cause is that the database context isn't set up as you
                 # expect it to be.
-                raise QueryError(f"Unable to resolve field: {name}{suggestion_suffix}", node=node, fix=fix)
+                raise QueryError(f"{UNRESOLVED_FIELD_MESSAGE}: {name}{suggestion_suffix}", node=node, fix=fix)
             else:
                 type = ast.UnresolvedFieldType(name=name)
                 self.context.add_error(
