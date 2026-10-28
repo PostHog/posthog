@@ -8,7 +8,7 @@ rules:
     - match: ['/dependabot.yml', '/pull_request_template.md', '/workflows/']
       owners: team-devex
     - match: '/shared-image-releases.yaml'
-      owners: [team-devex, team-data-stack, batch-exports]
+      owners: [team-devex, team-data-stack, batch-exports, team-growth]
     - match: '/workflows/cd-llm-analytics-image.yml'
       owners: [team-devex, team-ai-observability]
     - match:
