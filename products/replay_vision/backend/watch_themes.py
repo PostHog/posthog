@@ -31,8 +31,8 @@ from products.replay_vision.backend.models.replay_scanner_semantics import Repla
 from products.replay_vision.backend.observation_formatting import explanation_text
 from products.replay_vision.backend.semantic_space import (
     SEMANTIC_DIMENSIONS,
+    ClusterArrays,
     SemanticSpace,
-    nearest_cluster,
     pack,
     unit,
     unpack,
@@ -110,33 +110,52 @@ def belongs_in_theme(*, category: str, scanner_type: str, valence: str, output: 
     return True
 
 
-def assign_theme(*, team_id: int, scanner_id: str, space: SemanticSpace, now: datetime) -> ThemeAssignment:
-    """Put one observation in its scanner's closest active theme, or start a theme. Call under the centre lock."""
-    themes = list(
-        ReplayScannerSearchTheme.objects.for_team(team_id)
-        .filter(scanner_id=scanner_id, last_member_at__gte=now - THEME_ACTIVE_WINDOW)
-        .order_by("-last_member_at")
-        .only("id", "vector_sum", "member_count", "rename_at_member_count", "last_member_at")[:MAX_ACTIVE_THEMES]
-    )
-    best = nearest_cluster(
-        np.array([unpack(theme.vector_sum) for theme in themes], dtype=np.float32).reshape(-1, SEMANTIC_DIMENSIONS),
-        np.array([theme.member_count for theme in themes], dtype=np.float32),
-        space,
-        THEME_MIN_SIMILARITY,
-        THEME_MIN_RAW_SIMILARITY,
-    )
-    if best is None:
-        theme = ReplayScannerSearchTheme.objects.for_team(team_id).create(
-            team_id=team_id, scanner_id=scanner_id, vector_sum=pack(space.vector), member_count=1, last_member_at=now
+class ThemeBatch:
+    """A scanner's active themes, read once for a batch of assignments under the centre lock and saved once."""
+
+    def __init__(self, team_id: int, scanner_id: str, now: datetime) -> None:
+        self._team_id = team_id
+        self._scanner_id = scanner_id
+        themes = list(
+            ReplayScannerSearchTheme.objects.for_team(team_id)
+            .filter(scanner_id=scanner_id, last_member_at__gte=now - THEME_ACTIVE_WINDOW)
+            .order_by("-last_member_at")
+            .only("id", "vector_sum", "member_count", "rename_at_member_count", "last_member_at")[:MAX_ACTIVE_THEMES]
         )
-    else:
-        theme = themes[best]
-        theme.vector_sum = pack(unpack(theme.vector_sum) + space.vector)
-        theme.member_count += 1
-        # The backfill replays old rows while the consumer adds new ones, so the latest member time never moves back.
-        theme.last_member_at = max(theme.last_member_at, now)
-        theme.save(update_fields=["vector_sum", "member_count", "last_member_at"])
-    return ThemeAssignment(theme_id=theme.id, name_due=theme.member_count >= theme.rename_at_member_count)
+        self._themes = {theme.id: theme for theme in themes}
+        self._clusters = ClusterArrays(
+            [theme.id for theme in themes],
+            [unpack(theme.vector_sum) for theme in themes],
+            [theme.member_count for theme in themes],
+            [theme.last_member_at for theme in themes],
+        )
+        self._created: set[uuid.UUID] = set()
+        self._changed: set[uuid.UUID] = set()
+
+    def assign(self, space: SemanticSpace, now: datetime) -> ThemeAssignment:
+        """Put one observation in its scanner's closest active theme, or start a theme."""
+        best = self._clusters.nearest(space, now - THEME_ACTIVE_WINDOW, THEME_MIN_SIMILARITY, THEME_MIN_RAW_SIMILARITY)
+        if best is None:
+            theme = ReplayScannerSearchTheme(team_id=self._team_id, scanner_id=self._scanner_id, last_member_at=now)
+            self._themes[theme.id] = theme
+            self._created.add(theme.id)
+            best = self._clusters.add(theme.id, space.vector, now)
+        else:
+            theme = self._themes[self._clusters.ids[best]]
+            self._clusters.join(best, space.vector, now)
+        theme.vector_sum = pack(self._clusters.sums[best])
+        theme.member_count = int(self._clusters.counts[best])
+        theme.last_member_at = self._clusters.last_member_at(best)
+        self._changed.add(theme.id)
+        return ThemeAssignment(theme_id=theme.id, name_due=theme.member_count >= theme.rename_at_member_count)
+
+    def save(self) -> None:
+        themes = ReplayScannerSearchTheme.objects.for_team(self._team_id)
+        themes.bulk_create([self._themes[theme_id] for theme_id in self._created])
+        themes.bulk_update(
+            [self._themes[theme_id] for theme_id in self._changed - self._created],
+            ["vector_sum", "member_count", "last_member_at"],
+        )
 
 
 def _claim_naming(team_id: int, theme_id: uuid.UUID) -> int | None:
