@@ -37,7 +37,7 @@ Exit codes: 0 on success, 1 when a command fails, 2 for a usage error.
 `hog` reads the same credentials as `posthog-cli`, in the same order:
 
 1. `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID` in the environment, plus an optional `POSTHOG_CLI_HOST`
-2. The same variables in the file `--dotenv-file` names
+2. The same variables in the file `--dotenv-file` or `POSTHOG_CLI_DOTENV_FILE` names. A missing file prints a warning and hog moves on to the next source.
 3. `~/.posthog/credentials.json`, which `posthog-cli login` writes (`POSTHOG_HOME` moves the folder)
 
 `--host` overrides the host from any of these.

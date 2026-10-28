@@ -27,6 +27,15 @@ const MIN_CELL_WIDTH = 6
 const CELL_PADDING = 2
 // The border and padding around each cell in `│ a │ b │`: one bar per cell plus one, and a space on each side.
 const tableOverhead = (count: number): number => count * (CELL_PADDING + 1) + 1
+// C0 and C1 control characters, except tab and newline. Query results and API errors carry text
+// from event data, and a raw escape sequence there could rewrite the terminal or the clipboard.
+// oxlint-disable-next-line no-control-regex -- matching control characters is the point
+const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g
+
+export function escapeControls(text: string): string {
+    return text.replace(CONTROL, (char) => `\\x${char.charCodeAt(0).toString(16).padStart(2, '0')}`)
+}
+
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/
 
 export class Output {
@@ -72,7 +81,7 @@ export class Output {
 
         const bar = this.style('│', 'dim')
         const table = new Table({
-            head: named.map((column) => this.style(column.name, 'bold')),
+            head: named.map((column) => this.style(escapeControls(column.name), 'bold')),
             colWidths: widths.map((width) => width + CELL_PADDING),
             colAligns: kinds.map((kind) => (kind === 'number' ? 'right' : 'left')),
             style: { head: [], border: [] },
@@ -111,9 +120,9 @@ export class Output {
             this.runtime.writeStderr(`${JSON.stringify(payload)}\n`)
             return
         }
-        this.runtime.writeStderr(`${this.style('Error:', 'red', 'bold')} ${error.message}\n`)
+        this.runtime.writeStderr(`${this.style('Error:', 'red', 'bold')} ${escapeControls(error.message)}\n`)
         if (error.hint) {
-            this.runtime.writeStderr(`${this.style(error.hint, 'dim')}\n`)
+            this.runtime.writeStderr(`${this.style(escapeControls(error.hint), 'dim')}\n`)
         }
     }
 }
@@ -121,6 +130,10 @@ export class Output {
 // posthog-cli prints JSON through serde_json without `preserve_order`, so object keys come
 // out sorted. Sorting here keeps hog's JSON the same for nested objects.
 function sortKeys(value: unknown): unknown {
+    // Integers too large for a JS number stay as their source text (see parseLossless).
+    if (JSON.isRawJSON(value)) {
+        return value
+    }
     if (Array.isArray(value)) {
         return value.map(sortKeys)
     }
@@ -139,7 +152,7 @@ function cellText(value: unknown): string {
         return 'null'
     }
     const text = typeof value === 'string' ? value : JSON.stringify(sortKeys(value))
-    return text.replace(/\s+/g, ' ')
+    return escapeControls(text.replace(/\s+/g, ' '))
 }
 
 function inferKind(values: readonly unknown[]): ColumnKind {
@@ -147,7 +160,7 @@ function inferKind(values: readonly unknown[]): ColumnKind {
     if (present.length === 0) {
         return 'string'
     }
-    if (present.every((value) => typeof value === 'number' || typeof value === 'bigint')) {
+    if (present.every((value) => typeof value === 'number' || typeof value === 'bigint' || JSON.isRawJSON(value))) {
         return 'number'
     }
     if (present.every((value) => typeof value === 'boolean')) {
@@ -169,13 +182,15 @@ function fitWidths(widths: readonly number[], terminalColumns: number | undefine
     }
     const budget = terminalColumns - tableOverhead(fitted.length)
     let total = fitted.reduce((sum, width) => sum + width, 0)
-    while (total > budget) {
-        const widest = fitted.indexOf(Math.max(...fitted))
-        if ((fitted[widest] ?? 0) <= MIN_CELL_WIDTH) {
-            break
+    for (const floor of [MIN_CELL_WIDTH, 1]) {
+        while (total > budget) {
+            const widest = fitted.indexOf(Math.max(...fitted))
+            if ((fitted[widest] ?? 0) <= floor) {
+                break
+            }
+            fitted[widest] = (fitted[widest] ?? 0) - 1
+            total -= 1
         }
-        fitted[widest] = (fitted[widest] ?? 0) - 1
-        total -= 1
     }
     return fitted
 }

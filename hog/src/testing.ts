@@ -8,7 +8,8 @@ export interface FakeRuntimeOptions {
     columns?: number
     files?: Record<string, string>
     stdin?: string
-    // Answers every API request. Without it, requests fail with HTTP 500.
+    // Answers every API request. Without it, requests fail with HTTP 500. A string body is sent
+    // as is, for JSON that JSON.stringify can't produce.
     respond?: (url: string, body: unknown) => { status: number; body: unknown }
 }
 
@@ -39,13 +40,14 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
             const body = init?.body === undefined ? undefined : JSON.parse(String(init.body))
             requests.push({ method: init?.method ?? 'GET', url, body })
             const reply = options.respond?.(url, body) ?? { status: 500, body: { detail: 'no fake response' } }
-            return new Response(JSON.stringify(reply.body), { status: reply.status })
+            const text = typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body)
+            return new Response(text, { status: reply.status })
         }) as typeof fetch,
         homeDir: () => '/home/test',
         readFile: async (path) => {
             const contents = files[path]
             if (contents === undefined) {
-                throw new Error(`ENOENT: ${path}`)
+                throw Object.assign(new Error(`ENOENT: no such file or directory, open '${path}'`), { code: 'ENOENT' })
             }
             return contents
         },

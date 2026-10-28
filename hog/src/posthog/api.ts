@@ -1,9 +1,12 @@
 import { HogError } from '@/core/errors'
+import { parseLossless } from '@/core/raw-json'
 import { VERSION } from '@/version'
 
 import type { Credentials } from './credentials'
 
 const USER_AGENT = `hog/${VERSION}`
+// Generous, because a HogQL query can run for minutes. It only stops a connection that hangs.
+const REQUEST_TIMEOUT_MS = 10 * 60 * 1000
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 
@@ -49,6 +52,7 @@ export class PostHogApi {
 
     private async request<T>(method: Method, path: string, body?: unknown): Promise<T> {
         let response: Response
+        let text: string
         try {
             response = await this.fetchFn(this.environmentUrl(path), {
                 method,
@@ -58,7 +62,9 @@ export class PostHogApi {
                     'User-Agent': USER_AGENT,
                 },
                 body: body === undefined ? undefined : JSON.stringify(body),
+                signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
             })
+            text = await response.text()
         } catch (error) {
             throw new HogError(
                 'network_error',
@@ -67,10 +73,9 @@ export class PostHogApi {
             )
         }
 
-        const text = await response.text()
         let parsed: unknown
         try {
-            parsed = text ? JSON.parse(text) : undefined
+            parsed = text ? parseLossless(text) : undefined
         } catch {
             throw new HogError(
                 'unexpected_response',
