@@ -6,7 +6,7 @@ import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
+import { DATA_SOURCE_SHORTCUT_TYPE, escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { ExternalDataJobStatus, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
@@ -21,8 +21,7 @@ const SCHEMA_STATUS_ORDER: ExternalDataSchemaStatus[] = [
     ExternalDataSchemaStatus.Completed,
 ]
 
-// A source's own status is a string from the backend, which names a failure "Error". Billing limit
-// statuses block syncing, so they rank with failures. Any other value sorts last.
+// The backend names a source failure "Error". Billing limits block syncing, so they rank with failures.
 const SOURCE_STATUS_RANK: Record<string, number> = {
     Error: 0,
     [ExternalDataJobStatus.Failed]: 0,
@@ -33,10 +32,6 @@ const SOURCE_STATUS_RANK: Record<string, number> = {
     [ExternalDataJobStatus.Running]: SCHEMA_STATUS_ORDER.indexOf(ExternalDataSchemaStatus.Running),
     [ExternalDataJobStatus.Completed]: SCHEMA_STATUS_ORDER.indexOf(ExternalDataSchemaStatus.Completed),
 }
-
-// A starred source is a sidebar shortcut with this type, which gives it the Sources icon. The source id
-// in `ref` keeps it apart from a star on the Sources page itself, because that shortcut has no ref.
-const SOURCE_SHORTCUT_TYPE = 'data_source'
 
 export const totalRowsSynced = (source: ExternalDataSource): number =>
     source.schemas.reduce((acc, schema) => acc + (schema.table?.row_count ?? 0), 0)
@@ -55,8 +50,6 @@ export const syncingSchemasByStatus = (
 const lastRunTime = (source: ExternalDataSource): number =>
     source.last_run_at ? dayjs(source.last_run_at).valueOf() : 0
 
-// Follows what the Status column shows: nothing without a source status, the most urgent syncing schema
-// status when there is one, and the source's own status when it has no schemas.
 const statusSortRank = (source: ExternalDataSource): number => {
     if (!source.status) {
         return SCHEMA_STATUS_ORDER.length
@@ -84,8 +77,7 @@ const compareSortKeys = (a: SortKey[], b: SortKey[]): number => {
     return 0
 }
 
-// Keyed by the column keys in ManagedSourcesTable. The selector computes each key once per source and not
-// once per comparison, because the rows synced and status keys walk every schema of the source.
+// The selector computes these once per source, because the rows synced and status keys walk every schema.
 const MANAGED_SOURCE_SORT_KEYS: Record<
     string,
     (source: ExternalDataSource, availableSources: Record<string, SourceConfigResponseApi> | null) => SortKey[]
@@ -149,8 +141,7 @@ export type managedSourcesTableLogicType = MakeLogicType<
     managedSourcesTableLogicMeta
 >
 
-// Mounted only by the managed sources table. The shared sourceManagementLogic also mounts on pages without
-// the sidebar, which should not load the sidebar's shortcuts.
+// Kept out of sourceManagementLogic, which also mounts on pages that should not load the sidebar's shortcuts.
 export const managedSourcesTableLogic = kea<managedSourcesTableLogicType>([
     path(['products', 'dataWarehouse', 'managedSourcesTableLogic']),
     connect(() => ({
@@ -185,7 +176,7 @@ export const managedSourcesTableLogic = kea<managedSourcesTableLogicType>([
             (shortcutData: FileSystemEntry[]): Record<string, FileSystemEntry> =>
                 Object.fromEntries(
                     shortcutData
-                        .filter((shortcut) => shortcut.type === SOURCE_SHORTCUT_TYPE && !!shortcut.ref)
+                        .filter((shortcut) => shortcut.type === DATA_SOURCE_SHORTCUT_TYPE && !!shortcut.ref)
                         .map((shortcut) => [shortcut.ref as string, shortcut])
                 ),
         ],
@@ -234,13 +225,12 @@ export const managedSourcesTableLogic = kea<managedSourcesTableLogicType>([
             actions.addShortcutItem({
                 id: source.id,
                 path: escapePath(source.prefix ? `${label} (${source.prefix})` : label),
-                type: SOURCE_SHORTCUT_TYPE,
+                type: DATA_SOURCE_SHORTCUT_TYPE,
                 ref: source.id,
                 href: urls.dataWarehouseSource(`managed-${source.id}`),
             })
         },
-        // The backend removes shortcuts only for items in the file system, and sources are not in it, so a
-        // star would otherwise stay in the sidebar and link to a deleted source.
+        // The backend removes stars only for file-system items, so a deleted source's star would stay behind.
         sourceDeleted: ({ source }) => {
             const shortcut = values.starredSourceShortcuts[source.id]
             if (shortcut) {

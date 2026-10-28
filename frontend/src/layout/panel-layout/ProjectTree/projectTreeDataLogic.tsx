@@ -1070,9 +1070,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     // the loader settle: on timeout it rejects, firing loadShortcutsFailure (which
                     // flips shortcutDataHasLoaded), and kea-loaders' global onFailure handler in
                     // initKea captures the exception so the previously-silent hang is surfaced.
-                    // Each page gets its own timeout, so a long list does not fail as a whole on a slow
-                    // connection. The API returns shortcuts one page at a time, and a star past the first
-                    // page would otherwise look unstarred everywhere it is checked.
+                    // Each page gets its own timeout. A star past the first page would otherwise look unstarred.
                     const listPage = (offset: number): ReturnType<typeof api.fileSystemShortcuts.list> =>
                         withTimeout(
                             (signal) => api.fileSystemShortcuts.list(offset ? { offset, signal } : { signal }),

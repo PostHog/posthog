@@ -55,8 +55,7 @@ export function ManagedSourcesTable(): JSX.Element {
                 disableTableWhileLoading={false}
                 pagination={{ pageSize: 10 }}
                 scrollToTopOnPageChange={false}
-                // The logic sorts the rows. LemonTable reverses a column sorter for descending order,
-                // which would move starred sources to the bottom.
+                // The logic sorts, because LemonTable reverses a column sorter and would sink starred sources.
                 sorting={managedSourcesSorting}
                 onSort={setManagedSourcesSorting}
                 useURLForSorting={false}
@@ -77,7 +76,6 @@ export function ManagedSourcesTable(): JSX.Element {
                 columns={[
                     {
                         width: 0,
-                        // The small star glyph opens the row, so the table's full first-cell margin reads as empty space.
                         className: '!pl-2',
                         render: (_, source) => {
                             const starred = !!starredSourceShortcuts[source.id]
