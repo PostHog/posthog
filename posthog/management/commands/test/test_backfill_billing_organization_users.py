@@ -21,7 +21,6 @@ from posthog.models.user import User
 from ee.models.license import License, LicenseManager
 
 
-@patch("ee.billing.billing_manager.http_session.patch")
 class TestBackfillBillingOrganizationUsers(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -61,6 +60,7 @@ class TestBackfillBillingOrganizationUsers(BaseTest):
             ("raised", None, requests.ConnectionError("boom"), "ConnectionError: boom"),
         ]
     )
+    @patch("ee.billing.billing_manager.http_session.patch")
     def test_reports_billing_outcome(self, _name, status_code, side_effect, expected_reason, mock_patch):
         organization = self._org_with_owner("Synced org")
         mock_patch.return_value = MagicMock(status_code=status_code, json=MagicMock(return_value={}))
@@ -79,6 +79,7 @@ class TestBackfillBillingOrganizationUsers(BaseTest):
             assert f"Failed org ids: {organization.id}" in out
 
     @patch("posthog.management.commands.backfill_billing_organization_users.PROGRESS_EVERY", 2)
+    @patch("ee.billing.billing_manager.http_session.patch")
     def test_offset_missing_org_no_owner_and_failed_csv(self, mock_patch):
         mock_patch.return_value = MagicMock(status_code=200, json=MagicMock(return_value={}))
         skipped = self._org_with_owner("Skipped by offset")
