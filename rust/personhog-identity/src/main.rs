@@ -4,6 +4,7 @@ use std::time::Duration;
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
 use common_database::get_pool_with_config;
+use common_metrics::{ETCD_OP_LATENCY_BUCKETS_MS, ETCD_PAYLOAD_SIZE_BUCKETS_BYTES};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
@@ -148,16 +149,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The delete saga groups its fence calls by the leaders' partition
     // count, which lives in etcd; a service that cannot read it would
     // batch wrong, so refuse to start instead.
-    let etcd_store = EtcdStore::connect(StoreConfig {
+    let etcd_store = EtcdStore::connect_with_member_failover(StoreConfig {
         endpoints: config.etcd_endpoint_list(),
         prefix: config.etcd_prefix.clone(),
     })
     .await
     .expect("Failed to connect to etcd");
     let store = Arc::new(PersonhogStore::new(etcd_store));
-    let loaded = load_changelog_config(&store, CHANGELOG_BOOT_POLL_INTERVAL)
-        .await
-        .expect("Failed to load the changelog config from etcd");
+    // No signal handler is installed until the lifecycle monitor starts,
+    // so SIGTERM ends the process during this wait.
+    let Some(loaded) = load_changelog_config(
+        &store,
+        CHANGELOG_BOOT_POLL_INTERVAL,
+        &CancellationToken::new(),
+    )
+    .await
+    .expect("Failed to load the changelog config from etcd") else {
+        return Ok(());
+    };
     tracing::info!(
         num_partitions = loaded.partitions,
         epoch = loaded.epoch,
@@ -223,6 +232,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .unwrap()
         .set_buckets_for_metric(Matcher::Suffix("_per_call".into()), PER_CALL_BUCKETS)
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("assignment_coordination_etcd_op_ms".into()),
+            ETCD_OP_LATENCY_BUCKETS_MS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("assignment_coordination_etcd_payload_bytes".into()),
+            ETCD_PAYLOAD_SIZE_BUCKETS_BYTES,
+        )
         .unwrap()
         .install_recorder()
         .expect("Failed to install metrics recorder");
@@ -453,9 +472,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max_send = config.grpc_max_send_message_size;
     let max_recv = config.grpc_max_recv_message_size;
     let max_concurrent_requests = config.max_concurrent_requests;
+    let load_shed_wait = config.load_shed_wait();
+    let load_shed_max_waiters = if config.load_shed_max_waiters == 0 {
+        max_concurrent_requests
+    } else {
+        config.load_shed_max_waiters
+    };
     if max_concurrent_requests > 0 {
         tracing::info!(
             limit = max_concurrent_requests,
+            wait_ms = load_shed_wait.as_millis() as u64,
+            max_waiters = load_shed_max_waiters,
             "gRPC load shedding enabled"
         );
     }
@@ -488,7 +515,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // callers not to send pathological frames, same as the replica.
         if let Err(e) = server
             .layer(GrpcMetricsLayer::default().with_processing_time_header())
-            .layer(GrpcLoadShedLayer::new(max_concurrent_requests))
+            // Identity pods share one fleet-wide load, so a shed pod means the
+            // fleet is saturated. RESOURCE_EXHAUSTED stops the router from
+            // retrying the shed on another saturated pod.
+            .layer(
+                GrpcLoadShedLayer::new(max_concurrent_requests)
+                    .with_code(tonic::Code::ResourceExhausted)
+                    .with_wait(load_shed_wait, load_shed_max_waiters),
+            )
             .add_service(
                 PersonHogIdentityServer::new(service)
                     .accept_compressed(CompressionEncoding::Gzip)

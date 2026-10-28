@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GoogleAdsIntegration,
+    GoogleAdsQuotaExhaustedError,
     GoogleAdsScopeInsufficientError,
     Integration,
     OauthIntegration,
@@ -341,6 +342,7 @@ class GoogleAdsSource(
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         caption=(
                             "Earliest date to import, as YYYY-MM-DD. On a source that has already "
@@ -355,6 +357,7 @@ class GoogleAdsSource(
                     ),
                     SourceFieldSelectConfig(
                         name="skip_removed_keywords",
+                        sync_setting=True,
                         label="Skip removed keywords?",
                         caption=(
                             "Leave out keywords that are removed, or that sit in a removed ad group or "
@@ -372,6 +375,7 @@ class GoogleAdsSource(
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="is_mcc_account",
+                        account_selector=True,
                         label="Using MCC account?",
                         caption="Whether your account is a Google Ads MCC account and you're accessing a clients account?",
                         default=False,
@@ -448,6 +452,12 @@ class GoogleAdsSource(
             # a clean message instead of the raw connection error.
             raise IntegrationAccountListingError(
                 "Google Ads did not respond in time while listing your accounts. Please try again."
+            ) from e
+        except GoogleAdsQuotaExhaustedError as e:
+            # Unlike the sync path, no Temporal activity retries this interactive call, so a 429
+            # otherwise surfaces as an unhandled 500 instead of something the user can act on.
+            raise IntegrationAccountListingError(
+                "Google Ads rate-limited this request. Please wait a moment and try again."
             ) from e
 
         names_by_id = {account["id"]: account["name"] for account in accounts}

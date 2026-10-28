@@ -323,6 +323,13 @@ describe('inboxSceneLogic routing', () => {
         { name: 'no param', source: undefined, visitedList: false, method: 'deeplink', linkSource: null },
         { name: 'a known source', source: 'slack', visitedList: false, method: 'deeplink', linkSource: 'slack' },
         {
+            name: 'the first report email',
+            source: 'first_report_email',
+            visitedList: false,
+            method: 'deeplink',
+            linkSource: 'first_report_email',
+        },
+        {
             name: 'an unknown source',
             source: 'carrier-pigeon',
             visitedList: false,
@@ -384,9 +391,14 @@ describe('inboxSceneLogic routing', () => {
         logic.actions.loadSelectedReportSuccess(report)
         const afterOpen = Date.now()
         expect(openedEvents(captureSpy)).toHaveLength(0)
+        // kea-disposables runs the poll setup again on a resume, and one without a pause leaves the
+        // first interval running. That leftover interval must not send the open again on each tick.
+        document.dispatchEvent(new Event('visibilitychange'))
 
         await waitForOpenRankRetry()
+        await waitForOpenRankRetry()
 
+        expect(openedEvents(captureSpy)).toHaveLength(1)
         expect(openedEvents(captureSpy)[0]).toMatchObject({
             rank: 1,
             list_size: 1,

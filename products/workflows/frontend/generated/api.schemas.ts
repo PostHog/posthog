@@ -8,6 +8,88 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `ready` - Ready
+ * * `generating` - Generating
+ * * `ai_not_approved` - Ai Not Approved
+ * * `unavailable` - Unavailable
+ */
+export type DataSuggestionsStatusEnumApi =
+    (typeof DataSuggestionsStatusEnumApi)[keyof typeof DataSuggestionsStatusEnumApi]
+
+export const DataSuggestionsStatusEnumApi = {
+    Ready: 'ready',
+    Generating: 'generating',
+    AiNotApproved: 'ai_not_approved',
+    Unavailable: 'unavailable',
+} as const
+
+/**
+ * * `not_yet` - Not Yet
+ * * `regulars` - Regulars
+ * * `lapsed` - Lapsed
+ */
+export type AudienceSuggestionKindEnumApi =
+    (typeof AudienceSuggestionKindEnumApi)[keyof typeof AudienceSuggestionKindEnumApi]
+
+export const AudienceSuggestionKindEnumApi = {
+    NotYet: 'not_yet',
+    Regulars: 'regulars',
+    Lapsed: 'lapsed',
+} as const
+
+export interface AudienceSuggestionApi {
+    /** Opaque id of this suggestion, valid while the suggestions stay cached. */
+    id: string
+    /** Suggested audience name, written by AI from the project's events. */
+    name: string
+    /** Who the people are and what to tell them. Used as the cohort description and the email brief. */
+    description: string
+    /** One sentence on why the audience is worth a broadcast. */
+    reason: string
+    /** not_yet: did event in the window but not missing_event. regulars: did event at least min_count times in the window. lapsed: did event in the last 90 days but not in the window.
+     *
+     * * `not_yet` - Not Yet
+     * * `regulars` - Regulars
+     * * `lapsed` - Lapsed */
+    kind: AudienceSuggestionKindEnumApi
+    /** The project event the audience is built on. */
+    event: string
+    /**
+     * For not_yet: the event the audience has not done yet. Null otherwise.
+     * @nullable
+     */
+    missing_event: string | null
+    /** The time window in days. */
+    window_days: number
+    /**
+     * For regulars: how many times the event must happen in the window.
+     * @nullable
+     */
+    min_count: number | null
+    /** People in the audience with an email address, counted when the suggestion was made. */
+    reachable_count: number
+    /** The audience's cohort filters, in the cohorts endpoint's `filters` format. Saved as a static cohort. */
+    cohort_filters: unknown
+}
+
+export interface AudienceSuggestionsResponseApi {
+    /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
+     *
+     * * `ready` - Ready
+     * * `generating` - Generating
+     * * `ai_not_approved` - Ai Not Approved
+     * * `unavailable` - Unavailable */
+    status: DataSuggestionsStatusEnumApi
+    /** Up to 3 suggested broadcast audiences. */
+    suggestions: AudienceSuggestionApi[]
+}
+
+export interface DataSuggestionGenerateRequestApi {
+    /** Make new suggestions even when the cached ones are still valid. */
+    refresh?: boolean
+}
+
+/**
  * * `team` - Only team
  * * `organization` - Organization
  * * `global` - Global
@@ -689,6 +771,13 @@ export interface HogFlowApi {
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails */
     origin_product?: HogFlowOriginProductEnumApi | null
+    /**
+     * The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`.
+     * @maxLength 255
+     * @nullable
+     * @pattern ^[a-z_]+:[A-Za-z0-9_-]+$
+     */
+    source_record?: string | null
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
@@ -697,7 +786,7 @@ export interface HogFlowApi {
     trigger_masking?: HogFlowMaskingApi | null
     /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
     conversion?: HogFlowConversionApi | null
-    /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
+    /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). Only event and cohort triggers are re-checked, so on any other trigger these two are stored as exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person leaves the cohort (or rejoins it, for a 'left' trigger).
      *
      * * `exit_on_conversion` - Conversion
      * * `exit_on_trigger_not_matched` - Trigger Not Matched
@@ -805,7 +894,7 @@ export interface HogFlowUpdateApi {
     trigger_masking?: HogFlowMaskingApi | null
     /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
     conversion?: HogFlowConversionApi | null
-    /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
+    /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). Only event and cohort triggers are re-checked, so on any other trigger these two are stored as exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person leaves the cohort (or rejoins it, for a 'left' trigger).
      *
      * * `exit_on_conversion` - Conversion
      * * `exit_on_trigger_not_matched` - Trigger Not Matched
@@ -913,7 +1002,7 @@ export interface PatchedHogFlowUpdateApi {
     trigger_masking?: HogFlowMaskingApi | null
     /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
     conversion?: HogFlowConversionApi | null
-    /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
+    /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). Only event and cohort triggers are re-checked, so on any other trigger these two are stored as exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person leaves the cohort (or rejoins it, for a 'left' trigger).
      *
      * * `exit_on_conversion` - Conversion
      * * `exit_on_trigger_not_matched` - Trigger Not Matched
@@ -1845,6 +1934,30 @@ export interface PatchedHogFlowScheduleApi {
     readonly updated_at?: string
 }
 
+export interface ApplyUtmDefaultsRequestApi {
+    /** When true, only count the emails the change would update. Nothing is saved. */
+    dry_run?: boolean
+    /** Also turn UTM tags on in emails that have them off. Off by default, so those emails keep sending untagged links. */
+    enable_where_off?: boolean
+}
+
+export interface ApplyUtmDefaultsResponseApi {
+    /** Email steps that get (or would get) the team defaults. */
+    emails_updated: number
+    /** Workflows and broadcasts that contain those email steps. */
+    workflows_updated: number
+    /** Of those, the ones that are live, so their next send uses the new values. */
+    active_workflows_updated: number
+    /** Email steps where UTM tags get (or would get) turned on. */
+    emails_turned_on: number
+    /** Email steps in scope that have UTM tags off. enable_where_off turns them on. */
+    emails_off: number
+    /** Workflows with emails to update that you can't edit. They keep their old values. */
+    workflows_without_access: number
+    /** Workflows that could not be saved, for example because they fail validation. They keep their old values. */
+    workflows_failed: number
+}
+
 export interface BroadcastConversionCandidateApi {
     /** Workflow id. */
     readonly id: string
@@ -1866,6 +1979,63 @@ export interface BroadcastConversionCandidatesApi {
     readonly has_more: boolean
     /** The most recently updated candidates, at most 100. */
     readonly results: readonly BroadcastConversionCandidateApi[]
+}
+
+/**
+ * * `add` - add
+ * * `remove` - remove
+ * * `set` - set
+ */
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
+
+export const BulkUpdateTagsActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+/**
+ * Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).
+ */
+export interface BulkUpdateTagsUUIDRequestApi {
+    /**
+     * List of object UUIDs to update tags on.
+     * @maxItems 500
+     */
+    ids: string[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+     *
+     * * `add` - add
+     * * `remove` - remove
+     * * `set` - set */
+    action: BulkUpdateTagsActionEnumApi
+    /**
+     * Tag names to add, remove, or set (up to 100 per request, 255 characters each).
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsUUIDItemApi {
+    /** UUID of the object whose tags were updated. */
+    id: string
+    /** The object's full tag list after the update. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsUUIDErrorApi {
+    /** UUID of the object that was skipped. */
+    id: string
+    /** Why the object was skipped, e.g. 'Not found or no edit access'. */
+    reason: string
+}
+
+export interface BulkUpdateTagsUUIDResponseApi {
+    /** Objects whose tags were successfully updated. */
+    updated: BulkUpdateTagsUUIDItemApi[]
+    /** Objects that were skipped, with a reason each. */
+    skipped: BulkUpdateTagsUUIDErrorApi[]
 }
 
 /**
@@ -2120,7 +2290,7 @@ export interface TeamEmailReputationResponseApi {
     readonly email_sending_suspended_at: string | null
     /** Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended. */
     readonly email_sending_suspension_reason: string
-    /** The project's sending tier, what it allows, and how much of it has been used; null when the caller lacks project-wide workflow access. */
+    /** The project's sending tier, what it allows, and how much of it has been used; null when the caller lacks project-wide workflow access. Tiers grow on their own as the project builds a clean sending record. */
     readonly sending_allowance: EmailSendingAllowanceApi | null
 }
 
@@ -2332,22 +2502,6 @@ export interface DataSuggestionBuildResponseApi {
 }
 
 /**
- * * `ready` - Ready
- * * `generating` - Generating
- * * `ai_not_approved` - Ai Not Approved
- * * `unavailable` - Unavailable
- */
-export type DataSuggestionsStatusEnumApi =
-    (typeof DataSuggestionsStatusEnumApi)[keyof typeof DataSuggestionsStatusEnumApi]
-
-export const DataSuggestionsStatusEnumApi = {
-    Ready: 'ready',
-    Generating: 'generating',
-    AiNotApproved: 'ai_not_approved',
-    Unavailable: 'unavailable',
-} as const
-
-/**
  * * `signup` - Signup
  * * `onboarding` - Onboarding
  * * `trial` - Trial
@@ -2442,11 +2596,6 @@ export interface DataSuggestionsResponseApi {
     readonly email_sender_ready: boolean
 }
 
-export interface DataSuggestionGenerateRequestApi {
-    /** Make new suggestions even when the cached ones are still valid. */
-    refresh?: boolean
-}
-
 /**
  * * `error_tracking` - Error tracking issue
  * * `early_access` - Early access feature
@@ -2492,7 +2641,6 @@ export const EmailDraftOriginEnumApi = {
 } as const
 
 /**
- * * `flag_off` - AI drafts are not enabled for this project
  * * `ai_not_approved` - The organization has not approved AI data processing
  * * `gateway_unconfigured` - The AI gateway is not configured
  * * `rate_limited` - The project used its hourly AI drafts
@@ -2504,7 +2652,6 @@ export type EmailDraftFallbackReasonEnumApi =
     (typeof EmailDraftFallbackReasonEnumApi)[keyof typeof EmailDraftFallbackReasonEnumApi]
 
 export const EmailDraftFallbackReasonEnumApi = {
-    FlagOff: 'flag_off',
     AiNotApproved: 'ai_not_approved',
     GatewayUnconfigured: 'gateway_unconfigured',
     RateLimited: 'rate_limited',
@@ -2529,7 +2676,6 @@ export interface EmailDraftApi {
     generated_by: EmailDraftOriginEnumApi
     /** Why the template was used instead of a model draft. Null for a model draft.
      *
-     * * `flag_off` - AI drafts are not enabled for this project
      * * `ai_not_approved` - The organization has not approved AI data processing
      * * `gateway_unconfigured` - The AI gateway is not configured
      * * `rate_limited` - The project used its hourly AI drafts
@@ -2537,6 +2683,188 @@ export interface EmailDraftApi {
      * * `model_error` - The model call failed
      * * `invalid_output` - The model returned an unusable draft */
     template_reason: EmailDraftFallbackReasonEnumApi | null
+}
+
+/**
+ * Customer.io snippet name to its content, inlined where a message uses `{% snippet "name" %}`.
+ */
+export type WorkflowImportRequestApiSnippets = { [key: string]: string }
+
+/**
+ * Customer.io segment id to the PostHog cohort that replaces it. Segment triggers and segment conditions with no cohort here are left for the team to set.
+ */
+export type WorkflowImportRequestApiSegmentCohorts = { [key: string]: number }
+
+/**
+ * Customer.io layout id to the layout's `body`, from `GET /v1/environments/{environment_id}/layouts/{layout_id}`. An email whose template names a `layout_id` is wrapped in that layout at `{{ content }}`.
+ */
+export type WorkflowImportRequestApiLayouts = { [key: string]: string }
+
+/**
+ * * `customerio` - Customer.io
+ */
+export type ImportProviderKeyEnumApi = (typeof ImportProviderKeyEnumApi)[keyof typeof ImportProviderKeyEnumApi]
+
+export const ImportProviderKeyEnumApi = {
+    Customerio: 'customerio',
+} as const
+
+/**
+ * The `campaign` object from Customer.io's `GET /v1/environments/{environment_id}/campaigns/{campaign_id}` (Journeys UI API, what the Customer.io CLI and MCP read). Must include `id`, `type`, `edges` and the trigger fields.
+ */
+export type CustomerioCampaignApiCampaign = { [key: string]: unknown }
+
+export type CustomerioCampaignApiActionsItem = { [key: string]: unknown }
+
+export interface CustomerioCampaignApi {
+    /** The `campaign` object from Customer.io's `GET /v1/environments/{environment_id}/campaigns/{campaign_id}` (Journeys UI API, what the Customer.io CLI and MCP read). Must include `id`, `type`, `edges` and the trigger fields. */
+    campaign: CustomerioCampaignApiCampaign
+    /** The top-level `actions` array from the same response, every step of the automation. */
+    actions: CustomerioCampaignApiActionsItem[]
+    /** The message templates the actions point at, from `GET /v1/environments/{environment_id}/templates/{template_id}`: a list of template objects, or an object keyed by template id. Leave them out when the project stored a Customer.io App API key: PostHog then reads the content from Customer.io itself. Without either, messages import with empty content. */
+    templates?: unknown
+}
+
+export interface CustomerioSenderIdentityApi {
+    /** The sender identity's id, which templates name in `from_identity_id`. */
+    id: string
+    /** The address the sender sends from. */
+    email: string
+    /** The sender's display name. */
+    name?: string
+}
+
+export interface CustomerioSegmentApi {
+    /** The segment's id. */
+    id: string
+    /** The segment's name. */
+    name: string
+    /** The segment's type: `dynamic`, or `static` for a hand-made list. */
+    type: string
+}
+
+export interface WorkflowImportRequestApi {
+    /** The tool the automations come from.
+     *
+     * * `customerio` - Customer.io */
+    source: ImportProviderKeyEnumApi
+    /** The automations to import, at most 50. People are never read from these objects. */
+    campaigns: CustomerioCampaignApi[]
+    /** Customer.io snippet name to its content, inlined where a message uses `{% snippet "name" %}`. */
+    snippets?: WorkflowImportRequestApiSnippets
+    /** Customer.io segment id to the PostHog cohort that replaces it. Segment triggers and segment conditions with no cohort here are left for the team to set. */
+    segment_cohorts?: WorkflowImportRequestApiSegmentCohorts
+    /** Customer.io layout id to the layout's `body`, from `GET /v1/environments/{environment_id}/layouts/{layout_id}`. An email whose template names a `layout_id` is wrapped in that layout at `{{ content }}`. */
+    layouts?: WorkflowImportRequestApiLayouts
+    /** Customer.io sender identities, from `GET /v1/environments/{environment_id}/identities?type=email`. Each email gets the PostHog sender with the same address. */
+    sender_identities?: CustomerioSenderIdentityApi[]
+    /** Customer.io segment ids, names and types, without members, so the notes can name each segment and flag static ones. */
+    segments?: CustomerioSegmentApi[]
+    /** When true, translate and check the automations but save nothing, to preview the import. */
+    dry_run?: boolean
+}
+
+/**
+ * * `preview` - Preview
+ * * `created` - Created
+ * * `updated` - Updated
+ * * `skipped` - Skipped
+ * * `failed` - Failed
+ */
+export type WorkflowImportStatusEnumApi = (typeof WorkflowImportStatusEnumApi)[keyof typeof WorkflowImportStatusEnumApi]
+
+export const WorkflowImportStatusEnumApi = {
+    Preview: 'preview',
+    Created: 'created',
+    Updated: 'updated',
+    Skipped: 'skipped',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `approximated` - Approximated
+ * * `unsupported` - Unsupported
+ * * `needs_input` - Needs input
+ */
+export type WorkflowImportNoteLevelEnumApi =
+    (typeof WorkflowImportNoteLevelEnumApi)[keyof typeof WorkflowImportNoteLevelEnumApi]
+
+export const WorkflowImportNoteLevelEnumApi = {
+    Approximated: 'approximated',
+    Unsupported: 'unsupported',
+    NeedsInput: 'needs_input',
+} as const
+
+export interface WorkflowImportNoteApi {
+    /** `approximated`: the step behaves differently in PostHog. `unsupported`: the setting was left out. `needs_input`: the team must set something before enabling.
+     *
+     * * `approximated` - Approximated
+     * * `unsupported` - Unsupported
+     * * `needs_input` - Needs input */
+    level: WorkflowImportNoteLevelEnumApi
+    /** What changed or was left out, and what to do about it. */
+    message: string
+    /**
+     * The workflow step the note is about, or null.
+     * @nullable
+     */
+    step_id: string | null
+    /**
+     * That step's name, or null.
+     * @nullable
+     */
+    step_name: string | null
+}
+
+export interface WorkflowImportResultApi {
+    /** The automation's id in Customer.io. */
+    source_id: string
+    /** The automation's name. */
+    name: string
+    /** `preview` when dry_run is set, `created` or `updated` for a saved draft, `skipped` when an earlier import of it is no longer a draft, `failed` when the draft does not pass the workflow checks.
+     *
+     * * `preview` - Preview
+     * * `created` - Created
+     * * `updated` - Updated
+     * * `skipped` - Skipped
+     * * `failed` - Failed */
+    status: WorkflowImportStatusEnumApi
+    /**
+     * The draft workflow's id, when one was saved. In a preview, the draft an import would replace.
+     * @nullable
+     */
+    workflow_id: string | null
+    /** What the import changed or left out. */
+    notes: WorkflowImportNoteApi[]
+    /** Why the draft failed the workflow checks, for `failed`. */
+    validation_errors: string[]
+}
+
+export interface WorkflowImportResponseApi {
+    /** One result per automation, in request order. */
+    results: WorkflowImportResultApi[]
+    /** True when PostHog read message content from Customer.io with the project's stored App API key. */
+    content_fetched: boolean
+}
+
+export interface WorkflowImportRecordApi {
+    /** The import record's id. */
+    readonly id: string
+    /** The tool the workflow was imported from. */
+    readonly source: string
+    /** The automation's id in that tool. */
+    readonly source_id: string
+    /** The automation's name in that tool. */
+    readonly source_name: string
+    /**
+     * The workflow.
+     * @nullable
+     */
+    readonly hog_flow: string | null
+    /** What the import changed or left out. */
+    readonly notes: readonly WorkflowImportNoteApi[]
+    /** When the workflow was last imported. */
+    readonly updated_at: string
 }
 
 export type PeopleImportCreateApiRowsItem = { [key: string]: string }
@@ -2698,8 +3026,6 @@ export interface WorkflowSetupStatusApi {
      * * `email-template` - Email template
      * * `first-workflow` - First workflow */
     next_open_step: SetupStepKeyEnumApi | null
-    /** Whether workflows-data-suggestions-list can suggest workflows from this project's events. */
-    data_suggestions_available: boolean
 }
 
 export type HogFlowTemplatesListParams = {
@@ -2761,6 +3087,10 @@ export type HogFlowsListParams = {
     created_by?: string
     id?: string
     /**
+     * Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last.
+     */
+    latest_send_first?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -2780,6 +3110,10 @@ export type HogFlowsListParams = {
      * Case-insensitive search. Matches workflow name, description and tag names first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.
      */
     search?: string
+    /**
+     * Filter to workflows started from this record, as '<kind>:<id>', e.g. `early_access:<id>`.
+     */
+    source_record?: string
     /**
      * * `draft` - Draft
      * * `active` - Active
@@ -3227,4 +3561,11 @@ export type HogFlowsSendCalendarRetrieveParams = {
      * Start of the shown range, inclusive, as an ISO 8601 datetime.
      */
     start: string
+}
+
+export type WorkflowImportsForWorkflowRetrieveParams = {
+    /**
+     * The workflow to read the import of.
+     */
+    hog_flow_id: string
 }

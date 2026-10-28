@@ -9,7 +9,7 @@ use personhog_coordination::types::{ChangelogConfig, Generation};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use common::{store_at, test_store, FlakyProxy, ETCD_ENDPOINT};
+use common::{store_at, test_store, FlakyProxy, ETCD_ENDPOINT, WAIT_TIMEOUT};
 
 #[tokio::test]
 async fn a_second_seed_is_refused() {
@@ -47,12 +47,63 @@ async fn boot_polls_until_the_config_is_seeded() {
     });
     let loaded = tokio::time::timeout(
         Duration::from_secs(5),
-        load_changelog_config(&store, Duration::from_millis(20)),
+        load_changelog_config(&store, Duration::from_millis(20), &CancellationToken::new()),
     )
     .await
     .expect("boot polls until the config is seeded")
-    .unwrap();
+    .unwrap()
+    .expect("no shutdown was requested");
     assert_eq!((loaded.partitions, loaded.epoch), (64, 1));
+}
+
+#[tokio::test]
+async fn boot_waits_out_an_unreachable_etcd() {
+    let seeded = test_store("changelog-boot-outage").await;
+    seeded
+        .seed_changelog_config("personhog_updates_64", 64, "personhog-writer")
+        .await
+        .unwrap();
+    let proxy = FlakyProxy::start("127.0.0.1:2379").await;
+    proxy.set_blackholed(true);
+    let store = store_at(&proxy.endpoint, seeded.inner().prefix()).await;
+
+    let boot = tokio::spawn(async move {
+        load_changelog_config(&store, Duration::from_millis(20), &CancellationToken::new()).await
+    });
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert!(
+        !boot.is_finished(),
+        "boot keeps waiting while etcd is unreachable"
+    );
+
+    proxy.set_blackholed(false);
+    let loaded = tokio::time::timeout(WAIT_TIMEOUT, boot)
+        .await
+        .expect("boot loads the config once etcd is back")
+        .unwrap()
+        .unwrap()
+        .expect("no shutdown was requested");
+    assert_eq!(loaded.partitions, 64);
+}
+
+#[tokio::test]
+async fn boot_stops_waiting_on_shutdown() {
+    let store = test_store("changelog-boot-shutdown").await;
+    let shutdown = CancellationToken::new();
+    let waiting = {
+        let shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            load_changelog_config(&store, Duration::from_millis(20), &shutdown).await
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    shutdown.cancel();
+    let loaded = tokio::time::timeout(Duration::from_secs(2), waiting)
+        .await
+        .expect("shutdown ends the wait")
+        .unwrap()
+        .unwrap();
+    assert!(loaded.is_none());
 }
 
 /// What a loop starts from before it has adopted anything.
@@ -103,6 +154,7 @@ async fn the_watch_delivers_newer_epochs_and_retires_but_nothing_stale() {
         partitions: 128,
         epoch: 2,
         writer_group: String::new(),
+        retire_groups: vec![],
         draining: Vec::new(),
     };
     store.put_changelog_config(&flipped).await.unwrap();
@@ -191,6 +243,7 @@ async fn a_severed_watch_still_adopts_the_flip_through_reconcile() {
             partitions: 128,
             epoch: 2,
             writer_group: String::new(),
+            retire_groups: vec![],
             draining: Vec::new(),
         })
         .await

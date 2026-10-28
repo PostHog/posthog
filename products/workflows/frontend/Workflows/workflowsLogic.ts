@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 import { LemonDialog, PaginationManual, lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig, CountedPaginatedResponse, HogFlowListType } from 'lib/api'
+import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
@@ -57,6 +58,10 @@ export interface WorkflowsFilters {
     tags: string[]
     page: number
 }
+
+// The search params actionToUrl writes below. A URL that carries none of them states no filters at all,
+// which is different from stating that every filter is off.
+const FILTER_URL_PARAMS = ['search', 'created_by', 'status', 'type', 'trigger_type', 'tags', 'page']
 
 const DEFAULT_FILTERS: WorkflowsFilters = {
     search: '',
@@ -312,9 +317,13 @@ export const workflowsLogic = kea<workflowsLogicType>([
         setSavedWorkflowTags: (id: string, tags: string[]) => ({ id, tags }),
         setTagsFilter: (tags: string[], source: 'filter' | 'tag_click') => ({ tags, source }),
     }),
-    reducers({
+    reducers(() => ({
         filters: [
             DEFAULT_FILTERS,
+            // The list unmounts when a workflow opens, so the filters are persisted to survive that and
+            // be restored when the user comes back to the list. The key carries the user and the team, so
+            // another account or another project never reads these filters.
+            buildUserScopedPersistenceConfig('workflows_list_filters__'),
             {
                 setFilters: (state, { filters, replace }) => {
                     const next = replace ? { ...DEFAULT_FILTERS, ...filters } : { ...state, ...filters }
@@ -359,7 +368,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 loadWorkflowsSuccess: () => ({}),
             },
         ],
-    }),
+    })),
     loaders(({ actions, values }) => ({
         workflows: [
             { results: [], count: 0 } as WorkflowsResult,
@@ -621,6 +630,15 @@ export const workflowsLogic = kea<workflowsLogicType>([
     }),
     urlToAction(({ actions, values }) => {
         const syncFiltersFromUrl = (_: Record<string, any>, searchParams: Record<string, any>): void => {
+            // An in-app link back to the list, such as the breadcrumb out of a workflow, carries no filter
+            // params. Parsing that URL would clear every filter, so the filters held in state are restored
+            // and written back into the URL instead.
+            if (!FILTER_URL_PARAMS.some((param) => param in searchParams)) {
+                if (!objectsEqual(values.filters, DEFAULT_FILTERS)) {
+                    actions.setFilters(values.filters)
+                }
+                return
+            }
             const status = searchParams['status']
             const type = searchParams['type']
             const triggerType = searchParams['trigger_type']

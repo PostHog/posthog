@@ -1,3 +1,4 @@
+import re
 import json
 import time
 import typing
@@ -9,7 +10,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from django.db import OperationalError, close_old_connections
 
 import structlog
-from requests import Response
+from requests import Response, Session
 from requests.exceptions import (
     ChunkedEncodingError,
     ConnectionError as RequestsConnectionError,
@@ -481,11 +482,25 @@ META_REFUSED_CREATIVE_ERROR_SUBCODES = frozenset({2446211, 1443048})
 META_BATCH_MAX_SUBREQUESTS = 50
 
 META_AUTH_ERROR_MESSAGE = (
-    "Meta Ads access token is invalid, expired, or lacks the required permissions. Please re-authorize the integration."
+    "Your Meta Ads connection has expired or is missing permissions. Reconnect with a Facebook account that can "
+    "access your ad accounts, and allow all permissions."
+)
+
+# Code 190 / subcode 459: Meta has checkpointed the user behind the token. The token stays refused
+# until that user signs in to Facebook and clears the check, which reconnecting alone doesn't do.
+META_CHECKPOINT_ERROR_SUBCODE = 459
+
+META_CHECKPOINT_ERROR_MESSAGE = (
+    "Meta locked the Facebook account you connected until it passes a security check. Sign in at "
+    "facebook.com, follow the steps, then reconnect your Meta Ads account."
 )
 
 META_RATE_LIMIT_ERROR_MESSAGE = (
     "Meta is rate limiting requests for this connection. Please wait a few minutes and try again."
+)
+
+META_AD_ACCOUNT_LISTING_UNAVAILABLE_MESSAGE = (
+    "Meta Ads didn't respond while listing your ad accounts. Wait a minute, then try again."
 )
 
 META_INVALID_CURSOR_ERROR_MESSAGE = "Meta's pagination cursor for this sync became invalid. Please run the sync again."
@@ -501,6 +516,32 @@ SHRINK_EXHAUSTED_ERROR_MESSAGE = "Meta could not return this data even at the sm
 # schema stays enabled for the next scheduled sync.
 ENTITY_PAGE_REFUSED_ERROR_MESSAGE = "Meta could not return this page even at the smallest page size (retryable)"
 SMALLEST_PAGE_LIMIT_MAX_RETRIES = 3
+
+INCONSISTENT_INSIGHTS_ERROR_MESSAGE = (
+    "Meta returned 0 impressions together with a nonzero CPM or CTR, which can't be correct. "
+    "The sync stopped so it doesn't overwrite your stored metrics. Run the sync again later"
+)
+
+
+def _float_metric(row: dict, field: str) -> float | None:
+    try:
+        return float(row[field])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _is_inconsistent_insights_row(row: dict) -> bool:
+    """Return True for an Insights row whose base metrics contradict its own ratios.
+
+    Meta derives ``cpm`` from spend and impressions, and ``ctr`` from clicks and impressions, so
+    zero impressions with a positive ``cpm`` or ``ctr`` is impossible. Meta has been observed to
+    return such rows for multi-day ``time_range`` requests: ``spend``, ``impressions`` and
+    ``clicks`` come back as ``"0"`` and the reach fields are missing, while the ratios keep their
+    real values. A row with real zero delivery has no ratios, so it does not match.
+    """
+    if _float_metric(row, "impressions") != 0:
+        return False
+    return any((_float_metric(row, field) or 0) > 0 for field in ("cpm", "ctr"))
 
 
 def _parse_json_leniently(response: Response) -> dict | None:
@@ -566,7 +607,14 @@ def _is_permanent_auth_error(response: Response) -> bool:
 
 
 def _is_rate_limit_error(response: Response) -> bool:
-    """Return True for Meta errors that mean "too many requests", which only waiting fixes."""
+    """Return True for Meta errors that mean "too many requests", which only waiting fixes.
+
+    A fronting proxy in front of the Graph API has been observed to answer throttling with a
+    bare HTTP 429 and an HTML error page instead of Meta's own JSON error body, so the status
+    code alone is also treated as the signal — ``_meta_error_code`` has nothing to parse there.
+    """
+    if response.status_code == 429:
+        return True
     return _meta_error_code(response) in META_RATE_LIMIT_ERROR_CODES
 
 
@@ -595,7 +643,12 @@ def _raise_meta_api_error(response: Response) -> typing.NoReturn:
     Everything else raises the raw response and stays retryable.
     """
     if _is_permanent_auth_error(response):
-        raise Exception(f"{META_AUTH_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})")
+        message = (
+            META_CHECKPOINT_ERROR_MESSAGE
+            if _meta_error_subcode(response) == META_CHECKPOINT_ERROR_SUBCODE
+            else META_AUTH_ERROR_MESSAGE
+        )
+        raise Exception(f"{message} (Meta API response: {response.status_code} - {response.text})")
     if _is_rate_limit_error(response):
         raise Exception(
             f"{META_RATE_LIMIT_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})"
@@ -664,7 +717,20 @@ def _raise_for_meta_error(response: Response) -> None:
             raise MetaAdsAuthError(META_AUTH_ERROR_MESSAGE)
         if _is_rate_limit_error(response):
             raise MetaAdsRateLimitError(META_RATE_LIMIT_ERROR_MESSAGE)
+        if _is_transient_error(response):
+            raise IntegrationAccountListingError(META_AD_ACCOUNT_LISTING_UNAVAILABLE_MESSAGE)
         _raise_meta_api_error(response)
+
+
+def _get_ad_account_page(session: Session, url: str, access_token: str, params: dict[str, typing.Any]) -> Response:
+    # The tracked session has already retried a blip by the time one of these escapes, and this
+    # listing runs in the web request path, so turn it into a message the picker can show.
+    try:
+        return session.get(
+            url, params={**params, "access_token": access_token}, timeout=AD_ACCOUNT_LISTING_TIMEOUT_SECONDS
+        )
+    except NETWORK_TRANSIENT_ERRORS as e:
+        raise IntegrationAccountListingError(META_AD_ACCOUNT_LISTING_UNAVAILABLE_MESSAGE) from e
 
 
 def list_ad_accounts(integration: Integration) -> list[dict]:
@@ -675,10 +741,11 @@ def list_ad_accounts(integration: Integration) -> list[dict]:
     # be recorded in the logged/sampled request URLs.
     session = make_tracked_session(redact_values=(access_token,))
     accounts: list[dict] = []
-    response = session.get(
+    response = _get_ad_account_page(
+        session,
         f"https://graph.facebook.com/{MetaAdsIntegration.api_version}/me/adaccounts",
-        params={"fields": AD_ACCOUNT_FIELDS, "limit": AD_ACCOUNT_PAGE_LIMIT, "access_token": access_token},
-        timeout=AD_ACCOUNT_LISTING_TIMEOUT_SECONDS,
+        access_token,
+        {"fields": AD_ACCOUNT_FIELDS, "limit": AD_ACCOUNT_PAGE_LIMIT},
     )
 
     for _ in range(MAX_AD_ACCOUNT_PAGES):
@@ -693,11 +760,7 @@ def list_ad_accounts(integration: Integration) -> list[dict]:
         if not next_url or not page:
             return accounts
 
-        response = session.get(
-            _strip_access_token(next_url),
-            params={"access_token": access_token},
-            timeout=AD_ACCOUNT_LISTING_TIMEOUT_SECONDS,
-        )
+        response = _get_ad_account_page(session, _strip_access_token(next_url), access_token, {})
 
     # The response fetched on the final loop iteration is never re-checked by the loop, so surface a real
     # auth/rate-limit failure there rather than masking it with the "too many pages" error below.
@@ -982,6 +1045,9 @@ def _iter_time_range_pagination(
       those pages alone, so we exhaust this ladder before restarting the chunk
       at a smaller size and re-yielding them.
 
+    A page with rows that contradict their own ratios (see ``_is_inconsistent_insights_row``)
+    also drops the chunk size to one day, and raises if a single day still returns one.
+
     Resume state captures both levels: ``chunk_since`` + ``chunk_size_days``
     for the outer loop, ``chunk_next_url`` when the crash happened mid-chunk,
     and ``chunk_limit`` so a reduced limit persists across resumes.
@@ -1114,7 +1180,26 @@ def _iter_time_range_pagination(
                 continue
             malformed_json_attempts = 0
 
-            yield response_payload.get("data", [])
+            rows = response_payload.get("data", [])
+            inconsistent_row = next((row for row in rows if _is_inconsistent_insights_row(row)), None)
+            if inconsistent_row is not None:
+                logger.warning(
+                    "meta_ads_inconsistent_insights_rows",
+                    chunk_since=current_start.strftime("%Y-%m-%d"),
+                    chunk_until=current_end.strftime("%Y-%m-%d"),
+                    date_start=inconsistent_row.get("date_start"),
+                )
+                # Single-day requests have returned correct values for the same days, so re-read
+                # the window one day at a time. The page is not yielded: its rows would overwrite
+                # correct stored metrics with zeros.
+                if current_end > current_start:
+                    chunk_size_days = 1
+                    _save(current_start, chunk_size_days, None)
+                    restart_chunk = True
+                    break
+                raise Exception(f"{INCONSISTENT_INSIGHTS_ERROR_MESSAGE} (date: {inconsistent_row.get('date_start')})")
+
+            yield rows
 
             next_url = response_payload.get("paging", {}).get("next")
             if not next_url:
@@ -1202,6 +1287,67 @@ def _make_paginated_api_request(
         yield from _iter_time_range_pagination(url, params, time_range, resume_config, resumable_source_manager)
 
 
+# The values Meta's Insights API accepts for `action_attribution_windows`, as its code 100 error
+# lists them. The setting is free text, so a value outside this set would fail every stats sync.
+META_ATTRIBUTION_WINDOWS = frozenset(
+    {
+        "1d_view",
+        "7d_view",
+        "28d_view",
+        "1d_click",
+        "7d_click",
+        "28d_click",
+        "1d_ev",
+        "dda",
+        "default",
+        "7d_view_first_conversion",
+        "28d_view_first_conversion",
+        "7d_view_all_conversions",
+        "28d_view_all_conversions",
+        "skan_view",
+        "skan_click",
+        "skan_click_second_postback",
+        "skan_view_second_postback",
+        "skan_click_third_postback",
+        "skan_view_third_postback",
+        "incrementality",
+        "incrementality_first_conversion",
+        "incrementality_all_conversions",
+        "custom",
+        "1d_sequenced",
+        "7d_sequenced",
+        "28d_sequenced",
+    }
+)
+
+# Spelled-out day windows such as "7 day click" or "28-days view".
+_SPELLED_DAY_WINDOW = re.compile(r"\b(\d+)[\s_-]*(?:days?|d)[\s_-]*(click|view)s?\b")
+
+# Every accepted window is made of these characters, so any other character separates two values.
+_ATTRIBUTION_WINDOW_SEPARATOR = re.compile(r"[^a-z0-9_]+")
+
+
+def _normalize_attribution_windows(raw: str) -> list[str]:
+    """Parse the free-text windows setting into the values Meta accepts, in order and without repeats.
+
+    Values Meta does not accept are dropped, because Meta rejects the whole Insights request for
+    one of them, and that would stop every stats sync on the source.
+    """
+    text = _SPELLED_DAY_WINDOW.sub(r"\1d_\2", raw.lower())
+    windows: list[str] = []
+    dropped: list[str] = []
+    for token in _ATTRIBUTION_WINDOW_SEPARATOR.split(text):
+        if not token:
+            continue
+        if token not in META_ATTRIBUTION_WINDOWS:
+            dropped.append(token)
+        elif token not in windows:
+            windows.append(token)
+    if dropped:
+        logger.warning("meta_ads_dropped_invalid_attribution_windows", dropped=dropped)
+    return windows
+
+
 def _attribution_params(config: MetaAdsSourceConfig) -> dict[str, str]:
     """Attribution settings to add to an Insights request, only when the source configures them.
 
@@ -1210,7 +1356,8 @@ def _attribution_params(config: MetaAdsSourceConfig) -> dict[str, str]:
     PostHog's spend and conversion numbers with what Ads Manager shows.
 
     - ``action_attribution_windows``: a comma-separated list in config (e.g. ``7d_click,1d_view``),
-      sent JSON-encoded the way Meta's Graph API accepts a list parameter.
+      normalized by ``_normalize_attribution_windows`` and sent JSON-encoded the way Meta's Graph
+      API accepts a list parameter. Omitted when no configured value is one Meta accepts.
     - ``use_unified_attribution_setting``: a string flag (``"true"``/``"false"``) sent verbatim;
       any other value (including the "use Meta's default" empty option) leaves it unset.
     """
@@ -1218,7 +1365,7 @@ def _attribution_params(config: MetaAdsSourceConfig) -> dict[str, str]:
 
     windows_raw = getattr(config, "action_attribution_windows", None)
     if windows_raw:
-        windows = [window.strip() for window in windows_raw.split(",") if window.strip()]
+        windows = _normalize_attribution_windows(windows_raw)
         if windows:
             params["action_attribution_windows"] = json.dumps(windows)
 

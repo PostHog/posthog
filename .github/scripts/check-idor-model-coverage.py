@@ -138,6 +138,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # --- Internal infra (audit, async, caching, scheduling) ---
         "ActivityLog",
         "AsyncDeletion",
+        # Instance-wide log of deletion Dagster runs, read by staff in Django admin only.
+        "DeletionRunLog",
         "AsyncMigration",
         "AsyncMigrationError",
         # Outbound email delivery queue — looked up by PK / comment FK from internal
@@ -315,6 +317,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "Team",
         "User",
         # --- Instance-level config ---
+        "DeletionRunLog",  # one row per deletion Dagster run, across all teams
         "AsyncMigration",
         "AsyncMigrationError",
         "InstanceSetting",
@@ -361,6 +364,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "EventIngestionRestrictionConfig",
         "GlobalRateLimitThresholdConfig",
         "MessagingRecord",
+        "UserActivitySummaryQueueCursor",  # one global read position per input source, no rows of a team
     }
 
     # Baseline violations — these models SHOULD have team_id but don't yet.

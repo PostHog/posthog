@@ -48,6 +48,18 @@ _COLLECTION_COLUMNS = {
     "videos_count": "Number of videos in the collection.",
 }
 
+_COLLECTION_MEDIA_COLUMNS = {
+    **_PHOTO_COLUMNS,
+    **_VIDEO_COLUMNS,
+    "id": "Unique identifier for the photo or video. Photo and video ids are separate sequences.",
+    "width": "Real width of the photo or video in pixels.",
+    "height": "Real height of the photo or video in pixels.",
+    "url": "Pexels URL where the photo or video is located.",
+    "avg_color": "Average color of the photo or video, when available.",
+    "type": "Kind of media item: `Photo` or `Video`.",
+    "collection_id": "Identifier of the collection that contains the media item.",
+}
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "curated_photos": {
         "description": "A real-time selection of photos curated by the Pexels team.",
@@ -78,5 +90,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "Collections owned by the authenticated Pexels account.",
         "docs_url": "https://www.pexels.com/api/documentation/#collections-all",
         "columns": _COLLECTION_COLUMNS,
+    },
+    "collection_media": {
+        "description": "Photos and videos in each collection owned by the authenticated Pexels account.",
+        "docs_url": "https://www.pexels.com/api/documentation/#collections-media",
+        "columns": _COLLECTION_MEDIA_COLUMNS,
     },
 }

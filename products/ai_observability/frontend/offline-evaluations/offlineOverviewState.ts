@@ -8,13 +8,13 @@ import type {
 
 export type OfflineExperimentFilters = Pick<
     AiObservabilityOfflineExperimentsListParams,
-    'search' | 'statuses' | 'run_source' | 'date_from' | 'date_to'
+    'search' | 'statuses' | 'run_source' | 'date_from' | 'date_to' | 'created_by' | 'created_by_is_null'
 > &
     Partial<ResourceTagFilters>
 
 export type OfflineOverviewTrendFilters = Pick<
     AiObservabilityOfflineScorersHistoryListParams,
-    'run_source' | 'statuses' | 'tags' | 'tag_match'
+    'run_source' | 'statuses' | 'tags' | 'tag_match' | 'created_by' | 'created_by_is_null'
 >
 
 export const OFFLINE_ALL_UPLOAD_STATES = 'completed,uploading,failed'
@@ -61,6 +61,7 @@ export function saveOfflineScorerPreferences(userId: number, teamId: number, sco
 }
 
 export function offlineFiltersFromUrl(search: Record<string, unknown>): OfflineExperimentFilters {
+    const noAuthor = search.created_by_is_null === true || search.created_by_is_null === 'true'
     // Keep shared links from the separate trend controls usable with the unified filters.
     const shared: Record<string, unknown> = {
         ...search,
@@ -69,6 +70,10 @@ export function offlineFiltersFromUrl(search: Record<string, unknown>): OfflineE
         run_source: search.run_source ?? search.trend_run_source,
     }
     return {
+        ...(noAuthor ? { created_by_is_null: true } : {}),
+        ...(!noAuthor && Number.isSafeInteger(Number(search.created_by)) && Number(search.created_by) > 0
+            ? { created_by: Number(search.created_by) }
+            : {}),
         ...('tags' in search || 'tag_match' in search ? cleanTagFilters(search) : {}),
         ...Object.fromEntries(
             FILTER_KEYS.flatMap((key) => {

@@ -58,7 +58,7 @@ describe('inboxFiltersLogic', () => {
         })
 
         it('leads with the ranking field for a model sort', () => {
-            expect(buildSignalReportListOrdering('ranking_fixed', 'desc')).toBe('-ranking_fixed,status,-updated_at')
+            expect(buildSignalReportListOrdering('ranking_fix', 'desc')).toBe('-ranking_fix,status,-updated_at')
         })
 
         // The server ignores the `sort` preset whenever `ordering` is present.
@@ -107,6 +107,7 @@ describe('inboxFiltersLogic', () => {
                 { ...DEFAULT_STATE, scope: 'teammate:0199ed4a-5c03-0000-3220-df21df612e95' },
                 { scope: 'teammate:0199ed4a-5c03-0000-3220-df21df612e95' },
             ],
+            ['claimed-by-you scope only', { ...DEFAULT_STATE, scope: 'claimed-by-you' }, { scope: 'claimed-by-you' }],
             // An unchecked-everything selection means every state. It must survive the URL rewrite
             // that follows each toggle, or hydration would put the default selection straight back.
             ['an explicitly empty state selection', { ...DEFAULT_STATE, stateFilter: [] }, { state: 'all' }],
@@ -154,6 +155,13 @@ describe('inboxFiltersLogic', () => {
                 'asc',
             ],
             ['keeps an explicit Priority first from a shared link', 'priority:asc', false, 'priority', 'asc'],
+            [
+                'moves a link with the old Fix sort name to the current one',
+                'ranking_fixed:desc',
+                true,
+                'ranking_fix',
+                'desc',
+            ],
         ] as const)('%s', (_name, sort, modelSortAvailable, sortField, sortDirection) => {
             expect(parseFilterSearchParams({ sort }, { modelSortAvailable })).toEqual({
                 ...DEFAULT_STATE,

@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.web
 
 if TYPE_CHECKING:
     from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import RowFilterColumn
 
@@ -207,6 +208,15 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # Direct-only connectors opt out so API clients cannot create a source that is accepted by
     # discovery but can never run a scheduled import.
     supports_scheduled_sync: bool = True
+
+    # For a source PostHog creates and syncs itself, one run at a time, when the data behind it
+    # changes (an uploaded file). The API refuses to create one from a request body, and refuses to
+    # turn on its schedule, because each scheduled run would bill the same rows again.
+    syncs_on_demand: bool = False
+
+    # False keeps the source out of the source catalog, for a source the app sets up through its own
+    # flow and never through the generic setup form.
+    listed_in_catalog: bool = True
 
     # Sources with stable upstream resource ids need unfiltered discovery when a stored schema name
     # may no longer match after an upstream rename.
@@ -530,6 +540,12 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # not be reachable through the API without the flag sets this as well.
     requires_team_feature_flag: str | None = None
 
+    # Top-level ``job_inputs`` keys that hold server-written runtime state, such as a pointer to an
+    # uploaded file. They are neither credentials nor settings a person picks, so they stay in
+    # ``job_inputs`` when the connection fields move to their own store. Keys that start with
+    # ``cdc_`` are runtime state for every source and need no entry here.
+    runtime_job_input_keys: frozenset[str] = frozenset()
+
     # Cap on how many active sources of this type a team may have (``None`` = unlimited). Custom
     # sources are capped; everything else is open. The API enforces this at create.
     max_instances_per_team: int | None = None
@@ -566,6 +582,28 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
         """Best-effort teardown of CDC resources tied to the source. No-op by default."""
+        return None
+
+    def on_source_deleted(self, source_model: "ExternalDataSource") -> None:
+        """Best-effort cleanup once the source is soft-deleted, for example of files PostHog stores
+        for it. Runs inside the delete's transaction, so work outside the database belongs in
+        `transaction.on_commit`. No-op by default."""
+        return None
+
+    def has_cleanup_after_sync(self, source_model: "ExternalDataSource") -> bool:
+        """Whether `cleanup_after_sync` has work to do after a sync of one of the source's schemas
+        completes. Kept cheap and false for most sources, because a true answer adds a step to the
+        post-import workflow."""
+        return False
+
+    def cleanup_after_sync(self, source_model: "ExternalDataSource", job: "ExternalDataJob") -> None:
+        """Runs after `job` completed and its table was loaded, when `has_cleanup_after_sync` said so.
+        No-op by default."""
+        return None
+
+    def manual_sync_refusal(self, source_model: "ExternalDataSource") -> str | None:
+        """Why a user can't start a sync of the source's schemas now, as a message for the user, or None
+        when they can. For a source whose inputs can't run a sync yet, such as one that waits for a file."""
         return None
 
 

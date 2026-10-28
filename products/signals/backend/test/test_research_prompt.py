@@ -1,3 +1,4 @@
+import json
 import logging
 from dataclasses import replace
 from datetime import datetime
@@ -8,11 +9,13 @@ from unittest.mock import patch
 
 from pydantic import ValidationError
 
+from products.signals.backend.artefact_schemas import artefact_type_for_model
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_checks import MAX_ACTIVE_CHECKS_PER_REPORT
 from products.signals.backend.report_generation.research import (
     MAX_LINKED_REPORT_CONTEXT_CHARS,
+    DataOnlySignalFindingUpdate,
     FixVerificationOutput,
     LinkedReportContext,
     ReportPresentationOutput,
@@ -20,6 +23,7 @@ from products.signals.backend.report_generation.research import (
     _render_linked_report_context,
     _render_previous_metrics_context,
     _render_signal_for_research,
+    _resolve_finding_response,
     build_actionability_prompt,
     build_fix_verification_prompt,
     build_initial_research_prompt,
@@ -52,6 +56,47 @@ def _make_signal(extra: dict) -> SignalData:
 
 
 class TestRenderSignalForResearch:
+    @pytest.mark.parametrize("code_available", [False, True])
+    def test_research_only_requests_code_evidence_when_available(self, code_available):
+        prompt = build_initial_research_prompt(_make_signal({}), 1, code_available=code_available)
+        assert ("**Git blame:**" in prompt) is code_available
+        assert ("full PostHog repository is available" in prompt) is code_available
+        assert ("No repository is checked out for this run." in prompt) is not code_available
+        for guidance in [
+            "<writing_guide>",
+            "Attached images",
+            "`remediation`",
+            "inbox-report-artefacts-list",
+            "**Budget:**",
+            "**Work already in flight:**",
+            "experiment-get-by-flag-key",
+        ]:
+            assert guidance in prompt
+        presentation = build_report_presentation_prompt(
+            1, code_available=code_available, reviewer_selection_enabled=True
+        )
+        assert ("Use repository ownership files" in presentation) is code_available
+        assert ("inspect their relevant changes" in presentation) is code_available
+        followup = build_signal_investigation_prompt(_make_signal({}), 2, 2, code_available=code_available)
+        for finding_prompt in [prompt, followup]:
+            schema = json.loads(finding_prompt.split("<jsonschema>")[1].split("</jsonschema>")[0])
+            finding = schema["$defs"]["SignalFinding" if code_available else "DataOnlySignalFinding"]
+            commits = finding["properties"]["relevant_commit_hashes"]
+            assert ("minProperties" in commits) is code_available
+            assert ("git blame" in commits["description"]) is code_available
+        if not code_available:
+            response = DataOnlySignalFindingUpdate.model_validate(
+                {
+                    "previous_finding_correct": False,
+                    "finding": {"signal_id": "sig-1", "data_queried": "Error counts", "verified": True},
+                }
+            )
+            assert response.finding is not None
+            assert response.finding.relevant_commit_hashes == {}
+            finding, is_new = _resolve_finding_response(response, None, "sig-1")
+            assert is_new
+            assert artefact_type_for_model(type(finding)) == "signal_finding"
+
     def test_renders_attached_images_with_author_prefix(self):
         signal = _make_signal(
             {
@@ -663,6 +708,31 @@ class TestReportPresentationOutputCharts:
         assert parsed.summary == "Signups fell 60% over the week."
 
 
+class TestReportPresentationOutputTags:
+    @pytest.mark.parametrize(
+        "tags,expected",
+        [
+            (["Session Replay", "session_replay", "!!!", 3], ["session-replay"]),
+            ("billing", None),
+            (None, None),
+        ],
+    )
+    def test_invalid_tags_are_dropped_and_the_prose_survives(self, tags: object, expected: list[str] | None):
+        parsed = ReportPresentationOutput.model_validate(
+            {"title": "fix(checkout): Handle the timeout", "summary": "Checkout times out.", "tags": tags}
+        )
+
+        assert parsed.tags == expected
+        assert parsed.summary == "Checkout times out."
+
+    def test_prompt_offers_current_and_team_tags(self) -> None:
+        prompt = build_report_presentation_prompt(1, current_tags=["billing"], team_tags=["api", "billing"])
+
+        assert 'Current tags on this report: ["billing"]' in prompt
+        assert 'most-used first: ["api", "billing"]' in prompt
+        assert "Do not repeat the title type" in prompt
+
+
 class TestReportPresentationOutputSourceSuggestion:
     @pytest.mark.parametrize(
         "suggestion",
@@ -689,6 +759,47 @@ _WINDOW_GOAL = {"goal_value": 0.01, "goal_direction": "at_most", "decision_windo
 
 
 class TestReportPresentationOutputMetrics:
+    @pytest.mark.parametrize("keep_valid_metric", [False, True])
+    def test_invalid_metrics_preserve_prose_and_valid_metrics(
+        self, keep_valid_metric: bool, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        valid_metric = {
+            "metric_id": "upload-failures",
+            "title": "Upload failures",
+            "kind": "occurrences",
+            "role": "primary",
+            "value_format": "count",
+            "query": trends_metric_query(series=[{"kind": "EventsNode", "event": "upload_failed"}]),
+            "series": [1, 2],
+            **_WINDOW_GOAL,
+        }
+        with caplog.at_level(logging.WARNING):
+            parsed = ReportPresentationOutput.model_validate(
+                {
+                    "title": "fix(uploads): Handle failed uploads",
+                    "summary": "Uploads can fail.",
+                    "metrics": [
+                        {**valid_metric, "title": "private-metric-title", "query": {"private-filter": "private-value"}},
+                        None,
+                        *([valid_metric] if keep_valid_metric else []),
+                    ],
+                }
+            )
+
+        assert parsed.title == "fix(uploads): Handle failed uploads"
+        assert parsed.summary == "Uploads can fail."
+        assert [metric.metric_id for metric in parsed.metrics] == (["upload-failures"] if keep_valid_metric else [])
+        if keep_valid_metric:
+            assert parsed.metrics[0].query == valid_metric["query"]
+            assert parsed.metrics[0].series is None
+            assert parsed.metrics[0].goal_value is None
+        warning = "".join(record.getMessage() for record in caplog.records)
+        assert "dropped metric at index 0" in warning
+        assert "query: value_error" in warning
+        assert "private-metric-title" not in warning
+        assert "private-filter" not in warning
+        assert "private-value" not in warning
+
     @pytest.mark.parametrize(
         "goal",
         [

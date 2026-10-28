@@ -1,9 +1,11 @@
+from typing import Any
+
 import numpy as np
 from pyod.models.mad import MAD
 
 from posthog.schema import DetectorType
 
-from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult
+from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult, DetectorArtifact
 from posthog.tasks.alerts.detectors.registry import register_detector
 
 
@@ -27,8 +29,8 @@ class MADDetector(BaseDetector):
     """
 
     def detect(self, data: np.ndarray) -> DetectionResult:
-        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
-        window = self.config.get("window", 30)
+        threshold = self.threshold
+        window = self.window
         # preprocess() only ever runs a single first-difference pass when diffs_n is truthy
         # (it's a boolean toggle, not a pass count), so exactly one synthetic leading point
         # is introduced regardless of the configured magnitude.
@@ -73,8 +75,8 @@ class MADDetector(BaseDetector):
         )
 
     def detect_batch(self, data: np.ndarray) -> DetectionResult:
-        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
-        window = self.config.get("window", 30)
+        threshold = self.threshold
+        window = self.window
         # preprocess() only ever runs a single first-difference pass when diffs_n is truthy
         # (it's a boolean toggle, not a pass count), so exactly one synthetic leading point
         # is introduced regardless of the configured magnitude.
@@ -114,6 +116,48 @@ class MADDetector(BaseDetector):
             all_scores=scores,
             metadata={"threshold": threshold, "window": window},
         )
+
+    def fit(self, history: np.ndarray) -> DetectorArtifact:
+        window = self.window
+        diffs_n = 1 if self.preprocessing_config.get("diffs_n") else 0
+        rows = self._fit_rows(history, min_rows=window + diffs_n)
+        values = rows if rows.ndim == 1 else rows[:, 0]
+        clf = MAD()
+        clf.fit(values[diffs_n:][-window:].reshape(-1, 1))
+        # predict_proba scales a raw score by the range of the training scores.
+        return self._artifact(
+            {
+                "median": float(clf.median_),
+                "median_abs_deviation": float(clf.median_diff_),
+                "min_score": float(clf.decision_scores_.min()),
+                "max_score": float(clf.decision_scores_.max()),
+            }
+        )
+
+    def _score_rows(
+        self, artifact: DetectorArtifact, rows: np.ndarray
+    ) -> tuple[list[float | None], list[dict[str, Any]]]:
+        params = artifact.params
+        values = rows if rows.ndim == 1 else rows[:, 0]
+        clf = MAD()
+        clf.median_ = params["median"]
+        clf.median_diff_ = params["median_abs_deviation"]
+        raw_scores = clf.decision_function(values.reshape(-1, 1))
+        # MinMaxScaler keeps a zero range as one, so the scores only shift.
+        score_range = params["max_score"] - params["min_score"] or 1.0
+        scores: list[float | None] = []
+        metadata: list[dict[str, Any]] = []
+        for value, raw_score in zip(values, raw_scores):
+            scores.append(float(np.clip((raw_score - params["min_score"]) / score_range, 0.0, 1.0)))
+            metadata.append(
+                {
+                    "median": params["median"],
+                    "median_abs_deviation": params["median_abs_deviation"],
+                    "value": float(value),
+                    "raw_score": float(raw_score),
+                }
+            )
+        return scores, metadata
 
     @classmethod
     def get_default_config(cls) -> dict:

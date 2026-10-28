@@ -128,6 +128,7 @@ class TestPagination:
             # These endpoints document neither SortBy nor Include* params, so none are sent.
             ("prospects", {}),
             ("opportunities", {}),
+            ("opportunity_products", {}),
             ("account_growth_items", {}),
             ("tickets", {}),
         ]
@@ -138,7 +139,9 @@ class TestPagination:
         assert result.raised is None
         assert {key: values[0] for key, values in result.queries[0].items()} == expected
 
-    @parameterized.expand([("prospects",), ("opportunities",), ("account_growth_items",), ("tickets",)])
+    @parameterized.expand(
+        [("prospects",), ("opportunities",), ("opportunity_products",), ("account_growth_items",), ("tickets",)]
+    )
     def test_unsorted_endpoints_never_save_or_load_resume_state(self, endpoint: str) -> None:
         # No documented SortBy means no established stable order, so an offset resume across runs
         # could silently skip or duplicate rows if that order shifts between them.
@@ -157,13 +160,27 @@ class TestPagination:
 
 
 class TestBareArrayEndpoints:
-    @parameterized.expand([("users",), ("roles",), ("products",)])
-    def test_yields_rows_from_a_single_unpaged_request(self, endpoint: str) -> None:
+    @parameterized.expand(
+        [
+            ("users", "/users/"),
+            ("roles", "/roles/"),
+            ("products", "/products/"),
+            ("currencies", "/currencies/"),
+            ("activity_types", "/activityTypes/"),
+            ("labels", "/labels/"),
+            ("sales_processes", "/salesProcesses/"),
+            ("prospecting_processes", "/prospectingProcesses/"),
+            ("ticket_processes", "/ticketProcesses/"),
+            ("account_growth_processes", "/accountGrowthProcesses/"),
+        ]
+    )
+    def test_yields_rows_from_a_single_unpaged_request(self, endpoint: str, path: str) -> None:
         result = _driver().run(endpoint, [ScriptedResponse(json=[{"Id": "u1"}, {"Id": "u2"}])])
 
         assert result.raised is None
         assert result.rows == [{"Id": "u1"}, {"Id": "u2"}]
         assert len(result.requests) == 1
+        assert result.requests[0].path == f"/API/v2{path}"
         assert result.params("From") == [None]
         assert result.saved_states == []
 

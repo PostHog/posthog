@@ -550,7 +550,6 @@ class ConformanceKit:
             patch(f"{_FACADE}.api.pause_external_data_schedule"),
             patch(f"{_FACADE}.api.unpause_external_data_schedule"),
             patch(f"{_FACADE}.api.pause_cdc_extraction_schedule"),
-            patch(f"{_FACADE}.api.emit_sync_alert"),
             patch(f"{_FACADE}.tasks.schedule_external_data_failure_digest"),
             patch(f"{_CDC}.buffer.get_s3_client", return_value=self.store),
             patch(f"{_CDC}.buffer.ensure_bucket"),

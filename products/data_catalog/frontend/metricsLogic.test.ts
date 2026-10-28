@@ -1,8 +1,8 @@
-import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
@@ -10,22 +10,34 @@ import { expectLogic } from '~/test/keaTestUtils'
 import {
     dataCatalogMetricsApproveCreate,
     dataCatalogMetricsBulkApproveCreate,
+    dataCatalogMetricsBulkChangeOwnerCreate,
     dataCatalogMetricsBulkDeleteCreate,
     dataCatalogMetricsCreate,
     dataCatalogMetricsDestroy,
     dataCatalogMetricsList,
+    dataCatalogMetricsPartialUpdate,
 } from './generated/api'
 import type { DataCatalogMetricApi } from './generated/api.schemas'
 import { metricsLogic } from './metricsLogic'
+import { openOverwriteMetricDialog } from './openOverwriteMetricDialog'
 
 jest.mock('lib/api', () => {
     class ApiError extends Error {
         status?: number
         detail: string | null
-        constructor(message?: string, status?: number, _headers?: unknown, data?: { detail?: string }) {
+        code: string | null
+        data?: Record<string, any>
+        constructor(
+            message?: string,
+            status?: number,
+            _headers?: unknown,
+            data?: { detail?: string; code?: string } & Record<string, any>
+        ) {
             super(message)
             this.status = status
             this.detail = data?.detail ?? null
+            this.code = data?.code ?? null
+            this.data = data
         }
     }
     return {
@@ -40,6 +52,8 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), error: jest.fn(), info: jest.fn(), warning: jest.fn() },
 }))
 
+jest.mock('./openOverwriteMetricDialog', () => ({ openOverwriteMetricDialog: jest.fn() }))
+
 jest.mock('./generated/api', () => ({
     dataCatalogMetricsList: jest.fn(),
     dataCatalogMetricsCreate: jest.fn(),
@@ -48,6 +62,8 @@ jest.mock('./generated/api', () => ({
     dataCatalogMetricsDestroy: jest.fn(),
     dataCatalogMetricsBulkApproveCreate: jest.fn(),
     dataCatalogMetricsBulkDeleteCreate: jest.fn(),
+    dataCatalogMetricsBulkChangeOwnerCreate: jest.fn(),
+    dataCatalogMetricsPartialUpdate: jest.fn(),
 }))
 
 function buildMetric(overrides: Partial<DataCatalogMetricApi> = {}): DataCatalogMetricApi {
@@ -91,6 +107,20 @@ describe('metricsLogic', () => {
         expect(logic.values.allMetrics[0].status).toEqual('approved')
     })
 
+    it('saves the new owner and replaces the row with the response', async () => {
+        ;(dataCatalogMetricsPartialUpdate as jest.Mock).mockResolvedValue(
+            buildMetric({ owner: 'rose.dawson@posthog.com' })
+        )
+
+        logic.actions.setMetricOwner('weekly_active_users', 'rose.dawson@posthog.com')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataCatalogMetricsPartialUpdate).toHaveBeenCalledWith('1', 'weekly_active_users', {
+            owner: 'rose.dawson@posthog.com',
+        })
+        expect(logic.values.allMetrics[0].owner).toEqual('rose.dawson@posthog.com')
+    })
+
     it('leaves the row untouched and surfaces refresh when approve returns 409', async () => {
         ;(dataCatalogMetricsApproveCreate as jest.Mock).mockRejectedValue(new ApiError('drifted', 409))
 
@@ -102,97 +132,46 @@ describe('metricsLogic', () => {
         expect(errorCall?.[1]?.button?.label).toEqual('Refresh from insight')
     })
 
-    it('guards double-submit and closes the modal when create succeeds', async () => {
-        let resolveCreate: (metric: DataCatalogMetricApi) => void = () => {}
-        ;(dataCatalogMetricsCreate as jest.Mock).mockReturnValue(
-            new Promise((resolve) => {
-                resolveCreate = resolve
-            })
-        )
+    it('asks before it overwrites a taken name from the insight modal', async () => {
+        const overwritten = buildMetric({ description: 'Overwritten' })
+        ;(dataCatalogMetricsCreate as jest.Mock)
+            .mockRejectedValueOnce(
+                new ApiError('taken', 409, undefined, {
+                    code: 'metric_name_taken',
+                    extra: { existing_metric: { name: 'weekly_active_users', status: 'approved' } },
+                })
+            )
+            .mockResolvedValueOnce(overwritten)
 
-        logic.actions.openNewMetricModal()
-        logic.actions.setNewMetricForm({
-            name: 'monthly_active_users',
-            description: 'Monthly active users',
-            definitionType: 'insight',
-            sourceInsightShortId: 'abc123',
-        })
-
-        logic.actions.createMetric()
-        logic.actions.createMetric()
-        expect(dataCatalogMetricsCreate).toHaveBeenCalledTimes(1)
-
-        resolveCreate(buildMetric({ id: 'metric-2', name: 'monthly_active_users' }))
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.newMetricModalOpen).toEqual(false)
-        expect(logic.values.allMetrics.map((metric) => metric.name)).toContain('monthly_active_users')
-    })
-
-    it('creates a markdown metric as a stub and routes to the metric page to author it', async () => {
-        ;(dataCatalogMetricsCreate as jest.Mock).mockResolvedValue(
-            buildMetric({ id: 'metric-4', name: 'mrr', definition_kind: null })
-        )
-
-        logic.actions.openNewMetricModal()
-        logic.actions.setNewMetricForm({
-            name: 'mrr',
-            description: 'Monthly recurring revenue',
-            definitionType: 'markdown',
-        })
-        logic.actions.createMetric()
-        await expectLogic(logic).toFinishAllListeners()
-
-        const body = (dataCatalogMetricsCreate as jest.Mock).mock.calls.at(-1)?.[1]
-        expect(body.definition).toBeUndefined()
-        expect(router.values.location.pathname).toContain(urls.dataCatalogMetric('mrr'))
-        expect(router.values.searchParams.edit).toEqual('definition')
-    })
-
-    it('does not create a SQL metric from the modal', async () => {
-        logic.actions.openNewMetricModal()
-        logic.actions.setNewMetricForm({
-            name: 'sql_metric',
-            description: 'Defined in the SQL editor',
-            definitionType: 'sql',
-        })
-
-        logic.actions.createMetric()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(dataCatalogMetricsCreate).not.toHaveBeenCalled()
-        expect(lemonToast.error).toHaveBeenCalledWith('Create SQL metrics from the SQL editor.')
-        expect(logic.values.newMetricModalOpen).toEqual(true)
-    })
-
-    it.each([
-        [
-            'carries the typed values into the SQL editor URL',
+        logic.actions.openMetricFromInsightModal()
+        logic.actions.createMetricFromInsight(
             {
-                name: 'monthly_active_users',
-                display_name: 'Monthly active users',
-                description: 'Unique users seen in the last 30 days',
-                unit: 'users',
+                name: 'weekly_active_users',
+                display_name: '',
+                description: 'Weekly active users',
+                unit: '',
+                source_insight_short_id: 'abc123',
             },
-            {
-                name: 'monthly_active_users',
-                display_name: 'Monthly active users',
-                description: 'Unique users seen in the last 30 days',
-                unit: 'users',
-            },
-        ],
-        ['omits the prefill from the SQL editor URL when nothing was typed', {}, undefined],
-    ])('%s', async (_case, formValues, expectedPrefill) => {
-        logic.actions.openNewMetricModal()
-        logic.actions.setNewMetricForm(formValues)
-
-        logic.actions.openSqlEditorForNewMetric()
+            true
+        )
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.newMetricModalOpen).toEqual(false)
-        expect(router.values.location.pathname).toContain(urls.sqlEditor())
-        expect(router.values.searchParams.source).toEqual('metric')
-        expect(router.values.searchParams.metric_prefill).toEqual(expectedPrefill)
+        expect((dataCatalogMetricsCreate as jest.Mock).mock.calls[0][1].overwrite).toBe(false)
+        expect(lemonToast.error).not.toHaveBeenCalled()
+        expect(logic.values.metricFromInsightModalOpen).toEqual(true)
+        const { existing, onOverwrite } = (openOverwriteMetricDialog as jest.Mock).mock.calls[0][0]
+        expect(existing).toEqual({ name: 'weekly_active_users', status: 'approved' })
+
+        onOverwrite()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect((dataCatalogMetricsCreate as jest.Mock).mock.calls[1][1]).toMatchObject({
+            name: 'weekly_active_users',
+            created_source: 'user',
+            overwrite: true,
+        })
+        expect(logic.values.metricFromInsightModalOpen).toEqual(false)
+        expect(logic.values.allMetrics).toEqual([overwritten])
     })
 
     it('removes the row when delete succeeds', async () => {
@@ -217,6 +196,64 @@ describe('metricsLogic', () => {
 
         expect(logic.values.allMetrics.map((metric) => metric.name)).toEqual(['first', 'second'])
         expect((dataCatalogMetricsList as jest.Mock).mock.calls.map((call) => call[1].offset)).toEqual([0, 0, 100])
+    })
+
+    it.each([
+        ['creator', 'createdBy', 'created_by'],
+        ['owner', 'owner', 'owner'],
+    ] as const)(
+        'filters by %s and reports the filter change once typing settles',
+        async (_label, filterKey, property) => {
+            const me = userLogic.values.user?.uuid as string
+            const myEmail = userLogic.values.user?.email as string
+            const filterValue = filterKey === 'createdBy' ? me : myEmail
+            const mine = buildMetric({
+                id: 'metric-1',
+                name: 'mine',
+                created_by: { id: 1, uuid: me, email: myEmail, hedgehog_config: null },
+                owner: myEmail,
+            })
+            const theirs = buildMetric({
+                id: 'metric-2',
+                name: 'theirs',
+                created_by: { id: 2, uuid: 'someone-else', email: 'them@example.com', hedgehog_config: null },
+                owner: 'them@example.com',
+            })
+            logic.actions.loadMetricsSuccess([mine, theirs])
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] })
+            try {
+                logic.actions.setFilters({ [filterKey]: filterValue })
+                expect(logic.values.metrics).toEqual([mine])
+                expect(capture).not.toHaveBeenCalled()
+
+                await jest.advanceTimersByTimeAsync(500)
+                expect(capture).toHaveBeenCalledWith(
+                    'data catalog metrics filtered',
+                    expect.objectContaining({ changed_filters: [filterKey], [property]: 'me', result_count: 1 })
+                )
+
+                logic.actions.setFilters({ [filterKey]: null })
+                expect(logic.values.metrics).toEqual([mine, theirs])
+            } finally {
+                jest.useRealTimers()
+                capture.mockRestore()
+            }
+        }
+    )
+
+    it('offers the owners of the metrics as owner filter options, so a former member stays listed', async () => {
+        logic.actions.loadMetricsSuccess([
+            buildMetric({ id: 'metric-1', name: 'a', owner: 'rose.dawson@posthog.com' }),
+            buildMetric({ id: 'metric-2', name: 'b', owner: 'former.member@posthog.com' }),
+            buildMetric({ id: 'metric-3', name: 'c', owner: null }),
+            buildMetric({ id: 'metric-4', name: 'd', owner: 'rose.dawson@posthog.com' }),
+        ])
+
+        expect(logic.values.ownerFilterOptions).toEqual(['former.member@posthog.com', 'rose.dawson@posthog.com'])
+
+        logic.actions.setFilters({ owner: 'former.member@posthog.com' })
+        expect(logic.values.metrics.map((metric) => metric.name)).toEqual(['b'])
     })
 
     it('patches approved rows and reloads to reconcile skipped ones', async () => {
@@ -251,6 +288,31 @@ describe('metricsLogic', () => {
         expect(onSuccess).toHaveBeenCalled()
         expect(lemonToast.warning).toHaveBeenCalledWith('Skipped 1 metric: Drifted from its source insight (1)')
         expect(logic.values.bulkActionInFlight).toBeNull()
+    })
+
+    it('gives the selected rows their new owner and clears the selection', async () => {
+        logic.actions.loadMetricsSuccess([
+            buildMetric({ id: 'metric-1', name: 'first' }),
+            buildMetric({ id: 'metric-2', name: 'second' }),
+        ])
+        ;(dataCatalogMetricsBulkChangeOwnerCreate as jest.Mock).mockResolvedValue({
+            updated: [buildMetric({ id: 'metric-1', name: 'first', owner: 'rose.dawson@posthog.com' })],
+            skipped: [],
+        })
+        const onSuccess = jest.fn()
+
+        logic.actions.bulkChangeMetricOwner(['first'], 'rose.dawson@posthog.com', onSuccess)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataCatalogMetricsBulkChangeOwnerCreate).toHaveBeenCalledWith('1', {
+            names: ['first'],
+            owner: 'rose.dawson@posthog.com',
+        })
+        expect(logic.values.allMetrics.map((metric) => [metric.name, metric.owner])).toEqual([
+            ['first', 'rose.dawson@posthog.com'],
+            ['second', null],
+        ])
+        expect(onSuccess).toHaveBeenCalled()
     })
 
     it('removes the deleted rows and clears the selection', async () => {
@@ -343,12 +405,16 @@ describe('metricsLogic', () => {
         )
 
         logic.actions.openMetricFromInsightModal()
-        logic.actions.createMetricFromInsight({
-            name: 'from_insight',
-            display_name: '',
-            description: 'Snapshotted from an insight',
-            source_insight_short_id: 'abc123',
-        })
+        logic.actions.createMetricFromInsight(
+            {
+                name: 'from_insight',
+                display_name: '',
+                description: 'Snapshotted from an insight',
+                unit: '',
+                source_insight_short_id: 'abc123',
+            },
+            false
+        )
         await expectLogic(logic).toFinishAllListeners()
 
         const body = (dataCatalogMetricsCreate as jest.Mock).mock.calls.at(-1)?.[1]

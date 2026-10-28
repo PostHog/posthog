@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { Text } from '@posthog/quill'
 
 import { cn } from 'lib/utils/css-classes'
 import { MaxMemorySettings } from 'scenes/settings/environment/MaxMemorySettings'
@@ -11,10 +12,13 @@ import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 
+import { useThreadSkin } from 'products/posthog_ai/frontend/api/logics'
+
 import { QUESTION_SUGGESTIONS_DATA, RESEARCH_SUGGESTIONS_DATA, maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { HOMEPAGE_SUGGESTION_TOPICS } from '../suggestionTopics'
 import { FloatingSuggestionsDisplay } from './FloatingSuggestionsDisplay'
+import { QuillTopicBadges, QuillTopicSuggestions } from './QuillTopicBadges'
 import { SidebarQuestionInput } from './SidebarQuestionInput'
 import { SUGGESTION_CARDS_HEIGHT_PX, TopicBadges, TopicSuggestions } from './TopicBadges'
 
@@ -27,6 +31,9 @@ export function SidebarQuestionInputWithSuggestions({
     const { setActiveGroup, setFillInHint, runSuggestion } = useActions(maxLogic)
     const { agentMode } = useValues(maxThreadLogic)
     const { coreMemory, coreMemoryLoading, coreMemoryLoadError } = useValues(maxSettingsLogic)
+    const skin = useThreadSkin()
+    const Badges = skin === 'quill' ? QuillTopicBadges : TopicBadges
+    const Suggestions = skin === 'quill' ? QuillTopicSuggestions : TopicSuggestions
 
     const [settingsModalOpen, setSettingsModalOpen] = useState(false)
     const [selectedTopic, setSelectedTopic] = useState<string | null>(null)
@@ -65,10 +72,16 @@ export function SidebarQuestionInputWithSuggestions({
                     hideSuggestions && 'opacity-0'
                 )}
             >
-                <h3 className="text-center text-xs font-medium mb-0 text-secondary">{tip}</h3>
+                {skin === 'quill' ? (
+                    <Text size="xs" variant="muted" weight="medium" className="m-0 text-center" data-quill>
+                        {tip}
+                    </Text>
+                ) : (
+                    <h3 className="text-center text-xs font-medium mb-0 text-secondary">{tip}</h3>
+                )}
                 {showBadges ? (
                     <div className="flex flex-col items-center gap-6 w-full">
-                        <TopicBadges
+                        <Badges
                             topics={HOMEPAGE_SUGGESTION_TOPICS}
                             selectedKey={selectedTopic}
                             onSelect={(key) => {
@@ -78,7 +91,7 @@ export function SidebarQuestionInputWithSuggestions({
                         />
                         {selectedTopicData && (
                             <div className="w-full overflow-hidden" style={{ height: SUGGESTION_CARDS_HEIGHT_PX }}>
-                                <TopicSuggestions topic={selectedTopicData} onRun={runSuggestion} />
+                                <Suggestions topic={selectedTopicData} onRun={runSuggestion} />
                             </div>
                         )}
                     </div>

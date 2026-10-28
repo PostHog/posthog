@@ -42,9 +42,10 @@ from products.workflows.backend.services.data_suggestions.builder import (
     clean_copy,
     missing_inputs,
 )
-from products.workflows.backend.services.data_suggestions.event_volume import weekly_counts
+from products.workflows.backend.services.data_suggestions.event_volume import mobile_share, weekly_counts
 from products.workflows.backend.services.data_suggestions.planner import (
     MAX_PLANNED_STEPS,
+    Channel,
     IdeaContext,
     PlannedWorkflow,
     StepsContext,
@@ -60,6 +61,7 @@ from products.workflows.backend.services.data_suggestions.premade import (
     premade_suggestions,
     store_premade_ideas,
     waiting_premade_idea,
+    with_push_channels,
     with_sender,
 )
 from products.workflows.backend.services.data_suggestions.ranking import (
@@ -101,9 +103,8 @@ _GENERATING = DataSuggestionsResult(status="generating", suggestions=())
 _BUILDING = BuiltSuggestion(status="building")
 _BUILD_FAILED = BuiltSuggestion(status="failed")
 _UNAVAILABLE = DataSuggestionsResult(status="unavailable", suggestions=())
-# pinned: feature flag key - the frontend gates the same surfaces on it
-FEATURE_FLAG_KEY = "workflows-data-suggestions"
 _ONCE_PER_PERSON_STAGES = frozenset({"signup", "onboarding"})
+_MOBILE_FIRST_SHARE = 0.5
 # A project without a verified sender cannot pick one yet, so the field says what to do first.
 NO_SENDER_FIELD = "Email sender (no verified sender yet: add a sending domain under Workflows > Channels)"
 
@@ -123,18 +124,6 @@ def get_data_suggestions(*, team: Team) -> DataSuggestionsResult:
     return _read_cache(team) or _UNAVAILABLE
 
 
-def is_data_suggestions_enabled(user: User, organization_id: str) -> bool:
-    return bool(
-        user.distinct_id
-        and posthoganalytics.feature_enabled(
-            FEATURE_FLAG_KEY,
-            user.distinct_id,
-            groups={"organization": organization_id},
-            group_properties={"organization": {"id": organization_id}},
-        )
-    )
-
-
 def data_suggestions_acting_user(team: Team) -> User | None:
     """The organization's longest-standing owner or admin, who runs the models when ideas are prepared ahead of time."""
     membership = (
@@ -150,11 +139,9 @@ def data_suggestions_acting_user(team: Team) -> User | None:
     return membership.user if membership is not None else None
 
 
-def count_waiting_data_suggestions(*, team: Team, user: User) -> int:
+def count_waiting_data_suggestions(*, team: Team) -> int:
     """The ideas this person would see on the empty workflows page. Like `get_data_suggestions`, it never runs a model."""
     if HogFlow.objects.filter(team_id=team.id).exclude(status=HogFlow.State.ARCHIVED).exists():
-        return 0
-    if not is_data_suggestions_enabled(user, str(team.organization_id)):
         return 0
     result = get_data_suggestions(team=team)
     return len(result.suggestions) if result.status == "ready" else 0
@@ -270,7 +257,7 @@ def save_premade_draft(
         row = lock_premade_idea(team.id, idea_id)
         if row is None:
             return None
-        workflow = with_sender(row.definition, team_context.email_sender(team))
+        workflow = _premade_workflow(team, row)
         validated = validate_draft(team, workflow)
         if validated is None:
             return _BUILD_FAILED
@@ -296,10 +283,15 @@ def get_premade_workflow(
     row = waiting_premade_idea(team.id, idea_id)
     if row is None:
         return None
-    workflow = with_sender(row.definition, team_context.email_sender(team))
+    workflow = _premade_workflow(team, row)
     if validate_draft(team, workflow) is None:
         return _BUILD_FAILED
     return _premade_build(team, row, workflow)
+
+
+def _premade_workflow(team: Team, row: WorkflowIdeaRow) -> dict[str, Any]:
+    workflow = with_sender(row.definition, team_context.email_sender(team))
+    return with_push_channels(workflow, team_context.push_integration_ids(team))
 
 
 def _premade_build(team: Team, row: WorkflowIdeaRow, workflow: dict[str, Any]) -> BuiltSuggestion:
@@ -351,7 +343,12 @@ def run_build(
                 result = _BUILD_FAILED
             else:
                 result, validated = _plan_and_build(
-                    team=team, user=user, suggestion=suggestion, events=cached.events, validate_draft=validate_draft
+                    team=team,
+                    user=user,
+                    suggestion=suggestion,
+                    events=cached.events,
+                    mobile_first=cached.mobile_first,
+                    validate_draft=validate_draft,
                 )
                 # A task that outlived its lock would save a second draft next to the newer run's draft.
                 if save_draft is not None and validated is not None and not _lost_lock(lock_key, lock_token):
@@ -391,7 +388,12 @@ def prepare_premade_ideas(
     for suggestion in result.suggestions:
         try:
             build, _ = _plan_and_build(
-                team=team, user=user, suggestion=suggestion, events=result.events, validate_draft=validate_draft
+                team=team,
+                user=user,
+                suggestion=suggestion,
+                events=result.events,
+                mobile_first=result.mobile_first,
+                validate_draft=validate_draft,
             )
         except Exception as error:
             logger.exception("workflows.data_suggestions.prepare_build_failed", team_id=team.id)
@@ -409,6 +411,7 @@ def _plan_and_build(
     user: User,
     suggestion: DataSuggestion,
     events: tuple[str, ...],
+    mobile_first: bool,
     validate_draft: Callable[[Team, dict[str, Any]], dict[str, Any] | None],
 ) -> tuple[BuiltSuggestion, dict[str, Any] | None]:
     idea = WorkflowIdea(
@@ -421,8 +424,13 @@ def _plan_and_build(
     email_templates = team_context.email_templates(team)
     slack_integration_id = team_context.slack_integration_id(team)
     step_templates = tuple(list_step_templates(team))
-    channels = team_context.channels(team)
+    channels = _offered_channels(team, mobile_first)
     event_properties = team_context.event_property_names(team, suggestion.trigger_event)
+    try:
+        person_properties = team_context.person_properties(team)
+    except _GENERATION_ERRORS:
+        # Without them a branch keeps an empty condition for the team to set, which is no reason to fail the build.
+        person_properties = {}
     context = BuildContext(
         allowed_events=frozenset({suggestion.trigger_event, *events}),
         step_template_ids=frozenset(template.template_id for template in step_templates),
@@ -432,6 +440,9 @@ def _plan_and_build(
         slack_integration_id=slack_integration_id,
         once_per_person=suggestion.stage in _ONCE_PER_PERSON_STAGES,
         event_properties=frozenset(event_properties),
+        weekly_count=suggestion.weekly_count,
+        person_properties=person_properties,
+        push_integration_ids=team_context.push_integration_ids(team),
     )
     built = None
     # The model now and then links a step to an id it never wrote. A second plan almost always holds up.
@@ -448,6 +459,8 @@ def _plan_and_build(
                     channels=channels,
                     has_slack=slack_integration_id is not None,
                     event_properties=event_properties,
+                    person_properties=person_properties,
+                    mobile_first=mobile_first,
                 ),
                 analytics_client=analytics_client,
             )
@@ -490,6 +503,14 @@ def _current_build(team: Team, suggestion_id: str, caller: str) -> BuiltSuggesti
     if actions is None:
         return None
     return dataclasses.replace(stored, missing_inputs=_missing_inputs(team, {"actions": actions}))
+
+
+def _offered_channels(team: Team, mobile_first: bool) -> frozenset[Channel]:
+    """The channels a plan may use. A mobile-first project gets push even before it connects a provider, and the
+    step's note asks the team to connect one."""
+    connected = team_context.channels(team)
+    push: frozenset[Channel] = frozenset({"push"})
+    return connected | push if mobile_first else connected
 
 
 def _missing_inputs(team: Team, workflow: dict[str, Any]) -> tuple[MissingInput, ...]:
@@ -623,6 +644,8 @@ def _read_cache(team: Team) -> DataSuggestionsResult | None:
                 for item in stored["suggestions"]
             ),
             events=tuple(stored["events"]),
+            # Cards cached before the share was stored were made without push, so their builds stay without it.
+            mobile_first=bool(stored.get("mobile_first", False)),
         )
     except (KeyError, TypeError):
         # An entry from before a field change is treated as missing, so the next visit generates new cards.
@@ -680,14 +703,17 @@ def _suggest(*, team: Team, user: User, analytics_client: Any) -> DataSuggestion
     if not prompt_events:
         return DataSuggestionsResult(status="ready", suggestions=())
     offered = {name for name, _ in prompt_events}
+    mobile_first = mobile_share(team) >= _MOBILE_FIRST_SHARE
+    channels = _offered_channels(team, mobile_first)
     ideas = suggest_ideas(
         team=team,
         user=user,
         context=IdeaContext(
             events=tuple(prompt_events),
             stages=jev_stages,
-            channels=team_context.channels(team),
+            channels=channels,
             has_slack=team_context.slack_integration_id(team) is not None,
+            mobile_first=mobile_first,
         ),
         analytics_client=analytics_client,
     )
@@ -722,4 +748,5 @@ def _suggest(*, team: Team, user: User, analytics_client: Any) -> DataSuggestion
         status="ready",
         suggestions=tuple(pick_one_per_stage(ranked, stage_of=lambda item: item.stage, limit=MAX_SUGGESTIONS)),
         events=planning_events,
+        mobile_first=mobile_first,
     )

@@ -120,6 +120,7 @@ from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.tasks import (
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
+    reconcile_report_inbox_state_cache,
     refresh_signal_repository_activity,
     refresh_signal_scout_background_bands,
     sweep_first_report_notifications,
@@ -461,6 +462,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="5", minute="50"),
         refresh_signal_scout_background_bands.s(),
         name="refresh signals scout background bands",
+    )
+
+    # Correct signals cached implementation PR flags that drifted - daily at 4:40 AM
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="4", minute="40"),
+        reconcile_report_inbox_state_cache.s(),
+        name="reconcile signals report inbox state",
     )
 
     # Warn, then pause signals scouts that produce nothing anyone uses - daily at 6:15 AM
@@ -997,7 +1006,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="delete expired delegation invites",
         )
 
-        from ee.tasks.scim_request_log_cleanup import cleanup_old_scim_request_logs
+        from posthog.tasks.scim_request_log_cleanup import cleanup_old_scim_request_logs
 
         add_periodic_task_with_expiry(
             sender,

@@ -255,6 +255,11 @@ def pytest_configure(config) -> None:
 
 def pytest_collection_finish() -> None:
     _end_gc_boot_window()
+    # Collection imports temporalio only when a collected test touches Temporal, so other runs skip the import cost.
+    if "temporalio" in sys.modules:
+        from posthog.test import temporal_test_servers  # noqa: PLC0415 — only runs that use Temporal import it
+
+        temporal_test_servers.install()
 
 
 def pytest_runtest_setup(item: pytest.Item) -> None:

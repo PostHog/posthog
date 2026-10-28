@@ -1,15 +1,20 @@
 import datetime as dt
+import contextvars
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from requests import Response, Session
 from structlog.types import FilteringBoundLogger
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
     make_tracked_session,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.depot.settings import (
     ARTIFACTS,
@@ -29,12 +34,27 @@ REQUEST_TIMEOUT_SECONDS = 60
 # until Depot fixes its cursor. Depot caps pages at 100.
 LIST_RUNS_PAGE_SIZES = (100, 57)
 TERMINAL_STATUSES = ["finished", "failed", "cancelled"]
+# Each run costs one GetRunStatus call plus one GetWorkflow call per workflow. Read one at a time, a
+# reconciliation of retained history outlasts the time a worker stays up between deploys. Stays
+# below the connection pool size of 10 that requests gives each host by default.
+RUN_FETCH_CONCURRENCY = 8
 # A finished run has no failed or cancelled job left to diagnose.
 DIAGNOSED_RUN_STATUSES = frozenset({"failed", "cancelled"})
 LIST_ARTIFACTS_PAGE_SIZE = 500
 # Connect sends every RPC as a POST. Every RPC this source calls is a read, so a retry is as safe as
 # a retried GET.
 _DEPOT_RETRY = DEFAULT_RETRY.new(allowed_methods=frozenset(DEFAULT_RETRY.allowed_methods or ()) | {"POST"})
+
+
+@frozen
+class DepotResumeState:
+    created_after: str | None
+    # None when the sync replays only recent runs.
+    reconciled_at: str | None
+    # The oldest run that an earlier attempt of this sync handed to the pipeline.
+    run_created_at: str
+    run_id: str
+    scanned_through: str | None = None
 
 
 def _make_session(api_token: str) -> Session:
@@ -152,6 +172,27 @@ def _run_attempt_rows(session: Session, run: JSONObject) -> list[JSONObject]:
             run, _call(session, "GetWorkflow", {"workflowId": workflow["workflowId"]}), len(workflows)
         )
     ]
+
+
+def _attempt_rows_in_run_order(
+    session: Session, runs: list[JSONObject]
+) -> Iterator[tuple[JSONObject, list[JSONObject]]]:
+    # Pool threads start with an empty context, which would strip the team and job labels that the HTTP
+    # observer reads. Each fetch runs in its own copy, because one context cannot be entered by two threads.
+    context = contextvars.copy_context()
+    pool = ThreadPoolExecutor(max_workers=RUN_FETCH_CONCURRENCY, thread_name_prefix="depot-runs")
+    try:
+        yield from zip(
+            runs,
+            pool.map(
+                lambda run: context.copy().run(_run_attempt_rows, session, run),
+                runs,
+                buffersize=RUN_FETCH_CONCURRENCY,
+            ),
+        )
+    finally:
+        # The consumer can close the generator early, so never block on the fetches still in flight.
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _int_or_none(value: int | str | None) -> int | None:
@@ -288,27 +329,63 @@ def depot_source(
     api_token: str,
     repository: str,
     created_after: dt.datetime | str | None,
+    reconciled_at: str | None,
+    resumable_source_manager: ResumableSourceManager[DepotResumeState],
     logger: FilteringBoundLogger,
-    on_complete: Callable[[str | None], None] | None = None,
+    on_complete: Callable[[str | None, str | None], None],
     endpoint: str = JOB_ATTEMPTS,
 ) -> SourceResponse:
     run_batches = _RUN_BATCHES[endpoint]
-    lower_bound = _parse_timestamp(created_after) if created_after is not None else None
 
     def items() -> Iterator[list[JSONObject]]:
+        resume = resumable_source_manager.load_state()
+        # A resumed attempt keeps the window of the first attempt, so a long reconciliation finishes across restarts.
+        start = resume.created_after if resume is not None else created_after
+        window_reconciled_at = resume.reconciled_at if resume is not None else reconciled_at
+        lower_bound = _parse_timestamp(start) if start is not None else None
+        window_start = lower_bound.isoformat() if lower_bound is not None else None
         session = _make_session(api_token)
+        listed = _list_runs(session, repository, TERMINAL_STATUSES, lower_bound)
+        scanned_through = (
+            resume.scanned_through if resume is not None else (listed[-1][1]["createdAt"] if listed else None)
+        )
+        if resume is not None:
+            resume_key = (_parse_timestamp(resume.run_created_at), resume.run_id)
+            listed = [entry for entry in listed if (entry[0], entry[1]["runId"]) < resume_key]
         # Newest first, so a sync that stops partway has already stored the runs that no earlier sync read.
-        runs = [run for _, run in reversed(_list_runs(session, repository, TERMINAL_STATUSES, lower_bound))]
+        runs = [run for _, run in reversed(listed)]
         logger.info(
             "depot_ci.runs_to_sync",
             endpoint=endpoint,
             run_count=len(runs),
-            created_after=lower_bound.isoformat() if lower_bound else None,
+            created_after=window_start,
+            resumed=resume is not None,
         )
-        for run in runs:
-            yield from run_batches(session, run)
-        if on_complete is not None:
-            on_complete(runs[0]["createdAt"] if runs else None)
+        runs_and_batches = (
+            ((run, [rows]) for run, rows in _attempt_rows_in_run_order(session, runs))
+            if endpoint == JOB_ATTEMPTS
+            else ((run, run_batches(session, run)) for run in runs)
+        )
+        for run, batches in runs_and_batches:
+            # A run's checkpoint must not skip child pages that the pipeline has not received.
+            pending = None
+            for rows in batches:
+                if pending is not None:
+                    yield pending
+                pending = rows
+            resumable_source_manager.save_state(
+                DepotResumeState(
+                    created_after=window_start,
+                    reconciled_at=window_reconciled_at,
+                    run_created_at=run["createdAt"],
+                    run_id=run["runId"],
+                    scanned_through=scanned_through,
+                )
+            )
+            if pending is not None:
+                yield pending
+            resumable_source_manager.safe_point()
+        on_complete(window_reconciled_at, scanned_through)
 
     return SourceResponse(
         name=endpoint,
@@ -321,6 +398,7 @@ def depot_source(
         sort_mode="desc",
         # Rows become durable per chunk, and the default chunk holds a whole first sync of a busy repository.
         chunk_size=5_000,
+        on_complete=resumable_source_manager.clear_state,
     )
 
 

@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 from urllib.parse import parse_qs, urlparse
@@ -52,6 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.
     INSTAGRAM_ENDPOINTS,
     MAX_INSIGHTS_LOOKBACK_DAYS,
     MEDIA_INSIGHT_METRICS,
+    MEDIA_PAGE_SAFE_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.source import InstagramSource
 
@@ -351,6 +353,29 @@ class TestInstagramEdges:
         # Meta's `+0000` offset is rewritten so the cursor/partition column parses.
         assert result.rows[0]["timestamp"] == "2024-03-01T18:10:00+00:00"
         assert result.params("after") == [None, "CUR"]
+
+    @pytest.mark.parametrize("second_post_code,fails", [(9005, False), (100, True)])
+    def test_a_media_page_meta_refuses_for_one_video_is_read_again_without_the_refusable_fields(
+        self, second_post_code: int, fails: bool
+    ) -> None:
+        video_not_found = ScriptedResponse(status=400, json={"error": {"code": 9005, "message": "not found"}})
+        result = _drive(
+            "media",
+            [
+                video_not_found,
+                ScriptedResponse(json=_page([{"id": "1"}, {"id": "2"}])),
+                ScriptedResponse(json={"id": "1", "owner": {"id": "o1"}}),
+                ScriptedResponse(status=400, json={"error": {"code": second_post_code, "message": "no"}}),
+            ],
+        )
+
+        assert result.params("fields")[1] == MEDIA_PAGE_SAFE_FIELDS
+        assert result.paths[2:] == ["/v23.0/1", "/v23.0/2"]
+        if fails:
+            assert isinstance(result.raised, InstagramBadRequestError)
+        else:
+            assert result.raised is None
+            assert result.rows == [{"id": "1", "owner": {"id": "o1"}}, {"id": "2"}]
 
     def test_media_stops_when_the_cursor_is_missing_even_though_next_is_present(self) -> None:
         result = _drive("media", [ScriptedResponse(json={"data": [{"id": "1"}], "paging": {"next": "https://x/next"}})])
@@ -660,7 +685,7 @@ class TestInstagramAccountInsights:
         with scripted_network([]):
             client = InstagramClient("tok", "v23.0", LOGGER)
 
-        plan = _account_insight_plan(client, ACCOUNT_ID, 0, 45 * 86400 + 3600)
+        plan = _account_insight_plan(client, ACCOUNT_ID, INSTAGRAM_ENDPOINTS["account_insights"], 0, 45 * 86400 + 3600)
 
         # 45 days is two windows. Each opens with the time series over the whole window,
         # then asks for every total_value metric once per complete day. The partial
@@ -770,6 +795,48 @@ class TestInstagramAccountInsights:
         # only spends the account's quota.
         assert [request.param("metric") for request in result.requests].count("follows_and_unfollows") == 1
 
+    def test_breakdown_results_become_one_row_per_breakdown_value_and_day(self) -> None:
+        follows = ScriptedResponse(
+            json={
+                "data": [
+                    {
+                        "name": "follows_and_unfollows",
+                        "period": "day",
+                        "total_value": {
+                            "value": 7,
+                            "breakdowns": [
+                                {
+                                    "dimension_keys": ["follow_type"],
+                                    "results": [
+                                        {"dimension_values": ["FOLLOWER"], "value": 5},
+                                        {"dimension_values": ["NON_FOLLOWER"], "value": 2},
+                                    ],
+                                }
+                            ],
+                        },
+                    }
+                ]
+            }
+        )
+        # This start date leaves a trailing window shorter than a day, which has no requests.
+        result = _drive(
+            "account_insights_breakdowns",
+            _by_metric({"follows_and_unfollows": follows}),
+            start_date=(datetime.now(UTC) - timedelta(days=29)).date().isoformat(),
+        )
+
+        assert result.raised is None
+        assert all(request.param("breakdown") for request in result.requests)
+        today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        assert [
+            (row["metric"], row["breakdown"], row["breakdown_value"], row["value"])
+            for row in result.rows
+            if row["date"] == today.isoformat()
+        ] == [
+            ("follows_and_unfollows", "follow_type", "FOLLOWER", 5),
+            ("follows_and_unfollows", "follow_type", "NON_FOLLOWER", 2),
+        ]
+
     def test_each_finished_window_checkpoints_the_start_of_the_next(self) -> None:
         start_date = (datetime.now(UTC) - timedelta(days=75)).date().isoformat()
         result = _drive("account_insights", always(ScriptedResponse(json={"data": []})), start_date=start_date)
@@ -799,7 +866,8 @@ class TestInstagramAccountInsights:
         # Without the clamp a start date like this fans out into tens of thousands of
         # empty 30-day windows; Meta only retains ~2 years anyway.
         # Only the windows matter here, so drop the per-day requests that would fill them.
-        with mock.patch(f"{MODULE}.ACCOUNT_INSIGHT_TOTAL_VALUE_METRICS", ()):
+        without_daily_requests = replace(INSTAGRAM_ENDPOINTS["account_insights"], insight_total_value_metrics=())
+        with mock.patch.dict(INSTAGRAM_ENDPOINTS, {"account_insights": without_daily_requests}):
             result = _drive("account_insights", always(ScriptedResponse(json={"data": []})), start_date="0001-01-01")
 
         assert result.raised is None

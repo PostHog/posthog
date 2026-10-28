@@ -160,6 +160,7 @@ class OPUSWatchSource(ResumableSource[OPUSWatchSourceConfig, OPUSWatchResumeConf
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

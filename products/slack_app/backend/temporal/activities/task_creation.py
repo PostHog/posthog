@@ -14,6 +14,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates
 from products.slack_app.backend.logic.reply_suggestions import clear_open_suggestions
+from products.slack_app.backend.logic.thread_join import ThreadJoinDecision, decide_thread_join
 from products.slack_app.backend.services.slack_messages import (
     SlackThreadMessage,
     context_block,
@@ -26,13 +27,18 @@ from products.slack_app.backend.temporal.attachments import (
     SlackAttachmentBudget,
     attachment_display_name,
     build_slack_attachment_prompt_text,
+    can_read_slack_files,
     get_slack_bot_token,
     merge_prepared_attachments,
     prepare_slack_file_artifacts,
     prepare_slack_thread_file_artifacts,
 )
-from products.slack_app.backend.temporal.helpers import block_if_team_over_quota, safe_react
-from products.slack_app.backend.temporal.types import PostHogCodeSlackMentionWorkflowInputs, SlackAppModelOverride
+from products.slack_app.backend.temporal.helpers import block_if_team_over_quota, safe_react, safe_unreact
+from products.slack_app.backend.temporal.types import (
+    SLACK_APP_PROCESSING_REACTION,
+    PostHogCodeSlackMentionWorkflowInputs,
+    SlackAppModelOverride,
+)
 
 if TYPE_CHECKING:
     from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -64,6 +70,25 @@ def _slack_actor_state_updates(*, user_id: int, slack_user_id: str) -> dict[str,
     )
 
     return tasks_facade.slack_actor_state_updates(user_id=user_id, slack_user_id=slack_user_id)
+
+
+def _own_plan_state(integration: Any, user: Any, *, runtime_adapter: str | None) -> dict[str, Any]:
+    """The run-state keys that bill a new run to this user's own plan, or none to keep PostHog credits.
+
+    The caller passes the thread creator, whose plan pays for every turn in the thread.
+    A failed check keeps the run on credits rather than blocking the mention.
+    """
+    from products.slack_app.backend.feature_flags import is_slack_app_byos_enabled  # noqa: PLC0415
+    from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415
+
+    try:
+        state: dict[str, Any] = tasks_facade.unattended_model_access_state(user, runtime_adapter=runtime_adapter)
+        # The flag is a network call, so the local plan checks run first.
+        if state and is_slack_app_byos_enabled(integration, user.distinct_id, adapter=str(runtime_adapter)):
+            return state
+    except Exception:
+        logger.exception("slack_app_own_plan_resolution_failed", user_id=user.id)
+    return {}
 
 
 def _strip_context_tag(text: str) -> str:
@@ -552,6 +577,8 @@ def derive_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflowInputs) ->
         suffix = f"{event.get('channel', '')}:{event.get('ts', '')}"
     if inputs.untagged_confirmed:
         suffix = f"{suffix}:confirmed"
+    if inputs.thread_join_approved:
+        suffix = f"{suffix}:joined"
     return f"{MENTION_WORKFLOW_ID_PREFIX}{inputs.slack_team_id}:{suffix}"
 
 
@@ -571,6 +598,7 @@ def create_posthog_code_task_for_repo_activity(
     model_override: SlackAppModelOverride | None = None,
 ) -> None:
     from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.user import User
 
     from products.signals.backend.facade import api as signals_facade
     from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -709,9 +737,21 @@ def create_posthog_code_task_for_repo_activity(
     # PR tooling enabled so an explicit follow-up can clone a repo and publish.
     allow_pr_creation = True
 
-    from products.slack_app.backend.facade.run_preferences import resolve_run_preferences
+    from products.slack_app.backend.facade.run_preferences import (
+        resolve_effective_runtime_adapter,
+        resolve_run_preferences,
+    )
 
     run_prefs = resolve_run_preferences(override=model_override, team_id=integration.team_id, user_id=user_id)
+    own_plan_state: dict[str, Any] = {}
+    if mentioner := User.objects.filter(id=user_id, is_active=True).first():
+        own_plan_state = _own_plan_state(
+            integration,
+            mentioner,
+            runtime_adapter=resolve_effective_runtime_adapter(
+                run_prefs.runtime_adapter, team_id=integration.team_id, user_id=user_id
+            ),
+        )
 
     # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
     # Spaces feed, which is strictly channel-scoped — a NULL-channel task shows up in no space.
@@ -745,6 +785,7 @@ def create_posthog_code_task_for_repo_activity(
             model=run_prefs.model,
             reasoning_effort=run_prefs.reasoning_effort,
             channel_id=personal_channel_id,
+            extra_run_state=own_plan_state,
         )
     except Exception as e:
         logger.exception(
@@ -768,6 +809,7 @@ def create_posthog_code_task_for_repo_activity(
     logger.info(
         "posthog_code_task_created",
         team_id=integration.team_id,
+        uses_own_plan=bool(own_plan_state),
         repository=repository,
         channel=channel,
         thread_ts=thread_ts,
@@ -778,15 +820,22 @@ def create_posthog_code_task_for_repo_activity(
     task_run = created.latest_run
     if task_run:
         bot_token = get_slack_bot_token(slack, integration)
+        can_read_files = can_read_slack_files(integration)
         event_files = parse_slack_file_refs(event.get("files"))
         # The thread's own attachments matter as much as the tagging message's: the
         # screenshot under discussion is usually the one the thread opened with, and the
         # request several replies down says "look at this" about it.
         attachment_budget = SlackAttachmentBudget()
         prepared_attachments = merge_prepared_attachments(
-            prepare_slack_file_artifacts(event_files, bot_token, budget=attachment_budget),
+            prepare_slack_file_artifacts(
+                event_files, bot_token, can_read_files=can_read_files, budget=attachment_budget
+            ),
             prepare_slack_thread_file_artifacts(
-                thread_messages, bot_token, already_requested=event_files, budget=attachment_budget
+                thread_messages,
+                bot_token,
+                can_read_files=can_read_files,
+                already_requested=event_files,
+                budget=attachment_budget,
             ),
         )
         uploaded_attachments, attachment_skips = _upload_prepared_slack_attachments(
@@ -950,6 +999,14 @@ def forward_posthog_code_followup_activity(
     actor_user = mapping.task.created_by
     followup_user_text_prefix: str | None = None
     if slack_user_id != mapping.mentioning_slack_user_id:
+        # Checked before the Slack lookup below, so a message the creator's mode drops costs
+        # no Slack call.
+        join = decide_thread_join(integration, mapping, slack_user_id)
+        if join == ThreadJoinDecision.DENY:
+            # The queue already marked the message as being worked on, and nothing will answer it.
+            _clear_processing_reaction(slack, channel, user_message_ts)
+            logger.info("slack_app_followup_thread_join_denied", channel=channel, thread_ts=thread_ts)
+            return True
         # The follow-up is from a different Slack user than the one who started the
         # thread. Try to resolve them to a PostHog user with access to the same team
         # — if so, let them participate under their own sandbox token, with their
@@ -978,6 +1035,24 @@ def forward_posthog_code_followup_activity(
             actor=slack_user_id,
             actor_user_id=resolved.user.id,
         )
+        if join != ThreadJoinDecision.ALLOW:
+            from products.slack_app.backend.api import post_thread_join_prompt  # noqa: PLC0415
+
+            # The creator's approval sends this message again, so it stops here. Nothing works on
+            # it while it waits, so it loses the reaction that says so.
+            _clear_processing_reaction(slack, channel, user_message_ts)
+            post_thread_join_prompt(
+                slack,
+                integration,
+                inputs,
+                channel=channel,
+                thread_ts=thread_ts,
+                owner_slack_user_id=mapping.mentioning_slack_user_id,
+                joiner_slack_user_id=slack_user_id,
+                opens_thread=join == ThreadJoinDecision.ASK_FOR_THREAD,
+                plan_name=plan.plan_name if (plan := tasks_facade.get_run_plan(task_run.state)) else None,
+            )
+            return True
 
     if block_if_team_over_quota(
         integration=integration,
@@ -1023,11 +1098,14 @@ def forward_posthog_code_followup_activity(
     # Taken before the thread digest and the speaker prefix join it, so it holds only this person's words.
     person_message = labeled_mentions_to_display_names(user_text) or None
     bot_token = get_slack_bot_token(slack, integration)
+    can_read_files = can_read_slack_files(integration)
     event_files = parse_slack_file_refs(inputs.event.get("files"))
     # Shared with the thread fetch below, so the reply and the catch-up files draw on one
     # allowance instead of two.
     attachment_budget = SlackAttachmentBudget()
-    prepared_attachments = prepare_slack_file_artifacts(event_files, bot_token, budget=attachment_budget)
+    prepared_attachments = prepare_slack_file_artifacts(
+        event_files, bot_token, can_read_files=can_read_files, budget=attachment_budget
+    )
     if not user_text and not prepared_attachments.has_files:
         return True
     if not user_text and not prepared_attachments.artifacts:
@@ -1077,7 +1155,11 @@ def forward_posthog_code_followup_activity(
     prepared_attachments = merge_prepared_attachments(
         prepared_attachments,
         prepare_slack_thread_file_artifacts(
-            update.messages, bot_token, already_requested=event_files, budget=attachment_budget
+            update.messages,
+            bot_token,
+            can_read_files=can_read_files,
+            already_requested=event_files,
+            budget=attachment_budget,
         ),
     )
 
@@ -1126,6 +1208,9 @@ def forward_posthog_code_followup_activity(
         message_id=_slack_followup_message_id(channel, user_message_ts, thread_ts),
         actor_slack_user_id=slack_user_id,
         person_message=person_message,
+        # The join check above applied the thread creator's choice about who may join, and a
+        # run on a plan bills the creator's plan whoever sends the turn.
+        plan_owner_consented=True,
     )
     if signal_result is not True:
         logger.warning(
@@ -1387,6 +1472,7 @@ def _resume_task_with_new_run(
     model_override: SlackAppModelOverride | None = None,
 ) -> bool:
     """Create a new run on the same task when a follow-up arrives after the previous run completed."""
+    from products.slack_app.backend.facade.run_preferences import resolve_effective_runtime_adapter
     from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415
         decode_slack_event_text,
         labeled_mentions_to_display_names,
@@ -1399,7 +1485,9 @@ def _resume_task_with_new_run(
     user_text = decode_slack_event_text(slack, integration, event_text)
     person_message = labeled_mentions_to_display_names(user_text) or None
     prepared_attachments = prepare_slack_file_artifacts(
-        parse_slack_file_refs(inputs.event.get("files")), get_slack_bot_token(slack, integration)
+        parse_slack_file_refs(inputs.event.get("files")),
+        get_slack_bot_token(slack, integration),
+        can_read_files=can_read_slack_files(integration),
     )
     if not user_text and not prepared_attachments.has_files:
         return True
@@ -1451,6 +1539,16 @@ def _resume_task_with_new_run(
     # carried over, like the keys above: a preference changed since the previous run is
     # picked up too.
     extra_state.update(_run_preference_state(model_override, team_id=mapping.task.team_id, user_id=run_actor.id))
+    # The thread creator's plan, whoever replies: the creator chose who may join their thread.
+    # `create_run` resolves the defaults for the replying user, so the runtime is read for them too.
+    own_plan_state = _own_plan_state(
+        integration,
+        created_by,
+        runtime_adapter=resolve_effective_runtime_adapter(
+            extra_state.get("runtime_adapter"), team_id=mapping.task.team_id, user_id=run_actor.id
+        ),
+    )
+    extra_state.update(own_plan_state)
 
     extra_state.update(tasks_facade.get_resume_snapshot_carry_state(previous_state))
     extra_state["resume_from_run_id"] = str(previous_run.id)
@@ -1484,7 +1582,11 @@ def _resume_task_with_new_run(
         # its gated-model entitlement check inside `create_run` must run against whoever
         # launches this follow-up.
         new_run = tasks_facade.create_run(
-            mapping.task_id, mode="interactive", extra_state=extra_state, acting_user_id=run_actor.id
+            mapping.task_id,
+            mode="interactive",
+            extra_state=extra_state,
+            acting_user_id=run_actor.id,
+            subscription_owner_id=created_by.id if own_plan_state else None,
         )
     except Exception:
         logger.exception(
@@ -1616,6 +1718,11 @@ def _delete_followup_progress(
         ).delete_progress()
     except Exception:
         pass
+
+
+def _clear_processing_reaction(slack: Any, channel: str, user_message_ts: str | None) -> None:
+    if user_message_ts:
+        safe_unreact(slack.client, channel, user_message_ts, SLACK_APP_PROCESSING_REACTION)
 
 
 def _set_followup_done_reaction(slack: Any, channel: str, user_message_ts: str | None, done_emoji: str) -> None:

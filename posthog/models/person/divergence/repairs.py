@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from collections import Counter, defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import field
 from functools import partial
 from typing import TypeVar
@@ -30,11 +30,15 @@ from posthog.models.team import Team
 from posthog.personhog_client.client import personhog_call, require_personhog_client
 from posthog.personhog_client.interceptor import is_transient_rpc_error
 from posthog.personhog_client.proto import (
-    CONSISTENCY_LEVEL_STRONG,
-    GetDistinctIdsForPersonsRequest,
-    ReadOptions,
+    DISTINCT_ID_WRITE_ACTION_RAISE,
+    DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE,
+    DistinctIdWrite,
+    DistinctIdWriteResult,
+    PersonVersionFloor,
+    RaisePersonVersionFloorsRequest,
     SetPersonDistinctIdVersionFloorRequest,
-    SetPersonVersionFloorRequest,
+    WriteDistinctIdsRequest,
+    WriteDistinctIdsResponse,
 )
 
 from . import datatypes, lookups, repair_plan, stale_merge
@@ -44,14 +48,26 @@ _T = TypeVar("_T")
 
 _REPAIR_CHUNK_SIZE = 100
 
+# The most rows one personhog repair write takes.
+_WRITE_BATCH_SIZE = 250
+
 # The waits between re-reads give the replica about 0.5 s to show a raise, far above its usual lag of a few milliseconds.
 _REREAD_BACKOFF_SECONDS = (0.025, 0.05, 0.1, 0.15, 0.175)
 
 _TRANSIENT_RETRY_BACKOFF_SECONDS = (1.0, 2.0)
 
+# FAILED_PRECONDITION is transient for the repair writes: personhog returns it only for a person whose lifecycle
+# mark another operation holds, or for a row that changed between its read and its lock, and both clear on a retry.
 _TRANSIENT_RPC_CODES = frozenset(
-    {grpc.StatusCode.INTERNAL, grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED}
+    {
+        grpc.StatusCode.INTERNAL,
+        grpc.StatusCode.UNAVAILABLE,
+        grpc.StatusCode.DEADLINE_EXCEEDED,
+        grpc.StatusCode.FAILED_PRECONDITION,
+    }
 )
+
+_DB_TIMEOUT_METADATA_KEY = "x-db-timeout"
 
 _FLUSH_TIMEOUT_SECONDS = 5 * 60
 
@@ -61,17 +77,57 @@ _DELIVERY_PRUNE_EVERY = 1_000
 _sleep = time.sleep
 
 
-def _raise_person_version_floor(team_id: int, person_id: int, min_version: int) -> None:
+def _raise_person_version_floor(team_id: int, person_uuid: str, min_version: int) -> None:
+    # Claims the person's lifecycle mark, so the raise waits out an in-flight merge or delete of the person.
     personhog_call(
-        "person_divergence_set_person_version_floor",
-        lambda: require_personhog_client().set_person_version_floor(
-            SetPersonVersionFloorRequest(team_id=team_id, person_id=person_id, min_version=min_version)
+        "person_divergence_raise_person_version_floors",
+        lambda: require_personhog_client().raise_person_version_floors(
+            RaisePersonVersionFloorsRequest(
+                team_id=team_id, floors=[PersonVersionFloor(person_uuid=person_uuid, min_version=min_version)]
+            )
         ),
     )
 
 
+def _write_distinct_ids(request: WriteDistinctIdsRequest) -> WriteDistinctIdsResponse:
+    return require_personhog_client().write_distinct_ids(request)
+
+
+def _raise_mapping_version_floors(
+    team_id: int, person_uuid: str, mappings: Sequence[repair_plan._MappingPlan], before_write: Callable[[], None]
+) -> dict[str, DistinctIdWriteResult]:
+    """Raise each live mapping of the person to its target version on the primary, in batches.
+
+    A mapping that moved to another person, or was tombstoned, is left alone and reported with its current row.
+    """
+    results: dict[str, DistinctIdWriteResult] = {}
+    for batch in lookups._chunks(list(mappings), _WRITE_BATCH_SIZE):
+        before_write()
+        request = WriteDistinctIdsRequest(
+            team_id=team_id,
+            writes=[
+                DistinctIdWrite(
+                    distinct_id=m.distinct_id,
+                    action=DISTINCT_ID_WRITE_ACTION_RAISE,
+                    person_uuid=person_uuid,
+                    min_version=m.target_version,
+                )
+                for m in batch
+            ],
+        )
+        response = personhog_call(
+            "person_divergence_raise_mapping_versions",
+            partial(_write_distinct_ids, request),
+        )
+        results.update({r.distinct_id: r for r in response.results})
+    return results
+
+
 def _raise_mapping_version_floor(team_id: int, distinct_id: str, min_version: int) -> str | None:
-    """Raise the mapping's version on the primary and return the uuid of the person it maps to there."""
+    """Raise the mapping's version on the primary, live or tombstoned, and return the uuid of its person there.
+
+    Bury uses it for tombstoned mappings, which the batched raise leaves alone.
+    """
     response = personhog_call(
         "person_divergence_set_person_distinct_id_version_floor",
         lambda: require_personhog_client().set_person_distinct_id_version_floor(
@@ -81,21 +137,6 @@ def _raise_mapping_version_floor(team_id: int, distinct_id: str, min_version: in
     if not response.HasField("person"):
         return None
     return str(UUID(response.person.uuid))
-
-
-def _primary_mapping_versions(team_id: int, person_id: int) -> dict[str, int]:
-    response = personhog_call(
-        "person_divergence_confirm_mapping_versions",
-        lambda: require_personhog_client().get_distinct_ids_for_persons(
-            GetDistinctIdsForPersonsRequest(
-                team_id=team_id,
-                person_ids=[person_id],
-                read_options=ReadOptions(consistency=CONSISTENCY_LEVEL_STRONG),
-                limit_per_person=repair_plan._MAX_REPAIR_DISTINCT_IDS_PER_PERSON + 1,
-            )
-        ),
-    )
-    return {d.distinct_id: int(d.version or 0) for pd in response.person_distinct_ids for d in pd.distinct_ids}
 
 
 def _person_action(plan: repair_plan._PersonPlan, outcome: datatypes.RepairOutcome) -> datatypes.RepairAction:
@@ -175,6 +216,30 @@ def _is_transient(exc: BaseException) -> bool:
     )
 
 
+def is_retryable(exc: BaseException) -> bool:
+    """Whether a repair failed on a transient error that a later attempt can get past: a busy person, or
+    personhog or ClickHouse briefly unavailable."""
+    return _is_transient(exc)
+
+
+def is_person_busy(exc: BaseException) -> bool:
+    """Whether another operation, such as a merge or delete, held the person: its lifecycle mark was claimed, or
+    a wait for its row lock timed out. Other transient errors mean a service was unavailable."""
+    if is_transient_rpc_error(exc, codes=frozenset({grpc.StatusCode.FAILED_PRECONDITION})):
+        return True
+    current: BaseException | None = exc
+    while current is not None:
+        if isinstance(current, grpc.RpcError):
+            code = getattr(current, "code", None)
+            trailing = getattr(current, "trailing_metadata", None)
+            if not callable(code) or code() != grpc.StatusCode.DEADLINE_EXCEEDED or not callable(trailing):
+                return False
+            # personhog-replica names the timeout that ended the call; only a lock wait means the person was busy.
+            return any(key == _DB_TIMEOUT_METADATA_KEY and value == "lock_timeout" for key, value in trailing() or ())
+        current = current.__cause__
+    return False
+
+
 def _retry_transient(fn: Callable[[], _T], *, what: str, log: Callable[[str], None]) -> _T:
     """Run ``fn`` again after a transient ClickHouse or personhog error, then re-raise once the retries run out.
 
@@ -198,18 +263,23 @@ def _execute_plan(
     apply: bool,
     include_stale: bool,
     before_write: Callable[[], None],
-    published: Callable[[ProduceResult], None],
+    published: Callable[[ProduceResult, PublishedKey], None],
     stale_merge_distinct_id: str | None = None,
 ) -> list[datatypes.RepairAction]:
     person = plan.person
     if person is None:
         return [_person_action(plan, "skipped_not_live")]
     if plan.kind == "stale" and not include_stale:
-        refusal: datatypes.RepairOutcome | None = "skipped_stale"
+        refusal: datatypes.RepairOutcome | None = (
+            "would_repair" if not apply and stale_merge_distinct_id is not None else "skipped_stale"
+        )
         if apply and stale_merge_distinct_id is not None:
             missing = stale_merge._clickhouse_only_properties(plan)
             # A later reset that finds nothing missing raises Postgres. Capture accepting the $set does not mean
             # ingestion applies it, and a raise without the merged properties lets the next update overwrite them.
+            if missing:
+                # The $set_once event lands on ingestion like any write, so it is paced like one.
+                before_write()
             refusal = (
                 (stale_merge._queue_stale_merge(plan, stale_merge_distinct_id, missing) or "merge_queued")
                 if missing
@@ -240,20 +310,29 @@ def _execute_plan(
     pg_version = int(person.version or 0)
     if plan.kind is not None and plan.target_version is not None and plan.target_version > pg_version:
         before_write()
-        _raise_person_version_floor(plan.team_id, person.pk, plan.target_version)
+        _raise_person_version_floor(plan.team_id, plan.person_uuid, plan.target_version)
 
-    # SetPersonDistinctIdVersionFloor runs on the primary, so its reply is the owner check: the replica list
-    # that produced this mapping can lag a merge that moved it to another person.
+    # The raise runs on the primary, so its reply is the owner check: the replica list that produced this
+    # mapping can lag a merge that moved it to another person.
+    written = (
+        _raise_mapping_version_floors(plan.team_id, plan.person_uuid, divergent_mappings, before_write)
+        if divergent_mappings
+        else {}
+    )
     owned: list[repair_plan._MappingPlan] = []
+    stored_versions: dict[str, int] = {}
     for mapping in divergent_mappings:
-        before_write()
-        owner = _raise_mapping_version_floor(plan.team_id, mapping.distinct_id, mapping.target_version)
-        if owner is None:
+        result = written.get(mapping.distinct_id)
+        row = result.row if result is not None and result.HasField("row") else None
+        if result is not None and result.outcome == DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE:
+            mapping_actions.append(_mapping_action(plan, mapping, "skipped_tombstoned"))
+        elif row is None or row.is_deleted:
             mapping_actions.append(_mapping_action(plan, mapping, "skipped_mapping_gone"))
-        elif owner != plan.person_uuid:
+        elif row.person_uuid != plan.person_uuid:
             mapping_actions.append(_mapping_action(plan, mapping, "skipped_owner_changed"))
         else:
             owned.append(mapping)
+            stored_versions[mapping.distinct_id] = int(row.version)
 
     # Re-read after the raise so the published properties are the ones Postgres holds at the
     # published version, including any ingestion update that landed after the first read.
@@ -277,32 +356,29 @@ def _execute_plan(
         # The replica has not caught up with the raise, so its properties may predate the raised version.
         person_outcome = "skipped_reread_lagging"
     else:
-        published(_publish_person(plan.team_id, reread))
+        published(_publish_person(plan.team_id, reread), PublishedKey(kind="person", key=plan.person_uuid))
         person_outcome = "repaired"
 
-    # The SetPersonDistinctIdVersionFloor reply does not say whether it wrote, and a personhog-replica build
-    # without NULL-version handling leaves a NULL version unchanged, so publish only the mappings whose
-    # version on the primary reached the target.
-    stored_versions = _primary_mapping_versions(plan.team_id, person.pk) if owned else {}
+    # The write reply holds the row the primary stored, at or above the target, so it is the version to publish.
     for mapping in owned:
-        stored_version = stored_versions.get(mapping.distinct_id)
-        if stored_version is None:
-            # The primary no longer lists the mapping under this person: it moved or was tombstoned after the raise.
-            mapping_actions.append(_mapping_action(plan, mapping, "skipped_mapping_gone"))
-        elif stored_version < mapping.target_version:
-            mapping_actions.append(_mapping_action(plan, mapping, "skipped_reread_lagging"))
-        else:
-            published(
-                create_person_distinct_id(
-                    team_id=plan.team_id,
-                    distinct_id=mapping.distinct_id,
-                    person_id=plan.person_uuid,
-                    version=stored_version,
-                    is_deleted=False,
-                )
-            )
-            mapping_actions.append(_mapping_action(plan, mapping, "repaired"))
+        published(
+            create_person_distinct_id(
+                team_id=plan.team_id,
+                distinct_id=mapping.distinct_id,
+                person_id=plan.person_uuid,
+                version=stored_versions[mapping.distinct_id],
+                is_deleted=False,
+            ),
+            PublishedKey(kind="mapping", key=mapping.distinct_id),
+        )
+        mapping_actions.append(_mapping_action(plan, mapping, "repaired"))
     return [_person_action(plan, person_outcome), *mapping_actions]
+
+
+@frozen
+class PublishedKey:
+    kind: str
+    key: str
 
 
 @frozen(frozen=False)
@@ -324,13 +400,17 @@ class _WritePacer:
 
 @frozen(frozen=False)
 class _Deliveries:
-    """Kafka produce results of the published rows, so a failed delivery counts as undelivered."""
+    """Kafka produce results of the published rows, so a failed delivery counts as undelivered.
 
-    pending: list[ProduceResult] = field(default_factory=list)
+    A row tracked with a key names that key in `undelivered_keys` when its delivery fails.
+    """
+
+    pending: list[tuple[ProduceResult, PublishedKey | None]] = field(default_factory=list)
     failed: int = 0
+    failed_keys: list[PublishedKey] = field(default_factory=list)
 
-    def track(self, result: ProduceResult) -> None:
-        self.pending.append(result)
+    def track(self, result: ProduceResult, key: PublishedKey | None = None) -> None:
+        self.pending.append((result, key))
         if len(self.pending) >= _DELIVERY_PRUNE_EVERY:
             self._prune()
 
@@ -339,16 +419,22 @@ class _Deliveries:
         self._prune()
         return self.failed + len(self.pending)
 
+    def undelivered_keys(self) -> list[PublishedKey]:
+        """The keys whose rows failed or are still waiting, as of the last `undelivered` call."""
+        return [*self.failed_keys, *(key for _, key in self.pending if key is not None)]
+
     def _prune(self) -> None:
-        waiting: list[ProduceResult] = []
-        for result in self.pending:
+        waiting: list[tuple[ProduceResult, PublishedKey | None]] = []
+        for result, key in self.pending:
             if not result.done():
-                waiting.append(result)
+                waiting.append((result, key))
                 continue
             try:
                 result.get(timeout=0)
             except Exception:
                 self.failed += 1
+                if key is not None:
+                    self.failed_keys.append(key)
         self.pending = waiting
 
 
@@ -379,6 +465,9 @@ def repair_persons(
     max_writes_per_second: float | None = None,
     on_action: Callable[[datatypes.RepairAction], None],
     log: Callable[[str], None],
+    republish_equal: Collection[str] = (),
+    stale_merge_distinct_ids: Mapping[str, str] | None = None,
+    deliveries: _Deliveries | None = None,
 ) -> datatypes.RepairSummary:
     """Republish the Postgres state of each target person and its mappings where ClickHouse disagrees.
 
@@ -388,6 +477,11 @@ def repair_persons(
 
     ``include_stale`` also repairs stale persons and their mappings. That replaces their ClickHouse properties
     with the Postgres ones for good, so never use it on a team waiting for a restore from ClickHouse.
+
+    ``republish_equal`` names persons to republish although ClickHouse holds their Postgres version.
+    ``stale_merge_distinct_ids`` maps a stale person to the distinct id that sends its ClickHouse-only properties
+    to ingestion; a rerun after ingestion applied them raises and republishes the person.
+    ``deliveries``, when given, collects the publishes; the caller flushes it, and the summary counts none.
     """
     if max_writes_per_second is not None and max_writes_per_second <= 0:
         raise ValueError("max_writes_per_second must be above 0")
@@ -399,7 +493,9 @@ def repair_persons(
     processed = 0
     undelivered = 0
     pacer = _WritePacer(max_per_second=max_writes_per_second)
-    deliveries = _Deliveries()
+    # A caller that passes its own tracker flushes it, and learns which keys did not land.
+    flush_here = deliveries is None
+    deliveries = deliveries if deliveries is not None else _Deliveries()
     existing_teams = set(Team.objects.filter(id__in=list(by_team)).values_list("id", flat=True))
     try:
         for team_id, person_uuids in sorted(by_team.items()):
@@ -423,7 +519,9 @@ def repair_persons(
                 continue
             for chunk in lookups._chunks(person_uuids, _REPAIR_CHUNK_SIZE):
                 plans = _retry_transient(
-                    partial(repair_plan._plan_chunk, team_id, chunk), what=f"team {team_id}: planning", log=log
+                    partial(repair_plan._plan_chunk, team_id, chunk, republish_equal=frozenset(republish_equal)),
+                    what=f"team {team_id}: planning",
+                    log=log,
                 )
                 for plan in plans:
                     # Only the attempt that succeeds returns actions, so a retried person is counted once.
@@ -435,6 +533,7 @@ def repair_persons(
                             include_stale=include_stale,
                             before_write=pacer.before_write,
                             published=deliveries.track,
+                            stale_merge_distinct_id=(stale_merge_distinct_ids or {}).get(plan.person_uuid),
                         ),
                         what=f"team {team_id} person {plan.person_uuid}",
                         log=log,
@@ -445,7 +544,7 @@ def repair_persons(
                     processed += 1
             log(f"team {team_id}: {len(person_uuids)} persons, {processed} processed in total")
     finally:
-        if apply:
+        if apply and flush_here:
             undelivered = deliveries.undelivered(_FLUSH_TIMEOUT_SECONDS)
             if undelivered:
                 log(f"{undelivered} ClickHouse messages were not delivered; rerun the repair for the same input")

@@ -1246,6 +1246,44 @@ database "posthog" {
     }
   }
 
+  table "email_status" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "message_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "LowCardinality(String)"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "status_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "reason" {
+      type = "String"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "email_status_data"
+    }
+  }
+
   table "error_tracking_fingerprint_issue_state" {
     column "team_id" {
       type = "Int64"
@@ -3587,6 +3625,9 @@ database "posthog" {
     column "source_config_snapshot" {
       type = "String"
     }
+    column "source_detail" {
+      type = "String"
+    }
     column "query_duration_ms" {
       type = "Nullable(UInt32)"
     }
@@ -5526,10 +5567,11 @@ database "posthog" {
   table "sharded_flag_evaluations" {
     order_by     = ["team_id", "flag_key", "toDate(timestamp)", "cityHash64(distinct_id)", "cityHash64(uuid)"]
     partition_by = "toYYYYMM(timestamp)"
-    ttl          = "toDate(timestamp) + toIntervalDay(90)"
+    ttl          = "toDate(timestamp) + toIntervalDay(92)"
     settings = {
-      index_granularity   = "8192"
-      ttl_only_drop_parts = "1"
+      index_granularity                = "8192"
+      materialize_ttl_recalculate_only = "1"
+      ttl_only_drop_parts              = "1"
     }
     column "uuid" {
       type = "UUID"

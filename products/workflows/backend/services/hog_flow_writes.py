@@ -7,23 +7,37 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from posthog.api.tagged_item import cleanup_orphan_tags, current_tag_names, set_tags_on_object
+from posthog.api.tagged_item import current_tag_names, replace_tags_on_object, set_tags_on_object
 from posthog.models.tag import tagify
 
 from products.workflows.backend.facade.contracts import (
+    TeamUtmDefaults,
+    UtmDefaultsWriteResult,
     WorkflowEditState,
     WorkflowHasNoDraft,
     WorkflowStale,
     WorkflowWriteResult,
 )
 from products.workflows.backend.facade.enums import HogFlowScheduleStatus
-from products.workflows.backend.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, ROW_SCOPED_TRIGGER_TYPES, HogFlow
+from products.workflows.backend.models.hog_flow.hog_flow import (
+    BILLABLE_ACTION_TYPES,
+    RECHECKED_TRIGGER_TYPES,
+    ROW_SCOPED_TRIGGER_TYPES,
+    HogFlow,
+    exit_condition_that_runs,
+)
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.services.action_redirects import compute_action_redirects
+from products.workflows.backend.services.email_utm_defaults import (
+    flow_has_active_schedule,
+    is_apply_eligible,
+    plan_flow_update,
+)
 from products.workflows.backend.services.hog_flow_content import DRAFT_CONTENT_FIELDS, snapshot_flow_content
 from products.workflows.backend.services.hog_flow_reads import to_edit_state
 from products.workflows.backend.services.hog_flow_secrets import (
     TemplateCache,
+    rehydrate_flow_secrets,
     strip_content_secrets,
     strip_secrets_from_content,
 )
@@ -106,13 +120,17 @@ def _parse_stamp(raw: Optional[str]) -> Optional[datetime]:
     return stamp
 
 
-def _save_live(instance: HogFlow, validated_data: dict, **overrides: object) -> None:
+def _save_live(
+    instance: HogFlow, validated_data: dict, template_cache: Optional[TemplateCache] = None, **overrides: object
+) -> None:
     # Move secret function inputs out of the live `actions` into
     # encrypted_inputs when the write carries actions (a metadata-only update must not touch stored
     # secrets), then save the whole row.
     data = {**validated_data, **overrides}
     if "actions" in data:
-        data["encrypted_inputs"] = strip_secrets_from_content(data, template_cache={})
+        data["encrypted_inputs"] = strip_secrets_from_content(
+            data, template_cache=template_cache if template_cache is not None else {}
+        )
     for attr, value in data.items():
         setattr(instance, attr, value)
     instance.save()
@@ -147,7 +165,9 @@ def save_validated_workflow(*, team_id: int, hog_flow_id: UUID, validated_data: 
         _save_live(HogFlow.objects.select_for_update().get(team_id=team_id, pk=hog_flow_id), validated_data)
 
 
-def _derive_from_locked_graph(locked: HogFlow, validated_data: dict) -> dict:
+def _derive_from_locked_graph(
+    locked: HogFlow, validated_data: dict, requested_exit_condition: Optional[str] = None
+) -> dict:
     # HogFlowSerializer.validate derives trigger, billable_action_types and exit_condition from the
     # actions it read before the row lock. A write without actions keeps the locked row's actions, and a
     # concurrent graph write can change those actions before the lock. Derive these fields again from the
@@ -162,10 +182,22 @@ def _derive_from_locked_graph(locked: HogFlow, validated_data: dict) -> dict:
     if "exit_condition" in derived:
         # validate forces exit_only_at_end when the trigger it read is row-scoped. Apply that rule to the
         # locked trigger instead. When only the old trigger forced the value, keep the locked row's value.
-        if (derived.get("trigger") or {}).get("type") in ROW_SCOPED_TRIGGER_TYPES:
+        locked_type = (derived.get("trigger") or {}).get("type")
+        read_type = (validated_data.get("trigger") or {}).get("type")
+        if locked_type in ROW_SCOPED_TRIGGER_TYPES:
             derived["exit_condition"] = HogFlow.ExitCondition.ONLY_AT_END
-        elif (validated_data.get("trigger") or {}).get("type") in ROW_SCOPED_TRIGGER_TYPES:
+        elif requested_exit_condition is not None:
+            # validate may have rewritten the value the request set for the read trigger. Apply the rule to
+            # the requested value against the locked trigger instead, so the request is not lost.
+            derived["exit_condition"] = exit_condition_that_runs(locked_type, requested_exit_condition)
+        elif read_type in ROW_SCOPED_TRIGGER_TYPES or (
+            locked_type in RECHECKED_TRIGGER_TYPES and read_type not in RECHECKED_TRIGGER_TYPES
+        ):
+            # The read trigger may have rewritten the value, and the locked trigger can run any exit
+            # condition, so keep the locked row's value instead.
             del derived["exit_condition"]
+        else:
+            derived["exit_condition"] = exit_condition_that_runs(locked_type, derived["exit_condition"])
     if "billable_action_types" in derived:
         derived["billable_action_types"] = sorted(
             {action.get("type", "") for action in actions if action.get("type") in BILLABLE_ACTION_TYPES}
@@ -188,7 +220,9 @@ def _refresh_action_redirects(target: HogFlow, old: HogFlow, new_actions: Option
     )
 
 
-def _stage_revision_bump(instance: HogFlow, before: HogFlow, validated_data: dict) -> bool:
+def _stage_revision_bump(
+    instance: HogFlow, before: HogFlow, validated_data: dict, template_cache: Optional[TemplateCache] = None
+) -> bool:
     # Revision history: only live-content changes get a version. Compared pre-save so the bumped
     # version lands in the same UPDATE (and worker reload) as the content it describes. The
     # serializer injects derived fields (trigger, billable_action_types) into every validated
@@ -201,7 +235,8 @@ def _stage_revision_bump(instance: HogFlow, before: HogFlow, validated_data: dic
     # Compare secret-free on both sides. `raw_new` still carries the plaintext secrets validation
     # recovered into `actions` (stripping happens later in the save), while `before` is the persisted
     # stripped snapshot; without this a secret-bearing flow would bump on every actions-carrying save.
-    template_cache: TemplateCache = {}
+    if template_cache is None:
+        template_cache = {}
     old_content = _without_bytecode_contracts(strip_content_secrets(raw_old, template_cache))
     new_content = _without_bytecode_contracts(strip_content_secrets(raw_new, template_cache))
     if new_content == old_content:
@@ -210,7 +245,13 @@ def _stage_revision_bump(instance: HogFlow, before: HogFlow, validated_data: dic
     return True
 
 
-def _append_revisions(team_id: int, user_id: Optional[int], instance: HogFlow, before: HogFlow) -> None:
+def _append_revisions(
+    team_id: int,
+    user_id: Optional[int],
+    instance: HogFlow,
+    before: HogFlow,
+    template_cache: Optional[TemplateCache] = None,
+) -> None:
     # Must run inside the same transaction as the content write it snapshots. On the first
     # tracked write, also snapshot the outgoing live content so the state before any tracked
     # change is always available to roll back to (there's no backfill).
@@ -219,14 +260,14 @@ def _append_revisions(team_id: int, user_id: Optional[int], instance: HogFlow, b
             team_id=team_id,
             hog_flow=instance,
             version=before.version,
-            content=snapshot_flow_content(before),
+            content=snapshot_flow_content(before, template_cache),
             created_by=None,
         )
     HogFlowRevision.objects.create(
         team_id=team_id,
         hog_flow=instance,
         version=instance.version,
-        content=snapshot_flow_content(instance),
+        content=snapshot_flow_content(instance, template_cache),
         created_by_id=user_id,
     )
 
@@ -321,6 +362,7 @@ def update_workflow(
     includes_staged_draft: bool,
     validated_status: str,
     keeps_live_sensitivity: bool = True,
+    requested_exit_condition: Optional[str] = None,
 ) -> WorkflowWriteResult:
     # Optimistic concurrency: a client may send the `updated_at` it last loaded as `base_updated_at`.
     # If the stored row is strictly newer, another channel (a second UI tab, MCP, or the API) wrote in
@@ -387,7 +429,7 @@ def update_workflow(
                     raise WorkflowStale()
                 _save_live(instance, remaining)
         else:
-            validated_data = _derive_from_locked_graph(before_update, validated_data)
+            validated_data = _derive_from_locked_graph(before_update, validated_data, requested_exit_condition)
             if keeps_live_sensitivity:
                 validated_data = _keep_live_sensitivity(before_update, validated_data)
             _refresh_action_redirects(instance, before_update, validated_data.get("actions"))
@@ -401,8 +443,7 @@ def update_workflow(
                 _append_revisions(team_id, user_id, instance, before_update)
 
         if tags_changed:
-            set_tags_on_object(tags, instance)
-            cleanup_orphan_tags(team_id)
+            replace_tags_on_object(tags, instance)
 
     paused = 0
     if not route_to_draft:
@@ -473,6 +514,46 @@ def edit_workflow_content(
         current=field_values(locked),
         routed_to_draft=route_to_draft,
         schedules_paused=paused,
+    )
+
+
+def apply_email_utm_defaults(
+    *,
+    team_id: int,
+    user_id: Optional[int],
+    hog_flow_id: UUID,
+    defaults: TeamUtmDefaults,
+    enable_where_off: bool,
+    validate_live: Callable[[WorkflowEditState, list[dict]], dict],
+    template_cache: TemplateCache,
+) -> Optional[UtmDefaultsWriteResult]:
+    """Rewrite the UTM keys that still follow the team defaults, in the live steps and the staged draft.
+    Returns None when nothing changes or the workflow is gone, archived or already sent. Pass one
+    `template_cache` across a batch, so workflows that share a template look it up once."""
+    with transaction.atomic():
+        locked = HogFlow.objects.select_for_update().filter(pk=hog_flow_id, team_id=team_id).first()
+        if locked is None or not is_apply_eligible(locked, flow_has_active_schedule(team_id, hog_flow_id)):
+            return None
+        plan = plan_flow_update(locked.actions or [], locked.draft, defaults, enable_where_off)
+        if plan is None:
+            return None
+        before_update = HogFlow.objects.get(pk=hog_flow_id, team_id=team_id)
+        if plan.draft_actions is not None:
+            locked.draft = {**(locked.draft or {}), "actions": plan.draft_actions}
+            locked.draft_updated_at = timezone.now()
+            locked.save(update_fields=["draft", "draft_updated_at"])
+            unstage_workflow_proposals(team_id=team_id, hog_flow_id=locked.pk)
+        if plan.actions is not None:
+            # Stored actions carry no secrets, and a lenient validation would save them without any.
+            actions = rehydrate_flow_secrets(plan.actions, locked.encrypted_inputs or {})
+            validated_data = validate_live(to_edit_state(locked), actions)
+            bump = _stage_revision_bump(locked, before_update, validated_data, template_cache)
+            _save_live(locked, validated_data, template_cache)
+            if bump:
+                _append_revisions(team_id, user_id, locked, before_update, template_cache)
+
+    return UtmDefaultsWriteResult(
+        write=WorkflowWriteResult(previous=field_values(before_update), current=field_values(locked)), plan=plan
     )
 
 

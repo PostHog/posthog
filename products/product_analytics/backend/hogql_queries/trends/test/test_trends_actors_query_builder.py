@@ -447,6 +447,60 @@ class TestTrendsActorsQueryBuilder(BaseTest):
                 "greaterOrEquals(timestamp, greatest(minus(toDateTime('2024-05-07 22:00:00.000000'), toIntervalDay(29)), toDateTime('2024-05-08 14:29:13.634000'))), less(timestamp, least(toDateTime('2024-05-08 22:00:00.000000'), toDateTime('2024-05-08 14:32:57.692000')))",
             )
 
+    @parameterized.expand(
+        [
+            (
+                "weekly_active_across_dst_change",
+                {"series": [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)]},
+                "2024-03-31",
+                "2024-04-02T12:00:00Z",
+                ("2024-03-24 23:00:00Z", "2024-03-31 22:00:00Z", ast.CompareOperationOp.Lt),
+            ),
+            (
+                "weekly_active_total_value",
+                {
+                    "series": [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+                    "trendsFilter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+                },
+                None,
+                "2024-05-30T12:00:00Z",
+                ("2024-05-24 21:59:59Z", "2024-05-30 21:59:59Z", ast.CompareOperationOp.LtEq),
+            ),
+            (
+                "explicit_monthly_active",
+                {
+                    "series": [EventsNode(event="$pageview", math=BaseMathType.MONTHLY_ACTIVE)],
+                    "dateRange": DateRange(
+                        date_from="2024-05-08T14:29:13.634000Z",
+                        date_to="2024-05-08T14:32:57.692000Z",
+                        explicitDate=True,
+                    ),
+                },
+                "2024-05-08",
+                "2024-05-08T15:32:00Z",
+                ("2024-05-08 14:29:13Z", "2024-05-08 14:32:57Z", ast.CompareOperationOp.Lt),
+            ),
+        ]
+    )
+    def test_actors_date_window_widens_for_active_users_math(
+        self,
+        _name: str,
+        query_update: dict,
+        time_frame: Optional[str],
+        now: str,
+        expected: tuple[str, str, ast.CompareOperationOp],
+    ):
+        self.team.timezone = "Europe/Berlin"
+        trends_query = default_query.model_copy(update=query_update, deep=True)
+
+        with time_machine.travel(now, tick=False):
+            window = self._get_builder(trends_query=trends_query, time_frame=time_frame).actors_date_window()
+
+        self.assertEqual(
+            (self._get_utc_string(window.from_datetime), self._get_utc_string(window.to_datetime), window.to_op),
+            expected,
+        )
+
     def test_actor_id_expr_for_groups_math(self):
         maths = [
             BaseMathType.DAU,

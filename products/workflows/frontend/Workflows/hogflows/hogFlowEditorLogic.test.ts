@@ -1,7 +1,10 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -212,6 +215,103 @@ describe('hogFlowEditorLogic', () => {
         expect(logic.values.workflow.edges).toEqual([
             edge(TRIGGER_NODE_ID, delay.id, 'continue'),
             edge(delay.id, duplicatedAction!.id, 'continue'),
+            edge(duplicatedAction!.id, EXIT_NODE_ID, 'continue'),
+        ])
+    })
+
+    it('keeps edits made while "Save as team default" was saving', () => {
+        const email = {
+            id: 'email',
+            name: 'Send email',
+            description: '',
+            type: 'function_email',
+            created_at: 0,
+            updated_at: 0,
+            config: {
+                template_id: 'template-email',
+                inputs: {},
+                utm_tags_enabled: true,
+                utm_params: { utm_source: 'partner', utm_campaign: 'spring' },
+                utm_params_from_default: [],
+            },
+        } as HogFlowAction
+        workflowLogic().actions.setWorkflowInfo({
+            actions: [NEW_WORKFLOW.actions[0], email, NEW_WORKFLOW.actions[1]],
+            edges: [edge(TRIGGER_NODE_ID, email.id, 'continue'), edge(email.id, EXIT_NODE_ID, 'continue')],
+        })
+        const saved = { utm_source: 'partner', utm_campaign: 'spring' }
+        logic.actions.setWorkflowAction(email.id, {
+            ...email,
+            name: 'Renamed while saving',
+            config: { ...email.config, utm_params: { utm_source: 'partner', utm_campaign: 'summer' } },
+        } as HogFlowAction)
+
+        logic.actions.markUtmSavedAsTeamDefault(email.id, saved)
+
+        const latest = logic.values.workflow.actions.find((action) => action.id === email.id)
+        expect(latest).toMatchObject({
+            name: 'Renamed while saving',
+            config: {
+                utm_params: { utm_source: 'partner', utm_campaign: 'summer' },
+                utm_params_from_default: ['utm_source', 'utm_medium', 'utm_content'],
+            },
+        })
+    })
+
+    it.each([
+        {
+            case: 'a delay',
+            step: {
+                id: 'step',
+                name: 'Delay',
+                description: '',
+                type: 'delay',
+                created_at: 0,
+                updated_at: 0,
+                config: { delay_duration: '1d' },
+            } as HogFlowAction,
+        },
+        {
+            case: 'an email with its own UTM settings',
+            step: {
+                id: 'step',
+                name: 'Send email',
+                description: '',
+                type: 'function_email',
+                created_at: 0,
+                updated_at: 0,
+                config: {
+                    template_id: 'template-email',
+                    inputs: {},
+                    utm_tags_enabled: false,
+                    utm_params: { utm_source: 'partner' },
+                    utm_params_from_default: ['utm_medium'],
+                },
+            } as HogFlowAction,
+        },
+    ])('duplicates $case below itself', ({ step }) => {
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            workflows_config: {
+                capture_workflows_engagement_events: false,
+                email_utm_tags_enabled: true,
+                email_utm_params: { utm_source: 'newsletter' },
+            },
+        })
+        workflowLogic().actions.setWorkflowInfo({
+            actions: [NEW_WORKFLOW.actions[0], step, NEW_WORKFLOW.actions[1]],
+            edges: [edge(TRIGGER_NODE_ID, step.id, 'continue'), edge(step.id, EXIT_NODE_ID, 'continue')],
+        })
+
+        logic.actions.duplicateNodeBelow(step.id)
+
+        const duplicatedAction = logic.values.workflow.actions.find(
+            (action) => action.id !== step.id && action.type === step.type
+        )
+        expect(duplicatedAction).toMatchObject({ name: step.name, config: step.config })
+        expect(logic.values.workflow.edges).toEqual([
+            edge(TRIGGER_NODE_ID, step.id, 'continue'),
+            edge(step.id, duplicatedAction!.id, 'continue'),
             edge(duplicatedAction!.id, EXIT_NODE_ID, 'continue'),
         ])
     })

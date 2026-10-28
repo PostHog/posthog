@@ -46,9 +46,19 @@ from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, 
 from products.signals.dags.inbox_ranking.training.calibration import calibration_buckets, expected_calibration_error
 from products.signals.dags.inbox_ranking.training.examples import Snapshot, cap_examples, example_moments, holdout_mask
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
-from products.signals.dags.inbox_ranking.training.train import XGB_PARAMS
 from products.signals.dags.inbox_ranking.training.within_team import within_team_auc
 
+# The per-head booster settings the retired `report_embeddings_v2` family trained with.
+XGB_PARAMS: dict[str, object] = {
+    "n_estimators": 200,
+    "max_depth": 4,
+    "learning_rate": 0.05,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "min_child_weight": 5,
+    "eval_metric": "auc",
+    "n_jobs": 2,
+}
 PROTOTYPE_HEADS: tuple[Head, ...] = tuple(HEADS_BY_NAME[name] for name in ("open", "action", "fixed"))
 FEATURE_SET = REPORT_EMBEDDINGS_FEATURE_SET
 

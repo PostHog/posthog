@@ -48,3 +48,7 @@ browsers / countries / plans is evidence the change is segment-specific.
 Pull session recordings for users on the new dominant edge — usually surfaces the UI
 change faster than more queries. Cross-check `query-error-tracking-issues-list` for errors on
 the page where users diverge.
+
+## Next
+
+Return to SKILL.md for Step 4 (cross-check) and Step 5 (write findings), in the format you chose in Step 1.

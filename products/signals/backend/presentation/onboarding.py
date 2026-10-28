@@ -22,8 +22,10 @@ from posthog.permissions import APIScopePermission, get_authenticator_scopes
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.facade.onboarding import (
     InboxOnboarding,
+    InboxOnboardingPermissionError,
     InboxOnboardingValidationError,
     can_create_onboarding_scout,
+    onboarding_first_report_statuses,
     onboarding_priorities,
     onboarding_source_products,
     onboarding_source_types,
@@ -61,7 +63,16 @@ class InboxOnboardingSourceSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(help_text="Whether this source should be enabled at activation.")
 
 
+class InboxActivationMode(models.TextChoices):
+    GITHUB_OPTIONAL = "github_optional", "GitHub optional"
+
+
 class InboxOnboardingDraftSerializer(serializers.Serializer):
+    activation_mode = serializers.ChoiceField(
+        choices=InboxActivationMode.choices,
+        required=False,
+        help_text="Activate the GitHub-optional pilot. Requires project eligibility and leaves automatic implementation off.",
+    )
     step = serializers.ChoiceField(choices=InboxOnboardingStep.choices, help_text="Step to resume after returning.")
     sources: serializers.ListSerializer[dict[str, object]] = serializers.ListSerializer(
         child=InboxOnboardingSourceSerializer(), max_length=50, help_text="Staged signal source choices."
@@ -99,7 +110,7 @@ class InboxOnboardingJobStatus(models.TextChoices):
 
 class InboxOnboardingJobsSerializer(serializers.Serializer):
     scout = serializers.ChoiceField(
-        choices=InboxOnboardingJobStatus.choices, help_text="Dispatch status of the first general scout run."
+        choices=InboxOnboardingJobStatus.choices, help_text="Dispatch status of the first-report scout run."
     )
     recommendations = serializers.ChoiceField(
         choices=InboxOnboardingJobStatus.choices, help_text="Dispatch status of personalized scout recommendations."
@@ -107,7 +118,46 @@ class InboxOnboardingJobsSerializer(serializers.Serializer):
 
 
 @extend_schema_serializer(many=False)
+class FirstReportStateSerializer(serializers.Serializer):
+    scout_run_id = serializers.UUIDField(
+        required=False, help_text="Scout run ID for inspecting the investigation through the scout API."
+    )
+    task_id = serializers.UUIDField(
+        required=False, help_text="Task ID for following the investigation's live activity."
+    )
+    task_run_id = serializers.UUIDField(
+        required=False, help_text="Task run ID for following the investigation's live activity."
+    )
+    started_at = serializers.DateTimeField(required=False, help_text="When the investigation's task run started.")
+    status = serializers.ChoiceField(
+        choices=onboarding_first_report_statuses(), help_text="Progress of the first investigation."
+    )
+    report_id = serializers.UUIDField(
+        required=False, help_text="The first useful report produced by the investigation."
+    )
+    checked_products = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="Products checked during the investigation."
+    )
+    missing_data = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="Data or history needed for a reliable finding."
+    )
+
+
+@extend_schema_serializer(many=False)
 class InboxOnboardingStateSerializer(serializers.Serializer):
+    github_optional_available = serializers.BooleanField(
+        required=False, help_text="Whether this project can activate Self-driving without connecting GitHub."
+    )
+    first_report_completion_notification = serializers.BooleanField(
+        required=False,
+        help_text="Whether the current user can receive an in-app notification when this investigation finishes.",
+    )
+    first_report_notification_email = serializers.EmailField(
+        required=False,
+        allow_null=True,
+        help_text="The current user's email when enrolled for a first-report notification.",
+    )
+    first_report = FirstReportStateSerializer(required=False, allow_null=True, help_text="First investigation outcome.")
     jobs = InboxOnboardingJobsSerializer(required=False, help_text="Background work started by quick activation.")
     draft = InboxOnboardingDraftSerializer(allow_null=True, help_text="Saved setup choices, without activating them.")
     completed_at = serializers.DateTimeField(allow_null=True, help_text="When verified setup completed.")
@@ -189,7 +239,10 @@ class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def create(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = InboxOnboardingDraftSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        return Response(self._service().save_draft(dict(serializer.data)))
+        try:
+            return Response(self._service().save_draft(dict(serializer.data)))
+        except InboxOnboardingValidationError as error:
+            raise serializers.ValidationError(str(error)) from error
 
     @extend_schema(request=InboxOnboardingDraftSerializer, responses=InboxOnboardingStateSerializer)
     @action(detail=False, methods=["POST"])
@@ -200,5 +253,7 @@ class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self._check_scout_access(request)
         try:
             return Response(self._service().complete(dict(serializer.data)))
+        except InboxOnboardingPermissionError as error:
+            raise PermissionDenied(str(error)) from error
         except InboxOnboardingValidationError as error:
             raise serializers.ValidationError(str(error)) from error

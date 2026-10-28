@@ -72,6 +72,7 @@ export function Legend({
             className={`flex ${layout} ${className ?? ''}`}
             style={isVertical ? undefined : ({ '--legend-row-max': horizontalRowMax } as React.CSSProperties)}
             data-attr={dataAttr}
+            data-hog-charts-legend=""
         >
             {items.map((item) => {
                 const dimmed = hidden?.has(item.key) ? ' opacity-40' : ''
