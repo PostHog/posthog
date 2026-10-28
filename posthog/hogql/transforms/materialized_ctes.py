@@ -19,6 +19,7 @@ class CTEReferences(TraversingVisitor):
         super().__init__()
         self.definitions: dict[int, ast.CTE] = {}
         self.consumers: dict[int, list[ast.SelectQuery]] = defaultdict(list)
+        self.enclosing: dict[int, list[ast.SelectQuery]] = {}
         self.selects: list[ast.SelectQuery] = []
         self.set_depth = 0
         self.unshared: set[int] = set()
@@ -50,6 +51,7 @@ class CTEReferences(TraversingVisitor):
             table_type = table_type.cte_table_type
         if isinstance(table_type, ast.CTETableType) and self.selects:
             self.consumers[id(table_type.select_query_type)].append(self.selects[-1])
+            self.enclosing[id(self.selects[-1])] = self.selects[:-1]
         super().visit_join_expr(node)
 
 
@@ -196,6 +198,17 @@ class _DeterministicEventsAggregate(TraversingVisitor):
         return self.safe and self.aggregate
 
 
+def _filters(select: ast.SelectQuery) -> bool:
+    if select.where or select.prewhere or select.having or select.qualify:
+        return True
+    join = select.select_from.next_join if select.select_from else None
+    while join is not None:
+        if join.join_type != "CROSS JOIN" or join.constraint is not None:
+            return True
+        join = join.next_join
+    return False
+
+
 def materialize_repeated_ctes(node: ast.AST, context: HogQLContext) -> None:
     references = CTEReferences()
     references.visit(node)
@@ -214,16 +227,10 @@ def materialize_repeated_ctes(node: ast.AST, context: HogQLContext) -> None:
         ):
             continue
         # Consumer predicates may benefit more from pushdown than from sharing the entire aggregate.
-        filtered = False
-        for consumer in consumers:
-            if consumer.where or consumer.prewhere:
-                filtered = True
-            join = consumer.select_from.next_join if consumer.select_from else None
-            while join is not None:
-                if join.join_type != "CROSS JOIN" or join.constraint is not None:
-                    filtered = True
-                join = join.next_join
-        if filtered:
+        # ClickHouse also pushes predicates from enclosing SELECTs down through subqueries.
+        if any(
+            _filters(select) for consumer in consumers for select in [consumer, *references.enclosing[id(consumer)]]
+        ):
             continue
         if _DeterministicEventsAggregate(cte.expr, context).eligible():
             cte.materialized = True

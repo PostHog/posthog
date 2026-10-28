@@ -3,6 +3,7 @@ from uuid import UUID
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
+from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
@@ -52,7 +53,10 @@ class TestMaterializedCTEs(SimpleTestCase):
                 database=Database(timezone="UTC"),
                 restricted_properties=set(),
                 enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(materializeRepeatedCTEs=enabled),
+                modifiers=HogQLQueryModifiers(
+                    materializeRepeatedCTEs=enabled,
+                    useNewEventsSchema=settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+                ),
             ),
             settings=HogQLGlobalSettings(enable_analyzer=analyzer),
         )[0]
@@ -63,6 +67,15 @@ class TestMaterializedCTEs(SimpleTestCase):
             (_QUERY.format(body=_BODY).replace("AS (", "AS MATERIALIZED (", 1), True),
             (f"WITH totals AS ({_BODY}) SELECT sum(n) FROM totals", False),
             (_QUERY.format(body=_BODY) + " WHERE l.event = 'example'", False),
+            (_QUERY.format(body=_BODY) + " GROUP BY l.event HAVING l.event = 'example'", False),
+            (
+                f"WITH totals AS ({_BODY}) SELECT total FROM (SELECT l.event AS event, sum(l.n) AS total FROM totals l CROSS JOIN totals r GROUP BY l.event) WHERE event = 'example'",
+                False,
+            ),
+            (
+                f"WITH totals AS ({_BODY}) SELECT total FROM (SELECT sum(l.n) AS total FROM totals l CROSS JOIN totals r)",
+                True,
+            ),
             (
                 f"WITH totals AS ({_BODY}) SELECT sum(n) FROM totals WHERE event = 'example' UNION ALL SELECT max(n) FROM totals",
                 False,
