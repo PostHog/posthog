@@ -14,8 +14,7 @@ from posthog.schema import (
     SessionPropertyFilter,
 )
 
-from products.mcp_analytics.backend.facade.constants import MAX_CUSTOM_HARNESSES
-from products.mcp_analytics.backend.mcp_harness import UNIDENTIFIED_HARNESS_LABEL
+from products.mcp_analytics.backend.facade.constants import MAX_CUSTOM_HARNESSES, UNIDENTIFIED_HARNESS_LABEL
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness
 
 _PROPERTY_FILTERS_ADAPTER: pydantic.TypeAdapter[list[AnyPropertyFilterDiscriminated]] = pydantic.TypeAdapter(
