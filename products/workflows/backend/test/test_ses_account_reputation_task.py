@@ -141,30 +141,31 @@ class TestPollSesAccountReputation(TestCase):
             == 1700000000.0
         )
 
-    @patch("products.workflows.backend.tasks.ses_account_reputation.settings.SES_ACCESS_KEY_ID", None)
-    def test_enforcement_poll_skips_when_ses_not_configured(self):
-        poll_ses_account_enforcement()
-        self.mock_provider.get_account_enforcement_status.assert_not_called()
-        self.mock_registry_factory.assert_not_called()
-
-    @patch("products.workflows.backend.tasks.ses_account_reputation.settings.SES_ACCESS_KEY_ID", None)
-    def test_findings_poll_skips_when_ses_not_configured(self):
-        poll_ses_reputation_findings()
-        self.mock_provider.get_account_reputation_findings.assert_not_called()
-        self.mock_registry_factory.assert_not_called()
-
-    def test_poll_failure_handles_no_credentials_error_without_warning_or_metric_push(self):
+    def test_enforcement_poll_skips_when_no_credentials_without_warning_or_metric_push(self):
         from botocore.exceptions import NoCredentialsError
 
         self.mock_provider.get_account_enforcement_status.side_effect = NoCredentialsError()
 
-        with patch("products.workflows.backend.tasks.ses_account_reputation.logger.warning") as mock_warning, patch(
-            "products.workflows.backend.tasks.ses_account_reputation.logger.info"
-        ) as mock_info:
+        with patch("products.workflows.backend.tasks.ses_account_reputation.logger.warning") as mock_warning:
             poll_ses_account_enforcement()
             mock_warning.assert_not_called()
-            mock_info.assert_called_once_with(
-                "SES reputation poll skipped: no AWS credentials configured", poll="enforcement"
-            )
             self.mock_registry_factory.assert_not_called()
 
+    def test_findings_poll_skips_when_no_credentials_without_warning_or_metric_push(self):
+        from botocore.exceptions import NoCredentialsError
+
+        self.mock_provider.get_account_reputation_findings.side_effect = NoCredentialsError()
+
+        with patch("products.workflows.backend.tasks.ses_account_reputation.logger.warning") as mock_warning:
+            poll_ses_reputation_findings()
+            mock_warning.assert_not_called()
+            self.mock_registry_factory.assert_not_called()
+
+    def test_record_poll_failure_skips_no_credentials_error(self):
+        from botocore.exceptions import NoCredentialsError
+        from products.workflows.backend.tasks.ses_account_reputation import _record_poll_failure
+
+        with patch("products.workflows.backend.tasks.ses_account_reputation.logger.warning") as mock_warning:
+            _record_poll_failure("enforcement", "ses_account_reputation", NoCredentialsError())
+            mock_warning.assert_not_called()
+            self.mock_registry_factory.assert_not_called()
