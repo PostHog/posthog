@@ -485,6 +485,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
             null as string | null,
             {
                 setTrackedImportRunId: (_, { runId }) => runId,
+                startImportSuccess: (_, { startedImportRun }) => startedImportRun.id,
             },
         ],
         csvFile: [
@@ -705,9 +706,13 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
             }
             actions.setTrackRegion(values.preflight?.region ?? 'US')
         },
-        startImportSuccess: () => {
+        startImportSuccess: ({ startedImportRun }) => {
+            // Show the new run at once, so a failed first refresh still shows progress and keeps polling.
+            actions.loadImportRunsSuccess([
+                startedImportRun,
+                ...(values.importRuns ?? []).filter((run) => run.id !== startedImportRun.id),
+            ])
             actions.resetImportForm()
-            actions.loadImportRuns()
             // The first start stores the API key, which the stored-key view reads from the sync config.
             actions.loadSyncConfig()
         },

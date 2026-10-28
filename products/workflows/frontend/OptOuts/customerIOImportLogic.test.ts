@@ -38,13 +38,17 @@ const importRun = (status: ProviderImportRunApi['status']): ProviderImportRunApi
 
 describe('customerIOImportLogic', () => {
     let logic: ReturnType<typeof customerIOImportLogic.build>
-    let runResponses: ProviderImportRunApi[][]
+    let runResponses: [number, ProviderImportRunApi[] | { detail: string }][]
     let listCalls: number
     let startBodies: Record<string, unknown>[]
     let inRequestImports: number
 
     beforeEach(() => {
-        runResponses = [[], [importRun('running')], [importRun('completed')]]
+        runResponses = [
+            [200, []],
+            [500, { detail: 'boom' }],
+            [200, [importRun('completed')]],
+        ]
         listCalls = 0
         startBodies = []
         inRequestImports = 0
@@ -60,7 +64,7 @@ describe('customerIOImportLogic', () => {
                 ],
                 '/api/projects/:team_id/messaging_provider_imports/': () => {
                     listCalls += 1
-                    return [200, runResponses[Math.min(listCalls - 1, runResponses.length - 1)]]
+                    return runResponses[Math.min(listCalls - 1, runResponses.length - 1)]
                 },
             },
             post: {
@@ -84,7 +88,7 @@ describe('customerIOImportLogic', () => {
         jest.useRealTimers()
     })
 
-    it('starts the selected steps and polls the run until it finishes', async () => {
+    it('starts the selected steps and polls the run until it finishes, through a failed refresh', async () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_CUSTOMERIO_BACKGROUND_IMPORT], {
             [FEATURE_FLAGS.WORKFLOWS_CUSTOMERIO_BACKGROUND_IMPORT]: true,
@@ -101,6 +105,10 @@ describe('customerIOImportLogic', () => {
         expect(startBodies).toEqual([
             { provider: 'customerio', steps: ['suppressions', 'opt_outs'], api_key: 'app-key' },
         ])
+        expect(logic.values.isImportRunActive).toBe(true)
+
+        await jest.advanceTimersByTimeAsync(2000)
+        await expectLogic(logic).toDispatchActions(['loadImportRunsFailure'])
         expect(logic.values.isImportRunActive).toBe(true)
 
         await jest.advanceTimersByTimeAsync(2000)

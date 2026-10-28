@@ -38,8 +38,20 @@ function StepBadge({ status }: { status: 'completed' | 'failed' | false }): JSX.
 }
 
 function ImportStepPicker(): JSX.Element {
-    const { importStepOptions, deselectedImportSteps } = useValues(customerIOImportLogic)
-    const { toggleImportStep } = useActions(customerIOImportLogic)
+    const { importProviders, importProvidersLoading, importStepOptions, deselectedImportSteps } =
+        useValues(customerIOImportLogic)
+    const { toggleImportStep, loadImportProviders } = useActions(customerIOImportLogic)
+
+    if (importProviders === null && importProvidersLoading) {
+        return <Spinner />
+    }
+    if (importProviders === null) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Try again', onClick: loadImportProviders }}>
+                Couldn't load what you can import.
+            </LemonBanner>
+        )
+    }
 
     return (
         <div className="space-y-2">
