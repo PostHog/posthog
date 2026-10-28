@@ -147,13 +147,17 @@ def revalidate_changed_member(
 
 @receiver(oauth_session_revoked)
 def stop_disconnected_oauth_subscriptions(
-    sender: type[OAuthApplication], user_id: int | None, application_id: UUID, **kwargs: Any
+    sender: type[OAuthApplication], user_id: int | None, application_id: UUID, all_sessions: bool = True, **kwargs: Any
 ) -> None:
     from products.mcp_events.backend.logic.revocation import (  # noqa: PLC0415  # Keeps HogQL off the setup path.
+        recheck_oauth_connection,
         revoke_oauth_application,
     )
 
-    revoke_oauth_application(application_id=application_id, user_id=user_id)
+    if all_sessions:
+        revoke_oauth_application(application_id=application_id, user_id=user_id)
+    elif user_id is not None:
+        recheck_oauth_connection(application_id=application_id, user_id=user_id)
 
 
 @receiver(pre_delete, sender=OAuthApplication)

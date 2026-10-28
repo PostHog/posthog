@@ -17,7 +17,13 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import PersonalAPIKey, PropertyDefinition, Team
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, revoke_application_sessions, revoke_oauth_session
+from posthog.models.oauth import (
+    OAuthAccessToken,
+    OAuthApplication,
+    revoke_application_sessions,
+    revoke_oauth_session,
+    revoke_oauth_token_session,
+)
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -225,7 +231,9 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
             user=self.user,
         )
 
-    @parameterized.expand(["disconnect", "application_scope_change", "delete_application"])
+    @parameterized.expand(
+        ["disconnect", "application_scope_change", "delete_application", "revoke_last_token", "revoke_one_of_two"]
+    )
     def test_oauth_refresh_keeps_identity_and_bounds_lifetime_by_token_expiry(self, final_change: str) -> None:
         application = self.oauth_application()
         expiry = timezone.now() + timedelta(hours=1)
@@ -251,12 +259,17 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
         )
         self.assertEqual(refreshed.expires_at, tokens[1].expires)
         with transaction.atomic():
-            tokens[0].delete()
+            if final_change == "revoke_one_of_two":
+                revoke_oauth_token_session(access_token=tokens[0])
+            else:
+                tokens[0].delete()
         self.assert_delivering(refreshed, True)
         if final_change == "disconnect":
             revoke_oauth_session(access_token=tokens[1])
         elif final_change == "application_scope_change":
             revoke_application_sessions(application)
+        elif final_change in ("revoke_last_token", "revoke_one_of_two"):
+            revoke_oauth_token_session(access_token=tokens[1])
         else:
             application.delete()
         self.assert_delivering(refreshed, False)

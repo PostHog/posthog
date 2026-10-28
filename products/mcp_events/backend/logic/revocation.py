@@ -154,6 +154,13 @@ def revalidate_user_in_organization(*, user_id: int, organization_id: UUID) -> N
             revalidate_subscription(reference.team_id, reference.id)
 
 
+def recheck_oauth_connection(*, application_id: UUID, user_id: int) -> None:
+    with transaction.atomic():
+        lock_subscriber(user_id)
+        for reference in _active_for_principal(f"oauth:{user_id}:{application_id}"):
+            revalidate_subscription(reference.team_id, reference.id)
+
+
 def revoke_oauth_application(*, application_id: UUID, user_id: int | None = None) -> None:
     subscriptions = MCPEventSubscription.objects.unscoped().filter(
         principal__startswith="oauth:", principal__endswith=f":{application_id}", active=True
