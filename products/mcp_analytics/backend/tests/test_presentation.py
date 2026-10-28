@@ -662,6 +662,7 @@ class TestMCPCustomHarnessEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
             ("empty_pattern", {"name": "Ok", "match_pattern": " "}),
             ("reserved_other", {"name": "other", "match_pattern": "ok"}),
             ("reserved_unidentified", {"name": "Unidentified client", "match_pattern": "ok"}),
+            ("icon_not_an_image", {"name": "Ok", "match_pattern": "ok", "icon": "data:text/plain;base64,aGk="}),
         ]
     )
     def test_create_rejects_unsafe_values(self, _name: str, payload: dict[str, str]) -> None:

@@ -878,9 +878,17 @@ class MCPCustomHarnessSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MCPCustomHarness
-        fields = ["id", "name", "match_pattern", "created_at", "updated_at"]
+        fields = ["id", "name", "match_pattern", "icon", "created_at", "updated_at"]
         read_only_fields = ["id", "created_at", "updated_at"]
-        extra_kwargs = {"name": {"help_text": "Name to show for calls from this harness."}}
+        extra_kwargs = {
+            "name": {"help_text": "Name to show for calls from this harness."},
+            "icon": {
+                "help_text": (
+                    "Optional icon shown next to the harness name. A base64 data URI of a PNG, JPEG, GIF or WebP "
+                    "image, 16 KB or smaller and at most 256 by 256 pixels. An empty string means no icon."
+                )
+            },
+        }
 
     def validate_name(self, value: str) -> str:
         # The dashboard gives these two labels their own meaning, so a team rule must not produce them.

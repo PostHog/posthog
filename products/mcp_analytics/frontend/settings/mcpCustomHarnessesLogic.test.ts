@@ -10,10 +10,13 @@ import { mcpCustomHarnessesLogic } from './mcpCustomHarnessesLogic'
 
 const HARNESSES_URL = '/api/projects/:team_id/mcp_analytics/custom_harnesses/'
 
-const harness = (id: string, name: string, match_pattern: string): MCPCustomHarnessApi => ({
+const ICON = 'data:image/png;base64,iVBORw0KGgo='
+
+const harness = (id: string, name: string, match_pattern: string, icon = ''): MCPCustomHarnessApi => ({
     id,
     name,
     match_pattern,
+    icon,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
 })
@@ -40,12 +43,12 @@ describe('mcpCustomHarnessesLogic', () => {
             get: { [HARNESSES_URL]: () => [200, stored] },
             post: {
                 [HARNESSES_URL]: async ({ request }) => {
-                    const body = (await request.json()) as { name: string; match_pattern: string }
+                    const body = (await request.json()) as { name: string; match_pattern: string; icon: string }
                     posted.push(body)
                     if (rejectCreate) {
                         return [400, { detail: 'A custom harness already uses this pattern.' }]
                     }
-                    const created = harness(`id-${posted.length}`, body.name, body.match_pattern)
+                    const created = harness(`id-${posted.length}`, body.name, body.match_pattern, body.icon)
                     stored = [...stored, created]
                     return [201, created]
                 },
@@ -87,6 +90,14 @@ describe('mcpCustomHarnessesLogic', () => {
         [{ name: '', match_pattern: 'acme' }, { name: 'Enter a name' }],
         [{ name: '   ', match_pattern: 'acme' }, { name: 'Enter a name' }],
         [{ name: 'Acme', match_pattern: '' }, { match_pattern: 'Enter the text to match' }],
+        [
+            { name: 'Acme', match_pattern: 'acme', icon: 'https://example.com/icon.png' },
+            { icon: 'Paste a PNG, JPEG, GIF or WebP image as a data URI.' },
+        ],
+        [
+            { name: 'Acme', match_pattern: 'acme', icon: `data:image/png;base64,${'A'.repeat(30_000)}` },
+            { icon: 'The icon must be 16 KB or smaller.' },
+        ],
     ])('does not send %j and shows %j', async (values, errors) => {
         const logic = await mounted()
         logic.actions.startAddingHarness()
@@ -104,7 +115,7 @@ describe('mcpCustomHarnessesLogic', () => {
         logic.actions.submitCustomHarnessForm()
         await expectLogic(logic).toDispatchActions(['submitCustomHarnessFormSuccess', 'loadCustomHarnessesSuccess'])
 
-        expect(posted).toEqual([{ name: 'Beta bot', match_pattern: 'beta-bot' }])
+        expect(posted).toEqual([{ name: 'Beta bot', match_pattern: 'beta-bot', icon: '' }])
         expect(logic.values.editingHarnessId).toBeNull()
         expect(logic.values.customHarnesses?.map((h) => h.name)).toEqual(['Acme agent', 'Beta bot'])
     })
@@ -113,14 +124,16 @@ describe('mcpCustomHarnessesLogic', () => {
         const logic = await mounted()
         logic.actions.startEditingHarness(stored[0])
         expect(logic.values.editingHarnessId).toBe('a')
-        expect(logic.values.customHarnessForm).toEqual({ name: 'Acme agent', match_pattern: 'acme-agent' })
+        expect(logic.values.customHarnessForm).toEqual({ name: 'Acme agent', match_pattern: 'acme-agent', icon: '' })
 
-        logic.actions.setCustomHarnessFormValues({ name: 'Acme assistant' })
+        logic.actions.setCustomHarnessFormValues({ name: 'Acme assistant', icon: ICON })
         logic.actions.submitCustomHarnessForm()
         await expectLogic(logic).toDispatchActions(['submitCustomHarnessFormSuccess', 'loadCustomHarnessesSuccess'])
 
         expect(posted).toEqual([])
-        expect(patched).toEqual([{ id: 'a', body: { name: 'Acme assistant', match_pattern: 'acme-agent' } }])
+        expect(patched).toEqual([
+            { id: 'a', body: { name: 'Acme assistant', match_pattern: 'acme-agent', icon: ICON } },
+        ])
         expect(logic.values.editingHarnessId).toBeNull()
         expect(logic.values.customHarnesses?.map((h) => h.name)).toEqual(['Acme assistant'])
     })
@@ -132,7 +145,14 @@ describe('mcpCustomHarnessesLogic', () => {
         logic.actions.startAddingHarness()
 
         expect(logic.values.editingHarnessId).toBe('new')
-        expect(logic.values.customHarnessForm).toEqual({ name: '', match_pattern: '' })
+        expect(logic.values.customHarnessForm).toEqual({ name: '', match_pattern: '', icon: '' })
+    })
+
+    it('maps each harness name to its icon, leaving out harnesses without one', async () => {
+        stored = [harness('a', 'Acme agent', 'acme-agent', ICON), harness('b', 'Support bot', 'support-bot')]
+        const logic = await mounted()
+
+        expect(logic.values.customHarnessIcons).toEqual({ 'Acme agent': ICON })
     })
 
     it('keeps what the person typed and shows the server reason when a save fails', async () => {
@@ -144,7 +164,7 @@ describe('mcpCustomHarnessesLogic', () => {
         await expectLogic(logic).toDispatchActions(['submitCustomHarnessFormFailure'])
 
         expect(logic.values.editingHarnessId).toBe('new')
-        expect(logic.values.customHarnessForm).toEqual({ name: 'Acme copy', match_pattern: 'acme-agent' })
+        expect(logic.values.customHarnessForm).toEqual({ name: 'Acme copy', match_pattern: 'acme-agent', icon: '' })
         expect(lemonToast.error).toHaveBeenCalledWith('A custom harness already uses this pattern.')
     })
 
