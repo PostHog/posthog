@@ -15946,7 +15946,7 @@
         }
     },
     "vision-scanners-watch-feed": {
-        "description": "Rank succeeded replay vision observations in a window by how worth watching their recordings are, across every scanner you can read. Each item pairs the `observation` (with its `session_id`) and the `reason` it made the feed. `date_from` defaults to `-7d` (ISO 8601 or relative); the window spans at most 90 days. Narrow with `scanner_ids`, `scanner_type`, scanner `tags`, or a `search` over the scan's own words. `limit` is at most 50. Use it to answer \"which recordings should I watch this week?\".",
+        "description": "Rank succeeded replay vision observations in a window by how worth watching their recordings are, across every scanner you can read. Each item pairs the `observation` (with its `session_id`) and the `reason` it made the feed. `date_from` defaults to `-7d` (ISO 8601 or relative); the window spans at most 90 days. Narrow with `scanner_ids`, `scanner_type`, or scanner `tags`. `limit` is at most 50. Use it to answer \"which recordings should I watch this week?\".",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Get ranked recordings to watch",
@@ -16851,6 +16851,38 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "workflows-import-customerio": {
+        "description": "Turn Customer.io automations into draft PostHog workflows. Read each automation with the Customer.io MCP or CLI first: GET /v1/environments/{environment_id}/campaigns/{campaign_id} gives `campaign` and `actions`. Pass them unchanged; never pass people or customer profiles. Leave message templates out on the first call: when the project stored a Customer.io App API key, PostHog reads the content itself and the response says content_fetched=true. For each automation whose notes still say its message content was not part of the import, read each message action's template with GET /v1/environments/{environment_id}/templates/{template_id} and pass them. Pass snippets that notes name. In a preview, a workflow_id means the import replaces that existing draft. Pass sender identities and segment ids, names and types too, never segment members. Run once with dry_run=true and show the user each automation's notes, then import for real. Drafts never send until a person enables them. Re-importing an automation replaces its draft, discarding edits made there since, so confirm with the user first. Share each draft's link and the notes marked needs_input, since the team must set those before enabling.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Import Customer.io automations",
+        "title": "Import Customer.io automations",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["POST /api/projects/{project_id}/workflow_imports/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-customerio-import"
+    },
+    "workflows-import-notes": {
+        "description": "What importing a workflow from Customer.io changed or left out, step by step. Returns an empty response for a workflow that was not imported.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get a workflow's import notes",
+        "title": "Get a workflow's import notes",
+        "required_scopes": ["hog_flow:read"],
+        "api_operations": ["GET /api/projects/{project_id}/workflow_imports/for_workflow/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-customerio-import"
     },
     "workflows-list": {
         "description": "List all workflows in the project. Returns workflows with their name, description, status (draft/active/archived), version, trigger configuration, tags, and timestamps. Pass search=<text> to find a workflow by its name, description or a tag, or, when none of those match, by a step name or the subject, preheader or body text of an email it sends (live or pending draft), and read its id. Most workflows-* tools take that value as 'id'; workflows-blast-radius, workflows-run-batch and workflows-schedule-create take it as 'workflow_id'. Pass tags='[\"growth\"]' (a JSON-encoded list) to return only workflows that carry at least one of those tags.",

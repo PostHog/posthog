@@ -186,7 +186,6 @@ export const FEATURE_FLAGS = {
     EXPERIMENT_ACTIVATION_EVENT: 'experiment-activation-event', // owner: #team-experiments, offers an activation event on top of the default exposure instead of legacy custom exposure events
     EXPERIMENT_EXPOSURE_EVENT: 'experiment-exposure-event', // owner: #team-experiments, switches new experiments to the dedicated exposure event
     FUNNEL_BAR_LIST: 'funnel-bar-list', // owner: @sampennington #team-product-analytics, top-to-bottom funnel as a bar list
-    FUNNEL_STEPS_BAR_LABELS: 'funnel-steps-bar-labels', // owner: @sampennington #team-product-analytics, left-to-right funnel with value labels on the bars, a name-only step legend and steps that shrink to fit
     GAME_CENTER: 'game-center', // owner: everybody, this is just internal for now
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: #team-web-analytics, used to reward beta users for web analytics
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: #team-batch-exports, allow batch exports to be run every 5min/15min
@@ -575,7 +574,6 @@ export const FEATURE_FLAGS = {
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // owner: #team-surveys
     VISION_ENTRYPOINT_REPLAY_FILTERS: 'vision-entrypoint-replay-filters', // owner: #team-replay, cross-sell entry point from the replay filters panel
     VISION_EXPERIMENT_SCANNER: 'experiment-scanner', // owner: #team-replay, experiment scanners overall: the type in the scanner editor, creating one from experiments, and the variants tab
-    VISION_WATCH_FEED_RANKER: 'vision-watch-feed-ranker', // owner: #team-replay multivariate=control,jev-shadow,jev,embedding. Project-aggregated; compare the variant string
     VISUAL_REVIEW: 'visual-review', // owner: #team-devex
     WAREHOUSE_MULTI_DESTINATION: 'warehouse-multi-destination', // owner: #team-warehouse-sources
     WAREHOUSE_PERSON_PROPERTIES: 'warehouse-person-properties', // owner: @tomowers #team-warehouse-sources, gates warehouse -> person properties (person-target custom property sources)

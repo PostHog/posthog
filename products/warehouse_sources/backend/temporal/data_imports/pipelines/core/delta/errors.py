@@ -48,6 +48,21 @@ def _is_bodyless_5xx_unknown_error(error: BaseException) -> bool:
     return match is not None and match.group(1).startswith("5")
 
 
+# A warehouse bucket backed by Aliyun OSS instead of S3 (see s3_proxy.py's module docstring on OSS as
+# a supported backend) surfaces a 500 as this OSS-specific error shape instead of the S3 messages
+# above - delta-rs's own object-store layer already marks it "(temporary)" before wrapping OSS's
+# Debug-formatted source struct. Matched on the `code` field rather than the free-text `message`,
+# which, unlike S3's fixed internal-error string, OSS's own InternalError responses don't keep fixed.
+_OSS_INTERNAL_ERROR_NEEDLE = 'OssError { code: "InternalError"'
+
+
+def _is_oss_internal_error(error: BaseException) -> bool:
+    # `is_deltatable()` exposes the raw `OSError`, but table-level operations (vacuum, optimize,
+    # commit) wrap the identical underlying object-store error in `deltalake.exceptions.DeltaError`
+    # instead - same split the S3 needles above already account for.
+    return isinstance(error, OSError | deltalake.exceptions.DeltaError) and _OSS_INTERNAL_ERROR_NEEDLE in str(error)
+
+
 class TransientObjectStoreError(NonReportableError):
     """A known-transient object-store blip (see is_transient_object_store_error), re-raised as this
     type instead of the original OSError/DeltaError. Skipping the inline capture_exception call
@@ -104,6 +119,10 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     5xx, because AWS omits the error body (and so reports the same UNKNOWN code) for a permanent
     HeadObject 403 or 404 too.
 
+    A warehouse bucket backed by Aliyun OSS instead of S3 reports its own 500 "InternalError" as this
+    OSS-specific error shape (see `_is_oss_internal_error`), already marked "(temporary)" by delta-rs's
+    object-store layer before this classifier even runs.
+
     Deliberately does not cover `ensure_bucket_exists`'s own exhausted `HeadBucket` 403 retry (see
     `_is_exhausted_head_bucket_forbidden` below) — that check only runs under `USE_LOCAL_SETUP`,
     where the bucket credentials are operator-configured rather than our own IAM instance role, so an
@@ -129,6 +148,8 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     if isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE, errno.EBUSY):
         return True
     if isinstance(error, OSError) and _is_bodyless_5xx_unknown_error(error):
+        return True
+    if _is_oss_internal_error(error):
         return True
     return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
         needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS
