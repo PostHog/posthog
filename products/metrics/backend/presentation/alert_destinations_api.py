@@ -7,7 +7,6 @@ are managed here.
 
 from functools import cached_property
 from typing import Any, Literal, cast
-from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.db import models, transaction
@@ -50,6 +49,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationView,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.delivery import refused_destination
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.metrics.backend.facade.alerts import EVENT_IDS, EVENT_KIND_CONFIG, METRICS_ALERT_DESTINATION_TYPES
 
@@ -149,9 +149,9 @@ class MetricsAlertCreateDestinationSerializer(serializers.Serializer):
             validate_destination_data(data, allowed_destination_types=METRICS_ALERT_DESTINATION_TYPES)
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
-        # Native delivery posts only to https, so an http webhook would be saved and never notify.
-        if data["type"] == DestinationType.WEBHOOK and urlsplit(attrs.get("webhook_url", "")).scheme != "https":
-            raise ValidationError({"webhook_url": "Use an https URL."})
+        # A destination native delivery would refuse is saved and then never notifies, so refuse it here.
+        if refusal := refused_destination(data):
+            raise ValidationError({"webhook_url": refusal} if data.get("webhook_url") is not None else refusal)
         return attrs
 
 
@@ -204,6 +204,12 @@ class MetricsAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         )
 
     def _alert(self, pk: str) -> PlatformAlertConfigurationView:
+        # The membership checks before the view ran saw only the URL's team. A child environment's URL
+        # reaches its parent's alerts, so the parent project needs its own check.
+        if self.canonical_team.id != self.team.id and not self.user_access_control.check_access_level_for_object(
+            self.canonical_team, "member"
+        ):
+            raise PermissionDenied("You don't have access to this project.")
         level: Literal["viewer", "editor"] = "viewer" if self.request.method in SAFE_METHODS else "editor"
         if not self.user_access_control.check_access_level_for_resource(METRICS_RESOURCE, level):
             raise PermissionDenied("You don't have access to metrics in this project.")

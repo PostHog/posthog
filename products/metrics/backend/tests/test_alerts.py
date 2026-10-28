@@ -14,9 +14,14 @@ from parameterized import parameterized
 from pydantic import ValidationError
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models.integration import Integration
+from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
+from posthog.models.team import Team
+from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.facade.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import create_configuration, record_outcomes, slot_of
@@ -256,6 +261,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
     @parameterized.expand(
         [
             ("http_webhook", {"type": "webhook", "webhook_url": "http://example.com/alerts"}, "webhook_url"),
+            ("teams_url_not_from_teams", {"type": "teams", "webhook_url": "https://example.com/alerts"}, "webhook_url"),
             (
                 "unconnected_slack_workspace",
                 {"type": "slack", "slack_workspace_id": 999999, "slack_channel_id": "C123"},
@@ -272,3 +278,25 @@ class TestMetricsAlertEvaluation(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == field
+
+    def test_a_member_without_access_to_the_parent_project_cannot_reach_its_alerts(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save(update_fields=["level"])
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
+        member = User.objects.create_and_join(self.organization, "member@example.com", None)
+        self.client.force_login(member)
+
+        response = self.client.post(
+            f"/api/projects/{child.id}/metrics_alerts/{self.configuration_id}/destinations/",
+            {"type": "webhook", "webhook_url": "https://example.com/alerts"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
