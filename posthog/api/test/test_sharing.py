@@ -1599,6 +1599,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
             "results": [{"count": 42, "note": marker}],
             "last_refresh": "2024-01-01T00:00:00Z",
             "timezone": "UTC",
+            "resolved_compare_date_range": {"date_from": "2023-12-18T00:00:00Z", "date_to": "2023-12-24T23:59:59Z"},
         }
         mock_query_cache_cls.return_value.lookup.return_value.entry = mock_entry
 
@@ -1646,6 +1647,12 @@ class TestExportCacheKeyFlow(APIBaseTest):
 
         assert response.status_code == 200
         assert b"warmed-by-the-exporter" in response.content
+        exported_insight = TestExportRendererTokenFlow._exported_data(response)["insight"]
+        assert exported_insight["is_cached"] is True
+        assert exported_insight["resolved_compare_date_range"] == {
+            "date_from": "2023-12-18T00:00:00Z",
+            "date_to": "2023-12-24T23:59:59Z",
+        }
         mock_query_cache_cls.assert_called_once_with(team_id=self.insight.team_id, cache_key=cache_key)
         mock_calculate.assert_not_called()
 

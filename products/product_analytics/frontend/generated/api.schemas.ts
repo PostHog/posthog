@@ -8858,9 +8858,19 @@ export const SearchMatchTypeEnumApi = {
 } as const
 
 /**
+ * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
  * @nullable
  */
 export type InsightApiResolvedDateRange = {
+    readonly date_from?: string
+    readonly date_to?: string
+} | null
+
+/**
+ * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Only trends insights fill it. Null when comparison is off, when the insight has no result yet, and for other insight types.
+ * @nullable
+ */
+export type InsightApiResolvedCompareDateRange = {
     readonly date_from?: string
     readonly date_to?: string
 } | null
@@ -8968,8 +8978,16 @@ export interface InsightApi {
     readonly hogql: string | null
     /** @nullable */
     readonly types: readonly unknown[] | null
-    /** @nullable */
+    /**
+     * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+     * @nullable
+     */
     readonly resolved_date_range: InsightApiResolvedDateRange
+    /**
+     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Only trends insights fill it. Null when comparison is off, when the insight has no result yet, and for other insight types.
+     * @nullable
+     */
+    readonly resolved_compare_date_range: InsightApiResolvedCompareDateRange
     /**
      * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
      * @nullable
@@ -8999,9 +9017,19 @@ export interface PaginatedInsightListApi {
 }
 
 /**
+ * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
  * @nullable
  */
 export type PatchedInsightApiResolvedDateRange = {
+    readonly date_from?: string
+    readonly date_to?: string
+} | null
+
+/**
+ * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Only trends insights fill it. Null when comparison is off, when the insight has no result yet, and for other insight types.
+ * @nullable
+ */
+export type PatchedInsightApiResolvedCompareDateRange = {
     readonly date_from?: string
     readonly date_to?: string
 } | null
@@ -9109,8 +9137,16 @@ export interface PatchedInsightApi {
     readonly hogql?: string | null
     /** @nullable */
     readonly types?: readonly unknown[] | null
-    /** @nullable */
+    /**
+     * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+     * @nullable
+     */
     readonly resolved_date_range?: PatchedInsightApiResolvedDateRange
+    /**
+     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Only trends insights fill it. Null when comparison is off, when the insight has no result yet, and for other insight types.
+     * @nullable
+     */
+    readonly resolved_compare_date_range?: PatchedInsightApiResolvedCompareDateRange
     /**
      * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
      * @nullable
