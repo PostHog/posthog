@@ -280,9 +280,14 @@ pub async fn fetch_and_filter(
                 });
             }
             let metadata = (flags_vec.len() > len_before).then(|| {
-                Arc::new(compute_flag_dependencies_or_single_stage(
-                    team_id, &flags_vec,
-                ))
+                let mut recomputed = compute_flag_dependencies_or_single_stage(team_id, &flags_vec);
+                // `has_unparseable_flags` is read-time state (set when the cache
+                // decode skipped a flag), not derivable from the flag list, so the
+                // recompute must carry it over or a partial evaluation would stop
+                // reporting errorsWhileComputingFlags.
+                recomputed.has_unparseable_flags =
+                    prepared.evaluation_metadata.has_unparseable_flags;
+                Arc::new(recomputed)
             });
             (Some(PreparedFlags::seal(flags_vec)), metadata)
         }

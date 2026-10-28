@@ -1603,6 +1603,72 @@ async fn test_fetch_and_filter_override_adds_flag_missing_from_team_list() {
     );
 }
 
+/// When an override adds a flag, `fetch_and_filter` recomputes the evaluation
+/// metadata. The recompute must keep the read-time `has_unparseable_flags`
+/// marker, or a partial evaluation would stop reporting
+/// `errorsWhileComputingFlags`.
+#[tokio::test]
+async fn test_fetch_and_filter_override_add_preserves_unparseable_marker() {
+    use crate::flags::test_helpers::payload_with_unparseable_flag;
+
+    let redis_client = setup_redis_client(None).await;
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
+    let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+    let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+    let flag_service = FlagService::new(
+        redis_client.clone(),
+        reader.clone(),
+        team_hypercache_reader,
+        hypercache_reader,
+        Arc::new(FlagDefinitionsCache::disabled()),
+        NegativeCache::new(100, 300),
+        false,
+    );
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await.unwrap();
+
+    let json_string = payload_with_unparseable_flag(team.id).to_string();
+    let pickled_bytes = serde_pickle::to_vec(&json_string, Default::default()).unwrap();
+    let cache_key = format!("posthog:1:cache/teams/{}/feature_flags/flags.json", team.id);
+    redis_client
+        .set_bytes(cache_key, pickled_bytes, None)
+        .await
+        .unwrap();
+
+    let override_def = json!({
+        "id": 99,
+        "team_id": team.id,
+        "name": "Reconstructed deleted flag",
+        "key": "deleted-flag",
+        "filters": { "groups": [{"properties": [], "rollout_percentage": 100}] },
+        "deleted": false,
+        "active": true,
+    });
+    let overrides: HashMap<String, Value> =
+        HashMap::from([("deleted-flag".to_string(), override_def)]);
+
+    let result = fetch_and_filter(
+        &flag_service,
+        team.id,
+        &FlagsQueryParams::default(),
+        &HeaderMap::new(),
+        None,
+        None,
+        Some(&overrides),
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        result.flags.iter().any(|f| f.key == "deleted-flag"),
+        "override must be added"
+    );
+    assert!(
+        result.evaluation_metadata.has_unparseable_flags,
+        "metadata recompute must keep the unparseable-flags marker"
+    );
+}
+
 /// Two `fetch_and_filter` calls against a primed `FlagDefinitionsCache` must
 /// share the same `Arc<[FeatureFlag]>` and `Arc<EvaluationMetadata>` — i.e.
 /// `fetch_and_filter` must not deep-clone either field.

@@ -467,6 +467,42 @@ class TestTimestampBasedReconstruction(TestReconstructFlagAtVersion):
         version = find_version_at_timestamp(flag, current_timestamp, self.team.id)
         assert version is None
 
+    def test_find_version_at_timestamp_deleted_flag_with_later_versioned_edit(self):
+        """A versioned edit logged after the deletion must not mask it: the flag
+        was still deleted at that time, so the version lookup returns None."""
+        flag = self._create_flag(name="V1", version=1)
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id=flag.id,
+            scope="FeatureFlag",
+            activity="deleted",
+            detail=Detail(
+                changes=[Change(type="FeatureFlag", action="changed", field="version", before=1, after=2)],
+                name=flag.key,
+            ),
+        )
+        # A write to the deleted flag's row that logs a versioned "updated" entry.
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id=flag.id,
+            scope="FeatureFlag",
+            activity="updated",
+            detail=Detail(
+                changes=[Change(type="FeatureFlag", action="changed", field="version", before=2, after=3)],
+                name=flag.key,
+            ),
+        )
+
+        version = find_version_at_timestamp(flag, flag.created_at + timedelta(hours=1), self.team.id)
+        assert version is None
+
     def test_find_version_at_timestamp_soft_deleted_then_restored(self):
         """Test that restored flags return proper version information."""
         flag = self._create_flag(name="V1", version=1)

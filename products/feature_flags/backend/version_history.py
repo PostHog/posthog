@@ -223,17 +223,30 @@ def find_version_at_timestamp(flag: FeatureFlag, timestamp: datetime, team_id: i
         .iterator()
     )
 
+    # Deletion state and version are resolved independently. The most recent
+    # "deleted"/"restored" entry at or before the timestamp decides existence —
+    # an "updated" entry does not, since a deleted flag's row can still receive
+    # versioned writes (and bulk deletes log "deleted" with empty changes). The
+    # most recent entry with a version change decides the version.
+    alive_confirmed = False
+    version_at_timestamp: int | None = None
     for activity, detail in entries:
         changes = (detail or {}).get("changes") or []
         version_after = _get_version_after(changes)
 
-        # Track deletion/restoration regardless of whether this entry carried a
-        # version change. Bulk deletes are logged with empty changes.
-        if activity == "deleted":
-            return None
+        if version_after is not None and version_at_timestamp is None:
+            version_at_timestamp = version_after
 
-        if version_after is not None:
-            return version_after
+        if activity == "deleted" and not alive_confirmed:
+            return None
+        if activity == "restored":
+            alive_confirmed = True
+
+        if alive_confirmed and version_at_timestamp is not None:
+            return version_at_timestamp
+
+    if version_at_timestamp is not None:
+        return version_at_timestamp
 
     # No activity log entries found. If timestamp is after the flag's last update,
     # return the current version. The scan has authoritative deletion state,

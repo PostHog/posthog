@@ -14946,6 +14946,33 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(sent["filters"], filters)
         self.assertEqual(response.json()["result"], True)
 
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_test_evaluation_with_timestamp_rejects_encrypted_payload_flags(self):
+        """The reconstructed override would carry the stored ciphertext for a flag the
+        team's flag list deliberately excludes, so historical evaluation must refuse
+        encrypted-payload flags the same way the versions endpoint does."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="encrypted-flag",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": "ciphertext"},
+            },
+            has_encrypted_payloads=True,
+            created_by=self.user,
+            version=1,
+        )
+        create_person(team=self.team, distinct_ids=["test-user"])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user", "timestamp": flag.created_at.isoformat()},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("encrypted payloads", response.json()["error"])
+
     def test_test_evaluation_distinct_id_person_id_conflict(self):
         """Test validation error when both distinct_id and person_id are provided."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")

@@ -312,6 +312,9 @@ EARLY_EXIT_FLAG = "feature-flag-early-exit"
 ENFORCE_FEATURE_FLAG_WRITE_SCOPE_FLAG = "enforce-feature-flag-write-scope-cross-resource"
 
 ENCRYPTED_VERSION_HISTORY_UNAVAILABLE = "Version history is not available for flags with encrypted payloads."
+ENCRYPTED_HISTORICAL_EVALUATION_UNAVAILABLE = (
+    "Historical evaluation is not available for flags with encrypted payloads."
+)
 
 # What a config version 2 write may change, in request-field names; everything else stays unsupported
 # until the task that owns it lands. Disabling and soft-deleting are incident controls and need no admission.
@@ -5812,6 +5815,17 @@ class FeatureFlagViewSet(
         evaluation_distinct_id = distinct_id if distinct_id and distinct_id in distinct_ids else sorted(distinct_ids)[0]
         person_properties: dict[str, Any] = {}
 
+        # Mirror the versions endpoint: encrypted payloads are only served through
+        # /remote_config, which handles decryption. The reconstructed override would
+        # otherwise hand the flags service the stored ciphertext for a flag that the
+        # team's flag list deliberately excludes, and the evaluation response would
+        # echo it back as the payload.
+        if timestamp and feature_flag.has_encrypted_payloads:
+            return Response(
+                {"error": ENCRYPTED_HISTORICAL_EVALUATION_UNAVAILABLE},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         # Build person properties at timestamp if provided
         if timestamp:
             try:
@@ -5860,6 +5874,14 @@ class FeatureFlagViewSet(
                     timestamp=timestamp,
                     team_id=self.team_id,
                 )
+                # `has_encrypted_payloads` is mutable: a flag downgraded to plaintext keeps
+                # ciphertext in the activity log the reconstruction reads, so gate on the
+                # reconstructed version's own state too (same rule as the versions endpoint).
+                if reconstructed_flag_data.get("has_encrypted_payloads"):
+                    return Response(
+                        {"error": ENCRYPTED_HISTORICAL_EVALUATION_UNAVAILABLE},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
                 evaluation_filters = reconstructed_flag_data.get("filters") or {}
 
             except VersionNotFound:
