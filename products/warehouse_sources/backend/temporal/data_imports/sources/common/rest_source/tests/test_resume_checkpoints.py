@@ -250,12 +250,19 @@ def test_a_fan_out_that_saves_the_parent_position_resumes_one_parent_page_back(s
 
 def test_a_saved_state_without_a_parent_position_still_skips_its_finished_parents() -> None:
     states: list[Any] = []
+    listing = {
+        **PARENT_PER_PAGE,
+        "/parents": [[{"id": "z"}], *PARENT_PER_PAGE["/parents"]],
+        "/parents/z/children": [[{"id": "z1"}]],
+    }
     legacy = {"completed": ["/parents/a/children", "/parents/b/children"], "current": None, "child_state": None}
-    resumed = _resource(paged_config(PARENT_PER_PAGE, POSITIONED_RESOURCES), "children", states.append, legacy)
+    resumed = _resource(paged_config(listing, POSITIONED_RESOURCES), "children", states.append, legacy)
 
     with activate_safe_point(lambda: None, covers_framework_checkpoints=True):
         rows = [row["id"] for page in resumed for row in page]
 
-    assert rows == ["c1", "d1", "e1"]
-    assert states[-1]["parent"] == {"page": 3}
+    assert rows == ["z1", "c1", "d1", "e1"]
+    # A parent added at the front is saved before the run reaches the parents the old state finished.
+    assert states[0]["completed"] == ["/parents/a/children", "/parents/b/children"]
+    assert states[-1]["parent"] == {"page": 4}
     assert states[-1]["completed"] == ["/parents/d/children", "/parents/e/children"]

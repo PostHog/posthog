@@ -172,13 +172,18 @@ class _FinishedParents:
 
     Without a tracked parent position, a resume reads the parent listing from the start, so every
     finished path is kept. With one, a resume starts at the page before the current one, so only the
-    paths of those two pages are kept. Saving every path after each parent costs more with each
-    parent, so a large fan-out would slow down as it runs.
+    paths of those two pages are kept, plus the saved paths this run has not reached yet. Saving
+    every path after each parent costs more with each parent, so a large fan-out would slow down as
+    it runs.
     """
 
     def __init__(self, seed: list[str], position: Optional[ParentPosition]) -> None:
         self._position = position
         self._seed = set(seed)
+        # A state saved without a parent position resumes from the first parent page. Its paths stay
+        # saved until the listing reaches them, because a parent added at the front makes this run
+        # save a state before it reaches the parents it skips.
+        self._unreached_seed = set(seed)
         self._everything = set(seed)
         self._window: list[set[str]] = []
 
@@ -196,6 +201,7 @@ class _FinishedParents:
         return path in self._everything
 
     def add(self, path: str) -> None:
+        self._unreached_seed.discard(path)
         if self.windowed:
             self._window[-1].add(path)
         else:
@@ -203,7 +209,7 @@ class _FinishedParents:
 
     def paths(self) -> list[str]:
         if self.windowed:
-            return sorted(set().union(*self._window))
+            return sorted(self._unreached_seed.union(*self._window))
         return sorted(self._everything)
 
 
