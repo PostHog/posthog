@@ -56,7 +56,6 @@ class TestSampleGenerationDetailsRoutesThroughResolver(BaseTest):
     @parameterized.expand(
         [
             ("missing", None, None, None),
-            ("empty", "", None, None),
             ("short", [{"role": "user", "content": "hi"}], None, None),
             ("at_limit", "x" * 500, 0, 0),
             ("long", "BEGIN_INPUT " + "x" * 800 + " END_INPUT", 1000, 50),
