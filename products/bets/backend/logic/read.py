@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import TYPE_CHECKING
 
 from django.db.models import Sum
@@ -13,6 +13,7 @@ from products.tasks.backend.facade import api as tasks
 
 from ..adapters.identity import Member, PostHogIdentity
 from ..db import WRITER_DB
+from ..facade.contracts import Metric
 from ..facade.enums import BetsAccessLevel, BetStatus, IdeaOutcome, LedgerKind, ModelStep, WorkKind, WorkStage
 from ..models import Bet, BetsSettings, LedgerEntry, WorkItem
 from .ledger import totals
@@ -66,6 +67,12 @@ def can_edit(team: Team, user: User) -> bool:
     return PostHogIdentity().access_level(user, team) in (BetsAccessLevel.TRADER, BetsAccessLevel.MANAGER)
 
 
+def goal_metric(team: Team, user: User, bet: Bet) -> Metric:
+    if not bet.goal_insight and bet.goal_description:
+        return replace(metric(team, user, ""), message="Bets is finding the insight for this measure.")
+    return metric(team, user, bet.goal_insight)
+
+
 def entry(
     team: Team,
     user: User,
@@ -92,7 +99,7 @@ def entry(
             "email": owner.email if owner else "",
         },
         "money": money,
-        "metric": metric(team, user, bet.goal_insight),
+        "metric": goal_metric(team, user, bet),
         "spend_pending": money.reserved_cents > 0,
         "ideas_tried": sum(1 for outcome in ideas if outcome and outcome != IdeaOutcome.DROPPED),
         "ideas_won": sum(1 for outcome in ideas if outcome == IdeaOutcome.WON),

@@ -58,8 +58,8 @@ def instructions(bet: Bet, work: WorkItem) -> str:
         task = f"""## Task
 Find or create the saved insight that measures the goal, then make sure it is measured.
 The owner described the measure in words: {bet.goal_description}
-1. Search the saved insights in PostHog for one that measures exactly this. A match is a trends insight with one series.
-2. If no saved insight matches, create and save a trends insight with one series that measures it. Name it after the metric.
+1. Search the saved insights in PostHog for one that measures exactly this. A match is a trends insight that shows one line and measures the same kind of value: a count stays a count, and a share, rate or average stays a share, rate or average.
+2. If no saved insight matches, create and save a trends insight that shows one line and measures it. For a share or rate, use two series and a formula, for example A / B. Name it after the metric.
 3. List the events and properties that insight needs. Read the repositories and check that those events are captured where the behavior happens.
 4. If tracking is missing or wrong, open one pull request that fixes it, with focused tests. If tracking is correct, open no pull request and say so.
 End your last message with one line in this form, with the 8-character short ID of the saved insight:
