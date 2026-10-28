@@ -62,6 +62,7 @@ class AvailableFeature(StrEnum):
     XAA_AUTHENTICATION = "xaa_authentication"
     POSTHOG_CODE_USAGE = "posthog_code_usage"
     TOOLBAR_HEATMAPS = "toolbar_heatmaps"
+    PERSONAL_API_KEYS = "personal_api_keys"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
