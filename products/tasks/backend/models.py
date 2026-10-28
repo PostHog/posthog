@@ -52,7 +52,7 @@ from products.tasks.backend.dev_stack_image_models import (
     DevStackImageTarget as DevStackImageTarget,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
-from products.tasks.backend.facade.profiles import RunOptions, TaskProfile, resolve_task_origin
+from products.tasks.backend.facade.profiles import TaskProfile, TaskRunOptions, resolve_task_origin
 from products.tasks.backend.feature_flags import (
     is_task_run_stream_presence_gated,
     is_task_run_stream_thin_tail,
@@ -1562,7 +1562,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         client_provenance: TaskClientProvenance | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
-        options: RunOptions | None = None,
+        options: TaskRunOptions | None = None,
     ) -> "Task":
         """Create the Task row without an initial run or workflow.
 
@@ -1676,7 +1676,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         mcp_gateway_server_ids: list[str] | None = None,
         mcp_tool_allowlist: list[str] | None = None,
         before_task_dispatch: Callable[[uuid.UUID], dict[str, JsonValue] | None] | None = None,
-        options: RunOptions | None = None,
+        options: TaskRunOptions | None = None,
     ) -> "Task":
         startup_requested_at = django_timezone.now()
         from products.tasks.backend.logic.services.workflow_dispatch import (

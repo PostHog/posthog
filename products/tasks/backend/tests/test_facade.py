@@ -28,7 +28,7 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
-from products.tasks.backend.facade.profiles import Repository, RunOptions, TaskProfileError, get_task_profile
+from products.tasks.backend.facade.profiles import Repository, TaskProfileError, TaskRunOptions, get_task_profile
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
@@ -1800,7 +1800,7 @@ class TestFacadeReadsAndMappers(TestCase):
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_facade_applies_and_stores_run_options(self, entry: str, _mock_workflow) -> None:
         Integration.objects.create(team=self.team, kind="github", config={})
-        options = RunOptions(repositories=(Repository(name="posthog/posthog"),))
+        options = TaskRunOptions(repositories=(Repository(name="posthog/posthog"),))
 
         created = getattr(facade, entry)(
             team=self.team,

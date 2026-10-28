@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from posthog.dataclasses import frozen
 
-from products.tasks.backend.facade.profiles import GithubAccess, RunOptions, RunOptionsError
+from products.tasks.backend.facade.profiles import GithubAccess, TaskRunOptions, TaskRunOptionsError
 
 if TYPE_CHECKING:
     from posthog.temporal.oauth import PosthogMcpScopes
@@ -54,7 +54,7 @@ _OPTION_NAMES = {
 }
 
 
-def _settings_from(options: RunOptions) -> dict[str, Any]:
+def _settings_from(options: TaskRunOptions) -> dict[str, Any]:
     settings: dict[str, Any] = {}
     if options.runtime is not None:
         settings["runtime"] = options.runtime
@@ -85,7 +85,7 @@ def _settings_from(options: RunOptions) -> dict[str, Any]:
     return settings
 
 
-def _run_state_from(options: RunOptions) -> dict[str, Any]:
+def _run_state_from(options: TaskRunOptions) -> dict[str, Any]:
     state: dict[str, Any] = {}
     if options.context_window is not None:
         state["context_window"] = options.context_window
@@ -98,9 +98,9 @@ def _run_state_from(options: RunOptions) -> dict[str, Any]:
     return state
 
 
-def apply_run_options(options: RunOptions, given: RunSettings, *, creates_run: bool = True) -> RunSettings:
+def apply_run_options(options: TaskRunOptions, given: RunSettings, *, creates_run: bool = True) -> RunSettings:
     if options.github_access == GithubAccess.NONE:
-        raise RunOptionsError("github_access=none is not supported yet")
+        raise TaskRunOptionsError("github_access=none is not supported yet")
     settings = _settings_from(options)
     run_state = _run_state_from(options)
     if not creates_run:
@@ -108,7 +108,7 @@ def apply_run_options(options: RunOptions, given: RunSettings, *, creates_run: b
             {*(_OPTION_NAMES.get(name, name) for name in settings if name not in TASK_SETTINGS), *run_state}
         )
         if run_only:
-            raise RunOptionsError(f"{', '.join(run_only)} only apply to a run. Pass them when the run is created")
+            raise TaskRunOptionsError(f"{', '.join(run_only)} only apply to a run. Pass them when the run is created")
     given_run_state = given.extra_run_state or {}
     defaults = RunSettings()
     conflicts = [name for name in settings if getattr(given, name) != getattr(defaults, name)]
@@ -117,10 +117,10 @@ def apply_run_options(options: RunOptions, given: RunSettings, *, creates_run: b
     conflicts.extend(name for name in settings if _SETTING_RUN_STATE_KEYS.get(name) in given_run_state)
     conflicts.extend(key for key in run_state if key in given_run_state)
     if conflicts:
-        raise RunOptionsError(f"Set {', '.join(sorted(set(conflicts)))} in options or as arguments, not both")
+        raise TaskRunOptionsError(f"Set {', '.join(sorted(set(conflicts)))} in options or as arguments, not both")
     extra_run_state = {**given_run_state, **run_state} if run_state else given.extra_run_state
     return replace(given, **settings, extra_run_state=extra_run_state)
 
 
-def run_options_record(options: RunOptions) -> dict[str, Any]:
+def run_options_record(options: TaskRunOptions) -> dict[str, Any]:
     return json.loads(json.dumps(asdict(options)))

@@ -26,9 +26,9 @@ from products.tasks.backend.facade.profiles import (
     GithubAccess,
     PrAuthorship,
     Repository,
-    RunOptions,
-    RunOptionsError,
     TaskProfileError,
+    TaskRunOptions,
+    TaskRunOptionsError,
     get_task_profile,
 )
 from products.tasks.backend.models import (
@@ -197,37 +197,37 @@ class TestTask(TestCase):
 
     @parameterized.expand(
         [
-            ("model", {"model": "claude-sonnet-5"}, RunOptions(model="claude-sonnet-5")),
-            ("adapter", {"runtime_adapter": "codex"}, RunOptions(adapter="codex")),
-            ("reasoning_effort", {"reasoning_effort": "high"}, RunOptions(reasoning_effort="high")),
+            ("model", {"model": "claude-sonnet-5"}, TaskRunOptions(model="claude-sonnet-5")),
+            ("adapter", {"runtime_adapter": "codex"}, TaskRunOptions(adapter="codex")),
+            ("reasoning_effort", {"reasoning_effort": "high"}, TaskRunOptions(reasoning_effort="high")),
             (
                 "repositories",
                 {"repositories": ["posthog/posthog"], "branch": "main"},
-                RunOptions(repositories=(Repository(name="posthog/posthog", initial_branch="main"),)),
+                TaskRunOptions(repositories=(Repository(name="posthog/posthog", initial_branch="main"),)),
             ),
             (
                 "sandbox_template",
                 {"sandbox_template": "autoresearch_base"},
-                RunOptions(sandbox_template="autoresearch_base"),
+                TaskRunOptions(sandbox_template="autoresearch_base"),
             ),
-            ("output_schema", {"output_schema": {"type": "object"}}, RunOptions(output_schema={"type": "object"})),
-            ("idle_minutes", {"inactivity_timeout_seconds": 300}, RunOptions(idle_minutes=5)),
-            ("github_access", {"github_read_access": True}, RunOptions(github_access=GithubAccess.READ)),
-            ("mcp_scopes", {"posthog_mcp_scopes": "read_only"}, RunOptions(mcp_scopes="read_only")),
-            ("permission_mode", {"initial_permission_mode": "plan"}, RunOptions(permission_mode="plan")),
-            ("context_window", {"extra_run_state": {"context_window": "1m"}}, RunOptions(context_window="1m")),
-            ("fast_mode", {"extra_run_state": {"fast_mode": True}}, RunOptions(fast_mode=True)),
-            ("auto_publish", {"extra_run_state": {"auto_publish": True}}, RunOptions(auto_publish=True)),
+            ("output_schema", {"output_schema": {"type": "object"}}, TaskRunOptions(output_schema={"type": "object"})),
+            ("idle_minutes", {"inactivity_timeout_seconds": 300}, TaskRunOptions(idle_minutes=5)),
+            ("github_access", {"github_read_access": True}, TaskRunOptions(github_access=GithubAccess.READ)),
+            ("mcp_scopes", {"posthog_mcp_scopes": "read_only"}, TaskRunOptions(mcp_scopes="read_only")),
+            ("permission_mode", {"initial_permission_mode": "plan"}, TaskRunOptions(permission_mode="plan")),
+            ("context_window", {"extra_run_state": {"context_window": "1m"}}, TaskRunOptions(context_window="1m")),
+            ("fast_mode", {"extra_run_state": {"fast_mode": True}}, TaskRunOptions(fast_mode=True)),
+            ("auto_publish", {"extra_run_state": {"auto_publish": True}}, TaskRunOptions(auto_publish=True)),
             (
                 "pr_authorship_mode",
                 {"extra_run_state": {"pr_authorship_mode": "user"}},
-                RunOptions(pr_authorship_mode=PrAuthorship.USER),
+                TaskRunOptions(pr_authorship_mode=PrAuthorship.USER),
             ),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_options_build_the_same_task_as_the_legacy_arguments(
-        self, name: str, legacy_kwargs: dict, options: RunOptions, _mock_execute_workflow
+        self, name: str, legacy_kwargs: dict, options: TaskRunOptions, _mock_execute_workflow
     ) -> None:
         user = User.objects.create(email=f"{name}@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
@@ -250,33 +250,33 @@ class TestTask(TestCase):
 
     @parameterized.expand(
         [
-            ("same_argument", {"model": "claude-sonnet-5"}, RunOptions(model="claude-opus-5")),
+            ("same_argument", {"model": "claude-sonnet-5"}, TaskRunOptions(model="claude-opus-5")),
             (
                 "repository_and_repositories",
                 {"repository": "posthog/posthog"},
-                RunOptions(repositories=(Repository(name="posthog/posthog-js"),)),
+                TaskRunOptions(repositories=(Repository(name="posthog/posthog-js"),)),
             ),
-            ("non_default_scopes", {"posthog_mcp_scopes": "read_only"}, RunOptions(mcp_scopes="full")),
-            ("run_state_key", {"extra_run_state": {"fast_mode": True}}, RunOptions(fast_mode=False)),
+            ("non_default_scopes", {"posthog_mcp_scopes": "read_only"}, TaskRunOptions(mcp_scopes="full")),
+            ("run_state_key", {"extra_run_state": {"fast_mode": True}}, TaskRunOptions(fast_mode=False)),
             (
                 "template_in_run_state",
                 {"extra_run_state": {"sandbox_template": "default_base"}},
-                RunOptions(sandbox_template="autoresearch_base"),
+                TaskRunOptions(sandbox_template="autoresearch_base"),
             ),
             (
                 "setting_in_run_state",
                 {"extra_run_state": {"model": "claude-opus-5"}},
-                RunOptions(model="claude-sonnet-5"),
+                TaskRunOptions(model="claude-sonnet-5"),
             ),
-            ("no_github_access", {}, RunOptions(github_access=GithubAccess.NONE)),
+            ("no_github_access", {}, TaskRunOptions(github_access=GithubAccess.NONE)),
         ]
     )
     def test_run_options_refuse_a_setting_they_cannot_apply(
-        self, name: str, legacy_kwargs: dict, options: RunOptions
+        self, name: str, legacy_kwargs: dict, options: TaskRunOptions
     ) -> None:
         user = User.objects.create(email=f"{name}@test.com")
 
-        with self.assertRaises(RunOptionsError):
+        with self.assertRaises(TaskRunOptionsError):
             Task.create_and_run(
                 team=self.team,
                 title="t",
@@ -306,7 +306,7 @@ class TestTask(TestCase):
         )
 
         legacy = create(mcp_gateway_server_ids=server_ids)
-        from_options = create(options=RunOptions(mcp_server_ids=tuple(server_ids)))
+        from_options = create(options=TaskRunOptions(mcp_server_ids=tuple(server_ids)))
 
         self.assertEqual(
             (
@@ -318,16 +318,16 @@ class TestTask(TestCase):
 
     @parameterized.expand(
         [
-            ("runtime", RunOptions(runtime="pi"), ("pi", [])),
+            ("runtime", TaskRunOptions(runtime="pi"), ("pi", [])),
             (
                 "repositories",
-                RunOptions(repositories=(Repository(name="posthog/posthog"),)),
+                TaskRunOptions(repositories=(Repository(name="posthog/posthog"),)),
                 ("acp", ["posthog/posthog"]),
             ),
         ]
     )
     def test_create_without_run_applies_task_settings(
-        self, name: str, options: RunOptions, expected: tuple[str, list[str]]
+        self, name: str, options: TaskRunOptions, expected: tuple[str, list[str]]
     ) -> None:
         user = User.objects.create(email=f"{name}@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
@@ -346,15 +346,18 @@ class TestTask(TestCase):
 
     @parameterized.expand(
         [
-            ("model", RunOptions(model="claude-sonnet-5")),
-            ("read_only", RunOptions(github_access=GithubAccess.READ, mcp_scopes="read_only")),
-            ("initial_branch", RunOptions(repositories=(Repository(name="posthog/posthog", initial_branch="main"),))),
+            ("model", TaskRunOptions(model="claude-sonnet-5")),
+            ("read_only", TaskRunOptions(github_access=GithubAccess.READ, mcp_scopes="read_only")),
+            (
+                "initial_branch",
+                TaskRunOptions(repositories=(Repository(name="posthog/posthog", initial_branch="main"),)),
+            ),
         ]
     )
-    def test_create_without_run_refuses_settings_that_need_a_run(self, name: str, options: RunOptions) -> None:
+    def test_create_without_run_refuses_settings_that_need_a_run(self, name: str, options: TaskRunOptions) -> None:
         user = User.objects.create(email=f"{name}@test.com")
 
-        with self.assertRaises(RunOptionsError):
+        with self.assertRaises(TaskRunOptionsError):
             Task.create_without_run(
                 team=self.team,
                 title="t",
