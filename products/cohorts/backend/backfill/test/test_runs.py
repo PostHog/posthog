@@ -32,6 +32,8 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillScope,
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 # The catalog drops a leaf with no bytecode or a `conditionHash` that is not 16 characters, and
 # `_calculate_realtime_support` grants `cohort_type=REALTIME` only when every leaf compiled to
@@ -315,6 +317,161 @@ class TestBackfillRuns(BaseTest):
         run.refresh_from_db()
         self.assertEqual(run.status, CohortBackfillRunStatus.SUPERSEDED)
         self.assertIsNotNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
+
+
+_FLAG_KEY_FILTER = {"key": "$feature_flag", "type": "event", "value": "beta-feature", "operator": "exact"}
+_ANY_FLAG_CALL_LEAF = {
+    "type": "behavioral",
+    "key": "$feature_flag_called",
+    "event_type": "events",
+    "value": "performed_event",
+    "conditionHash": "flagcall00000001",
+    "time_value": 30,
+    "time_interval": "day",
+    "bytecode": _BYTECODE,
+}
+_FLAG_CALL_LEAF = {**_ANY_FLAG_CALL_LEAF, "event_filters": [_FLAG_KEY_FILTER]}
+_PAGEVIEW_LEAF = {
+    "type": "behavioral",
+    "key": "$pageview",
+    "event_type": "events",
+    "value": "performed_event",
+    "conditionHash": "pageview00000001",
+    "time_value": 7,
+    "time_interval": "day",
+    "bytecode": _BYTECODE,
+}
+_TEN_DAYS_AGO = (datetime.now(UTC) - timedelta(days=10)).strftime("%Y-%m-%d")
+_FLAG_CALL_TABLE_CASES = [
+    ("swapped", _FLAG_CALL_LEAF, FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, "flag_evaluations"),
+    ("rewrite_off", _FLAG_CALL_LEAF, FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, "events"),
+    ("events_mode", _FLAG_CALL_LEAF, FlagEvaluationsMode.EVENTS, True, "events"),
+    ("no_flag_key", _ANY_FLAG_CALL_LEAF, FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, "events"),
+    (
+        "window_past_coverage",
+        {**_FLAG_CALL_LEAF, "time_value": 120},
+        FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+        True,
+        "events",
+    ),
+    # The batch calculation swaps this range today. The range does not move with the run's boundary. Its first day
+    # can leave flag_evaluations before the seeder scans it.
+    (
+        "fixed_range",
+        {**_FLAG_CALL_LEAF, "explicit_datetime": _TEN_DAYS_AGO},
+        FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+        True,
+        "events",
+    ),
+    (
+        "only_in_flag_evaluations",
+        _ANY_FLAG_CALL_LEAF,
+        FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+        True,
+        "flag_evaluations",
+    ),
+    # events holds no new flag calls in this mode, so flag_evaluations is the only table that has any of them.
+    (
+        "fixed_range_only_in_flag_evaluations",
+        {**_FLAG_CALL_LEAF, "explicit_datetime": _TEN_DAYS_AGO},
+        FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+        True,
+        "flag_evaluations",
+    ),
+    ("no_flag_calls", _PAGEVIEW_LEAF, FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, "events"),
+]
+
+
+@override_settings(
+    REALTIME_COHORT_TEAM_ALLOWLIST="all",
+    BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED=True,
+    BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED=True,
+)
+class TestBackfillRunFlagCallsTable(BaseTest):
+    def _cohort(self, *leaves: dict) -> Cohort:
+        return Cohort.objects.create(
+            team=self.team,
+            name="flag callers",
+            cohort_type=CohortType.REALTIME,
+            filters={"properties": {"type": "AND", "values": list(leaves)}},
+        )
+
+    def _set_flag_evaluations_mode(self, mode: FlagEvaluationsMode) -> None:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+        )
+
+    def _flag_calls_rewrite(self, enabled: bool = True) -> mock._patch:
+        return mock.patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda key, *args, **kwargs: enabled and key == "hogql-flag-calls-from-flag-evaluations",
+        )
+
+    @parameterized.expand(
+        [
+            (f"{scope}_{name}", scope, leaf, mode, rewrite_enabled, expected)
+            for scope in ("cohort", "team")
+            for name, leaf, mode, rewrite_enabled, expected in _FLAG_CALL_TABLE_CASES
+        ]
+    )
+    def test_run_pins_the_table_the_batch_calculation_reads_flag_calls_from(
+        self,
+        _name: str,
+        scope: str,
+        leaf: dict,
+        mode: FlagEvaluationsMode,
+        rewrite_enabled: bool,
+        expected: str,
+    ) -> None:
+        self._set_flag_evaluations_mode(mode)
+        cohort = self._cohort(leaf)
+
+        with self._flag_calls_rewrite(rewrite_enabled):
+            if scope == "team":
+                run: CohortBackfillRun | None = create_team_backfill_run(self.team.id, "team_enablement")
+            else:
+                run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+
+        assert run is not None
+        # cohort-seeder reads a missing key as events. Every run must state the table.
+        self.assertEqual(run.pinned["flag_calls_table"], expected)
+        self.assertEqual(run.pinned["schema_version"], 1)
+
+    @parameterized.expand(
+        [
+            ("with_a_cohort_without_flag_calls", _PAGEVIEW_LEAF, "flag_evaluations"),
+            ("with_a_flag_call_cohort_that_reads_events", _ANY_FLAG_CALL_LEAF, "events"),
+        ]
+    )
+    def test_team_run_pins_flag_evaluations_only_when_every_flag_call_cohort_reads_it(
+        self, _name: str, other_leaf: dict, expected: str
+    ) -> None:
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        self._cohort(_FLAG_CALL_LEAF)
+        self._cohort({**other_leaf, "conditionHash": "othercohort00001"})
+
+        with self._flag_calls_rewrite():
+            run = create_team_backfill_run(self.team.id, "team_enablement")
+
+        self.assertEqual(run.pinned["flag_calls_table"], expected)
+
+    def test_a_flag_call_cohort_whose_batch_query_does_not_compile_gets_no_run(self) -> None:
+        # Pinning events instead would give the cohort an empty flag-call history that still counts as backfilled.
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        cohort = self._cohort(
+            {
+                **_FLAG_CALL_LEAF,
+                "event_filters": [_FLAG_KEY_FILTER, {"key": "goe_0.properties.plan = 'pro'", "type": "hogql"}],
+            }
+        )
+
+        with self._flag_calls_rewrite():
+            attempt = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+            with self.assertRaisesMessage(ValueError, f"cohort {cohort.id}"):
+                create_team_backfill_run(self.team.id, "team_enablement")
+
+        self.assertEqual(attempt.reason, BackfillRefusalReason.FLAG_CALLS_TABLE_UNRESOLVED)
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
 
 
 @override_settings(
