@@ -39,7 +39,6 @@ def insert_intent_embedding(
     at: datetime | None = None,
     embedding: list[float] | None = None,
     calls: int = 1,
-    tool: str = "query-trends",
 ) -> None:
     at = at or datetime.now(tz=UTC)
     sync_execute(
@@ -59,7 +58,7 @@ def insert_intent_embedding(
                 at,
                 at,
                 text,
-                json.dumps({"calls": calls, "tool": tool}),
+                json.dumps({"calls": calls}),
                 embedding or unit_vector(0),
                 at,
                 0,

@@ -60,10 +60,13 @@ _AI_EVENTS_MIRRORED_COLUMNS = {column: property_name for property_name, column i
 # sha256. Anyone can hash a guessed text and compare, so the hash reveals the text as much as the copy does.
 # The rollups also keep the unsalted cityHash64 of each conversation id, which the pipeline reads from
 # `$mcp_session_id` and falls back to `$session_id`. The hash reveals the id, so restricting either masks it.
+# Their `tool` column copies the tool name, so restricting any property it is read from masks it.
 _MCP_INTENT_MIRRORED_COLUMNS: dict[str, tuple[str, ...]] = {
     "intent_text": ("$mcp_intent",),
     "intent_hash": ("$mcp_intent",),
     "conversation_hashes": ("$mcp_session_id", "$session_id"),
+    # The rollups' effective tool name reads the exec wrapper's target before `$mcp_tool_name`.
+    "tool": ("$mcp_tool_name", "$mcp_exec_tool_call_name", "$mcp_exec_target_tool"),
 }
 
 
