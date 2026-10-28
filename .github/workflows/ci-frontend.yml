@@ -555,6 +555,7 @@ jobs:
                   # base measurement by hundreds of MiB and making every PR's dist-size delta
                   # a large spurious negative. The build never cleans dist/ itself.
                   rm -rf frontend/dist
+                  rm -f frontend/*-esbuild-meta.json
                   pnpm --filter=@posthog/frontend... install
                   pnpm --filter=@posthog/frontend build:with-report
                   du -sb frontend/dist | cut -f1 > frontend/dist-size-base.txt

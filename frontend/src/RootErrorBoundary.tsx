@@ -3,6 +3,40 @@ import React from 'react'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { redactMetricVariableUrl } from 'lib/utils/metricVariableUrlRedaction'
 
+function readBootIdentity(apiKey: string): { distinctId?: string; deviceId?: string } {
+    let distinctId: string | undefined
+    let deviceId: string | undefined
+    try {
+        // posthog-js persistence — absent on a first visit or under cookie-only persistence
+        const identity = JSON.parse(window.localStorage.getItem(`ph_${apiKey}_posthog`) || '{}')
+        distinctId = identity.distinct_id
+        deviceId = identity.$device_id
+    } catch {
+        // storage unavailable or corrupt — report anonymously
+    }
+    if (!distinctId || !deviceId) {
+        try {
+            const key = `ph_${apiKey}_posthog=`
+            const cookie = document.cookie.split('; ').find((part) => part.startsWith(key))
+            if (cookie) {
+                const identity = JSON.parse(decodeURIComponent(cookie.slice(key.length)))
+                distinctId = identity.distinct_id || distinctId
+                deviceId = identity.$device_id || deviceId
+            }
+        } catch {
+            // Cookie access can fail under strict browser settings.
+        }
+    }
+    return { distinctId, deviceId }
+}
+
+function bootFailureUrl(): string {
+    if (window.location.pathname === '/login' || window.location.pathname === '/login/') {
+        return `${window.location.origin}${window.location.pathname}`
+    }
+    return redactMetricVariableUrl(window.location.href)
+}
+
 /**
  * Report a boot failure straight to the capture API. posthog-js lives inside the App chunk —
  * the very chunk this boundary guards — so when boot fails there is no SDK to report through,
@@ -16,29 +50,7 @@ export function reportBootFailure(error: unknown): void {
             return // capture is opted out for this instance
         }
         const host = window.JS_POSTHOG_HOST || window.location.origin
-        let distinctId: string | undefined
-        let deviceId: string | undefined
-        try {
-            // posthog-js persistence — absent on a first visit or under cookie-only persistence
-            const identity = JSON.parse(window.localStorage.getItem(`ph_${apiKey}_posthog`) || '{}')
-            distinctId = identity.distinct_id
-            deviceId = identity.$device_id
-        } catch {
-            // storage unavailable or corrupt — report anonymously
-        }
-        if (!distinctId || !deviceId) {
-            try {
-                const key = `ph_${apiKey}_posthog=`
-                const cookie = document.cookie.split('; ').find((part) => part.startsWith(key))
-                if (cookie) {
-                    const identity = JSON.parse(decodeURIComponent(cookie.slice(key.length)))
-                    distinctId = identity.distinct_id || distinctId
-                    deviceId = identity.$device_id || deviceId
-                }
-            } catch {
-                // Cookie access can fail under strict browser settings.
-            }
-        }
+        const { distinctId, deviceId } = readBootIdentity(apiKey)
         const err = error instanceof Error ? error : new Error(String(error))
         const payload = JSON.stringify({
             api_key: apiKey,
@@ -50,10 +62,7 @@ export function reportBootFailure(error: unknown): void {
                 $device_id: deviceId,
                 '$feature/standalone-login-entry':
                     window.POSTHOG_USER_IDENTITY_WITH_FLAGS?.featureFlags?.['standalone-login-entry'],
-                $current_url:
-                    window.location.pathname === '/login' || window.location.pathname === '/login/'
-                        ? `${window.location.origin}${window.location.pathname}`
-                        : redactMetricVariableUrl(window.location.href),
+                $current_url: bootFailureUrl(),
                 $exception_level: 'fatal',
                 $exception_list: [
                     {

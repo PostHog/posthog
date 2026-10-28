@@ -13,9 +13,24 @@ from posthog.auth_entry_experiment import LOGIN_ENTRY_FLAG, LoginEntryExperiment
 from posthog.constants import POSTHOG_JS_CLOUD_TOKEN
 from posthog.frontend_views import home
 from posthog.models import User
+from posthog.utils import get_context_for_template
 
 
 class TestAuthPrototype(SimpleTestCase):
+    @parameterized.expand([("control",), ("test",)])
+    def test_development_entry_keeps_server_assignment(self, variant: str) -> None:
+        request = RequestFactory().get("/login?no-preloaded-app-context=1")
+        request.user = AnonymousUser()
+        with (
+            self.settings(DEBUG=True, TEST=False, SELF_CAPTURE=False),
+            patch.object(request, "csp_nonce", "synthetic-nonce", create=True),
+            patch("posthog.utils.get_persisted_feature_flags_for_app_context", return_value=[]),
+        ):
+            context = get_context_for_template("auth_prototype.html", request, {"login_entry_variant": variant})
+        self.assertIn("src/auth-prototype/authPrototypeEntry.tsx", context["vite_dev_scripts"])
+        self.assertIn('nonce="synthetic-nonce"', context["vite_dev_scripts"])
+        self.assertEqual(context["posthog_bootstrap"]["featureFlags"][LOGIN_ENTRY_FLAG], variant)
+
     @parameterized.expand(
         [
             ("disabled", False, "/login?auth_app=standalone", False, "index.html"),
@@ -121,6 +136,10 @@ class TestLoginEntryExperiment(SimpleTestCase):
             ("/login", "broken"),
             ("/login", "[]"),
             ("/login", '{"distinct_id":"synthetic-person"}'),
+            ("/login", json.dumps({"distinct_id": "", "$device_id": "synthetic-device"})),
+            ("/login", json.dumps({"distinct_id": "synthetic-person", "$device_id": ""})),
+            ("/login", json.dumps({"distinct_id": "x" * 201, "$device_id": "synthetic-device"})),
+            ("/login", json.dumps({"distinct_id": "synthetic-person", "$device_id": "x" * 201})),
             ("/login?auth_app=standalone", None),
             ("/login?auth_app=fallback", None),
             ("/signup", None),
