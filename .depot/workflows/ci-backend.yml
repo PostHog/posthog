@@ -1677,10 +1677,6 @@ jobs:
               with:
                   enable-cache: false
             - name: Install Python dependencies
-              retry:
-                  retries: 2
-                  backoff: exponential
-                  delay-seconds: 5
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
             - name: Validate changed product.yaml owners
               env:
@@ -2323,10 +2319,6 @@ jobs:
             - name: List this PR's ClickHouse migrations
               env:
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
-              retry:
-                  retries: 2
-                  backoff: exponential
-                  delay-seconds: 5
               run: |
                   set -euo pipefail
                   export LC_ALL=C
@@ -2639,25 +2631,21 @@ jobs:
               run: gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
 
             - name: Commit OpenAPI types via GitHub API (signed)
-              if: steps.openapi-check.outputs.needs-commit == 'true' && hashFiles('.github/scripts/commit_via_github_api.py') != ''
+              id: openapi-commit
+              if: steps.openapi-check.outputs.needs-commit == 'true'
+              continue-on-error: true
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              with:
+                  commit_message: 'chore: update OpenAPI generated types'
+                  repo: ${{ github.repository }}
+                  branch: ${{ github.event.pull_request.head.ref }}
+                  file_pattern: ${{ steps.openapi-check.outputs.drifted-files }}
               env:
-                  GH_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
-                  REPO: ${{ github.repository }}
-                  BRANCH: ${{ github.event.pull_request.head.ref }}
-                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-                  DRIFTED_FILES: ${{ steps.openapi-check.outputs.drifted-files }}
-              retry:
-                  retries: 3
-                  backoff: exponential
-                  delay-seconds: 5
-              run: |
-                  read -ra drifted_files <<< "$DRIFTED_FILES"
-                  python3 .github/scripts/commit_via_github_api.py --repo "$REPO" --branch "$BRANCH" \
-                      --expected-head "$HEAD_SHA" --message 'chore: update OpenAPI generated types' "${drifted_files[@]}"
+                  GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
 
-            # The PR head checkout of an unrebased branch predates the script above.
-            - name: Commit OpenAPI types via GitHub API (signed, without retry)
-              if: steps.openapi-check.outputs.needs-commit == 'true' && hashFiles('.github/scripts/commit_via_github_api.py') == ''
+            # Depot rejects retry: on a uses: step, so a failed commit gets one more attempt here.
+            - name: Retry OpenAPI types commit
+              if: steps.openapi-commit.outcome == 'failure'
               uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
                   commit_message: 'chore: update OpenAPI generated types'
@@ -3285,14 +3273,10 @@ jobs:
                   pip install ./common/hogql_parser
             - name: Install Rust to build hogql-parser-rs
               if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.rust_changed == 'true' }}
-              shell: bash
-              retry:
-                  retries: 3
-                  backoff: exponential
-                  delay-seconds: 5
-              run: |
-                  timeout --kill-after=10s 300s rustup toolchain install 1.91.1 --profile minimal --component cargo --no-self-update
-                  rustup default 1.91.1
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
             - name: Install the working version of hogql-parser-rs
               if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.rust_changed == 'true' }}
               shell: bash
@@ -4354,11 +4338,6 @@ jobs:
                   # branch protection the moment the PR turns ready. Merge-queue PRs are drafts whose
                   # run is the verdict.
                   IS_DRAFT: ${{ github.event.pull_request.draft && !startsWith(github.head_ref, 'trunk-merge/') }}
-              # A repeated POST adds a second identical check run, and GitHub shows the newest one.
-              retry:
-                  retries: 3
-                  backoff: exponential
-                  delay-seconds: 5
               run: |
                   if [[ "$IS_DRAFT" == "true" && "$CONCLUSION" != "failure" ]]; then
                       echo "Draft run: the ready-for-review run posts the $GATE_CHECK check."
