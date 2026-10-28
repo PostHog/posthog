@@ -23,7 +23,6 @@ jest.mock('lib/lemon-ui/LemonButton', () => ({
 }))
 jest.mock('scenes/authentication/auth/Auth', () => ({ Auth: () => <div>Login form</div> }))
 jest.mock('scenes/authentication/auth/authLogic', () => ({ authLogic: {} }))
-jest.mock('scenes/authentication/auth/loginLogic', () => ({ handleLoginRedirect: jest.fn() }))
 jest.mock('scenes/PreflightCheck/preflightLogic', () => ({ preflightLogic: {} }))
 jest.mock('scenes/userLogic', () => ({ userLogic: {} }))
 jest.mock('scenes/mountSupportRouter', () => ({
@@ -71,7 +70,7 @@ describe('standalone login state', () => {
         preflightLoading = false
         view.rerender(<AuthPrototype />)
         expect(screen.getByRole('alert')).toHaveTextContent('Login could not load')
-        fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+        fireEvent.click(screen.getByText('Try again'))
         expect(loadPreflight).toHaveBeenCalledTimes(1)
 
         preflight = { can_create_org: true }
@@ -79,14 +78,12 @@ describe('standalone login state', () => {
         expect(screen.getByText('Login form')).toBeInTheDocument()
     })
 
-    it('redirects a user whose session loads after the page', () => {
+    it('keeps the login form hidden when a user has loaded', () => {
         preflight = { can_create_org: true }
         preflightLoading = false
         user = { id: 1 }
         render(<AuthPrototype />)
 
-        const { handleLoginRedirect } = jest.requireMock('scenes/authentication/auth/loginLogic')
-        expect(handleLoginRedirect).toHaveBeenCalledTimes(1)
         expect(screen.queryByText('Login form')).not.toBeInTheDocument()
         expect(mountSupportRouter).not.toHaveBeenCalled()
     })

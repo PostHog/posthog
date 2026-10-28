@@ -10,7 +10,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Auth } from 'scenes/authentication/auth/Auth'
 import { authLogic } from 'scenes/authentication/auth/authLogic'
-import { handleLoginRedirect } from 'scenes/authentication/auth/loginLogic'
 import { mountSupportRouter } from 'scenes/mountSupportRouter'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -33,12 +32,6 @@ export function AuthPrototype(): JSX.Element {
             return mountSupportRouter().unmount
         }
     }, [canRenderAuth])
-    useEffect(() => {
-        if (user) {
-            handleLoginRedirect()
-        }
-    }, [user])
-
     useLayoutEffect(() => {
         performance.mark('auth-prototype:rendered')
     }, [])
