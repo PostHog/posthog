@@ -726,23 +726,6 @@ class WorkerRole(StrEnum):
     ACTIVITIES = "activities"
 
 
-def registrations_for_role(
-    role: WorkerRole,
-    workflows: list[type[PostHogWorkflow]],
-    activities: list[typing.Callable[..., typing.Any]],
-) -> tuple[list[type[PostHogWorkflow]], list[typing.Callable[..., typing.Any]]]:
-    """Keeps the half of a task queue that this worker polls.
-
-    Temporal keeps workflow tasks and activity tasks apart even on one queue name, so a workflows
-    worker and an activities worker on the same queue split its work between them.
-    """
-    if role == WorkerRole.WORKFLOWS:
-        return workflows, []
-    if role == WorkerRole.ACTIVITIES:
-        return [], activities
-    return workflows, activities
-
-
 def apply_hogql_shadow_sample_rate_override() -> None:
     """Sets HogQL's cpp shadow parse rate for this worker from `HOGQL_PARSER_SHADOW_SAMPLE_RATE`.
 
@@ -910,9 +893,14 @@ class Command(BaseCommand):
         if workflows_include_data_import_syncs(workflows):
             load_all_sources()
 
-        # After the source preload, because an activities-only data-sync worker still runs the syncs.
+        # Temporal keeps workflow tasks and activity tasks apart even on one queue name, so a workflows
+        # worker and an activities worker on the same queue split its work between them. This runs after
+        # the source preload, because an activities-only data-sync worker still runs the syncs.
         worker_role = WorkerRole(options["worker_role"])
-        workflows, activities = registrations_for_role(worker_role, workflows, activities)
+        if worker_role == WorkerRole.WORKFLOWS:
+            activities = []
+        elif worker_role == WorkerRole.ACTIVITIES:
+            workflows = []
 
         if options["client_key"]:
             options["client_key"] = "--SECRET--"
@@ -1017,7 +1005,7 @@ class Command(BaseCommand):
                 port=temporal_port,
                 namespace=namespace,
                 task_queue=task_queue,
-                worker_role=worker_role.value,
+                worker_role=worker_role,
                 graceful_shutdown_timeout_seconds=graceful_shutdown_timeout_seconds,
                 max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                 max_concurrent_activities=max_concurrent_activities,

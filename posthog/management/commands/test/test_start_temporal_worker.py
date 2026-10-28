@@ -16,10 +16,8 @@ from posthog.management.commands.start_temporal_worker import (
     WA_DIGEST_WORKFLOWS,
     WEEKLY_DIGEST_WORKFLOWS,
     WORKFLOWS_DICT,
-    WorkerRole,
     _task_queue_specs,
     apply_hogql_shadow_sample_rate_override,
-    registrations_for_role,
     workflows_include_data_import_syncs,
 )
 from posthog.temporal.usage_report.activities import aggregate_and_chunk_org_reports
@@ -167,24 +165,3 @@ def test_hogql_shadow_sample_rate_override(
     monkeypatch.setattr(hogql_parser, "_SHADOW_SAMPLE_RATE", 0.001)
     apply_hogql_shadow_sample_rate_override()
     assert hogql_parser._SHADOW_SAMPLE_RATE == expected
-
-
-@pytest.mark.parametrize(
-    "role, expect_workflows, expect_activities",
-    [
-        (WorkerRole.ALL, True, True),
-        (WorkerRole.WORKFLOWS, True, False),
-        (WorkerRole.ACTIVITIES, False, True),
-    ],
-)
-def test_worker_role_keeps_only_its_half_of_the_queue(
-    role: WorkerRole, expect_workflows: bool, expect_activities: bool
-) -> None:
-    queue = settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE
-    all_workflows = list(WORKFLOWS_DICT[queue])
-    all_activities = list(ACTIVITIES_DICT[queue])
-
-    workflows, activities = registrations_for_role(role, all_workflows, all_activities)
-
-    assert workflows == (all_workflows if expect_workflows else [])
-    assert activities == (all_activities if expect_activities else [])
