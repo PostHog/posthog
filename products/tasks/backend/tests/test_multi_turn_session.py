@@ -27,6 +27,7 @@ from products.tasks.backend.logic.services.custom_prompt_internals import (
     AgentTurnFailed,
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
+    RepositoryContextUnavailable,
     SandboxRunFailed,
     TurnPollResult,
     TurnPollTimeout,
@@ -1170,6 +1171,19 @@ class TestPollForTurnSurfacesAgentError:
         assert isinstance(error.value, SandboxRunFailed)
         assert error.value.error_type == error_type
         assert error.value.transient is transient
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failure", ["RepositoryAccessError", "RepositoryCloneError", "GitHubAuthenticationError"])
+    async def test_repository_failure_survives_the_task_boundary(self, failure):
+        run = FakeTaskRun(status="failed", error_message="Activity task failed", state={"failure_error_type": failure})
+        with (
+            patch("posthog.storage.object_storage.read", return_value=""),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=run),
+        ):
+            with pytest.raises(RepositoryContextUnavailable, match=failure):
+                await poll_for_turn(run)
 
     @parameterized.expand(
         [

@@ -1,3 +1,4 @@
+import json
 import logging
 from dataclasses import replace
 from datetime import datetime
@@ -8,11 +9,13 @@ from unittest.mock import patch
 
 from pydantic import ValidationError
 
+from products.signals.backend.artefact_schemas import artefact_type_for_model
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_checks import MAX_ACTIVE_CHECKS_PER_REPORT
 from products.signals.backend.report_generation.research import (
     MAX_LINKED_REPORT_CONTEXT_CHARS,
+    DataOnlySignalFindingUpdate,
     FixVerificationOutput,
     LinkedReportContext,
     ReportPresentationOutput,
@@ -20,6 +23,7 @@ from products.signals.backend.report_generation.research import (
     _render_linked_report_context,
     _render_previous_metrics_context,
     _render_signal_for_research,
+    _resolve_finding_response,
     build_actionability_prompt,
     build_fix_verification_prompt,
     build_initial_research_prompt,
@@ -52,6 +56,47 @@ def _make_signal(extra: dict) -> SignalData:
 
 
 class TestRenderSignalForResearch:
+    @pytest.mark.parametrize("code_available", [False, True])
+    def test_research_only_requests_code_evidence_when_available(self, code_available):
+        prompt = build_initial_research_prompt(_make_signal({}), 1, code_available=code_available)
+        assert ("**Git blame:**" in prompt) is code_available
+        assert ("full PostHog repository is available" in prompt) is code_available
+        assert ("No repository is checked out for this run." in prompt) is not code_available
+        for guidance in [
+            "<writing_guide>",
+            "Attached images",
+            "`remediation`",
+            "inbox-report-artefacts-list",
+            "**Budget:**",
+            "**Work already in flight:**",
+            "experiment-get-by-flag-key",
+        ]:
+            assert guidance in prompt
+        presentation = build_report_presentation_prompt(
+            1, code_available=code_available, reviewer_selection_enabled=True
+        )
+        assert ("Use repository ownership files" in presentation) is code_available
+        assert ("inspect their relevant changes" in presentation) is code_available
+        followup = build_signal_investigation_prompt(_make_signal({}), 2, 2, code_available=code_available)
+        for finding_prompt in [prompt, followup]:
+            schema = json.loads(finding_prompt.split("<jsonschema>")[1].split("</jsonschema>")[0])
+            finding = schema["$defs"]["SignalFinding" if code_available else "DataOnlySignalFinding"]
+            commits = finding["properties"]["relevant_commit_hashes"]
+            assert ("minProperties" in commits) is code_available
+            assert ("git blame" in commits["description"]) is code_available
+        if not code_available:
+            response = DataOnlySignalFindingUpdate.model_validate(
+                {
+                    "previous_finding_correct": False,
+                    "finding": {"signal_id": "sig-1", "data_queried": "Error counts", "verified": True},
+                }
+            )
+            assert response.finding is not None
+            assert response.finding.relevant_commit_hashes == {}
+            finding, is_new = _resolve_finding_response(response, None, "sig-1")
+            assert is_new
+            assert artefact_type_for_model(type(finding)) == "signal_finding"
+
     def test_renders_attached_images_with_author_prefix(self):
         signal = _make_signal(
             {

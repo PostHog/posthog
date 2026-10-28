@@ -29213,6 +29213,40 @@ export namespace Schemas {
       description?: string | null;
     }
 
+    /**
+     * The `campaign` object from Customer.io's `GET /v1/environments/{environment_id}/campaigns/{campaign_id}` (Journeys UI API, what the Customer.io CLI and MCP read). Must include `id`, `type`, `edges` and the trigger fields.
+     */
+    export type CustomerioCampaignCampaign = { [key: string]: unknown };
+
+    export type CustomerioCampaignActionsItem = { [key: string]: unknown };
+
+    export interface CustomerioCampaign {
+      /** The `campaign` object from Customer.io's `GET /v1/environments/{environment_id}/campaigns/{campaign_id}` (Journeys UI API, what the Customer.io CLI and MCP read). Must include `id`, `type`, `edges` and the trigger fields. */
+      campaign: CustomerioCampaignCampaign;
+      /** The top-level `actions` array from the same response, every step of the automation. */
+      actions: CustomerioCampaignActionsItem[];
+      /** The message templates the actions point at, from `GET /v1/environments/{environment_id}/templates/{template_id}`: a list of template objects, or an object keyed by template id. Leave them out when the project stored a Customer.io App API key: PostHog then reads the content from Customer.io itself. Without either, messages import with empty content. */
+      templates?: unknown;
+    }
+
+    export interface CustomerioSegment {
+      /** The segment's id. */
+      id: string;
+      /** The segment's name. */
+      name: string;
+      /** The segment's type: `dynamic`, or `static` for a hand-made list. */
+      type: string;
+    }
+
+    export interface CustomerioSenderIdentity {
+      /** The sender identity's id, which templates name in `from_identity_id`. */
+      id: string;
+      /** The address the sender sends from. */
+      email: string;
+      /** The sender's display name. */
+      name?: string;
+    }
+
     export type DashboardFilters = { [key: string]: unknown };
 
     /**
@@ -57584,6 +57618,11 @@ export namespace Schemas {
       total: number;
     }
 
+    export interface GitHubRepositoryAccessResponse {
+      /** Whether a live GitHub request confirmed repository access. */
+      available: boolean;
+    }
+
     export interface GitHubSource {
       /** Source id: pass back as `source_id` (with `repo`) to read this repository. */
       id: string;
@@ -64020,6 +64059,16 @@ export namespace Schemas {
     }
 
     /**
+     * * `github_optional` - GitHub optional
+     */
+    export type InboxActivationModeEnum = typeof InboxActivationModeEnum[keyof typeof InboxActivationModeEnum];
+
+
+    export const InboxActivationModeEnum = {
+      GithubOptional: 'github_optional',
+    } as const;
+
+    /**
      * * `signals` - Signals
      * * `scouts` - Scouts
      * * `github` - GitHub
@@ -64517,6 +64566,10 @@ export namespace Schemas {
     }
 
     export interface InboxOnboardingDraft {
+      /** Activate the GitHub-optional pilot. Requires project eligibility and leaves automatic implementation off.
+       *
+       * * `github_optional` - GitHub optional */
+      activation_mode?: InboxActivationModeEnum;
       /** Step to resume after returning.
        *
        * * `signals` - Signals
@@ -64607,6 +64660,8 @@ export namespace Schemas {
     }
 
     export interface InboxOnboardingState {
+      /** Whether this project can activate Self-driving without connecting GitHub. */
+      github_optional_available?: boolean;
       /** Whether the current user can receive an in-app notification when this investigation finishes. */
       first_report_completion_notification?: boolean;
       /**
@@ -73060,7 +73115,7 @@ export namespace Schemas {
       overview: ModelUsageTotals;
       /** Daily usage, attributed to when each run finished. */
       trends: ModelUsageDay[];
-      /** Model breakdown, highest measured bytes first. */
+      /** Model breakdown in the requested sort order. */
       models: ModelUsageRow[];
       /** Total number of models in the breakdown. */
       count: number;
@@ -80104,6 +80159,52 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `code` - Code context
+     * * `data_only` - Project data
+     */
+    export type ReportResearchModeEnum = typeof ReportResearchModeEnum[keyof typeof ReportResearchModeEnum];
+
+
+    export const ReportResearchModeEnum = {
+      Code: 'code',
+      DataOnly: 'data_only',
+    } as const;
+
+    /**
+     * * `available` - Available
+     * * `no_integration` - Not connected
+     * * `no_repositories` - No repositories
+     * * `selection_unresolved` - No repository selected
+     * * `github_unavailable` - GitHub unavailable
+     */
+    export type ReportRepositoryStatusEnum = typeof ReportRepositoryStatusEnum[keyof typeof ReportRepositoryStatusEnum];
+
+
+    export const ReportRepositoryStatusEnum = {
+      Available: 'available',
+      NoIntegration: 'no_integration',
+      NoRepositories: 'no_repositories',
+      SelectionUnresolved: 'selection_unresolved',
+      GithubUnavailable: 'github_unavailable',
+    } as const;
+
+    export interface ReportResearchContext {
+      /** Whether research had access to a repository.
+       *
+       * * `code` - Code context
+       * * `data_only` - Project data */
+      mode: ReportResearchModeEnum;
+      /** Code availability when the report was researched; not a live integration health check.
+       *
+       * * `available` - Available
+       * * `no_integration` - Not connected
+       * * `no_repositories` - No repositories
+       * * `selection_unresolved` - No repository selected
+       * * `github_unavailable` - GitHub unavailable */
+      repository_status: ReportRepositoryStatusEnum;
+    }
+
+    /**
      * * `unknown` - Unknown
      * * `draft` - Draft
      * * `open` - Open
@@ -80525,6 +80626,8 @@ export namespace Schemas {
       readonly repo_slug: string | null;
       /** Whether this is a scout self-improvement report. Most update a team-owned skill in the skills store, but reports with a selected repository can still produce a pull request. */
       readonly is_self_improvement_report: boolean;
+      /** Evidence available to the latest research pass. Null for legacy reports. */
+      readonly research_context: ReportResearchContext | null;
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
@@ -103365,6 +103468,8 @@ export namespace Schemas {
       readonly repo_slug: string | null;
       /** Whether this is a scout self-improvement report. Most update a team-owned skill in the skills store, but reports with a selected repository can still produce a pull request. */
       readonly is_self_improvement_report: boolean;
+      /** Evidence available to the latest research pass. Null for legacy reports. */
+      readonly research_context: ReportResearchContext | null;
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
@@ -124231,6 +124336,146 @@ export namespace Schemas {
       latest_ci_engine?: CIEngineEnum | null;
     }
 
+    /**
+     * * `approximated` - Approximated
+     * * `unsupported` - Unsupported
+     * * `needs_input` - Needs input
+     */
+    export type WorkflowImportNoteLevelEnum = typeof WorkflowImportNoteLevelEnum[keyof typeof WorkflowImportNoteLevelEnum];
+
+
+    export const WorkflowImportNoteLevelEnum = {
+      Approximated: 'approximated',
+      Unsupported: 'unsupported',
+      NeedsInput: 'needs_input',
+    } as const;
+
+    export interface WorkflowImportNote {
+      /** `approximated`: the step behaves differently in PostHog. `unsupported`: the setting was left out. `needs_input`: the team must set something before enabling.
+       *
+       * * `approximated` - Approximated
+       * * `unsupported` - Unsupported
+       * * `needs_input` - Needs input */
+      level: WorkflowImportNoteLevelEnum;
+      /** What changed or was left out, and what to do about it. */
+      message: string;
+      /**
+         * The workflow step the note is about, or null.
+         * @nullable
+         */
+      step_id: string | null;
+      /**
+         * That step's name, or null.
+         * @nullable
+         */
+      step_name: string | null;
+    }
+
+    export interface WorkflowImportRecord {
+      /** The import record's id. */
+      readonly id: string;
+      /** The tool the workflow was imported from. */
+      readonly source: string;
+      /** The automation's id in that tool. */
+      readonly source_id: string;
+      /** The automation's name in that tool. */
+      readonly source_name: string;
+      /**
+         * The workflow.
+         * @nullable
+         */
+      readonly hog_flow: string | null;
+      /** What the import changed or left out. */
+      readonly notes: readonly WorkflowImportNote[];
+      /** When the workflow was last imported. */
+      readonly updated_at: string;
+    }
+
+    /**
+     * Customer.io snippet name to its content, inlined where a message uses `{% snippet "name" %}`.
+     */
+    export type WorkflowImportRequestSnippets = {[key: string]: string};
+
+    /**
+     * Customer.io segment id to the PostHog cohort that replaces it. Segment triggers and segment conditions with no cohort here are left for the team to set.
+     */
+    export type WorkflowImportRequestSegmentCohorts = {[key: string]: number};
+
+    /**
+     * Customer.io layout id to the layout's `body`, from `GET /v1/environments/{environment_id}/layouts/{layout_id}`. An email whose template names a `layout_id` is wrapped in that layout at `{{ content }}`.
+     */
+    export type WorkflowImportRequestLayouts = {[key: string]: string};
+
+    export interface WorkflowImportRequest {
+      /** The tool the automations come from.
+       *
+       * * `customerio` - Customer.io */
+      source: ImportProviderKeyEnum;
+      /** The automations to import, at most 50. People are never read from these objects. */
+      campaigns: CustomerioCampaign[];
+      /** Customer.io snippet name to its content, inlined where a message uses `{% snippet "name" %}`. */
+      snippets?: WorkflowImportRequestSnippets;
+      /** Customer.io segment id to the PostHog cohort that replaces it. Segment triggers and segment conditions with no cohort here are left for the team to set. */
+      segment_cohorts?: WorkflowImportRequestSegmentCohorts;
+      /** Customer.io layout id to the layout's `body`, from `GET /v1/environments/{environment_id}/layouts/{layout_id}`. An email whose template names a `layout_id` is wrapped in that layout at `{{ content }}`. */
+      layouts?: WorkflowImportRequestLayouts;
+      /** Customer.io sender identities, from `GET /v1/environments/{environment_id}/identities?type=email`. Each email gets the PostHog sender with the same address. */
+      sender_identities?: CustomerioSenderIdentity[];
+      /** Customer.io segment ids, names and types, without members, so the notes can name each segment and flag static ones. */
+      segments?: CustomerioSegment[];
+      /** When true, translate and check the automations but save nothing, to preview the import. */
+      dry_run?: boolean;
+    }
+
+    /**
+     * * `preview` - Preview
+     * * `created` - Created
+     * * `updated` - Updated
+     * * `skipped` - Skipped
+     * * `failed` - Failed
+     */
+    export type WorkflowImportStatusEnum = typeof WorkflowImportStatusEnum[keyof typeof WorkflowImportStatusEnum];
+
+
+    export const WorkflowImportStatusEnum = {
+      Preview: 'preview',
+      Created: 'created',
+      Updated: 'updated',
+      Skipped: 'skipped',
+      Failed: 'failed',
+    } as const;
+
+    export interface WorkflowImportResult {
+      /** The automation's id in Customer.io. */
+      source_id: string;
+      /** The automation's name. */
+      name: string;
+      /** `preview` when dry_run is set, `created` or `updated` for a saved draft, `skipped` when an earlier import of it is no longer a draft, `failed` when the draft does not pass the workflow checks.
+       *
+       * * `preview` - Preview
+       * * `created` - Created
+       * * `updated` - Updated
+       * * `skipped` - Skipped
+       * * `failed` - Failed */
+      status: WorkflowImportStatusEnum;
+      /**
+         * The draft workflow's id, when one was saved. In a preview, the draft an import would replace.
+         * @nullable
+         */
+      workflow_id: string | null;
+      /** What the import changed or left out. */
+      notes: WorkflowImportNote[];
+      /** Why the draft failed the workflow checks, for `failed`. */
+      validation_errors: string[];
+    }
+
+    export interface WorkflowImportResponse {
+      /** One result per automation, in request order. */
+      results: WorkflowImportResult[];
+      /** True when PostHog read message content from Customer.io with the project's stored App API key. */
+      content_fetched: boolean;
+    }
+
     export interface WorkflowJobStep {
       /** 1-based position of the step in the job. */
       number: number;
@@ -132066,6 +132311,26 @@ export namespace Schemas {
      * @minLength 1
      */
     saved_query_ids?: string;
+    /**
+     * Column to sort models by.
+     *
+     * * `name` - Model
+     * * `read_bytes` - Bytes read
+     * * `clickhouse_read_bytes` - ClickHouse bytes
+     * * `managed_warehouse_read_bytes` - Managed warehouse bytes
+     * * `cpu_microseconds` - CPU time
+     * * `runs` - Runs
+     * @minLength 1
+     */
+    sort_by?: DataModelingUsageListSortBy;
+    /**
+     * Sort direction. Unmeasured values are always last.
+     *
+     * * `asc` - Ascending
+     * * `desc` - Descending
+     * @minLength 1
+     */
+    sort_direction?: DataModelingUsageListSortDirection;
     };
 
     export type DataModelingUsageListEngine = typeof DataModelingUsageListEngine[keyof typeof DataModelingUsageListEngine];
@@ -132075,6 +132340,26 @@ export namespace Schemas {
       All: 'all',
       Clickhouse: 'clickhouse',
       ManagedWarehouse: 'managed_warehouse',
+    } as const;
+
+    export type DataModelingUsageListSortBy = typeof DataModelingUsageListSortBy[keyof typeof DataModelingUsageListSortBy];
+
+
+    export const DataModelingUsageListSortBy = {
+      Name: 'name',
+      ReadBytes: 'read_bytes',
+      ClickhouseReadBytes: 'clickhouse_read_bytes',
+      ManagedWarehouseReadBytes: 'managed_warehouse_read_bytes',
+      CpuMicroseconds: 'cpu_microseconds',
+      Runs: 'runs',
+    } as const;
+
+    export type DataModelingUsageListSortDirection = typeof DataModelingUsageListSortDirection[keyof typeof DataModelingUsageListSortDirection];
+
+
+    export const DataModelingUsageListSortDirection = {
+      Asc: 'asc',
+      Desc: 'desc',
     } as const;
 
     export type DataQualityChecksListParams = {
@@ -137170,6 +137455,14 @@ export namespace Schemas {
      * Optional case-insensitive repository name search query.
      */
     search?: string;
+    };
+
+    export type IntegrationsGithubRepositoryAccessRetrieveParams = {
+    /**
+     * Repository in owner/repo format. Omit to check access to any repository.
+     * @minLength 1
+     */
+    repository?: string;
     };
 
     export type IntegrationsGithubTeamsRetrieveParams = {
@@ -143354,6 +143647,13 @@ export namespace Schemas {
      * @minLength 1
      */
     workflow_id: string;
+    };
+
+    export type WorkflowImportsForWorkflowRetrieveParams = {
+    /**
+     * The workflow to read the import of.
+     */
+    hog_flow_id: string;
     };
 
     export type PublicHogFunctionTemplatesListParams = {
