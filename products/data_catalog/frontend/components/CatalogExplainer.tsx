@@ -69,8 +69,8 @@ export function CatalogExplainer(): JSX.Element | null {
                                 <div className="mt-2 flex items-start gap-2 text-secondary">
                                     <IconInfo className="size-4 shrink-0 mt-0.5" />
                                     <span>
-                                        Agents can also use proposed and drifted metrics. Their answers then include a
-                                        warning.
+                                        Agents can also use proposed and drifted metrics after evaluating their content.
+                                        Users will see a warning alongside the answer.
                                     </span>
                                 </div>
                             </div>
