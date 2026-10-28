@@ -19,9 +19,9 @@ import { ExecLearnCatalog } from '@/tools/exec-learn'
 import {
     getRenderableToolNames,
     makeRenderUiSchema,
-    RENDER_UI_TOOL_DESCRIPTION,
     RENDER_UI_TOOL_NAME,
     RENDER_UI_TOOL_TITLE,
+    renderUiDescription,
 } from '@/tools/render-ui'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 
@@ -118,7 +118,7 @@ export class InstructionsBuilder {
         return {
             name: RENDER_UI_TOOL_NAME,
             title: RENDER_UI_TOOL_TITLE,
-            description: RENDER_UI_TOOL_DESCRIPTION,
+            description: renderUiDescription(toolNames),
             // Derived from the same zod schema the executor validates with, so the
             // advertised contract (enum, descriptions, required) cannot drift from it.
             inputSchema: toMcpInputSchema(makeRenderUiSchema(toolNames as [string, ...string[]])),

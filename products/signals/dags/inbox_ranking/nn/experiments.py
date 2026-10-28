@@ -10,6 +10,11 @@ The `vs_baseline` block fits the experiment and its baseline with each of `EXPER
 same train rows, and grades both on the same holdout rows, so each seed gives a paired AUC gap.
 An experiment never enters the serving manifest and cannot be promoted or pinned. It stops training
 after its `expires` day, and a partition without examples is skipped and keeps what it holds.
+
+A pair-grain experiment trains in the pair lane (`nn/pair_lane.py`) on the day's
+`inbox_ranking_nn_pair_examples` object as well, and is graded within user against its pair baseline
+and its report-level reference (`nn/pair_grade.py`). A partition without pair examples skips the pair
+families only.
 """
 
 import datetime
@@ -28,8 +33,9 @@ from products.signals.dags.inbox_ranking.common import (
     skip_unconfigured,
 )
 from products.signals.dags.inbox_ranking.nn.dag import NN_ASSET_KWARGS, NN_EXAMPLES_TABLE, train_candidate
+from products.signals.dags.inbox_ranking.nn.pair_lane import train_pair_candidate
 from products.signals.dags.inbox_ranking.training.dag import _object_exists
-from products.signals.dags.inbox_ranking.training.families import ModelFamily, experiment_families
+from products.signals.dags.inbox_ranking.training.families import PAIR_GRAIN, ModelFamily, experiment_families
 
 NN_EXPERIMENTS_ASSET = "inbox_ranking_nn_experiment_candidates"
 
@@ -57,7 +63,8 @@ def run_experiments(
         context.log.warning(f"no nn examples for dt={partition_key}; every experiment skips this partition")
         return {**metadata, "skipped": dagster.MetadataValue.bool(True)}
     for family in live:
-        for name, value in train_candidate(context, client, bucket, partition_key, family).items():
+        train = train_pair_candidate if family.grain == PAIR_GRAIN else train_candidate
+        for name, value in train(context, client, bucket, partition_key, family).items():
             metadata[f"{family.name}_{name}"] = value
     return metadata
 
@@ -77,9 +84,14 @@ inbox_ranking_nn_experiments_job = dagster.define_asset_job(
     tags={
         **owner_tags,
         # Per experiment: the five network fits of a candidate, then one fit per seed for each of
-        # the experiment and its baseline. The experiments run one after the other.
+        # the experiment and its baseline. The experiments run one after the other. A pair
+        # experiment adds one report-grain fit per seed for its reference, and its fits run over
+        # the pair rows, a few times the report rows.
         "dagster/max_runtime": str(4 * 60 * 60),
         # As the nn job's candidate, plus the baseline's report matrix, held for the paired fits.
+        # A pair experiment holds its own and its baseline's pair report matrices (pair rows x
+        # 1536 floats each) and fits the reference before building them, so the reference's report
+        # matrix is gone by then. Pair rows a few times the report rows stay well inside the limit.
         "dagster-k8s/config": {
             "container_config": {
                 "resources": {

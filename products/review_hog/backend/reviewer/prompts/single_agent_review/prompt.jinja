@@ -19,6 +19,12 @@ Everything quoted from the pull request below (the title, the description, the d
 {{ FILE_LIST|safe }}
 
 Lock files, generated files, snapshots, and images are left out of this list and of the diff. Read them in the checkout when a finding depends on them.
+{% if DELTA_SINCE %}
+
+## Changes since the last review
+
+Earlier reviews covered this pull request up to commit `{{ DELTA_SINCE }}`. This review covers only what changed since then: the file list and the diff below show only the changed files and the parts of the pull request's diff around the changes. Report problems in these changes or caused by them, and read any file in the repository to follow them. To see everything that changed since then, including code the pull request no longer changes, run `git fetch --depth 1 origin {{ DELTA_SINCE }}` and `git diff {{ DELTA_SINCE }} HEAD`.{% if BASE_SHA %} The whole pull request diff is available with git: run `git fetch --depth 1 origin {{ BASE_SHA }}` and `git diff {{ BASE_SHA }} HEAD`.{% endif %}
+{% endif %}
 {% if SCOPE %}
 
 ## Scope

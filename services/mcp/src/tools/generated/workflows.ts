@@ -39,6 +39,9 @@ const broadcastsCreate = (): ToolBase<ReturnType<typeof BroadcastsCreateSchema>,
         if (params.origin_product !== undefined) {
             body['origin_product'] = params.origin_product
         }
+        if (params.source_record !== undefined) {
+            body['source_record'] = params.source_record
+        }
         if (params.trigger_masking !== undefined) {
             body['trigger_masking'] = params.trigger_masking
         }
@@ -119,6 +122,9 @@ const workflowsCreate = (): ToolBase<ReturnType<typeof WorkflowsCreateSchema>, W
                 }
                 if (params.origin_product !== undefined) {
                     body['origin_product'] = params.origin_product
+                }
+                if (params.source_record !== undefined) {
+                    body['source_record'] = params.source_record
                 }
                 if (params.trigger_masking !== undefined) {
                     body['trigger_masking'] = params.trigger_masking
@@ -385,11 +391,13 @@ const workflowsList = (): ToolBase<
                     created_at: params.created_at,
                     created_by: params.created_by,
                     id: params.id,
+                    latest_send_first: params.latest_send_first,
                     limit: params.limit,
                     offset: params.offset,
                     optimization_enabled: params.optimization_enabled,
                     origin_product: params.origin_product,
                     search: params.search,
+                    source_record: params.source_record,
                     status: params.status,
                     tags: params.tags,
                     trigger: params.trigger,
@@ -623,6 +631,68 @@ const workflowsPublish = (): ToolBase<ReturnType<typeof WorkflowsPublishSchema>,
             body,
         })
         return result
+    },
+})
+
+const WorkflowsReputationGetSchema = () => {
+    const HogFlowsReputationRetrieveQueryParams = orvalSchemas.HogFlowsReputationRetrieveQueryParams()
+    return HogFlowsReputationRetrieveQueryParams.extend({
+        fields: z
+            .array(
+                z.enum([
+                    'sending_allowance',
+                    'reputation',
+                    'workflows',
+                    'aws',
+                    'isps',
+                    'isp_shared_domains',
+                    'isp_withheld_domains',
+                    'email_sending_suspended',
+                    'email_sending_suspended_at',
+                    'email_sending_suspension_reason',
+                ])
+            )
+            .min(1)
+            .optional()
+            .describe(
+                'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
+            ),
+    })
+}
+
+const workflowsReputationGet = (): ToolBase<
+    ReturnType<typeof WorkflowsReputationGetSchema>,
+    Schemas.TeamEmailReputationResponse
+> => ({
+    name: 'workflows-reputation-get',
+    schema: WorkflowsReputationGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsReputationGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TeamEmailReputationResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/reputation/`,
+            query: {
+                search: params.search,
+            },
+        })
+        const filtered = pickResponseFields(
+            result,
+            params.fields?.length
+                ? params.fields
+                : [
+                      'sending_allowance',
+                      'reputation',
+                      'workflows',
+                      'aws',
+                      'isps',
+                      'isp_shared_domains',
+                      'isp_withheld_domains',
+                      'email_sending_suspended',
+                      'email_sending_suspended_at',
+                      'email_sending_suspension_reason',
+                  ]
+        ) as typeof result
+        return filtered
     },
 })
 
@@ -975,6 +1045,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-patch-action-email': workflowsPatchActionEmail,
     'workflows-patch-graph': workflowsPatchGraph,
     'workflows-publish': workflowsPublish,
+    'workflows-reputation-get': workflowsReputationGet,
     'workflows-restore-revision': workflowsRestoreRevision,
     'workflows-sending-rules-get': workflowsSendingRulesGet,
     'workflows-sending-rules-update': workflowsSendingRulesUpdate,

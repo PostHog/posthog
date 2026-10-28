@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import posthog from 'posthog-js'
+import posthog, { type CaptureOptions } from 'posthog-js'
+import { v4 as uuidv4 } from 'uuid'
 
 import { toast } from '@posthog/quill'
 
@@ -29,6 +30,66 @@ const PINS_LOAD_RETRIES = 3
 const PIN_SEARCH_RESULTS = 20
 const PINNABLE_DISPLAYS = 'ActionsLineGraph,ActionsBar,ActionsStackedBar,ActionsAreaGraph'
 export const PULSE_TILES = 4
+const PULSE_SLOW_MS = 30_000
+
+interface PulseLoad {
+    id: string
+    startedAt: number
+    firstNumberAt: number | null
+    requestCount: number
+    responseCount: number
+    errorCount: number
+    initialStatus: HighlightsApi['status'] | null
+    contentAtMount: boolean
+    startedVisible: boolean
+    wasHidden: boolean
+    finished: boolean
+}
+
+function pulseLoadOutcome(
+    status: HighlightsApi['status'] | undefined,
+    failed: boolean,
+    unavailable: boolean,
+    numberCount: number
+): 'request_error' | 'unavailable' | 'failed' | 'ready' | 'empty' | null {
+    if (failed) {
+        return 'request_error'
+    }
+    if (unavailable) {
+        return 'unavailable'
+    }
+    if (status === 'failed') {
+        return 'failed'
+    }
+    return status === 'ready' ? (numberCount > 0 ? 'ready' : 'empty') : null
+}
+
+function capturePulseLoad(
+    event: string,
+    load: PulseLoad,
+    properties: Record<string, unknown> = {},
+    options?: CaptureOptions
+): void {
+    const payload = {
+        load_id: load.id,
+        duration_ms: Math.round(performance.now() - load.startedAt),
+        first_number_duration_ms: load.firstNumberAt === null ? null : Math.round(load.firstNumberAt - load.startedAt),
+        request_count: load.requestCount,
+        response_count: load.responseCount,
+        error_count: load.errorCount,
+        initial_status: load.initialStatus,
+        content_at_mount: load.contentAtMount,
+        started_visible: load.startedVisible,
+        was_hidden: load.wasHidden,
+        visible: document.visibilityState === 'visible',
+        ...properties,
+    }
+    if (options) {
+        posthog.capture(event, payload, options)
+    } else {
+        posthog.capture(event, payload)
+    }
+}
 
 export interface PulsePlaceholderTile extends PulsePinApi {
     placeholder: 'computing' | 'unavailable'
@@ -181,6 +242,15 @@ export interface todayHighlightsLogicActions {
     pulsePinsSaved: () => {
         value: true
     }
+    pulseViewMounted: (sample: boolean) => {
+        sample: boolean
+    }
+    pulseViewUnmounted: (documentDeparture?: boolean) => {
+        documentDeparture: boolean
+    }
+    pulseViewUpdated: () => {
+        value: true
+    }
     releasePulseOrder: (owner: string) => {
         owner: string
     }
@@ -268,6 +338,9 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         holdPulseOrder: (owner: string, keys: string[]) => ({ owner, keys }),
         releasePulseOrder: (owner: string) => ({ owner }),
         pulsePinsLoadGaveUp: true,
+        pulseViewMounted: (sample: boolean) => ({ sample }),
+        pulseViewUpdated: true,
+        pulseViewUnmounted: (documentDeparture: boolean = false) => ({ documentDeparture }),
     }),
     loaders(({ values, cache }) => ({
         pulseInsightResults: [
@@ -447,6 +520,124 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        pulseViewMounted: ({ sample }) => {
+            if (sample) {
+                return
+            }
+            const load: PulseLoad = {
+                id: uuidv4(),
+                startedAt: performance.now(),
+                firstNumberAt: null,
+                requestCount: values.highlightsLoading ? 1 : 0,
+                responseCount: 0,
+                errorCount: 0,
+                initialStatus: values.highlights?.status ?? null,
+                contentAtMount: values.highlights?.generated_at !== null && values.highlights !== null,
+                startedVisible: document.visibilityState === 'visible',
+                wasHidden: document.visibilityState !== 'visible',
+                finished: false,
+            }
+            cache.pulseLoad = load
+            capturePulseLoad('today pulse load started', load)
+            cache.disposables.add(
+                () => {
+                    const onPageHide = (): void => actions.pulseViewUnmounted(true)
+                    const onPageShow = (event: PageTransitionEvent): void => {
+                        if (event.persisted) {
+                            actions.pulseViewMounted(sample)
+                            actions.pulseViewUpdated()
+                        }
+                    }
+                    window.addEventListener('pagehide', onPageHide)
+                    window.addEventListener('pageshow', onPageShow)
+                    return () => {
+                        window.removeEventListener('pagehide', onPageHide)
+                        window.removeEventListener('pageshow', onPageShow)
+                    }
+                },
+                'pulseLoadPageLifecycle',
+                { pauseOnPageHidden: false }
+            )
+            cache.disposables.add(
+                () => {
+                    const onVisibilityChange = (): void => {
+                        load.wasHidden ||= document.visibilityState !== 'visible'
+                    }
+                    document.addEventListener('visibilitychange', onVisibilityChange)
+                    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+                },
+                'pulseLoadVisibility',
+                { pauseOnPageHidden: false }
+            )
+            cache.disposables.add(
+                () => {
+                    const timer = window.setTimeout(() => {
+                        if (!load.finished) {
+                            capturePulseLoad('today pulse load slow', load)
+                        }
+                    }, PULSE_SLOW_MS)
+                    return () => clearTimeout(timer)
+                },
+                'pulseLoadSlow',
+                { pauseOnPageHidden: false }
+            )
+        },
+        pulseViewUpdated: () => {
+            const load = cache.pulseLoad as PulseLoad | undefined
+            if (!load || load.finished) {
+                return
+            }
+            const numberCount = values.highlightsPending
+                ? 0
+                : values.pulseTiles.filter((tile) => !isPlaceholderTile(tile)).length
+            if (numberCount > 0 && load.firstNumberAt === null) {
+                load.firstNumberAt = performance.now()
+                capturePulseLoad('today pulse first number shown', load, { number_count: numberCount })
+            }
+            const outcome = pulseLoadOutcome(
+                values.highlights?.status,
+                values.highlightsFailed,
+                cache.highlightsUnavailable === true,
+                numberCount
+            )
+            if (outcome) {
+                load.finished = true
+                cache.disposables.dispose('pulseLoadSlow')
+                cache.disposables.dispose('pulseLoadVisibility')
+                capturePulseLoad('today pulse load finished', load, { outcome, number_count: numberCount })
+            }
+        },
+        pulseViewUnmounted: ({ documentDeparture }) => {
+            const load = cache.pulseLoad as PulseLoad | undefined
+            if (load && !load.finished) {
+                load.finished = true
+                capturePulseLoad(
+                    'today pulse load finished',
+                    load,
+                    { outcome: 'abandoned' },
+                    documentDeparture ? { transport: 'sendBeacon', send_instantly: true } : undefined
+                )
+            }
+            cache.disposables.dispose('pulseLoadSlow')
+            cache.disposables.dispose('pulseLoadVisibility')
+            if (!documentDeparture) {
+                cache.disposables.dispose('pulseLoadPageLifecycle')
+            }
+            delete cache.pulseLoad
+        },
+        loadHighlights: () => {
+            cache.highlightsUnavailable = false
+            const load = cache.pulseLoad as PulseLoad | undefined
+            if (load && !load.finished) {
+                load.requestCount += 1
+            }
+        },
+        loadHighlightsFailure: () => {
+            const load = cache.pulseLoad as PulseLoad | undefined
+            if (load && !load.finished) {
+                load.errorCount += 1
+            }
+        },
         setPinnedPulseKeys: async ({ metrics }, breakpoint) => {
             cache.pinEdits = (cache.pinEdits ?? 0) + 1
             const previous: Promise<unknown> = cache.pinsSave ?? Promise.resolve()
@@ -560,6 +751,12 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             }, 'pulsePinsLoadRetry')
         },
         loadHighlightsSuccess: ({ highlights }) => {
+            cache.highlightsUnavailable = highlights === null
+            const load = cache.pulseLoad as PulseLoad | undefined
+            if (load && !load.finished) {
+                load.responseCount += 1
+                load.initialStatus ??= highlights?.status ?? null
+            }
             if (!highlights) {
                 return
             }

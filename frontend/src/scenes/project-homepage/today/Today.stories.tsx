@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { ReactNode } from 'react'
@@ -476,10 +476,7 @@ const OPEN_REPORT_COUNT = 46
 // a story. Clearing it makes each story start clean, so only the sample stories show sample reports.
 // A story's `spaceFeedView` parameter is written after the clear, so it starts with that saved space feed view, the
 // way a returning person sees it.
-function clearTodayStorage(
-    Story: () => JSX.Element,
-    { parameters }: { parameters: { spaceFeedView?: Record<string, unknown> } }
-): JSX.Element {
+const clearTodayStorage: Decorator = (Story, { parameters }) => {
     for (const key of Object.keys(window.localStorage)) {
         if (/today|spaceFeedViewLogic/i.test(key)) {
             window.localStorage.removeItem(key)
@@ -663,6 +660,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.85,
             priority: 'P1',
             source: 'alerts',
+            product: 'alerts',
         },
         {
             key: 'new_error:0195a0b2-0000-0000-0000-000000000001',
@@ -674,6 +672,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.82,
             priority: 'P1',
             source: 'errors',
+            product: 'error_tracking',
         },
         {
             key: 'home:rev01',
@@ -685,6 +684,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.6,
             priority: 'P2',
             source: 'home',
+            product: 'today',
         },
         {
             key: 'key_metric:payment_event',
@@ -696,6 +696,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.57,
             priority: 'P2',
             source: 'key_metrics',
+            product: 'today',
         },
         {
             key: 'experiment_ended:12',
@@ -707,6 +708,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.6,
             priority: 'P3',
             source: 'experiments',
+            product: 'experiments',
         },
         {
             key: 'assigned_quiet',
@@ -718,6 +720,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.35,
             priority: 'P4',
             source: 'errors',
+            product: 'error_tracking',
         },
     ],
 }
@@ -915,6 +918,7 @@ const meta: Meta = {
                     const results = type ? LIBRARY.filter((entry) => entry.type === type) : LIBRARY
                     return [200, { results, count: results.length }]
                 },
+                '/api/projects/:team_id/file_system/frequent/': [],
                 '/api/environments/:team_id/file_system/unfiled/': { results: [], count: 0 },
                 '/api/projects/:team_id/canvases/canvas-building/': VIEW_CANVASES[1],
                 '/api/projects/:team_id/tasks/task-canvas-building/': {
@@ -974,6 +978,52 @@ export default meta
 type Story = StoryObj<{}>
 
 export const Home: Story = { decorators: [keepNumbers([])] }
+
+export const HomeWithFrequentItems: Story = {
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            [FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS]: true,
+            [FEATURE_FLAGS.TODAY_JUMP_BACK_RANKING]: 'test',
+        },
+    },
+    decorators: [
+        keepNumbers([]),
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/file_system/frequent/': [
+                    {
+                        id: 'fs-frequent-1',
+                        path: 'Dashboards/Daily operations',
+                        type: 'dashboard',
+                        ref: '81',
+                        href: '/dashboard/81',
+                        last_viewed_at: '2026-09-27T09:00:00Z',
+                    },
+                    {
+                        id: 'fs-frequent-2',
+                        path: 'Notebooks/Weekly review',
+                        type: 'notebook',
+                        ref: 'weekly-review',
+                        href: '/notebooks/weekly-review',
+                        last_viewed_at: '2026-09-21T09:00:00Z',
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
+export const HomeWithRecentRanking: Story = {
+    ...HomeWithFrequentItems,
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            [FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS]: true,
+            [FEATURE_FLAGS.TODAY_JUMP_BACK_RANKING]: 'control',
+        },
+    },
+}
 
 export const HomeWithKeptNumbers: Story = {
     decorators: [

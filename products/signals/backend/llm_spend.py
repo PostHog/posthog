@@ -75,7 +75,6 @@ async def _settle_generation(
         return None
     finally:
         await database_sync_to_async(record_llm_spend)(
-            request_id,
             token_cost_microusd=cost_microusd,
             team_id=team_id,
             signal_id=signal_id,
@@ -107,7 +106,7 @@ async def generate_with_spend(
             await _settle_generation(request_id, gateway=gateway, team_id=team_id, signal_id=signal_id, stage=stage)
         else:
             await database_sync_to_async(record_llm_spend)(
-                None, token_cost_microusd=None, team_id=team_id, signal_id=signal_id, stage=stage
+                token_cost_microusd=None, team_id=team_id, signal_id=signal_id, stage=stage
             )
         raise
     spend = await _settle_generation(

@@ -42,7 +42,9 @@ export class PersonContext {
         /** Fold plan shared by this event's consecutive $identify run; see person-merge-fold.ts. */
         public readonly mergeFoldPlan?: MergeFoldPlan,
         /** The personhog identity service publishes the merge verdict warnings it settles, so this consumer must not. */
-        public readonly identityEmitsMergeWarnings: boolean = false
+        public readonly identityEmitsMergeWarnings: boolean = false,
+        /** Per-batch wall-clock budget for re-sending merges the backend refused before they ran; 0 escalates at once. */
+        public readonly mergeNotAppliedWaitMs: number = 0
     ) {
         this.eventProperties = event.properties!
     }
