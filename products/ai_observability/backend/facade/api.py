@@ -20,6 +20,7 @@ from ..logic.traces.evaluation_result import EvaluationResult
 from ..logic.traces.evaluation_result_queries import load_evaluation_results, load_output_configs
 from ..logic.traces.evaluation_summary import EvaluationSummary
 from ..logic.traces.events_fallback import fallback_window
+from ..logic.traces.git import GitRef
 from ..logic.traces.node import NodeEvent
 from ..logic.traces.timeline import TimelineRow
 from ..logic.traces.trace import Trace
@@ -147,7 +148,12 @@ def _to_trace(trace: Trace) -> contracts.Trace:
         thread_node_ids=trace.thread_node_ids,
         default_node_id=trace.default_node_id,
         node_ids_by_alias=trace.node_ids_by_alias,
+        git=_to_git(trace.git) if trace.git is not None else None,
     )
+
+
+def _to_git(ref: GitRef) -> contracts.TraceGit:
+    return contracts.TraceGit(branch=ref.branch, repo=ref.repo)
 
 
 def _to_node_detail(node_id: str, event: NodeEvent) -> contracts.TraceNodeDetail:

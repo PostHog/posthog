@@ -8,7 +8,13 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
 import type { SaveToDatasetButtonProps } from '../../../datasets/SaveToDatasetButton'
-import type { TraceEvaluationResultsApi, TraceNodeApi, TraceTimelineRowApi } from '../../../generated/api.schemas'
+import type {
+    TraceApi,
+    TraceEvaluationResultsApi,
+    TraceNodeApi,
+    TraceTimelineRowApi,
+} from '../../../generated/api.schemas'
+import { GitBranchChipProps } from '../components/GitBranchChip'
 import { TraceHeaderProps } from '../components/TraceHeader'
 import { TraceSummaryBarProps } from '../components/TraceSummaryBar'
 import { TraceViewStatus, traceViewLogic } from '../traceViewLogic'
@@ -60,6 +66,7 @@ export interface traceViewAdapterLogicValues {
         rows: TraceTimelineRowApi[]
         totalMs: number
     } // traceViewLogic
+    trace: TraceApi | null // traceViewLogic
     traceHasError: boolean // traceViewLogic
     traceName: string // traceViewLogic
     tree: TraceNodeApi[] // traceViewLogic
@@ -70,6 +77,7 @@ export interface traceViewAdapterLogicValues {
     detailTab: NodeDetailTab
     evalOutcomesByNode: Record<string, EvalRollupOutcome>
     evalsChip: EvalsChipData | null
+    gitBranch: GitBranchChipProps | null
     header: TraceHeaderProps
     mode: TraceMode
     selectedNodeId: string
@@ -99,11 +107,11 @@ export interface traceViewAdapterLogicActions {
         trigger: import('../types').NodeLoadTrigger
     } // traceViewLogic
     loadTraceSuccess: (
-        trace: import('../../../generated/api.schemas').TraceApi,
+        trace: TraceApi,
         payload?: any
     ) => {
         payload?: any
-        trace: import('../../../generated/api.schemas').TraceApi
+        trace: TraceApi
     } // traceViewLogic
     prefetchNode: (id: string) => {
         id: string
@@ -180,6 +188,7 @@ export interface traceViewAdapterLogicMeta {
         ) => ConversationState
         evalsChip: (evaluationResults: TraceEvaluationResultsApi | null) => EvalsChipData | null
         evalOutcomesByNode: (evaluationResults: TraceEvaluationResultsApi | null) => Record<string, EvalRollupOutcome>
+        gitBranch: (trace: TraceApi | null) => GitBranchChipProps | null
         canViewInThread: (selectedNodeId: string, threadNodeIds: string[], traceId: string) => boolean
     }
 }
@@ -219,6 +228,7 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 'nodeIdsByAlias',
                 'evaluationResults',
                 'evaluationResultsFailed',
+                'trace',
             ],
             aiObservabilityTraceLogic,
             ['eventId', 'initialTab', 'olderTraceId', 'olderTimestamp', 'newerTraceId', 'newerTimestamp'],
@@ -397,6 +407,7 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             (evaluationResults: TraceEvaluationResultsApi | null): Record<string, EvalRollupOutcome> =>
                 evaluationResults ? toEvalOutcomesByNode(evaluationResults.summary) : {},
         ],
+        gitBranch: [(s) => [s.trace], (trace: TraceApi | null): GitBranchChipProps | null => trace?.git ?? null],
         canViewInThread: [
             (s, p) => [s.selectedNodeId, s.threadNodeIds, p.traceId],
             (selectedNodeId: string, threadNodeIds: string[], traceId: string): boolean =>
