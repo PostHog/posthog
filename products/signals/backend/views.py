@@ -186,7 +186,10 @@ from products.signals.backend.report_claims import (
     reports_with_active_claim,
     responsible_users,
 )
-from products.signals.backend.report_content_gates import organization_report_monitoring_enabled
+from products.signals.backend.report_content_gates import (
+    organization_inbox_cached_filters_enabled,
+    organization_report_monitoring_enabled,
+)
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerPayloadIndex,
@@ -1529,6 +1532,12 @@ class SignalReportViewSet(
     def _report_monitoring_enabled(self) -> bool:
         return organization_report_monitoring_enabled(self.organization.id)
 
+    @cached_property
+    def _inbox_cached_filters(self) -> bool:
+        # Reads the cached report columns instead of the per-report authorship and PR-link
+        # subqueries. Behind a flag until the daily reconcile shows no drift.
+        return organization_inbox_cached_filters_enabled(self.organization.id)
+
     def _resolved_read_statuses(self) -> frozenset[str]:
         statuses = frozenset({SignalReport.Status.RESOLVED})
         if not self._report_monitoring_enabled:
@@ -1685,7 +1694,9 @@ class SignalReportViewSet(
         report_ids_with_prefix = fetch_report_ids_for_scout_prefix(self.team, scout_prefix)
         return queryset.filter(id__in=report_ids_with_prefix)
 
-    def _implementation_pr_report_filter(self):
+    def _implementation_pr_report_filter(self) -> Q:
+        if self._inbox_cached_filters:
+            return Q(has_implementation_pr=True)
         return implementation_pr_report_filter(team_id=self.team.id)
 
     def _apply_signal_report_implementation_pr_filter(self, queryset):
@@ -1704,7 +1715,11 @@ class SignalReportViewSet(
         wants_unclaimed = self._bool_query_param("unclaimed")
         if wants_unclaimed is None:
             return queryset
-        has_review_pr = implementation_pr_report_filter(team_id=self.team.id, active_only=True)
+        has_review_pr = (
+            Q(has_active_implementation_pr=True)
+            if self._inbox_cached_filters
+            else implementation_pr_report_filter(team_id=self.team.id, active_only=True)
+        )
         is_unclaimed = (
             ~Q(status__in={SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING})
             & ~reports_with_active_claim(team_id=self.team_id)
@@ -2794,6 +2809,7 @@ class SignalReportViewSet(
         )
         list_span.set_attribute("signals.reports.list.count_only", count_only)
         list_span.set_attribute("signals.reports.list.include_source_metadata", include_source_metadata)
+        list_span.set_attribute("signals.reports.list.cached_filters", self._inbox_cached_filters)
 
         with tracer.start_as_current_span("signals.reports.list.queryset"):
             queryset = self.filter_queryset(self.get_queryset())
