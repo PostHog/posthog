@@ -2,19 +2,13 @@
 //! (`POST /internal/batch_flag_evaluation`), which backs flag-driven static cohort
 //! generation.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-
 use anyhow::Result;
 use reqwest::StatusCode;
 use serde_json::{json, Value};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::net::{TcpListener, TcpStream};
-use url::Url;
 use uuid::Uuid;
 
 pub mod common;
+use crate::common::persons_db_proxy::PersonsDbProxy;
 use crate::common::ServerHandle;
 use feature_flags::config::{Config, DEFAULT_TEST_CONFIG};
 use feature_flags::flags::flag_matching_utils::calculate_hash;
@@ -949,77 +943,6 @@ async fn test_experience_continuity_overrides_read_but_never_written() -> Result
     Ok(())
 }
 
-/// Returns a persons database URL that goes through a proxy. The proxy forwards traffic until a
-/// client sends bytes that contain `needle`. From then on it sends nothing more to Postgres on any
-/// connection and keeps every socket open. Postgres never receives the frozen query. Its statement
-/// timeout therefore cannot end the query. A database that has stopped answering behaves the same
-/// way.
-async fn persons_db_url_frozen_by_query_containing(needle: &'static [u8]) -> Result<String> {
-    let mut url = Url::parse(&DEFAULT_TEST_CONFIG.persons_read_database_url)?;
-    let upstream = format!(
-        "{}:{}",
-        url.host_str().expect("the persons database URL has a host"),
-        url.port().unwrap_or(5432)
-    );
-    let listener = TcpListener::bind("127.0.0.1:0").await?;
-    let proxy_port = listener.local_addr()?.port();
-    let frozen = Arc::new(AtomicBool::new(false));
-
-    tokio::spawn(async move {
-        while let Ok((client, _)) = listener.accept().await {
-            let upstream = upstream.clone();
-            let frozen = frozen.clone();
-            tokio::spawn(async move {
-                let Ok(server) = TcpStream::connect(&upstream).await else {
-                    return;
-                };
-                let (client_reader, mut client_writer) = client.into_split();
-                let (mut server_reader, server_writer) = server.into_split();
-                tokio::spawn(async move {
-                    tokio::io::copy(&mut server_reader, &mut client_writer).await
-                });
-                forward_to_postgres_until_frozen(client_reader, server_writer, &frozen, needle)
-                    .await;
-            });
-        }
-    });
-
-    url.set_host(Some("127.0.0.1"))?;
-    url.set_port(Some(proxy_port))
-        .expect("a postgres URL accepts a port");
-    // The proxy matches `needle` in plaintext, so the connection must not use TLS.
-    url.query_pairs_mut().append_pair("sslmode", "disable");
-    Ok(url.to_string())
-}
-
-async fn forward_to_postgres_until_frozen(
-    mut from: OwnedReadHalf,
-    mut to: OwnedWriteHalf,
-    frozen: &AtomicBool,
-    needle: &[u8],
-) {
-    let mut buf = vec![0; 16 * 1024];
-    // Keeps the end of the previous read so that a needle split across two reads still matches.
-    let mut window = Vec::new();
-    loop {
-        let n = match from.read(&mut buf).await {
-            Ok(0) | Err(_) => return,
-            Ok(n) => n,
-        };
-        window.extend_from_slice(&buf[..n]);
-        if window.windows(needle.len()).any(|w| w == needle) {
-            frozen.store(true, Ordering::SeqCst);
-        }
-        window.drain(..window.len().saturating_sub(needle.len() - 1));
-        if frozen.load(Ordering::SeqCst) {
-            std::future::pending::<()>().await;
-        }
-        if to.write_all(&buf[..n]).await.is_err() {
-            return;
-        }
-    }
-}
-
 #[tokio::test]
 async fn test_unanswered_persons_query_fails_the_person_at_the_deadline() -> Result<()> {
     let context = TestContext::new(None).await;
@@ -1042,8 +965,9 @@ async fn test_unanswered_persons_query_fails_the_person_at_the_deadline() -> Res
     let mut config = batch_eval_config();
     // Only the per-person evaluation reads the override table. The page scan runs before it
     // through the same proxy and gets its answer.
-    config.persons_read_database_url =
-        persons_db_url_frozen_by_query_containing(b"posthog_featureflaghashkeyoverride").await?;
+    let proxy = PersonsDbProxy::start().await?;
+    proxy.freeze_on_query_containing(b"posthog_featureflaghashkeyoverride");
+    config.persons_read_database_url = proxy.url();
     config.persons_db_deadline_ms = 200;
     // Without the deadline, the page does not finish before this timeout. The endpoint then
     // returns 503.

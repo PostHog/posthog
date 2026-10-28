@@ -50,6 +50,7 @@ jobs:
         outputs:
             rust: ${{ steps.filter.outputs.rust || 'true' }}
             all_crates: ${{ steps.filter.outputs.all_crates || 'false' }}
+            flags_db_faults: ${{ steps.filter.outputs.flags_db_faults || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -103,6 +104,20 @@ jobs:
                         # Pins the service images that every crate's tests run against.
                         # A determinator rule would also rebuild and deploy every Rust image.
                         - 'docker-compose.base.yml'
+                      flags_db_faults:
+                        # The persons DB pools, deadline, request gating, and router that keep /flags up through a stall.
+                        - 'rust/common/database/**'
+                        - 'rust/feature-flags/src/config.rs'
+                        - 'rust/feature-flags/src/database/**'
+                        - 'rust/feature-flags/src/database_pools.rs'
+                        - 'rust/feature-flags/src/db_monitor.rs'
+                        - 'rust/feature-flags/src/handler/flags.rs'
+                        - 'rust/feature-flags/src/router.rs'
+                        - 'rust/feature-flags/src/server.rs'
+                        - 'rust/feature-flags/src/utils/deadline.rs'
+                        - 'rust/feature-flags/tests/common/**'
+                        - 'rust/feature-flags/tests/test_persons_db_faults.rs'
+                        - '.github/workflows/ci-rust.yml'
 
     # Compute affected crates and test shards. Only runs when Rust changes
     # are detected, keeping the lightweight `changes` job fast for non-Rust PRs.
@@ -499,6 +514,127 @@ jobs:
               if: ${{ !cancelled() && steps.run-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
               run: exit 1
+
+            - name: Report sccache counters
+              if: always()
+              continue-on-error: true
+              run: |
+                  if command -v sccache >/dev/null; then
+                      # The full report includes the cache endpoint, so allow only numeric counters.
+                      sccache --show-stats 2>/dev/null | awk '/^(Compile requests|Cache hits|Cache misses|Non-cacheable calls)[[:space:]]+[0-9]+$/ { print }'
+                  fi
+
+    # Runs the /flags persons DB fault tests, which are #[ignore]d in the main test job because they
+    # depend on timing. They run alone here, one at a time, so other tests cannot slow them down.
+    flags-db-faults:
+        name: Flags persons DB fault tests
+        needs: changes
+        if: needs.changes.outputs.flags_db_faults == 'true'
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 25
+        permissions:
+            contents: read
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+        defaults:
+            run:
+                working-directory: rust
+
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+
+            - name: Log in to Docker Hub
+              continue-on-error: true
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ vars.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Start Postgres and Redis
+              env:
+                  COMPOSE_FILE: ../docker-compose.dev.yml:../docker-compose.profiles.yml
+                  WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 10
+              run: |
+                  ../bin/ci-wait-for-docker launch --down db redis7
+                  ../bin/ci-wait-for-docker wait --only db redis7
+
+                  echo "127.0.0.1 db redis7" | sudo tee -a /etc/hosts
+
+            # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
+            - name: Install rust
+              uses: ./.github/actions/setup-rust
+              with:
+                  toolchain: 1.91.1
+
+            - name: Install protoc
+              uses: ./.github/actions/setup-protoc
+
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+
+            - name: Install sccache
+              uses: ./.github/actions/setup-sccache
+
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: 'pyproject.toml'
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            - name: Install uv
+              id: setup-uv
+              uses: ./.github/actions/setup-uv
+
+            - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv.outputs.cache-hit != 'true'
+              run: |
+                  sudo rm -f /etc/apt/sources.list.d/*twingate*
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl postgresql-client
+
+            - name: Install python dependencies
+              run: |
+                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev --directory ..
+
+            - name: Install sqlx-cli
+              uses: ./.github/actions/setup-sqlx-cli
+
+            - name: Set up databases
+              env:
+                  DEBUG: 'true'
+                  TEST: 'true'
+                  SECRET_KEY: 'abcdef' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+              run: cd ../ && python manage.py setup_test_environment
+
+            - name: Run sqlx migrations
+              env:
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
+              run: sqlx migrate run --source persons_migrations/
+
+            - name: Download MaxMind Database
+              run: |
+                  cd ../ && ./bin/download-mmdb
+
+            - name: Run the fault tests
+              env:
+                  RUST_BACKTRACE: 1
+              run: cargo test -p feature-flags --test test_persons_db_faults -- --ignored --test-threads=1
 
             - name: Report sccache counters
               if: always()
