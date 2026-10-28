@@ -67,6 +67,31 @@ filters:
         - bin/temporal-django-worker
         - manage.py
         - Dockerfile
+    wizardWorker:
+        - 'products/wizard/backend/**'
+        - 'products/tasks/backend/**'
+        - 'posthog/temporal/oauth.py'
+        - 'posthog/egress/github/**'
+        - 'posthog/egress/limiter/**'
+        - 'posthog/egress/transport/**'
+        - 'posthog/egress/observability/**'
+        - 'posthog/credentials_service/**'
+        - posthog/redis.py
+        - 'posthog/storage/object_storage.py'
+        - 'posthog/temporal/common/**'
+        - 'posthog/management/commands/start_temporal_worker.py'
+        - 'posthog/settings/temporal.py'
+        - posthog/schema.py
+        - 'posthog/models/**'
+        - 'posthog/migrations/**'
+        - 'products/*/backend/migrations/**'
+        - 'posthog/clickhouse/migrations/**'
+        - posthog/exceptions.py
+        - pyproject.toml
+        - uv.lock
+        - bin/temporal-django-worker
+        - manage.py
+        - Dockerfile
 
 images:
     posthog-cloud:
@@ -79,3 +104,7 @@ images:
                 repository: posthog-temporal-workers/data-warehouse-metadata
                 filter: dataWarehouseMetadata
                 bootstrapPolicyDigest: 49975342dfa3dce5f0c4767e2bc90c295a7ce12cfb5daaa99075026f20dd3620
+            wizard:
+                repository: posthog-temporal-workers/wizard
+                filter: wizardWorker
+                bootstrapPolicyDigest: 7436d119df36955f25266fbe774bfb36a1a5664ad6d13c5520755674a2500c5c
