@@ -8,6 +8,43 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
+ */
+export type SendEmailApiMessageData = { [key: string]: unknown }
+
+export interface TransactionalEmailIdentifiersApi {
+    /**
+     * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
+     * @maxLength 400
+     * @nullable
+     */
+    distinct_id?: string | null
+}
+
+export interface SendEmailTemplateApi {
+    /** ID of the email template to send. The template must be made transactional first. */
+    id: string
+}
+
+export interface SendEmailApi {
+    /** Email address of the recipient. */
+    to: string
+    /** Who the email is for, used to attribute engagement events. */
+    identifiers?: TransactionalEmailIdentifiersApi
+    /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
+    message_data?: SendEmailApiMessageData
+    /** The transactional email template to send. */
+    template: SendEmailTemplateApi
+}
+
+export interface SendTransactionalEmailResponseApi {
+    /** ID of the queued send. Delivery and engagement are reported against the template asynchronously. */
+    message_id: string
+    /** True when an earlier request with the same `Idempotency-Key` already queued this email. No new email was sent, and `message_id` is the earlier send's ID. */
+    replayed: boolean
+}
+
+/**
  * * `marketing` - Marketing
  * * `transactional` - Transactional
  */
@@ -197,6 +234,135 @@ export interface RemoveOptOutRequestApi {
 export interface WebhookUrlApi {
     /** URL to register in Customer.io so it posts subscription changes to PostHog. */
     url: string
+}
+
+/**
+ * * `customerio` - Customer.io
+ */
+export type ImportProviderKeyEnumApi = (typeof ImportProviderKeyEnumApi)[keyof typeof ImportProviderKeyEnumApi]
+
+export const ImportProviderKeyEnumApi = {
+    Customerio: 'customerio',
+} as const
+
+/**
+ * * `queued` - Waiting to start
+ * * `running` - Importing
+ * * `completed` - Imported
+ * * `failed` - Failed
+ */
+export type ProviderImportStatusEnumApi = (typeof ProviderImportStatusEnumApi)[keyof typeof ProviderImportStatusEnumApi]
+
+export const ProviderImportStatusEnumApi = {
+    Queued: 'queued',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `pending` - Not started
+ * * `running` - Importing
+ * * `completed` - Imported
+ * * `failed` - Failed
+ */
+export type ImportStepStatusEnumApi = (typeof ImportStepStatusEnumApi)[keyof typeof ImportStepStatusEnumApi]
+
+export const ImportStepStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface ImportStepProgressApi {
+    /** Step key, for example `suppressions`. */
+    key: string
+    /** Display name of the step. */
+    label: string
+    /** `pending` until the step starts, `running` while it imports or waits to retry, then `completed` or `failed`.
+     *
+     * * `pending` - Not started
+     * * `running` - Importing
+     * * `completed` - Imported
+     * * `failed` - Failed */
+    status: ImportStepStatusEnumApi
+    /** How many records the step read from the provider so far. */
+    processed: number
+    /** How many records the step added or updated in PostHog so far. Records that already existed and need no change may not count. */
+    imported: number
+    /** Problems with single records that did not fail the step. */
+    warnings: string[]
+    /**
+     * The error from the step's most recent failed attempt. A running step retries after an error; a failed step stopped.
+     * @nullable
+     */
+    last_error: string | null
+}
+
+export interface ProviderImportRunApi {
+    /** Import run ID. */
+    id: string
+    /** The provider the run imports from.
+     *
+     * * `customerio` - Customer.io */
+    provider: ImportProviderKeyEnumApi
+    /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
+     *
+     * * `queued` - Waiting to start
+     * * `running` - Importing
+     * * `completed` - Imported
+     * * `failed` - Failed */
+    status: ProviderImportStatusEnumApi
+    /** Progress of each selected step, in run order. */
+    steps: ImportStepProgressApi[]
+    /** When the run was requested. */
+    created_at: string
+    /**
+     * When the first step started.
+     * @nullable
+     */
+    started_at: string | null
+    /**
+     * When the last step ended.
+     * @nullable
+     */
+    finished_at: string | null
+}
+
+export interface StartProviderImportApi {
+    /** The provider to import from.
+     *
+     * * `customerio` - Customer.io */
+    provider: ImportProviderKeyEnumApi
+    /**
+     * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
+     * @minItems 1
+     * @items.maxLength 64
+     */
+    steps: string[]
+    /** The provider's API key. For Customer.io, an App API key. Leave it out to reuse the stored key. */
+    api_key?: string
+}
+
+export interface ImportStepOptionApi {
+    /** Step key to send in `steps` when starting an import, for example `suppressions`. */
+    key: string
+    /** Display name of the step. */
+    label: string
+    /** What the step imports and where it lands in PostHog. */
+    description: string
+}
+
+export interface ImportProviderOptionApi {
+    /** Provider key to send when starting an import.
+     *
+     * * `customerio` - Customer.io */
+    key: ImportProviderKeyEnumApi
+    /** Display name of the provider. */
+    label: string
+    /** What the provider can import, in the order the steps run. */
+    steps: ImportStepOptionApi[]
 }
 
 export interface AddSuppressionRequestApi {
@@ -591,15 +757,6 @@ export interface MakeTransactionalApi {
  */
 export type SendTransactionalEmailApiMessageData = { [key: string]: unknown }
 
-export interface TransactionalEmailIdentifiersApi {
-    /**
-     * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
-     * @maxLength 400
-     * @nullable
-     */
-    distinct_id?: string | null
-}
-
 export interface SendTransactionalEmailApi {
     /** Email address of the recipient. */
     to: string
@@ -607,13 +764,6 @@ export interface SendTransactionalEmailApi {
     identifiers?: TransactionalEmailIdentifiersApi
     /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
     message_data?: SendTransactionalEmailApiMessageData
-}
-
-export interface SendTransactionalEmailResponseApi {
-    /** ID of the queued send. Delivery and engagement are reported against the template asynchronously. */
-    message_id: string
-    /** True when an earlier request with the same `Idempotency-Key` already queued this email. No new email was sent, and `message_id` is the earlier send's ID. */
-    replayed: boolean
 }
 
 export type MessagingCategoriesListParams = {

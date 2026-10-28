@@ -2,6 +2,9 @@ import { cleanup, renderHook } from '@testing-library/react'
 import { Provider } from 'kea'
 import { ReactNode } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -167,6 +170,28 @@ describe('useTaxonomicGroupsContext', () => {
         expect(types.has(TaxonomicFilterGroupType.HogQLExpression)).toBe(true)
         expect(types.has(TaxonomicFilterGroupType.SuggestedFilters)).toBe(true)
     })
+
+    it.each([
+        [TaxonomicFilterGroupType.Events, 'test', false, 'true'],
+        [TaxonomicFilterGroupType.CustomEvents, 'test', false, 'true'],
+        [TaxonomicFilterGroupType.Events, 'test', true, 'false'],
+        [TaxonomicFilterGroupType.CustomEvents, 'test', true, 'false'],
+        [TaxonomicFilterGroupType.Events, 'control', false, 'false'],
+        [TaxonomicFilterGroupType.CustomEvents, 'control', false, 'false'],
+        [TaxonomicFilterGroupType.Events, false, false, 'false'],
+        [TaxonomicFilterGroupType.CustomEvents, false, false, 'false'],
+    ])(
+        'for %s with the flag %p and allowNonCapturedEvents %p, fuzzy_search is %p',
+        (groupType, flagValue, allowNonCapturedEvents, expected) => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_FUZZY_EVENT_SEARCH]: flagValue,
+            })
+            const { result } = renderHook(() => useTaxonomicGroupsContext({ allowNonCapturedEvents }), { wrapper })
+            const group = buildTaxonomicGroups(result.current).find((item) => item.type === groupType)
+            expect(new URL(group!.endpoint!, 'http://localhost').searchParams.get('fuzzy_search')).toBe(expected)
+        }
+    )
 
     it('makes exception properties commit as event property filters', () => {
         const { result } = renderHook(() => useTaxonomicGroupsContext({}), { wrapper })

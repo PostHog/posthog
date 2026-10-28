@@ -3,7 +3,7 @@ owners: []
 # Team slugs below are GitHub teams in this organization.
 github_org: PostHog
 # Automation that a team can redirect or silence under `notifications:`.
-producers: [stamphog, visual_review, flaky_report]
+producers: [stamphog, visual_review, flaky_report, mcp_tool_health]
 # services/mcp generate-tools reads every YAML file in a product's mcp/ directory.
 reserved_dirs: ['products/**/mcp/**']
 # A product manifest already lists its owners, so it counts as an ownership file.
@@ -87,7 +87,7 @@ rules:
       owners: [team-devex, team-agent-infrastructure]
       sensitive: true
     - match: '/cli/'
-      owners: team-error-tracking
+      owners: team-growth
     - match: '/docs/onboarding/ai-observability/'
       owners: team-ai-observability
     - match: '/docs/published/handbook/engineering/developing-locally.md'
@@ -96,6 +96,8 @@ rules:
           - '/frontend/src/lib/lemon-ui/'
           - '/frontend/src/lib/ui/'
       owners: platform-ux
+    - match: '/hog/'
+      owners: team-growth
     - match: '/nodejs/tests/'
       owners: team-ingestion
     - match: '/packages/quill/'
@@ -194,4 +196,5 @@ rules:
           - '/services/*'
           - '/packages/*'
           - '/cli/*'
+          - '/hog/*'
       additions: team-devex

@@ -24,6 +24,8 @@ export type ExperimentHealthFindingCode =
     | 'zero_exposures'
     | 'no_metric'
     | 'metric_event_not_ingested'
+    | 'metric_cannot_compile'
+    | 'metric_calculation_failed'
     | 'exposure_criteria_cannot_match'
     | 'forced_variant_release_condition'
     | 'flag_variants_mismatch'

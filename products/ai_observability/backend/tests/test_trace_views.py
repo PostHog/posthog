@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.constants import AvailableFeature
 from posthog.models import Team
@@ -179,6 +180,7 @@ class TestTraceViewSet(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(self._url(_encode("trace-1")) + suffix, headers=headers)
 
         assert response.status_code == 429
+        assert response["Retry-After"] == str(CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS)
 
 
 class TestTraceNodeView(ClickhouseTestMixin, APIBaseTest):
@@ -270,22 +272,33 @@ class TestTraceEvaluationsView(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(self._url(_encode("trace-1")))
 
         assert response.status_code == 200
-        assert response.json()["results"][0] | {"timestamp": None} == {
+        body = response.json()
+        assert body["results"][0] | {"timestamp": None} == {
             "id": EVALUATION_RESULT,
             "evaluationId": None,
             "evaluationName": "Answers the question",
             "targetNodeId": GENERATION,
             "outcome": "pass",
             "label": "True",
+            "score": None,
             "reasoning": "Direct answer.",
             "timestamp": None,
             "isBackfill": False,
+        }
+        assert body["summary"] == {
+            "passed": 1,
+            "failed": 0,
+            "unrated": 0,
+            "nodes": [{"nodeId": GENERATION, "outcome": "pass"}],
         }
 
     def test_an_unknown_trace_has_no_results(self) -> None:
         response = self.client.get(self._url(_encode("trace-2")))
 
-        assert (response.status_code, response.json()) == (200, {"results": []})
+        assert (response.status_code, response.json()) == (
+            200,
+            {"results": [], "summary": {"passed": 0, "failed": 0, "unrated": 0, "nodes": []}},
+        )
 
     def test_rejects_an_unencoded_trace_id(self) -> None:
         assert self.client.get(self._url("trace-1")).status_code == 400

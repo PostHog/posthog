@@ -10,6 +10,8 @@ DEFAULT_HOST = "https://app.chatwoot.com"
 CONTACTS_PAGE_SIZE = 15
 # `after`-cursor pages on the messages endpoint return up to 100 rows (MessageFinder#messages_after).
 MESSAGES_PAGE_SIZE = 100
+# The contact_labels walk reads the contacts list once per label, filtered to that label.
+CONTACT_LABELS_PARAMS = {"sort": "created_at", "include_contact_inboxes": "false"}
 
 # The REST API returns `message_type` as an integer enum; webhook payloads carry the string form.
 MESSAGE_TYPE_TO_INT = {"incoming": 0, "outgoing": 1, "activity": 2, "template": 3}
@@ -22,10 +24,11 @@ class ChatwootEndpointConfig:
     # placeholder filled from the parent endpoint's rows.
     path: str
     # "paged": page-number list. "single": one unpaginated response. "messages": the
-    # per-conversation fan-out with an id-based `after` cursor. "reporting_events": a
-    # page-number list bounded by a since/until window. "member_fanout": one unpaginated
-    # request per parent row, stamping the parent id onto each child row.
-    kind: Literal["paged", "single", "messages", "reporting_events", "member_fanout"]
+    # per-conversation fan-out with an id-based `after` cursor. "reporting_events" and
+    # "audit_logs": page-number lists bounded by a since/until window. "member_fanout": one
+    # unpaginated request per parent row, stamping the parent id onto each child row.
+    # "contact_labels": a paged contacts walk per label, one row per (label, contact) pair.
+    kind: Literal["paged", "single", "messages", "reporting_events", "audit_logs", "member_fanout", "contact_labels"]
     # Where the row list lives in the response body; () means the body is a bare JSON array.
     data_path: tuple[str, ...] = ()
     # Query params sent on every request.
@@ -38,16 +41,16 @@ class ChatwootEndpointConfig:
     description: Optional[str] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Order rows arrive in, which the pipeline's watermark handling depends on.
-    sort_mode: SortMode = "asc"
+    sort_mode: Optional[SortMode] = "asc"
     # member_fanout only: the endpoint whose rows supply {parent_id}, and the column each child
     # row records it in. Agent ids repeat across parents, so the column is part of the primary key.
     parent: Optional[str] = None
     parent_id_field: Optional[str] = None
 
 
-# Only reporting_events declares incremental sync: it is the one endpoint with a server-side
-# timestamp filter (since/until on created_at). Every other list endpoint is a full walk, and
-# webhooks are the delta path for conversations and messages.
+# Only reporting_events and audit_logs declare incremental sync: they are the endpoints with a
+# server-side timestamp filter (since/until on created_at). Every other list endpoint is a full
+# walk, and webhooks are the delta path for conversations and messages.
 CHATWOOT_ENDPOINTS: dict[str, ChatwootEndpointConfig] = {
     "conversations": ChatwootEndpointConfig(
         name="conversations",
@@ -162,6 +165,45 @@ CHATWOOT_ENDPOINTS: dict[str, ChatwootEndpointConfig] = {
         path="/custom_attribute_definitions",
         kind="single",
         description="Custom attribute definitions for conversations, contacts, and companies.",
+    ),
+    "contact_labels": ChatwootEndpointConfig(
+        name="contact_labels",
+        path="/contacts",
+        kind="contact_labels",
+        data_path=("payload",),
+        params=CONTACT_LABELS_PARAMS,
+        parent="labels",
+        parent_id_field="label_id",
+        primary_keys=["label_id", "contact_id"],
+        description=(
+            "Which labels are attached to which contacts. One row per label on a contact, joinable "
+            "to labels on label_id and to contacts on contact_id. Conversation labels are already "
+            "in the labels column of the conversations table."
+        ),
+    ),
+    "audit_logs": ChatwootEndpointConfig(
+        name="audit_logs",
+        path="/audit_logs",
+        kind="audit_logs",
+        data_path=("audit_logs",),
+        params={"sort": "asc"},
+        partition_key="created_at",
+        incremental_fields=[
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.Integer,
+            }
+        ],
+        # Older self-hosted instances ignore sort/since/until and return newest-first, so the
+        # order is not guaranteed.
+        sort_mode=None,
+        description=(
+            "Who created, changed, or deleted what in the account, with the changed values. "
+            "Requires an administrator token, and the endpoint is absent on Chatwoot "
+            "community-edition builds."
+        ),
     ),
 }
 

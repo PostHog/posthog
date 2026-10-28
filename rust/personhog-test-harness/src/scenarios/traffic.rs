@@ -648,6 +648,7 @@ fn chaos_config(args: &TrafficArgs) -> ChaosConfig {
             target(TargetKind::Leader, &args.chaos_leader_namespace),
             target(TargetKind::Router, &args.chaos_router_namespace),
             target(TargetKind::Writer, &args.chaos_writer_namespace),
+            target(TargetKind::Identity, &args.chaos_identity_namespace),
         ],
         etcd: args
             .chaos_etcd_endpoints
@@ -844,9 +845,8 @@ mod tests {
         store.revoke_lease(contender).await.unwrap();
     }
 
-    #[test]
-    fn vacuous_or_panicking_configurations_are_rejected() {
-        let valid = TrafficArgs {
+    fn valid_args() -> TrafficArgs {
+        TrafficArgs {
             chaos_etcd_namespace: None,
             router_url: "http://localhost:1".to_string(),
             identity_url: "http://localhost:2".to_string(),
@@ -871,9 +871,54 @@ mod tests {
             chaos_leader_namespace: "personhog-leader".to_string(),
             chaos_router_namespace: "personhog-router-leader".to_string(),
             chaos_writer_namespace: "personhog-writer".to_string(),
+            chaos_identity_namespace: "personhog-identity".to_string(),
             chaos_etcd_endpoints: None,
             chaos_etcd_prefix: "/personhog/".to_string(),
-        };
+        }
+    }
+
+    #[test]
+    fn chaos_draws_from_the_app_pods_of_every_service_class_and_never_etcd() {
+        let cfg = chaos_config(&TrafficArgs {
+            chaos_etcd_namespace: Some("etcd-ingestion".to_string()),
+            ..valid_args()
+        });
+        let pool: Vec<(TargetKind, &str, &str)> = cfg
+            .targets
+            .iter()
+            .map(|t| (t.kind, t.namespace.as_str(), t.selector.as_str()))
+            .collect();
+        assert_eq!(
+            pool,
+            [
+                (
+                    TargetKind::Leader,
+                    "personhog-leader",
+                    "app.kubernetes.io/name=personhog-leader,app.kubernetes.io/component=app"
+                ),
+                (
+                    TargetKind::Router,
+                    "personhog-router-leader",
+                    "app.kubernetes.io/name=personhog-router-leader,app.kubernetes.io/component=app"
+                ),
+                (
+                    TargetKind::Writer,
+                    "personhog-writer",
+                    "app.kubernetes.io/name=personhog-writer,app.kubernetes.io/component=app"
+                ),
+                (
+                    TargetKind::Identity,
+                    "personhog-identity",
+                    "app.kubernetes.io/name=personhog-identity,app.kubernetes.io/component=app"
+                ),
+            ]
+        );
+        assert_eq!(cfg.etcd_target.map(|t| t.kind), Some(TargetKind::Etcd));
+    }
+
+    #[test]
+    fn vacuous_or_panicking_configurations_are_rejected() {
+        let valid = valid_args();
         assert!(validate_args(&valid).is_ok());
         // A disabled hostile lane is legal; zero traffic knobs are not.
         assert!(validate_args(&TrafficArgs {

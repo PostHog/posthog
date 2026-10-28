@@ -50,10 +50,9 @@ from products.slack_app.backend.feature_flags import (
     ASSISTANT_REQUIRED_SCOPES,
     is_slack_app_assistant_enabled,
     is_slack_app_oauth_enabled,
-    is_slack_app_unprompted_answers_enabled,
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
-from products.slack_app.backend.logic import reply_suggestions
+from products.slack_app.backend.logic import interview_recruitment, reply_suggestions
 from products.slack_app.backend.logic.feature_tips import interactivity as feature_tip_interactivity
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
@@ -2579,15 +2578,6 @@ def _route_untagged_question(
     if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer, incoming_host):
         return _proxy_event_and_return_route(request, other_domain, {ALREADY_EMITTED_HEADER: "1"})
 
-    # Most top-level posts are chatter, so the flag drops them before the author's mode read and
-    # user resolution. The flag is rolled out per organization, and a workspace can connect
-    # projects from several organizations, so each project keeps its own answer.
-    enabled_integration_ids = {
-        candidate.id for candidate in workspace_result.candidates if is_slack_app_unprompted_answers_enabled(candidate)
-    }
-    if not enabled_integration_ids:
-        return ROUTE_HANDLED_LOCALLY
-
     # One indexed read, ahead of user resolution, which can call Slack's users.info for every author.
     if resolve_untagged_question_mode(slack_team_id, slack_user_id) == UntaggedFollowupMode.NEVER:
         return ROUTE_HANDLED_LOCALLY
@@ -2605,8 +2595,6 @@ def _route_untagged_question(
     # No picker: asking which project a question nobody addressed to us belongs to is noise.
     target = resolution.integration or (candidates[0] if len(candidates) == 1 else None)
     if target is None or SlackIntegration(target).missing_scopes(REQUIRED_SLACK_SCOPES):
-        return ROUTE_HANDLED_LOCALLY
-    if target.id not in enabled_integration_ids:
         return ROUTE_HANDLED_LOCALLY
     # A post that tags the app also arrives as an ``app_mention``, and the mention pipeline answers that copy.
     if _message_tags_bot(event, target):
@@ -4111,7 +4099,6 @@ def _handle_untagged_question_run(payload: dict) -> HttpResponse:
         not isinstance(event, dict)
         or slack.missing_scopes(REQUIRED_SLACK_SCOPES)
         or resolve_untagged_question_mode(integration.integration_id, slack_user_id) == UntaggedFollowupMode.NEVER
-        or not is_slack_app_unprompted_answers_enabled(integration)
         or (posthog_user := _is_org_member(integration, slack_user_id)) is None
         or not _can_access_team(posthog_user, integration)
     ):
@@ -5855,7 +5842,9 @@ def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
-def _replace_message_stripping_actions(payload: dict, text: str, *, keep_link_buttons: bool = True) -> None:
+def _replace_message_stripping_actions(
+    payload: dict, text: str, *, keep_link_buttons: bool = True, process_attachments: bool = False
+) -> None:
     """Best-effort: replace the original message's interactive buttons with a context line.
 
     When keep_link_buttons is True, link buttons (elements with a "url" key, e.g. "View in
@@ -5866,18 +5855,28 @@ def _replace_message_stripping_actions(payload: dict, text: str, *, keep_link_bu
         return
 
     original_message = payload.get("message", {})
-    kept_blocks = []
-    for block in original_message.get("blocks", []):
-        if block.get("type") != "actions":
-            kept_blocks.append(block)
-            continue
-        if keep_link_buttons:
-            kept_elements = [el for el in block.get("elements", []) if "url" in el]
-            if kept_elements:
-                kept_blocks.append({**block, "elements": kept_elements})
-    kept_blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": text}]})
 
-    inbox_interactivity.post_response_url(response_url, {"replace_original": True, "text": text, "blocks": kept_blocks})
+    def without_actions(blocks: list[dict]) -> list[dict]:
+        kept_blocks = []
+        for block in blocks:
+            if block.get("type") != "actions":
+                kept_blocks.append(block)
+                continue
+            if keep_link_buttons:
+                kept_elements = [el for el in block.get("elements", []) if "url" in el]
+                if kept_elements:
+                    kept_blocks.append({**block, "elements": kept_elements})
+        return kept_blocks
+
+    kept_blocks = without_actions(original_message.get("blocks", []))
+    kept_blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": text}]})
+    response: dict = {"replace_original": True, "text": text, "blocks": kept_blocks}
+    if process_attachments and original_message.get("attachments"):
+        response["attachments"] = [
+            {**attachment, "blocks": without_actions(attachment.get("blocks", []))}
+            for attachment in original_message["attachments"]
+        ]
+    inbox_interactivity.post_response_url(response_url, response)
 
 
 def _post_signals_dismiss_feedback(payload: dict, *, dismissed: bool, slack_user_id: str) -> None:
@@ -6064,7 +6063,9 @@ def _handle_insight_alert_snooze(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
     if outcome == "disabled":
         logger.info("insight_alert_snooze_alert_disabled", alert_id=str(alert_uuid))
-        _replace_message_stripping_actions(payload, "This alert is disabled, so there is nothing to snooze.")
+        _replace_message_stripping_actions(
+            payload, "This alert is disabled, so there is nothing to snooze.", process_attachments=True
+        )
         return HttpResponse(status=200)
     if outcome == "not_snoozable":
         logger.warning("insight_alert_snooze_refused_by_platform", alert_id=str(alert_uuid))
@@ -6096,7 +6097,7 @@ def _handle_insight_alert_snooze(payload: dict) -> HttpResponse:
         assert until is not None
         snoozed_wording = f"until {until.strftime('%Y-%m-%d %H:%M')} UTC"
     actor = f"<@{slack_user_id}>" if slack_user_id else "a teammate"
-    _replace_message_stripping_actions(payload, f"😴 Snoozed {snoozed_wording} by {actor}")
+    _replace_message_stripping_actions(payload, f"😴 Snoozed {snoozed_wording} by {actor}", process_attachments=True)
     return HttpResponse(status=200)
 
 
@@ -6301,6 +6302,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         or turn_feedback.extract_modal_hint(payload)
         or (clicked_reply_suggestion.integration_id if clicked_reply_suggestion else None)
         or feature_tip_interactivity.feature_tip_integration_hint(payload)
+        or interview_recruitment.interview_integration_hint(payload)
     )
     requesting_user = payload.get("user", {}).get("id", "")
     slack_team_id = payload.get("team", {}).get("id")
@@ -6468,6 +6470,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return turn_feedback.handle_turn_feedback_click(payload)
             if feature_tip_interactivity.is_feature_tip_action(action_id):
                 return feature_tip_interactivity.handle_feature_tip_action(payload)
+            if interview_recruitment.is_interview_action(action_id):
+                return interview_recruitment.handle_interview_action(payload)
             if reply_suggestions.is_reply_suggestion_action(action_id) and clicked_reply_suggestion:
                 return _handle_reply_suggestion_click(payload, clicked_reply_suggestion)
             if action_id == CHANNEL_APPROVAL_ACTION_APPROVE:

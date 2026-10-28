@@ -11,6 +11,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import mask_key_value
 
 from products.conversations.backend.models import TeamConversationsSlackConfig
+from products.conversations.backend.models.constants import AUTOMATED_UPDATE_SLACK_CHANNEL_IDS
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
@@ -26,6 +27,13 @@ SUPPORT_SLACK_FILE_SCOPES = frozenset({SUPPORT_SLACK_FILE_READ_SCOPE, SUPPORT_SL
 
 # Posting under a name and avatar other than the bot's own needs this.
 SUPPORT_SLACK_CUSTOM_IDENTITY_SCOPE = "chat:write.customize"
+
+
+def automated_update_channel_allowed(team: "Team", channel_id: str) -> bool:
+    project_team = team.parent_team or team
+    settings = project_team.conversations_settings
+    channel_ids = settings.get(AUTOMATED_UPDATE_SLACK_CHANNEL_IDS) if isinstance(settings, dict) else None
+    return isinstance(channel_ids, list) and channel_id in channel_ids
 
 
 # Every SupportHog delivery is verified with the signing secret, so the read is cached and not made
