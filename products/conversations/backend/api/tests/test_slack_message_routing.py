@@ -873,6 +873,7 @@ class TestSlackNudge(BaseTest):
             "x-posthog-property-slack_channel_id": "C_OTHER",
             "x-posthog-property-slack_thread_ts": "1700000000.000100",
         }
+        assert mock_get_llm_client.call_args.kwargs["team_id"] == self.team.id
 
     @override_settings(TEST=False, LLM_GATEWAY_URL="http://gateway.local", LLM_GATEWAY_API_KEY="test-key")
     @patch(f"{MODULE}.posthoganalytics.feature_enabled", return_value=True)

@@ -1023,6 +1023,7 @@ def _nudge_classifier_verdict(
         client = build_anthropic_client(
             product="conversations",
             ai_product="conversations",
+            team_id=team_id,
             distinct_id=f"team-{team_id}",
             properties={
                 "team_id": str(team_id),
