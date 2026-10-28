@@ -9,7 +9,10 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from products.messaging.backend.models.message_preferences import MessageRecipientPreference
+from products.messaging.backend.models.message_preferences import (
+    ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+    MessageRecipientPreference,
+)
 from products.messaging.backend.models.message_suppression import MessageSuppression
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.provider_imports import runs
@@ -148,6 +151,38 @@ class TestProviderImportRuns(BaseTest):
         assert set(
             MessageRecipientPreference.objects.filter(team_id=self.team.id).values_list("identifier", flat=True)
         ) == {"shared@example.com", "other@example.com"}
+
+    def test_opt_outs_merge_into_a_preference_saved_while_the_import_runs(
+        self, mock_client_class: MagicMock, _start_workflow: MagicMock
+    ) -> None:
+        mock_client_class.return_value.get_globally_unsubscribed_customers.return_value = {
+            "identifiers": [{"id": "1", "email": "raced@example.com"}],
+            "next": "",
+        }
+        MessageRecipientPreference.objects.create(
+            team_id=self.team.id, identifier="raced@example.com", preferences={"category-1": "OPTED_OUT"}
+        )
+        run = self._start(["opt_outs"])
+        read_existing = MessageRecipientPreference.objects.filter
+        reads = 0
+
+        def miss_the_first_read(*args: object, **kwargs: object) -> object:
+            nonlocal reads
+            reads += 1
+            return MessageRecipientPreference.objects.none() if reads == 1 else read_existing(*args, **kwargs)
+
+        with patch.object(MessageRecipientPreference.objects, "filter", side_effect=miss_the_first_read):
+            with self.assertRaises(IntegrityError):
+                runs.run_step(self.team.id, run.id, "opt_outs", attempt=1)
+            runs.run_step(self.team.id, run.id, "opt_outs", attempt=2)
+
+        run.refresh_from_db()
+        assert run.progress["opt_outs"]["status"] == "completed"
+        preference = MessageRecipientPreference.objects.get(team_id=self.team.id, identifier="raced@example.com")
+        assert preference.preferences == {
+            "category-1": "OPTED_OUT",
+            ALL_MESSAGE_PREFERENCE_CATEGORY_ID: "OPTED_OUT",
+        }
 
     def test_category_warnings_never_carry_raw_exception_text(
         self, mock_client_class: MagicMock, _start_workflow: MagicMock

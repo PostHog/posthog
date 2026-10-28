@@ -632,8 +632,9 @@ class CustomerIOImportService:
 
             # Bulk operations
             if to_create:
-                # ignore_conflicts covers a row an unsubscribe link or webhook inserts between the read and this write.
-                MessageRecipientPreference.objects.bulk_create(to_create, batch_size=500, ignore_conflicts=True)
+                # No ignore_conflicts: a row inserted between the read and this write must fail the batch, so a retry
+                # merges the opt-out into it instead of silently skipping the recipient.
+                MessageRecipientPreference.objects.bulk_create(to_create, batch_size=500)
 
             if to_update:
                 MessageRecipientPreference.objects.bulk_update(to_update, ["preferences", "updated_at"], batch_size=500)
