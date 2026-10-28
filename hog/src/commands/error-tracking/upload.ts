@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 import { defineCommand } from '@/core/command'
@@ -35,7 +36,7 @@ interface Prepared {
 function prepare(artifact: Artifact, mapId: string | undefined): Prepared {
     // ProGuard mappings carry no id of their own: the Android build plugin writes one into the app,
     // and the same value must be passed here.
-    const chunkId = artifact.root.mapId ?? mapId
+    const chunkId = mapId ?? artifact.root.mapId
     if (!chunkId) {
         throw new HogError(
             'map_id_required',
@@ -75,7 +76,8 @@ function releaseGit(ctx: Context, artifacts: Artifact[]): GitInfo | undefined {
         return undefined
     }
     try {
-        return gitInfo(ctx.runtime.env, dirname(first.path))
+        // posthog-cli resolves symlinks first, so a link outside the repository still finds it.
+        return gitInfo(ctx.runtime.env, dirname(realpathSync(first.path)))
     } catch (error) {
         if (error instanceof GitError) {
             throw new HogError(

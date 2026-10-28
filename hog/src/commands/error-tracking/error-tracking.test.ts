@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { contentHash, SymbolDataType, writeSymbolData } from '@/error-tracking/container'
 import { runHog } from '@/testing'
 
-import { SMALL_MAPPING } from '../../../test/parity/fixtures'
+import { GIT_REPO, SMALL_MAPPING } from '../../../test/parity/fixtures'
 
 function project(files: Record<string, string>): string {
     const folder = mkdtempSync(join(tmpdir(), 'hog-et-'))
@@ -18,7 +18,10 @@ function project(files: Record<string, string>): string {
 }
 
 describe('hog error-tracking upload', () => {
-    test('--dry-run plans uploads from posthog.json without credentials', async () => {
+    test.each([
+        ['the map ID from posthog.json', [], 'map-1'],
+        ['--map-id over the one in posthog.json', ['--map-id', 'map-2'], 'map-2'],
+    ])('--dry-run plans uploads from posthog.json without credentials, with %s', async (_name, flags, chunkId) => {
         const folder = project({
             'posthog.json': JSON.stringify({
                 errorTracking: {
@@ -29,7 +32,7 @@ describe('hog error-tracking upload', () => {
             'build/mapping.txt': SMALL_MAPPING,
             'build/notes.txt': 'not a mapping',
         })
-        const result = await runHog(['et', 'upload', '--dry-run'], {
+        const result = await runHog(['et', 'upload', '--dry-run', ...flags], {
             env: { CLAUDECODE: '1' },
             cwd: folder,
             useDisk: true,
@@ -43,7 +46,7 @@ describe('hog error-tracking upload', () => {
                 {
                     path: 'build/mapping.txt',
                     kind: 'proguard',
-                    chunkId: 'map-1',
+                    chunkId,
                     contentHash: contentHash(
                         writeSymbolData(SymbolDataType.ProguardMapping, Buffer.from(SMALL_MAPPING))
                     ),
@@ -51,6 +54,22 @@ describe('hog error-tracking upload', () => {
                     status: 'planned',
                 },
             ],
+        })
+    })
+
+    test('--dry-run reads the release from the repository a symlinked mapping points into', async () => {
+        const repository = project({ ...GIT_REPO, 'app/mapping.txt': SMALL_MAPPING })
+        const outside = project({})
+        symlinkSync(join(repository, 'app/mapping.txt'), join(outside, 'mapping.txt'))
+        const result = await runHog(['et', 'upload', '--dry-run', 'mapping.txt', '--map-id', 'map-1'], {
+            env: { CLAUDECODE: '1' },
+            cwd: outside,
+            useDisk: true,
+        })
+        expect(result.json().release).toEqual({
+            name: 'example-app',
+            version: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00',
+            id: null,
         })
     })
 
