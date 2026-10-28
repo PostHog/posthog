@@ -21,6 +21,7 @@ import { RecipientManagerRecipient, RecipientsManagerService } from '../managers
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
+import { EmailStatusService, isTransactionalEmailSend } from './email-status.service'
 import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
 import {
     addTrackingToEmail,
@@ -29,7 +30,8 @@ import {
 } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
-import { SES_SENSITIVE_TAG } from './helpers/ses'
+import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
+import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
@@ -363,6 +365,9 @@ export class EmailService {
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
         private recipientsManager: RecipientsManagerService,
+        // Required, so that a caller which builds the service without it fails to compile. Pass null
+        // only where no email status is recorded.
+        private emailStatusService: EmailStatusService | null,
         private messageAssetsService?: MessageAssetsService,
         private workflowEmailRateLimiter: RateLimiterService | null = null,
         private teamEmailRateLimiter: RateLimiterService | null = null
@@ -423,6 +428,7 @@ export class EmailService {
                         : 'Skipping send: our email provider paused sending for this project. Check the Reputation tab to see what to fix.'
                 addLog('warn', skipReason)
                 result.emailSendResult = { status: 'skipped', reason: skipReason }
+                this.emailStatusService?.queueSkippedSend(invocation, 'sending_suspended', isTest)
                 logger.warn('Skipping email send for a suspended team', {
                     teamId: invocation.teamId,
                     cause: suspensionCause,
@@ -459,6 +465,7 @@ export class EmailService {
                     : `Skipping send: email sending is paused for this workflow.${pauseDetail} Resume it from the workflow page once the audience is cleaned up.`
                 addLog('error', skipReason)
                 result.emailSendResult = { status: 'skipped', reason: skipReason }
+                this.emailStatusService?.queueSkippedSend(invocation, 'sending_paused', isTest)
                 if (!isTest) {
                     result.metrics.push({
                         team_id: invocation.teamId,
@@ -510,6 +517,7 @@ export class EmailService {
                         count: 1,
                     })
                 }
+                this.emailStatusService?.queueSkippedSend(invocation, 'missing_recipient', isTest)
                 result.skipped = true
                 result.invocation.state.vmState?.stack.push({ success: false })
                 return result
@@ -518,13 +526,19 @@ export class EmailService {
             // Single choke point for the suppression check — every send path lands here regardless
             // of whether the invocation came from a workflow action or an email destination hog
             // function. Checking here means callers can't bypass it by taking a different upstream
-            // route. Covers `to`, `cc`, and `bcc`; a suppressed address anywhere blocks the send.
-            const skipReason = await this.buildSuppressionSkipReason(invocation.teamId, params, {
+            // route. Suppressed addresses are removed from every list. A suppressed `to` is replaced by
+            // the first deliverable cc address, and the send is skipped only when none is left.
+            const suppressionOptions: SuppressionCheckOptions = {
                 transactional: invocation.hogFunction?.metadata?.message_category_type === 'transactional',
-            })
-            if (skipReason) {
+            }
+            const suppression = await removeSuppressedRecipients(params, (email) =>
+                this.emailSuppressionService.isSuppressed(invocation.teamId, email, suppressionOptions)
+            )
+            if (suppression.skip) {
+                const skipReason = `Skipping send: ${suppression.removed.join(', ')} ${suppression.removed.length === 1 ? 'is' : 'are'} on the suppression list and no cc address can receive the email instead`
                 addLog('info', skipReason)
                 result.emailSendResult = { status: 'skipped', reason: skipReason }
+                this.emailStatusService?.queueSkippedSend(invocation, 'recipient_suppressed', isTest)
                 if (!isTest) {
                     result.metrics.push({
                         team_id: invocation.teamId,
@@ -538,10 +552,30 @@ export class EmailService {
                 result.invocation.state.vmState?.stack.push({ success: false })
                 return result
             }
+            if (suppression.removed.length > 0) {
+                const promoted = suppression.promotedTo
+                    ? ` ${suppression.promotedTo.email} moves from cc to the To field.`
+                    : ''
+                addLog(
+                    'warn',
+                    `Not sending to ${suppression.removed.join(', ')} because ${suppression.removed.length === 1 ? 'it is' : 'they are'} on the suppression list.${promoted} The email still goes to the other recipients.`
+                )
+            }
+            // Always send the lists the suppression check parsed, so delivery uses the addresses it checked.
+            const deliverableParams = {
+                ...params,
+                to:
+                    suppression.promotedTo ??
+                    (params.to?.email
+                        ? { ...params.to, email: quoteMailbox(unquoteMailbox(params.to.email)) }
+                        : params.to),
+                cc: suppression.cc,
+                bcc: suppression.bcc,
+            }
 
             // Like suppression, the tracking decision lives at this choke point so every send path
             // (workflow action or email destination hog function) resolves it the same way.
-            trackingEnabled = await this.resolveTrackingEnabled(result.invocation, params)
+            trackingEnabled = await this.resolveTrackingEnabled(result.invocation, deliverableParams)
 
             // User-configured per-workflow pacing. Claimed last, after every skip gate, so a
             // suspended or suppressed send never spends a token. Test sends bypass it. When the
@@ -591,7 +625,9 @@ export class EmailService {
             // Charged per recipient, not per send: SES counts every to/cc/bcc address against its
             // own quota, so a send with many copies must spend that many tokens.
             const capRecipients =
-                1 + extractEmailsFromAddressList(params.cc).length + extractEmailsFromAddressList(params.bcc).length
+                1 +
+                extractEmailsFromAddressList(deliverableParams.cc).length +
+                extractEmailsFromAddressList(deliverableParams.bcc).length
             const capDelay = await this.claimTeamSendingBudget(invocation, isTest, capRecipients)
             if (capDelay) {
                 result.finished = false
@@ -612,9 +648,9 @@ export class EmailService {
 
             // A reply-to set on the email step wins over the sender's default.
             const paramsWithReplyTo =
-                parseAddressList(params.replyTo) || !integration.config.reply_to
-                    ? params
-                    : { ...params, replyTo: integration.config.reply_to }
+                parseAddressList(deliverableParams.replyTo) || !integration.config.reply_to
+                    ? deliverableParams
+                    : { ...deliverableParams, replyTo: integration.config.reply_to }
 
             // Tagged before click tracking wraps the links, so the tags land on the destination URL.
             const metadata = invocation.hogFunction.metadata
@@ -663,7 +699,7 @@ export class EmailService {
                 assetRow = this.messageAssetsService.buildRowForEmail(invocation, sendParams)
             }
             const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
-            addLog('info', `Email sent to ${params.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
+            addLog('info', `Email sent to ${sendParams.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
             success = true
             result.emailSendResult = { status: 'accepted' }
         } catch (error) {
@@ -724,6 +760,17 @@ export class EmailService {
 
             if (success && assetRow) {
                 result.messageAssets.push(assetRow)
+            }
+
+            // A failure here is final: SES throttling returned above to reschedule, and nothing
+            // retries a failed send.
+            if (this.emailStatusService && isTransactionalEmailSend(invocation)) {
+                this.emailStatusService.queue({
+                    teamId: invocation.teamId,
+                    messageId: invocation.id,
+                    status: success ? 'sent' : 'failed',
+                    reason: success ? undefined : 'provider_error',
+                })
             }
         }
 
@@ -865,39 +912,6 @@ export class EmailService {
         return null
     }
 
-    // Returns a human-readable log string when any destination address is suppressed for the team,
-    // or null when the send should proceed. Scans to + cc + bcc — SES delivers to every list, so a
-    // suppressed address anywhere blocks the whole send. `cc` and `bcc` can be comma-separated
-    // lists with RFC-822 `"Name" <email>` entries; we strip the angle-bracketed address before
-    // matching against the normalized suppression identifier.
-    private async buildSuppressionSkipReason(
-        teamId: number,
-        params: CyclotronInvocationQueueParametersEmailType,
-        options: SuppressionCheckOptions
-    ): Promise<string | null> {
-        const recipients: string[] = []
-        if (params.to?.email && params.to.email.trim()) {
-            recipients.push(params.to.email.trim())
-        }
-        recipients.push(...extractEmailsFromAddressList(params.cc))
-        recipients.push(...extractEmailsFromAddressList(params.bcc))
-        if (recipients.length === 0) {
-            return null
-        }
-
-        const results = await Promise.all(
-            recipients.map(async (email) => ({
-                email,
-                suppressed: await this.emailSuppressionService.isSuppressed(teamId, email, options),
-            }))
-        )
-        const suppressed = results.filter((r) => r.suppressed).map((r) => r.email)
-        if (suppressed.length === 0) {
-            return null
-        }
-        return `Skipping send: recipient(s) on the suppression list — ${suppressed.join(', ')}`
-    }
-
     // Per-send tracking decision, combining two independent controls:
     // 1. Message-level: `tracking_enabled` on the email step's config (via `hogFunction.metadata`,
     //    same as `message_category_type`). False is a hard off regardless of consent. Absent means
@@ -927,10 +941,11 @@ export class EmailService {
             // so consent must hold for every recipient (same reasoning as the suppression check).
             const recipients: string[] = []
             if (params.to?.email && params.to.email.trim()) {
-                recipients.push(params.to.email.trim())
+                recipients.push(unquoteMailbox(params.to.email))
             }
-            recipients.push(...extractEmailsFromAddressList(params.cc))
-            recipients.push(...extractEmailsFromAddressList(params.bcc))
+            // Preferences are stored against bare addresses, so a quoted local part is looked up unquoted.
+            recipients.push(...extractEmailsFromAddressList(params.cc).map(unquoteMailbox))
+            recipients.push(...extractEmailsFromAddressList(params.bcc).map(unquoteMailbox))
 
             const consents = await Promise.all(
                 recipients.map(async (email) => {
@@ -1155,6 +1170,9 @@ export class EmailService {
                 ...(result.invocation.hogFunction?.metadata?.sensitive === true
                     ? [{ Name: SES_SENSITIVE_TAG, Value: 'true' }]
                     : []),
+                ...(!isTest && isTransactionalEmailSend(result.invocation)
+                    ? [{ Name: SES_EMAIL_STATUS_TAG, Value: 'true' }]
+                    : []),
             ],
             FeedbackForwardingEmailAddress: from.email,
         }
@@ -1181,7 +1199,7 @@ export class EmailService {
         if (sendEmailParams.Content?.Simple) {
             const unsubscribeHeaders = !isTransactionalEmail
                 ? this.generateUnsubscribeHeaders(
-                      { team_id: result.invocation.teamId, identifier: params.to.email },
+                      { team_id: result.invocation.teamId, identifier: unquoteMailbox(params.to.email) },
                       preferencesTokenSourceForInvocation(result.invocation)
                   )
                 : []
