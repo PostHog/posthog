@@ -41,6 +41,7 @@ import {
     type NativeFile,
     type NativeProblem,
 } from './native/package'
+import { sourceStep } from './native/sources'
 import { fetchOrCreateRelease, resolveRelease, type Release, type ReleaseFields } from './release'
 import { SymbolSetClient, type SymbolSetUpload, type UploadStatus } from './upload'
 
@@ -56,6 +57,7 @@ export interface ErrorTrackingOptions {
     batchSize?: number
     concurrency: number
     deleteAfter: boolean
+    includeSource: boolean
     dryRun: boolean
 }
 
@@ -459,7 +461,7 @@ export async function upload(
         (artifact) => artifact.kind === 'elf' || artifact.kind === 'dsym'
     )
     if (nativeArtifacts.length > 0) {
-        const native = packageNative(nativeArtifacts, skipped)
+        const native = packageNative(nativeArtifacts, options.includeSource, skipped, warnings)
         // Like `symbol-sets upload`, the release comes from the flags, then git around the first
         // path. A git error only drops the git metadata.
         let git: GitInfo | undefined
@@ -479,8 +481,9 @@ export async function upload(
                 reported.id = releaseId
             }
         }
+        // posthog-cli forces source bundles, because the files on disk change between runs of one build.
         const policy = {
-            force: options.force,
+            force: options.force || (options.includeSource && !options.skipOnConflict),
             skipOnConflict: options.skipOnConflict,
             batchSize: options.batchSize ?? 10,
         }
@@ -641,7 +644,12 @@ const NATIVE_PROBLEMS: Record<NativeProblem, string> = {
 
 // `symbol-sets upload`: native files are parsed and deduplicated by debug ID, dSYM bundles are
 // split per slice, and a dSYM wins over a native file with the same ID.
-function packageNative(artifacts: Artifact[], skipped: Skip[]): { artifact: Artifact; upload: SymbolSetUpload }[] {
+function packageNative(
+    artifacts: Artifact[],
+    includeSource: boolean,
+    skipped: Skip[],
+    warnings: string[]
+): { artifact: Artifact; upload: SymbolSetUpload }[] {
     const owners = new Map<SymbolSetUpload, Artifact>()
     const files: { file: NativeFile; artifact: Artifact }[] = []
     for (const artifact of artifacts.filter((candidate) => !isDsymBundle(candidate.path))) {
@@ -669,15 +677,22 @@ function packageNative(artifacts: Artifact[], skipped: Skip[]): { artifact: Arti
                 reason: `${byFile.get(kept)!.display} has the same debug ID and is at least as large, so hog uploads that one.`,
             })
     ).map((file) => {
-        const upload = nativeUpload(file)
+        const upload = nativeUpload(file, includeSource ? sourceStep(file.data, 'native', warnings) : undefined)
         owners.set(upload, byFile.get(file)!)
         return upload
     })
     const dsyms: SymbolSetUpload[] = []
     for (const artifact of artifacts.filter((candidate) => isDsymBundle(candidate.path))) {
         try {
-            for (const slice of dsymSlices(artifact.path)) {
-                const upload = dsymUpload(slice)
+            // Sources come from the whole binary, so every slice of a fat binary carries all of them.
+            const steps = new Map<string, ReturnType<typeof sourceStep>>()
+            const uploads = dsymSlices(artifact.path).map((slice) => {
+                if (includeSource && !steps.has(slice.path)) {
+                    steps.set(slice.path, sourceStep(readFileSync(slice.path), 'dsym', warnings))
+                }
+                return dsymUpload(slice, steps.get(slice.path))
+            })
+            for (const upload of uploads) {
                 owners.set(upload, artifact)
                 dsyms.push(upload)
             }

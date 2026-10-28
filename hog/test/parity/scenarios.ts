@@ -1,8 +1,8 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 
 import type { Scenario } from './fake-server'
-import { GIT_REPO, mappingOfSize, readTree, SMALL_MAPPING } from './fixtures'
+import { GIT_REPO, mappingOfSize, readTree, SMALL_MAPPING, write } from './fixtures'
 import { EXPO_BUILD, HERMES_BUILD, HERMES_BUNDLES } from './hermes-fixtures'
 import { bundles, EDGE_CASES, MALFORMED_MAP_DEBUG_ID, PUBLIC_PATH, STYLESHEETS } from './js-fixtures'
 import { decodeFile, type ParityResult } from './run'
@@ -23,6 +23,8 @@ export interface ParityScenario {
     snapshot?: boolean
     // The run mints random UUIDv7 chunk ids, so compare their positions and not their values.
     randomIds?: boolean
+    // Runs before the commands, for state outside the folder.
+    setup?: () => void
 }
 
 // The files posthog-cli left behind in another scenario, so a step can start from its real output.
@@ -278,4 +280,25 @@ SCENARIOS.push(
     native('post-only', 'linux', linux, { args: nativeRelease, server: 'post-only' }),
     native('release-mismatch', 'apple', apple, { args: nativeRelease, server: 'release-mismatch' }),
     native('only-unusable', 'linux/checkout-no-build-id', linux)
+)
+
+// The native fixtures' DWARF names sources under this folder, which `--include-source` reads.
+const NATIVE_SOURCES = '/tmp/hog-parity-native'
+const placeSources = (): void => {
+    rmSync(NATIVE_SOURCES, { recursive: true, force: true })
+    write(NATIVE_SOURCES, readTree(join(import.meta.dir, 'native', 'src')))
+}
+const removeSources = (): void => rmSync(NATIVE_SOURCES, { recursive: true, force: true })
+const withSources = ['--include-source', ...nativeRelease]
+
+SCENARIOS.push(
+    native('sources-linux', 'linux', linux, { args: withSources, setup: placeSources }),
+    native('sources-apple', 'apple', apple, { args: withSources, setup: placeSources }),
+    native('sources-loose', 'apple-loose', appleLoose, { args: withSources, setup: placeSources }),
+    native('sources-skip-on-conflict', 'linux', linux, {
+        args: [...withSources, '--skip-on-conflict'],
+        server: 'hash-mismatch',
+        setup: placeSources,
+    }),
+    native('sources-missing', '.', () => ({ ...linux(), ...apple() }), { args: withSources, setup: removeSources })
 )
