@@ -90,7 +90,7 @@ class TestQuotaLimiting(BaseTest):
             return update_all_orgs_billing_quotas()
 
     @parameterized.expand([(False,), (True,)])
-    @time_machine.travel("2026-10-31T12:00:00Z", tick=False)
+    @time_machine.travel("2026-10-31T23:59:59.999999Z", tick=False)
     def test_offline_usage_updates_today_without_recounting_billing_history(self, deleted_team: bool) -> None:
         self.organization.usage = {
             "period": ["2026-10-01T00:00:00Z", "2026-11-01T00:00:00Z"],

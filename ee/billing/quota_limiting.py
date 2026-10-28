@@ -39,7 +39,7 @@ from posthog.tasks.usage_report import (
     iter_billable_teams,
 )
 from posthog.usage_counters import UsageCounter, UsageCounterService, log_usage_counter_comparisons
-from posthog.utils import DayRange, get_current_day
+from posthog.utils import get_current_day
 
 from products.ai_observability.backend.offline_evaluation_billing import get_offline_evaluation_usage
 
@@ -1344,7 +1344,6 @@ def update_all_orgs_billing_quotas(
     """
     total_start = time()
     period = get_current_day()
-    period = DayRange(start=period.start, end=period.start + timedelta(days=1))
     service = UsageCounterService()
     plan = service.resolve_plan(
         period,
@@ -1376,7 +1375,9 @@ def update_all_orgs_billing_quotas(
     tag_queries(product=Product.BILLING, feature=Feature.QUOTA_LIMITING)
     logger.info("quota_limiting_run", phase="queries", status="start")
     queries_start = time()
-    offline_usage = _timed_query("offline_evaluation_usage", get_offline_evaluation_usage, period.start, period.end)
+    offline_usage = _timed_query(
+        "offline_evaluation_usage", get_offline_evaluation_usage, period.start, period.start + timedelta(days=1)
+    )
     counter_report = _timed_query("usage_counters", service.fetch_report, period, plan=plan)
     log_usage_counter_comparisons(counter_report, caller="quota_limiting", date=period.start.date().isoformat())
 

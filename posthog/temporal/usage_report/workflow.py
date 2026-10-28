@@ -60,7 +60,6 @@ LOGS_DISTINCT_PATTERNS_QUERY_PATCH_ID = "usage-report-logs-distinct-patterns-que
 LOGS_DISTINCT_PATTERNS_QUERY_NAME = "teams_with_logs_distinct_patterns_in_period"
 TRANSACTIONAL_EMAILS_QUERY_PATCH_ID = "usage-report-transactional-emails-query-2026-10"
 TRANSACTIONAL_EMAILS_QUERY_NAME = "teams_with_workflow_transactional_emails_sent_in_period"
-EXCLUSIVE_DAY_END_PATCH_ID = "usage-report-exclusive-day-end-2026-10"
 
 
 def _queries_for_sandbox_compute_patch(patch_applied: bool) -> list[QuerySpec]:
@@ -81,9 +80,7 @@ def _queries_for_transactional_emails_patch(queries: list[QuerySpec], patch_appl
     return [spec for spec in queries if spec.name != TRANSACTIONAL_EMAILS_QUERY_NAME]
 
 
-def build_context(
-    inputs: RunUsageReportsInputs, run_id: str, now: datetime, *, exclusive_day_end: bool = False
-) -> WorkflowContext:
+def build_context(inputs: RunUsageReportsInputs, run_id: str, now: datetime) -> WorkflowContext:
     """Compute the period and S3 layout context. Pure function so it's safe
     to call from the workflow body (no real-time access).
 
@@ -97,9 +94,7 @@ def build_context(
     """
     report_day = (now.astimezone(UTC) - timedelta(days=inputs.day_offset)).date()
     period_start = datetime.combine(report_day, time.min, tzinfo=UTC)
-    period_end = (
-        period_start + timedelta(days=1) if exclusive_day_end else datetime.combine(report_day, time.max, tzinfo=UTC)
-    )
+    period_end = datetime.combine(report_day, time.max, tzinfo=UTC)
     return WorkflowContext(
         run_id=run_id,
         workflow_started_at=now,
@@ -143,12 +138,7 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
         started_at = workflow.now()
         status = "FAILED"
         try:
-            ctx = build_context(
-                inputs,
-                run_id=workflow.info().run_id,
-                now=started_at,
-                exclusive_day_end=workflow.patched(EXCLUSIVE_DAY_END_PATCH_ID),
-            )
+            ctx = build_context(inputs, run_id=workflow.info().run_id, now=started_at)
             queries = _queries_for_sandbox_compute_patch(workflow.patched(SANDBOX_COMPUTE_QUERY_PATCH_ID))
             queries = _queries_for_logs_distinct_patterns_patch(
                 queries, workflow.patched(LOGS_DISTINCT_PATTERNS_QUERY_PATCH_ID)

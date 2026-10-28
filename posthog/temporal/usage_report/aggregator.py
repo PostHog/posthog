@@ -11,7 +11,7 @@ for Temporal. Activities import from here.
 
 import dataclasses
 from collections.abc import Callable, Iterable, Iterator
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import chain, groupby, islice
 from typing import Any
 
@@ -237,7 +237,7 @@ def iter_org_reports(
     ctx: WorkflowContext,
     org_user_counts: dict[str, int],
 ) -> Iterator[OrgReport]:
-    offline_usage = get_offline_evaluation_usage(ctx.period_start, ctx.period_end)
+    offline_usage = get_offline_evaluation_usage(ctx.period_start, ctx.period_start + timedelta(days=1))
     yield from iter_reports_with_offline_evaluation_usage(
         _iter_ingested_org_reports(all_data, ctx, org_user_counts),
         offline_usage,

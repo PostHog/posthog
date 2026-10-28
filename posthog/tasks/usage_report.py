@@ -3746,7 +3746,7 @@ def iter_reports_with_offline_evaluation_usage(
 def _get_all_org_reports(*, period: DayRange, counter_report: UsageCounterReport | None = None) -> dict[str, OrgReport]:
     logger.info("Querying all org reports", period_start=period.start, period_end=period.end)
 
-    offline_usage = get_offline_evaluation_usage(period.start, period.end)
+    offline_usage = get_offline_evaluation_usage(period.start, period.start + timedelta(days=1))
     all_data = _get_all_usage_data_as_team_rows(period.start, period.end, counter_report)
 
     org_reports: dict[str, OrgReport] = {}
@@ -3962,7 +3962,6 @@ def send_all_org_usage_reports(
 
     at_date = parser.parse(at) if at else None
     period = get_previous_day(at=at_date)
-    period = DayRange(start=period.start, end=period.start + timedelta(days=1))
 
     instance_metadata = get_instance_metadata(period)
 

@@ -468,7 +468,9 @@ The existing `ai_metric_count`, event-type analytics, traces, costs, tokens, and
 `get_offline_evaluation_usage` performs database-side `SUM(quantity)` grouped by the stored organization and environment, with `accepted_at >= period_start AND accepted_at < period_end`.
 Eligibility follows current team records, like ingested AI events: deleted teams, demo teams, and teams in internal-metrics organizations are excluded. The stored organization must also still exist and not be internal-metrics.
 The ledger retains all accepted usage; reporting applies these exclusions without recording a separate eligibility field.
-It uses timezone-aware UTC windows and never counts ledger rows or current results. Scheduled daily reports and current-day quota refresh use midnight-to-midnight windows, including the final microsecond of the day.
+It uses timezone-aware UTC windows and never counts ledger rows or current results.
+Scheduled daily reports and current-day quota refresh query the offline ledger with midnight-to-midnight windows, including the final microsecond of the day.
+The exclusive day end applies only to the offline ledger query; shared report metadata and other usage queries retain their existing windows.
 The existing acceptance-time index supports the range filter. Team and organization eligibility use SQL subqueries in the same aggregation query. Only grouped totals reach Python; there is no query per metric, team, or organization.
 
 Celery and Temporal compose offline quantities after selecting the ingested counter source, so source switching and shadow comparisons remain about ingested events only.
@@ -485,7 +487,8 @@ Separately scheduled reports can observe different late-arriving ingested data; 
 
 Offline usage reporting uses the requested reporting window without a separate charging-start date or activation setting.
 The reporting integration uses the existing ledger schema without an additional migration.
-Temporal's exclusive-day-end patch preserves the window recorded by pre-deploy workflows. Already serialized reports are not rewritten.
+Temporal computes the offline ledger's exclusive day end inside the aggregation activity.
+The shared workflow window and already serialized reports are unchanged.
 
 ## Resource tags
 

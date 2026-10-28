@@ -921,7 +921,7 @@ def _get_all_ai_observability_reports(
         dict mapping organization_id to usage data
     """
     logger.info("Querying AI observability usage data")
-    offline_usage = get_offline_evaluation_usage(period.start, period.end)
+    offline_usage = get_offline_evaluation_usage(period.start, period.start + timedelta(days=1))
 
     # Phase 1: Get all team_ids with report trigger events (fast query)
     try:
@@ -1277,7 +1277,6 @@ def send_ai_observability_usage_reports(
 
     at_date = parser.parse(at) if at else None
     period = get_previous_day(at=at_date)
-    period = DayRange(start=period.start, end=period.start + timedelta(days=1))
 
     # An explicit date or org filter is what distinguishes an operator-triggered run from the daily
     # schedule.

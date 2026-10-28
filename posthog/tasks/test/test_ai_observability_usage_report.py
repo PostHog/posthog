@@ -547,9 +547,9 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert metrics.response_count == 5  # 3 + 2 (only "survey sent" events)
 
     @parameterized.expand([(50, 30), (0, 30), (50, 0), (0, 0)])
-    @time_machine.travel("2026-10-31T12:00:00Z", tick=False)
+    @time_machine.travel("2026-10-31T23:59:59.999999Z", tick=False)
     def test_upload_to_both_reports_and_quota(self, ingested: int, offline: int) -> None:
-        period = DayRange(start=datetime(2026, 10, 31, tzinfo=UTC), end=datetime(2026, 11, 1, tzinfo=UTC))
+        period = get_previous_day(at=datetime(2026, 11, 1, tzinfo=UTC))
         if ingested:
             self._create_ai_events(self.team, "billing-test", "$ai_generation", ingested, timestamp=period.start)
         if offline:
@@ -645,7 +645,9 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         else:
             self.assertEqual(analytics_reports, {})
         quotas = _aggregate_quota_usage(
-            [self.team], all_data, offline_usage=get_offline_evaluation_usage(period.start, period.end)
+            [self.team],
+            all_data,
+            offline_usage=get_offline_evaluation_usage(period.start, period.start + timedelta(days=1)),
         )
         self.assertEqual(quotas.usage[org_id]["llm_events"], ingested + offline)
         self.assertEqual(
