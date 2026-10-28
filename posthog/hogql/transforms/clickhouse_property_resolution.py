@@ -132,9 +132,7 @@ def resolve_materialized_property_source(
     # read, comparison, key-existence). The column holds the raw value, so a comparison like `WHERE properties.x = 'y'`
     # could otherwise read it and probe the value. Declining here makes the comparison optimizers fall back; the read
     # itself becomes a constant NULL in `_substitute_value_read`.
-    if property_name in restricted_property_keys_for_table_type(
-        field_type.table_type, context
-    ) or property_path_overlaps_restriction(property_name, field_type.table_type, context):
+    if property_path_overlaps_restriction(property_name, field_type.table_type, context):
         return None
 
     table_type = _unwrap_to_table_type(field_type)
