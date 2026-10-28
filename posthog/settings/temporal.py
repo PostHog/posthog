@@ -363,6 +363,11 @@ SIGNUP_ENRICHMENT_TASK_QUEUE = _set_temporal_task_queue(
 # dispatching services. Setting it first strands builds on a pollerless queue until the
 # workflow execution timeout closes them.
 CANVAS_BUILD_TASK_QUEUE = _set_temporal_task_queue(os.getenv("CANVAS_BUILD_TASK_QUEUE", "general-purpose-task-queue"))
+# Messaging provider imports (for example c.io suppressions) share the general-purpose fleet. To move them to a
+# dedicated worker, deploy a worker polling the new queue before setting this env on the dispatching services.
+MESSAGING_IMPORT_TASK_QUEUE = _set_temporal_task_queue(
+    os.getenv("MESSAGING_IMPORT_TASK_QUEUE", "general-purpose-task-queue")
+)
 EXPERIMENTS_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue("experiments-recalculation-task-queue")
 EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE = _set_temporal_task_queue(
     "experiments-recalculation-activity-task-queue"
