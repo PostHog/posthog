@@ -13,6 +13,7 @@ from django.db.models.functions import RowNumber
 from django.utils import timezone
 
 import redis
+import requests
 import posthoganalytics
 from posthoganalytics import Posthog
 from posthoganalytics.consumer import MAX_MSG_SIZE
@@ -43,6 +44,7 @@ from posthog.tasks.email import NotificationSetting, should_send_notification
 from posthog.tasks.email_utils import compute_week_over_week_change
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_write_only_logger
+from posthog.temporal.common.metrics import get_metric_meter
 from posthog.temporal.common.utils import asyncify, make_sync_retryable_with_exponential_backoff
 from posthog.temporal.weekly_digest.keys import TeamDataKey, UserDataKey, org_digest_key, team_data_key, user_data_key
 from posthog.temporal.weekly_digest.queries import (
@@ -991,9 +993,14 @@ DRAIN_SLICE_SECONDS = 5
 DIGEST_TEMPLATE_NAME = "weekly_digest_report"
 CUSTOMER_IO_DIGEST_EVENT = "transactional email"
 WORKFLOWS_DIGEST_EVENT = "weekly digest ready"
-# Workflows drops event-triggered runs above 6,000 a minute for one workflow. Every send batch runs at
-# once, so they share one budget that keeps the digest workflow's events well below that.
+# Every send batch runs at once, so they share one budget for the posts to the digest workflow's webhook.
 WORKFLOWS_CAPTURE_BUDGET = Budget(burst=500, per_hour=180_000)
+# The webhook endpoint refuses a body above 512,000 bytes.
+WORKFLOWS_WEBHOOK_BODY_LIMIT = 500_000
+WORKFLOWS_WEBHOOK_TIMEOUT_SECONDS = 10
+WORKFLOWS_WEBHOOK_ATTEMPTS = 3
+# The Workflows email lists six new events and reads the total from new_event_definitions_count.
+WORKFLOWS_EVENT_DEFINITIONS_LIMIT = 6
 
 
 # These derive from BaseException, so that the per-organization `except Exception` handler cannot swallow them.
@@ -1034,7 +1041,13 @@ def _drain(ph_client: Posthog, deadline: float) -> bool:
             return True
 
 
+class WorkflowsWebhookError(Exception):
+    pass
+
+
 def _routes_to_workflows(user: User) -> bool:
+    if not settings.WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL or not settings.WEEKLY_DIGEST_WORKFLOW_WEBHOOK_SECRET:
+        return False
     # The same flag and person properties as the other transactional emails, so one flag condition ramps the digest.
     person_properties = {"email": user.email, "transactional_email_template": DIGEST_TEMPLATE_NAME}
     if region := get_instance_region():
@@ -1053,14 +1066,56 @@ def _routes_to_workflows(user: User) -> bool:
         return False
 
 
-def _wait_for_workflows_capture(digest_key: str) -> None:
+def _wait_for_workflows_post(r: redis.Redis, digest_key: str) -> None:
+    # The bucket is in the digest Redis, which the send already depends on. When it can't answer, the send
+    # waits instead of posting to the webhook without a pace.
     while True:
         _raise_if_cancelled()
-        decision = consume(f"weekly_digest_workflows_capture:{digest_key}", WORKFLOWS_CAPTURE_BUDGET)
-        # Without Redis the send would stall on a budget it can't read. Workflows' own limit still applies.
-        if not isinstance(decision, BucketDecision) or decision.allowed:
+        decision = consume(f"weekly_digest_workflows_capture:{digest_key}", WORKFLOWS_CAPTURE_BUDGET, client=r)
+        if isinstance(decision, BucketDecision) and decision.allowed:
             return
-        time.sleep(min(decision.retry_after, DRAIN_SLICE_SECONDS))
+        retry_after = decision.retry_after if isinstance(decision, BucketDecision) else DRAIN_SLICE_SECONDS
+        time.sleep(min(retry_after, DRAIN_SLICE_SECONDS))
+
+
+def _record_workflows_send_failure(reason: str) -> None:
+    if not activity.in_activity():
+        return
+    get_metric_meter({"reason": reason}).create_counter(
+        "weekly_digest_workflows_send_failed",
+        "Weekly digests that the send could not hand to the digest workflow, by reason.",
+    ).add(1)
+
+
+def _post_to_workflows(session: requests.Session, body: dict[str, Any], idempotency_key: str) -> None:
+    # The secret authenticates the post, so only the digest send can start the workflow. The idempotency key
+    # makes a retried post, in this attempt or the next one, start no second run.
+    headers = {
+        "Authorization": f"Bearer {settings.WEEKLY_DIGEST_WORKFLOW_WEBHOOK_SECRET}",
+        "Idempotency-Key": idempotency_key,
+    }
+    reason = "connection_error"
+    for attempt in range(WORKFLOWS_WEBHOOK_ATTEMPTS):
+        if attempt:
+            time.sleep(2**attempt)
+        _raise_if_cancelled()
+        try:
+            response = session.post(
+                settings.WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL,
+                json=body,
+                headers=headers,
+                timeout=WORKFLOWS_WEBHOOK_TIMEOUT_SECONDS,
+            )
+        except requests.RequestException:
+            continue
+        if response.status_code < 300:
+            return
+        reason = f"http_{response.status_code}"
+        # A 409 means an earlier post with this key is still queueing, so a retry can still succeed.
+        if response.status_code < 500 and response.status_code not in (409, 429):
+            break
+    _record_workflows_send_failure(reason)
+    raise WorkflowsWebhookError(reason)
 
 
 def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
@@ -1090,6 +1145,7 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
     messaging_record_batch: list[tuple[str, MessagingRecord]] = []
     deadline = _upload_deadline()
     queued_event_count = 0
+    workflows_session = requests.Session()
 
     def drain() -> None:
         nonlocal queued_event_count
@@ -1185,6 +1241,31 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                                 digest=payload,
                                 user_email=user.email,
                             )
+                        elif _routes_to_workflows(user):
+                            workflows_payload = digest_for_user.render_payload(
+                                input.digest, event_definitions_limit=WORKFLOWS_EVENT_DEFINITIONS_LIMIT
+                            )
+                            body = {
+                                "event": WORKFLOWS_DIGEST_EVENT,
+                                "distinct_id": user.distinct_id,
+                                "properties": {**workflows_payload, "to": user.email},
+                            }
+                            if len(json.dumps(body, default=str).encode()) > WORKFLOWS_WEBHOOK_BODY_LIMIT:
+                                logger.error(
+                                    "Digest exceeds the Workflows webhook size limit, leaving the organization unsent",
+                                    organization_id=organization.id,
+                                    user_id=user.id,
+                                )
+                                _record_workflows_send_failure("oversized")
+                                failed_organization_ids.add(str(organization.id))
+                                continue
+                            _wait_for_workflows_post(r, input.digest.key)
+                            partial = True
+                            try:
+                                _post_to_workflows(workflows_session, body, f"{input.digest.key}:{user.id}")
+                            except WorkflowsWebhookError:
+                                failed_organization_ids.add(str(organization.id))
+                                raise
                         elif len(json.dumps(payload, default=str).encode()) > DIGEST_PAYLOAD_SIZE_LIMIT:
                             logger.error(
                                 "Digest exceeds the event size limit, leaving the organization unsent",
@@ -1194,14 +1275,11 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                             failed_organization_ids.add(str(organization.id))
                             continue
                         elif ph_client is not None:
-                            to_workflows = _routes_to_workflows(user)
-                            if to_workflows:
-                                _wait_for_workflows_capture(input.digest.key)
                             partial = True
                             queued = ph_client.capture(
                                 distinct_id=user.distinct_id,
-                                event=WORKFLOWS_DIGEST_EVENT if to_workflows else CUSTOMER_IO_DIGEST_EVENT,
-                                properties={**payload, "to": user.email} if to_workflows else payload,
+                                event=CUSTOMER_IO_DIGEST_EVENT,
+                                properties=payload,
                                 groups={
                                     "organization": str(organization.id),
                                     "instance": settings.SITE_URL,
@@ -1234,6 +1312,7 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
             record_sent(messaging_record_batch)
 
     finally:
+        workflows_session.close()
         if ph_client is not None:
             ph_client.shutdown()
 
