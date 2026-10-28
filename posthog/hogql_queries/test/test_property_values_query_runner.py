@@ -253,7 +253,7 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         FeatureFlag.objects.create(team=self.team, key="beta", created_by=self.user, filters=current_filters)
 
         results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="$feature/beta"))
-        assert sorted(r.name for r in results) == expected_names
+        assert sorted(str(r.name) for r in results) == expected_names
 
     def test_feature_flag_property_values_skip_history_of_flags_hidden_from_any_member(self):
         self.organization.available_product_features = [
