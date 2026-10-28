@@ -1,3 +1,5 @@
+import re
+import json
 from http.cookies import Morsel
 from urllib.parse import parse_qs, urlparse
 
@@ -7,7 +9,9 @@ from unittest.mock import MagicMock, patch
 from django.http.response import HttpResponseBase
 from django.test import Client, SimpleTestCase, override_settings
 
+import responses
 from parameterized import parameterized
+from requests import PreparedRequest
 from rest_framework import status
 
 from posthog.models.integration import Integration
@@ -93,6 +97,45 @@ def _grant_for_code(code: str, user_id: str = "usr_1") -> OAuthTokenResponse:
 
 def _exchanged_codes(mock_client: MagicMock) -> list[str]:
     return [call.kwargs["code"] for call in mock_client.oauth_token_exchange.call_args_list]
+
+
+MARKETPLACE_INSTALLATION = "icfg_marketplace"
+INSTALL_PAGE_INSTALLATION = "icfg_install_page"
+
+
+def _fake_vercel(vercel: responses.RequestsMock) -> list[str]:
+    # Each OAuth code belongs to the installation of the flow that issued it. Vercel accepts the import only into
+    # the Marketplace installation that opened the link popup, and answers 404 for any other installation.
+    grants = {
+        "code_from_marketplace": (MARKETPLACE_INSTALLATION, "tok_marketplace"),
+        "code_from_install": (INSTALL_PAGE_INSTALLATION, "tok_install_page"),
+    }
+    imported_into: list[str] = []
+
+    def exchange_code(request: PreparedRequest) -> tuple[int, dict[str, str], str]:
+        [code] = parse_qs(str(request.body))["code"]
+        if code not in grants:
+            return 400, {}, json.dumps({"error": "invalid_grant"})
+        installation_id, access_token = grants.pop(code)
+        grant = {"access_token": access_token, "installation_id": installation_id, "user_id": "usr_e2e"}
+        return 200, {}, json.dumps({**grant, "token_type": "Bearer", "team_id": "team_e2e"})
+
+    def import_resource(request: PreparedRequest) -> tuple[int, dict[str, str], str]:
+        match = re.search(r"/installations/([^/]+)/", str(request.url))
+        installation_id = match.group(1) if match else ""
+        if (installation_id, request.headers.get("Authorization")) != (
+            MARKETPLACE_INSTALLATION,
+            "Bearer tok_marketplace",
+        ):
+            return 404, {}, json.dumps({"error": {"code": "not_found", "message": "Integration Resource not found"}})
+        imported_into.append(installation_id)
+        return 200, {}, "{}"
+
+    vercel.add_callback(responses.POST, "https://api.vercel.com/v2/oauth/access_token", callback=exchange_code)
+    vercel.add_callback(
+        responses.PUT, re.compile(r"https://api\.vercel\.com/v1/installations/[^/]+/resources/[^/]+"), import_resource
+    )
+    return imported_into
 
 
 def _flow_cookie(response: HttpResponseBase) -> Morsel:
@@ -1073,7 +1116,6 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
         ]
     )
     @patch("ee.vercel.integration.VercelIntegration")
-    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
     def test_end_to_end_callback_to_complete(
         self,
         _name: str,
@@ -1081,35 +1123,42 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
         link_host: str,
         signed_in_at_callback: bool,
         expected_cookie_domain: str,
-        mock_client_class: MagicMock,
         _mock_vercel_integration: MagicMock,
     ) -> None:
-        _mock_vercel_client(mock_client_class)
         if not signed_in_at_callback:
             self.client.logout()
 
-        callback_response = self._callback_through_vercel_install({"code": "good_code"}, host=callback_host)
-        session_token = _session_token_from_redirect(callback_response["Location"])
+        with responses.RequestsMock() as vercel:
+            imported_into = _fake_vercel(vercel)
+            callback_response = self._callback_through_vercel_install(
+                {"code": "code_from_install", "configurationId": INSTALL_PAGE_INSTALLATION, "source": "external"},
+                host=callback_host,
+                marketplace_params={"configurationId": MARKETPLACE_INSTALLATION, "source": "marketplace"},
+            )
+            session_token = _session_token_from_redirect(callback_response["Location"])
 
-        self.client.force_login(self.user)
-        session_response = self.client.get(
-            "/api/vercel/connect/session", {"session": session_token}, HTTP_HOST=link_host
-        )
-        complete_response = self.client.post(
-            "/api/vercel/connect/complete",
-            {
-                "session": session_token,
-                "organization_id": str(self.organization.id),
-                "environment_mapping": {"production": self.team.pk},
-            },
-            content_type="application/json",
-            HTTP_HOST=link_host,
-        )
+            self.client.force_login(self.user)
+            session_response = self.client.get(
+                "/api/vercel/connect/session", {"session": session_token}, HTTP_HOST=link_host
+            )
+            complete_response = self.client.post(
+                "/api/vercel/connect/complete",
+                {
+                    "session": session_token,
+                    "organization_id": str(self.organization.id),
+                    "environment_mapping": {"production": self.team.pk},
+                },
+                content_type="application/json",
+                HTTP_HOST=link_host,
+            )
 
         assert callback_response.status_code == 302
         assert session_response.status_code == status.HTTP_200_OK
-        assert complete_response.status_code == status.HTTP_201_CREATED
+        assert complete_response.status_code == status.HTTP_201_CREATED, complete_response.json()
         assert complete_response.json()["status"] == "linked"
+        assert imported_into == [MARKETPLACE_INSTALLATION]
+        link = OrganizationIntegration.objects.get(organization=self.organization)
+        assert [link.integration_id, link.config["configuration_id"]] == [MARKETPLACE_INSTALLATION] * 2
         cleared_cookie = _flow_cookie(complete_response)
         assert cleared_cookie["max-age"] == 0
         assert cleared_cookie["domain"] == expected_cookie_domain
