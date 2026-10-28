@@ -585,51 +585,7 @@ const ExplainChartEvidenceSchema = z.object({
         .record(z.string(), z.unknown())
         .optional()
         .describe(
-            'The query that found this, as you ran it (for example a TrendsQuery with a breakdown). It becomes a link to that chart, and a TrendsQuery also draws as a chart in the explanation.'
-        ),
-    chart: z
-        .object({
-            type: z.enum(['line', 'bar']).describe('`line` for values over time, `bar` for a value per label.'),
-            title: z
-                .string()
-                .min(1)
-                .max(100)
-                .optional()
-                .describe(
-                    'What the chart shows, with the timezone when the labels are times, for example "Cache parse errors per hour, Pacific time".'
-                ),
-            yAxisLabel: z
-                .string()
-                .min(1)
-                .max(40)
-                .optional()
-                .describe('The unit of the values, for example "Hit rate (%)" or "Errors per hour".'),
-            labels: z
-                .array(z.string())
-                .min(1)
-                .max(200)
-                .describe(
-                    'The x-axis labels in order, such as hours or referrers, written as the person should read them. Each label must be different, so add the date to times that span more than one day, for example `Oct 27 11:00`. For a `line`, give every point at one even interval and skip none, because the chart spaces the points evenly.'
-                ),
-            series: z
-                .array(
-                    z.object({
-                        name: z.string().min(1).max(80),
-                        values: z.array(z.number()).describe('One value per label, in the same order.'),
-                    })
-                )
-                .min(1)
-                .max(6),
-        })
-        .refine((chart) => chart.series.every((item) => item.values.length === chart.labels.length), {
-            message: 'Each series needs one value per label.',
-        })
-        .refine((chart) => new Set(chart.labels).size === chart.labels.length, {
-            message: 'Each label must be different. Add the date to times that repeat, for example `Oct 27 11:00`.',
-        })
-        .optional()
-        .describe(
-            'Numbers to draw beside this finding when its query is not a TrendsQuery, such as SQL. Copy them from the result you got.'
+            'The query that found this, as you ran it. The explanation runs it again and draws the result beside the finding. An insight query (`TrendsQuery`, `FunnelsQuery`, `RetentionQuery`, `StickinessQuery`, `PathsQuery` or `LifecycleQuery`) draws with its insight chart. A `HogQLQuery` draws from its rows: select the x-axis column first (a time bucket or a label), then optionally one text column to break the values down by, then the numbers to draw, and order by the x-axis column. SQL returns 100 rows unless it sets a `LIMIT`.'
         ),
     url: z
         .string()

@@ -96,9 +96,8 @@ For anything else, such as a metric you queried on your own, the findings go in 
 When it is a chart explanation:
 
 - Add "Show the chart explanation (Step 5)" as the last item of your plan or to-do list.
-- Keep the `TrendsQuery` behind each finding, such as an event count with a breakdown or a property filter.
-  The chart explanation draws a `TrendsQuery` as a chart beside the finding, and any other query only as a link.
-  Use SQL for the findings that a `TrendsQuery` cannot express, and pass its numbers as the evidence's `chart` so they draw too.
+- Keep the query behind each finding. The chart explanation runs it again and draws the result beside the finding.
+  Prefer an insight query, such as a `TrendsQuery` with a breakdown or a property filter, and use SQL only for what an insight query cannot express.
 
 ## Step 2 — Common opening moves
 
@@ -160,16 +159,13 @@ Map the investigation onto it:
   of `summary`.
 - **Likely cause** and **Confidence** → `cause`, `confidence` and `confidence_reason`.
 - **Evidence** → `evidence`, each finding with the `query` that produced it, or a `url`
-  for a commit or a deploy. Pass the `TrendsQuery` you ran where you have one: the
-  chart explanation draws it as a chart, while any other query only becomes a link.
-  For a finding from SQL, also pass `chart` with the numbers from its result: `line` over time or `bar` per label, the `labels`, and one `series` per line.
-  Give it a `title` that names the timezone when the labels are times, and a `yAxisLabel` with the unit.
-  On a `line`, keep every bucket of the query at one interval, and add the date to a time that repeats across days.
-  Prefer the series over time to two bars that compare before and after, so the user sees when the change happened.
-- **Zoomed-in evidence** → when the metric moved suddenly, add one finding that shows the hours around the change at the finest interval that fits.
-  For an hourly view, pass a `TrendsQuery` with `interval` `hour` and a `dateRange` of a day or less around the change.
-  For a finer view, run SQL bucketed with `toStartOfMinute` or `toStartOfFifteenMinutes` over at most 200 buckets, and pass the result as `chart`.
-  Use the same segment the cause points at, such as the affected region or event, so the user sees exactly when it moved.
+  for a commit or a deploy. The chart explanation runs each query and draws it: an insight
+  query with its insight chart, and a `HogQLQuery` from its rows. Shape the SQL for the chart,
+  with the x-axis column first, then optionally one text column to break down by, then the numbers.
+  Prefer a series over time to a before-and-after comparison, so the user sees when the change happened.
+- **Zoomed-in evidence** → when the metric moved suddenly, add one finding that zooms in on the change.
+  Use the insight's own query with a `dateRange` around the change, at the interval that shows it best, from `minute` to `day`.
+  Filter it to the segment the cause points at, such as the affected browser or region.
 - A **headline** of one sentence with no numbers sums up the whole chart.
   Wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in `**double asterisks**` so the chart explanation highlights it.
   Do the same in each `cause`.

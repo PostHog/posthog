@@ -10,9 +10,11 @@ import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type ToolBase } f
 import type {
     ExplainChartData,
     StoryChapter,
+    StoryEvidenceChartData,
     StorySeriesResult,
     StoryTrendsQuery,
 } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
+import { sqlEvidenceChart } from 'products/product_analytics/mcp/apps/explainChart/sqlEvidenceChart'
 
 import { analyzeQuery } from '../shared'
 import { findStoryRange, lastBucketInProgress } from './storyRanges'
@@ -55,9 +57,76 @@ const NOT_TRENDS = 'This tool only explains trends charts. For other kinds, writ
 const NOT_OVER_TIME =
     'This tool explains a trends chart that shows one value over time, and this chart does not. Write the explanation in the chat instead.'
 
-// The explanation redraws evidence through `query-trends`, whose schema is narrower than a TrendsQuery's, so evidence
-// it would refuse keeps its link and no chart.
-const redrawSchema = GENERATED_TOOLS['query-trends']!().schema
+// The explanation redraws insight evidence through the query tool for its kind. A tool's schema is narrower than the
+// query's, so evidence the tool would refuse keeps its link and no chart.
+const REDRAW_TOOLS = Object.fromEntries(
+    (
+        [
+            ['TrendsQuery', 'query-trends'],
+            ['FunnelsQuery', 'query-funnel'],
+            ['RetentionQuery', 'query-retention'],
+            ['StickinessQuery', 'query-stickiness'],
+            ['PathsQuery', 'query-paths'],
+            ['LifecycleQuery', 'query-lifecycle'],
+        ] as const
+    ).map(([kind, tool]) => [kind, { tool, schema: GENERATED_TOOLS[tool]!().schema }])
+)
+
+function redrawToolFor(query: Record<string, unknown> | undefined): string | null {
+    const redraw = query && typeof query.kind === 'string' ? REDRAW_TOOLS[query.kind] : undefined
+    return redraw && redraw.schema.safeParse(query).success ? redraw.tool : null
+}
+
+type SqlEvidence = { chart: StoryEvidenceChartData | null } | { error: string }
+
+function isSqlQuery(query: Record<string, unknown> | undefined): query is Record<string, unknown> {
+    return query?.kind === 'HogQLQuery' && typeof query.query === 'string'
+}
+
+async function runSqlEvidence(
+    context: Context,
+    projectId: string,
+    chapters: Params['chapters']
+): Promise<Map<string, SqlEvidence>> {
+    const queries = new Map<string, Record<string, unknown>>()
+    for (const item of chapters.flatMap((chapter) => chapter.evidence ?? [])) {
+        if (isSqlQuery(item.query)) {
+            queries.set(JSON.stringify(item.query), item.query)
+        }
+    }
+    const entries = await Promise.all(
+        [...queries].map(async ([key, query]): Promise<[string, SqlEvidence]> => {
+            try {
+                const response = await context.api.query({ projectId }).runQuery({ query })
+                const columns = (response.columns ?? []).map(String)
+                const rows = Array.isArray(response.results) ? (response.results as unknown[][]) : []
+                return [key, { chart: sqlEvidenceChart(columns, rows) }]
+            } catch (error) {
+                return [key, { error: error instanceof Error ? error.message : String(error) }]
+            }
+        })
+    )
+    return new Map(entries)
+}
+
+function sqlProblems(chapters: Params['chapters'], sqlEvidence: Map<string, SqlEvidence>): string[] {
+    return chapters.flatMap((chapter) =>
+        (chapter.evidence ?? []).flatMap((item) => {
+            const result = isSqlQuery(item.query) ? sqlEvidence.get(JSON.stringify(item.query)) : undefined
+            if (!result) {
+                return []
+            }
+            if ('error' in result) {
+                return [`The SQL behind "${item.text}" failed, so it shows as a link only: ${result.error}`]
+            }
+            return result.chart
+                ? []
+                : [
+                      `The SQL behind "${item.text}" returned no rows to draw, so it shows as a link only. Select the x-axis column first and at least one number after it.`,
+                  ]
+        })
+    )
+}
 
 interface StoryChart {
     query: StoryTrendsQuery
@@ -121,7 +190,8 @@ function describeResult(
     series: StorySeriesResult,
     chapters: Params['chapters'],
     missed: string[],
-    warnings: unknown[]
+    warnings: unknown[],
+    evidenceProblems: string[]
 ): string {
     const name = chart.insightName ?? series.label ?? 'the chart'
     const lines = [`The explanation of "${name}" has ${chapters.length} chapters.`]
@@ -135,6 +205,7 @@ function describeResult(
             } without a highlight. Use dates from the chart's \`days\` and call this tool again.`
         )
     }
+    lines.push(...evidenceProblems)
     return lines.join(' ')
 }
 
@@ -156,6 +227,7 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
         )
     }
 
+    const sqlEvidence = await runSqlEvidence(context, projectId, params.chapters)
     const baseUrl = context.api.getProjectBaseUrl(projectId)
     const interval = chart.query.interval ?? 'day'
     const { timezone, warnings = [] } = response as { timezone?: string; warnings?: unknown[] | null }
@@ -172,12 +244,17 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
             cause: chapter.cause ?? null,
             confidence: chapter.confidence ?? null,
             confidenceReason: chapter.confidence_reason ?? null,
-            evidence: (chapter.evidence ?? []).map((item) => ({
-                text: item.text,
-                url: item.query ? `${baseUrl}${newInsightPath(item.query)}` : (item.url ?? null),
-                query: item.query && redrawSchema.safeParse(item.query).success ? item.query : null,
-                chart: item.chart ?? null,
-            })),
+            evidence: (chapter.evidence ?? []).map((item) => {
+                const queryTool = redrawToolFor(item.query)
+                const sql = isSqlQuery(item.query) ? sqlEvidence.get(JSON.stringify(item.query)) : undefined
+                return {
+                    text: item.text,
+                    url: item.query ? `${baseUrl}${newInsightPath(item.query)}` : (item.url ?? null),
+                    query: queryTool ? item.query : null,
+                    queryTool,
+                    chart: sql && 'chart' in sql ? sql.chart : null,
+                }
+            }),
         }
     })
 
@@ -196,7 +273,8 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
             series,
             params.chapters,
             missed,
-            warnings ?? []
+            warnings ?? [],
+            sqlProblems(params.chapters, sqlEvidence)
         ),
     }
 }

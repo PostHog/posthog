@@ -2,16 +2,19 @@ export type StoryConfidence = 'high' | 'medium' | 'low'
 
 export interface StoryEvidenceChartData {
     type: 'line' | 'bar'
-    title?: string | null
-    yAxisLabel?: string | null
     labels: string[]
-    series: { name: string; values: number[] }[]
+    /** The axis label of each point, which leaves out a date that repeats. */
+    ticks: string[]
+    /** Null where a breakdown value has no row for that point. */
+    series: { name: string; values: (number | null)[] }[]
+    yAxisLabel: string | null
 }
 
 export interface StoryEvidence {
     text: string
     url: string | null
     query?: Record<string, unknown> | null
+    queryTool?: string | null
     chart?: StoryEvidenceChartData | null
 }
 
