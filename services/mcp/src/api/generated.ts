@@ -47713,7 +47713,7 @@ export namespace Schemas {
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
        * * `multiple_variants_share` - Multiple Variants Share */
       key: ExperimentHealthCheckKeyEnum;
-      /** What the check looks at, for example 'Feature flag variants'. */
+      /** The problem the check looks for, for example 'Metrics not set up'. */
       name: string;
       /** passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
        *
@@ -48005,7 +48005,7 @@ export namespace Schemas {
     export interface ExperimentExposureHealthCheck {
       /** Stable identifier of the check. */
       key: ExperimentExposureHealthCheckKey;
-      /** What the check looks at, as the health panel lists it. */
+      /** The problem the check looks for, as the health panel lists it. */
       name: string;
       /** Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding. */
       reason: string | null;
@@ -48875,7 +48875,7 @@ export namespace Schemas {
       exposure_events: ExperimentHealthInputsExposureEvents | null;
       /** Whether the project has received each event that the metrics and the exposure criteria name, by event name. A name that ingestion keeps no record of is absent. */
       events_received: ExperimentHealthInputsEventsReceived;
-      /** The compile of each metric's query without running it, as the reader, which the metric queries check reads. A metric that compiles is cached per reader for a day, and a failing metric compiles again on every request. Null when the compile itself failed. */
+      /** The compile of each metric's query without running it, as the reader, which the 'Invalid metric definitions' check reads. A metric that compiles is cached per reader for a day, and a failing metric compiles again on every request. Null when the compile itself failed. */
       metric_compiles: ExperimentHealthInputsMetricCompiles | null;
       /** The latest finished calculation of the metrics, which the metric results check reads. Null before launch, on an archived experiment, or when the read failed. */
       latest_calculation: ExperimentHealthInputsLatestCalculation | null;

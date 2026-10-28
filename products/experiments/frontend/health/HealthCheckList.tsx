@@ -8,7 +8,7 @@ type ListedStatus = ListedHealthCheck['status']
 
 const STATUS_DISPLAY: Record<ListedStatus, { icon: JSX.Element; label: string }> = {
     not_checked: { icon: <IconQuestion className="text-secondary" />, label: "Couldn't check" },
-    passed: { icon: <IconCheck className="text-success" />, label: 'No problem found' },
+    passed: { icon: <IconCheck className="text-success" />, label: 'Looked for, not found' },
     not_applicable: { icon: <IconMinus className="text-tertiary" />, label: "Doesn't apply" },
 }
 
