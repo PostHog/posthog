@@ -65654,7 +65654,11 @@ export namespace Schemas {
      */
     export interface IntegrationConfig {
       readonly id: number;
-      kind: IntegrationKindEnum;
+      /**
+         * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
+         * @maxLength 32
+         */
+      kind: string;
       /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
        *
        * * `oauth` - OAuth
@@ -79319,7 +79323,8 @@ export namespace Schemas {
      */
     export interface SessionRecordingExternalReferenceIntegration {
       readonly id: number;
-      readonly kind: IntegrationKindEnum;
+      /** The provider of the integration, for example 'github'. */
+      readonly kind: string;
       readonly display_name: string;
     }
 
@@ -88585,7 +88590,11 @@ export namespace Schemas {
      */
     export interface PatchedIntegrationConfig {
       readonly id?: number;
-      kind?: IntegrationKindEnum;
+      /**
+         * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
+         * @maxLength 32
+         */
+      kind?: string;
       /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
        *
        * * `oauth` - OAuth
