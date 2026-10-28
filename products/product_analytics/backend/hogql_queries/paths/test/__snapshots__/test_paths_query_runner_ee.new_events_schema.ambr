@@ -11,7 +11,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -101,7 +101,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -191,7 +191,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -280,7 +280,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -369,7 +369,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -458,7 +458,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -547,7 +547,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -636,7 +636,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -725,7 +725,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -814,7 +814,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -911,7 +911,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -1008,7 +1008,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -1107,7 +1107,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -1230,7 +1230,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -1353,7 +1353,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -1476,7 +1476,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -1599,7 +1599,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -1722,7 +1722,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -1845,7 +1845,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -1968,7 +1968,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -2091,7 +2091,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -2212,7 +2212,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -2308,15 +2308,15 @@
                  event_in_session_index AS event_in_session_index,
                  concat(ifNull(toString(event_in_session_index), ''), '_',
                                                                       ifNull(toString(path), '')) AS path_key,
-                                                                                                if(ifNull(greater(event_in_session_index,
-                                                                                                                  1), 0), concat(ifNull(toString(minus(event_in_session_index,
-                                                                                                                                                       1)), ''), '_',
-                                                                                                                                                                 ifNull(toString(prev_path), '')), NULL) AS last_path_key,
-                                                                                                                                                                                                       path_dropoff_key AS path_dropoff_key,
-                                                                                                                                                                                                       final_uuid AS uuid,
-                                                                                                                                                                                                       final_timestamp AS timestamp,
-                                                                                                                                                                                                       final_session_id AS session_id,
-                                                                                                                                                                                                       final_window_id AS window_id
+                                                                                                if(greater(event_in_session_index,
+                                                                                                           1), concat(ifNull(toString(minus(event_in_session_index,
+                                                                                                                                            1)), ''), '_',
+                                                                                                                                                      ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                                                                                                                                                                                            path_dropoff_key AS path_dropoff_key,
+                                                                                                                                                                                            final_uuid AS uuid,
+                                                                                                                                                                                            final_timestamp AS timestamp,
+                                                                                                                                                                                            final_session_id AS session_id,
+                                                                                                                                                                                            final_window_id AS window_id
   FROM (
   SELECT person_id AS person_id,
          joined_path_tuple.1 AS path,
@@ -2512,15 +2512,15 @@
                    event_in_session_index AS event_in_session_index,
                    concat(ifNull(toString(event_in_session_index), ''), '_',
                                                                         ifNull(toString(path), '')) AS path_key,
-                                                                                                  if(ifNull(greater(event_in_session_index,
-                                                                                                                    1), 0), concat(ifNull(toString(minus(event_in_session_index,
-                                                                                                                                                         1)), ''), '_',
-                                                                                                                                                                   ifNull(toString(prev_path), '')), NULL) AS last_path_key,
-                                                                                                                                                                                                         path_dropoff_key AS path_dropoff_key,
-                                                                                                                                                                                                         final_uuid AS uuid,
-                                                                                                                                                                                                         final_timestamp AS timestamp,
-                                                                                                                                                                                                         final_session_id AS session_id,
-                                                                                                                                                                                                         final_window_id AS window_id
+                                                                                                  if(greater(event_in_session_index,
+                                                                                                             1), concat(ifNull(toString(minus(event_in_session_index,
+                                                                                                                                              1)), ''), '_',
+                                                                                                                                                        ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                                                                                                                                                                                              path_dropoff_key AS path_dropoff_key,
+                                                                                                                                                                                              final_uuid AS uuid,
+                                                                                                                                                                                              final_timestamp AS timestamp,
+                                                                                                                                                                                              final_session_id AS session_id,
+                                                                                                                                                                                              final_window_id AS window_id
     FROM (
     SELECT person_id AS person_id,
            joined_path_tuple.1 AS path,
@@ -2739,15 +2739,15 @@
                  event_in_session_index AS event_in_session_index,
                  concat(ifNull(toString(event_in_session_index), ''), '_',
                                                                       ifNull(toString(path), '')) AS path_key,
-                                                                                                if(ifNull(greater(event_in_session_index,
-                                                                                                                  1), 0), concat(ifNull(toString(minus(event_in_session_index,
-                                                                                                                                                       1)), ''), '_',
-                                                                                                                                                                 ifNull(toString(prev_path), '')), NULL) AS last_path_key,
-                                                                                                                                                                                                       path_dropoff_key AS path_dropoff_key,
-                                                                                                                                                                                                       final_uuid AS uuid,
-                                                                                                                                                                                                       final_timestamp AS timestamp,
-                                                                                                                                                                                                       final_session_id AS session_id,
-                                                                                                                                                                                                       final_window_id AS window_id
+                                                                                                if(greater(event_in_session_index,
+                                                                                                           1), concat(ifNull(toString(minus(event_in_session_index,
+                                                                                                                                            1)), ''), '_',
+                                                                                                                                                      ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                                                                                                                                                                                            path_dropoff_key AS path_dropoff_key,
+                                                                                                                                                                                            final_uuid AS uuid,
+                                                                                                                                                                                            final_timestamp AS timestamp,
+                                                                                                                                                                                            final_session_id AS session_id,
+                                                                                                                                                                                            final_window_id AS window_id
   FROM (
   SELECT person_id AS person_id,
          joined_path_tuple.1 AS path,
@@ -2944,15 +2944,15 @@
                    event_in_session_index AS event_in_session_index,
                    concat(ifNull(toString(event_in_session_index), ''), '_',
                                                                         ifNull(toString(path), '')) AS path_key,
-                                                                                                  if(ifNull(greater(event_in_session_index,
-                                                                                                                    1), 0), concat(ifNull(toString(minus(event_in_session_index,
-                                                                                                                                                         1)), ''), '_',
-                                                                                                                                                                   ifNull(toString(prev_path), '')), NULL) AS last_path_key,
-                                                                                                                                                                                                         path_dropoff_key AS path_dropoff_key,
-                                                                                                                                                                                                         final_uuid AS uuid,
-                                                                                                                                                                                                         final_timestamp AS timestamp,
-                                                                                                                                                                                                         final_session_id AS session_id,
-                                                                                                                                                                                                         final_window_id AS window_id
+                                                                                                  if(greater(event_in_session_index,
+                                                                                                             1), concat(ifNull(toString(minus(event_in_session_index,
+                                                                                                                                              1)), ''), '_',
+                                                                                                                                                        ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                                                                                                                                                                                              path_dropoff_key AS path_dropoff_key,
+                                                                                                                                                                                              final_uuid AS uuid,
+                                                                                                                                                                                              final_timestamp AS timestamp,
+                                                                                                                                                                                              final_session_id AS session_id,
+                                                                                                                                                                                              final_window_id AS window_id
     FROM (
     SELECT person_id AS person_id,
            joined_path_tuple.1 AS path,
@@ -3172,15 +3172,15 @@
                  event_in_session_index AS event_in_session_index,
                  concat(ifNull(toString(event_in_session_index), ''), '_',
                                                                       ifNull(toString(path), '')) AS path_key,
-                                                                                                if(ifNull(greater(event_in_session_index,
-                                                                                                                  1), 0), concat(ifNull(toString(minus(event_in_session_index,
-                                                                                                                                                       1)), ''), '_',
-                                                                                                                                                                 ifNull(toString(prev_path), '')), NULL) AS last_path_key,
-                                                                                                                                                                                                       path_dropoff_key AS path_dropoff_key,
-                                                                                                                                                                                                       final_uuid AS uuid,
-                                                                                                                                                                                                       final_timestamp AS timestamp,
-                                                                                                                                                                                                       final_session_id AS session_id,
-                                                                                                                                                                                                       final_window_id AS window_id
+                                                                                                if(greater(event_in_session_index,
+                                                                                                           1), concat(ifNull(toString(minus(event_in_session_index,
+                                                                                                                                            1)), ''), '_',
+                                                                                                                                                      ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                                                                                                                                                                                            path_dropoff_key AS path_dropoff_key,
+                                                                                                                                                                                            final_uuid AS uuid,
+                                                                                                                                                                                            final_timestamp AS timestamp,
+                                                                                                                                                                                            final_session_id AS session_id,
+                                                                                                                                                                                            final_window_id AS window_id
   FROM (
   SELECT person_id AS person_id,
          joined_path_tuple.1 AS path,
@@ -3377,15 +3377,15 @@
                    event_in_session_index AS event_in_session_index,
                    concat(ifNull(toString(event_in_session_index), ''), '_',
                                                                         ifNull(toString(path), '')) AS path_key,
-                                                                                                  if(ifNull(greater(event_in_session_index,
-                                                                                                                    1), 0), concat(ifNull(toString(minus(event_in_session_index,
-                                                                                                                                                         1)), ''), '_',
-                                                                                                                                                                   ifNull(toString(prev_path), '')), NULL) AS last_path_key,
-                                                                                                                                                                                                         path_dropoff_key AS path_dropoff_key,
-                                                                                                                                                                                                         final_uuid AS uuid,
-                                                                                                                                                                                                         final_timestamp AS timestamp,
-                                                                                                                                                                                                         final_session_id AS session_id,
-                                                                                                                                                                                                         final_window_id AS window_id
+                                                                                                  if(greater(event_in_session_index,
+                                                                                                             1), concat(ifNull(toString(minus(event_in_session_index,
+                                                                                                                                              1)), ''), '_',
+                                                                                                                                                        ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                                                                                                                                                                                              path_dropoff_key AS path_dropoff_key,
+                                                                                                                                                                                              final_uuid AS uuid,
+                                                                                                                                                                                              final_timestamp AS timestamp,
+                                                                                                                                                                                              final_session_id AS session_id,
+                                                                                                                                                                                              final_window_id AS window_id
     FROM (
     SELECT person_id AS person_id,
            joined_path_tuple.1 AS path,
@@ -3605,15 +3605,15 @@
                  event_in_session_index AS event_in_session_index,
                  concat(ifNull(toString(event_in_session_index), ''), '_',
                                                                       ifNull(toString(path), '')) AS path_key,
-                                                                                                if(ifNull(greater(event_in_session_index,
-                                                                                                                  1), 0), concat(ifNull(toString(minus(event_in_session_index,
-                                                                                                                                                       1)), ''), '_',
-                                                                                                                                                                 ifNull(toString(prev_path), '')), NULL) AS last_path_key,
-                                                                                                                                                                                                       path_dropoff_key AS path_dropoff_key,
-                                                                                                                                                                                                       final_uuid AS uuid,
-                                                                                                                                                                                                       final_timestamp AS timestamp,
-                                                                                                                                                                                                       final_session_id AS session_id,
-                                                                                                                                                                                                       final_window_id AS window_id
+                                                                                                if(greater(event_in_session_index,
+                                                                                                           1), concat(ifNull(toString(minus(event_in_session_index,
+                                                                                                                                            1)), ''), '_',
+                                                                                                                                                      ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                                                                                                                                                                                            path_dropoff_key AS path_dropoff_key,
+                                                                                                                                                                                            final_uuid AS uuid,
+                                                                                                                                                                                            final_timestamp AS timestamp,
+                                                                                                                                                                                            final_session_id AS session_id,
+                                                                                                                                                                                            final_window_id AS window_id
   FROM (
   SELECT person_id AS person_id,
          joined_path_tuple.1 AS path,
@@ -3809,15 +3809,15 @@
                    event_in_session_index AS event_in_session_index,
                    concat(ifNull(toString(event_in_session_index), ''), '_',
                                                                         ifNull(toString(path), '')) AS path_key,
-                                                                                                  if(ifNull(greater(event_in_session_index,
-                                                                                                                    1), 0), concat(ifNull(toString(minus(event_in_session_index,
-                                                                                                                                                         1)), ''), '_',
-                                                                                                                                                                   ifNull(toString(prev_path), '')), NULL) AS last_path_key,
-                                                                                                                                                                                                         path_dropoff_key AS path_dropoff_key,
-                                                                                                                                                                                                         final_uuid AS uuid,
-                                                                                                                                                                                                         final_timestamp AS timestamp,
-                                                                                                                                                                                                         final_session_id AS session_id,
-                                                                                                                                                                                                         final_window_id AS window_id
+                                                                                                  if(greater(event_in_session_index,
+                                                                                                             1), concat(ifNull(toString(minus(event_in_session_index,
+                                                                                                                                              1)), ''), '_',
+                                                                                                                                                        ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                                                                                                                                                                                              path_dropoff_key AS path_dropoff_key,
+                                                                                                                                                                                              final_uuid AS uuid,
+                                                                                                                                                                                              final_timestamp AS timestamp,
+                                                                                                                                                                                              final_session_id AS session_id,
+                                                                                                                                                                                              final_window_id AS window_id
     FROM (
     SELECT person_id AS person_id,
            joined_path_tuple.1 AS path,
@@ -4036,15 +4036,15 @@
                  event_in_session_index AS event_in_session_index,
                  concat(ifNull(toString(event_in_session_index), ''), '_',
                                                                       ifNull(toString(path), '')) AS path_key,
-                                                                                                if(ifNull(greater(event_in_session_index,
-                                                                                                                  1), 0), concat(ifNull(toString(minus(event_in_session_index,
-                                                                                                                                                       1)), ''), '_',
-                                                                                                                                                                 ifNull(toString(prev_path), '')), NULL) AS last_path_key,
-                                                                                                                                                                                                       path_dropoff_key AS path_dropoff_key,
-                                                                                                                                                                                                       final_uuid AS uuid,
-                                                                                                                                                                                                       final_timestamp AS timestamp,
-                                                                                                                                                                                                       final_session_id AS session_id,
-                                                                                                                                                                                                       final_window_id AS window_id
+                                                                                                if(greater(event_in_session_index,
+                                                                                                           1), concat(ifNull(toString(minus(event_in_session_index,
+                                                                                                                                            1)), ''), '_',
+                                                                                                                                                      ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                                                                                                                                                                                            path_dropoff_key AS path_dropoff_key,
+                                                                                                                                                                                            final_uuid AS uuid,
+                                                                                                                                                                                            final_timestamp AS timestamp,
+                                                                                                                                                                                            final_session_id AS session_id,
+                                                                                                                                                                                            final_window_id AS window_id
   FROM (
   SELECT person_id AS person_id,
          joined_path_tuple.1 AS path,
@@ -4305,15 +4305,15 @@
                    event_in_session_index AS event_in_session_index,
                    concat(ifNull(toString(event_in_session_index), ''), '_',
                                                                         ifNull(toString(path), '')) AS path_key,
-                                                                                                  if(ifNull(greater(event_in_session_index,
-                                                                                                                    1), 0), concat(ifNull(toString(minus(event_in_session_index,
-                                                                                                                                                         1)), ''), '_',
-                                                                                                                                                                   ifNull(toString(prev_path), '')), NULL) AS last_path_key,
-                                                                                                                                                                                                         path_dropoff_key AS path_dropoff_key,
-                                                                                                                                                                                                         final_uuid AS uuid,
-                                                                                                                                                                                                         final_timestamp AS timestamp,
-                                                                                                                                                                                                         final_session_id AS session_id,
-                                                                                                                                                                                                         final_window_id AS window_id
+                                                                                                  if(greater(event_in_session_index,
+                                                                                                             1), concat(ifNull(toString(minus(event_in_session_index,
+                                                                                                                                              1)), ''), '_',
+                                                                                                                                                        ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                                                                                                                                                                                              path_dropoff_key AS path_dropoff_key,
+                                                                                                                                                                                              final_uuid AS uuid,
+                                                                                                                                                                                              final_timestamp AS timestamp,
+                                                                                                                                                                                              final_session_id AS session_id,
+                                                                                                                                                                                              final_window_id AS window_id
     FROM (
     SELECT person_id AS person_id,
            joined_path_tuple.1 AS path,
@@ -4590,7 +4590,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -4681,7 +4681,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -4811,7 +4811,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -4907,7 +4907,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -5037,7 +5037,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -5131,7 +5131,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -5221,7 +5221,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -5312,7 +5312,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -5435,7 +5435,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -5556,7 +5556,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -5647,7 +5647,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -5768,7 +5768,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -5859,7 +5859,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -5982,7 +5982,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -6105,7 +6105,7 @@
                        conversion_time AS conversion_time,
                        event_in_session_index AS event_in_session_index,
                        concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                       if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                       if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                        path_dropoff_key AS path_dropoff_key,
                        final_uuid AS uuid,
                        final_timestamp AS timestamp,
@@ -6226,7 +6226,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -6315,7 +6315,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
@@ -6404,7 +6404,7 @@
                     conversion_time AS conversion_time,
                     event_in_session_index AS event_in_session_index,
                     concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
-                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    if(greater(event_in_session_index, 1), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
                     path_dropoff_key AS path_dropoff_key
      FROM
        (SELECT person_id AS person_id,
