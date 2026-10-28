@@ -1,0 +1,41 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "after": {
+            "description": "Only return entries at or after this ISO 8601 timestamp. The results never extend outside the recording's own start and end time.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+        },
+        "before": {
+            "description": "Only return entries at or before this ISO 8601 timestamp. The results never extend outside the recording's own start and end time.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this session recording.",
+            "type": "string"
+        },
+        "level": {
+            "description": "Only return entries at this level. Omit to return every level.\n\n* `info` - Info\n* `warn` - Warn\n* `error` - Error",
+            "enum": ["info", "warn", "error"],
+            "type": "string"
+        },
+        "limit": {
+            "default": 100,
+            "description": "Maximum number of entries to return (1-500, default 100).",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "number"
+        },
+        "offset": {
+            "default": 0,
+            "description": "Number of entries to skip. Use with `limit` to page through a long recording.",
+            "minimum": 0,
+            "type": "number"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}
