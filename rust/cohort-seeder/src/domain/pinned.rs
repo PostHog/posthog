@@ -68,12 +68,25 @@ const FLAG_EVALUATIONS_TTL_DAYS: DayIdx = 90;
 
 /// The ClickHouse table a scan reads.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(try_from = "String")]
 pub enum ScanTable {
     /// Also what a payload without `flag_calls_table` reads as.
     #[default]
     Events,
     FlagEvaluations,
+}
+
+impl TryFrom<String> for ScanTable {
+    type Error = String;
+
+    /// Deserializing through a string keeps serde from also accepting a singleton object.
+    fn try_from(name: String) -> Result<Self, Self::Error> {
+        match name.as_str() {
+            "events" => Ok(Self::Events),
+            "flag_evaluations" => Ok(Self::FlagEvaluations),
+            _ => Err(format!("unknown flag_calls_table {name:?}")),
+        }
+    }
 }
 
 impl ScanTable {
@@ -988,6 +1001,8 @@ mod tests {
             (2, json!(1)),
             (2, json!(["flag_evaluations"])),
             (2, json!({ "table": "flag_evaluations" })),
+            (2, json!({ "flag_evaluations": null })),
+            (2, json!({ "events": null })),
         ] {
             if let Ok(validated) =
                 PinnedRun::validate(pinned_with_flag_calls_table(version, Some(value.clone())))
