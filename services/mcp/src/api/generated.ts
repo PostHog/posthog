@@ -29213,6 +29213,40 @@ export namespace Schemas {
       description?: string | null;
     }
 
+    /**
+     * The `campaign` object from Customer.io's `GET /v1/environments/{environment_id}/campaigns/{campaign_id}` (Journeys UI API, what the Customer.io CLI and MCP read). Must include `id`, `type`, `edges` and the trigger fields.
+     */
+    export type CustomerioCampaignCampaign = { [key: string]: unknown };
+
+    export type CustomerioCampaignActionsItem = { [key: string]: unknown };
+
+    export interface CustomerioCampaign {
+      /** The `campaign` object from Customer.io's `GET /v1/environments/{environment_id}/campaigns/{campaign_id}` (Journeys UI API, what the Customer.io CLI and MCP read). Must include `id`, `type`, `edges` and the trigger fields. */
+      campaign: CustomerioCampaignCampaign;
+      /** The top-level `actions` array from the same response, every step of the automation. */
+      actions: CustomerioCampaignActionsItem[];
+      /** The message templates the actions point at, from `GET /v1/environments/{environment_id}/templates/{template_id}`: a list of template objects, or an object keyed by template id. Leave them out when the project stored a Customer.io App API key: PostHog then reads the content from Customer.io itself. Without either, messages import with empty content. */
+      templates?: unknown;
+    }
+
+    export interface CustomerioSegment {
+      /** The segment's id. */
+      id: string;
+      /** The segment's name. */
+      name: string;
+      /** The segment's type: `dynamic`, or `static` for a hand-made list. */
+      type: string;
+    }
+
+    export interface CustomerioSenderIdentity {
+      /** The sender identity's id, which templates name in `from_identity_id`. */
+      id: string;
+      /** The address the sender sends from. */
+      email: string;
+      /** The sender's display name. */
+      name?: string;
+    }
+
     export type DashboardFilters = { [key: string]: unknown };
 
     /**
@@ -124161,6 +124195,146 @@ export namespace Schemas {
       latest_ci_engine?: CIEngineEnum | null;
     }
 
+    /**
+     * * `approximated` - Approximated
+     * * `unsupported` - Unsupported
+     * * `needs_input` - Needs input
+     */
+    export type WorkflowImportNoteLevelEnum = typeof WorkflowImportNoteLevelEnum[keyof typeof WorkflowImportNoteLevelEnum];
+
+
+    export const WorkflowImportNoteLevelEnum = {
+      Approximated: 'approximated',
+      Unsupported: 'unsupported',
+      NeedsInput: 'needs_input',
+    } as const;
+
+    export interface WorkflowImportNote {
+      /** `approximated`: the step behaves differently in PostHog. `unsupported`: the setting was left out. `needs_input`: the team must set something before enabling.
+       *
+       * * `approximated` - Approximated
+       * * `unsupported` - Unsupported
+       * * `needs_input` - Needs input */
+      level: WorkflowImportNoteLevelEnum;
+      /** What changed or was left out, and what to do about it. */
+      message: string;
+      /**
+         * The workflow step the note is about, or null.
+         * @nullable
+         */
+      step_id: string | null;
+      /**
+         * That step's name, or null.
+         * @nullable
+         */
+      step_name: string | null;
+    }
+
+    export interface WorkflowImportRecord {
+      /** The import record's id. */
+      readonly id: string;
+      /** The tool the workflow was imported from. */
+      readonly source: string;
+      /** The automation's id in that tool. */
+      readonly source_id: string;
+      /** The automation's name in that tool. */
+      readonly source_name: string;
+      /**
+         * The workflow.
+         * @nullable
+         */
+      readonly hog_flow: string | null;
+      /** What the import changed or left out. */
+      readonly notes: readonly WorkflowImportNote[];
+      /** When the workflow was last imported. */
+      readonly updated_at: string;
+    }
+
+    /**
+     * Customer.io snippet name to its content, inlined where a message uses `{% snippet "name" %}`.
+     */
+    export type WorkflowImportRequestSnippets = {[key: string]: string};
+
+    /**
+     * Customer.io segment id to the PostHog cohort that replaces it. Segment triggers and segment conditions with no cohort here are left for the team to set.
+     */
+    export type WorkflowImportRequestSegmentCohorts = {[key: string]: number};
+
+    /**
+     * Customer.io layout id to the layout's `body`, from `GET /v1/environments/{environment_id}/layouts/{layout_id}`. An email whose template names a `layout_id` is wrapped in that layout at `{{ content }}`.
+     */
+    export type WorkflowImportRequestLayouts = {[key: string]: string};
+
+    export interface WorkflowImportRequest {
+      /** The tool the automations come from.
+       *
+       * * `customerio` - Customer.io */
+      source: ImportProviderKeyEnum;
+      /** The automations to import, at most 50. People are never read from these objects. */
+      campaigns: CustomerioCampaign[];
+      /** Customer.io snippet name to its content, inlined where a message uses `{% snippet "name" %}`. */
+      snippets?: WorkflowImportRequestSnippets;
+      /** Customer.io segment id to the PostHog cohort that replaces it. Segment triggers and segment conditions with no cohort here are left for the team to set. */
+      segment_cohorts?: WorkflowImportRequestSegmentCohorts;
+      /** Customer.io layout id to the layout's `body`, from `GET /v1/environments/{environment_id}/layouts/{layout_id}`. An email whose template names a `layout_id` is wrapped in that layout at `{{ content }}`. */
+      layouts?: WorkflowImportRequestLayouts;
+      /** Customer.io sender identities, from `GET /v1/environments/{environment_id}/identities?type=email`. Each email gets the PostHog sender with the same address. */
+      sender_identities?: CustomerioSenderIdentity[];
+      /** Customer.io segment ids, names and types, without members, so the notes can name each segment and flag static ones. */
+      segments?: CustomerioSegment[];
+      /** When true, translate and check the automations but save nothing, to preview the import. */
+      dry_run?: boolean;
+    }
+
+    /**
+     * * `preview` - Preview
+     * * `created` - Created
+     * * `updated` - Updated
+     * * `skipped` - Skipped
+     * * `failed` - Failed
+     */
+    export type WorkflowImportStatusEnum = typeof WorkflowImportStatusEnum[keyof typeof WorkflowImportStatusEnum];
+
+
+    export const WorkflowImportStatusEnum = {
+      Preview: 'preview',
+      Created: 'created',
+      Updated: 'updated',
+      Skipped: 'skipped',
+      Failed: 'failed',
+    } as const;
+
+    export interface WorkflowImportResult {
+      /** The automation's id in Customer.io. */
+      source_id: string;
+      /** The automation's name. */
+      name: string;
+      /** `preview` when dry_run is set, `created` or `updated` for a saved draft, `skipped` when an earlier import of it is no longer a draft, `failed` when the draft does not pass the workflow checks.
+       *
+       * * `preview` - Preview
+       * * `created` - Created
+       * * `updated` - Updated
+       * * `skipped` - Skipped
+       * * `failed` - Failed */
+      status: WorkflowImportStatusEnum;
+      /**
+         * The draft workflow's id, when one was saved. In a preview, the draft an import would replace.
+         * @nullable
+         */
+      workflow_id: string | null;
+      /** What the import changed or left out. */
+      notes: WorkflowImportNote[];
+      /** Why the draft failed the workflow checks, for `failed`. */
+      validation_errors: string[];
+    }
+
+    export interface WorkflowImportResponse {
+      /** One result per automation, in request order. */
+      results: WorkflowImportResult[];
+      /** True when PostHog read message content from Customer.io with the project's stored App API key. */
+      content_fetched: boolean;
+    }
+
     export interface WorkflowJobStep {
       /** 1-based position of the step in the job. */
       number: number;
@@ -143184,6 +143358,13 @@ export namespace Schemas {
      * @minLength 1
      */
     workflow_id: string;
+    };
+
+    export type WorkflowImportsForWorkflowRetrieveParams = {
+    /**
+     * The workflow to read the import of.
+     */
+    hog_flow_id: string;
     };
 
     export type PublicHogFunctionTemplatesListParams = {
