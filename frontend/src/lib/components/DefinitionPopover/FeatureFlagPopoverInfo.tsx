@@ -19,7 +19,10 @@ export function FeatureFlagPopoverInfo({ flagKey }: { flagKey: string }): JSX.El
 
     return (
         <DefinitionPopover.Grid cols={1}>
-            <DefinitionPopover.Card title="Status" value={summary.active ? 'Enabled' : 'Disabled'} />
+            <DefinitionPopover.Card
+                title="Status"
+                value={summary.archived ? 'Archived' : summary.active ? 'Enabled' : 'Disabled'}
+            />
             {summary.conditionCount !== null && (
                 <DefinitionPopover.Card
                     title="Release conditions"

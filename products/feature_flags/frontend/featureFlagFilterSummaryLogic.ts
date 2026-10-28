@@ -8,7 +8,7 @@ import { FeatureFlagConfig, MultivariateFlagVariant } from '~/types'
 
 import { isV1FeatureFlagConfig } from './featureFlagConfigFormat'
 import { featureFlagsList } from './generated/api'
-import type { FeatureFlagApi } from './generated/api.schemas'
+import { FeatureFlagsListArchived, type FeatureFlagApi } from './generated/api.schemas'
 
 const FLAG_LOOKUP_TTL_MS = 60 * 1000
 
@@ -23,6 +23,7 @@ export interface FeatureFlagFilterSummaryLogicProps {
 
 export interface FeatureFlagFilterSummary {
     active: boolean
+    archived: boolean
     variants: MultivariateFlagVariant[] | null
     conditionCount: number | null
 }
@@ -80,9 +81,14 @@ export const featureFlagFilterSummaryLogic = kea<featureFlagFilterSummaryLogicTy
                     if (!values.currentProjectId) {
                         return null
                     }
-                    const response = await featureFlagsList(String(values.currentProjectId), { key: props.flagKey })
+                    const projectId = String(values.currentProjectId)
                     // The API matches the key case-insensitively, but flag keys that differ only by case can both exist.
-                    const flag = response.results.find((flag) => flag.key === props.flagKey) ?? null
+                    const findFlag = async (archived?: FeatureFlagsListArchived): Promise<FeatureFlagApi | null> =>
+                        (await featureFlagsList(projectId, { key: props.flagKey, archived })).results.find(
+                            (flag) => flag.key === props.flagKey
+                        ) ?? null
+                    // The list leaves out archived flags unless asked, and old events can still carry their key.
+                    const flag = (await findFlag()) ?? (await findFlag(FeatureFlagsListArchived.True))
                     retainedFlagLookups.set(props.flagKey, { flag })
                     return flag
                 },
@@ -100,6 +106,7 @@ export const featureFlagFilterSummaryLogic = kea<featureFlagFilterSummaryLogicTy
                 const isV1 = !!filters && isV1FeatureFlagConfig(filters)
                 return {
                     active: !!flag.active,
+                    archived: !!flag.archived,
                     variants: isV1 ? (filters.multivariate?.variants ?? []) : null,
                     conditionCount: isV1 ? (filters.groups?.length ?? 0) : null,
                 }

@@ -26,6 +26,7 @@ describe('featureFlagFilterSummaryLogic', () => {
             ],
             {
                 active: true,
+                archived: false,
                 conditionCount: 2,
                 variants: [
                     { key: 'control', rollout_percentage: 50 },
@@ -36,26 +37,31 @@ describe('featureFlagFilterSummaryLogic', () => {
         [
             'summarizes a disabled boolean flag',
             [{ key: 'my-flag', active: false, filters: { groups: [{ rollout_percentage: 100 }] } }],
-            { active: false, conditionCount: 1, variants: [] },
+            { active: false, archived: false, conditionCount: 1, variants: [] },
         ],
         [
             'leaves conditions out for a flag config the UI cannot read',
             [{ key: 'my-flag', active: true, filters: { version: 2, rules: [] } }],
-            { active: true, conditionCount: null, variants: null },
+            { active: true, archived: false, conditionCount: null, variants: null },
         ],
         [
             'treats a flag with empty filters as a boolean flag with no conditions',
             [{ key: 'my-flag', active: true, filters: {} }],
-            { active: true, conditionCount: 0, variants: [] },
+            { active: true, archived: false, conditionCount: 0, variants: [] },
         ],
         ['has no summary when no flag has the key', [], null],
+        [
+            'finds an archived flag when no live flag has the key',
+            [{ key: 'my-flag', active: false, archived: true, filters: { groups: [] } }],
+            { active: false, archived: true, conditionCount: 0, variants: [] },
+        ],
         [
             'picks the flag whose key matches in the same case',
             [
                 { key: 'MY-FLAG', active: false, filters: { groups: [] } },
                 { key: 'my-flag', active: true, filters: { groups: [{ rollout_percentage: 100 }] } },
             ],
-            { active: true, conditionCount: 1, variants: [] },
+            { active: true, archived: false, conditionCount: 1, variants: [] },
         ],
     ])('%s', async (_name, results, expectedSummary) => {
         useMocks({
@@ -63,7 +69,9 @@ describe('featureFlagFilterSummaryLogic', () => {
                 '/api/projects/:team_id/feature_flags/': ({ request }) => {
                     const params = new URL(request.url).searchParams
                     const isLookupForKey = params.get('key') === 'my-flag'
-                    return [200, { count: results.length, results: isLookupForKey ? results : [] }]
+                    const wantsArchived = params.get('archived') === 'true'
+                    const matches = results.filter((flag) => !!flag.archived === wantsArchived)
+                    return [200, { count: matches.length, results: isLookupForKey ? matches : [] }]
                 },
             },
         })
