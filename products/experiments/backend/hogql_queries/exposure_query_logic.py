@@ -76,8 +76,8 @@ def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -
     return EXPERIMENT_EXPOSURE_EVENT if enabled else DEFAULT_EXPOSURE_EVENT
 
 
-def exposure_event_name_filter(event: str, *, read_copies: bool = True) -> ast.Expr:
-    """Matches the events that carry exposures for a resolved exposure event.
+def exposure_event_names(event: str, *, read_copies: bool = True) -> list[str]:
+    """Returns the events that carry exposures for a resolved exposure event.
 
     An experiment on $feature_flag_called also reads $experiment_exposure, unless `read_copies`
     is False. Ingestion stops writing $feature_flag_called to events for an organization on
@@ -87,15 +87,23 @@ def exposure_event_name_filter(event: str, *, read_copies: bool = True) -> ast.E
     rows give the same result as one.
     """
     if event == DEFAULT_EXPOSURE_EVENT and read_copies:
+        return [DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT]
+    return [event]
+
+
+def exposure_event_name_filter(event: str, *, read_copies: bool = True) -> ast.Expr:
+    """Matches the events that `exposure_event_names` returns for a resolved exposure event."""
+    names = exposure_event_names(event, read_copies=read_copies)
+    if len(names) > 1:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.In,
             left=ast.Field(chain=["event"]),
-            right=ast.Constant(value=[DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT]),
+            right=ast.Constant(value=names),
         )
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
         left=ast.Field(chain=["event"]),
-        right=ast.Constant(value=event),
+        right=ast.Constant(value=names[0]),
     )
 
 
