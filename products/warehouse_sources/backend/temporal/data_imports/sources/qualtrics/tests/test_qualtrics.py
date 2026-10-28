@@ -213,26 +213,127 @@ class TestCollectionPagination:
 
         assert isinstance(result.raised, QualtricsPaginationLimitError)
 
+    @pytest.mark.parametrize(
+        "endpoint, script, expected",
+        [
+            ("directories", [_json(_collection([{"directoryId": "POOL_1"}]))], ["true"]),
+            (
+                "mailing_lists",
+                [_json(_collection([{"directoryId": "POOL_1"}])), _json(_collection([{"mailingListId": "CG_1"}]))],
+                [None, "true"],
+            ),
+            ("users", [_json(_collection([{"id": "UR_1"}]))], [None]),
+        ],
+    )
+    def test_contact_counts_are_requested_only_where_declared(
+        self, endpoint: str, script: list[ScriptedResponse], expected: list[str | None]
+    ) -> None:
+        result = _drive(endpoint, script)
+
+        assert result.raised is None
+        assert result.params("includeCount") == expected
+
 
 class TestSurveyFanout:
-    def test_query_fanout_stamps_the_parent_survey_id(self) -> None:
-        result = _drive(
-            "distributions",
-            [
-                _json(_collection([{"id": "SV_1"}, {"id": "SV_2"}])),
-                _json(_collection([{"id": "EMD_1"}])),
-                _json(_collection([{"id": "EMD_2"}])),
-            ],
-        )
+    @pytest.mark.parametrize(
+        "endpoint, script, expected_items, expected_paths",
+        [
+            (
+                "distributions",
+                [
+                    _json(_collection([{"id": "SV_1"}, {"id": "SV_2"}])),
+                    _json(_collection([{"id": "EMD_1"}])),
+                    _json(_collection([{"id": "EMD_2"}])),
+                ],
+                [[{"id": "EMD_1", "surveyId": "SV_1"}], [{"id": "EMD_2", "surveyId": "SV_2"}]],
+                ["/API/v3/surveys", "/API/v3/distributions", "/API/v3/distributions"],
+            ),
+            (
+                "directory_contacts",
+                [
+                    _json(_collection([{"directoryId": "POOL_1"}, {"directoryId": "POOL_2"}])),
+                    _json(
+                        _collection(
+                            [{"contactId": "CID_1"}], next_page=f"{BASE}/directories/POOL_1/contacts?skipToken=a"
+                        )
+                    ),
+                    _json(_collection([{"contactId": "CID_2"}])),
+                    _json(_collection([{"contactId": "CID_3"}])),
+                ],
+                [
+                    [{"contactId": "CID_1", "directoryId": "POOL_1"}],
+                    [{"contactId": "CID_2", "directoryId": "POOL_1"}],
+                    [{"contactId": "CID_3", "directoryId": "POOL_2"}],
+                ],
+                [
+                    "/API/v3/directories",
+                    "/API/v3/directories/POOL_1/contacts",
+                    "/API/v3/directories/POOL_1/contacts",
+                    "/API/v3/directories/POOL_2/contacts",
+                ],
+            ),
+            (
+                "mailing_lists",
+                [
+                    _json(_collection([{"directoryId": "POOL_1"}, {"directoryId": "POOL_2"}])),
+                    _json(_collection([{"mailingListId": "CG_1"}])),
+                    _json(_collection([{"mailingListId": "CG_2"}])),
+                ],
+                [
+                    [{"mailingListId": "CG_1", "directoryId": "POOL_1"}],
+                    [{"mailingListId": "CG_2", "directoryId": "POOL_2"}],
+                ],
+                [
+                    "/API/v3/directories",
+                    "/API/v3/directories/POOL_1/mailinglists",
+                    "/API/v3/directories/POOL_2/mailinglists",
+                ],
+            ),
+            (
+                "distribution_history",
+                [
+                    _json(_collection([{"id": "SV_1"}, {"id": "SV_2"}])),
+                    _json(_collection([{"id": "EMD_1"}, {"id": "EMD/../x"}, {"id": "EMD_2"}])),
+                    _json(
+                        _collection(
+                            [{"contactId": "CID_1"}], next_page=f"{BASE}/distributions/EMD_1/history?skipToken=a"
+                        )
+                    ),
+                    _json(_collection([{"contactId": "CID_2"}])),
+                    _json(_collection([])),
+                    _json(_collection([])),
+                ],
+                [
+                    [{"contactId": "CID_1", "surveyId": "SV_1", "distributionId": "EMD_1"}],
+                    [{"contactId": "CID_2", "surveyId": "SV_1", "distributionId": "EMD_1"}],
+                ],
+                [
+                    "/API/v3/surveys",
+                    "/API/v3/distributions",
+                    "/API/v3/distributions/EMD_1/history",
+                    "/API/v3/distributions/EMD_1/history",
+                    "/API/v3/distributions/EMD_2/history",
+                    "/API/v3/distributions",
+                ],
+            ),
+        ],
+    )
+    def test_fanout_stamps_the_parent_id(
+        self,
+        endpoint: str,
+        script: list[ScriptedResponse],
+        expected_items: list[list[dict[str, Any]]],
+        expected_paths: list[str],
+    ) -> None:
+        result = _drive(endpoint, script)
 
-        assert result.items == [
-            [{"id": "EMD_1", "surveyId": "SV_1"}],
-            [{"id": "EMD_2", "surveyId": "SV_2"}],
-        ]
+        assert result.raised is None
+        assert result.items == expected_items
+        assert result.paths == expected_paths
         assert result.saved_states == [QualtricsResumeConfig(parent_index=1), QualtricsResumeConfig(parent_index=2)]
 
     def test_over_length_survey_ids_are_dropped(self) -> None:
-        with mock.patch.object(qualtrics_module, "MAX_SURVEY_ID_LENGTH", 5):
+        with mock.patch.object(qualtrics_module, "MAX_PARENT_ID_LENGTH", 5):
             result = _drive(
                 "survey_questions",
                 [
@@ -244,7 +345,7 @@ class TestSurveyFanout:
         assert result.items == [[{"QuestionID": "QID1", "surveyId": "SV_ok"}]]
 
     def test_too_many_surveys_is_refused(self) -> None:
-        with mock.patch.object(qualtrics_module, "MAX_SURVEY_COUNT", 1):
+        with mock.patch.object(qualtrics_module, "MAX_PARENT_COUNT", 1):
             result = _drive("survey_questions", [_json(_collection([{"id": "SV_1"}, {"id": "SV_2"}]))])
 
         assert isinstance(result.raised, QualtricsResponseTooLargeError)

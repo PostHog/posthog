@@ -66,11 +66,11 @@ EXPORT_BATCH_SIZE = 1000
 # in an endless fetch loop. At 100 elements per page this is far beyond any real brand.
 MAX_PAGES = 50_000
 
-# The fan-out survey-id list is held whole in memory, so bound both the per-id length (real
-# Qualtrics ids are ~18 chars) and the total count (far beyond any real brand) so a custom host
-# streaming endless over-long ids can't exhaust the worker.
-MAX_SURVEY_ID_LENGTH = 64
-MAX_SURVEY_COUNT = 200_000
+# The fan-out parent-id list (surveys or directories) is held whole in memory, so bound both the
+# per-id length (real Qualtrics ids are ~18 chars) and the total count (far beyond any real brand)
+# so a custom host streaming endless over-long ids can't exhaust the worker.
+MAX_PARENT_ID_LENGTH = 64
+MAX_PARENT_COUNT = 200_000
 
 # OAuth2 client-credentials tokens last ~1h; re-mint before the deadline so no request rides
 # a token that expires mid-flight.
@@ -82,7 +82,7 @@ INCOMPLETE_CREDENTIALS_ERROR = "Qualtrics credentials are incomplete"
 EXPORT_FAILED_ERROR = "Qualtrics response export failed"
 
 _HOST_PATTERN = re.compile(r"^[A-Za-z0-9.\-]+$")
-_SURVEY_ID_PATTERN = re.compile(r"^[A-Za-z0-9_\-]+$")
+_PARENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9_\-]+$")
 
 
 class QualtricsRetryableError(Exception):
@@ -117,8 +117,9 @@ class QualtricsExportFailedError(Exception):
 class QualtricsResumeConfig:
     # Full URL of the next collection page to fetch (top-level list endpoints).
     next_page: str | None = None
-    # Number of parent surveys already walked to completion (fan-out endpoints). Restarting
-    # the in-flight survey is intentional — merge dedupes its rows on the primary key.
+    # Number of parents (surveys or directories) already walked to completion (fan-out
+    # endpoints). Restarting the in-flight parent is intentional — merge dedupes its rows on the
+    # primary key.
     parent_index: int = 0
 
 
@@ -441,27 +442,33 @@ def _iter_collection(
         pages += 1
 
 
-def _survey_ids(client: QualtricsClient) -> list[str]:
-    """Collect the survey ids the fan-out endpoints iterate.
+def _path_safe_id(raw: Any) -> str | None:
+    """Ids go straight into request paths, so anything that isn't a plain Qualtrics id is dropped."""
+    if not raw:
+        return None
+    value = str(raw)
+    if len(value) > MAX_PARENT_ID_LENGTH or not _PARENT_ID_PATTERN.match(value):
+        return None
+    return value
 
-    Ids go straight into request paths, so anything that isn't a plain Qualtrics id
-    (`SV_...`) is dropped rather than allowed to steer the URL. The list is fully materialized —
-    resuming the fan-out addresses surveys by index — so an id-length cap and a total-count cap
-    keep a host that streams endless over-long ids from exhausting worker memory.
+
+def _parent_ids(client: QualtricsClient, path: str, id_field: str) -> list[str]:
+    """Collect the parent ids (`SV_...` surveys or `POOL_...` directories) a fan-out iterates.
+
+    The list is fully materialized — resuming the fan-out addresses parents by index — so an
+    id-length cap and a total-count cap keep a host that streams endless over-long ids from
+    exhausting worker memory.
     """
     ids: list[str] = []
-    for page in _iter_collection(client, client.url("/surveys"), resumable_source_manager=None):
+    for page in _iter_collection(client, client.url(path), resumable_source_manager=None):
         for element in page:
-            raw = element.get("id")
-            if not raw:
+            parent_id = _path_safe_id(element.get(id_field))
+            if parent_id is None:
                 continue
-            survey_id = str(raw)
-            if len(survey_id) > MAX_SURVEY_ID_LENGTH or not _SURVEY_ID_PATTERN.match(survey_id):
-                continue
-            ids.append(survey_id)
-            if len(ids) > MAX_SURVEY_COUNT:
+            ids.append(parent_id)
+            if len(ids) > MAX_PARENT_COUNT:
                 raise QualtricsResponseTooLargeError(
-                    f"Qualtrics returned more than {MAX_SURVEY_COUNT} surveys; refusing to buffer them all"
+                    f"Qualtrics returned more than {MAX_PARENT_COUNT} parents from {path}; refusing to buffer them all"
                 )
     return ids
 
@@ -718,19 +725,22 @@ def get_rows(
     client = QualtricsClient(host, credentials, api_version, logger)
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
-    if not config.fans_out_over_surveys:
+    if not config.fans_out:
         yield from _iter_collection(
             client,
-            client.url(config.path),
+            client.url(config.path, config.params),
             resumable_source_manager,
             start_url=resume.next_page if resume else None,
         )
         return
 
-    survey_ids = _survey_ids(client)
+    if config.fetch_mode == "directory_path":
+        parent_ids = _parent_ids(client, "/directories", "directoryId")
+    else:
+        parent_ids = _parent_ids(client, "/surveys", "id")
     start_index = resume.parent_index if resume else 0
     if start_index:
-        logger.debug(f"Qualtrics: resuming {endpoint} from survey {start_index} of {len(survey_ids)}")
+        logger.debug(f"Qualtrics: resuming {endpoint} from parent {start_index} of {len(parent_ids)}")
 
     start_date = (
         format_incremental_value(db_incremental_field_last_value)
@@ -738,21 +748,35 @@ def get_rows(
         else None
     )
 
-    for index in range(start_index, len(survey_ids)):
-        survey_id = survey_ids[index]
-        yield from _rows_for_survey(client, config, survey_id, start_date, logger)
-        # Saved AFTER the survey's rows are yielded, so a crash replays that survey instead
+    for index in range(start_index, len(parent_ids)):
+        # Every earlier parent's rows are already yielded, so the run can hand off here. Many
+        # parents (empty directories, surveys with no distributions) yield no rows at all.
+        resumable_source_manager.safe_point()
+        yield from _rows_for_parent(client, config, parent_ids[index], start_date, logger, resumable_source_manager)
+        # Saved AFTER the parent's rows are yielded, so a crash replays that parent instead
         # of skipping it — merge dedupes on the composite primary key.
         resumable_source_manager.save_state(QualtricsResumeConfig(parent_index=index + 1))
 
 
-def _rows_for_survey(
+def _rows_for_parent(
     client: QualtricsClient,
     config: QualtricsEndpointConfig,
-    survey_id: str,
+    parent_id: str,
     start_date: str | None,
     logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[QualtricsResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
+    if config.fetch_mode == "directory_path":
+        url = client.url(config.path.format(directory_id=parent_id), config.params)
+        for page in _iter_collection(client, url, resumable_source_manager=None):
+            yield [{**row, "directoryId": parent_id} for row in page]
+        return
+
+    if config.fetch_mode == "distribution_path":
+        yield from _distribution_rows(client, config, parent_id, resumable_source_manager)
+        return
+
+    survey_id = parent_id
     if config.fetch_mode == "survey_export":
         yield from _export_responses(client, survey_id, start_date, logger)
         return
@@ -767,6 +791,26 @@ def _rows_for_survey(
     elements = _elements(payload)
     if elements:
         yield [{**row, "surveyId": survey_id} for row in elements]
+
+
+def _distribution_rows(
+    client: QualtricsClient,
+    config: QualtricsEndpointConfig,
+    survey_id: str,
+    resumable_source_manager: ResumableSourceManager[QualtricsResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk each distribution of one survey, then that distribution's paginated rows."""
+    distributions_url = client.url("/distributions", {"surveyId": survey_id})
+    for distributions in _iter_collection(client, distributions_url, resumable_source_manager=None):
+        for distribution in distributions:
+            distribution_id = _path_safe_id(distribution.get("id"))
+            if distribution_id is None:
+                continue
+            url = client.url(config.path.format(distribution_id=distribution_id), config.params)
+            for page in _iter_collection(client, url, resumable_source_manager=None):
+                yield [{**row, "surveyId": survey_id, "distributionId": distribution_id} for row in page]
+            # The staged cursor restarts this survey, which re-reads (never skips) its rows.
+            resumable_source_manager.safe_point()
 
 
 def validate_credentials(
@@ -852,8 +896,8 @@ def qualtrics_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # Fan-out endpoints arrive grouped by survey, not globally ascending by the cursor —
+        # Fan-out endpoints arrive grouped by parent, not globally ascending by the cursor —
         # `desc` defers the watermark to the end of the run instead of advancing it past
         # surveys a crashed run still owes.
-        sort_mode="desc" if config.fans_out_over_surveys else "asc",
+        sort_mode="desc" if config.fans_out else "asc",
     )
