@@ -1327,6 +1327,7 @@ class TestPersistReplyActivity:
         ticket = Ticket.objects.create_with_number(
             team=team, channel_source="widget", widget_session_id="session", distinct_id="customer"
         )
+        Ticket.objects.filter(id=ticket.id).update(ai_triage={"citations": ["old"], "human_outcome": "used"})
 
         _persist_reply_sync(
             PersistReplyInput(
@@ -1348,6 +1349,9 @@ class TestPersistReplyActivity:
         assert comment.item_context["confidence"] == 0.85
         assert comment.item_context["persist_as"] == "reply"
         assert "investigation_summary" not in comment.item_context
+        ticket.refresh_from_db()
+        assert ticket.ai_triage["citations"] == ["chunk-1", "chunk-2"]
+        assert ticket.ai_triage["human_outcome"] == "used"
 
     def test_findings_note_does_not_present_reply_as_answer(self):
         from posthog.models.comment import Comment
@@ -1383,6 +1387,8 @@ class TestPersistReplyActivity:
         assert comment.item_context is not None
         assert comment.item_context["is_private"] is True
         assert comment.item_context["persist_as"] == "findings"
+        ticket.refresh_from_db()
+        assert ticket.ai_triage["citations"] == ["chunk-1"]
 
     def test_skips_reply_when_ticket_row_is_gone(self):
         from posthog.models.comment import Comment
@@ -1572,6 +1578,8 @@ class TestPersistReplyActivity:
         assert comment.item_context is not None
         assert comment.item_context["author_type"] == "AI"
         assert comment.item_context["is_private"] is expected_private
+        ticket.refresh_from_db()
+        assert ticket.ai_triage["citations"] == ["c1"]
 
     @parameterized.expand(
         [
@@ -1659,6 +1667,7 @@ class TestPersistReplyActivity:
         assert Comment.objects.filter(team_id=team.id, item_id=str(ticket.id)).exists()
         assert ticket.status == Status.OPEN
         assert ticket.ai_triage["status"] == "done"
+        assert ticket.ai_triage["citations"] == ["c1"]
         assert ticket.ai_triage["started_at"] == "t0"
 
     def test_followup_persist_retry_after_success_does_not_duplicate(self):
@@ -1730,6 +1739,7 @@ class TestClarifyActivity:
         from products.conversations.backend.models.constants import Status
 
         ticket = self._ticket(ai_reply_modes={"widget": {"how_to": "bot_reply"}})
+        Ticket.objects.filter(id=ticket.id).update(ai_triage={"citations": ["old"], "human_outcome": "used"})
         output = _clarify_sync(
             ClarifyInput(
                 team_id=ticket.team_id,
@@ -1738,6 +1748,7 @@ class TestClarifyActivity:
                 auto_publishable=True,
                 clarifying_questions=["Which SDK are you using?"],
                 investigation_summary="The ticket never named an SDK.",
+                citations=["chunk-1"],
             )
         )
         ticket.refresh_from_db()
@@ -1751,6 +1762,8 @@ class TestClarifyActivity:
         assert ticket.status == Status.PENDING
         assert ticket.ai_triage["status"] == "awaiting_clarification"
         assert ticket.ai_triage["clarification_rounds"] == 1
+        assert ticket.ai_triage["citations"] == ["chunk-1"]
+        assert ticket.ai_triage["human_outcome"] == "used"
         assert "investigation_summary" not in comment.item_context
         assert "unknowns" not in comment.item_context
 
@@ -1767,6 +1780,7 @@ class TestClarifyActivity:
         from products.conversations.backend.models.constants import Status
 
         ticket = self._ticket(ai_reply_modes=ai_reply_modes)
+        Ticket.objects.filter(id=ticket.id).update(ai_triage={"citations": ["old"], "human_outcome": "used"})
         output = _clarify_sync(
             ClarifyInput(
                 team_id=ticket.team_id,
@@ -1775,6 +1789,7 @@ class TestClarifyActivity:
                 auto_publishable=auto_publishable,
                 clarifying_questions=["Which SDK are you using?"],
                 investigation_summary="The ticket never named an SDK.",
+                citations=["chunk-1"],
             )
         )
         ticket.refresh_from_db()
@@ -1788,6 +1803,8 @@ class TestClarifyActivity:
         assert comment.item_context["investigation_summary"] == "The ticket never named an SDK."
         assert ticket.status == Status.NEW
         assert ticket.ai_triage.get("status") != "awaiting_clarification"
+        assert ticket.ai_triage["citations"] == ["chunk-1"]
+        assert ticket.ai_triage["human_outcome"] == "used"
 
     def test_retry_after_public_question_does_not_duplicate(self):
         from posthog.models.comment import Comment
@@ -1802,6 +1819,7 @@ class TestClarifyActivity:
                 ticket_type="how_to",
                 auto_publishable=True,
                 clarifying_questions=["Which SDK are you using?"],
+                citations=["chunk-1"],
             )
         )
         second = _clarify_sync(
@@ -1811,6 +1829,7 @@ class TestClarifyActivity:
                 ticket_type="how_to",
                 auto_publishable=True,
                 clarifying_questions=["Which version?"],
+                citations=["chunk-2"],
             )
         )
         comments = list(Comment.objects.filter(team_id=ticket.team_id, item_id=str(ticket.id)))
@@ -1821,6 +1840,7 @@ class TestClarifyActivity:
         ticket.refresh_from_db()
         assert ticket.status == Status.PENDING
         assert ticket.ai_triage["status"] == "awaiting_clarification"
+        assert ticket.ai_triage["citations"] == ["chunk-1"]
 
     def test_retry_after_private_note_does_not_duplicate(self):
         from posthog.models.comment import Comment
@@ -1836,6 +1856,7 @@ class TestClarifyActivity:
                 auto_publishable=True,
                 clarifying_questions=["Which SDK are you using?"],
                 investigation_summary="The ticket never named an SDK.",
+                citations=["chunk-1"],
             )
         )
         second = _clarify_sync(
@@ -1846,6 +1867,7 @@ class TestClarifyActivity:
                 auto_publishable=True,
                 clarifying_questions=["Which SDK are you using?"],
                 investigation_summary="A retry must not add a second note.",
+                citations=["chunk-2"],
             )
         )
         comments = list(Comment.objects.filter(team_id=ticket.team_id, item_id=str(ticket.id)))
@@ -1856,6 +1878,7 @@ class TestClarifyActivity:
         ticket.refresh_from_db()
         assert ticket.status == Status.NEW
         assert ticket.ai_triage.get("status") != "awaiting_clarification"
+        assert ticket.ai_triage["citations"] == ["chunk-1"]
 
 
 class TestBuildContextAutoPublish:
