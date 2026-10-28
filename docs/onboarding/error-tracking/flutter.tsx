@@ -8,7 +8,7 @@ const FLUTTER_ERROR_TRACKING_MIN_VERSION = '5.58.0'
 export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
 
-    const installSteps = getFlutterStepsPA(ctx, FLUTTER_ERROR_TRACKING_MIN_VERSION)
+    const installSteps = getFlutterStepsPA(ctx, { minVersion: FLUTTER_ERROR_TRACKING_MIN_VERSION })
 
     const exceptionAutocaptureStep: StepDefinition = {
         title: 'Set up exception autocapture',
@@ -200,7 +200,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                 />
                 <Markdown>
                     {dedent`
-                        Upload the matching \`.symbols\` files from your app's root directory. Sign in with \`posthog-cli login\`, or set \`POSTHOG_CLI_API_KEY\` and \`POSTHOG_CLI_PROJECT_ID\` in CI. Keep each build's symbols in its own directory.
+                        Run these commands from your app's root directory to upload each build's \`.symbols\` files. Sign in with \`posthog-cli login\`, or set \`POSTHOG_CLI_API_KEY\` and \`POSTHOG_CLI_PROJECT_ID\` in CI. Keep each build's symbols in its own directory.
                     `}
                 </Markdown>
                 <CodeBlock

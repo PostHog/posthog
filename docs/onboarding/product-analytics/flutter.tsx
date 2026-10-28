@@ -8,9 +8,10 @@ const DEFAULT_FLUTTER_SDK_VERSION = '5.24.0'
 
 export const getFlutterInstallSteps = (
     ctx: OnboardingComponentsContext,
-    flutterSdkVersion: string = DEFAULT_FLUTTER_SDK_VERSION
+    options?: { minVersion?: string }
 ): StepDefinition[] => {
     const { CodeBlock, Markdown, Tab, dedent } = ctx
+    const flutterSdkVersion = options?.minVersion ?? DEFAULT_FLUTTER_SDK_VERSION
 
     return [
         {
@@ -188,7 +189,7 @@ export const getFlutterEventStep = (ctx: OnboardingComponentsContext): StepDefin
 
 export const getFlutterSteps = (
     ctx: OnboardingComponentsContext,
-    flutterSdkVersion: string = DEFAULT_FLUTTER_SDK_VERSION
-): StepDefinition[] => [...getFlutterInstallSteps(ctx, flutterSdkVersion), getFlutterEventStep(ctx)]
+    options?: { minVersion?: string }
+): StepDefinition[] => [...getFlutterInstallSteps(ctx, options), getFlutterEventStep(ctx)]
 
 export const FlutterInstallation = createInstallation(getFlutterSteps)
