@@ -21,6 +21,7 @@ const harness = (id: string, name: string, match_pattern: string): MCPCustomHarn
 describe('mcpCustomHarnessesLogic', () => {
     let stored: MCPCustomHarnessApi[]
     let posted: unknown[]
+    let patched: { id: string; body: unknown }[]
     let deleted: string[]
     let rejectCreate: boolean
     let releaseDelete: () => void
@@ -29,6 +30,7 @@ describe('mcpCustomHarnessesLogic', () => {
     beforeEach(() => {
         stored = [harness('a', 'Acme agent', 'acme-agent')]
         posted = []
+        patched = []
         deleted = []
         rejectCreate = false
         deleteReleased = new Promise<void>((resolve) => {
@@ -46,6 +48,14 @@ describe('mcpCustomHarnessesLogic', () => {
                     const created = harness(`id-${posted.length}`, body.name, body.match_pattern)
                     stored = [...stored, created]
                     return [201, created]
+                },
+            },
+            patch: {
+                [`${HARNESSES_URL}:id/`]: async ({ params, request }) => {
+                    const body = (await request.json()) as Partial<MCPCustomHarnessApi>
+                    patched.push({ id: params.id as string, body })
+                    stored = stored.map((h) => (h.id === params.id ? { ...h, ...body } : h))
+                    return [200, stored.find((h) => h.id === params.id)]
                 },
             },
             delete: {
@@ -79,32 +89,62 @@ describe('mcpCustomHarnessesLogic', () => {
         [{ name: 'Acme', match_pattern: '' }, { match_pattern: 'Enter the text to match' }],
     ])('does not send %j and shows %j', async (values, errors) => {
         const logic = await mounted()
-        logic.actions.setNewCustomHarnessValues(values)
-        logic.actions.submitNewCustomHarness()
-        await expectLogic(logic).toDispatchActions(['submitNewCustomHarnessFailure'])
-        expect(logic.values.newCustomHarnessValidationErrors).toMatchObject(errors)
+        logic.actions.startAddingHarness()
+        logic.actions.setCustomHarnessFormValues(values)
+        logic.actions.submitCustomHarnessForm()
+        await expectLogic(logic).toDispatchActions(['submitCustomHarnessFormFailure'])
+        expect(logic.values.customHarnessFormValidationErrors).toMatchObject(errors)
         expect(posted).toEqual([])
     })
 
-    it('saves a trimmed name, clears the form and shows the new harness', async () => {
+    it('saves a trimmed name, closes the form and shows the new harness', async () => {
         const logic = await mounted()
-        logic.actions.setNewCustomHarnessValues({ name: '  Beta bot ', match_pattern: 'beta-bot' })
-        logic.actions.submitNewCustomHarness()
-        await expectLogic(logic).toDispatchActions(['submitNewCustomHarnessSuccess', 'loadCustomHarnessesSuccess'])
+        logic.actions.startAddingHarness()
+        logic.actions.setCustomHarnessFormValues({ name: '  Beta bot ', match_pattern: 'beta-bot' })
+        logic.actions.submitCustomHarnessForm()
+        await expectLogic(logic).toDispatchActions(['submitCustomHarnessFormSuccess', 'loadCustomHarnessesSuccess'])
 
         expect(posted).toEqual([{ name: 'Beta bot', match_pattern: 'beta-bot' }])
-        expect(logic.values.newCustomHarness).toEqual({ name: '', match_pattern: '' })
+        expect(logic.values.editingHarnessId).toBeNull()
         expect(logic.values.customHarnesses?.map((h) => h.name)).toEqual(['Acme agent', 'Beta bot'])
+    })
+
+    it('edits a harness in place with the values it already has', async () => {
+        const logic = await mounted()
+        logic.actions.startEditingHarness(stored[0])
+        expect(logic.values.editingHarnessId).toBe('a')
+        expect(logic.values.customHarnessForm).toEqual({ name: 'Acme agent', match_pattern: 'acme-agent' })
+
+        logic.actions.setCustomHarnessFormValues({ name: 'Acme assistant' })
+        logic.actions.submitCustomHarnessForm()
+        await expectLogic(logic).toDispatchActions(['submitCustomHarnessFormSuccess', 'loadCustomHarnessesSuccess'])
+
+        expect(posted).toEqual([])
+        expect(patched).toEqual([{ id: 'a', body: { name: 'Acme assistant', match_pattern: 'acme-agent' } }])
+        expect(logic.values.editingHarnessId).toBeNull()
+        expect(logic.values.customHarnesses?.map((h) => h.name)).toEqual(['Acme assistant'])
+    })
+
+    it('cancelling an edit clears the form so the next add starts empty', async () => {
+        const logic = await mounted()
+        logic.actions.startEditingHarness(stored[0])
+        logic.actions.cancelEditingHarness()
+        logic.actions.startAddingHarness()
+
+        expect(logic.values.editingHarnessId).toBe('new')
+        expect(logic.values.customHarnessForm).toEqual({ name: '', match_pattern: '' })
     })
 
     it('keeps what the person typed and shows the server reason when a save fails', async () => {
         rejectCreate = true
         const logic = await mounted()
-        logic.actions.setNewCustomHarnessValues({ name: 'Acme copy', match_pattern: 'acme-agent' })
-        logic.actions.submitNewCustomHarness()
-        await expectLogic(logic).toDispatchActions(['submitNewCustomHarnessFailure'])
+        logic.actions.startAddingHarness()
+        logic.actions.setCustomHarnessFormValues({ name: 'Acme copy', match_pattern: 'acme-agent' })
+        logic.actions.submitCustomHarnessForm()
+        await expectLogic(logic).toDispatchActions(['submitCustomHarnessFormFailure'])
 
-        expect(logic.values.newCustomHarness).toEqual({ name: 'Acme copy', match_pattern: 'acme-agent' })
+        expect(logic.values.editingHarnessId).toBe('new')
+        expect(logic.values.customHarnessForm).toEqual({ name: 'Acme copy', match_pattern: 'acme-agent' })
         expect(lemonToast.error).toHaveBeenCalledWith('A custom harness already uses this pattern.')
     })
 
