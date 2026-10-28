@@ -13,7 +13,7 @@ from markdown_it.token import Token
 from markdown_it.utils import EnvType
 
 from posthog.api.utils import hostname_in_allowed_url_list
-from posthog.slack.markdown import rendered_code_spans
+from posthog.slack.markdown import rendered_code_spans, slack_rich_text
 
 _ALLOWED_LINK_URLS = ["https://posthog.com", "https://*.posthog.com"]
 # Match all CommonMark title forms (double/single-quoted, parenthesized) and allow whitespace before
@@ -32,6 +32,9 @@ _MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
 _ORPHAN_DEST_RE = re.compile(r"\]\(((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)
 _AUTOLINK_RE = re.compile(r"<(https?://[^\s>]+)>", re.IGNORECASE)
 _BARE_URL_RE = re.compile(r"(?<!\]\()((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)
+# The same URL shape with no lookbehind: what the renderer drew is already past the question of
+# which markdown rule the URL came from.
+_ANY_URL_RE = re.compile(r"((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)
 
 
 def is_allowed_link_url(url: str, additional_allowed_origin: str | None = None) -> bool:
@@ -60,11 +63,29 @@ def is_allowed_link_url(url: str, additional_allowed_origin: str | None = None) 
     return hostname_in_allowed_url_list(_ALLOWED_LINK_URLS, host)
 
 
+def _as_url(url: str) -> str:
+    return url if url.lower().startswith(("http://", "https://")) else f"https://{url}"
+
+
 def _neutralize_url(url: str, keep_as: str | None = None) -> str:
-    check_url = url if url.lower().startswith(("http://", "https://")) else f"https://{url}"
+    check_url = _as_url(url)
     if is_allowed_link_url(check_url):
         return keep_as if keep_as is not None else url
     return f"`{url}`"
+
+
+def _neutralize_trailing_emphasis(url: str, keep_as: str | None = None) -> str:
+    """Wrap `url` without taking an emphasis marker that closes the text around it.
+
+    The URL pattern accepts `*`, `_` and `~`, so a line like `*see https://host/x*` matches the
+    closing marker as part of the URL. The wrapper would then close after that marker, the
+    renderer would read the emphasis before the backticks, and the URL would be drawn as plain
+    text that Slack linkifies.
+    """
+    core = url.rstrip("*_~")
+    if not core:
+        return url
+    return _neutralize_url(core, keep_as) + url[len(core) :]
 
 
 def _neutralize_bare_url(match: re.Match[str]) -> str:
@@ -76,7 +97,58 @@ def _neutralize_bare_url(match: re.Match[str]) -> str:
             if closing > 0:
                 suffix = _BARE_URL_RE.sub(lambda part: _neutralize_url(part.group(1)), url[closing:])
                 return _neutralize_url(url[:closing]) + suffix
-    return _neutralize_url(url)
+    return _neutralize_trailing_emphasis(url)
+
+
+def _drop_stray_backticks(line: str) -> str:
+    """Remove a backtick that opens no code span.
+
+    The wrapper below adds backticks of its own. A stray one in front of a URL would pair with the
+    wrapper's opening backtick instead, which leaves the closing backtick orphaned and the URL in
+    plain text.
+    """
+    spans = rendered_code_spans(line)
+    if not spans and "`" not in line:
+        return line
+    return "".join(
+        character
+        for index, character in enumerate(line)
+        if character != "`" or any(start <= index < end for start, end in spans)
+    )
+
+
+def _renderer_draws_a_live_url(line: str) -> bool:
+    """Whether the renderer still draws a defanged URL as ordinary text.
+
+    Markdown pairing is not local: emphasis, brackets and backticks in the text around a URL can
+    make the renderer close a span somewhere other than where the wrapper put it. Rather than
+    chase each shape, ask the renderer what it produced.
+    """
+    pending: list[object] = [slack_rich_text(line, allowed_root="")]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, dict):
+            if node.get("type") == "text" and not node.get("style", {}).get("code"):
+                if any(not is_allowed_link_url(_as_url(url)) for url in _ANY_URL_RE.findall(str(node.get("text", "")))):
+                    return True
+            pending.extend(node.values())
+        elif isinstance(node, list):
+            pending.extend(node)
+    return False
+
+
+def _redact_leaked_urls(line: str) -> str:
+    """Drop the URLs from a line the renderer refuses to keep inert.
+
+    Losing a URL from a hostile line is the acceptable outcome. Showing the recipient a live link
+    written by an untrusted summary is not.
+    """
+    if not _renderer_draws_a_live_url(line):
+        return line
+    return _ANY_URL_RE.sub(
+        lambda match: match.group(1) if is_allowed_link_url(_as_url(match.group(1))) else "(link removed)",
+        line.replace("`", ""),
+    )
 
 
 def _neutralize_urls_outside_code(markdown: str) -> str:
@@ -89,6 +161,7 @@ def _neutralize_urls_outside_code(markdown: str) -> str:
     """
     lines: list[str] = []
     for line in markdown.splitlines(keepends=True):
+        line = _drop_stray_backticks(line)
         parts: list[str] = []
         cursor = 0
         for start, end in rendered_code_spans(line):
@@ -96,7 +169,7 @@ def _neutralize_urls_outside_code(markdown: str) -> str:
             parts.append(line[start:end])
             cursor = end
         parts.append(_BARE_URL_RE.sub(_neutralize_bare_url, line[cursor:]))
-        lines.append("".join(parts))
+        lines.append(_redact_leaked_urls("".join(parts)))
     return "".join(lines)
 
 

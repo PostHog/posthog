@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from django.test import SimpleTestCase
@@ -151,16 +153,29 @@ class TestStripExternalLinks(SimpleTestCase):
             # code.
             ("backtick_after_autolink", "see <https://evil.example.com/x>` trailing"),
             ("backtick_before_url", "`x`https://evil.example.com/q"),
+            # The URL pattern accepts `*`, `_` and `~`, so the wrapper used to close after the
+            # emphasis marker and the renderer read the emphasis first.
+            ("emphasis_around_url", "*see https://evil.example.com/x*"),
+            ("strong_around_url", "**see https://evil.example.com/why**"),
+            ("strike_around_url", "~see https://evil.example.com/x~"),
+            # A stray backtick pairs with the wrapper's opening backtick and orphans the closer.
+            ("stray_backtick_before_url", "Value `42 and https://evil.example.com/why"),
+            ("stray_backtick_mid_line", "see ` and https://evil.example.com/collect here"),
+            ("stray_backtick_orphan_dest", ")>>](`https://evil.example.com/x-"),
         ]
     )
     def test_defanged_urls_never_reach_a_plain_slack_element(self, _label: str, markdown: str) -> None:
         content = slack_rich_text(strip_external_links_markdown(markdown), allowed_root="https://us.posthog.com")
-        plain_text = [
-            element["text"]
-            for section in content["elements"]
-            for element in section["elements"]
-            if not element.get("style", {}).get("code")
-        ]
+        plain_text: list[str] = []
+        pending: list[Any] = [content]
+        while pending:
+            node = pending.pop()
+            if isinstance(node, dict):
+                if node.get("type") == "text" and not node.get("style", {}).get("code"):
+                    plain_text.append(str(node.get("text", "")))
+                pending.extend(node.values())
+            elif isinstance(node, list):
+                pending.extend(node)
         self.assertNotIn("evil.example.com", "".join(plain_text))
 
     @parameterized.expand(
