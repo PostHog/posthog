@@ -704,6 +704,8 @@ depends_on = [
     "ee",
     "posthog",
     "products.access_control",
+    "products.alerts",
+    "products.alerts_platform",
     "products.dashboards",
     "products.error_tracking",
     "products.exports",
