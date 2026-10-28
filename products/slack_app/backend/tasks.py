@@ -7,11 +7,12 @@ from celery import shared_task
 from posthog.celery_queues import CeleryQueue
 from posthog.egress.limiter.policies import Priority
 from posthog.models import User
-from posthog.models.integration import Integration
 from posthog.models.scoping import with_team_scope
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.scoping_audit import skip_team_scope_audit
 
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.slack_app.backend.api import (
     REPO_SNAPSHOT_REFRESH_INTERVAL_SECONDS,
     SLACK_INTEGRATION_KIND,
@@ -66,8 +67,11 @@ def refresh_user_github_repository_cache(*, user_integration_id: str) -> None:
     github.sync_repository_cache(min_refresh_interval_seconds=REPO_SNAPSHOT_REFRESH_INTERVAL_SECONDS)
 
 
-def _load_integration(integration_id: int, team_id: int) -> Integration | None:
-    return Integration.objects.select_related("team__organization").filter(id=integration_id, team_id=team_id).first()
+def _load_integration(integration_id: int, team_id: int) -> IntegrationRecord | None:
+    try:
+        return IntegrationManager.slack.oauth.get(team_id, integration_id)
+    except IntegrationNotFound:
+        return None
 
 
 @shared_task(ignore_result=True)

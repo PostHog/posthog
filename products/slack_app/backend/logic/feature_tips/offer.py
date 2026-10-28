@@ -22,8 +22,9 @@ from django.utils import timezone
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 
+from products.integrations.backend.facade.api import IntegrationRecord
 from products.slack_app.backend.analytics import capture_slack_event, slack_distinct_id
 from products.slack_app.backend.logic.feature_tips.catalog import CATALOG, TipContext, TipFeature
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
@@ -51,7 +52,7 @@ FEATURE_TIP_ACTION_IDS = frozenset(
 
 @frozen
 class TipRequest:
-    integration: Integration
+    integration: IntegrationRecord
     slack_user_id: str
     posthog_user: User | None
     channel: str

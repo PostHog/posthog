@@ -37,9 +37,9 @@ from __future__ import annotations
 import structlog
 import posthoganalytics
 
-from posthog.models.integration import Integration
 from posthog.utils import get_instance_region
 
+from products.integrations.backend.facade.api import IntegrationRecord
 from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES, has_scopes
 
 logger = structlog.get_logger(__name__)
@@ -67,7 +67,7 @@ def _region_properties() -> dict[str, str]:
 
 def _workspace_flag_enabled(
     flag: str,
-    integration: Integration,
+    integration: IntegrationRecord,
     *,
     failure_log_key: str,
     distinct_id: str | None = None,
@@ -100,7 +100,7 @@ def _workspace_flag_enabled(
         return False
 
 
-def is_slack_app_oauth_enabled(integration: Integration) -> bool:
+def is_slack_app_oauth_enabled(integration: IntegrationRecord) -> bool:
     """Gate for the Slack user-identity OAuth link feature, covering both backend
     (offering the invite button, accepting the link callback, listing/starting
     from settings) and frontend (rendering the Slack card in Personal
@@ -109,7 +109,7 @@ def is_slack_app_oauth_enabled(integration: Integration) -> bool:
     return has_scopes(integration, OAUTH_REQUIRED_SCOPES)
 
 
-def is_slack_app_agent_design_enabled(integration: Integration, distinct_id: str | None = None) -> bool:
+def is_slack_app_agent_design_enabled(integration: IntegrationRecord, distinct_id: str | None = None) -> bool:
     """Gate for the agent-design plan-block streaming surface on Slack task runs.
     Posts through the ``chat:write`` the mention flow already requires, so this is the
     flag alone.
@@ -126,7 +126,9 @@ def is_slack_app_agent_design_enabled(integration: Integration, distinct_id: str
     )
 
 
-def is_slack_app_byos_enabled(integration: Integration, distinct_id: str | None, *, adapter: str = "codex") -> bool:
+def is_slack_app_byos_enabled(
+    integration: IntegrationRecord, distinct_id: str | None, *, adapter: str = "codex"
+) -> bool:
     """Gate for Slack runs that bill to the user's own plan.
 
     Depends on the tasks rollout flag for that plan, which is checked first. A Slack run
@@ -147,14 +149,14 @@ def is_slack_app_byos_enabled(integration: Integration, distinct_id: str | None,
     )
 
 
-def is_slack_app_assistant_enabled(integration: Integration) -> bool:
+def is_slack_app_assistant_enabled(integration: IntegrationRecord) -> bool:
     """Gate for the DM assistant: the install must hold the scopes the DM surface
     calls — ``im:history`` in particular, without which the assistant would answer
     once and then go deaf to follow-ups."""
     return has_scopes(integration, ASSISTANT_REQUIRED_SCOPES)
 
 
-def is_slack_app_forking_enabled(integration: Integration) -> bool:
+def is_slack_app_forking_enabled(integration: IntegrationRecord) -> bool:
     """Gate for the "Fork to DM" menu under a reply.
 
     A fork lands in a DM and is answered there, so it inherits the assistant

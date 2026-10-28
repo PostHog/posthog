@@ -2,9 +2,9 @@ import json
 import time
 from typing import Any, Literal
 
-from posthog.models.integration import Integration
 from posthog.slack.formatting import escape_slack_mrkdwn
 
+from products.integrations.backend.facade.api import IntegrationRecord
 from products.slack_app.backend.services.integration_resolver import project_label
 
 PROJECT_PICKER_CONTEXT_KIND = "project_picker"
@@ -26,8 +26,8 @@ def build_project_picker_context(
     *,
     event: dict[str, Any],
     event_id: str | None,
-    probe: Integration,
-    candidates: list[Integration],
+    probe: IntegrationRecord,
+    candidates: list[IntegrationRecord],
     slack_user_id: str,
     is_ext_shared_channel: bool,
 ) -> dict[str, Any]:
@@ -44,19 +44,19 @@ def build_project_picker_context(
     }
 
 
-def _choice_text(integration: Integration) -> dict[str, Any]:
+def _choice_text(integration: IntegrationRecord) -> dict[str, Any]:
     label = project_label(integration)
     if len(label) > _CHOICE_TEXT_MAX_LENGTH:
         label = f"{label[: _CHOICE_TEXT_MAX_LENGTH - 1]}…"
     return {"type": "plain_text", "text": label}
 
 
-def _choice_value(integration: Integration, slack_user_id: str) -> str:
+def _choice_value(integration: IntegrationRecord, slack_user_id: str) -> str:
     return json.dumps({"integration_id": integration.id, "mentioning_slack_user_id": slack_user_id})
 
 
 def build_project_picker_blocks(
-    candidates: list[Integration],
+    candidates: list[IntegrationRecord],
     *,
     context_token: str,
     slack_user_id: str,
@@ -145,7 +145,7 @@ def pick_rejection(
     return None
 
 
-def project_picked_message(integration: Integration, *, home_tab_url: str | None) -> str:
+def project_picked_message(integration: IntegrationRecord, *, home_tab_url: str | None) -> str:
     home_tab = f"<{home_tab_url}|Home tab>" if home_tab_url else "Home tab"
     return (
         f"Using *{escape_slack_mrkdwn(project_label(integration))}* for this and your future mentions. "

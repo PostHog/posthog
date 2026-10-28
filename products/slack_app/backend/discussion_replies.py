@@ -12,9 +12,9 @@ from typing import Any
 import structlog
 
 from posthog.models.comment import CommentSlackThread
-from posthog.models.integration import Integration
 from posthog.tasks.comment_slack_sync import ingest_slack_discussion_reply
 
+from products.integrations.backend.facade.api import IntegrationRecord
 from products.slack_app.backend.models import SlackThreadTaskMapping
 
 logger = structlog.get_logger(__name__)
@@ -22,7 +22,7 @@ logger = structlog.get_logger(__name__)
 
 def try_ingest_discussion_reply(
     event: dict[str, Any],
-    candidates: list[Integration],
+    candidates: list[IntegrationRecord],
     channel: str | None,
     thread_ts: str | None,
     slack_team_id: str,

@@ -7,15 +7,14 @@ these through ``facade.api``.
 
 from typing import Any
 
-from posthog.models.integration import Integration
-
+from products.integrations.backend.facade.api import IntegrationRecord
 from products.slack_app.backend.services.slack_scopes import bot_is_ready
 
 BOT_SETUP_DOCS_URL = "https://posthog.com/docs/slack-app"
 
 
 def build_followup_invite_text(
-    integration: Integration | None,
+    integration: IntegrationRecord | None,
     *,
     utm_tags: str,
     ai_enabled: bool,
@@ -47,7 +46,7 @@ def build_followup_invite_text(
 
 
 def build_followup_invite(
-    integration: Integration | None,
+    integration: IntegrationRecord | None,
     *,
     utm_tags: str,
     ai_enabled: bool,

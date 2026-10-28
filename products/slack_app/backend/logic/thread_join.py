@@ -7,8 +7,7 @@ from products.slack_app.backend.models import SlackThreadJoin, ThreadJoinMode
 from products.slack_app.backend.services.slack_settings import resolve_thread_join_mode
 
 if TYPE_CHECKING:
-    from posthog.models.integration import Integration
-
+    from products.integrations.backend.facade.api import IntegrationRecord
     from products.slack_app.backend.models import SlackThreadTaskMapping
 
 
@@ -22,7 +21,7 @@ class ThreadJoinDecision(StrEnum):
 
 
 def decide_thread_join(
-    integration: "Integration", mapping: "SlackThreadTaskMapping", slack_user_id: str
+    integration: "IntegrationRecord", mapping: "SlackThreadTaskMapping", slack_user_id: str
 ) -> ThreadJoinDecision:
     """The creator's join mode applied to one person, given the approvals the thread already has.
 

@@ -38,10 +38,10 @@ from __future__ import annotations
 
 import asyncio
 
-from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
+from products.integrations.backend.facade.api import IntegrationRecord
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
@@ -53,9 +53,9 @@ from products.slack_app.evals.scorers import PROJECT_ROUTE_KEY, NoUnaskedProject
 SUITE_KIND = SuiteKind.ONE_SHOT
 
 
-def _project(*, team_id: int, integration_id: int, name: str) -> Integration:
+def _project(*, team_id: int, integration_id: int, name: str) -> IntegrationRecord:
     """An unsaved `Integration` row, which is all the classifier reads."""
-    return Integration(
+    return IntegrationRecord(
         id=integration_id,
         kind="slack",
         team=Team(id=team_id, name=name, organization=Organization(name="Northwind")),
@@ -113,18 +113,18 @@ NORTHWIND = _project(team_id=53, integration_id=530, name="Northwind")
 SITE_DEV = _project(team_id=54, integration_id=540, name="northwind.io development")
 SITES = [NORTHWIND, SITE_DEV, STAGING, AGENT_PLATFORM, MOBILE]
 
-WORKSPACES: dict[str, tuple[list[Integration], Integration]] = {
+WORKSPACES: dict[str, tuple[list[IntegrationRecord], IntegrationRecord]] = {
     "simple": (PROJECTS, MAIN),
     "crowded": (CROWD, MAIN),
     "sites": (SITES, NORTHWIND),
 }
 
 
-def _routes_to(project: Integration | None = None) -> dict:
+def _routes_to(project: IntegrationRecord | None = None) -> dict:
     return {PROJECT_ROUTE_KEY: {"integration_id": project.id if project else None}}
 
 
-def _stays_on(default: Integration) -> dict:
+def _stays_on(default: IntegrationRecord) -> dict:
     """The message names the project the run is already on, so its id and null both pass."""
     return {PROJECT_ROUTE_KEY: {"integration_id": default.id, "is_default": True}}
 

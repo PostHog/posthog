@@ -19,10 +19,11 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.integrations.backend.facade.api import IntegrationManager
 from products.product_analytics.backend.facade.api import user_can_view_insight
 from products.slack_app.backend.analytics import capture_slack_event
 
@@ -128,9 +129,7 @@ def _raise_if_transient(error: SlackApiError) -> None:
 def post_unfurl_charts(post: SlackAppUnfurlChartsPostInput, *, image_urls_by_key: dict[str, str]) -> None:
     """Post the rendered charts. ``image_urls_by_key`` holds a delivery url for each render key that rendered."""
     request = post.request
-    integration = Integration.objects.select_related("team__organization").get(
-        id=request.integration_id, team_id=request.team_id
-    )
+    integration = IntegrationManager.slack.oauth.get(request.team_id, request.integration_id)
     team = integration.team
     user = User.objects.filter(id=request.user_id).first()
     failure_reason: str | None = None
