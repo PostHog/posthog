@@ -27,9 +27,6 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
 
     return (
         <div>
-            <h2 id="project-events-retention" className="text-base font-semibold mb-0">
-                Events retention
-            </h2>
             <p className="max-w-160 text-sm text-secondary mb-4">
                 Choose how long this project keeps events. This replaces the window set in{' '}
                 <Link to={urls.settings('organization-details', 'organization-events-retention')}>

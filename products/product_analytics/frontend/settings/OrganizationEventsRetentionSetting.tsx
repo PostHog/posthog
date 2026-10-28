@@ -22,9 +22,6 @@ export function OrganizationEventsRetentionSetting(): JSX.Element | null {
 
     return (
         <div>
-            <h2 id="organization-events-retention" className="text-base font-semibold mb-0">
-                Events retention
-            </h2>
             <p className="max-w-160 text-sm text-secondary mb-4">
                 Choose how long projects in this organization keep events. A project can set its own window instead.{' '}
                 {organizationRetention.organization_retention_months === null &&

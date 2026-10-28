@@ -1397,8 +1397,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'project-events-retention',
-                // The component renders its own title, so the setting stays hidden until retention applies.
-                title: null,
+                title: 'Events retention',
                 component: <ProjectEventsRetentionSetting />,
                 keywords: ['events', 'retention', 'deletion', 'delete', 'months', 'compliance'],
             },
@@ -2332,8 +2331,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'organization-events-retention',
-                // The component renders its own title, so the setting stays hidden until retention applies.
-                title: null,
+                title: 'Events retention',
                 component: <OrganizationEventsRetentionSetting />,
                 keywords: ['events', 'retention', 'deletion', 'delete', 'months', 'compliance'],
             },
