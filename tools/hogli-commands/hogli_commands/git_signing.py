@@ -52,16 +52,22 @@ def pick_new_key(before: set[str], after: dict[str, Path]) -> Path:
 
 
 class SecureEnclaveSigningSetup:
-    def __init__(self, protection: str) -> None:
+    def __init__(self, protection: str, use_global: bool) -> None:
         self.protection = protection
+        self.scope = "--global" if use_global else "--local"
         self.previous_settings: dict[str, str | None] = {}
 
     def _check_platform(self) -> None:
         if platform.system() != "Darwin" or not PROVIDER.exists() or shutil.which("sc_auth") is None:
             raise click.ClickException(f"This needs macOS 26 or later, which ships {PROVIDER} and sc_auth.")
+        if (
+            self.scope == "--local"
+            and subprocess.run(["git", "rev-parse", "--git-dir"], capture_output=True).returncode
+        ):
+            raise click.ClickException("Run this inside a git repository, or pass --global.")
 
-    def _git_config_get(self, setting: str) -> str | None:
-        result = subprocess.run(["git", "config", "--global", "--get", setting], capture_output=True, text=True)
+    def _git_config_get(self, *scope: str, setting: str) -> str | None:
+        result = subprocess.run(["git", "config", *scope, "--get", setting], capture_output=True, text=True)
         return result.stdout.strip() or None
 
     def _confirm(self) -> None:
@@ -75,10 +81,15 @@ class SecureEnclaveSigningSetup:
             else:
                 click.echo("Protection: bio. Each signature needs Touch ID, so signing stops while you are away.")
             click.echo(f"It writes a key handle to {KEY_PATH}. The handle only works with this Mac's Secure Enclave.")
-        click.echo("\ngit stops using your current signing key. These global git settings change:")
+        if self.scope == "--global":
+            click.echo("\nEvery repository stops using your current signing key. Your global git config changes.")
+        else:
+            click.echo("\nThis repository and its worktrees stop using your current signing key.")
+            click.echo("Only this repository's git config changes. Pass --global to change every repository.")
+        click.echo("Current values in effect here:")
         for setting in GIT_SETTINGS:
-            self.previous_settings[setting] = self._git_config_get(setting)
-            click.echo(f"  {setting} = {self.previous_settings[setting] or '(unset)'}")
+            self.previous_settings[setting] = self._git_config_get(self.scope, setting=setting)
+            click.echo(f"  {setting} = {self._git_config_get(setting=setting) or '(unset)'}")
         click.echo("SSH logins and pushes keep using your current SSH agent.")
         click.confirm("Continue?", abort=True)
 
@@ -131,7 +142,7 @@ class SecureEnclaveSigningSetup:
             "commit.gpgsign": "true",
         }
         for setting, value in values.items():
-            subprocess.run(["git", "config", "--global", setting, value], check=True)
+            subprocess.run(["git", "config", self.scope, setting, value], check=True)
 
     def _test_sign(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -191,9 +202,9 @@ class SecureEnclaveSigningSetup:
         click.echo("\nTo go back to your previous signing setup:")
         for setting, value in self.previous_settings.items():
             if value is None:
-                click.echo(f"  git config --global --unset {setting}")
+                click.echo(f"  git config {self.scope} --unset {setting}")
             else:
-                click.echo(f'  git config --global {setting} "{value}"')
+                click.echo(f'  git config {self.scope} {setting} "{value}"')
         click.echo("To delete the Secure Enclave key as well:")
         click.echo(f"  sc_auth list-ctk-identities   # find the hash of the `{KEY_LABEL}` key")
         click.echo(f"  sc_auth delete-ctk-identity -h <hash> && rm {KEY_PATH} {KEY_PATH}.pub")
@@ -218,16 +229,23 @@ class SecureEnclaveSigningSetup:
     show_default=True,
     help="bio asks for Touch ID on each signature. none signs without a prompt, also while the screen is locked.",
 )
-def signing_key(protection: str) -> None:
+@click.option(
+    "--global",
+    "use_global",
+    is_flag=True,
+    help="Write the git settings to your global config, so every repository signs with this key.",
+)
+def signing_key(protection: str, use_global: bool) -> None:
     """Set up commit signing with a Secure Enclave key (macOS 26 or later) and register it on GitHub.
 
     Creates a new key inside the Secure Enclave, so the private key never leaves this Mac.
     git uses it instead of your current signing key, for example one in 1Password or Secretive.
-    SSH logins and pushes stay as they are. Run it again to reuse the key and redo the git and
-    GitHub steps.
+    By default only this repository and its worktrees change. SSH logins and pushes stay as
+    they are. Run it again to reuse the key and redo the git and GitHub steps.
 
     \b
         hogli git:signing-key
         hogli git:signing-key --protection none
+        hogli git:signing-key --global
     """
-    SecureEnclaveSigningSetup(protection).run()
+    SecureEnclaveSigningSetup(protection, use_global).run()
