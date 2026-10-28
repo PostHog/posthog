@@ -12359,6 +12359,7 @@ export namespace Schemas {
      * * `AwsS3Tables` - AwsS3Tables
      * * `Beacons` - Beacons
      * * `WooPayments` - WooPayments
+     * * `Soniox` - Soniox
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13771,7 +13772,8 @@ export namespace Schemas {
         | "Dripify"
         | "AwsS3Tables"
         | "Beacons"
-        | "WooPayments";
+        | "WooPayments"
+        | "Soniox";
     /**
      * * `web` - web
      * * `api` - api
@@ -15193,6 +15195,7 @@ export namespace Schemas {
          * * `AwsS3Tables` - AwsS3Tables
          * * `Beacons` - Beacons
          * * `WooPayments` - WooPayments
+         * * `Soniox` - Soniox
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
