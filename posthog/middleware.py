@@ -33,7 +33,7 @@ from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
-from rest_framework.exceptions import ErrorDetail, ValidationError
+from rest_framework.exceptions import ValidationError
 from social_core.backends.utils import load_backends
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
@@ -1475,11 +1475,11 @@ class SocialAuthExceptionMiddleware:
         return None
 
     def _error_code(self, exception: ValidationError) -> str:
-        # DRF nests detail as dict -> list -> ErrorDetail. Take the first leaf.
-        detail: object = exception.detail
-        while isinstance(detail, dict | list):
-            detail = next(iter(detail.values() if isinstance(detail, dict) else detail), None)
-        return (detail.code or "unknown") if isinstance(detail, ErrorDetail) else "unknown"
+        # `OrganizationInvite.validate()` raises ValidationError("message", code=...), which DRF stores
+        # as a one-element list. Any other shape gets the generic login message.
+        codes = exception.get_codes()
+        first = codes[0] if isinstance(codes, list) and codes else None
+        return first if isinstance(first, str) else "unknown"
 
     def _get_error_detail(self, exception: AuthException) -> str:
         error_detail = str(exception).strip()

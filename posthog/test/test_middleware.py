@@ -2529,9 +2529,7 @@ class TestSocialAuthExceptionMiddleware(SimpleTestCase):
             (
                 "invite_email_already_in_org",
                 "/complete/saml/",
-                ValidationError(
-                    {"email": "Another user with this email already belongs."}, code="existing_email_address"
-                ),
+                ValidationError("Another user with this email already belongs.", code="existing_email_address"),
                 "/login?error_code=invite_email_taken",
             ),
             (
