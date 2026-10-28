@@ -15,7 +15,8 @@ from posthog.uuidt import UUIDT
 
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE
 
-# The writer's ranks: a status only moves forward, and a later status of the same rank wins by its time.
+# The read only compares versions, so these ranks must keep the writer's order but not its values. A status only
+# moves forward, and a later status of the same rank wins by its time.
 RANK = {"queued": 0, "failed": 2, "sent": 3, "delivered": 4, "bounced": 5, "complained": 6}
 
 
