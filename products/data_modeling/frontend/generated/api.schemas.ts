@@ -7,6 +7,23 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface EdgeSummaryApi {
+    readonly id: string
+    /** ID of the upstream node. */
+    readonly source_id: string
+    /** ID of the downstream node. */
+    readonly target_id: string
+}
+
+export interface PaginatedEdgeSummaryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: EdgeSummaryApi[]
+}
+
 export interface EdgeApi {
     readonly id: string
     /** ID of the upstream node. */
@@ -17,15 +34,6 @@ export interface EdgeApi {
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
-}
-
-export interface PaginatedEdgeListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: EdgeApi[]
 }
 
 export interface PatchedEdgeApi {
