@@ -21,7 +21,11 @@ import {
 } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import * as api from './generated/api'
-import { DataModelingUsageListEngine, type ModelUsageApi } from './generated/api.schemas'
+import {
+    DataModelingUsageListEngine,
+    type DataModelingUsageListParams,
+    type ModelUsageApi,
+} from './generated/api.schemas'
 
 export const MATERIALIZATION_JOBS_PAGE_SIZE = 20
 export const DEFAULT_MODELS_USAGE_DATE_FROM = '-30d'
@@ -107,6 +111,9 @@ function materializationJobsDateFrom(dateFrom: string, dateTo: string | null): s
     return start.toISOString()
 }
 
+export type ModelsUsageSortBy = NonNullable<DataModelingUsageListParams['sort_by']>
+export type ModelsUsageSortDirection = NonNullable<DataModelingUsageListParams['sort_direction']>
+
 export interface MaterializedViewOption {
     id: string
     name: string
@@ -136,6 +143,8 @@ export interface modelsUsageLogicValues {
     materializationJobsLoading: boolean
     materializedViewOptions: MaterializedViewOption[]
     page: number
+    sortBy: ModelsUsageSortBy
+    sortDirection: ModelsUsageSortDirection
     selectedEngine: DataModelingUsageListEngine
     selectedJobStatus: DataModelingJobsListStatus | null
     selectedMaterializedViewOptions: MaterializedViewOption[]
@@ -196,6 +205,7 @@ export interface modelsUsageLogicActions {
         dateFrom: string
         dateTo: string | null
     }
+    sortModels: (sortBy: ModelsUsageSortBy) => { sortBy: ModelsUsageSortBy; sortDirection: ModelsUsageSortDirection }
     setJobsPage: (page: number) => {
         page: number
     }
@@ -256,10 +266,20 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
         ],
         actions: [dataWarehouseViewsLogic, ['loadDataWarehouseSavedQueries']],
     })),
-    actions({
+    actions(({ values }) => ({
         setDateRange: (dateFrom: string | null, dateTo: string | null) =>
             normalizeModelsUsageDateRange(dateFrom, dateTo),
         setPage: (page: number) => ({ page }),
+        sortModels: (sortBy: ModelsUsageSortBy) => ({
+            sortBy,
+            sortDirection: (sortBy === values.sortBy
+                ? values.sortDirection === 'asc'
+                    ? 'desc'
+                    : 'asc'
+                : sortBy === 'name'
+                  ? 'asc'
+                  : 'desc') as ModelsUsageSortDirection,
+        }),
         setJobsPage: (page: number) => ({ page }),
         setSelectedEngine: (engine: DataModelingUsageListEngine) => ({ engine }),
         setSelectedJobStatus: (status: DataModelingJobsListStatus | null) => ({ status }),
@@ -267,7 +287,7 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
         openModel: true,
         refresh: true,
         refreshJobs: true,
-    }),
+    })),
     reducers({
         dateFrom: [
             DEFAULT_MODELS_USAGE_DATE_FROM as string,
@@ -278,9 +298,21 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
             1,
             {
                 setPage: (_, { page }) => page,
+                sortModels: () => 1,
                 setDateRange: () => 1,
                 setSelectedEngine: () => 1,
                 setSelectedSavedQueryIds: () => 1,
+            },
+        ],
+        sortBy: [
+            'read_bytes' as ModelsUsageSortBy,
+            { sortModels: (_, { sortBy }) => sortBy, setSelectedEngine: () => 'read_bytes' },
+        ],
+        sortDirection: [
+            'desc' as ModelsUsageSortDirection,
+            {
+                sortModels: (_, { sortDirection }) => sortDirection,
+                setSelectedEngine: () => 'desc',
             },
         ],
         jobsPage: [
@@ -323,6 +355,8 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
                             : DataModelingUsageListEngine.Clickhouse,
                         page: values.page,
                         page_size: 20,
+                        sort_by: values.sortBy,
+                        sort_direction: values.sortDirection,
                         saved_query_ids: values.selectedSavedQueryIds.join(',') || undefined,
                     })
                     breakpoint()
@@ -459,6 +493,13 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
             actions.loadMaterializationJobs()
         },
         setPage: () => actions.loadUsage(),
+        sortModels: () => {
+            posthog.capture('models usage sort changed', {
+                sort_by: values.sortBy,
+                sort_direction: values.sortDirection,
+            })
+            actions.loadUsage()
+        },
         setJobsPage: () => actions.loadMaterializationJobs(),
         setSelectedEngine: () => {
             actions.loadUsage()
