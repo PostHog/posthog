@@ -31,7 +31,7 @@ export function BetsSidebarHoverCard({ bet }: { bet: BetsEntryApi }): JSX.Elemen
     const spendLabels = useMemo(() => history?.map((point) => point.at) ?? [], [history])
     const performance = betPerformance(bet)
     const tone = performance ? RATING_TONES[performance.rating] : 'neutral'
-    const target = Number.parseFloat(bet.target)
+    const target = Number.parseFloat(bet.target ?? '')
     const comparison = bet.direction === 'decrease' ? '≤' : '≥'
     const overBudget = bet.money.available_cents < 0
     return (

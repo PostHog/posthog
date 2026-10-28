@@ -2,40 +2,41 @@ import { useActions, useValues } from 'kea'
 
 import { Field, FieldDescription, FieldError, FieldLabel, Input, Skeleton } from '@posthog/quill'
 
-import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
+import { GitHubRepositoryChips } from 'lib/integrations/GitHubRepositoryChips'
 
 import { betFormLogic } from '../logics/betFormLogic'
 
 export function BetRepositoryField({ id }: { id: string }): JSX.Element {
-    const { repository, repositorySource, github, githubLoading, fieldErrors } = useValues(betFormLogic({ id }))
-    const { setRepository, touch } = useActions(betFormLogic({ id }))
+    const { repositories, repositorySource, github, githubLoading, fieldErrors } = useValues(betFormLogic({ id }))
+    const { setRepositories, touch } = useActions(betFormLogic({ id }))
     const description =
         repositorySource === 'last'
             ? 'Taken from your last bet.'
             : repositorySource === 'only'
               ? 'The only repository connected to this project.'
-              : 'Bets opens pull requests here when you choose an idea.'
+              : repositories.length > 1
+                ? 'Bets reads all of them. Pull requests go where the change belongs.'
+                : 'Bets opens pull requests here when you choose an idea.'
     return (
         <Field data-invalid={!!fieldErrors.repository || undefined}>
-            <FieldLabel htmlFor="bet-repository">Repository</FieldLabel>
-            {githubLoading && !repository ? (
+            <FieldLabel htmlFor="bet-repository">{repositories.length > 1 ? 'Repositories' : 'Repository'}</FieldLabel>
+            {githubLoading && !repositories.length ? (
                 <Skeleton className="h-8 w-full" />
             ) : github?.integrationId ? (
-                <div className="Bets__repositoryPicker [&_button]:min-h-8" onBlur={() => touch('repository')}>
-                    <GitHubRepositoryCombobox
+                <div className="Bets__repositoryPicker" onBlur={() => touch('repository')}>
+                    <GitHubRepositoryChips
                         integrationId={github.integrationId}
-                        value={repository}
-                        onChange={(value) => setRepository(value ?? '')}
-                        placeholder="Choose a repository"
-                        fullWidth
+                        repositories={repositories}
+                        onChange={setRepositories}
+                        dataAttrPrefix="bets-form"
                     />
                 </div>
             ) : (
                 <Input
                     id="bet-repository"
-                    value={repository}
+                    value={repositories[0] ?? ''}
                     aria-invalid={!!fieldErrors.repository || undefined}
-                    onChange={(event) => setRepository(event.target.value)}
+                    onChange={(event) => setRepositories(event.target.value ? [event.target.value] : [])}
                     onBlur={() => touch('repository')}
                     placeholder="owner/repository"
                 />

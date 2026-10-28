@@ -598,7 +598,7 @@ platform_alert_runtime_fields = [
 
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
-    "Bet": ["updated_at", "preview"],
+    "Bet": ["updated_at", "preview", "notified_actions", "goal_met_since", "scout_config_id", "lease", "lease_until"],
     "DataQualityCheckSchedule": ["next_run_at", "last_run_at", "last_suite_run", "updated_at"],
     "AlertConfiguration": [
         "last_checked_at",

@@ -2,11 +2,15 @@ from typing import TypedDict
 
 from django.utils import timezone
 
+from products.signals.backend.facade import api as signals
+
 from ..db import WRITER_DB
 from ..facade.enums import BetStatus, WorkKind, WorkStage
 from ..models import Bet, WorkItem
 from .ledger import totals
 from .plan import EXPOSURE_GRACE
+
+EMPTY_SCOUT_RUNS = 2
 
 
 class NextAction(TypedDict):
@@ -76,6 +80,17 @@ def next_actions(bet: Bet) -> list[NextAction]:
     if bet.status not in (BetStatus.SETTING_UP, BetStatus.RUNNING):
         return []
     result: list[NextAction] = []
+    if bet.status == BetStatus.SETTING_UP and bet.goal_insight and bet.target is None:
+        result.append(
+            action(
+                bet,
+                "target",
+                "Set the target",
+                f"Bets will measure this bet with {bet.goal_metric}. Check that it fits, then set the value to reach in Edit bet.",
+                "Set the target",
+                0,
+            )
+        )
     proposed = (
         WorkItem.objects.for_team(bet.team_id)
         .using(WRITER_DB)
@@ -129,6 +144,20 @@ def next_actions(bet: Bet) -> list[NextAction]:
             )
         else:
             result.append(action(bet, f"{work.id}:stuck", work.title, work.note, "Needs attention", 0, work))
+    if bet.status == BetStatus.RUNNING and not count and not building.exists():
+        empty = signals.empty_scout_run_summaries(bet.team_id, "bets", f"{bet.id}:v{bet.goal_version}")
+        if len(empty) >= EMPTY_SCOUT_RUNS:
+            result.append(
+                action(
+                    bet,
+                    "scout-empty",
+                    "The Scout found no new ideas",
+                    f"The last {len(empty)} Scout runs found no idea with enough evidence. "
+                    f"Add your own idea for the Scout to check, or change the goal.\n\n{empty[0]}",
+                    "Add an idea",
+                    1,
+                )
+            )
     if bet.status == BetStatus.RUNNING and totals(bet.team_id, bet).available_cents <= 0:
         result.append(
             action(bet, "budget", "The budget is used up", "Add budget to keep going, or close the bet.", "Budget", 0)

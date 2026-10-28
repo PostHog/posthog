@@ -40,7 +40,9 @@ export function BetIdeas({ bet }: { bet: BetsDetailApi }): JSX.Element | null {
           ? ''
           : bet.status === 'closed'
             ? 'No ideas wait for a choice.'
-            : 'No ideas wait for a choice. The Scout looks for new ideas on its next run.'
+            : bet.next_action?.id.endsWith(':scout-empty')
+              ? bet.next_action.description.split('\n\n')[0]
+              : 'No ideas wait for a choice. The Scout looks for new ideas on its next run.'
     const blocked = bet.is_owner && waitingIdeas.length > 0 ? buildDisabledReason : null
     return (
         <section id="bet-ideas" className="flex min-w-0 flex-col gap-2 pb-2" aria-label="Ideas">

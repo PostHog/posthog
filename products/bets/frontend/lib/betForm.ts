@@ -7,8 +7,10 @@ export const EMPTY_BET_FORM: BetsWriteApi = {
     audience: '',
     area: '',
     repository: '',
+    repositories: [],
     goal_metric: '',
     goal_insight: '',
+    goal_description: '',
     secondary_metrics: [],
     target: '',
     direction: 'increase',
@@ -23,8 +25,10 @@ export function formFromExisting(existing: BetsDetailApi): BetsWriteApi {
         audience: existing.audience,
         area: existing.area,
         repository: existing.repository,
+        repositories: existing.repositories,
         goal_metric: existing.goal_metric,
         goal_insight: existing.goal_insight,
+        goal_description: existing.goal_description,
         secondary_metrics: existing.secondary_metrics,
         target: existing.target === null ? '' : String(Number(existing.target)),
         direction: existing.direction === 'decrease' ? 'decrease' : 'increase',
@@ -96,12 +100,14 @@ export interface FormProblemsInput {
     budgetCents: number | null
     budgetLimitCents: number | null
     budgetRequired: boolean
-    repository: string
+    repositories: string[]
+    describing: boolean
     insightNames: Record<string, string>
 }
 
 export function formProblems(input: FormProblemsInput): Partial<Record<BetFormField, string>> {
-    const { form, title, ineligibleReason, target, current, budgetCents, budgetLimitCents, repository } = input
+    const { form, title, ineligibleReason, target, current, budgetCents, budgetLimitCents, repositories, describing } =
+        input
     const problems: Partial<Record<BetFormField, string>> = {}
     if (!form.statement.trim()) {
         problems.statement = 'Say what you believe will improve.'
@@ -109,17 +115,24 @@ export function formProblems(input: FormProblemsInput): Partial<Record<BetFormFi
     if (!title.trim()) {
         problems.title = 'Give the bet a short name.'
     }
-    if (!form.goal_insight) {
+    if (describing) {
+        if (!(form.goal_description ?? '').trim()) {
+            problems.goal_insight = 'Describe how Bets should measure this bet.'
+        }
+    } else if (!form.goal_insight) {
         problems.goal_insight = 'Choose the insight that measures this bet.'
     } else if (ineligibleReason) {
         problems.goal_insight = ineligibleReason
     }
-    if (!form.target.trim()) {
-        problems.target = 'Enter the value you want to reach.'
-    } else if (target === null) {
-        problems.target = 'Enter a number with up to 4 decimals.'
-    } else if (current !== null && target === current) {
-        problems.target = 'Pick a target that is different from the current value.'
+    const targetProblem = !(form.target ?? '').trim()
+        ? 'Enter the value you want to reach.'
+        : target === null
+          ? 'Enter a number with up to 4 decimals.'
+          : current !== null && target === current
+            ? 'Pick a target that is different from the current value.'
+            : null
+    if (targetProblem && !describing) {
+        problems.target = targetProblem
     }
     const undecided = (form.secondary_metrics ?? []).find((metric) => !metric.direction)
     if (undecided) {
@@ -132,9 +145,9 @@ export function formProblems(input: FormProblemsInput): Partial<Record<BetFormFi
     } else if (budgetLimitCents !== null && budgetCents > budgetLimitCents) {
         problems.budget = `Only ${money(budgetLimitCents)} is left.`
     }
-    if (!repository.trim()) {
+    if (!repositories.length) {
         problems.repository = 'Choose the repository where Bets opens pull requests.'
-    } else if (!REPOSITORY_PATTERN.test(repository.trim())) {
+    } else if (repositories.some((repository) => !REPOSITORY_PATTERN.test(repository.trim()))) {
         problems.repository = 'Use the owner/repository form.'
     }
     return problems

@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import {
+    Button,
     Field,
     FieldDescription,
     FieldError,
@@ -21,12 +22,12 @@ import { BetAreaField } from '../components/BetAreaField'
 import { BetEditSkeleton } from '../components/BetEditSkeleton'
 import { BetFormActions } from '../components/BetFormActions'
 import { BetFormSection } from '../components/BetFormSection'
+import { BetFormSummary } from '../components/BetFormSummary'
 import { BetGuardrailsField } from '../components/BetGuardrailsField'
 import { BetInsightPicker } from '../components/BetInsightPicker'
 import { BetOwnerIdeasField } from '../components/BetOwnerIdeasField'
 import { BetRepositoryField } from '../components/BetRepositoryField'
 import { BetTargetField } from '../components/BetTargetField'
-import { BetThesisCard } from '../components/BetThesisCard'
 import { money } from '../lib/format'
 import { betFormLogic } from '../logics/betFormLogic'
 
@@ -52,8 +53,9 @@ export function BetEditScene({ id = 'new' }: { id?: string }): JSX.Element {
         previewLoading,
         fieldErrors,
         isNew,
+        describing,
     } = useValues(logic)
-    const { change, setTitle, setBudget, selectPrimaryInsight, touch, submit } = useActions(logic)
+    const { change, setTitle, setBudget, selectPrimaryInsight, touch, submit, setDescribing } = useActions(logic)
     const insightNote = !form.goal_insight
         ? 'A saved trends insight with one series.'
         : previewLoading
@@ -73,6 +75,7 @@ export function BetEditScene({ id = 'new' }: { id?: string }): JSX.Element {
                 <Text variant="destructive">{error || 'This bet could not be loaded.'}</Text>
             ) : (
                 <div className="Bets__formLayout">
+                    <BetFormSummary id={id} />
                     <form
                         id="bet-form"
                         className="Bets__form"
@@ -82,13 +85,9 @@ export function BetEditScene({ id = 'new' }: { id?: string }): JSX.Element {
                             submit()
                         }}
                     >
-                        <BetFormSection
-                            id="bet-section-bet"
-                            title="Your bet"
-                            description="The hypothesis you want to test, in your own words."
-                        >
+                        <BetFormSection id="bet-section-bet" title="Your bet">
                             <Field data-invalid={!!fieldErrors.statement || undefined}>
-                                <FieldLabel htmlFor="bet-statement">What do you believe will improve?</FieldLabel>
+                                <FieldLabel htmlFor="bet-statement">What do you believe?</FieldLabel>
                                 <Textarea
                                     id="bet-statement"
                                     autoFocus={isNew}
@@ -97,13 +96,15 @@ export function BetEditScene({ id = 'new' }: { id?: string }): JSX.Element {
                                     aria-invalid={!!fieldErrors.statement || undefined}
                                     onChange={(event) => change({ statement: event.target.value })}
                                     onBlur={() => touch('statement')}
-                                    placeholder="Shoppers who see the full price before checkout will finish more orders, because surprise shipping costs at the last step make them leave."
+                                    placeholder="Shoppers buy more when they trust the total price early, because surprise costs at the end make them leave."
                                     className="Bets__belief"
                                 />
                                 {fieldErrors.statement ? (
                                     <FieldError>{fieldErrors.statement}</FieldError>
                                 ) : (
-                                    <FieldDescription>Write the change you expect, then why.</FieldDescription>
+                                    <FieldDescription>
+                                        Write a belief about your users, then why. Bets finds the changes to test.
+                                    </FieldDescription>
                                 )}
                             </Field>
                             <div className="Bets__formRow Bets__formRow--name">
@@ -116,7 +117,7 @@ export function BetEditScene({ id = 'new' }: { id?: string }): JSX.Element {
                                         aria-invalid={!!fieldErrors.title || undefined}
                                         onChange={(event) => setTitle(event.target.value)}
                                         onBlur={() => touch('title')}
-                                        placeholder="Full price before checkout"
+                                        placeholder="Trust the total price early"
                                     />
                                     {fieldErrors.title ? (
                                         <FieldError>{fieldErrors.title}</FieldError>
@@ -131,40 +132,67 @@ export function BetEditScene({ id = 'new' }: { id?: string }): JSX.Element {
                                 <BetAreaField id={id} />
                             </div>
                         </BetFormSection>
-                        <BetFormSection
-                            id="bet-section-measure"
-                            title="How we measure it"
-                            description="Pick the insight that shows whether the bet worked."
-                        >
+                        <BetFormSection id="bet-section-measure" title="How we measure it">
                             <Field data-invalid={!!fieldErrors.goal_insight || undefined}>
-                                <FieldLabel htmlFor="bet-insight">Measure with</FieldLabel>
-                                <BetInsightPicker
-                                    id={id}
-                                    inputId="bet-insight"
-                                    value={form.goal_insight}
-                                    options={insightOptions}
-                                    placeholder="Choose a saved insight"
-                                    invalid={!!fieldErrors.goal_insight}
-                                    onSelect={(insight) => {
-                                        selectPrimaryInsight(insight)
-                                        window.setTimeout(() => document.getElementById('bet-target')?.focus())
-                                    }}
-                                    onClose={() => touch('goal_insight')}
-                                />
+                                <FieldLabel htmlFor={describing ? 'bet-goal-description' : 'bet-insight'}>
+                                    Measure with
+                                </FieldLabel>
+                                {describing ? (
+                                    <Textarea
+                                        id="bet-goal-description"
+                                        maxLength={2000}
+                                        value={form.goal_description ?? ''}
+                                        aria-invalid={!!fieldErrors.goal_insight || undefined}
+                                        onChange={(event) => change({ goal_description: event.target.value })}
+                                        onBlur={() => touch('goal_insight')}
+                                        placeholder="For example: the share of new users who upload a file in their first week."
+                                        className="Bets__goalDescription"
+                                    />
+                                ) : (
+                                    <BetInsightPicker
+                                        id={id}
+                                        inputId="bet-insight"
+                                        value={form.goal_insight ?? ''}
+                                        options={insightOptions}
+                                        placeholder="Choose a saved insight"
+                                        invalid={!!fieldErrors.goal_insight}
+                                        onSelect={(insight) => {
+                                            selectPrimaryInsight(insight)
+                                            window.setTimeout(() => document.getElementById('bet-target')?.focus())
+                                        }}
+                                        onClose={() => touch('goal_insight')}
+                                        onDescribe={() => {
+                                            setDescribing(true)
+                                            window.setTimeout(() =>
+                                                document.getElementById('bet-goal-description')?.focus()
+                                            )
+                                        }}
+                                    />
+                                )}
                                 {fieldErrors.goal_insight ? (
                                     <FieldError>{fieldErrors.goal_insight}</FieldError>
+                                ) : describing ? (
+                                    <FieldDescription>
+                                        Bets looks for a saved insight that matches, or creates one. You check it and
+                                        set the target before the bet starts.{' '}
+                                        <Button
+                                            type="button"
+                                            variant="link-muted"
+                                            size="inline"
+                                            onClick={() => setDescribing(false)}
+                                            data-attr="bets-form-choose-insight"
+                                        >
+                                            Choose a saved insight instead
+                                        </Button>
+                                    </FieldDescription>
                                 ) : (
                                     insightNote && <FieldDescription>{insightNote}</FieldDescription>
                                 )}
                             </Field>
-                            <BetTargetField id={id} />
+                            {form.goal_insight && !describing && <BetTargetField id={id} />}
                             <BetGuardrailsField id={id} />
                         </BetFormSection>
-                        <BetFormSection
-                            id="bet-section-run"
-                            title="Run it"
-                            description="Set what Bets can spend and where it opens pull requests."
-                        >
+                        <BetFormSection id="bet-section-run" title="Run it">
                             <div className="Bets__formRow Bets__formRow--run">
                                 <Field data-invalid={!!fieldErrors.budget || undefined}>
                                     <FieldLabel htmlFor="bet-budget">Budget</FieldLabel>
@@ -204,9 +232,6 @@ export function BetEditScene({ id = 'new' }: { id?: string }): JSX.Element {
                         </BetFormSection>
                         <BetFormActions id={id} className="Bets__formFooter" />
                     </form>
-                    <div className="Bets__formAside">
-                        <BetThesisCard id={id} />
-                    </div>
                 </div>
             )}
         </BetsPage>

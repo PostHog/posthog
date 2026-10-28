@@ -34,6 +34,7 @@ BET_FIELDS = (
     "area",
     "repository",
     "goal_insight",
+    "goal_description",
     "goal_metric",
     "secondary_metrics",
     "target",
@@ -84,6 +85,7 @@ def entry(
     actions = next_actions(bet) if actions is None else actions
     return {
         **{field: getattr(bet, field) for field in BET_FIELDS},
+        "repositories": bet.repos,
         "owner": {
             "user_id": bet.owner_id,
             "name": owner.name if owner else "Former member",

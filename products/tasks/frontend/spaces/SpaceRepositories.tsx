@@ -1,13 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconGitRepository, IconGithub, IconX } from '@posthog/icons'
+import { IconGithub } from '@posthog/icons'
 import {
     Button,
     Card,
     CardContent,
-    Chip,
-    ChipClose,
     Item,
     ItemActions,
     ItemContent,
@@ -17,13 +15,10 @@ import {
     Skeleton,
     Spinner,
     Text,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
 } from '@posthog/quill'
 
 import api from 'lib/api'
-import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
+import { GitHubRepositoryChips } from 'lib/integrations/GitHubRepositoryChips'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
@@ -99,55 +94,14 @@ export function SpaceRepositories({ id }: { id: string }): JSX.Element | null {
                             </ItemActions>
                         </Item>
                     ) : (
-                        <div className="flex min-h-7 max-w-full flex-wrap items-center gap-2">
-                            {repositories.map((repository) => (
-                                <Chip
-                                    key={repository}
-                                    className="max-w-full"
-                                    data-attr="today-space-settings-repository"
-                                >
-                                    <IconGitRepository className="shrink-0 text-muted-foreground" />
-                                    <span className="min-w-0 truncate">{repository}</span>
-                                    <Tooltip>
-                                        <TooltipTrigger
-                                            delay={0}
-                                            render={
-                                                <ChipClose
-                                                    aria-label={`Remove ${repository}`}
-                                                    disabled={savingSpace}
-                                                    onClick={() =>
-                                                        saveRepositories(repositories.filter((r) => r !== repository))
-                                                    }
-                                                    data-attr="today-space-settings-remove-repository"
-                                                />
-                                            }
-                                        >
-                                            <IconX />
-                                        </TooltipTrigger>
-                                        <TooltipContent>{`Remove ${repository}`}</TooltipContent>
-                                    </Tooltip>
-                                </Chip>
-                            ))}
-                            {repositories.length < MAX_REPOSITORIES ? (
-                                <div data-attr="today-space-settings-add-repository">
-                                    <GitHubRepositoryCombobox
-                                        integrationId={integrationId}
-                                        value=""
-                                        placeholder={repositories.length ? 'Add…' : 'Add repository…'}
-                                        disabled={savingSpace}
-                                        onChange={(repository) => {
-                                            if (repository && !repositories.includes(repository)) {
-                                                saveRepositories([...repositories, repository])
-                                            }
-                                        }}
-                                    />
-                                </div>
-                            ) : (
-                                <Text size="xs" variant="muted">
-                                    {`Up to ${MAX_REPOSITORIES} repositories`}
-                                </Text>
-                            )}
-                        </div>
+                        <GitHubRepositoryChips
+                            integrationId={integrationId}
+                            repositories={repositories}
+                            onChange={saveRepositories}
+                            disabled={savingSpace}
+                            max={MAX_REPOSITORIES}
+                            dataAttrPrefix="today-space-settings"
+                        />
                     )}
                     {integrationId && !integrationsLoading && !repositories.length && (
                         <Text size="xs" variant="muted">

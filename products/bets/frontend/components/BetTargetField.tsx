@@ -64,7 +64,7 @@ export function BetTargetField({ id }: { id: string }): JSX.Element {
                             id="bet-target"
                             inputMode="decimal"
                             autoComplete="off"
-                            value={form.target}
+                            value={form.target ?? ''}
                             aria-invalid={!!fieldErrors.target || undefined}
                             onChange={(event) => change({ target: event.target.value.replace(',', '.') })}
                             onBlur={() => touch('target')}

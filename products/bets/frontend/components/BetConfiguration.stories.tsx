@@ -19,6 +19,7 @@ const meta: Meta<typeof BetConfiguration> = {
     args: {
         bet: {
             repository: 'example/editor',
+            status: 'running',
             goal_version: 1,
             work: [],
             scout: {

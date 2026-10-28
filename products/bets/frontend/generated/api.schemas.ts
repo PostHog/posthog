@@ -141,19 +141,24 @@ export interface BetsEntryApi {
     audience: string
     /** Product area. */
     area: string
-    /** Connected repository. */
+    /** Main connected repository. */
     repository: string
+    /** Connected repositories. The first is the main one. */
+    repositories: string[]
     /** Primary metric insight. */
     goal_insight: string
+    /** How the owner described the goal measure, when they wrote it in words. */
+    goal_description: string
     /** Primary metric name. */
     goal_metric: string
     /** Guardrails. */
     secondary_metrics: BetsSecondaryMetricApi[]
     /**
-     * Primary metric target.
+     * Primary metric target, empty until set.
+     * @nullable
      * @pattern ^-?\d{0,16}(?:\.\d{0,4})?$
      */
-    target: string
+    target: string | null
     /** Whether higher or lower is better.
      *
      * * `increase` - Increase
@@ -318,16 +323,28 @@ export interface BetsWriteApi {
      */
     area?: string
     /**
-     * Connected GitHub repository in owner/repository form.
+     * Main GitHub repository in owner/repository form. Defaults to the first of repositories.
      * @maxLength 255
      * @pattern ^[\w.-]+/[\w.-]+$
      */
-    repository: string
+    repository?: string
     /**
-     * Saved insight with one series that measures the goal.
+     * GitHub repositories Bets reads and changes, in owner/repository form. The first is the main one.
+     * @maxItems 10
+     * @items.maxLength 255
+     * @items.pattern ^[\w.-]+/[\w.-]+$
+     */
+    repositories?: string[]
+    /**
+     * Saved insight with one series that measures the goal. Leave empty and describe the goal instead.
      * @maxLength 32
      */
-    goal_insight: string
+    goal_insight?: string
+    /**
+     * How to measure the goal, in words, when no saved insight fits. Bets finds or creates the insight.
+     * @maxLength 2000
+     */
+    goal_description?: string
     /**
      * Name of the primary metric.
      * @maxLength 255
@@ -342,10 +359,11 @@ export interface BetsWriteApi {
     /** Guardrails that must not get worse. */
     secondary_metrics?: BetsSecondaryMetricApi[]
     /**
-     * Target value of the primary metric.
+     * Target value of the primary metric. Set it after Bets finds the insight for a described goal.
+     * @nullable
      * @pattern ^-?\d{0,16}(?:\.\d{0,4})?$
      */
-    target: string
+    target?: string | null
     /** Whether higher or lower is better.
      *
      * * `increase` - Increase
@@ -679,19 +697,24 @@ export interface BetsDetailApi {
     audience: string
     /** Product area. */
     area: string
-    /** Connected repository. */
+    /** Main connected repository. */
     repository: string
+    /** Connected repositories. The first is the main one. */
+    repositories: string[]
     /** Primary metric insight. */
     goal_insight: string
+    /** How the owner described the goal measure, when they wrote it in words. */
+    goal_description: string
     /** Primary metric name. */
     goal_metric: string
     /** Guardrails. */
     secondary_metrics: BetsSecondaryMetricApi[]
     /**
-     * Primary metric target.
+     * Primary metric target, empty until set.
+     * @nullable
      * @pattern ^-?\d{0,16}(?:\.\d{0,4})?$
      */
-    target: string
+    target: string | null
     /** Whether higher or lower is better.
      *
      * * `increase` - Increase
@@ -781,16 +804,28 @@ export interface PatchedBetsWriteApi {
      */
     area?: string
     /**
-     * Connected GitHub repository in owner/repository form.
+     * Main GitHub repository in owner/repository form. Defaults to the first of repositories.
      * @maxLength 255
      * @pattern ^[\w.-]+/[\w.-]+$
      */
     repository?: string
     /**
-     * Saved insight with one series that measures the goal.
+     * GitHub repositories Bets reads and changes, in owner/repository form. The first is the main one.
+     * @maxItems 10
+     * @items.maxLength 255
+     * @items.pattern ^[\w.-]+/[\w.-]+$
+     */
+    repositories?: string[]
+    /**
+     * Saved insight with one series that measures the goal. Leave empty and describe the goal instead.
      * @maxLength 32
      */
     goal_insight?: string
+    /**
+     * How to measure the goal, in words, when no saved insight fits. Bets finds or creates the insight.
+     * @maxLength 2000
+     */
+    goal_description?: string
     /**
      * Name of the primary metric.
      * @maxLength 255
@@ -805,10 +840,11 @@ export interface PatchedBetsWriteApi {
     /** Guardrails that must not get worse. */
     secondary_metrics?: BetsSecondaryMetricApi[]
     /**
-     * Target value of the primary metric.
+     * Target value of the primary metric. Set it after Bets finds the insight for a described goal.
+     * @nullable
      * @pattern ^-?\d{0,16}(?:\.\d{0,4})?$
      */
-    target?: string
+    target?: string | null
     /** Whether higher or lower is better.
      *
      * * `increase` - Increase

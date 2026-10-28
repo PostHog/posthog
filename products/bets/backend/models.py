@@ -40,10 +40,12 @@ class Bet(ModelActivityMixin, BetsModel):
     audience = models.CharField(max_length=500, blank=True, default="")
     area = models.CharField(max_length=120, blank=True, default="")
     repository = models.CharField(max_length=255)
+    repositories = models.JSONField(default=list, blank=True)
     goal_insight = models.CharField(max_length=32, blank=True, default="")
+    goal_description = models.TextField(blank=True, default="")
     goal_metric = models.CharField(max_length=255)
     secondary_metrics = models.JSONField(default=list, blank=True)
-    target = models.DecimalField(max_digits=20, decimal_places=4)
+    target = models.DecimalField(max_digits=20, decimal_places=4, null=True, blank=True)
     direction = models.CharField(max_length=8, choices=BetDirection.choices, default=BetDirection.INCREASE)
     unit = models.CharField(max_length=32, blank=True, default="")
     status = models.CharField(max_length=16, choices=BetStatus.choices, default=BetStatus.SETTING_UP)
@@ -58,6 +60,10 @@ class Bet(ModelActivityMixin, BetsModel):
     reconcile_after = models.DateTimeField(null=True, blank=True)
     lease = models.UUIDField(null=True, blank=True)
     lease_until = models.DateTimeField(null=True, blank=True)
+
+    @property
+    def repos(self) -> list[str]:
+        return self.repositories or [self.repository]
 
     class Meta(BetsModel.Meta):
         db_table = "bets_bet"

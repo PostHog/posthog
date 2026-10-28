@@ -20,14 +20,14 @@ from .workspace import get_settings, project_id
 if TYPE_CHECKING:
     from posthog.models import Team, User
 
-GOAL_FIELDS = frozenset({"goal_insight", "goal_metric", "target", "direction", "secondary_metrics", "repository"})
+GOAL_FIELDS = frozenset(
+    {"goal_insight", "goal_description", "goal_metric", "target", "direction", "secondary_metrics", "repositories"}
+)
 OPEN = (WorkStage.WORKING, WorkStage.REVIEW, WorkStage.LIVE)
 
 
 def validate_insights(team: Team, user: User, data: dict) -> None:
-    if "goal_insight" in data:
-        if not data["goal_insight"]:
-            raise ValidationError({"goal_insight": "Choose the saved insight that measures this bet."})
+    if data.get("goal_insight"):
         validate_goal(team, user, data["goal_insight"])
     for secondary in data.get("secondary_metrics", []):
         validate_goal(team, user, secondary["insight"])
@@ -77,7 +77,18 @@ def update_bet(team: Team, user: User, bet_id: UUID, data: dict) -> Bet:
         budget = payload.pop("budget_cents", None)
         payload.pop("operation_id", None)
         payload.pop("ideas", None)
-        goal_changed = any(key in payload and payload[key] != getattr(bet, key) for key in GOAL_FIELDS)
+        if "repositories" in payload and not bet.repositories:
+            bet.repositories = [bet.repository]
+        first_target = (
+            bet.target is None
+            and bet.goal_insight
+            and payload.get("goal_insight", bet.goal_insight) == bet.goal_insight
+        )
+        goal_changed = any(
+            key in payload and payload[key] != getattr(bet, key)
+            for key in GOAL_FIELDS
+            if not (first_target and key in ("target", "goal_metric", "direction"))
+        )
         for field, value in payload.items():
             setattr(bet, field, value)
         if goal_changed:

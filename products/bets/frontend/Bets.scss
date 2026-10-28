@@ -101,26 +101,46 @@
     }
 
     .Bets__formLayout {
-        display: grid;
-        grid-template-areas: 'form aside';
-        grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
-        gap: 48px;
-        align-items: start;
-        padding-top: 24px;
+        display: flex;
+        flex-direction: column;
+        max-width: 720px;
     }
 
     .Bets__form {
         display: flex;
         flex-direction: column;
-        grid-area: form;
         gap: 28px;
-        max-width: 620px;
     }
 
-    .Bets__formAside {
+    .Bets__formSummary {
         position: sticky;
-        top: 24px;
-        grid-area: aside;
+        top: 0;
+        z-index: 2;
+        height: 0;
+    }
+
+    .Bets__formSummaryBar {
+        position: absolute;
+        inset: 0 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 12px 0;
+        pointer-events: none;
+        background: var(--scene-layout-background, var(--today-paper));
+        border-bottom: 1px solid var(--today-line);
+        box-shadow: 0 -40px 0 var(--scene-layout-background, var(--today-paper));
+        opacity: 0;
+        transition:
+            opacity 160ms var(--today-ease),
+            transform 160ms var(--today-ease);
+        transform: translateY(-4px);
+    }
+
+    .Bets__formSummary[data-shown] .Bets__formSummaryBar {
+        pointer-events: auto;
+        opacity: 1;
+        transform: none;
     }
 
     .Bets__formSection + .Bets__formSection {
@@ -145,7 +165,16 @@
     }
 
     .Bets__formFooter {
-        display: none;
+        position: sticky;
+        bottom: 0;
+        z-index: 2;
+        flex-flow: row wrap;
+        gap: 8px 16px;
+        align-items: center;
+        padding: 14px 0 18px;
+        margin-top: -4px;
+        background: var(--scene-layout-background, var(--today-paper));
+        border-top: 1px solid var(--today-line);
     }
 
     .Bets__directionOption {
@@ -161,41 +190,6 @@
         max-height: 280px;
         font-size: 15px;
         line-height: 1.55;
-    }
-
-    .Bets__thesisCard {
-        padding: 24px;
-        background: var(--today-card);
-        border: 1px solid var(--today-line);
-        border-radius: var(--radius-lg);
-        box-shadow: var(--today-card-shadow);
-    }
-
-    .Bets__thesisSentence {
-        min-height: calc(19px * 1.55 * 6);
-        font-size: 19px;
-        line-height: 1.55;
-        color: var(--today-muted);
-        text-wrap: pretty;
-        letter-spacing: -0.005em;
-    }
-
-    .Bets__thesisPart--value {
-        font-weight: 500;
-        color: var(--today-ink);
-    }
-
-    .Bets__thesisPart--empty {
-        color: var(--today-faint);
-        text-decoration: underline dotted;
-        text-decoration-thickness: 1.5px;
-        text-decoration-color: var(--today-faint);
-        text-underline-offset: 5px;
-    }
-
-    .Bets__thesisNext {
-        padding-top: 16px;
-        border-top: 1px solid var(--today-line);
     }
 
     .Bets__measureRow {
@@ -881,26 +875,6 @@
     }
 
     @container bets (max-width: 860px) {
-        .Bets__formLayout {
-            grid-template-areas:
-                'aside'
-                'form';
-            grid-template-columns: minmax(0, 1fr);
-            gap: 32px;
-        }
-
-        .Bets__formAside {
-            position: static;
-        }
-
-        .Bets__cardActions {
-            display: none;
-        }
-
-        .Bets__formFooter {
-            display: flex;
-        }
-
         .Bets__detail {
             grid-template:
                 'intro'

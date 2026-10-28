@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import { IconGraph, IconPlus } from '@posthog/icons'
+import { IconGraph, IconPencil, IconPlus } from '@posthog/icons'
 import {
     Button,
     Combobox,
@@ -25,6 +25,7 @@ export function BetInsightPicker({
     invalid = false,
     onSelect,
     onClose,
+    onDescribe,
     compact = false,
 }: {
     id: string
@@ -35,6 +36,7 @@ export function BetInsightPicker({
     invalid?: boolean
     onSelect: (insight: string) => void
     onClose?: () => void
+    onDescribe?: () => void
     compact?: boolean
 }): JSX.Element {
     const { insightSearch, insightsLoading, insightNames } = useValues(betFormLogic({ id }))
@@ -122,6 +124,25 @@ export function BetInsightPicker({
                         )
                     }}
                 </ComboboxList>
+                {onDescribe && (
+                    <div className="border-t border-border p-1">
+                        <Button
+                            type="button"
+                            variant="default"
+                            size="sm"
+                            left
+                            className="w-full"
+                            onClick={() => {
+                                setOpen(false)
+                                onDescribe()
+                            }}
+                            data-attr="bets-form-describe-goal"
+                        >
+                            <IconPencil />
+                            None fits? Describe how to measure it
+                        </Button>
+                    </div>
+                )}
             </ComboboxContent>
         </Combobox>
     )

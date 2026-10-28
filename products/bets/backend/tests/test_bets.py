@@ -21,6 +21,7 @@ from products.bets.backend.facade.contracts import Metric
 from products.bets.backend.facade.enums import IdeaOutcome, LedgerKind
 from products.bets.backend.logic.ledger import append, totals
 from products.bets.backend.logic.loop import reconcile
+from products.bets.backend.logic.next_actions import next_actions
 from products.bets.backend.logic.scout import DISMISS_LIMIT, scout_context, scout_job
 from products.bets.backend.logic.spend import reconcile_spend, spend_pending
 from products.bets.backend.logic.verdict import MIN_SAMPLES_PER_VARIANT, verdict
@@ -112,8 +113,11 @@ class FakeWorld:
         self.concluded: list[tuple[int, str, str]] = []
         self.metric_values: list[float] = [0.1]
         self.cleanup_task: UUID = uuid4()
+        self.created: list[dict] = []
+        self.logs = ""
 
     def create_task_without_run(self, **kwargs: object) -> UUID:
+        self.created.append(kwargs)
         return uuid4()
 
     def run_task(self, task_id: UUID, team_id: int, user_id: int, validated_data: dict) -> SimpleNamespace:
@@ -161,7 +165,7 @@ class TestBetLoop(APIBaseTest):
             get_latest_run_by_task=world.get_latest_run_by_task,
             get_pull_requests_for_tasks=world.get_pull_requests_for_tasks,
             refresh_pull_requests_for_tasks=lambda *args: None,
-            read_task_run_logs=lambda *args: "",
+            read_task_run_logs=lambda *args: world.logs,
         )
         signals = SimpleNamespace(
             scouts_for_source=lambda *args, **kwargs: [SimpleNamespace(config_id=str(uuid4()))],
@@ -327,6 +331,32 @@ class TestBetLoop(APIBaseTest):
         assert cleanup.stage == "dropped"
         assert totals(self.team.id, bet).available_cents == 0
 
+    def test_described_goal_gets_its_insight_from_tracking_and_waits_for_the_target(self) -> None:
+        self.patch("products.bets.backend.logic.loop.validate_goal")
+        repositories = ["posthog/example-app", "posthog/example-docs"]
+        created = self.create(
+            goal_insight="", goal_description="Share rate after upload", target=None, repositories=repositories
+        )
+        bet = Bet.objects.for_team(self.team.id).using(WRITER_DB).get(id=created["id"])
+        self.tick(bet)
+        tracking = self.only(bet, "tracking")
+        assert self.world.created[-1]["repositories"] == repositories
+        self.world.finish(tracking)
+        self.tick(bet)
+        assert bet.goal_insight == "" and self.only(bet, "tracking").stage == "working"
+        self.tick(bet)
+        self.world.logs = '{"text": "Tracking is correct.\\nInsight: abc12345"}'
+        self.world.finish(self.only(bet, "tracking"))
+        self.tick(bet)
+        assert bet.goal_insight == "abc12345" and bet.status == "setting_up"
+        assert [item["title"] for item in next_actions(bet)] == ["Set the target"]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/bets/{bet.id}/", {"goal_insight": "abc12345", "target": "0.4"}, format="json"
+        )
+        assert response.status_code == 200, response.content
+        self.tick(bet)
+        assert bet.status == "running" and bet.goal_version == 1
+
     def test_losing_ideas_ship_control_and_the_bet_keeps_going(self) -> None:
         bet = self.running()
         for _ in range(3):
@@ -390,9 +420,17 @@ class TestBetLoop(APIBaseTest):
     def test_scout_job_follows_the_bet_state(self) -> None:
         bet = self.running()
         assert scout_job(bet)[0] == "find"
+        self.patch(
+            "products.signals.backend.facade.api.empty_scout_run_summaries",
+            return_value=["Checked the upload funnel over 31 days.", "Checked paths."],
+        )
+        [empty] = next_actions(bet)
+        assert empty["title"] == "The Scout found no new ideas"
+        assert "Checked the upload funnel over 31 days." in empty["description"]
         self.new_report()
         self.tick(bet)
         assert scout_job(bet) == ("", "Choose an idea to build.")
+        assert [item["title"] for item in next_actions(bet)] == ["Choose an idea to build"]
         assert self.work(bet, self.only(bet, "idea"), "build").status_code == 200
         assert scout_job(bet) == ("", "The bet is already testing an idea.")
         response = self.client.post(

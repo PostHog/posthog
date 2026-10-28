@@ -35,15 +35,9 @@ import {
     SERVER_FIELDS,
     TARGET_PATTERN,
 } from '../lib/betForm'
-import { type ThesisPart, betThesis, nameFromBelief } from '../lib/betThesis'
-import { errorMessage, money } from '../lib/format'
-import {
-    type InsightDisplay,
-    formatMeasure,
-    insightDisplay,
-    insightIneligibleReason,
-    insightName,
-} from '../lib/insightMetric'
+import { nameFromBelief } from '../lib/betThesis'
+import { errorMessage } from '../lib/format'
+import { type InsightDisplay, insightDisplay, insightIneligibleReason, insightName } from '../lib/insightMetric'
 import { betsBreadcrumbs } from '../lib/navigation'
 import { betsLogic } from './betsLogic'
 
@@ -62,6 +56,7 @@ export interface betFormLogicValues {
     changes: Partial<BetsWriteApi>
     current: number | null
     deriveGoal: boolean
+    describing: boolean
     direction: Direction
     display: InsightDisplay
     emptyFields: Partial<Record<BetFormField, boolean>>
@@ -92,6 +87,7 @@ export interface betFormLogicValues {
     previewNote: string | null
     primaryInsight: InsightApi | null
     problems: Partial<Record<BetFormField, string>>
+    repositories: string[]
     repository: string
     repositoryEdited: boolean
     repositoryPending: boolean
@@ -105,7 +101,6 @@ export interface betFormLogicValues {
     suggestedTitle: string
     targetChange: number | null
     targetValue: number | null
-    thesis: ThesisPart[]
     title: string
     titleEdited: boolean
     touched: Partial<Record<BetFormField, boolean>>
@@ -237,6 +232,9 @@ export interface betFormLogicActions {
     setBusy: (busy: boolean) => {
         busy: boolean
     }
+    setDescribing: (describing: boolean) => {
+        describing: boolean
+    }
     setError: (
         error: string | null,
         field?: BetFormField | null
@@ -247,8 +245,8 @@ export interface betFormLogicActions {
     setInsightSearch: (search: string) => {
         search: string
     }
-    setRepository: (repository: string) => {
-        repository: string
+    setRepositories: (repositories: string[]) => {
+        repositories: string[]
     }
     setTitle: (title: string) => {
         title: string
@@ -302,14 +300,15 @@ export interface betFormLogicMeta {
             repository: string
             source: RepositorySource
         }
-        repository: (
+        repositories: (
             form: BetsWriteApi,
             repositoryEdited: boolean,
             suggestedRepository: {
                 repository: string
                 source: RepositorySource
             }
-        ) => string
+        ) => string[]
+        repository: (repositories: string[]) => string
         repositorySource: (
             form: BetsWriteApi,
             repositoryEdited: boolean,
@@ -327,14 +326,16 @@ export interface betFormLogicMeta {
             current: number | null,
             budgetCents: number | null,
             budgetLimitCents: number | null,
-            repository: string,
+            repositories: string[],
+            describing: boolean,
             insightNames: Record<string, string>
         ) => Partial<Record<BetFormField, string>>
         emptyFields: (
             form: BetsWriteApi,
             title: string,
             budget: string,
-            repository: string
+            repositories: string[],
+            describing: boolean
         ) => Partial<Record<BetFormField, boolean>>
         fieldErrors: (
             problems: Partial<Record<BetFormField, string>>,
@@ -353,7 +354,8 @@ export interface betFormLogicMeta {
             direction: Direction,
             unit: string,
             budgetCents: number | null,
-            repository: string,
+            repositories: string[],
+            describing: boolean,
             insightNames: Record<string, string>,
             initialForm: BetsWriteApi
         ) => BetsWriteApi
@@ -364,19 +366,6 @@ export interface betFormLogicMeta {
             changes: Partial<BetsWriteApi>,
             budgetLimitCents: number | null
         ) => string | null
-        thesis: (
-            form: BetsWriteApi,
-            metricName: string,
-            current: number | null,
-            targetValue: number | null,
-            direction: Direction,
-            display: InsightDisplay,
-            insightNames: Record<string, string>,
-            budgetCents: number | null,
-            repository: string,
-            previewLoading: boolean,
-            problems: Partial<Record<BetFormField, string>>
-        ) => ThesisPart[]
     }
 }
 
@@ -398,7 +387,8 @@ export const betFormLogic = kea<betFormLogicType>([
         change: (patch: Partial<BetsWriteApi>) => ({ patch }),
         setTitle: (title: string) => ({ title }),
         setBudget: (budget: string) => ({ budget }),
-        setRepository: (repository: string) => ({ repository }),
+        setRepositories: (repositories: string[]) => ({ repositories }),
+        setDescribing: (describing: boolean) => ({ describing }),
         selectPrimaryInsight: (insight: string) => ({ insight }),
         setInsightSearch: (search: string) => ({ search }),
         addGuardrail: (insight: string) => ({ insight }),
@@ -474,7 +464,11 @@ export const betFormLogic = kea<betFormLogicType>([
             {
                 change: (state, { patch }) => ({ ...state, ...patch }),
                 setTitle: (state, { title }) => ({ ...state, title }),
-                setRepository: (state, { repository }) => ({ ...state, repository }),
+                setRepositories: (state, { repositories }) => ({
+                    ...state,
+                    repositories,
+                    repository: repositories[0] ?? '',
+                }),
                 addGuardrail: (state, { insight }) => ({
                     ...state,
                     secondary_metrics: [
@@ -504,13 +498,23 @@ export const betFormLogic = kea<betFormLogicType>([
             },
         ],
         titleEdited: [false, { setTitle: () => true }],
-        repositoryEdited: [false, { setRepository: () => true }],
+        repositoryEdited: [false, { setRepositories: () => true }],
+        describing: [
+            false,
+            {
+                setDescribing: (_, { describing }) => describing,
+                selectPrimaryInsight: () => false,
+                loadExistingSuccess: (_, { existing }: { existing: BetsDetailApi }) =>
+                    !existing.goal_insight && !!existing.goal_description,
+            },
+        ],
         goalEdited: [
             false,
             {
                 change: (state, { patch }) =>
                     state || 'target' in patch || 'goal_insight' in patch || 'direction' in patch,
                 selectPrimaryInsight: () => true,
+                setDescribing: () => true,
             },
         ],
         insightSearch: [
@@ -546,7 +550,8 @@ export const betFormLogic = kea<betFormLogicType>([
                 change: () => null,
                 setTitle: () => null,
                 setBudget: () => null,
-                setRepository: () => null,
+                setRepositories: () => null,
+                setDescribing: () => null,
                 selectPrimaryInsight: () => null,
                 addGuardrail: () => null,
                 changeGuardrail: () => null,
@@ -656,7 +661,7 @@ export const betFormLogic = kea<betFormLogicType>([
         targetValue: [
             (s) => [s.form],
             (form: BetsWriteApi): number | null => {
-                const target = form.target.trim()
+                const target = (form.target ?? '').trim()
                 return target && target !== '-' && TARGET_PATTERN.test(target) ? Number(target) : null
             },
         ],
@@ -713,22 +718,26 @@ export const betFormLogic = kea<betFormLogicType>([
                 return github?.only ? { repository: github.only, source: 'only' } : { repository: '', source: null }
             },
         ],
-        repository: [
+        repositories: [
             (s) => [s.form, s.repositoryEdited, s.suggestedRepository],
             (
                 form: BetsWriteApi,
                 edited: boolean,
                 suggested: { repository: string; source: RepositorySource }
-            ): string =>
-                props.id !== 'new' || edited ? (form.repository ?? '') : form.repository || suggested.repository,
+            ): string[] => {
+                const chosen = form.repositories?.length ? form.repositories : form.repository ? [form.repository] : []
+                return props.id !== 'new' || edited || chosen.length ? chosen : [suggested.repository].filter(Boolean)
+            },
         ],
+        repository: [(s) => [s.repositories], (repositories: string[]): string => repositories[0] ?? ''],
         repositorySource: [
             (s) => [s.form, s.repositoryEdited, s.suggestedRepository],
             (
                 form: BetsWriteApi,
                 edited: boolean,
                 suggested: { repository: string; source: RepositorySource }
-            ): RepositorySource => (props.id !== 'new' || edited || form.repository ? null : suggested.source),
+            ): RepositorySource =>
+                props.id !== 'new' || edited || form.repositories?.length || form.repository ? null : suggested.source,
         ],
         problems: [
             (s) => [
@@ -740,7 +749,8 @@ export const betFormLogic = kea<betFormLogicType>([
                 s.current,
                 s.budgetCents,
                 s.budgetLimitCents,
-                s.repository,
+                s.repositories,
+                s.describing,
                 s.insightNames,
             ],
             (
@@ -752,7 +762,8 @@ export const betFormLogic = kea<betFormLogicType>([
                 current: number | null,
                 budgetCents: number | null,
                 budgetLimitCents: number | null,
-                repository: string,
+                repositories: string[],
+                describing: boolean,
                 insightNames: Record<string, string>
             ): Partial<Record<BetFormField, string>> =>
                 formProblems({
@@ -765,24 +776,26 @@ export const betFormLogic = kea<betFormLogicType>([
                     budgetCents,
                     budgetLimitCents,
                     budgetRequired: props.id === 'new',
-                    repository,
+                    repositories,
+                    describing,
                     insightNames,
                 }),
         ],
         emptyFields: [
-            (s) => [s.form, s.title, s.budget, s.repository],
+            (s) => [s.form, s.title, s.budget, s.repositories, s.describing],
             (
                 form: BetsWriteApi,
                 title: string,
                 budget: string,
-                repository: string
+                repositories: string[],
+                describing: boolean
             ): Partial<Record<BetFormField, boolean>> => ({
                 statement: !form.statement.trim(),
                 title: !title.trim(),
-                goal_insight: !form.goal_insight,
-                target: !form.target.trim(),
+                goal_insight: describing ? !(form.goal_description ?? '').trim() : !form.goal_insight,
+                target: !describing && !(form.target ?? '').trim(),
                 budget: !budget.trim(),
-                repository: !repository.trim(),
+                repository: !repositories.length,
             }),
         ],
         fieldErrors: [
@@ -825,7 +838,8 @@ export const betFormLogic = kea<betFormLogicType>([
                 s.direction,
                 s.unit,
                 s.budgetCents,
-                s.repository,
+                s.repositories,
+                s.describing,
                 s.insightNames,
                 s.initialForm,
             ],
@@ -836,7 +850,8 @@ export const betFormLogic = kea<betFormLogicType>([
                 direction: Direction,
                 unit: string,
                 budgetCents: number | null,
-                repository: string,
+                repositories: string[],
+                describing: boolean,
                 insightNames: Record<string, string>,
                 initialForm: BetsWriteApi
             ): BetsWriteApi => ({
@@ -845,12 +860,16 @@ export const betFormLogic = kea<betFormLogicType>([
                 statement: form.statement.trim(),
                 area: (form.area ?? '').trim(),
                 audience: form.audience ?? '',
-                repository: repository.trim(),
-                goal_metric:
-                    form.goal_insight === initialForm.goal_insight && initialForm.goal_metric
-                        ? initialForm.goal_metric
-                        : (metricName || form.goal_metric).slice(0, 255),
-                target: form.target.trim(),
+                repository: repositories[0]?.trim() ?? '',
+                repositories: repositories.map((repository) => repository.trim()),
+                goal_insight: describing ? '' : form.goal_insight,
+                goal_description: describing ? (form.goal_description ?? '').trim() : '',
+                goal_metric: describing
+                    ? (form.goal_description ?? '').trim().slice(0, 255)
+                    : form.goal_insight === initialForm.goal_insight && initialForm.goal_metric
+                      ? initialForm.goal_metric
+                      : (metricName || form.goal_metric).slice(0, 255),
+                target: describing ? null : (form.target ?? '').trim(),
                 direction,
                 unit: unit.slice(0, 32),
                 budget_cents: budgetCents ?? 0,
@@ -885,50 +904,6 @@ export const betFormLogic = kea<betFormLogicType>([
                         : props.id !== 'new' && !Object.keys(changes).length
                           ? 'Nothing has changed yet.'
                           : null,
-        ],
-        thesis: [
-            (s) => [
-                s.form,
-                s.metricName,
-                s.current,
-                s.targetValue,
-                s.direction,
-                s.display,
-                s.insightNames,
-                s.budgetCents,
-                s.repository,
-                s.previewLoading,
-                s.problems,
-            ],
-            (
-                form: BetsWriteApi,
-                metricName: string,
-                current: number | null,
-                target: number | null,
-                direction: Direction,
-                display: InsightDisplay,
-                insightNames: Record<string, string>,
-                budgetCents: number | null,
-                repository: string,
-                previewLoading: boolean,
-                problems: Partial<Record<BetFormField, string>>
-            ): ThesisPart[] =>
-                betThesis({
-                    belief: form.statement,
-                    metric: metricName,
-                    current: current === null ? null : formatMeasure(current, display),
-                    target:
-                        target === null || problems.target
-                            ? null
-                            : formatMeasure(target, form.goal_insight ? display : null),
-                    direction,
-                    measured: !!form.goal_insight && !previewLoading,
-                    guardrails: (form.secondary_metrics ?? []).map(
-                        (metric) => insightNames[metric.insight] || metric.name || metric.insight
-                    ),
-                    budget: budgetCents && !problems.budget ? money(budgetCents) : null,
-                    repository: problems.repository ? '' : repository.trim(),
-                }),
         ],
     })),
     listeners(({ values, actions, props, cache }) => ({

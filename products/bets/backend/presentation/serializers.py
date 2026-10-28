@@ -49,10 +49,28 @@ class BetsWriteSerializer(serializers.Serializer):
     )
     area = serializers.CharField(max_length=120, allow_blank=True, default="", help_text="Product area for filtering.")
     repository = serializers.RegexField(
-        r"^[\w.-]+/[\w.-]+$", max_length=255, help_text="Connected GitHub repository in owner/repository form."
+        r"^[\w.-]+/[\w.-]+$",
+        max_length=255,
+        required=False,
+        help_text="Main GitHub repository in owner/repository form. Defaults to the first of repositories.",
+    )
+    repositories = serializers.ListField(
+        child=serializers.RegexField(r"^[\w.-]+/[\w.-]+$", max_length=255),
+        max_length=10,
+        required=False,
+        help_text="GitHub repositories Bets reads and changes, in owner/repository form. The first is the main one.",
     )
     goal_insight = serializers.CharField(
-        max_length=32, help_text="Saved insight with one series that measures the goal."
+        max_length=32,
+        required=False,
+        allow_blank=True,
+        help_text="Saved insight with one series that measures the goal. Leave empty and describe the goal instead.",
+    )
+    goal_description = serializers.CharField(
+        max_length=2000,
+        required=False,
+        allow_blank=True,
+        help_text="How to measure the goal, in words, when no saved insight fits. Bets finds or creates the insight.",
     )
     goal_metric = serializers.CharField(max_length=255, help_text="Name of the primary metric.")
     ideas = serializers.ListField(
@@ -65,7 +83,13 @@ class BetsWriteSerializer(serializers.Serializer):
     secondary_metrics = BetsSecondaryMetricSerializer(
         many=True, default=list, help_text="Guardrails that must not get worse."
     )
-    target = serializers.DecimalField(max_digits=20, decimal_places=4, help_text="Target value of the primary metric.")
+    target = serializers.DecimalField(
+        max_digits=20,
+        decimal_places=4,
+        required=False,
+        allow_null=True,
+        help_text="Target value of the primary metric. Set it after Bets finds the insight for a described goal.",
+    )
     direction = serializers.ChoiceField(
         choices=BetDirection.choices, default=BetDirection.INCREASE, help_text="Whether higher or lower is better."
     )
@@ -82,6 +106,21 @@ class BetsWriteSerializer(serializers.Serializer):
         primary = attrs.get("goal_insight", self.context.get("primary_insight", ""))
         if len(ids) != len(set(ids)) or primary in ids:
             raise serializers.ValidationError({"secondary_metrics": "Each insight can appear only once."})
+        if "repositories" in attrs or "repository" in attrs:
+            repositories = list(dict.fromkeys(attrs.get("repositories") or [attrs.get("repository", "")]))
+            if not any(repositories):
+                raise serializers.ValidationError({"repositories": "Choose at least one repository."})
+            attrs["repositories"] = repositories
+            attrs["repository"] = repositories[0]
+        if not self.partial:
+            if "repository" not in attrs:
+                raise serializers.ValidationError({"repositories": "Choose at least one repository."})
+            if not attrs.get("goal_insight") and not attrs.get("goal_description", "").strip():
+                raise serializers.ValidationError(
+                    {"goal_insight": "Choose a saved insight, or describe how to measure the goal."}
+                )
+            if attrs.get("goal_insight") and attrs.get("target") is None:
+                raise serializers.ValidationError({"target": "Set the value to reach."})
         return attrs
 
 
@@ -194,11 +233,19 @@ class BetsEntrySerializer(serializers.Serializer):
     statement = serializers.CharField(help_text="What we believe and why.")
     audience = serializers.CharField(allow_blank=True, help_text="Intended audience.")
     area = serializers.CharField(allow_blank=True, help_text="Product area.")
-    repository = serializers.CharField(help_text="Connected repository.")
-    goal_insight = serializers.CharField(help_text="Primary metric insight.")
+    repository = serializers.CharField(help_text="Main connected repository.")
+    repositories = serializers.ListField(
+        child=serializers.CharField(), help_text="Connected repositories. The first is the main one."
+    )
+    goal_insight = serializers.CharField(allow_blank=True, help_text="Primary metric insight.")
+    goal_description = serializers.CharField(
+        allow_blank=True, help_text="How the owner described the goal measure, when they wrote it in words."
+    )
     goal_metric = serializers.CharField(help_text="Primary metric name.")
     secondary_metrics = BetsSecondaryMetricSerializer(many=True, help_text="Guardrails.")
-    target = serializers.DecimalField(max_digits=20, decimal_places=4, help_text="Primary metric target.")
+    target = serializers.DecimalField(
+        max_digits=20, decimal_places=4, allow_null=True, help_text="Primary metric target, empty until set."
+    )
     direction = serializers.ChoiceField(choices=BetDirection.choices, help_text="Whether higher or lower is better.")
     unit = serializers.CharField(allow_blank=True, help_text="Primary metric unit.")
     status = serializers.ChoiceField(choices=BetStatus.choices, help_text="Bet lifecycle state.")

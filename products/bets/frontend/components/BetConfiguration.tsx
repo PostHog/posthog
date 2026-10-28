@@ -8,7 +8,7 @@ import { BetResourceLink } from './BetResourceLink'
 export function BetConfiguration({
     bet,
 }: {
-    bet: Pick<BetsDetailApi, 'repository' | 'work' | 'goal_version' | 'scout'>
+    bet: Pick<BetsDetailApi, 'repository' | 'work' | 'goal_version' | 'scout' | 'status'>
 }): JSX.Element {
     const experiments = bet.work.filter((item) => item.experiment_id !== null && item.goal_version === bet.goal_version)
     return (
@@ -39,7 +39,9 @@ export function BetConfiguration({
                                     ? 'Waiting for you to choose an idea'
                                     : bet.scout.enabled
                                       ? 'Ready for the next search'
-                                      : 'Paused'
+                                      : bet.status === 'running'
+                                        ? 'Not searching right now'
+                                        : 'Paused'
                         }
                     />
                 )}

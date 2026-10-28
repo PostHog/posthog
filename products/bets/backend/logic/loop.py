@@ -45,7 +45,7 @@ from ..models import Bet, LedgerEntry, WorkItem
 from . import access
 from .baseline import baseline
 from .ledger import append, totals
-from .metrics import metric, proposed_plan, refresh_metrics
+from .metrics import metric, proposed_plan, refresh_metrics, validate_goal
 from .notify import notify_owner
 from .plan import (
     DRIFT,
@@ -87,6 +87,7 @@ EVIDENCE_KINDS = (
     ("/error_tracking/", EvidenceKind.ERROR),
 )
 ACTIVE_RUN = ("queued", "in_progress")
+INSIGHT_LINE = re.compile(r"Insight:\s*`?([A-Za-z0-9]{8})\b")
 CONCLUSIONS = {
     IdeaOutcome.WON: "won",
     IdeaOutcome.LOST: "lost",
@@ -136,6 +137,7 @@ def ensure_task(bet: Bet, owner: User, work: WorkItem) -> WorkItem:
                 title=work.title,
                 description=instructions(bet, work),
                 repository=bet.repository,
+                repositories=bet.repos,
                 origin_product=tasks.TaskOriginProduct.BETS,
                 origin_key=origin_key,
             )
@@ -154,6 +156,35 @@ def pull_request(work: WorkItem) -> tuple[str, str]:
 def turn_finished(run_id: UUID, task_id: UUID, team_id: int) -> bool:
     log = tasks.read_task_run_logs(run_id, task_id, team_id) or ""
     return log.rfind('"stopReason"') > log.rfind('"session/prompt"') >= 0
+
+
+def reported_insight(work: WorkItem) -> str:
+    if work.task_run_id is None or work.task_id is None:
+        return ""
+    log = tasks.read_task_run_logs(work.task_run_id, work.task_id, work.team_id) or ""
+    found = INSIGHT_LINE.findall(log.replace("\\n", "\n"))
+    return found[-1] if found else ""
+
+
+def adopt_insight(team: Team, user: User, bet: Bet, work: WorkItem) -> bool:
+    short_id = reported_insight(work)
+    try:
+        if not short_id:
+            raise ValidationError("missing")
+        validate_goal(team, user, short_id)
+    except ValidationError:
+        stop_idle_run(work, bet)
+        move(
+            work,
+            WorkStage.WORKING,
+            "End your last message with the line Insight: <short id> for the saved insight that measures the goal.",
+            task_run_id=None,
+        )
+        return False
+    bet.goal_insight = short_id
+    bet.goal_metric = (metric(team, user, short_id).name or bet.goal_metric)[:255]
+    bet.save(using=WRITER_DB, update_fields=["goal_insight", "goal_metric", "updated_at"])
+    return True
 
 
 def run_state(work: WorkItem) -> tuple[str, str]:
@@ -182,6 +213,19 @@ def observe(team: Team, user: User, bet: Bet, work: WorkItem) -> None:
     url, state = pull_request(work)
     status, error = run_state(work)
     if work.stage == WorkStage.WORKING:
+        if work.kind == WorkKind.TRACKING and not bet.goal_insight:
+            if status not in ("completed", "idle"):
+                if status in ("failed", "cancelled"):
+                    stop_idle_run(work, bet)
+                    move(
+                        work,
+                        WorkStage.WORKING,
+                        error or "The task ended without finding the insight.",
+                        task_run_id=None,
+                    )
+                return
+            if not adopt_insight(team, user, bet, work):
+                return
         if url:
             work.pr_url = url
         elif status in ("completed", "idle") and work.kind == WorkKind.TRACKING:
@@ -403,7 +447,7 @@ def follow_cleanup(team: Team, user: User, bet: Bet, idea: WorkItem) -> None:
 def goal_reached(team: Team, user: User, bet: Bet) -> bool:
     refresh_metrics(team, user, [bet.goal_insight])
     values = metric(team, user, bet.goal_insight).values[-GOAL_POINTS:]
-    if not values:
+    if not values or bet.target is None:
         return False
     current = fmean(values)
     return current <= float(bet.target) if bet.direction == "decrease" else current >= float(bet.target)
@@ -557,7 +601,7 @@ def run_scout(team: Team, user: User, bet: Bet, reason: str) -> str:
                 "enabled": True,
                 "emit": True,
                 "output_destinations": {"inbox": False},
-                "repositories": [bet.repository],
+                "repositories": bet.repos,
                 **({"model": model} if model else {}),
             },
             request=request,
@@ -730,7 +774,9 @@ def step(team: Team, user: User, bet: Bet) -> str:
             title="Check how the goal is measured",
             note="Checking the tracking code.",
         )
-        if tracking.stage == WorkStage.DONE:
+        if tracking.stage == WorkStage.DONE and bet.target is None:
+            note = "Bets found the insight. Check it and set the target in Edit bet."
+        elif tracking.stage == WorkStage.DONE:
             facts = baseline(team, user, bet, since=tracking.merged_at)
             note = facts.note
             if facts.ready:

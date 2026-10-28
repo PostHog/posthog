@@ -23,7 +23,7 @@ def scout_body(bet: Bet) -> str:
 
 The bet's goal, results so far, the owner's ideas and the rules for this run are attached to every run. Follow the attached rules.
 
-Repository: {bet.repository}
+Repositories: {", ".join(bet.repos)}
 """
 
 

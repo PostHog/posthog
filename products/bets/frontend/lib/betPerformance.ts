@@ -28,7 +28,7 @@ export function betPerformance({
     status,
     metric,
 }: BetPerformanceInput): BetPerformance | null {
-    const goal = Number.parseFloat(target)
+    const goal = Number.parseFloat(target ?? '')
     if (baseline === null || metric.current === null || !Number.isFinite(goal)) {
         return null
     }

@@ -12,8 +12,8 @@ def bet_context(bet: Bet) -> str:
 {bet.title}
 {bet.statement}
 Audience: {bet.audience or "everyone"}
-Repository: {bet.repository}
-Primary metric: {bet.goal_metric}, saved insight {bet.goal_insight or "not created yet"}. Target: {bet.target}{bet.unit} ({"higher" if bet.direction == "increase" else "lower"} is better).
+Repositories: {", ".join(bet.repos)}
+Primary metric: {bet.goal_metric}, saved insight {bet.goal_insight or "not created yet"}. Target: {f"{bet.target}{bet.unit}" if bet.target is not None else "not set yet"} ({"higher" if bet.direction == "increase" else "lower"} is better).
 Guardrails:
 {guardrails or "- none"}"""
 
@@ -54,7 +54,17 @@ def instructions(bet: Bet, work: WorkItem) -> str:
         if work.note
         else ""
     )
-    if work.kind == WorkKind.TRACKING:
+    if work.kind == WorkKind.TRACKING and not bet.goal_insight:
+        task = f"""## Task
+Find or create the saved insight that measures the goal, then make sure it is measured.
+The owner described the measure in words: {bet.goal_description}
+1. Search the saved insights in PostHog for one that measures exactly this. A match is a trends insight with one series.
+2. If no saved insight matches, create and save a trends insight with one series that measures it. Name it after the metric.
+3. List the events and properties that insight needs. Read the repositories and check that those events are captured where the behavior happens.
+4. If tracking is missing or wrong, open one pull request that fixes it, with focused tests. If tracking is correct, open no pull request and say so.
+End your last message with one line in this form, with the 8-character short ID of the saved insight:
+Insight: <short id>"""
+    elif work.kind == WorkKind.TRACKING:
         task = f"""## Task
 Make sure the primary metric is measured.
 1. Read the saved insight {bet.goal_insight} in PostHog and list the events and properties it needs.

@@ -22,7 +22,14 @@ export const betsCreateBodyAreaMax = 120
 export const betsCreateBodyRepositoryMax = 255
 
 export const betsCreateBodyRepositoryRegExp = new RegExp('^[\\w.-]+\/[\\w.-]+$')
+export const betsCreateBodyRepositoriesItemMax = 255
+
+export const betsCreateBodyRepositoriesItemRegExp = new RegExp('^[\\w.-]+\/[\\w.-]+$')
+export const betsCreateBodyRepositoriesMax = 10
+
 export const betsCreateBodyGoalInsightMax = 32
+
+export const betsCreateBodyGoalDescriptionMax = 2000
 
 export const betsCreateBodyGoalMetricMax = 255
 
@@ -65,11 +72,23 @@ export const BetsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(betsCreateBodyRepositoryMax)
         .regex(betsCreateBodyRepositoryRegExp)
-        .describe('Connected GitHub repository in owner\/repository form.'),
+        .optional()
+        .describe('Main GitHub repository in owner\/repository form. Defaults to the first of repositories.'),
+    repositories: zod
+        .array(zod.string().max(betsCreateBodyRepositoriesItemMax).regex(betsCreateBodyRepositoriesItemRegExp))
+        .max(betsCreateBodyRepositoriesMax)
+        .optional()
+        .describe('GitHub repositories Bets reads and changes, in owner\/repository form. The first is the main one.'),
     goal_insight: zod
         .string()
         .max(betsCreateBodyGoalInsightMax)
-        .describe('Saved insight with one series that measures the goal.'),
+        .optional()
+        .describe('Saved insight with one series that measures the goal. Leave empty and describe the goal instead.'),
+    goal_description: zod
+        .string()
+        .max(betsCreateBodyGoalDescriptionMax)
+        .optional()
+        .describe('How to measure the goal, in words, when no saved insight fits. Bets finds or creates the insight.'),
     goal_metric: zod.string().max(betsCreateBodyGoalMetricMax).describe('Name of the primary metric.'),
     ideas: zod
         .array(zod.string().max(betsCreateBodyIdeasItemMax))
@@ -104,7 +123,10 @@ export const BetsCreateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe('Guardrails that must not get worse.'),
-    target: zod.stringFormat('decimal', betsCreateBodyTargetRegExp).describe('Target value of the primary metric.'),
+    target: zod
+        .stringFormat('decimal', betsCreateBodyTargetRegExp)
+        .nullish()
+        .describe('Target value of the primary metric. Set it after Bets finds the insight for a described goal.'),
     direction: zod
         .enum(['increase', 'decrease'])
         .describe('\* `increase` - Increase\n\* `decrease` - Decrease')
@@ -135,7 +157,14 @@ export const betsPartialUpdateBodyAreaMax = 120
 export const betsPartialUpdateBodyRepositoryMax = 255
 
 export const betsPartialUpdateBodyRepositoryRegExp = new RegExp('^[\\w.-]+\/[\\w.-]+$')
+export const betsPartialUpdateBodyRepositoriesItemMax = 255
+
+export const betsPartialUpdateBodyRepositoriesItemRegExp = new RegExp('^[\\w.-]+\/[\\w.-]+$')
+export const betsPartialUpdateBodyRepositoriesMax = 10
+
 export const betsPartialUpdateBodyGoalInsightMax = 32
+
+export const betsPartialUpdateBodyGoalDescriptionMax = 2000
 
 export const betsPartialUpdateBodyGoalMetricMax = 255
 
@@ -183,12 +212,27 @@ export const BetsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(betsPartialUpdateBodyRepositoryMax)
         .regex(betsPartialUpdateBodyRepositoryRegExp)
         .optional()
-        .describe('Connected GitHub repository in owner\/repository form.'),
+        .describe('Main GitHub repository in owner\/repository form. Defaults to the first of repositories.'),
+    repositories: zod
+        .array(
+            zod
+                .string()
+                .max(betsPartialUpdateBodyRepositoriesItemMax)
+                .regex(betsPartialUpdateBodyRepositoriesItemRegExp)
+        )
+        .max(betsPartialUpdateBodyRepositoriesMax)
+        .optional()
+        .describe('GitHub repositories Bets reads and changes, in owner\/repository form. The first is the main one.'),
     goal_insight: zod
         .string()
         .max(betsPartialUpdateBodyGoalInsightMax)
         .optional()
-        .describe('Saved insight with one series that measures the goal.'),
+        .describe('Saved insight with one series that measures the goal. Leave empty and describe the goal instead.'),
+    goal_description: zod
+        .string()
+        .max(betsPartialUpdateBodyGoalDescriptionMax)
+        .optional()
+        .describe('How to measure the goal, in words, when no saved insight fits. Bets finds or creates the insight.'),
     goal_metric: zod
         .string()
         .max(betsPartialUpdateBodyGoalMetricMax)
@@ -229,8 +273,8 @@ export const BetsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Guardrails that must not get worse.'),
     target: zod
         .stringFormat('decimal', betsPartialUpdateBodyTargetRegExp)
-        .optional()
-        .describe('Target value of the primary metric.'),
+        .nullish()
+        .describe('Target value of the primary metric. Set it after Bets finds the insight for a described goal.'),
     direction: zod
         .enum(['increase', 'decrease'])
         .describe('\* `increase` - Increase\n\* `decrease` - Decrease')

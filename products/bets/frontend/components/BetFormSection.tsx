@@ -10,7 +10,7 @@ export function BetFormSection({
 }: {
     id: string
     title: string
-    description: string
+    description?: string
     children: ReactNode
 }): JSX.Element {
     return (
@@ -19,9 +19,11 @@ export function BetFormSection({
                 <Heading id={id} size="base" render={<h2 className="m-0" />}>
                     {title}
                 </Heading>
-                <Text size="xs" variant="muted" render={<p className="m-0" />}>
-                    {description}
-                </Text>
+                {description && (
+                    <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                        {description}
+                    </Text>
+                )}
             </div>
             {children}
         </section>

@@ -11,7 +11,7 @@ import { betFormLogic } from '../logics/betFormLogic'
 const FIELD_TARGETS: Record<BetFormField, string> = {
     statement: '#bet-statement',
     title: '#bet-title',
-    goal_insight: '#bet-insight',
+    goal_insight: '#bet-insight, #bet-goal-description',
     target: '#bet-target',
     guardrails: '.Bets__guardrail[data-undecided] button',
     budget: '#bet-budget',

@@ -1367,6 +1367,21 @@ def scout_run_ids_for_source(team_id: int, source_product: str, source_ids: list
     return list(scout_runs_for_source(team_id, source_product, source_ids).values_list("task_run_id", flat=True))
 
 
+def empty_scout_run_summaries(team_id: int, source_product: str, source_id: str, limit: int = 8) -> list[str]:
+    summaries: list[str] = []
+    runs = (
+        scout_runs_for_source(team_id, source_product, [source_id])
+        .exclude(summary="")
+        .order_by("-created_at")
+        .values_list("summary", "emitted_report_ids")[:limit]
+    )
+    for summary, emitted in runs:
+        if emitted:
+            break
+        summaries.append(summary)
+    return summaries
+
+
 def scout_source_for_run(team_id: int, run_id: uuid.UUID, source_product: str) -> str | None:
     run = (
         scout_runs_for_source(team_id, source_product).filter(task_run_id=run_id).select_related("scout_config").first()
