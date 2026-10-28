@@ -1799,7 +1799,7 @@ export const BICatalogSnapshot: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await canvas.findByRole('link', { name: 'View catalog definition' }, { timeout: 15000 })
+        await canvas.findByRole('link', { name: 'View current catalog entry' }, { timeout: 15000 })
         await userEvent.click(await canvas.findByRole('button', { name: 'Run worksheet' }))
         await expect(canvas.findByText('450', { exact: true })).resolves.toBeVisible()
     },
