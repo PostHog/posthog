@@ -26,7 +26,7 @@ import {
     pickerModels,
 } from 'products/posthog_ai/frontend/utils/composerModels'
 import { cycleMode, getModesForRuntimeAdapter } from 'products/posthog_ai/frontend/utils/composerModes'
-import { ModelAccessEnumApi, RuntimeAdapterEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { ModelAccessEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { AttachedContextChips } from '../../../components/composer/AttachedContextChips'
 import { AttachedContextPicker } from '../../../components/composer/AttachedContextPicker'
@@ -34,8 +34,6 @@ import { CommandResultCard } from '../../../components/composer/CommandResultCar
 import { CommentContextChips } from '../../../components/composer/CommentContextChips'
 import { ComposerAttachmentChips } from '../../../components/composer/ComposerAttachmentChips'
 import { ComposerAttachments, useComposerAttachmentPaste } from '../../../components/composer/ComposerAttachments'
-import { ComposerBillingIndicator } from '../../../components/composer/ComposerBillingIndicator'
-import { ComposerCodexBillingIndicator } from '../../../components/composer/ComposerCodexBillingIndicator'
 import { ComposerCodexBillingPickers } from '../../../components/composer/ComposerCodexBillingPickers'
 import { ComposerCommandMenu } from '../../../components/composer/ComposerCommandMenu'
 import {
@@ -175,7 +173,6 @@ export function TaskRunComposer({
     const lockedCodexModelAccess = isTerminal
         ? null
         : (logicProps.currentCodexModelAccess ?? ModelAccessEnumApi.PosthogGateway)
-    const billingAdapter = isTerminal ? getRuntimeAdapterForModel(catalogue, selectedModel) : composerAdapter
     const modelPicker =
         codexBillingEnabled && !isPiTask ? (
             <ComposerCodexBillingPickers {...modelPickerProps} lockedCodexModelAccess={lockedCodexModelAccess} />
@@ -303,17 +300,16 @@ export function TaskRunComposer({
                                     onOpenChange={setContextPickerOpen}
                                     anchor={groupRef}
                                 />
-                                {pickers(modelPicker, modePicker)}
+                                <div className="shrink-0">{pickers(modePicker, null)}</div>
                             </>
                         }
+                        singleRow
                         meta={
-                            <div className="flex items-center divide-x divide-border *:px-2 *:last:pr-1">
-                                <QuillContextUsage />
-                                {codexBillingEnabled && !isPiTask && billingAdapter === RuntimeAdapterEnumApi.Codex ? (
-                                    <ComposerCodexBillingIndicator lockedCodexModelAccess={lockedCodexModelAccess} />
-                                ) : (
-                                    <ComposerBillingIndicator ownPlan={false} />
-                                )}
+                            <div className="flex min-w-0 items-center gap-1 [&>fieldset]:min-w-0 [&>fieldset]:flex-nowrap">
+                                <span className="px-1 empty:hidden">
+                                    <QuillContextUsage />
+                                </span>
+                                {pickers(modelPicker, null)}
                             </div>
                         }
                     />

@@ -20,6 +20,7 @@ from products.data_warehouse.backend.facade.api import (
     is_multi_schema_capable_sql_source,
     source_namespace_is_blank,
 )
+from products.warehouse_sources.backend.facade.contracts import UPDATE_SHARED_CREDENTIALS_PARAM
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
 from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldCredentialAccountSelectConfig,
@@ -695,3 +696,16 @@ def _refresh_name_substitutions(
     if source_namespace_is_blank(source) and is_multi_schema_capable_sql_source(source.source_type):
         return apply_sql_warehouse_refresh_migration(source=source, team_id=team_id)
     return {}
+
+
+def update_shared_credentials_confirmed(request: Any) -> bool:
+    """True when the request confirms an edit of credentials that other sources or products also use.
+
+    The client sends the flag as a query parameter or in the body.
+    """
+    if request is None:
+        return False
+    value = request.query_params.get(UPDATE_SHARED_CREDENTIALS_PARAM)
+    if value is None and isinstance(request.data, Mapping):
+        value = request.data.get(UPDATE_SHARED_CREDENTIALS_PARAM)
+    return value is True or str(value).lower() == "true"

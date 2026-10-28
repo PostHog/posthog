@@ -29,8 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
-# This first cut covers Freshcaller's top-level v1 list endpoints (Users, Teams, Calls, Call
-# Metrics). Account-level data export is an asynchronous request/poll job rather than a list
+# This first cut covers Freshcaller's top-level v1 list endpoints (Users, Teams, User Statuses,
+# Calls, Call Metrics). Account-level data export is an asynchronous request/poll job rather than a list
 # endpoint, and recording download/delete are per-call side endpoints — both are intentionally
 # left out of this first cut. There is no webhook management API.
 

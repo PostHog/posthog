@@ -2,7 +2,7 @@ import datetime
 import functools
 import dataclasses
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union, cast
 
 import structlog
@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
+    SourceFieldConfig,
     SourceFieldCredentialAccountSelectConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
@@ -33,6 +34,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_kind import (
+    default_credential_kind,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import (
@@ -102,6 +106,35 @@ FieldType = Union[
 ]
 
 SourceCredentialsValidationResult = tuple[bool, str | None]
+
+# Field names that say where stored credentials connect, and as which account, for any source that
+# declares them. The input of the default `credential_identity_fields`.
+GENERIC_IDENTITY_FIELDS: frozenset[str] = frozenset(
+    {
+        "host",
+        "port",
+        "instance_url",
+        "connection_string",
+        "ssh_tunnel",
+        "user",
+        "username",
+        "account",
+        "account_id",
+        "account_sid",
+    }
+)
+
+
+def _declared_field_names(fields: Iterable[SourceFieldConfig]) -> Iterator[str]:
+    """The names of the form fields at any depth: in switch groups and in the options of a select."""
+    for field in fields:
+        yield field.name
+        if isinstance(field, SourceFieldSwitchGroupConfig):
+            yield from _declared_field_names(field.fields)
+        elif isinstance(field, SourceFieldSelectConfig):
+            for option in field.options:
+                yield from _declared_field_names(option.fields or [])
+
 
 # Label used by sources whose vendor has no meaningful API versioning. Version strings are
 # opaque vendor labels (Stripe date versions, semver, names) — never parsed or ordered.
@@ -517,6 +550,41 @@ class _BaseSource(ABC, Generic[ConfigType]):
         the SSH tunnel target are handled separately, so sources whose connection target lives in
         a differently named field (e.g. Okta's ``okta_domain``) should list it here."""
         return []
+
+    @property
+    def credential_identity_fields(self) -> frozenset[str]:
+        """Connection fields that say where the stored credentials connect, and as which account.
+
+        When other sources or products share the credentials row, a change to one of these fields makes a
+        new row, so the other users keep their connection. The default is ``connection_host_fields`` plus
+        each name in ``GENERIC_IDENTITY_FIELDS`` that the source declares as a form field (at any depth) or
+        stores as a config attribute."""
+        declared = set(_declared_field_names(self.get_source_config.fields))
+        declared |= {config_field.name for config_field in dataclasses.fields(self._config_class)}
+        return frozenset(self.connection_host_fields) | (GENERIC_IDENTITY_FIELDS & declared)
+
+    @property
+    def credential_kind(self) -> str | None:
+        """The ``Integration`` kind that holds this source's typed-in credentials, or None when the source has none.
+
+        The default is the kind of the source's OAuth field, else the kebab-case source type. Override it when the
+        source has the credential shape of an existing kind (Postgres is ``postgresql``), or when kebab-case splits
+        a brand name (MySQL is ``mysql``). The kind is stored data and `facade/credential_kinds.py` freezes it, so
+        never change the kind of a released source. A subclass inherits an override, so it must set its own kind."""
+        return default_credential_kind(self.source_type, self.get_source_config)
+
+    @property
+    def credential_auth_type(self) -> str:
+        """The default auth type (``oauth``, ``token`` or ``credentials``) of rows of ``credential_kind``.
+
+        The default comes from the connection fields. It is stored data and `facade/credential_auth_types.py`
+        freezes it, so never change it for a released source."""
+        # The derivation module imports this module.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_auth_type import (  # noqa: PLC0415
+            derive_credential_auth_type,
+        )
+
+        return derive_credential_auth_type(self.get_source_config)
 
     def is_unreachable_validation_error(self, error: str) -> bool:
         """Whether a ``validate_credentials`` message means only that the host could not be reached

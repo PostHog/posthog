@@ -17,6 +17,7 @@ from products.experiments.backend.health.context import (
     FlagHistory,
     FlagHistoryNotChecked,
     FlagState,
+    LatestCalculation,
     MetricCompiles,
 )
 from products.experiments.backend.health.exposure_inputs import ExposureInputs
@@ -219,6 +220,23 @@ def _health_inputs_metric_compiles(compiles: MetricCompiles) -> dict[str, Any]:
     }
 
 
+def _health_inputs_latest_calculation(calculation: LatestCalculation) -> dict[str, Any]:
+    return {
+        "finished_at": calculation.finished_at,
+        "failures": [
+            {
+                "name": failure.name,
+                "role": failure.role,
+                "error_type": failure.error_type,
+                "step": failure.step,
+                "retriable": failure.retriable,
+                "message": None if failure.can_quote_evaluation_rules else failure.message,
+            }
+            for failure in calculation.failures
+        ],
+    }
+
+
 def health_inputs_payload(inputs: HealthInputs) -> dict[str, Any]:
     """The inputs as plain data in the shape of `ExperimentHealthInputsSerializer`, so the presentation layer renders
     them without reading the health package's types."""
@@ -237,6 +255,7 @@ def health_inputs_payload(inputs: HealthInputs) -> dict[str, Any]:
         "flag_last_called_at": inputs.flag_last_called_at,
         "flag_called": ctx.flag_called,
         "flag_called_during_run": ctx.flag_called_during_run,
+        "flag_called_after_end": ctx.flag_called_after_end,
         "exposure_events": {
             "custom_event": ctx.exposure_events.custom_event,
             "required_flag_key": ctx.exposure_events.required_flag_key,
@@ -247,6 +266,9 @@ def health_inputs_payload(inputs: HealthInputs) -> dict[str, Any]:
         else None,
         "events_received": dict(ctx.events_received),
         "metric_compiles": _health_inputs_metric_compiles(ctx.metric_compiles) if ctx.metric_compiles else None,
+        "latest_calculation": _health_inputs_latest_calculation(ctx.latest_calculation)
+        if ctx.latest_calculation
+        else None,
         "flag_history": _health_inputs_flag_history(ctx.flag_history) if ctx.flag_history else None,
         "condition_set_traffic_status": _health_inputs_traffic_status(inputs),
         "condition_set_traffic": _health_inputs_traffic(ctx.condition_set_traffic)

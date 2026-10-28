@@ -880,7 +880,8 @@ class Database(BaseModel):
         except ZoneInfoNotFoundError:
             raise ValueError(f"Unknown timezone: '{str(timezone)}'")
 
-        self._week_start_day = week_start_day
+        # The team model stores a plain integer, and printers read the enum's members.
+        self._week_start_day = WeekStartDay(week_start_day) if week_start_day is not None else None
         self._warehouse_table_names = []
         self._warehouse_self_managed_table_names = []
         self._view_table_names = []

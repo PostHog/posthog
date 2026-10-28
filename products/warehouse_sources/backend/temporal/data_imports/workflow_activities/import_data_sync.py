@@ -28,7 +28,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import current_activity_attempt
-from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT, ShutdownMonitor, WorkerShuttingDownError
@@ -132,7 +132,7 @@ from products.warehouse_sources.backend.temporal.data_imports.util import (
     PostHogInternalDatabaseError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 
@@ -274,6 +274,20 @@ def _jobs_to_continue(job: ExternalDataJob, schema: ExternalDataSchema) -> list[
     return chain
 
 
+def _publishes_staged_full_refresh(
+    job: ExternalDataJob, sync_type: ExternalDataSchemaSyncType | None, team_id: int
+) -> bool:
+    """Whether an external destination stages this full refresh and publishes it on the final batch.
+
+    A destination writer stages a full refresh under the run id of one attempt, and each attempt
+    has its own run id. An attempt that resumes from the cursor of an earlier attempt or job
+    stages only the rows after that cursor, and its final batch publishes that part as the whole table.
+    """
+    if sync_type not in (None, ExternalDataSchema.SyncType.FULL_REFRESH):
+        return False
+    return bool(external_destination_ids_for(team_id, list(job.destination_ids or [])))
+
+
 @database_sync_to_async_pool
 def _carry_rows_synced(job: ExternalDataJob, continued: ExternalDataJob) -> None:
     """Start the row count of `job` from the count of the job it continues.
@@ -310,6 +324,10 @@ if TYPE_CHECKING:
 # after the conversion shipped, the swap costs ~3s a run against a listing of ~0.5s per 100-row
 # page, putting break-even near 700 rows. This floor sits above it with margin.
 MIN_WAREHOUSE_PARENT_ROWS = 1_000
+
+# The longest server-provided delay that the next import attempt waits for. Anthropic's Claude Code
+# report asks for about an hour. The cap stops a wrong header from pushing a run back by days.
+MAX_SERVER_RETRY_DELAY = dt.timedelta(hours=2)
 
 
 def _parent_unusable_reason(parent: ExternalDataSchema | None) -> str | None:
@@ -857,7 +875,19 @@ async def _import_data_with_reporting(
                 try:
                     if isinstance(new_source, ResumableSource):
                         resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
-                        jobs_to_continue = await _jobs_to_continue(model, schema) if use_stored_cursors else []
+                        reads_from_start = await database_sync_to_async_pool(_publishes_staged_full_refresh)(
+                            model, resolved_sync_type, inputs.team_id
+                        )
+                        if reads_from_start:
+                            await database_sync_to_async_pool(resumable_source_manager.clear_job_state)()
+                            await logger.ainfo(
+                                "Reading the source from the start: an external destination publishes this full refresh from one attempt"
+                            )
+                        jobs_to_continue = (
+                            await _jobs_to_continue(model, schema)
+                            if use_stored_cursors and not reads_from_start
+                            else []
+                        )
                         if jobs_to_continue:
                             job_to_continue = jobs_to_continue[0]
                             continued_workflow_run_id = job_to_continue.workflow_run_id
@@ -1171,6 +1201,14 @@ async def _handle_import_error(
     if isinstance(error, RESTClientRetryableError):
         await logger.awarning(error_msg)
         await logger.adebug("REST client exhausted its retries - re-raising for Temporal retry")
+        if error.retry_after:
+            # Defer the next Temporal attempt past the server's window instead of holding a worker in it.
+            raise NonReportableApplicationError(
+                error_msg,
+                type=RESTClientRetryableError.__name__,
+                # Clamp the float first: timedelta raises OverflowError for inf or huge header values.
+                next_retry_delay=dt.timedelta(seconds=min(error.retry_after, MAX_SERVER_RETRY_DELAY.total_seconds())),
+            ) from error
         raise error
 
     # The web pods and the data-import workers deploy separately, so a table that ships in one

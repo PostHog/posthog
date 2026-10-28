@@ -14,8 +14,8 @@ from django.db.models import Q
 from django.utils import timezone
 
 import temporalio
+from anthropic import APIConnectionError
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from openai import APIConnectionError
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -40,6 +40,12 @@ from products.data_warehouse.backend.facade.api import (
     is_custom_source_ai_builder_enabled_for_team,
 )
 from products.warehouse_sources.backend.facade.api import effective_source_status, validate_source_prefix
+from products.warehouse_sources.backend.facade.contracts import (
+    CREDENTIALS_REFERENCE_KEY,
+    SharedCredentialsEdit,
+    SharedCredentialsError,
+    UnusableCredentialsReferenceError,
+)
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -96,7 +102,7 @@ from products.warehouse_sources.backend.presentation.views.source_api_versions i
     api_version_deprecation_payload,
 )
 
-from . import base, connection_options, credential_store, helpers, webhook_setup
+from . import base, connection_options, credential_store, helpers, shared_credentials, webhook_setup
 
 
 def _payload_enabled_columns(schema: dict[str, Any]) -> list[str] | None:
@@ -632,6 +638,22 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         for key in helpers._CDC_EXPOSED_JOB_INPUT_KEYS:
             if key in existing_job_inputs:
                 validated_job_inputs[key] = existing_job_inputs[key]
+        # The parsed config has no credentials reference, so the store keeps the stored one. A client may
+        # point the source at another credentials row only when the source can use that row.
+        try:
+            requested_reference = SourceInputsStore.requested_credentials_reference(
+                instance, existing_job_inputs, incoming_job_inputs
+            )
+        except UnusableCredentialsReferenceError:
+            raise ValidationError(
+                {
+                    "job_inputs": {
+                        CREDENTIALS_REFERENCE_KEY: "These credentials don't exist or this source can't use them."
+                    }
+                }
+            )
+        if requested_reference is not None:
+            validated_job_inputs[CREDENTIALS_REFERENCE_KEY] = requested_reference
         validated_data["job_inputs"] = validated_job_inputs
 
         if job_inputs_were_submitted and (connection_config_changed or instance.is_direct_query):
@@ -708,7 +730,15 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         with transaction.atomic():
             if "job_inputs" in validated_data:
-                SourceInputsStore.assign(instance, validated_data.pop("job_inputs"))
+                # An edit of credentials that other sources or products use raises `SharedCredentialsError`
+                # (a 409) unless the request confirms it.
+                SourceInputsStore.assign(
+                    instance,
+                    validated_data.pop("job_inputs"),
+                    shared_credentials=SharedCredentialsEdit.CONFIRMED
+                    if helpers.update_shared_credentials_confirmed(request)
+                    else SharedCredentialsEdit.REFUSE,
+                )
             updated_source: ExternalDataSource = super().update(instance, validated_data)
         cast(Any, updated_source)._connection_warning = connection_warning
 
@@ -1102,6 +1132,13 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             resolved.credential.delete()
         return response
 
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Runs for both PUT and PATCH.
+        try:
+            return super().update(request, *args, **kwargs)
+        except SharedCredentialsError as error:
+            return shared_credentials.shared_credentials_conflict_response(error)
+
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         # Runs for both PUT and PATCH (DRF's partial_update delegates to update -> perform_update).
         # `created_via` is write-once and reflects original creation origin; the edit's own origin
@@ -1370,6 +1407,25 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 data={
                     "message": f"Unknown sync type: {', '.join(invalid_sync_types)}. "
                     f"Use one of: {', '.join(valid_sync_types)}."
+                },
+            )
+
+        # A webhook-mode table that no webhook event feeds never receives a row.
+        webhook_unsupported = sorted(
+            {
+                schema["name"]
+                for schema in payload_schemas
+                if schema.get("sync_type") == ExternalDataSchema.SyncType.WEBHOOK
+                and not source_schemas_by_name[schema["name"]].supports_webhooks
+            }
+        )
+        if webhook_unsupported:
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": f"Webhook sync isn't available for: {', '.join(webhook_unsupported)}. "
+                    "Pick another sync method."
                 },
             )
 

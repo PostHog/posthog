@@ -41,7 +41,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_or_settings
-from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
+from posthog.models.integration import GoogleCloudServiceAccountIntegration
 from posthog.models.integration.google_cloud import InvalidGoogleTokenUriError, require_google_token_uri
 from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
@@ -83,6 +83,8 @@ from products.batch_exports.backend.temporal.utils import (
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
 )
+from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 NON_RETRYABLE_ERROR_TYPES = (
     # Raised on missing permissions.
@@ -1486,8 +1488,10 @@ async def _get_google_cloud_service_account_integration(
         return None
 
     try:
-        integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.google_cloud_service_account.credentials.aget(
+            inputs.team_id, inputs.integration_id
+        )
+    except IntegrationNotFound:
         raise BigQueryIntegrationNotFoundError(
             f"Google Cloud service account integration with id '{inputs.integration_id}' not found"
         )

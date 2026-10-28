@@ -14,7 +14,11 @@ from django.db import transaction
 
 from posthog.sync import database_sync_to_async_pool
 
-from products.warehouse_sources.backend.facade.contracts import UnreadableSourceInputsError
+from products.warehouse_sources.backend.facade.contracts import (
+    CREDENTIALS_REFERENCE_KEY,
+    SharedCredentialsEdit,
+    UnreadableSourceInputsError,
+)
 from products.warehouse_sources.backend.logic.source_credentials_rollout import (
     mirror_connection_fields,
     preload_connection_fields,
@@ -64,7 +68,13 @@ class SourceInputsStore:
     def preload(sources: Iterable[ExternalDataSource]) -> None:
         """Fetch what `load` needs for these sources in one batch, so that later `load` calls on the same
         instances add no query. Use it before a loop that calls `load` once per table of a source."""
-        preload_connection_fields(sources)
+        pairs = []
+        for source in sources:
+            try:
+                pairs.append((source, _decode(source.job_inputs).get(CREDENTIALS_REFERENCE_KEY)))
+            except UnreadableSourceInputsError:
+                continue
+        preload_connection_fields(pairs)
 
     @staticmethod
     def load_settings(source: ExternalDataSource) -> dict[str, Any]:
@@ -92,15 +102,24 @@ class SourceInputsStore:
         return isinstance(source.job_inputs, str)
 
     @staticmethod
-    def assign(source: ExternalDataSource, inputs: Mapping[str, Any]) -> None:
+    def assign(
+        source: ExternalDataSource,
+        inputs: Mapping[str, Any],
+        *,
+        shared_credentials: SharedCredentialsEdit = SharedCredentialsEdit.SKIP,
+    ) -> None:
         """Stage all inputs on the source without a database write. The caller must save the model.
 
         Use it when the caller saves the model for other reasons too, for example a DRF serializer
         update, so that the source row gets one write. The connection fields go to the credentials row
-        now (behind the dual-write flag), before the caller saves the source.
+        now (behind the dual-write flag), before the caller saves the source. The staged inputs keep the
+        stored reference to that row when ``inputs`` has none, and get a reference when the copy creates
+        the row. ``shared_credentials`` decides what an edit of a row that other objects use does.
         """
-        mirror_connection_fields(source, inputs)
-        _stage(source, inputs)
+        staged = mirror_connection_fields(
+            source, _with_stored_reference(source, inputs), shared_credentials=shared_credentials
+        )
+        _stage(source, staged)
 
     @staticmethod
     def save(
@@ -110,6 +129,7 @@ class SourceInputsStore:
         extra_update_fields: Sequence[str] = DEFAULT_EXTRA_UPDATE_FIELDS,
     ) -> None:
         """Replace all inputs of the source and save them."""
+        # One transaction, so a failed save also undoes the copy to the credentials row.
         with transaction.atomic():
             SourceInputsStore.assign(source, inputs)
             source.save(update_fields=["job_inputs", *extra_update_fields])
@@ -118,12 +138,13 @@ class SourceInputsStore:
     def create(*, inputs: Mapping[str, Any], **fields: Any) -> ExternalDataSource:
         """Create a source with these inputs in one insert. ``fields`` are the other model fields.
 
-        The model generates the source id on construction, so the credentials row is written with its
-        final key before the insert. If the insert fails, the row is an orphan that the reconciler deletes.
+        The credentials row is created before the insert, so the insert saves the reference to it. Both
+        writes are in one transaction, so a failed insert leaves no row.
         """
         source = ExternalDataSource(**fields)
-        SourceInputsStore.assign(source, inputs)
-        source.save(force_insert=True)
+        with transaction.atomic():
+            SourceInputsStore.assign(source, inputs)
+            source.save(force_insert=True)
         return source
 
     @staticmethod
@@ -171,6 +192,18 @@ def _stage(source: ExternalDataSource, inputs: Mapping[str, Any]) -> None:
     source.job_inputs = dict(inputs)
 
 
+def _with_stored_reference(source: ExternalDataSource, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+    # Many writers build the inputs from a parsed config, which has no reference key. The stored value
+    # decides the row, so such a write cannot drop the reference and make a second row.
+    if CREDENTIALS_REFERENCE_KEY in inputs:
+        return inputs
+    try:
+        stored = _decode(source.job_inputs).get(CREDENTIALS_REFERENCE_KEY)
+    except UnreadableSourceInputsError:
+        return inputs
+    return inputs if stored is None else {**inputs, CREDENTIALS_REFERENCE_KEY: stored}
+
+
 def _decode(raw: Any) -> dict[str, Any]:
     if raw is None:
         return {}
@@ -212,7 +245,7 @@ def _check_runtime_keys(source_type: str, keys: Iterable[str]) -> None:
         return
     try:
         split = _split(source_type, dict.fromkeys(keys))
-        non_runtime = sorted({*split.connection, *split.settings})
+        non_runtime = sorted({*split.connection, *split.references, *split.selectors, *split.settings})
     except ValueError:
         non_runtime = sorted(key for key in keys if not _has_runtime_prefix(key))
     if non_runtime:

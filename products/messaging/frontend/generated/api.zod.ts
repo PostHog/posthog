@@ -9,6 +9,39 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Send one transactional email to one recipient from the template named in `template.id`. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
+ * @summary Send a transactional email
+ */
+export const messagingSendEmailCreateBodyIdentifiersOneDistinctIdMax = 400
+
+export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
+    to: zod.email().describe('Email address of the recipient.'),
+    identifiers: zod
+        .object({
+            distinct_id: zod
+                .string()
+                .max(messagingSendEmailCreateBodyIdentifiersOneDistinctIdMax)
+                .nullish()
+                .describe(
+                    "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`."
+                ),
+        })
+        .optional()
+        .describe('Who the email is for, used to attribute engagement events.'),
+    message_data: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Data for the template\'s Liquid placeholders, available as `variables`. For example `{\"reset_link\": \"https:\/\/...\"}` fills `{{ variables.reset_link }}`.'
+        ),
+    template: zod
+        .object({
+            id: zod.uuid().describe('ID of the email template to send. The template must be made transactional first.'),
+        })
+        .describe('The transactional email template to send.'),
+})
+
 export const messagingCategoriesCreateBodyKeyMax = 64
 
 export const messagingCategoriesCreateBodyNameMax = 128
@@ -364,6 +397,62 @@ export const MessagingPreferencesRemoveOptOutCreateBody = /* @__PURE__ */ zod.ob
         .optional()
         .describe(
             'Optional message category key. If omitted, the recipient is opted back in to all marketing messages.'
+        ),
+})
+
+/**
+ * Background imports from other messaging tools, such as Customer.io suppressions and global unsubscribes.
+ *
+ * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
+ * @summary Start a background import from another messaging tool
+ */
+export const messagingProviderImportsCreateBodyStepsItemMax = 64
+
+export const MessagingProviderImportsCreateBody = /* @__PURE__ */ zod.object({
+    provider: zod
+        .enum(['customerio'])
+        .describe('\* `customerio` - Customer.io')
+        .describe('The provider to import from.\n\n\* `customerio` - Customer.io'),
+    steps: zod
+        .array(zod.string().max(messagingProviderImportsCreateBodyStepsItemMax))
+        .min(1)
+        .describe(
+            "Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send."
+        ),
+    api_key: zod
+        .string()
+        .optional()
+        .describe("The provider's API key. For Customer.io, an App API key. Leave it out to reuse the stored key."),
+})
+
+/**
+ * Send a Supabase project's auth emails through transactional email templates.
+ * @summary Update the Supabase auth email settings
+ */
+export const messagingSupabaseAuthEmailsSettingsPartialUpdateBodySupabaseUrlMax = 200
+
+export const messagingSupabaseAuthEmailsSettingsPartialUpdateBodyHookSecretMax = 500
+
+export const MessagingSupabaseAuthEmailsSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    supabase_url: zod
+        .string()
+        .max(messagingSupabaseAuthEmailsSettingsPartialUpdateBodySupabaseUrlMax)
+        .optional()
+        .describe(
+            "The Supabase project URL, such as https:\/\/abcdefgh.supabase.co, from the project's API settings in the Supabase dashboard. It must use https."
+        ),
+    hook_secret: zod
+        .string()
+        .max(messagingSupabaseAuthEmailsSettingsPartialUpdateBodyHookSecretMax)
+        .optional()
+        .describe(
+            'The Send Email Hook secret, starting with v1,whsec_. Supabase generates it under Authentication, Hooks, Send Email hook. Leave it out to keep the stored secret.'
+        ),
+    templates: zod
+        .record(zod.string(), zod.uuid())
+        .optional()
+        .describe(
+            'Supabase email action type to the id of the email template that sends it. Each template must be transactional and marked sensitive. This replaces the whole mapping: include every type to keep, and leave a type out to unmap it. A core auth email with no template fails in Supabase, and a notification with no template is skipped. Valid action types: signup, invite, magiclink, email, recovery, email_change, reauthentication, password_changed_notification, email_changed_notification, phone_changed_notification, identity_linked_notification, identity_unlinked_notification, mfa_factor_enrolled_notification, mfa_factor_unenrolled_notification.'
         ),
 })
 

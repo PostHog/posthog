@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 28 enabled ops
+ * PostHog API - MCP 27 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -541,6 +541,7 @@ export const FeatureFlagsPartialUpdateParams = () => zod.object({
 })
 
 export const featureFlagsPartialUpdateBodyFiltersOneEarlyExitDefault = false
+export const featureFlagsPartialUpdateBodyVersionMin = 0
 
 export const FeatureFlagsPartialUpdateBody = () => zod.object({
     key: zod.string().optional().describe('Feature flag key.'),
@@ -904,17 +905,12 @@ export const FeatureFlagsPartialUpdateBody = () => zod.object({
         .describe(
             "Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID"
         ),
-})
-
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
-export const FeatureFlagsDestroyParams = () => zod.object({
-    id: zod.number().describe('A unique integer value identifying this feature flag.'),
-    project_id: zod
-        .string()
+    version: zod
+        .number()
+        .min(featureFlagsPartialUpdateBodyVersionMin)
+        .optional()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+            "The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2: the update is then refused with 409 if anyone else changed the flag after that version. Other flags do not check it."
         ),
 })
 

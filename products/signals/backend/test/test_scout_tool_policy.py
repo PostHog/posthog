@@ -33,6 +33,7 @@ GET_ONLY_TOOLS = frozenset(
     {
         "agent-feedback",
         "debug-mcp-ui-apps",
+        "event-definition-get",
         "experiment-get-by-flag-key",
         "external-data-sources-jobs",
         "external-data-sync-logs",

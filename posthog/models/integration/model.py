@@ -1,5 +1,6 @@
 """The Integration Django model, its manager, and generic secret-decryption helpers."""
 
+from collections.abc import Iterable, Mapping
 from typing import Any, Self, cast
 
 from django.db import models
@@ -15,6 +16,17 @@ from posthog.rbac.decorators import field_access_control
 from posthog.sync import database_sync_to_async
 
 from . import common
+from .auth_types import (
+    AuthRequirement,
+    AuthTypeSelector,
+    IntegrationAuthType,
+    catalogued_kinds,
+    config_for_write,
+    default_auth_type,
+    effective_auth_type,
+    normalized_config,
+    rows_with_default_auth_type_q,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -87,25 +99,124 @@ def _decrypted_sensitive_value(integration: "Integration", field_name: str) -> s
     return recovered
 
 
+# Marks a row that a data warehouse source created from the fields a user typed in. The value is the
+# source type, so a client can show the source's name and icon for a kind it does not know. The row
+# holds `sensitive_config["fields"]` in the source's own field shape, not in the shape that other
+# code of the kind reads. Hog functions must never get such a row as an input.
+WAREHOUSE_SOURCE_TYPE_CONFIG_KEY = "warehouse_source_type"
+
+
 class IntegrationQuerySet(models.QuerySet["Integration"]):
+    # Set by `_with_auth`. None means the query did not state its auth types.
+    _auth_requirement: AuthRequirement | None = None
+    # True on the queryset that `Integration.objects` returns without `_with_auth`. It holds only
+    # rows with the default auth type of their kind, so code that does not state its auth types
+    # never gets a row it cannot handle.
+    _implicit_default_auth: bool = False
+
+    def _clone(self) -> Self:
+        clone = super()._clone()  # type: ignore[misc]
+        clone._auth_requirement = self._auth_requirement
+        clone._implicit_default_auth = self._implicit_default_auth
+        return clone
+
+    def _with_auth(self, *auth_types: IntegrationAuthType | AuthTypeSelector | str) -> Self:
+        """Keep only the rows whose auth type is in `auth_types`. Internal to the integrations SDK.
+
+        Pass `DEFAULT` for the default auth type of each row's kind, or `ANY` for every row. A row
+        without `config["auth_type"]` has the default auth type of its kind. A create through a
+        `_with_auth` with one non-default auth type writes it into `config["auth_type"]`.
+        """
+        if self._implicit_default_auth:
+            raise ValueError(
+                "Call _with_auth() directly on Integration.objects. The queryset without it holds only rows "
+                "with the default auth type of their kind."
+            )
+        if self._auth_requirement is not None and not self._auth_requirement.any:
+            # A second selector would filter by both but write by the last, so a create could make a
+            # row that this queryset cannot read back. Narrow only from ANY.
+            raise ValueError("This queryset already has _with_auth(). Narrow only from _with_auth(ANY).")
+        requirement = AuthRequirement.of(*auth_types)
+        queryset = self._chain() if requirement.any else self.filter(requirement.q())  # type: ignore[attr-defined]
+        queryset._auth_requirement = requirement
+        return queryset
+
+    def _with_implicit_default_auth(self) -> Self:
+        queryset = self.filter(rows_with_default_auth_type_q())
+        queryset._implicit_default_auth = True
+        return queryset
+
+    def _write_requirement(self) -> AuthRequirement | None:
+        if self._auth_requirement is not None:
+            return self._auth_requirement
+        return AuthRequirement.kind_default_only() if self._implicit_default_auth else None
+
+    def _with_config_for_write(self, values: dict[str, Any], kind: Any) -> dict[str, Any]:
+        requirement = self._write_requirement()
+        if requirement is None:
+            return values
+        return {**values, "config": config_for_write(kind, values.get("config"), requirement)}
+
+    def create(self, **kwargs: Any) -> "Integration":
+        return super().create(**self._with_config_for_write(kwargs, kwargs.get("kind")))
+
+    def bulk_create(self, objs: Iterable["Integration"], *args: Any, **kwargs: Any) -> list["Integration"]:
+        objs = list(objs)
+        requirement = self._write_requirement()
+        for obj in objs:
+            if requirement is not None:
+                obj.config = config_for_write(obj.kind, obj.config, requirement)
+            # bulk_create does not call save(), so normalize here too.
+            obj.config = normalized_config(obj.kind, obj.config)
+        return super().bulk_create(objs, *args, **kwargs)
+
+    def update_or_create(
+        self,
+        defaults: Mapping[str, Any] | None = None,
+        create_defaults: Mapping[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> tuple["Integration", bool]:
+        # The update path sets `config` from `defaults` on the row it found. Without this, a new
+        # config without the key would turn a typed-in row back into a default row.
+        kind = kwargs.get("kind") or (defaults or {}).get("kind") or (create_defaults or {}).get("kind")
+        if defaults is not None and "config" in defaults:
+            defaults = self._with_config_for_write(dict(defaults), kind)
+        return super().update_or_create(defaults=defaults, create_defaults=create_defaults, **kwargs)
+
     def for_github_installation_id(self, installation_id: str | int) -> Self:
         return self.filter(
             Q(config__installation_id=str(installation_id)) | Q(config__installation_id=int(installation_id))
         )
 
 
-class IntegrationManager(models.Manager["Integration"]):
+class IntegrationModelManager(models.Manager["Integration"]):
     _queryset_class = IntegrationQuerySet
 
     def get_queryset(self) -> IntegrationQuerySet:
-        return IntegrationQuerySet(self.model, using=self._db)
+        queryset = IntegrationQuerySet(self.model, using=self._db, hints=self._hints)  # type: ignore[attr-defined]
+        if self._is_related_manager():
+            return queryset
+        return queryset._with_implicit_default_auth()
+
+    def _with_auth(self, *auth_types: IntegrationAuthType | AuthTypeSelector | str) -> IntegrationQuerySet:
+        if self._is_related_manager():
+            return self.get_queryset()._with_auth(*auth_types)
+        queryset = IntegrationQuerySet(self.model, using=self._db, hints=self._hints)  # type: ignore[attr-defined]
+        return queryset._with_auth(*auth_types)
 
     def filter(self, *args: Any, **kwargs: Any) -> IntegrationQuerySet:
         return self.get_queryset().filter(*args, **kwargs)
 
+    def _is_related_manager(self) -> bool:
+        # Django builds related managers such as `team.integration_set` as subclasses of this class,
+        # and only they have `core_filters`. They stay unfiltered, the same as the base manager that
+        # cascades, `save()` and `refresh_from_db()` use.
+        return hasattr(self, "core_filters")
+
     def first_github_for_team_installation(self, team_id: int, installation_id: str) -> "Integration | None":
         return (
-            self.filter(team_id=team_id, kind=Integration.IntegrationKind.GITHUB)
+            self._with_auth(IntegrationAuthType.OAUTH)
+            .filter(team_id=team_id, kind=Integration.IntegrationKind.GITHUB)
             .for_github_installation_id(installation_id)
             .first()
         )
@@ -113,18 +224,26 @@ class IntegrationManager(models.Manager["Integration"]):
     def first_github_for_user_installation(self, user: User, installation_id: str) -> "Integration | None":
         user_team_ids = user.teams.values_list("id", flat=True)
         return (
-            self.filter(team_id__in=user_team_ids, kind=Integration.IntegrationKind.GITHUB)
+            self._with_auth(IntegrationAuthType.OAUTH)
+            .filter(team_id__in=user_team_ids, kind=Integration.IntegrationKind.GITHUB)
             .for_github_installation_id(installation_id)
             .first()
         )
 
 
 def integration_kind_choices() -> list[tuple[str, str | Promise]]:
-    # Callable so growing the enum doesn't generate a no-op migration.
-    return list(Integration.IntegrationKind.choices)
+    # Callable so growing the enum doesn't generate a no-op migration. Kinds that a product registers
+    # with `register_kind_auth_types` (the warehouse source credential kinds) are valid stored kinds
+    # too, but they stay out of `IntegrationKind` and so out of the public API enum.
+    choices: list[tuple[str, str | Promise]] = list(Integration.IntegrationKind.choices)
+    known = {value for value, _ in choices}
+    choices += [(kind, kind) for kind in sorted(catalogued_kinds()) if kind not in known]
+    return choices
 
 
 class Integration(models.Model):
+    AuthType = IntegrationAuthType
+
     class IntegrationKind(models.TextChoices):
         ANTHROPIC = "anthropic"
         APPLE_ADS = "apple-ads"
@@ -177,9 +296,6 @@ class Integration(models.Model):
         TIKTOK_ADS = "tiktok-ads"
         TWILIO = "twilio"
         VERCEL = "vercel"
-        # Hidden kind: one row per warehouse source, owned by `WarehouseSourceCredentialsStore`.
-        # The integrations API never lists, creates or deletes it.
-        WAREHOUSE_SOURCE = "warehouse-source"
         YOUTUBE_ANALYTICS = "youtube-analytics"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -207,7 +323,7 @@ class Integration(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
 
-    objects: IntegrationManager = IntegrationManager()
+    objects: IntegrationModelManager = IntegrationModelManager()
 
     class Meta:
         constraints = [
@@ -217,8 +333,24 @@ class Integration(models.Model):
         ]
         indexes = [models.Index(fields=["kind", "integration_id"], name="posthog_integration_kind_ext")]
 
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        self.config = normalized_config(self.kind, self.config)
+        super().save(*args, **kwargs)
+
+    @property
+    def auth_type(self) -> str:
+        """The stored `config["auth_type"]`, or the default auth type of the kind when the key is missing."""
+        return effective_auth_type(self.kind, self.config)
+
+    @property
+    def holds_warehouse_source_fields(self) -> bool:
+        return isinstance(self.config, dict) and WAREHOUSE_SOURCE_TYPE_CONFIG_KEY in self.config
+
     @property
     def display_name(self) -> str:
+        if self.holds_warehouse_source_fields or self.auth_type != default_auth_type(self.kind):
+            # The branches below read the config shape of the default auth type.
+            return self.config.get("display_name") or f"ID: {self.integration_id}"
         if self.kind == "twitter-ads":
             return self.config.get("screen_name") or self.integration_id
         if self.kind == "pinterest-ads":
@@ -324,9 +456,6 @@ def aget_integration_by_id(integration_id: str, team_id: int) -> Integration | N
     return Integration.objects.get(id=integration_id, team_id=team_id)
 
 
-# The warehouse source kind stays out of the public API surface, so it is absent from the generated schema.
-PUBLIC_INTEGRATION_KIND_CHOICES = [
-    choice
-    for choice in Integration.IntegrationKind.choices
-    if choice[0] != Integration.IntegrationKind.WAREHOUSE_SOURCE
-]
+# The kinds that an API request can name. A kind that a product registers (a warehouse source
+# credential kind) is stored data only, so the generated API enum stays small.
+PUBLIC_INTEGRATION_KIND_CHOICES = list(Integration.IntegrationKind.choices)

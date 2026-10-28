@@ -6,11 +6,7 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.constants import (
-    DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
-    SNAPSHOT_KIND_DIRECTORY,
-    SnapshotKind,
-)
+from products.tasks.backend.constants import DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH, RESUME_SNAPSHOT_KIND
 from products.tasks.backend.exceptions import (
     SandboxNotRunningError,
     SnapshotFileLimitExceededError,
@@ -28,17 +24,14 @@ logger = structlog.get_logger(__name__)
 class CreateResumeSnapshotInput:
     sandbox_id: str
     run_id: str
-    # Retained for Temporal payload compatibility while existing workflows drain.
-    use_directory_snapshot: bool = True
     snapshot_mount_path: str = DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH
     reason: str = "teardown"
     allow_pruning: bool = True
 
 
-@dataclass
+@dataclass(frozen=True)
 class CreateResumeSnapshotOutput:
     external_id: str | None
-    snapshot_kind: SnapshotKind | None = None
     snapshot_mount_path: str | None = None
     error: str | None = None
     duration_ms: int | None = None
@@ -53,7 +46,6 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
     API can look it up when resuming.
     """
     SandboxClass = get_sandbox_class()
-    snapshot_kind: SnapshotKind = SNAPSHOT_KIND_DIRECTORY
     snapshot_mount_path = input.snapshot_mount_path or DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH
 
     logger.info(
@@ -61,7 +53,6 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
         sandbox_id=input.sandbox_id,
         run_id=input.run_id,
         reason=input.reason,
-        snapshot_kind=snapshot_kind,
     )
 
     started_at = time.perf_counter()
@@ -74,17 +65,15 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
             sandbox_id=input.sandbox_id,
             run_id=input.run_id,
             reason=input.reason,
-            snapshot_kind=snapshot_kind,
             duration_ms=duration_ms,
             error=str(e),
         )
         outcome = "sandbox_not_found"
-        increment_snapshot_create(snapshot_kind, outcome)
-        record_snapshot_create_latency_ms(snapshot_kind, outcome, duration_ms)
+        increment_snapshot_create(outcome)
+        record_snapshot_create_latency_ms(outcome, duration_ms)
         emit_agent_log(input.run_id, "debug", f"Resume snapshot failed ({input.reason}): sandbox not found")
         return CreateResumeSnapshotOutput(
             external_id=None,
-            snapshot_kind=snapshot_kind,
             error=f"Sandbox not found: {e}",
             duration_ms=duration_ms,
         )
@@ -97,15 +86,13 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
             sandbox_id=input.sandbox_id,
             run_id=input.run_id,
             reason=input.reason,
-            snapshot_kind=snapshot_kind,
             duration_ms=duration_ms,
         )
-        increment_snapshot_create(snapshot_kind, outcome)
-        record_snapshot_create_latency_ms(snapshot_kind, outcome, duration_ms)
+        increment_snapshot_create(outcome)
+        record_snapshot_create_latency_ms(outcome, duration_ms)
         emit_agent_log(input.run_id, "debug", f"Resume snapshot failed ({input.reason}): sandbox not running")
         return CreateResumeSnapshotOutput(
             external_id=None,
-            snapshot_kind=snapshot_kind,
             error="Sandbox not running",
             duration_ms=duration_ms,
         )
@@ -121,16 +108,14 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
             sandbox_id=input.sandbox_id,
             run_id=input.run_id,
             reason=input.reason,
-            snapshot_kind=snapshot_kind,
             duration_ms=duration_ms,
             error=str(e),
         )
-        increment_snapshot_create(snapshot_kind, outcome)
-        record_snapshot_create_latency_ms(snapshot_kind, outcome, duration_ms)
+        increment_snapshot_create(outcome)
+        record_snapshot_create_latency_ms(outcome, duration_ms)
         emit_agent_log(input.run_id, "debug", f"Resume snapshot failed ({input.reason}): file limit exceeded")
         return CreateResumeSnapshotOutput(
             external_id=None,
-            snapshot_kind=snapshot_kind,
             error=str(e),
             duration_ms=duration_ms,
         )
@@ -142,12 +127,11 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
             sandbox_id=input.sandbox_id,
             run_id=input.run_id,
             reason=input.reason,
-            snapshot_kind=snapshot_kind,
             duration_ms=duration_ms,
             error=str(e),
         )
-        increment_snapshot_create(snapshot_kind, outcome)
-        record_snapshot_create_latency_ms(snapshot_kind, outcome, duration_ms)
+        increment_snapshot_create(outcome)
+        record_snapshot_create_latency_ms(outcome, duration_ms)
         raise
     except SandboxNotRunningError as e:
         outcome = "sandbox_not_running"
@@ -157,16 +141,14 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
             sandbox_id=input.sandbox_id,
             run_id=input.run_id,
             reason=input.reason,
-            snapshot_kind=snapshot_kind,
             duration_ms=duration_ms,
             error=str(e),
         )
-        increment_snapshot_create(snapshot_kind, outcome)
-        record_snapshot_create_latency_ms(snapshot_kind, outcome, duration_ms)
+        increment_snapshot_create(outcome)
+        record_snapshot_create_latency_ms(outcome, duration_ms)
         emit_agent_log(input.run_id, "debug", f"Resume snapshot failed ({input.reason}): sandbox not running")
         return CreateResumeSnapshotOutput(
             external_id=None,
-            snapshot_kind=snapshot_kind,
             error=str(e),
             duration_ms=duration_ms,
         )
@@ -178,16 +160,14 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
             sandbox_id=input.sandbox_id,
             run_id=input.run_id,
             reason=input.reason,
-            snapshot_kind=snapshot_kind,
             duration_ms=duration_ms,
             error=str(e),
         )
-        increment_snapshot_create(snapshot_kind, outcome)
-        record_snapshot_create_latency_ms(snapshot_kind, outcome, duration_ms)
+        increment_snapshot_create(outcome)
+        record_snapshot_create_latency_ms(outcome, duration_ms)
         emit_agent_log(input.run_id, "debug", f"Resume snapshot failed ({input.reason}): {e}")
         return CreateResumeSnapshotOutput(
             external_id=None,
-            snapshot_kind=snapshot_kind,
             error=str(e),
             duration_ms=duration_ms,
         )
@@ -195,7 +175,7 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
     try:
         updates = {
             "snapshot_external_id": external_id,
-            "snapshot_kind": snapshot_kind,
+            "snapshot_kind": RESUME_SNAPSHOT_KIND,
             "snapshot_mount_path": snapshot_mount_path,
         }
         TaskRun.update_state_atomic(input.run_id, updates=updates)
@@ -207,31 +187,28 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
             sandbox_id=input.sandbox_id,
             run_id=input.run_id,
             reason=input.reason,
-            snapshot_kind=snapshot_kind,
             snapshot_external_id=external_id,
             duration_ms=duration_ms,
             error=str(e),
         )
-        increment_snapshot_create(snapshot_kind, outcome)
-        record_snapshot_create_latency_ms(snapshot_kind, outcome, duration_ms)
+        increment_snapshot_create(outcome)
+        record_snapshot_create_latency_ms(outcome, duration_ms)
         emit_agent_log(input.run_id, "debug", f"Resume snapshot failed ({input.reason}): state could not be saved")
         return CreateResumeSnapshotOutput(
             external_id=None,
-            snapshot_kind=snapshot_kind,
             error=f"Snapshot state could not be saved: {e}",
             duration_ms=duration_ms,
         )
 
     duration_ms = int((time.perf_counter() - started_at) * 1000)
-    increment_snapshot_create(snapshot_kind, outcome)
-    record_snapshot_create_latency_ms(snapshot_kind, outcome, duration_ms)
+    increment_snapshot_create(outcome)
+    record_snapshot_create_latency_ms(outcome, duration_ms)
 
     logger.info(
         "create_resume_snapshot_created",
         sandbox_id=input.sandbox_id,
         run_id=input.run_id,
         reason=input.reason,
-        snapshot_kind=snapshot_kind,
         snapshot_external_id=external_id,
         snapshot_mount_path=snapshot_mount_path,
         duration_ms=duration_ms,
@@ -239,7 +216,6 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
     emit_agent_log(input.run_id, "debug", f"Resume snapshot created ({input.reason}): {external_id}")
     return CreateResumeSnapshotOutput(
         external_id=external_id,
-        snapshot_kind=snapshot_kind,
         snapshot_mount_path=snapshot_mount_path,
         duration_ms=duration_ms,
     )

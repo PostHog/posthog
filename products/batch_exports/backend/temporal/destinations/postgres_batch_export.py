@@ -22,14 +22,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.models.integration import (
-    MISSING_CERT_PATH,
-    TLS,
-    Authority,
-    Credentials,
-    Integration,
-    PostgreSQLIntegration,
-)
+from posthog.models.integration import MISSING_CERT_PATH, TLS, Authority, Credentials, PostgreSQLIntegration
 from posthog.psycopg_helpers import is_resolvable_hostname, resolve_psycopg_hostaddr_with_timeout
 from posthog.security.url_validation import (
     INVALID_HOST_MESSAGE,
@@ -70,6 +63,8 @@ from products.batch_exports.backend.temporal.utils import (
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
 )
+from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 PostgreSQLField = tuple[str, typing.LiteralString]
 Fields = collections.abc.Iterable[PostgreSQLField]
@@ -960,8 +955,8 @@ async def _get_postgresql_integration(
         return None
 
     try:
-        integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.postgresql.credentials.aget(inputs.team_id, inputs.integration_id)
+    except IntegrationNotFound:
         raise PostgreSQLIntegrationNotFoundError(f"PostgreSQL integration with id '{inputs.integration_id}' not found")
     return PostgreSQLIntegration(integration)
 

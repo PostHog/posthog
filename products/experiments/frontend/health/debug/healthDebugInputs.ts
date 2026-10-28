@@ -152,6 +152,11 @@ export function buildFlagFacts(experiment: Experiment, state: HealthInputsState)
             value: serverValue(state, ({ flag_called_during_run }) => yesNoUnknown(flag_called_during_run)),
             help: "The zero-exposures finding says the flag has no recorded calls when this is No. Unknown before launch, when the latest call came after the end, or when the organization's flag calls skip the events table.",
         },
+        {
+            label: 'Called after the end',
+            value: serverValue(state, ({ flag_called_after_end }) => yesNoUnknown(flag_called_after_end)),
+            help: "When this is No, the flag-state finding for an ended experiment is info. No needs 3 days without a recorded call after the end. Unknown before the end, before those 3 days are over, or when the organization's flag calls skip the events table.",
+        },
     ]
 }
 
@@ -317,7 +322,29 @@ export function buildMetricFacts(
             label: `Doesn't compile: ${failure.name} (${failure.role})`,
             value: `${failure.kind}: ${failure.message ?? 'message hidden, it can hold evaluation rules'}`,
         })),
+        {
+            label: 'Latest calculation',
+            value: serverValue(state, (inputs) => describeLatestCalculation(inputs.latest_calculation)),
+            help: 'The metric results check reads the latest finished calculation, which the results page shows.',
+        },
+        ...(state.inputs?.latest_calculation?.failures ?? []).map((failure) => ({
+            label: `Failed: ${failure.name} (${failure.role})`,
+            value: `${failure.error_type ?? 'no class'}${failure.retriable ? ', retriable' : ''}: ${
+                failure.message ?? 'message hidden, it can hold evaluation rules'
+            }`,
+        })),
     ]
+}
+
+function describeLatestCalculation(calculation: ExperimentHealthInputsApi['latest_calculation']): string {
+    if (!calculation) {
+        return 'Not read: the experiment is not launched or is archived, or the read failed'
+    }
+    if (!calculation.finished_at) {
+        return 'No calculation has finished'
+    }
+    const failed = calculation.failures.length
+    return `Finished ${formatTimestamp(calculation.finished_at)}, ${failed} ${failed === 1 ? 'metric' : 'metrics'} failed`
 }
 
 function describeMetricCompiles(compiles: ExperimentHealthInputsApi['metric_compiles']): string {

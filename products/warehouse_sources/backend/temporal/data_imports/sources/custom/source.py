@@ -825,6 +825,11 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CUSTOM
 
+    @property
+    def credential_kind(self) -> str | None:
+        # Custom keeps its own `job_inputs`, and its OAuth rows are not `Integration` rows.
+        return None
+
     # Custom REST sources are capped per team to keep abuse of the arbitrary-URL fetcher bounded.
     max_instances_per_team = MAX_CUSTOM_SOURCES_PER_TEAM
 

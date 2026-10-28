@@ -2152,6 +2152,8 @@ describe('CDP API', () => {
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
             api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
             hogFlow = await insertHogFlow(transactionalFlow('api', 'active'))
+            // The fixtures send to example.com, which publishes a null MX. Without this every send is refused.
+            jest.spyOn(api['emailValidationService'], 'getRecipientSkipReason').mockResolvedValue(null)
         })
 
         afterEach(() => {
@@ -2310,6 +2312,14 @@ describe('CDP API', () => {
                 'the recipient is suppressed',
                 'recipient_suppressed',
                 () => jest.spyOn(api['emailSuppressionService'], 'isSuppressed').mockResolvedValueOnce(true),
+            ],
+            [
+                "the recipient's domain has no mail servers",
+                'recipient_unreachable',
+                () =>
+                    jest
+                        .spyOn(api['emailValidationService'], 'getRecipientSkipReason')
+                        .mockResolvedValueOnce('Skipping send: the domain has no reachable mail servers.'),
             ],
         ] as const)('refuses a send the email worker would skip because %s', async (_desc, code, refuse) => {
             refuse()

@@ -470,6 +470,24 @@ export function getHomeTabBreakdownOptions(dateRange: DateRange): HomeTabChartOp
     ]
 }
 
+/** A metric tile as an insight. The tile averages daily points in React, so that summary moves into the query. */
+export function getHomeTabStatInsightQuery(stat: HomeTabStatQuery): InsightVizNode<TrendsQuery> {
+    return {
+        kind: NodeKind.InsightVizNode,
+        source:
+            stat.summary === 'daily_average'
+                ? {
+                      ...stat.query,
+                      trendsFilter: {
+                          ...stat.query.trendsFilter,
+                          display: ChartDisplayType.Metric,
+                          metricSummary: 'average',
+                      },
+                  }
+                : stat.query,
+    }
+}
+
 export function getHomeTabExploreUrl(query: HomeTabChartOption['query']): string {
     const insightQuery: HomeTabChartOption['query'] = { ...query, embedded: undefined }
     return urls.insightNew({ query: insightQuery })
@@ -516,7 +534,9 @@ export function getHomeTabDashboardTemplate(): DashboardTemplateType {
         }
         return { name: chart.title, description: chart.description, source: chart.query.source, w, h }
     }
-    const statTiles = getHomeTabStatQueries(dateRange, compare).map((stat): HomeTabDashboardTile => {
+    // A 12-column row holds four equal metric tiles, and the full-width Daily active users chart already shows Avg. DAU.
+    const statQueries = getHomeTabStatQueries(dateRange, compare).filter(({ key }) => key !== 'daily_active_users')
+    const statTiles = statQueries.map((stat): HomeTabDashboardTile => {
         const weeklyActiveUsers = stat.key === 'active_users'
         return {
             name: HOME_TAB_STAT_DASHBOARD_NAMES[stat.key] ?? stat.title,
@@ -537,7 +557,7 @@ export function getHomeTabDashboardTemplate(): DashboardTemplateType {
                     ...(stat.kind === 'duration_s' ? { aggregationAxisFormat: 'duration' } : {}),
                 },
             },
-            w: weeklyActiveUsers || stat.key === 'daily_active_users' ? 3 : 2,
+            w: 3,
             h: 3,
         }
     })
