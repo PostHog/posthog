@@ -20302,6 +20302,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `client` - Client
+     * * `server` - Server
+     */
+    export type BuiltInFilterEvaluationEnum = typeof BuiltInFilterEvaluationEnum[keyof typeof BuiltInFilterEvaluationEnum];
+
+
+    export const BuiltInFilterEvaluationEnum = {
+      Client: 'client',
+      Server: 'server',
+    } as const;
+
+    /**
      * * `summarize_recording` - Summarize recording
      */
     export type BuiltInScanKeyEnum = typeof BuiltInScanKeyEnum[keyof typeof BuiltInScanKeyEnum];
@@ -43045,6 +43057,27 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+    }
+
+    export interface ErrorTrackingBuiltInFilter {
+      /** Stable identifier of the built-in filter, for example `web_crawlers`. */
+      readonly key: string;
+      /** Display name of the built-in filter. */
+      readonly name: string;
+      /** One sentence on which exceptions the filter drops. */
+      readonly description: string;
+      /** Where the filter runs. `client` filters also run in the web SDK, which drops matching exceptions before it sends them. `server` filters run only during ingestion.
+       *
+       * * `client` - Client
+       * * `server` - Server */
+      readonly evaluation: BuiltInFilterEvaluationEnum;
+      /** Whether the filter drops exceptions for this project. */
+      readonly enabled: boolean;
+      /**
+         * Set when ingestion turned the filter off because it failed on an event. Turning the filter on again resets it.
+         * @nullable
+         */
+      readonly disabled_reason: string | null;
     }
 
     export interface ErrorTrackingBypassRule {
@@ -86297,6 +86330,11 @@ export namespace Schemas {
       filters?: PropertyGroupFilterValue | null;
       /** User or role to assign matching issues to. */
       assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
+    }
+
+    export interface PatchedErrorTrackingBuiltInFilterUpdateRequest {
+      /** `true` drops matching exceptions for this project. `false` stops dropping them. */
+      enabled?: boolean;
     }
 
     /**
