@@ -11,8 +11,10 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
     from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 DELETE_DENIED = "Deleting data models requires data warehouse write access."
+VIEW_EDIT_DENIED = "You need edit access to this view."
 
 
 class MetricNodeVisibilityMixin:
@@ -24,6 +26,15 @@ class MetricNodeVisibilityMixin:
         warehouse RBAC has to be re-applied by hand (warehouse_view inherits warehouse_objects)."""
         if not self.user_access_control.check_access_level_for_resource("warehouse_view", required_level=level):
             raise PermissionDenied(message)
+
+    def _require_view_edit_access(self, *saved_queries: "DataWarehouseSavedQuery | None") -> None:
+        """The resource check above passes a member who holds a deny rule on one view, so a write to a
+        node or edge of that view also checks the view itself."""
+        for saved_query in saved_queries:
+            if saved_query is not None and not self.user_access_control.check_access_level_for_object(
+                saved_query, "editor"
+            ):
+                raise PermissionDenied(VIEW_EDIT_DENIED)
 
     def _metric_nodes_hidden(self) -> bool:
         return not self.user_access_control.check_access_level_for_resource("data_catalog", required_level="viewer")

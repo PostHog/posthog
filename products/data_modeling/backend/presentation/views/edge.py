@@ -71,7 +71,7 @@ class EdgeViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "INTERNAL"
-    queryset = Edge.objects.select_related("dag", "target__saved_query").all()
+    queryset = Edge.objects.select_related("dag", "source__saved_query", "target__saved_query").all()
     serializer_class = EdgeSerializer
     pagination_class = EdgePagination
     ordering = "-created_at"
@@ -84,6 +84,7 @@ class EdgeViewSet(
 
     def perform_destroy(self, instance: Edge) -> None:
         self._require_warehouse_access(level="editor", message=DELETE_DENIED)
+        self._require_view_edit_access(instance.source.saved_query, instance.target.saved_query)
         if instance.target.belongs_to_managed_viewset:
             raise serializers.ValidationError("Edges into views PostHog manages cannot be deleted.")
         if _connects_a_metric(instance):
