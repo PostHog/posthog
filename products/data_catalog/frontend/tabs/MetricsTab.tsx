@@ -34,6 +34,9 @@ const STATUS_FILTER_OPTIONS: { value: MetricStatusFilter; label: string }[] = [
 const BULK_BAR_CLASS =
     'sticky bottom-4 z-10 self-center w-fit rounded border border-primary bg-surface-primary px-2 py-1 shadow empty:hidden'
 
+// Short pages keep both split tables on screen together, however long either list is.
+const SPLIT_TABLE_PAGE_SIZE = 6
+
 const LOAD_FAILED = 'Could not load metrics. Reload the list to try again.'
 
 const OVER_CAP_REASON = `Select at most ${METRIC_BULK_MAX} metrics at a time`
@@ -481,8 +484,7 @@ export function MetricsTab(): JSX.Element {
                                 rowKey="name"
                                 columns={reviewColumns}
                                 loading={tableLoading}
-                                // A short page keeps the approved table near the top, however long the queue is.
-                                pagination={{ pageSize: 10 }}
+                                pagination={{ pageSize: SPLIT_TABLE_PAGE_SIZE }}
                                 emptyState={metricsLoadState === 'failed' ? LOAD_FAILED : 'Nothing to review.'}
                                 nouns={['metric', 'metrics']}
                                 onSort={(sorting) => reportCatalogTableSorted('metrics', sorting)}
@@ -504,7 +506,7 @@ export function MetricsTab(): JSX.Element {
                                 rowKey="name"
                                 columns={approvedColumns}
                                 loading={tableLoading}
-                                pagination={{ pageSize: 20 }}
+                                pagination={{ pageSize: SPLIT_TABLE_PAGE_SIZE }}
                                 emptyState={metricsLoadState === 'failed' ? LOAD_FAILED : 'No approved metrics yet.'}
                                 nouns={['metric', 'metrics']}
                                 onSort={(sorting) => reportCatalogTableSorted('metrics', sorting)}
