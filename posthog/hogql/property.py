@@ -944,6 +944,7 @@ def _expr_to_compare_op(
         _validate_between_values(value, operator)
         assert isinstance(value, list)
         between = _coerce_between_bounds(expr, value, property, team)
+        nullable_number = ast.Call(name="toFloat", args=[expr])
         return ast.Or(
             exprs=[
                 ast.CompareOperation(
@@ -955,7 +956,7 @@ def _expr_to_compare_op(
                 # A missing property makes both comparisons NULL and drops the row; keep it, matching
                 # every other negative operator. With a coerced LHS this also keeps rows whose value
                 # does not parse as a number: they match no range, so "not between" holds for them.
-                ast.Call(name="isNull", args=[between.left]),
+                ast.Call(name="isNull", args=[nullable_number]),
             ]
         )
     elif operator == PropertyOperator.IS_CLEANED_PATH_EXACT:

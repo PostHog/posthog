@@ -1339,7 +1339,7 @@ class TestProperty(BaseTest):
                 "not_between",
                 [1, 10],
                 "foobars.properties.`$feature/test` < 1 OR foobars.properties.`$feature/test` > 10"
-                " OR isNull(foobars.properties.`$feature/test`)",
+                " OR isNull(toFloat(foobars.properties.`$feature/test`))",
             ),
         ]
     )
@@ -2526,24 +2526,42 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
             ("string_null_prop", None, PropertyType.String, False),
             ("string_not_set_prop", self.NOT_SET, PropertyType.String, False),
             # Numeric type: zero, non-zero int, non-zero float, string values, null, not set
-            # Type coercion converts invalid strings to NULL
             ("numeric_zero_prop", 0, PropertyType.Numeric, True),
             ("numeric_int_prop", 42, PropertyType.Numeric, True),
             ("numeric_float_prop", 3.14, PropertyType.Numeric, True),
             ("numeric_string_valid_prop", "42", PropertyType.Numeric, True),
-            ("numeric_string_invalid_prop", "invalid_number", PropertyType.Numeric, False),
+            (
+                "numeric_string_invalid_prop",
+                "invalid_number",
+                PropertyType.Numeric,
+                settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+            ),
             ("numeric_string_empty_prop", "", PropertyType.Numeric, False),
             ("numeric_null_prop", None, PropertyType.Numeric, False),
             ("numeric_not_set_prop", self.NOT_SET, PropertyType.Numeric, False),
             # Boolean type: true, false, string variants, invalid, null, not set
-            # Only lowercase "true"/"false" strings are recognized
             ("bool_true_prop", True, PropertyType.Boolean, True),
             ("bool_false_prop", False, PropertyType.Boolean, True),
             ("bool_string_true_lower_prop", "true", PropertyType.Boolean, True),
-            ("bool_string_true_title_prop", "True", PropertyType.Boolean, False),
-            ("bool_string_true_upper_prop", "TRUE", PropertyType.Boolean, False),
+            (
+                "bool_string_true_title_prop",
+                "True",
+                PropertyType.Boolean,
+                settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+            ),
+            (
+                "bool_string_true_upper_prop",
+                "TRUE",
+                PropertyType.Boolean,
+                settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+            ),
             ("bool_string_false_lower_prop", "false", PropertyType.Boolean, True),
-            ("bool_string_invalid_prop", "invalid_bool", PropertyType.Boolean, False),
+            (
+                "bool_string_invalid_prop",
+                "invalid_bool",
+                PropertyType.Boolean,
+                settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+            ),
             ("bool_string_empty_prop", "", PropertyType.Boolean, False),
             ("bool_null_prop", None, PropertyType.Boolean, False),
             ("bool_not_set_prop", self.NOT_SET, PropertyType.Boolean, False),

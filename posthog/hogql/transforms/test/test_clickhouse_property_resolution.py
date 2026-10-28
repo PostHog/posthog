@@ -138,7 +138,8 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
         )
         assert isinstance(prepared, ast.SelectQuery)
         printed = print_prepared_ast(prepared.select[0], context, "clickhouse")
-        assert "toJSONString" not in printed
+        assert isinstance(prepared.select[0], ast.Call)
+        assert "toJSONString" not in print_prepared_ast(prepared.select[0].args[0], context, "clickhouse")
         values: list[object] = [
             True,
             "true",
@@ -162,8 +163,14 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
             settings={"json_type_escape_dots_in_keys": 1},
         )
         expected = [None] * len(values) if restricted else [True, True, False, False, *([None] * (len(values) - 4))]
+        present = (
+            [False] * len(values)
+            if restricted
+            else [True, True, True, True, True, True, True, True, False, False, False, True, False, True]
+        )
         assert [row[0] for row in rows] == [
-            (value, int(value is True), int(value is False), int(value is None)) for value in [*expected, None]
+            (value, int(value is True), int(value is False), int(not is_present))
+            for value, is_present in zip([*expected, None], [*present, False])
         ]
 
     @parameterized.expand(

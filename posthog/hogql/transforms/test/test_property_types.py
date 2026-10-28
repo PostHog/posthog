@@ -147,6 +147,7 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
     )
     def test_property_existence_does_not_apply_metadata_cast(self, _name: str, property_type: str, scope: str) -> None:
         context = self._context(event_properties={"value": {"type": property_type}})
+        assert context.property_swapper is not None
         context.property_swapper.person_properties["value"] = {"type": property_type}
         assert context.property_metadata is not None
         context.property_metadata.person_properties["value"] = {"type": property_type}
