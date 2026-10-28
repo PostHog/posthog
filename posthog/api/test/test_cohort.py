@@ -4955,6 +4955,13 @@ email@example.org,
                 _FLAG_CALL_COMPILE_REFUSAL,
             ),
             (
+                "unresolvable_field_in_flag_evaluations_only_mode",
+                [_FLAG_CALLED_UNRESOLVABLE_CRITERION],
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                True,
+                _FLAG_CALL_COMPILE_REFUSAL,
+            ),
+            (
                 "events_mode",
                 [_FLAG_CALLED_ANY_FLAG_CRITERION],
                 FlagEvaluationsMode.EVENTS,
@@ -5078,19 +5085,42 @@ email@example.org,
 
     @parameterized.expand(
         [
-            ("realtime", None, False, _FLAG_CALL_REALTIME_REFUSAL),
-            ("batch", None, True, None),
-            ("becomes_realtime", True, False, _FLAG_CALL_REALTIME_REFUSAL),
-            ("stays_batch", True, True, None),
+            ("realtime", None, None, False, [_FLAG_CALLED_CRITERION], _FLAG_CALL_REALTIME_REFUSAL),
+            ("batch", None, None, True, [_FLAG_CALLED_CRITERION], None),
+            ("becomes_realtime", True, None, False, [_FLAG_CALLED_CRITERION], _FLAG_CALL_REALTIME_REFUSAL),
+            ("stays_batch", True, None, True, [_FLAG_CALLED_CRITERION], None),
+            (
+                "realtime_keeps_stored_criterion",
+                False,
+                CohortType.REALTIME,
+                False,
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_CRITERION],
+                None,
+            ),
+            (
+                "realtime_edits_stored_criterion",
+                False,
+                CohortType.REALTIME,
+                False,
+                [{**_FLAG_CALLED_CRITERION, "time_value": 7}],
+                _FLAG_CALL_REALTIME_REFUSAL,
+            ),
         ]
     )
     @patch("posthog.api.cohort.report_user_action")
     def test_flag_call_criterion_on_realtime_cohort_in_flag_evaluations_only_mode(
-        self, _name, stored_filter_test_accounts, filter_test_accounts, expected_refusal, patch_capture
+        self,
+        _name,
+        stored_filter_test_accounts,
+        stored_cohort_type,
+        filter_test_accounts,
+        criteria,
+        expected_refusal,
+        patch_capture,
     ):
         self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
         filters = {
-            "properties": {"type": "OR", "values": [_FLAG_CALLED_CRITERION]},
+            "properties": {"type": "OR", "values": criteria},
             "filterTestAccounts": filter_test_accounts,
         }
 
@@ -5103,7 +5133,12 @@ email@example.org,
                 cohort = Cohort.objects.create(
                     team=self.team,
                     name="flag callers",
-                    filters={**filters, "filterTestAccounts": stored_filter_test_accounts},
+                    # The API stores the validated criterion, which carries negation.
+                    filters={
+                        "properties": {"type": "OR", "values": [{**_FLAG_CALLED_CRITERION, "negation": False}]},
+                        "filterTestAccounts": stored_filter_test_accounts,
+                    },
+                    cohort_type=stored_cohort_type,
                 )
                 response = self.client.patch(
                     f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", data={"filters": filters}
@@ -5111,7 +5146,7 @@ email@example.org,
 
         if expected_refusal is None:
             self.assertIn(response.status_code, (200, 201), response.json())
-            self.assertNotEqual(response.json()["cohort_type"], "realtime")
+            self.assertEqual(response.json()["cohort_type"] == "realtime", stored_cohort_type == CohortType.REALTIME)
         else:
             self.assertEqual(response.status_code, 400, response.json())
             self.assertIn(expected_refusal, response.json()["detail"])

@@ -977,7 +977,7 @@ def _hidden_event_references(properties: Iterable[Property]) -> Iterator[tuple[s
 # products/cohorts/frontend/criteria/flagCallCriterionProblem.ts copies the type and window rules for the cohort move
 # notice. A change to these rules needs the same change there.
 
-# The criterion types whose flag calls both the batch calculation and the realtime backfill read from flag_evaluations.
+# The criterion types whose flag calls the batch calculation reads from flag_evaluations.
 _FLAG_CALL_CRITERION_TYPES = frozenset(
     {BehavioralPropertyType.PERFORMED_EVENT, BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE}
 )
@@ -1044,7 +1044,7 @@ def _static_hidden_event_reasons(references: Iterable[tuple[str, Property]]) -> 
     return reasons
 
 
-def _batch_flag_call_reads(criteria: Sequence[Property], team: Team) -> FlagCallReads | None:
+def _flag_call_reads_or_none(criteria: Sequence[Property], team: Team) -> FlagCallReads | None:
     """The batch query's flag-call reads for these criteria, or None when it doesn't compile.
 
     The batch calculation keeps the flag_evaluations swap only when the whole rewritten query resolves. So one
@@ -1068,15 +1068,14 @@ def _flag_call_criterion_counts(properties: Iterable[Property]) -> collections.C
     )
 
 
-def added_unsupported_hidden_event_reference(
+def _added_unsupported_hidden_event_reference(
     new_properties: Sequence[Property], existing_properties: Sequence[Property], team: Team
 ) -> HiddenEventRefusal | None:
-    """A reference to a hidden event that a save adds and some reader of the cohort can't answer in full, with the
+    """A reference to a hidden event that a save adds and the batch calculation can't count in full, with the
     reason, or None.
 
-    On an organization that hides flag calls, every reader of a criterion on $feature_flag_called reads
-    flag_evaluations. A save may keep or edit an unsupported reference that the stored cohort already has. Only a
-    count above the stored count is an addition.
+    A save may keep or edit an unsupported reference that the stored cohort already has. Only a count above the
+    stored count is an addition.
     """
     new_references = list(_hidden_event_references(new_properties))
     existing_references = list(_hidden_event_references(existing_properties))
@@ -1088,12 +1087,12 @@ def added_unsupported_hidden_event_reference(
         return None
     new_flag_calls = [prop for event, prop in new_references if event == FLAG_EVALUATIONS_SOURCE_EVENT]
     existing_flag_calls = [prop for event, prop in existing_references if event == FLAG_EVALUATIONS_SOURCE_EVENT]
-    new_reads = _batch_flag_call_reads(new_flag_calls, team)
+    new_reads = _flag_call_reads_or_none(new_flag_calls, team)
     if new_reads is None:
         return HiddenEventRefusal(event=FLAG_EVALUATIONS_SOURCE_EVENT, reason=_FLAG_CALL_COMPILE_REASON)
     if new_reads.reads_from_events == 0:
         return None
-    existing_reads = _batch_flag_call_reads(existing_flag_calls, team) if existing_flag_calls else None
+    existing_reads = _flag_call_reads_or_none(existing_flag_calls, team) if existing_flag_calls else None
     if existing_reads is not None and new_reads.reads_from_events <= existing_reads.reads_from_events:
         return None
     return HiddenEventRefusal(
@@ -1904,7 +1903,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # Passing no attrs reads the stored definition. Cohort.properties would rewrite the stored
         # legacy groups in place.
         existing_properties = _flat_properties(self._effective_filters_after_update({}, team=team))
-        added = added_unsupported_hidden_event_reference(new_properties, existing_properties, team)
+        added = _added_unsupported_hidden_event_reference(new_properties, existing_properties, team)
         if added is None and mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY:
             added = self._added_realtime_flag_call_criterion(attrs, new_properties, existing_properties, team)
         if added is not None:
