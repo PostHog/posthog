@@ -45,7 +45,7 @@ on:
                 required: false
         outputs:
             digests:
-                description: 'JSON object mapping image name to digest'
+                description: 'JSON object mapping image name to digest (empty when push is false)'
                 value: ${{ jobs.collect.outputs.digests }}
 
 jobs:
@@ -245,12 +245,15 @@ jobs:
                   event: ${{ inputs.event-name }}
                   properties: ${{ steps.failure-props.outputs.json }}
 
+            # A build without a push has no registry digest to record.
             - name: Container image digest
+              if: inputs.push
               env:
                   DIGEST: ${{ steps.docker_build.outputs.digest }}
               run: echo "$DIGEST" > /tmp/digest-${{ matrix.image }}.txt
 
             - name: Upload digest
+              if: inputs.push
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: digest-${{ matrix.image }}
@@ -260,6 +263,7 @@ jobs:
     collect:
         name: collect digests
         needs: [load-matrix, build]
+        if: inputs.push
         runs-on: ubuntu-24.04
         timeout-minutes: 2
         permissions:

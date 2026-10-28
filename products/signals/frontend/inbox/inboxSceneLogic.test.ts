@@ -323,6 +323,13 @@ describe('inboxSceneLogic routing', () => {
         { name: 'no param', source: undefined, visitedList: false, method: 'deeplink', linkSource: null },
         { name: 'a known source', source: 'slack', visitedList: false, method: 'deeplink', linkSource: 'slack' },
         {
+            name: 'the first report email',
+            source: 'first_report_email',
+            visitedList: false,
+            method: 'deeplink',
+            linkSource: 'first_report_email',
+        },
+        {
             name: 'an unknown source',
             source: 'carrier-pigeon',
             visitedList: false,

@@ -12,7 +12,7 @@ Under pytest that infrastructure lived in session fixtures, and suites ran stric
 Wall-clock was dominated by suites queueing behind each other while sandbox capacity sat idle.
 
 The harness boots the same infrastructure once, then runs every suite concurrently on a single event loop and bounds sandbox and team-setup load with shared semaphores.
-Braintrust remains the eval engine and reporting backend; it just no longer controls scheduling.
+Braintrust remains the local eval engine. PostHog owns remote result reporting, and the harness controls scheduling.
 The `EvalAsync` call itself lives behind an `EvalEngine` seam (`../engines/`): `_BaseEvalRun.run()` hands a neutral `ExperimentSpec` to the engine resolved by `engines/registry.resolve_engine()` (shared via `EvalContext.engine`) and gets back a neutral `ExperimentResult` (`engines/types.py`), so a future PostHog-native engine can slot in behind the same interface — implementing the `EvalEngine` protocol and passing the conformance suite — without touching the run base or any suite.
 
 Not every suite is sandboxed anymore: each suite declares a `SUITE_KIND` (`requirements.py`), the kind maps to a set of `Infra` requirements, and the harness boots only the union of what the selected suites need.
@@ -47,7 +47,7 @@ A run of one-shot suites never pays for — or fails preflight on — the sandbo
 
 Discovery happens first, before anything is provisioned, so a typo'd selector costs a module import rather than a database build.
 Every step below is gated on the selected suites' infrastructure union — a step whose `Infra` member no run requires is skipped, and skipped steps register no teardown.
-The sequence as written is the sandboxed (full) path; a one-shot-only run performs just steps 1–3 and 8.
+The sequence as written is the sandboxed (full) path; a one-shot-only run performs just steps 1–3 and 6.
 
 The bootstrap is deliberately synchronous and runs before any event loop exists, because it is ORM-heavy and Django's async-safety guard rejects sync ORM calls from an async context:
 
@@ -56,10 +56,12 @@ The bootstrap is deliberately synchronous and runs before any event loop exists,
 2. `EvalDatabase.setup()` creates the `default` test database and drives PostHog's own eval database setup (persons database, ClickHouse).
 3. `personhog-replica` (`:15051`) and `personhog-router` (`:15052`) start against the test persons database — before anything can query, so a dead router never poisons the negative group-types cache.
 4. `EvalLiveServer` serves PostHog's ASGI application on `0.0.0.0:18000`, including the sandbox event-ingest route.
-5. The Go AI gateway (`:18080`) starts in resolver mode, on the gateway compose Postgres (database `ai_gateway_evals`) and Valkey (DB 5), and local skills are built. In bundled mode, the MCP server (`:18787`) starts with exec skill distribution forced off. In exec mode, the skills are packaged, the local archive server (`:18788`) starts, and MCP receives its content-addressed URL with distribution forced on.
-6. Docker only: the `posthog-sandbox-base` image freshness check runs (rebuilding when the Dockerfile or its agent pin changed). Modal only: Tailscale Funnel comes up, exposing the callback services publicly. Setup then waits until every public Funnel relay serves every service, because the relays start serving at different times and can take minutes.
-7. Bundled mode bind-mounts the built skills on Docker and bakes them into the Modal image. Exec mode suppresses those skills and clears native skill directories before every case; `disable_bundled_skills=True` remains available as a per-case override in other modes.
-8. The master Hedgebox team is seeded. It then gets the AI gateway mint key: a `phs_` key, gateway admission, and test credits in the separate eval ledger. One model listing and one token mint check that path before any case starts. The harness refreshes the same mint credential before its cache TTL expires during the run.
+5. The Go AI gateway (`:18080`) starts in resolver mode, on the gateway compose Postgres (database `ai_gateway_evals`) and Valkey (DB 5).
+6. The master Hedgebox team is seeded. This happens before the skill build, because HogQL examples in skill templates render against a Team, and a fresh test database has none until this step.
+7. Local skills are built. A failed build stops the run instead of reusing an older `dist/skills`. In bundled mode, the MCP server (`:18787`) starts with exec skill distribution forced off. In exec mode, the skills are packaged, the local archive server (`:18788`) starts, and MCP receives its content-addressed URL with distribution forced on.
+8. Docker only: the `posthog-sandbox-base` image freshness check runs (rebuilding when the Dockerfile or its agent pin changed). Modal only: Tailscale Funnel comes up, exposing the callback services publicly. Setup then waits until every public Funnel relay serves every service, because the relays start serving at different times and can take minutes.
+9. Bundled mode bind-mounts the built skills on Docker and bakes them into the Modal image. Exec mode suppresses those skills and clears native skill directories before every case; `disable_bundled_skills=True` remains available as a per-case override in other modes.
+10. The master team gets the AI gateway mint key: a `phs_` key, gateway admission, and test credits in the separate eval ledger. One model listing and one token mint check that path before any case starts. The harness refreshes the same mint credential before its cache TTL expires during the run.
 
 Gateway cache writes stay disabled until the gateway starts. A one-shot run leaves them disabled.
 
@@ -75,6 +77,10 @@ The final summary renders after teardown, logging is flushed, and the transcript
 The comparison checks every configuration first with `--check`, then forwards child output into its combined transcript.
 `--results-file` writes a validated run report using the reporter's existing scores, status counts, and case selection.
 The comparison retains these reports after each model and checks that case and scorer selections match.
+It reuses the first model's archived branch-skill snapshot for later models and checks that their snapshot hashes match.
+Saved snapshots include a source fingerprint. Reuse stops if the branch's skill sources or commit changed.
+With `--keep-sandbox-containers`, mounted skill files remain under `logs/skill-snapshots/` after the run so preserved containers can still read them.
+Cases with `interaction_origin="posthog_ai"` also receive the production PostHog AI system prompt from this checkout before the task starts. The interaction origin alone does not supply that prompt. Compare skill versions only with the same client prompt and scorer versions.
 No prompts, model answers, or credentials are included in the comparison report.
 
 The reporter emits plain-text records with stable labels so terminals and agents can scan the same output.
@@ -83,7 +89,7 @@ Only the final overall run status uses `PASS` or `FAIL`.
 `CASE START` and `CASE PHASE` identify each trial. `CASE READY` marks completed execution with scoring still pending.
 The reporter prints phase counts and the oldest active trial every 30 seconds while suites run.
 The `scoring` duration includes waiting for the experiment results. It does not measure scorer execution alone.
-Public runs update Braintrust trial metadata after scoring so it contains the final phase durations.
+Local results and PostHog uploads include final phase durations after scoring.
 Scorer exceptions produce case errors in the console and final summary.
 The reporter writes output in worker threads so slow output does not stop the event loop.
 Terminal writes do not hold the transcript file lock, so progress output cannot block logging through that lock.

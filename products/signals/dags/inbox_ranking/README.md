@@ -79,6 +79,35 @@ Point-in-time contract:
 - The training side can rebuild any past day by calling the function on newer snapshots with an earlier `as_of`. No backfill is needed while the vectors are inside the embedding TTL.
 - Serving: when any manifest entry reads project vectors, `inbox_ranking_serving_manifest` copies the dt=D day into the deployment's object store before it writes the manifest. The sweep reads that day once per pass, only for the teams it scores. Its `as_of` is the end of dt=D, so it is never newer than a report scored after the publish. Until the next publish, a report scored on day D+2 still reads dt=D, which is one day older than training reads.
 
+### Engagement export
+
+`inbox_engagement_export` sends the UI engagement moments of the other region's reports to the mirror store, so that region can build its own project vectors from its own report embeddings.
+The inbox telemetry of every region lands in the US dogfood project, so the `open`, `action` and `dismiss` moments of an EU report exist only in the US labels snapshot.
+
+- It runs only when `INBOX_RANKING_SERVING_MIRROR_BUCKET` is set. Otherwise it logs and writes nothing.
+- The rows are the dt=D labels rows whose `report_id` has no `SignalReport` in this region's Postgres before the cutoff. A row whose id is not a UUID is dropped.
+- The columns are exactly `LABEL_COLUMNS` from `dataset/project_vectors.py`: `report_id` and the first opened, first UI dismissed and first UI action timestamps. There are no team ids, no counts, no text and no vectors, so the other region passes the file to `project_vectors()` unchanged.
+- The labels snapshot is cumulative, so each day is a full snapshot as of the end of dt=D.
+- The key is `serving_engagement_key(prefix, dt)`: `<prefix>/serving/engagement/<dt>/engagement.parquet`. The mirror's write grant covers only `<prefix>/serving/`. The write sets `ACL: bucket-owner-full-control` and stamps the row count, the snapshot date and `ENGAGEMENT_EXPORT_SCHEMA_VERSION` in the object metadata.
+- **It is a leaf.** Nothing joins it. A mirror write failure does not fail the asset: it logs, and the output metadata carries `written=false`. The metadata also carries `rows`, `excluded_rows` (the rows whose report is in this region), `local_share` (`excluded_rows` over all labels rows), `bytes` and `s3_key`.
+- **A collapsed local share refuses the write.** When the local report lookup returns too few rows, every report it misses looks remote, and this region's report ids would go to the other region. So when the labels table has rows and the lookup finds no local report, the skip reason is `no_local_reports`. When `local_share` is below `ENGAGEMENT_EXPORT_MIN_LOCAL_SHARE`, the skip reason is `local_share_collapsed`. A refusal writes nothing, logs at error level, and sets `written=false` and `skip_reason` in the metadata. The asset does not fail: the mirror region uses an older export for up to `ENGAGEMENT_EXPORT_MAX_AGE_DAYS`, then fails on its side. An empty labels table is not refused.
+- Each run with the mirror bucket set captures one `inbox_ranking_engagement_export_published` event in the dogfood project through `training/telemetry.py`, also when the write fails or is refused. It carries `partition`, `written`, `skip_reason`, `rows`, `excluded_rows`, `local_share`, `bytes` and `schema_version`, and no report id or team id.
+- A report deleted in this region keeps its Postgres row with the `deleted` status, so it is not exported. Only a report whose row is gone, for example after its team was deleted, looks remote. Such a row exposes a report id and timestamps, and it never matches a report vector in the other region.
+- The grant has no delete, and no lifecycle rule covers the prefix, so the daily objects accumulate. Each one holds a report id and a few timestamps per row.
+
+### Mirror region project vectors
+
+`inbox_mirror_project_vectors` (`mirror/dag.py`) builds the project vectors of the mirror region (EU) in that region.
+The report vectors of a region exist only in its own ClickHouse, so the training region cannot build them.
+
+- It registers on EU only (`is_inbox_ranking_mirror_registered()`), in its own daily job `inbox_ranking_mirror_job` at 05:30 UTC, after the training region's dataset run.
+- The schedule skips its ticks until `INBOX_RANKING_MIRROR_PROJECT_VECTORS_ENABLED` is set. A run by hand works without it.
+- The report vectors come from `report_embeddings_table`, the same function the `inbox_report_embeddings` snapshot uses, for the teams in this region's `training_consent_team_ids()`.
+- The engagement moments come from the dt=D engagement export at `serving_engagement_key`, in this region's object store. When dt=D is missing, it uses the newest export up to `ENGAGEMENT_EXPORT_MAX_AGE_DAYS` older and logs a warning. When none is in that window, or the export has another schema version, the asset fails.
+- It calls `project_vectors()` in memory with `as_of` at the end of dt=D, and writes no dataset object.
+- The output is `serving_project_vectors_key(prefix, dt)` in this region's object store, stamped with the row count, the snapshot date, `PROJECT_VECTORS_SCHEMA_VERSION` and the export date it read.
+- The output metadata carries the rows, the teams, the teams with enough history for each kind, the export date and its age.
+
 ### Partition semantics
 
 - Partition `dt=D` snapshots the eligible report inventory (promoted before `D+1 00:00 UTC`, or referenced by any label event before it). Every label aggregate is bounded `event_time < D+1 00:00 UTC`.
@@ -192,9 +221,17 @@ Each entry names its `model_kind`, and the sweep loads it through that kind's ha
 - `xgboost`, the default for a model without the field: one booster per head, `<head>.ubj`. The entry's `heads` list names the files.
 - `onnx`: one `model.onnx` for every head. The entry names it in `model_file`, and `heads` still lists the heads it scores. The graph takes one float32 input, `report`, of shape (batch, feature-set width), and gives one output, `probabilities`, of shape (batch, heads). The column order of that output is `output_heads` in the model's `metadata.json`, and each head entry in `heads` there names `model.onnx` as its `file`. At load, the handler checks the input names and widths against what the model's feature set builds, and a mismatch skips the model like an unloadable booster. The session runs on CPU with a bounded thread count, and `onnxruntime` is imported only when a model loads. The project-vector inputs are not served yet, so the sweep skips an `nn` model, whose graph also takes `project` and `has_history`, until it feeds them.
 
-The manifest holds one entry per model with its `roles`: `served` for the model `served.json` names, `recent` for each of the newest `INBOX_RANKING_SERVING_RECENT_VERSIONS` (default 2) versions of the served `model_name`, `challenger` for the newest readable version of each other `MODEL_FAMILIES` entry, read from its last 2 days because an `nn` candidate can land after the manifest runs, `pinned` for each model the `pin` override keeps (see [Overrides](#overrides)), and `cross_family` for every other family's `champion.json` that has a readable head. Nothing writes those files anymore, so they name the last version the retired automatic promotion chose. The dag reads the `recent` versions newest first from `<model_name>/dt=D/metadata.json` in the 2N days up to the partition, where N is the setting. It skips a version with no readable head, the served version, and a version that fails the pin check, and it removes duplicate keys. So each version gets online scores for about N days, not for one. A pass scores all of them, so an online paired read and a later interleaving need no rescoring; the entry count is capped at the `ranking_score` artefact's own limit (5). The order is `served`, `recent`, `challenger`, `pinned`, `cross_family`, so the cap drops `cross_family` entries first and `pinned` entries next. Challengers come in family registration order, so when there are more challengers than free entries, the last registered families lose their place. A challenger is how a new recipe gets online scores on the same reports as the served model before anyone promotes it. Each `recent` version adds one model to every sweep pass, so a higher N costs sweep time and pod memory. The schema, the role names and the object keys live in `products/signals/backend/ranking/serving_manifest.py`, and its validators run at write time, so the dag refuses a manifest the sweep could not act on. A model version is immutable, so a version already in the store is not copied again, and `manifest.json` is written last: a failed copy leaves the previous manifest and the previous models serving. When `served.json` is missing, or names a model that fails the pin check, the asset writes nothing and says why, and the previous manifest keeps serving.
+The manifest holds one entry per model with its `roles`: `served` for the model `served.json` names, `recent` for each of the newest `INBOX_RANKING_SERVING_RECENT_VERSIONS` (default 2) versions of the served `model_name`, `challenger` for the newest readable version of each other serving family, read from its last 2 days because an `nn` candidate can land after the manifest runs, `pinned` for each model the `pin` override keeps (see [Overrides](#overrides)), and `cross_family` for every other family's `champion.json` that has a readable head. Nothing writes those files anymore, so they name the last version the retired automatic promotion chose. The dag reads the `recent` versions newest first from `<model_name>/dt=D/metadata.json` in the 2N days up to the partition, where N is the setting. It skips a version with no readable head, the served version, and a version that fails the pin check, and it removes duplicate keys. So each version gets online scores for about N days, not for one. A pass scores all of them, so an online paired read and a later interleaving need no rescoring; the entry count is capped at the `ranking_score` artefact's own limit (5). The order is `served`, `recent`, `challenger`, `pinned`, `cross_family`, so the cap drops `cross_family` entries first and `pinned` entries next. Challengers come in family registration order, so when there are more challengers than free entries, the last registered families lose their place. A challenger is how a new recipe gets online scores on the same reports as the served model before anyone promotes it. Each `recent` version adds one model to every sweep pass, so a higher N costs sweep time and pod memory. The schema, the role names and the object keys live in `products/signals/backend/ranking/serving_manifest.py`, and its validators run at write time, so the dag refuses a manifest the sweep could not act on. A model version is immutable, so a version already in the store is not copied again, and `manifest.json` is written last: a failed copy leaves the previous manifest and the previous models serving. When `served.json` is missing, or names a model that fails the pin check, the asset writes nothing and says why, and the previous manifest keeps serving.
 
 A region that does not train serves the same models through a mirror. When `INBOX_RANKING_SERVING_MIRROR_BUCKET` is set, the asset repeats the publish into that bucket after the primary publish succeeds, in the same order and with the same skip of versions already there. A mirror failure does not fail the asset: it logs, and the `inbox_ranking_serving_manifest_published` event carries `mirror_published=false`. The property is absent when no mirror is set.
+
+Project vectors are per-team data, so this region never copies its own day to the mirror. When a manifest entry reads them, the asset looks for the mirror region's own day in the mirror bucket instead:
+
+- It calls `head_object` on `serving_project_vectors_key(prefix, D')` for each day D' from D back to D − `MIRROR_PROJECT_VECTORS_MAX_LAG_DAYS` (3), newest first. The mirror grant has no list permission, so a missing key answers 403, and both read as absent. It reads only the object metadata, never the body.
+- A day passes when its `feature-schema-version` metadata is this build's `PROJECT_VECTORS_SCHEMA_VERSION` and its `engagement-export-date` metadata is no older than D − 3. The key names live in `serving_manifest.py`, and the mirror region's writer uses the same ones.
+- When a day passes, the mirror manifest names it in `project_vectors`, and the publish copies no project vectors object. The mirror region builds day D after the 05:00 UTC publish, so a mirror that keeps up names D−1, one day older than the primary.
+- When no day passes and the served model reads project vectors, the mirror keeps its previous manifest. When only other entries read them, the mirror manifest names none, and the mirror sweep skips those entries.
+- The event carries `mirror_project_vectors_key`, `mirror_project_vectors_date` and `mirror_engagement_export_date`, and `mirror_skip_reason` when the mirror is not published: `no_fresh_project_vectors`, `unknown_schema_version`, `stale_engagement_export` or `publish_failed`. The `inbox_ranking_sweep_finished` log carries the `project_vectors_date` the pass read and its `project_vectors_age_days`.
 
 The reader is `score_reports` in `products/signals/backend/ranking/scorer.py`. It loads every model the manifest names through `model_store.py`, reads each report's latest vector once per rendering, builds each model's matrix with its own `FeatureSet.build_matrix`, and writes one `ranking_score` artefact per report plus one `inbox_ranking_report_scored` event per report and model. The dag and the reader decide whether a model can be scored with the same functions, in `products/signals/backend/ranking/model_contract.py`. A served model that cannot load stops the pass. Any other model that cannot load, or has no vector for a report, is a `skipped` result. No scheduled caller runs the reader yet.
 
@@ -259,6 +296,14 @@ It counts as fixed only when the window closed before the snapshot and no not-fi
 The label is dated from the resolve, and a reason after the window cannot take it back, so the label only grows.
 
 The Today home sends the same client events as the Inbox, with `surface: 'today'` and a `list` property (`briefing` or `sidebar_more`) on impressions and opens.
+The Today report page sends `Inbox report opened` once per visit, when the report loads.
+A click on a list row sends `open_method: 'click'` with the row's `list`, `rank` and `list_size`, and `source` (`list` or `more`).
+The previous / next control sends `source: 'step'`, with the position in the report queue as `rank` and the queue length as `list_size`, and no `list`.
+Every other visit (a shared URL, a PostHog AI link, a refresh, back / forward) sends `open_method: 'deeplink'` with a null `list`, `rank` and `list_size`.
+`link_source` comes from the URL, and PostHog AI writes `link_source=today` on the Today report links it shows.
+A list row opened in place sends `Inbox report action` with `action_type: 'expand_preview'`, `list` and `rank`.
+No head reads `expand_preview`, and it is not in `ACTION_TYPES`.
+Sample reports send no `Inbox` events.
 Filter on `surface` where a metric must stay Inbox-only.
 Today sets a verdict first and sends its optional reason in a second state call, which does not change the status.
 For that call the server emits `signal_report_status_changed` with `previous_status` equal to `status` and `reason_added: true`, so the reason reaches the status-stream heads.
@@ -374,6 +419,27 @@ dagster job launch -w .dagster_home/workspace.yaml --location posthog.dags.locat
     -j inbox_ranking_nn_training_job --tags '{"dagster/partition": "2026-08-25"}'
 ```
 
+### Experiment families
+
+An experiment is a `MODEL_FAMILIES` entry with `experiment=True`, a `baseline` serving family and an `expires` day (`training/families.py`). It tests a modeling idea without a serving family's costs:
+
+- **Its own job.** `inbox_ranking_nn_experiments_job` (`nn/experiments.py`, on `signals_ml`) trains every live experiment, one after the other. It has its own runtime and memory tags, so it never uses the `nn` job's budget. Its schedule (08:00 UTC, after the `nn` job's 3h budget) skips when no experiment is live.
+- **No new examples.** It reads the day's `inbox_ranking_nn_examples` object. A day without that object is skipped, and so is a family after its `expires` day.
+- **Never served.** The serving manifest reads only `serving_families()`. The pin check refuses an experiment key, so the promote job, the served pointer and the pins cannot name one. To serve the recipe, register it as a serving family under a new `model_name`.
+- **Paired read.** The experiment and its baseline each fit once per seed in `EXPERIMENT_SEEDS`, on the same train rows. `metadata.json` holds a `vs_baseline` block per head: each seed's within-team and pooled holdout AUC for both arms, and the mean, min and max of the gaps. One `inbox_ranking_experiment_compared` event per head carries the gaps.
+- **Side inputs.** A side input beyond the report vectors needs a loader in `training/side_inputs.py`. The registry refuses a frame without a timezone-aware `as_of_column` and drops the rows known after the partition end. A feature set in the dags reads the frame through `rows_as_of`. A set in `features.py` cannot import the dags, so it applies the same `<= as_of` cut on the loader's column itself.
+
+The live experiment is `nn_with_prio_sources_v1`, graded against `nn_with_prio_v2` until 2026-11-11. Its set, `report_embeddings_priority_sources`, adds the source products of the report's signals: one column per product in a fixed vocabulary, `source_other`, `source_count` and `has_sources`. The `report_sources` loader reads only the metadata columns of `inbox_signal_embeddings`, from 30 days before the training lookback to dt=D. A moment takes the latest emission per `(team_id, signal_id)` inserted at or before it and drops a retracted signal. It never reads the impression labels' `source_products` column, which holds the latest impression's value. The scoring sweep cannot build this set, so the recipe needs serving work before it can become a serving family.
+
+The schedule is a fallback. To read an experiment on a chosen day, launch the job for that partition from the Dagster UI or the CLI:
+
+```bash
+dagster job launch -w .dagster_home/workspace.yaml --location posthog.dags.locations.signals_ml \
+    -j inbox_ranking_nn_experiments_job --tags '{"dagster/partition": "2026-10-20"}'
+```
+
+The newest day you can launch is the newest day the `nn` job finished. Adjacent days share most of their train and holdout rows, so their reads are not independent. Judge a `vs_baseline` gap on spaced days, for example every 7th day.
+
 ## Configuration
 
 | Setting                                 | Default         | Meaning                                                                                                                                                                                                             |
@@ -414,7 +480,7 @@ The dags train only on reports from organizations whose `Organization.is_ai_trai
 The filter follows the current setting, so an organization that opts back in is trained on again.
 The state asset and the `nn` examples asset record `excluded_no_training_consent_reports` and `excluded_no_training_consent_teams` as metadata. They are counts, never ids.
 The online grade reads the dt=D state snapshot for its newborn pool, so that pool shrinks to consenting teams too. Scoring in the sweep does not change.
-The filter does not delete existing partitions or models. A re-run of `inbox_signal_embeddings` stays additive, so rows that an older run wrote remain in that partition. Nothing trains on signal embeddings today, and a future reader must apply the same filter.
+The filter does not delete existing partitions or models. A re-run of `inbox_signal_embeddings` stays additive, so rows that an older run wrote remain in that partition. The `report_sources` side input reads only its metadata columns, and the example rows it joins to already drop the teams without training consent.
 
 ## Deletion and retention
 

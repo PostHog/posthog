@@ -11,9 +11,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AppMetricsResponseApi,
     AppMetricsTotalsResponseApi,
+    ApplyUtmDefaultsRequestApi,
+    ApplyUtmDefaultsResponseApi,
+    AudienceSuggestionsResponseApi,
     BlastRadiusApi,
     BlastRadiusRequestApi,
     BroadcastConversionCandidatesApi,
+    BulkUpdateTagsUUIDRequestApi,
+    BulkUpdateTagsUUIDResponseApi,
     DataSuggestionBuildRequestApi,
     DataSuggestionBuildResponseApi,
     DataSuggestionGenerateRequestApi,
@@ -115,6 +120,43 @@ export const internalHogFlowsProcessDueSchedulesCreate = async (options?: Reques
     return apiMutator<void>(getInternalHogFlowsProcessDueSchedulesCreateUrl(), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getBroadcastAudienceSuggestionsCurrentUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/broadcast_audience_suggestions/current/`
+}
+
+/**
+ * Broadcast audiences written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const broadcastAudienceSuggestionsCurrent = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AudienceSuggestionsResponseApi> => {
+    return apiMutator<AudienceSuggestionsResponseApi>(getBroadcastAudienceSuggestionsCurrentUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBroadcastAudienceSuggestionsGenerateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/broadcast_audience_suggestions/generate/`
+}
+
+/**
+ * Broadcast audiences written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const broadcastAudienceSuggestionsGenerate = async (
+    projectId: string,
+    dataSuggestionGenerateRequestApi?: DataSuggestionGenerateRequestApi,
+    options?: RequestInit
+): Promise<AudienceSuggestionsResponseApi> => {
+    return apiMutator<AudienceSuggestionsResponseApi>(getBroadcastAudienceSuggestionsGenerateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataSuggestionGenerateRequestApi),
     })
 }
 
@@ -1247,6 +1289,23 @@ export const hogFlowsSchedulesDestroy = async (
     })
 }
 
+export const getHogFlowsApplyUtmDefaultsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/apply_utm_defaults/`
+}
+
+export const hogFlowsApplyUtmDefaultsCreate = async (
+    projectId: string,
+    applyUtmDefaultsRequestApi?: ApplyUtmDefaultsRequestApi,
+    options?: RequestInit
+): Promise<ApplyUtmDefaultsResponseApi> => {
+    return apiMutator<ApplyUtmDefaultsResponseApi>(getHogFlowsApplyUtmDefaultsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(applyUtmDefaultsRequestApi),
+    })
+}
+
 export const getHogFlowsBroadcastConversionCandidatesRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/hog_flows/broadcast_conversion_candidates/`
 }
@@ -1282,6 +1341,42 @@ export const hogFlowsBulkDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogFlowApi),
+    })
+}
+
+export const getHogFlowsBulkUpdateTagsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/bulk_update_tags/`
+}
+
+/**
+ * Bulk update tags on multiple objects.
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
+ */
+export const hogFlowsBulkUpdateTagsCreate = async (
+    projectId: string,
+    bulkUpdateTagsUUIDRequestApi: BulkUpdateTagsUUIDRequestApi,
+    options?: RequestInit
+): Promise<BulkUpdateTagsUUIDResponseApi> => {
+    return apiMutator<BulkUpdateTagsUUIDResponseApi>(getHogFlowsBulkUpdateTagsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkUpdateTagsUUIDRequestApi),
     })
 }
 

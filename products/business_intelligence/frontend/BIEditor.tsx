@@ -136,12 +136,12 @@ export function BIEditor({
                             data-attr="bi-editor-fields-pane"
                         >
                             <div className="flex items-center justify-between px-2 pt-1">
-                                <span className="text-sm font-semibold">Data</span>
+                                <span className="text-sm font-semibold">Fields</span>
                                 <LemonButton
                                     icon={<IconX />}
                                     size="xsmall"
                                     type="tertiary"
-                                    aria-label="Hide fields"
+                                    aria-label="Hide fields panel"
                                     onClick={toggleFieldsPane}
                                     data-attr="bi-editor-close-fields"
                                 />

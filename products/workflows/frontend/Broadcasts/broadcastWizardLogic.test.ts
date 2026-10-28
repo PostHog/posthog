@@ -1,11 +1,12 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -52,6 +53,7 @@ function savedBroadcast(overrides: { name: string; subject: string; updatedAt: s
         abort_action: null,
         billable_action_types: [],
         schedules: [],
+        tags: [],
         user_access_level: 'editor',
         draft: null,
         draft_updated_at: null,
@@ -255,8 +257,6 @@ describe('broadcastWizardLogic', () => {
                         }).then((body) => [200, body]),
                 },
             })
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AI_EMAIL_DRAFT]: true })
             logic.unmount()
             router.actions.push(
                 urlForNewBroadcastWithAudience({
@@ -296,6 +296,91 @@ describe('broadcastWizardLogic', () => {
             expect(logic.values.name).toEqual(applied ? 'Written by the model' : 'We fixed it')
         }
     )
+
+    it.each([
+        { case: 'lands after the template was branded', withLinkEmail: true },
+        { case: 'comes from a link without a template email', withLinkEmail: false },
+    ])('keeps the project brand on an AI draft that $case', async ({ withLinkEmail }) => {
+        const cell = (inner: string): string =>
+            `<table role="presentation"><tbody><tr><td style="padding:10px;"><div>${inner}</div></td></tr></tbody></table>`
+        const brandEmail = {
+            design: {
+                counters: { u_content_text: 1 },
+                body: {
+                    values: {},
+                    rows: [
+                        {
+                            columns: [
+                                {
+                                    contents: [
+                                        { type: 'image', values: { src: { url: 'https://example.com/logo.png' } } },
+                                        { type: 'text', values: { text: '<p>Template body copy</p>' } },
+                                        { type: 'custom', values: { unsubscribe: true } },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            },
+            html: `<html><body><div class="u-row-container"><div class="u-row"><div class="u-col u-col-100"><div><div>${[
+                cell('<img src="https://example.com/logo.png" />'),
+                cell('<p>Template body copy</p>'),
+                cell('<a href="{{ unsubscribe_url }}">Unsubscribe</a>'),
+            ].join('')}</div></div></div></div></div></body></html>`,
+        }
+        let respond: (value: unknown) => void = () => {}
+        let markRequested: () => void = () => {}
+        const requested = new Promise<void>((resolve) => {
+            markRequested = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_templates/': () => [
+                    200,
+                    { count: 1, results: [{ content: { email: brandEmail } }] },
+                ],
+            },
+            post: {
+                '/api/projects/:team_id/workflow_email_drafts/': () =>
+                    new Promise((resolve) => {
+                        respond = resolve
+                        markRequested()
+                    }).then((body) => [200, body]),
+            },
+        })
+        logic.unmount()
+        router.actions.push(
+            urlForNewBroadcastWithAudience({
+                properties: LOCAL_AUDIENCE,
+                source: 'error_tracking',
+                ...(withLinkEmail ? { email: draftMessage({ kind: 'issue_fixed' }) } : {}),
+                draftSource: { source: 'error_tracking', source_id: 'issue-1' },
+            })
+        )
+        logic = broadcastWizardLogic({ id: 'new' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions([withLinkEmail ? 'brandApplied' : 'loadAiEmailDraft'])
+        await requested
+        respond({
+            subject: 'Written by the model',
+            preheader: '',
+            html: '<p>Model paragraph.</p>',
+            text: 'Model paragraph.',
+            generated_by: 'ai',
+            template_reason: null,
+        })
+        await expectLogic(logic).toDispatchActions(
+            withLinkEmail
+                ? ['loadAiEmailDraftSuccess']
+                : ['loadAiEmailDraftSuccess', 'loadEmailBrandSuccess', 'brandApplied']
+        )
+
+        expect(logic.values.email.subject).toEqual('Written by the model')
+        expect(logic.values.email.html).toContain('Model paragraph.')
+        expect(logic.values.email.html).toContain('https://example.com/logo.png')
+    })
 
     it('blocks the recipients step until the person chooses, when a link has an audience it cannot use', async () => {
         logic.unmount()
@@ -376,6 +461,30 @@ describe('broadcastWizardLogic', () => {
         if (saved.length) {
             expect(logic.values.broadcast?.name).toEqual(name)
         }
+    })
+
+    it.each([
+        { case: 'untouched settings', edit: false, enabled: true, params: { utm_source: 'newsletter' } },
+        { case: 'settings the user changed', edit: true, enabled: false, params: {} },
+    ])('seeds team UTM defaults when the team loads after mount, for $case', ({ edit, enabled, params }) => {
+        logic.unmount()
+        teamLogic.actions.loadCurrentTeamSuccess(null)
+        logic = broadcastWizardLogic({ id: 'new' })
+        logic.mount()
+        if (edit) {
+            logic.actions.setEmailSettings({ trackingEnabled: false })
+        }
+
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            workflows_config: {
+                capture_workflows_engagement_events: false,
+                email_utm_tags_enabled: true,
+                email_utm_params: { utm_source: 'newsletter' },
+            },
+        })
+
+        expect(logic.values.emailSettings).toMatchObject({ utmTagsEnabled: enabled, utmParams: params })
     })
 
     it('moves a new broadcast onto its draft URL once the draft is created', async () => {

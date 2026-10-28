@@ -9,20 +9,73 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Send one transactional email to one recipient from the template named in `template.id`. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
+ * @summary Send a transactional email
+ */
+export const messagingSendEmailCreateBodyIdentifiersOneDistinctIdMax = 400
+
+export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
+    to: zod.email().describe('Email address of the recipient.'),
+    identifiers: zod
+        .object({
+            distinct_id: zod
+                .string()
+                .max(messagingSendEmailCreateBodyIdentifiersOneDistinctIdMax)
+                .nullish()
+                .describe(
+                    "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`."
+                ),
+        })
+        .optional()
+        .describe('Who the email is for, used to attribute engagement events.'),
+    message_data: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Data for the template\'s Liquid placeholders, available as `variables`. For example `{\"reset_link\": \"https:\/\/...\"}` fills `{{ variables.reset_link }}`.'
+        ),
+    template: zod
+        .object({
+            id: zod.uuid().describe('ID of the email template to send. The template must be made transactional first.'),
+        })
+        .describe('The transactional email template to send.'),
+})
+
 export const messagingCategoriesCreateBodyKeyMax = 64
 
 export const messagingCategoriesCreateBodyNameMax = 128
 
 export const MessagingCategoriesCreateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().max(messagingCategoriesCreateBodyKeyMax),
-    name: zod.string().max(messagingCategoriesCreateBodyNameMax),
-    description: zod.string().optional(),
-    public_description: zod.string().optional(),
+    key: zod
+        .string()
+        .max(messagingCategoriesCreateBodyKeyMax)
+        .describe(
+            "Stable identifier for the category, unique within the project, for example `newsletter`. Opt-out lists and preference imports refer to categories by key. You can't change the key after creation."
+        ),
+    name: zod
+        .string()
+        .max(messagingCategoriesCreateBodyNameMax)
+        .describe('Display name of the category, shown in the PostHog app.'),
+    description: zod
+        .string()
+        .optional()
+        .describe("Internal notes about which messages belong to this category. Recipients don't see it."),
+    public_description: zod
+        .string()
+        .optional()
+        .describe('Description that recipients see next to the category on the preferences page.'),
     category_type: zod
         .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
         .optional()
-        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
-    deleted: zod.boolean().optional(),
+        .describe(
+            "`marketing` (the default): recipients can opt out of it, and sends skip recipients who did. `transactional`: for messages a recipient must get, such as receipts or password resets. Sends ignore opt-outs, and the category doesn't appear on the preferences page. Set `message_category_type` on a workflow message step to the type of its category.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional"
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe("Set to true to archive the category. Archived categories don't appear in lists."),
 })
 
 export const messagingCategoriesUpdateBodyKeyMax = 64
@@ -30,15 +83,35 @@ export const messagingCategoriesUpdateBodyKeyMax = 64
 export const messagingCategoriesUpdateBodyNameMax = 128
 
 export const MessagingCategoriesUpdateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().max(messagingCategoriesUpdateBodyKeyMax),
-    name: zod.string().max(messagingCategoriesUpdateBodyNameMax),
-    description: zod.string().optional(),
-    public_description: zod.string().optional(),
+    key: zod
+        .string()
+        .max(messagingCategoriesUpdateBodyKeyMax)
+        .describe(
+            "Stable identifier for the category, unique within the project, for example `newsletter`. Opt-out lists and preference imports refer to categories by key. You can't change the key after creation."
+        ),
+    name: zod
+        .string()
+        .max(messagingCategoriesUpdateBodyNameMax)
+        .describe('Display name of the category, shown in the PostHog app.'),
+    description: zod
+        .string()
+        .optional()
+        .describe("Internal notes about which messages belong to this category. Recipients don't see it."),
+    public_description: zod
+        .string()
+        .optional()
+        .describe('Description that recipients see next to the category on the preferences page.'),
     category_type: zod
         .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
         .optional()
-        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
-    deleted: zod.boolean().optional(),
+        .describe(
+            "`marketing` (the default): recipients can opt out of it, and sends skip recipients who did. `transactional`: for messages a recipient must get, such as receipts or password resets. Sends ignore opt-outs, and the category doesn't appear on the preferences page. Set `message_category_type` on a workflow message step to the type of its category.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional"
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe("Set to true to archive the category. Archived categories don't appear in lists."),
 })
 
 export const messagingCategoriesPartialUpdateBodyKeyMax = 64
@@ -46,15 +119,37 @@ export const messagingCategoriesPartialUpdateBodyKeyMax = 64
 export const messagingCategoriesPartialUpdateBodyNameMax = 128
 
 export const MessagingCategoriesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().max(messagingCategoriesPartialUpdateBodyKeyMax).optional(),
-    name: zod.string().max(messagingCategoriesPartialUpdateBodyNameMax).optional(),
-    description: zod.string().optional(),
-    public_description: zod.string().optional(),
+    key: zod
+        .string()
+        .max(messagingCategoriesPartialUpdateBodyKeyMax)
+        .optional()
+        .describe(
+            "Stable identifier for the category, unique within the project, for example `newsletter`. Opt-out lists and preference imports refer to categories by key. You can't change the key after creation."
+        ),
+    name: zod
+        .string()
+        .max(messagingCategoriesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Display name of the category, shown in the PostHog app.'),
+    description: zod
+        .string()
+        .optional()
+        .describe("Internal notes about which messages belong to this category. Recipients don't see it."),
+    public_description: zod
+        .string()
+        .optional()
+        .describe('Description that recipients see next to the category on the preferences page.'),
     category_type: zod
         .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
         .optional()
-        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
-    deleted: zod.boolean().optional(),
+        .describe(
+            "`marketing` (the default): recipients can opt out of it, and sends skip recipients who did. `transactional`: for messages a recipient must get, such as receipts or password resets. Sends ignore opt-outs, and the category doesn't appear on the preferences page. Set `message_category_type` on a workflow message step to the type of its category.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional"
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe("Set to true to archive the category. Archived categories don't appear in lists."),
 })
 
 /**
@@ -67,35 +162,75 @@ export const messagingCategoriesImportFromCustomerioCreateBodyKeyMax = 64
 export const messagingCategoriesImportFromCustomerioCreateBodyNameMax = 128
 
 export const MessagingCategoriesImportFromCustomerioCreateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().max(messagingCategoriesImportFromCustomerioCreateBodyKeyMax),
-    name: zod.string().max(messagingCategoriesImportFromCustomerioCreateBodyNameMax),
-    description: zod.string().optional(),
-    public_description: zod.string().optional(),
+    key: zod
+        .string()
+        .max(messagingCategoriesImportFromCustomerioCreateBodyKeyMax)
+        .describe(
+            "Stable identifier for the category, unique within the project, for example `newsletter`. Opt-out lists and preference imports refer to categories by key. You can't change the key after creation."
+        ),
+    name: zod
+        .string()
+        .max(messagingCategoriesImportFromCustomerioCreateBodyNameMax)
+        .describe('Display name of the category, shown in the PostHog app.'),
+    description: zod
+        .string()
+        .optional()
+        .describe("Internal notes about which messages belong to this category. Recipients don't see it."),
+    public_description: zod
+        .string()
+        .optional()
+        .describe('Description that recipients see next to the category on the preferences page.'),
     category_type: zod
         .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
         .optional()
-        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
-    deleted: zod.boolean().optional(),
+        .describe(
+            "`marketing` (the default): recipients can opt out of it, and sends skip recipients who did. `transactional`: for messages a recipient must get, such as receipts or password resets. Sends ignore opt-outs, and the category doesn't appear on the preferences page. Set `message_category_type` on a workflow message step to the type of its category.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional"
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe("Set to true to archive the category. Archived categories don't appear in lists."),
 })
 
 /**
  * Import customer preferences from CSV file
- * Expected CSV columns: id, email, cio_subscription_preferences
+ * Expected CSV columns: id, email, unsubscribed, cio_subscription_preferences
  */
 export const messagingCategoriesImportPreferencesCsvCreateBodyKeyMax = 64
 
 export const messagingCategoriesImportPreferencesCsvCreateBodyNameMax = 128
 
 export const MessagingCategoriesImportPreferencesCsvCreateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().max(messagingCategoriesImportPreferencesCsvCreateBodyKeyMax),
-    name: zod.string().max(messagingCategoriesImportPreferencesCsvCreateBodyNameMax),
-    description: zod.string().optional(),
-    public_description: zod.string().optional(),
+    key: zod
+        .string()
+        .max(messagingCategoriesImportPreferencesCsvCreateBodyKeyMax)
+        .describe(
+            "Stable identifier for the category, unique within the project, for example `newsletter`. Opt-out lists and preference imports refer to categories by key. You can't change the key after creation."
+        ),
+    name: zod
+        .string()
+        .max(messagingCategoriesImportPreferencesCsvCreateBodyNameMax)
+        .describe('Display name of the category, shown in the PostHog app.'),
+    description: zod
+        .string()
+        .optional()
+        .describe("Internal notes about which messages belong to this category. Recipients don't see it."),
+    public_description: zod
+        .string()
+        .optional()
+        .describe('Description that recipients see next to the category on the preferences page.'),
     category_type: zod
         .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
         .optional()
-        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
-    deleted: zod.boolean().optional(),
+        .describe(
+            "`marketing` (the default): recipients can opt out of it, and sends skip recipients who did. `transactional`: for messages a recipient must get, such as receipts or password resets. Sends ignore opt-outs, and the category doesn't appear on the preferences page. Set `message_category_type` on a workflow message step to the type of its category.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional"
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe("Set to true to archive the category. Archived categories don't appear in lists."),
 })
 
 /**
@@ -112,15 +247,35 @@ export const messagingCategoriesSaveTrackConfigCreateBodyKeyMax = 64
 export const messagingCategoriesSaveTrackConfigCreateBodyNameMax = 128
 
 export const MessagingCategoriesSaveTrackConfigCreateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().max(messagingCategoriesSaveTrackConfigCreateBodyKeyMax),
-    name: zod.string().max(messagingCategoriesSaveTrackConfigCreateBodyNameMax),
-    description: zod.string().optional(),
-    public_description: zod.string().optional(),
+    key: zod
+        .string()
+        .max(messagingCategoriesSaveTrackConfigCreateBodyKeyMax)
+        .describe(
+            "Stable identifier for the category, unique within the project, for example `newsletter`. Opt-out lists and preference imports refer to categories by key. You can't change the key after creation."
+        ),
+    name: zod
+        .string()
+        .max(messagingCategoriesSaveTrackConfigCreateBodyNameMax)
+        .describe('Display name of the category, shown in the PostHog app.'),
+    description: zod
+        .string()
+        .optional()
+        .describe("Internal notes about which messages belong to this category. Recipients don't see it."),
+    public_description: zod
+        .string()
+        .optional()
+        .describe('Description that recipients see next to the category on the preferences page.'),
     category_type: zod
         .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
         .optional()
-        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
-    deleted: zod.boolean().optional(),
+        .describe(
+            "`marketing` (the default): recipients can opt out of it, and sends skip recipients who did. `transactional`: for messages a recipient must get, such as receipts or password resets. Sends ignore opt-outs, and the category doesn't appear on the preferences page. Set `message_category_type` on a workflow message step to the type of its category.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional"
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe("Set to true to archive the category. Archived categories don't appear in lists."),
 })
 
 /**
@@ -135,15 +290,35 @@ export const messagingCategoriesSaveWebhookConfigCreateBodyKeyMax = 64
 export const messagingCategoriesSaveWebhookConfigCreateBodyNameMax = 128
 
 export const MessagingCategoriesSaveWebhookConfigCreateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().max(messagingCategoriesSaveWebhookConfigCreateBodyKeyMax),
-    name: zod.string().max(messagingCategoriesSaveWebhookConfigCreateBodyNameMax),
-    description: zod.string().optional(),
-    public_description: zod.string().optional(),
+    key: zod
+        .string()
+        .max(messagingCategoriesSaveWebhookConfigCreateBodyKeyMax)
+        .describe(
+            "Stable identifier for the category, unique within the project, for example `newsletter`. Opt-out lists and preference imports refer to categories by key. You can't change the key after creation."
+        ),
+    name: zod
+        .string()
+        .max(messagingCategoriesSaveWebhookConfigCreateBodyNameMax)
+        .describe('Display name of the category, shown in the PostHog app.'),
+    description: zod
+        .string()
+        .optional()
+        .describe("Internal notes about which messages belong to this category. Recipients don't see it."),
+    public_description: zod
+        .string()
+        .optional()
+        .describe('Description that recipients see next to the category on the preferences page.'),
     category_type: zod
         .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
         .optional()
-        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
-    deleted: zod.boolean().optional(),
+        .describe(
+            "`marketing` (the default): recipients can opt out of it, and sends skip recipients who did. `transactional`: for messages a recipient must get, such as receipts or password resets. Sends ignore opt-outs, and the category doesn't appear on the preferences page. Set `message_category_type` on a workflow message step to the type of its category.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional"
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe("Set to true to archive the category. Archived categories don't appear in lists."),
 })
 
 /**
@@ -258,9 +433,12 @@ export const messagingTemplatesCreateBodyTagsItemMax = 255
 export const messagingTemplatesCreateBodyTagsMax = 10
 
 export const messagingTemplatesCreateBodyContentOneTemplatingDefault = `liquid`
+export const messagingTemplatesCreateBodyContentOneEmailOneFromOneEmailMax = 254
+
 export const messagingTemplatesCreateBodyTypeMax = 24
 
 export const messagingTemplatesCreateBodyDraftContentOneTemplatingDefault = `liquid`
+export const messagingTemplatesCreateBodyDraftContentOneEmailOneFromOneEmailMax = 254
 
 export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -338,6 +516,37 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                             .optional()
                             .describe(
                                 "Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill."
+                            ),
+                        from: zod
+                            .object({
+                                email: zod
+                                    .string()
+                                    .max(messagingTemplatesCreateBodyContentOneEmailOneFromOneEmailMax)
+                                    .optional()
+                                    .describe(
+                                        "Address to send from instead of the sender's own. Must be on the sender's verified domain. Supports Liquid templating. Leave out or empty to use the sender's address."
+                                    ),
+                                name: zod
+                                    .string()
+                                    .optional()
+                                    .describe(
+                                        "Sender name shown in the inbox instead of the sender's own. Supports Liquid templating. Leave out or empty to use the sender's name."
+                                    ),
+                                integrationId: zod
+                                    .number()
+                                    .describe(
+                                        "ID of the project's email sender integration that sends this email. Transactional sends need a verified sender."
+                                    ),
+                            })
+                            .optional()
+                            .describe(
+                                'The sender a transactional template sends from. A template made transactional without one gets the sender it was made transactional with.'
+                            ),
+                        replyTo: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                "Reply-to address for a transactional template. Separate several addresses with commas. Supports Liquid templating. Leave empty to use the sender's default reply-to."
                             ),
                     }),
                     zod.null(),
@@ -428,6 +637,37 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                                 .describe(
                                     "Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill."
                                 ),
+                            from: zod
+                                .object({
+                                    email: zod
+                                        .string()
+                                        .max(messagingTemplatesCreateBodyDraftContentOneEmailOneFromOneEmailMax)
+                                        .optional()
+                                        .describe(
+                                            "Address to send from instead of the sender's own. Must be on the sender's verified domain. Supports Liquid templating. Leave out or empty to use the sender's address."
+                                        ),
+                                    name: zod
+                                        .string()
+                                        .optional()
+                                        .describe(
+                                            "Sender name shown in the inbox instead of the sender's own. Supports Liquid templating. Leave out or empty to use the sender's name."
+                                        ),
+                                    integrationId: zod
+                                        .number()
+                                        .describe(
+                                            "ID of the project's email sender integration that sends this email. Transactional sends need a verified sender."
+                                        ),
+                                })
+                                .optional()
+                                .describe(
+                                    'The sender a transactional template sends from. A template made transactional without one gets the sender it was made transactional with.'
+                                ),
+                            replyTo: zod
+                                .string()
+                                .optional()
+                                .describe(
+                                    "Reply-to address for a transactional template. Separate several addresses with commas. Supports Liquid templating. Leave empty to use the sender's default reply-to."
+                                ),
                         }),
                         zod.null(),
                     ])
@@ -449,9 +689,12 @@ export const messagingTemplatesUpdateBodyTagsItemMax = 255
 export const messagingTemplatesUpdateBodyTagsMax = 10
 
 export const messagingTemplatesUpdateBodyContentOneTemplatingDefault = `liquid`
+export const messagingTemplatesUpdateBodyContentOneEmailOneFromOneEmailMax = 254
+
 export const messagingTemplatesUpdateBodyTypeMax = 24
 
 export const messagingTemplatesUpdateBodyDraftContentOneTemplatingDefault = `liquid`
+export const messagingTemplatesUpdateBodyDraftContentOneEmailOneFromOneEmailMax = 254
 
 export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -529,6 +772,37 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
                             .optional()
                             .describe(
                                 "Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill."
+                            ),
+                        from: zod
+                            .object({
+                                email: zod
+                                    .string()
+                                    .max(messagingTemplatesUpdateBodyContentOneEmailOneFromOneEmailMax)
+                                    .optional()
+                                    .describe(
+                                        "Address to send from instead of the sender's own. Must be on the sender's verified domain. Supports Liquid templating. Leave out or empty to use the sender's address."
+                                    ),
+                                name: zod
+                                    .string()
+                                    .optional()
+                                    .describe(
+                                        "Sender name shown in the inbox instead of the sender's own. Supports Liquid templating. Leave out or empty to use the sender's name."
+                                    ),
+                                integrationId: zod
+                                    .number()
+                                    .describe(
+                                        "ID of the project's email sender integration that sends this email. Transactional sends need a verified sender."
+                                    ),
+                            })
+                            .optional()
+                            .describe(
+                                'The sender a transactional template sends from. A template made transactional without one gets the sender it was made transactional with.'
+                            ),
+                        replyTo: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                "Reply-to address for a transactional template. Separate several addresses with commas. Supports Liquid templating. Leave empty to use the sender's default reply-to."
                             ),
                     }),
                     zod.null(),
@@ -619,6 +893,37 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
                                 .describe(
                                     "Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill."
                                 ),
+                            from: zod
+                                .object({
+                                    email: zod
+                                        .string()
+                                        .max(messagingTemplatesUpdateBodyDraftContentOneEmailOneFromOneEmailMax)
+                                        .optional()
+                                        .describe(
+                                            "Address to send from instead of the sender's own. Must be on the sender's verified domain. Supports Liquid templating. Leave out or empty to use the sender's address."
+                                        ),
+                                    name: zod
+                                        .string()
+                                        .optional()
+                                        .describe(
+                                            "Sender name shown in the inbox instead of the sender's own. Supports Liquid templating. Leave out or empty to use the sender's name."
+                                        ),
+                                    integrationId: zod
+                                        .number()
+                                        .describe(
+                                            "ID of the project's email sender integration that sends this email. Transactional sends need a verified sender."
+                                        ),
+                                })
+                                .optional()
+                                .describe(
+                                    'The sender a transactional template sends from. A template made transactional without one gets the sender it was made transactional with.'
+                                ),
+                            replyTo: zod
+                                .string()
+                                .optional()
+                                .describe(
+                                    "Reply-to address for a transactional template. Separate several addresses with commas. Supports Liquid templating. Leave empty to use the sender's default reply-to."
+                                ),
                         }),
                         zod.null(),
                     ])
@@ -640,9 +945,12 @@ export const messagingTemplatesPartialUpdateBodyTagsItemMax = 255
 export const messagingTemplatesPartialUpdateBodyTagsMax = 10
 
 export const messagingTemplatesPartialUpdateBodyContentOneTemplatingDefault = `liquid`
+export const messagingTemplatesPartialUpdateBodyContentOneEmailOneFromOneEmailMax = 254
+
 export const messagingTemplatesPartialUpdateBodyTypeMax = 24
 
 export const messagingTemplatesPartialUpdateBodyDraftContentOneTemplatingDefault = `liquid`
+export const messagingTemplatesPartialUpdateBodyDraftContentOneEmailOneFromOneEmailMax = 254
 
 export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -721,6 +1029,37 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .optional()
                             .describe(
                                 "Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill."
+                            ),
+                        from: zod
+                            .object({
+                                email: zod
+                                    .string()
+                                    .max(messagingTemplatesPartialUpdateBodyContentOneEmailOneFromOneEmailMax)
+                                    .optional()
+                                    .describe(
+                                        "Address to send from instead of the sender's own. Must be on the sender's verified domain. Supports Liquid templating. Leave out or empty to use the sender's address."
+                                    ),
+                                name: zod
+                                    .string()
+                                    .optional()
+                                    .describe(
+                                        "Sender name shown in the inbox instead of the sender's own. Supports Liquid templating. Leave out or empty to use the sender's name."
+                                    ),
+                                integrationId: zod
+                                    .number()
+                                    .describe(
+                                        "ID of the project's email sender integration that sends this email. Transactional sends need a verified sender."
+                                    ),
+                            })
+                            .optional()
+                            .describe(
+                                'The sender a transactional template sends from. A template made transactional without one gets the sender it was made transactional with.'
+                            ),
+                        replyTo: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                "Reply-to address for a transactional template. Separate several addresses with commas. Supports Liquid templating. Leave empty to use the sender's default reply-to."
                             ),
                     }),
                     zod.null(),
@@ -811,6 +1150,37 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 .describe(
                                     "Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill."
                                 ),
+                            from: zod
+                                .object({
+                                    email: zod
+                                        .string()
+                                        .max(messagingTemplatesPartialUpdateBodyDraftContentOneEmailOneFromOneEmailMax)
+                                        .optional()
+                                        .describe(
+                                            "Address to send from instead of the sender's own. Must be on the sender's verified domain. Supports Liquid templating. Leave out or empty to use the sender's address."
+                                        ),
+                                    name: zod
+                                        .string()
+                                        .optional()
+                                        .describe(
+                                            "Sender name shown in the inbox instead of the sender's own. Supports Liquid templating. Leave out or empty to use the sender's name."
+                                        ),
+                                    integrationId: zod
+                                        .number()
+                                        .describe(
+                                            "ID of the project's email sender integration that sends this email. Transactional sends need a verified sender."
+                                        ),
+                                })
+                                .optional()
+                                .describe(
+                                    'The sender a transactional template sends from. A template made transactional without one gets the sender it was made transactional with.'
+                                ),
+                            replyTo: zod
+                                .string()
+                                .optional()
+                                .describe(
+                                    "Reply-to address for a transactional template. Separate several addresses with commas. Supports Liquid templating. Leave empty to use the sender's default reply-to."
+                                ),
                         }),
                         zod.null(),
                     ])
@@ -888,7 +1258,7 @@ export const MessagingTemplatesDesignPartialUpdateBody = /* @__PURE__ */ zod.obj
 })
 
 /**
- * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. Calling it again on a transactional template changes nothing.
+ * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing.
  * @summary Make a template transactional
  */
 export const MessagingTemplatesMakeTransactionalCreateBody = /* @__PURE__ */ zod.object({

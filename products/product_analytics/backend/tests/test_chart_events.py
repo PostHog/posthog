@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -6,13 +7,22 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 
 from parameterized import parameterized
 
+from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.query import execute_hogql_query
 
-from products.product_analytics.backend.chart_events import chart_events
+from products.actions.backend.models.action import Action
+from products.product_analytics.backend.chart_events import ChartEvents, chart_events
 
 SERIES = {"kind": "EventsNode", "event": "signed up"}
 STEPS = [SERIES, {"kind": "EventsNode", "event": "paid"}]
+PAID_PRO = {
+    "kind": "EventsNode",
+    "event": "paid",
+    "properties": [{"key": "plan", "value": "pro", "operator": "exact", "type": "event"}],
+}
+COMBINED = {"kind": "GroupNode", "operator": "OR", "nodes": [SERIES, PAID_PRO]}
+ACTION = {"kind": "ActionsNode", "id": "ACTION_ID"}
 NOW = datetime(2026, 3, 10, 12, tzinfo=UTC)
 LAST_WEEK = {"date_from": "-7d"}
 
@@ -59,7 +69,36 @@ class TestChartEventsCounts(ClickhouseTestMixin, BaseTest):
             _create_event(
                 team=self.team, event="signed up", distinct_id="person", timestamp=NOW - timedelta(days=days_ago)
             )
+        for days_ago, plan in ((2, "pro"), (4, "free")):
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="person",
+                timestamp=NOW - timedelta(days=days_ago),
+                properties={"plan": plan},
+            )
+        _create_event(team=self.team, event="other", distinct_id="person", timestamp=NOW - timedelta(days=1))
         flush_persons_and_events()
+        self.action = Action.objects.create(
+            team=self.team,
+            name="Signed up or paid for pro",
+            steps_json=[{"event": "paid", "properties": PAID_PRO["properties"]}, {"event": "signed up"}],
+        )
+
+    def _chart_events(self, query: dict[str, Any]) -> ChartEvents:
+        query = json.loads(json.dumps(query).replace('"ACTION_ID"', str(self.action.pk)))
+        events = chart_events({**query, "dateRange": LAST_WEEK}, self.team, self.user)
+        assert events is not None
+        return events
+
+    def _count(self, events: ChartEvents, where: ast.Expr) -> int:
+        response = execute_hogql_query(
+            events.select("SELECT count() FROM events", where=where),
+            team=self.team,
+            modifiers=events.modifiers,
+            context=HogQLContext(team_id=self.team.pk, database=events.database),
+        )
+        return response.results[0][0]
 
     @parameterized.expand(
         [
@@ -78,19 +117,27 @@ class TestChartEventsCounts(ClickhouseTestMixin, BaseTest):
                 },
                 2,
             ),
+            ("funnel_combined_step", {"kind": "FunnelsQuery", "series": [COMBINED, SERIES]}, 3),
+            ("stickiness_action_series", {"kind": "StickinessQuery", "series": [ACTION]}, 3),
+            (
+                "funnel_action_in_a_combined_step",
+                {
+                    "kind": "FunnelsQuery",
+                    "series": [{"kind": "GroupNode", "operator": "OR", "nodes": [SERIES, ACTION]}, SERIES],
+                },
+                3,
+            ),
         ]
     )
     def test_reads_the_events_of_every_period_the_chart_reads(
         self, _name: str, query: dict[str, Any], expected: int
     ) -> None:
-        events = chart_events({**query, "dateRange": LAST_WEEK}, self.team, self.user)
-        assert events is not None
+        events = self._chart_events(query)
 
-        response = execute_hogql_query(
-            events.select("SELECT count() FROM events", where=events.where),
-            team=self.team,
-            modifiers=events.modifiers,
-            context=HogQLContext(team_id=self.team.pk, database=events.database),
-        )
+        assert self._count(events, events.where) == expected
 
-        assert response.results[0][0] == expected
+    @parameterized.expand([("combined_series", COMBINED, 4), ("action_series", ACTION, 4)])
+    def test_sizes_a_series_by_its_event_names(self, _name: str, series: dict[str, Any], expected: int) -> None:
+        events = self._chart_events({"kind": "FunnelsQuery", "series": [series, SERIES]})
+
+        assert self._count(events, events.sort_key_where) == expected

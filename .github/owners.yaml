@@ -33,6 +33,5 @@ rules:
     - match:
           - '/workflows/ci-agent-proxy.yml'
           - '/workflows/cd-agent-proxy-image.yml'
-          - '/workflows/cd-tasks-golden-snapshot.yml'
       owners: team-agent-infrastructure
       sensitive: true

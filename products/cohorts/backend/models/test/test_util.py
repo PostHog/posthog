@@ -21,6 +21,7 @@ from posthog.hogql.hogql import HogQLContext
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_log_archive import SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE
+from posthog.errors import CHQueryErrorS3Error
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
@@ -1279,6 +1280,7 @@ class TestParseErrorCode(BaseTest):
             ("clickhouse_timeout", "ClickHouseTimeoutError", CohortErrorCode.TIMEOUT),
             ("clickhouse_type", "ClickHouseTypeError", CohortErrorCode.INCOMPATIBLE_TYPES),
             ("generic_exception", "Exception", CohortErrorCode.UNKNOWN),
+            ("clickhouse_null_code_name", "CHQueryErrorS3Error", CohortErrorCode.UNKNOWN),
         ]
     )
     def test_parse_error_code(self, _name: str, exception_type: str, expected_code: str):
@@ -1300,6 +1302,9 @@ class TestParseErrorCode(BaseTest):
 
         if exception_type in simple_exceptions:
             return simple_exceptions[exception_type]("test")
+
+        if exception_type == "CHQueryErrorS3Error":
+            return CHQueryErrorS3Error("test", code=499)
 
         if exception_type == "EstimatedQueryExecutionTimeTooLong":
             return ClickHouseEstimatedQueryExecutionTimeTooLong()

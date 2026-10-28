@@ -39,3 +39,7 @@ posthog:query-lifecycle
   Use interval zoom + actor drilldown if a specific day stands out.
 - **Resurrecting drop** — usually external. Re-check annotations and re-engagement
   campaign / email events.
+
+## Next
+
+Return to SKILL.md for Step 4 (cross-check) and Step 5 (write findings), in the format you chose in Step 1.

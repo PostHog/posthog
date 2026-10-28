@@ -127,6 +127,16 @@ _SCORERS: dict[str, dict[str, OfflineScorer]] = {
         "surfaces_all_findings": OfflineScorer(kind="boolean", version=UUID("01a1558f-ad52-7b81-8a93-d7e602bf0125")),
     },
     "product_analytics": {
+        "answer_tool_call_not_forbidden": OfflineScorer(
+            kind="boolean", version=UUID("01a15a27-7d06-768b-940c-f47b5f3ee78c")
+        ),
+        "did_not_cite_raw_sql_after_typed_query": OfflineScorer(
+            kind="boolean", version=UUID("01a15a27-735b-700b-9f5b-51533df620b3")
+        ),
+        "no_markdown_data_table": OfflineScorer(kind="boolean", version=UUID("01a15a27-69b4-7bc0-b6f6-b366acc272b2")),
+        "chart_from_typed_query": OfflineScorer(kind="boolean", version=UUID("01a16420-8c66-7f91-9939-997516aafc3b")),
+        "chart_shown": OfflineScorer(kind="boolean", version=UUID("01a16420-30a5-770e-a4f3-16ff4f7dcb84")),
+        "answer_from_typed_query": OfflineScorer(kind="boolean", version=UUID("01a15a27-4bce-7e6c-b3ef-34d292489b30")),
         "answer_tool_not_execute_sql": OfflineScorer(
             kind="boolean", version=UUID("01a15581-3926-7c14-a907-e994586bd216")
         ),
@@ -200,6 +210,9 @@ _SCORERS: dict[str, dict[str, OfflineScorer]] = {
         "survey_id_in_final_message": OfflineScorer(
             kind="boolean", version=UUID("01a15582-7cea-7b35-9632-1fd1c3e22185")
         ),
+    },
+    "turn_suggestions": {
+        "offer_correctness": OfflineScorer(kind="boolean", version=UUID("01a15a29-ea9e-743e-9a21-cec75e5e417e")),
     },
     "taxonomic_filter": {
         "event_match_found": OfflineScorer(kind="boolean", version=UUID("01a15582-8f96-76a8-a6b0-9ad9c932f12a")),

@@ -36,8 +36,11 @@ import type {
     ExportsListParams,
     FileSystemApi,
     FileSystemDestroyParams,
+    FileSystemFrequentListParams,
     FileSystemHomeFolderApi,
     FileSystemListParams,
+    FileSystemRankedSearchResponseApi,
+    FileSystemSearchRetrieveParams,
     FileSystemShortcutApi,
     FileSystemShortcutBulkUpdateApi,
     FileSystemShortcutListParams,
@@ -1944,6 +1947,36 @@ export const fileSystemCountByPathCreate = async (
     })
 }
 
+export const getFileSystemFrequentListUrl = (projectId: string, params?: FileSystemFrequentListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/file_system/frequent/?${stringifiedParams}`
+        : `/api/projects/${projectId}/file_system/frequent/`
+}
+
+/**
+ * @summary List frequently viewed files
+ */
+export const fileSystemFrequentList = async (
+    projectId: string,
+    params?: FileSystemFrequentListParams,
+    options?: RequestInit
+): Promise<FileSystemApi[]> => {
+    return apiMutator<FileSystemApi[]>(getFileSystemFrequentListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getFileSystemHomeFolderCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/file_system/home_folder/`
 }
@@ -1983,6 +2016,37 @@ export const fileSystemLogViewCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(fileSystemApi),
+    })
+}
+
+export const getFileSystemSearchRetrieveUrl = (projectId: string, params: FileSystemSearchRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/file_system/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/file_system/search/`
+}
+
+/**
+ * Ranks entries by words matched, typos, word proximity, name before folder, exact words, word position, exactness, the user's recent views, and recency.
+ * @summary Search files by relevance
+ */
+export const fileSystemSearchRetrieve = async (
+    projectId: string,
+    params: FileSystemSearchRetrieveParams,
+    options?: RequestInit
+): Promise<FileSystemRankedSearchResponseApi> => {
+    return apiMutator<FileSystemRankedSearchResponseApi>(getFileSystemSearchRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

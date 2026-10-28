@@ -17,6 +17,7 @@ import {
     FEATURE_FLAG_CALLED_EVENT,
     reachesPastFlagEvaluationsRetention,
     readsFlagEvaluationsTable,
+    storesFlagCallsOutsideEvents,
 } from 'scenes/feature-flags/flagEvaluationsTable'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -24,7 +25,6 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/fil
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { getDefaultEventsQueryForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
 import { performQuery } from '~/queries/query'
 import { DataTableNode, EventsQuery, Node, ProductKey } from '~/queries/schema/schema-general'
@@ -33,8 +33,6 @@ import { ActivityTab, Breadcrumb } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../types'
-
-const FLAG_EVALUATIONS_ONLY_MODE = FlagEvaluationsModeEnumApi.Number2
 
 export type FlagCallsNote = 'stored-separately' | 'retention'
 
@@ -141,7 +139,7 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
         // A reload after the user clears the event runs the check again, because the URL then holds the cleared lookup.
         nameFlagCallLookup: async ({ query }, breakpoint) => {
             if (
-                values.currentTeam?.flag_evaluations_mode !== FLAG_EVALUATIONS_ONLY_MODE ||
+                !storesFlagCallsOutsideEvents(values.currentTeam) ||
                 !isDataTableNode(query) ||
                 !isEventsQuery(query.source) ||
                 !isUnnamedEventLookup(query.source)
@@ -198,9 +196,7 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
                     return null
                 }
                 if (!listsOnlyFlagCalls(query.source)) {
-                    return currentTeam?.flag_evaluations_mode === FLAG_EVALUATIONS_ONLY_MODE
-                        ? 'stored-separately'
-                        : null
+                    return storesFlagCallsOutsideEvents(currentTeam) ? 'stored-separately' : null
                 }
                 const { after } = query.source
                 // The runner reads a missing start as the last 24 hours. The retention window covers that range.

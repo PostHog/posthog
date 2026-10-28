@@ -97,3 +97,11 @@ class TestWidgetLayouts:
 
         assert first["sm"] == {"x": 0, "y": 0, "w": 6, "h": 5}
         assert second["sm"] == {"x": 0, "y": 5, "w": 6, "h": 5}
+
+    def test_stack_widget_layout_at_bottom_places_metrics_table_full_width(self) -> None:
+        layout = stack_widget_layout_at_bottom(
+            widget_type="metrics_table",
+            existing_sm_layouts=[{"x": 0, "y": 0, "w": 6, "h": 4}, {"x": 6, "y": 0, "w": 6, "h": 11}],
+        )
+
+        assert layout["sm"] == {"x": 0, "y": 11, "w": 12, "h": 6}

@@ -185,6 +185,8 @@ def _severity_state(inputs: IssueCreatedWorkflowInputs) -> str | SeverityInferen
         team = Team.objects.select_related("organization").get(id=inputs.team_id)
     except Team.DoesNotExist:
         return SeverityInferenceSkipReason.TEAM_MISSING
+    if not team.organization.is_ai_data_processing_approved:
+        return SeverityInferenceSkipReason.AI_DATA_PROCESSING_NOT_APPROVED
 
     event_properties = fetch_event_properties(team, inputs)
     stacktrace = render_stacktrace(event_properties, SEVERITY_INFERENCE_MAX_TOKENS)

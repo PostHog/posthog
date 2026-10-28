@@ -16,7 +16,6 @@ from uuid import UUID
 from posthog.kafka_client.client import ProduceResult
 
 from products.alerts_platform.backend.facade.contracts import (
-    ALERT_TRANSITION_EVENT,
     ActiveAlertDestination,
     AlertDelivery,
     AlertDestinationConfig,
@@ -27,10 +26,10 @@ from products.alerts_platform.backend.facade.contracts import (
     EventKindSpec,
     OwnedAlertDestination,
     SourceKind,
-    TransitionEvent,
 )
 
 from ..logic import (
+    alert_email,
     delivery_destinations,
     delivery_path,
     destination_bucket_report,
@@ -38,8 +37,10 @@ from ..logic import (
     destination_eligibility,
     destinations,
     insight_alert_destinations,
+    insight_alert_message,
 )
 from .contracts import (
+    AlertEmailRecipientResolver,
     AlertInternalEvent,
     DeliveryPathChoice,
     DestinationBucket,
@@ -48,9 +49,6 @@ from .contracts import (
 )
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
-
-# Below the emitting activity's own timeout, which a flush must not use up.
-TRANSITION_EVENT_FLUSH_TIMEOUT_SECONDS: Final = 5.0
 
 # Each destination is another message every time the alert fires, so a caller in a loop is capped.
 MAX_DESTINATIONS_PER_ALERT: Final = 5
@@ -111,6 +109,43 @@ def build_insight_alert_slack_config(
 ) -> AlertDestinationConfig:
     return insight_alert_destinations.build_insight_alert_slack_config(
         alert_id=alert_id, alert_name=alert_name, data=data
+    )
+
+
+def insight_alert_slack_properties(
+    *,
+    breaches: list[str],
+    metric_name: str,
+    is_anomaly: bool = False,
+    tags: list[str] | None = None,
+    breach_details: list[dict[str, str]] | None = None,
+    affected_dates: list[str] | None = None,
+    affected_interval: str | None = None,
+    project_timezone: str = "UTC",
+    metric_description: str | None = None,
+    next_step: str | None = None,
+    summary: str | None,
+    verdict: str | None,
+    investigation_status: str | None,
+    detected_at: str,
+    allowed_root: str,
+) -> dict[str, Any]:
+    return insight_alert_message.insight_alert_slack_properties(
+        breaches=breaches,
+        metric_name=metric_name,
+        is_anomaly=is_anomaly,
+        tags=tags,
+        breach_details=breach_details,
+        affected_dates=affected_dates,
+        affected_interval=affected_interval,
+        project_timezone=project_timezone,
+        metric_description=metric_description,
+        next_step=next_step,
+        summary=summary,
+        verdict=verdict,
+        investigation_status=investigation_status,
+        detected_at=detected_at,
+        allowed_root=allowed_root,
     )
 
 
@@ -253,24 +288,6 @@ def emit_alert_internal_events(
     )
 
 
-def emit_alert_transition_events(*, team_id: int, configuration_id: str, events: Sequence[TransitionEvent]) -> None:
-    """The platform's `$alert_transition` events. Raises `AlertInternalEventsNotDelivered` when the broker took not all of them."""
-    destinations.emit_alert_internal_events(
-        team_id=team_id,
-        alert_id=configuration_id,
-        events=[
-            AlertInternalEvent(
-                event_name=ALERT_TRANSITION_EVENT,
-                properties=event.properties,
-                timestamp=event.timestamp,
-                uuid=event.uuid,
-            )
-            for event in events
-        ],
-        flush_timeout_seconds=TRANSITION_EVENT_FLUSH_TIMEOUT_SECONDS,
-    )
-
-
 def list_delivery_destination_groups(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> list[AlertDestinationGroup]:
@@ -279,6 +296,16 @@ def list_delivery_destination_groups(
     return delivery_destinations.list_delivery_destination_groups(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )
+
+
+def register_email_recipient_resolver(*, event_ids: Collection[str], resolver: AlertEmailRecipientResolver) -> None:
+    """Platform delivery of these events also emails the addresses `resolver` returns for the alert.
+
+    Register the events a source maps firing and resolved onto, and not its incident events, or an
+    incident would send a second email. Call it from the source's `ready()`. Raises when another
+    resolver already owns one of the events.
+    """
+    alert_email.register_recipient_resolver(event_ids=event_ids, resolver=resolver)
 
 
 def classify_alert_destinations(

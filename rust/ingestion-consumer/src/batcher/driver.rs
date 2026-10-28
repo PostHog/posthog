@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use common_kafka_consumer::{AssignmentEpoch, GroupCompletion};
+use common_kafka_consumer::{AssignmentEpoch, GroupCompletion, Partition};
 use futures::future::{BoxFuture, FutureExt};
 use futures::stream::{FuturesUnordered, StreamExt};
 use metrics::{counter, histogram};
@@ -13,6 +13,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tracing::error;
 
+use super::governor::Adaptation;
 use super::in_flight::RequestId;
 use super::key_queues::{payload_bytes, KeyRun};
 use super::state_machine::{
@@ -27,8 +28,7 @@ use crate::transport::{SendError, SendOutcome};
 use crate::types::{Accumulator, SerializedKafkaMessage};
 use crate::worker_registry::WorkerId;
 
-/// A task that does not answer within this is wedged; the debug API then
-/// falls back to the totals the task last published.
+/// A task that does not answer within this is taken as wedged.
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub(super) struct StateMachineDriver {
@@ -55,6 +55,9 @@ pub(super) struct Load {
     pub pending_messages: AtomicUsize,
     pub in_flight_messages: AtomicUsize,
     pub busy_workers: Mutex<HashSet<WorkerId>>,
+    /// Fixed at startup, so a snapshot that falls back to the totals still
+    /// reports it.
+    pub adaptation: Adaptation,
 }
 
 pub(super) struct RevokeSender(mpsc::UnboundedSender<Input>);
@@ -161,7 +164,10 @@ impl StateMachineDriver {
         let (inputs_tx, inputs_rx) = mpsc::unbounded_channel();
         let (completions_tx, completions_rx) = mpsc::unbounded_channel();
         let (errors_tx, errors_rx) = mpsc::unbounded_channel();
-        let load = Arc::new(Load::default());
+        let load = Arc::new(Load {
+            adaptation: state.snapshot().governor.adaptation,
+            ..Load::default()
+        });
         let key_sentinel = Arc::new(KeyOrderSentinel::new());
         let assignment_epoch = sender.assignment_epoch();
         let task = BatcherTask {
@@ -209,9 +215,13 @@ impl StateMachineDriver {
         SnapshotSender(self.inputs.clone())
     }
 
-    pub(super) fn submit(&self, accumulator: Accumulator) -> u64 {
+    pub(super) fn submit(
+        &self,
+        accumulator: Accumulator,
+        generations: &HashMap<Partition, u64>,
+    ) -> u64 {
         let assignment_epoch = self.assignment_epoch.current();
-        let runs = KeyRun::from_groups(accumulator.into_groups());
+        let runs = KeyRun::from_groups(accumulator.into_groups(), generations);
         let unkeyed: usize = runs
             .iter()
             .filter(|run| run.messages.first().is_some_and(|m| m.key.is_none()))
@@ -325,7 +335,6 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
                 )
             }
             Event::Response(request, Err(failure)) => {
-                // Backpressure is transient, not a worker fault.
                 let cause = if failure.error.is_backpressure() {
                     FailureCause::Busy
                 } else {
@@ -500,6 +509,8 @@ async fn sleep_until(wakeup: Option<Instant>) {
 mod tests {
     use std::num::{NonZeroU32, NonZeroUsize};
     use std::time::Duration;
+
+    use rstest::rstest;
 
     use super::*;
     use crate::batcher::packer::{PackTargets, Packer};
@@ -699,7 +710,6 @@ mod tests {
         }
     }
 
-    /// Lets the batcher task handle everything queued for it.
     async fn settle() {
         for _ in 0..8 {
             tokio::task::yield_now().await;
@@ -970,6 +980,30 @@ mod tests {
             snapshots.snapshot().await.is_none(),
             "a dropped batcher answers nothing"
         );
+    }
+
+    #[rstest]
+    #[case::accepted(SendOutcome::Accepted(1))]
+    #[case::a_partial_that_finished_nothing(SendOutcome::Partial {
+        accepted: 0,
+        unfinished: vec![message("a", 0, 1)],
+    })]
+    #[tokio::test(start_paused = true)]
+    async fn the_rtt_sample_is_the_time_between_dispatch_and_settlement(
+        #[case] outcome: SendOutcome,
+    ) {
+        let h = Harness::new(&["w"], 4);
+        let snapshots = h.driver.snapshot_sender();
+        h.submit(vec![run("a", &[1])]);
+        settle().await;
+        let send = h.take_sent().pop().unwrap();
+
+        let rtt = Duration::from_millis(750);
+        tokio::time::advance(rtt).await;
+        send.reply.send(Ok(outcome)).unwrap();
+        settle().await;
+        let snapshot = snapshots.snapshot().await.expect("the task answers");
+        assert_eq!(snapshot.governor.rtt, Some(rtt));
     }
 
     #[tokio::test(start_paused = true)]

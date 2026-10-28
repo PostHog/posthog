@@ -211,6 +211,20 @@ def _seconds_from_epoch_reset(value: str) -> Optional[float]:
     return reset_epoch - datetime.now(UTC).timestamp()
 
 
+# Dub puts the UNIX epoch in milliseconds at which its window resets into ``Retry-After``, not a
+# delay. Read as seconds that is a wait of decades, so every 429 failed without a retry. A value
+# that, read as epoch seconds or milliseconds, lands this close to now is taken as that instant.
+_RETRY_AFTER_EPOCH_WINDOW_SECONDS = 24 * 60 * 60
+
+
+def _seconds_until_retry_after_epoch(value: float) -> Optional[float]:
+    now = datetime.now(UTC).timestamp()
+    for reset_epoch in (value, value / 1000):
+        if abs(reset_epoch - now) <= _RETRY_AFTER_EPOCH_WINDOW_SECONDS:
+            return reset_epoch - now
+    return None
+
+
 def _seconds_from_rfc3339_reset(value: str) -> Optional[float]:
     try:
         reset_at = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
@@ -267,13 +281,17 @@ def _parse_retry_after(response: Response) -> Optional[float]:
     retry_after_header = response.headers.get("Retry-After")
     if retry_after_header:
         try:
-            return max(0.0, float(retry_after_header))
+            delay = float(retry_after_header)
         except ValueError:
             try:
                 dt = parsedate_to_datetime(retry_after_header)
             except (TypeError, ValueError):
                 return None
             return max(0.0, (dt - datetime.now(UTC)).total_seconds())
+        epoch_wait = _seconds_until_retry_after_epoch(delay)
+        if epoch_wait is not None:
+            return epoch_wait if epoch_wait > 0 else None
+        return max(0.0, delay)
 
     for header, parse in _RATE_LIMIT_RESET_HEADERS:
         value = response.headers.get(header)
@@ -289,15 +307,11 @@ def _parse_retry_after(response: Response) -> Optional[float]:
     return None
 
 
-def _retry_after_limit(client: Any) -> float:
-    limit = getattr(client, "_retry_after_max", None)
-    return max_retry_after_seconds() if limit is None else limit
-
-
 def _retry_after_exceeds_limit(client: Any, exc: Optional[BaseException]) -> bool:
     if not isinstance(exc, RESTClientRetryableError) or exc.retry_after is None:
         return False
-    return exc.retry_after > _retry_after_limit(client)
+    limit = getattr(client, "_retry_after_max", None)
+    return exc.retry_after > (max_retry_after_seconds() if limit is None else limit)
 
 
 def _stop_after_client_attempts(state: RetryCallState) -> bool:
@@ -384,7 +398,6 @@ class RESTClient:
         capture: bool = True,
         retry_budget_seconds: Optional[float] = None,
         retry_after_max_seconds: Optional[float] = None,
-        cap_retry_after: bool = False,
     ) -> None:
         self.base_url = base_url or ""
         self.headers = headers or {}
@@ -398,10 +411,6 @@ class RESTClient:
         # does not fail the run.
         self._retry_budget = retry_budget_seconds
         self._retry_after_max = retry_after_max_seconds
-        # When True, a server delay above the limit becomes a wait of the limit, and the request
-        # does not fail at once. Use it for a vendor whose advertised delay is longer than the
-        # time the client must wait before a retry can succeed.
-        self._cap_retry_after = cap_retry_after
         # Per-request (connect, read) timeout in seconds handed to ``session.send``. Left None,
         # the session's own default applies, and after that the tracked adapter's
         # ``default_request_timeout()``. Sources talking to a customer-controlled host should set
@@ -677,13 +686,15 @@ class RESTClient:
                 )
             )
 
-        if response.status_code == 429 or response.status_code >= 500:
+        # 408 joins 429/5xx here because it's the same signal as both: the server itself, not our
+        # transport, is telling us to come back later. Individual sources already special-case it
+        # this way (openrouter, datadog, hubspot, ...) when they hand-roll their own transport; the
+        # shared client should give every REST-framework source the same behavior by default.
+        if response.status_code in (408, 429) or response.status_code >= 500:
             # `_safe_url` drops the query string entirely: `_redact` only masks the raw secret, not
             # the percent-encoded form an `api_key` query credential takes in the URL, so scheme/
             # host/path-only is what keeps an encoded credential out of the persisted `latest_error`.
             retry_after = _parse_retry_after(response)
-            if retry_after is not None and self._cap_retry_after:
-                retry_after = min(retry_after, _retry_after_limit(self))
             message = f"HTTP {response.status_code} for {_safe_url(response.url)}"
             error = RESTClientRetryableError(self._redact(message), retry_after=retry_after)
             if _retry_after_exceeds_limit(self, error):

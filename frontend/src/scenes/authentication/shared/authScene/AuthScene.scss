@@ -181,6 +181,16 @@
     }
 }
 
+// The snapshot runner zeroes animation durations, and headless Chromium can then paint an animation's
+// first keyframe. Turn these off there, so a snapshot shows the card, caret and progress bar at rest.
+.storybook-test-runner {
+    .AuthScene__column,
+    .AuthScene__caret,
+    .AuthScene__progress-fill {
+        animation: none !important;
+    }
+}
+
 @keyframes AuthScene__blink {
     0%,
     50% {

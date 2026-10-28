@@ -3,6 +3,7 @@ mod distinct_id;
 mod feature_flag;
 mod group;
 mod person;
+mod repair;
 
 use std::time::Instant;
 

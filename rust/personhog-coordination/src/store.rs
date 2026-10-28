@@ -49,6 +49,9 @@ enum StoreKey<'a> {
     MigrationHistoryPrefix,
     SealAck(&'a str),
     SealAcksPrefix,
+    DrainReport { topic: &'a str, group: &'a str },
+    DrainReportsForTopic(&'a str),
+    DrainReportsPrefix,
 }
 
 impl StoreKey<'_> {
@@ -88,6 +91,11 @@ impl StoreKey<'_> {
             StoreKey::MigrationHistoryPrefix => format!("{prefix}migrations/history/"),
             StoreKey::SealAck(pod) => format!("{prefix}seal_acks/{pod}"),
             StoreKey::SealAcksPrefix => format!("{prefix}seal_acks/"),
+            StoreKey::DrainReport { topic, group } => {
+                format!("{prefix}changelog/drained/{topic}/{group}")
+            }
+            StoreKey::DrainReportsForTopic(topic) => format!("{prefix}changelog/drained/{topic}/"),
+            StoreKey::DrainReportsPrefix => format!("{prefix}changelog/drained/"),
         }
     }
 }
@@ -350,6 +358,25 @@ impl PersonhogStore {
         count_call("register_router");
         let key = self.key(StoreKey::Router(&router.router_name));
         Ok(self.inner.put(&key, router, Some(lease_id)).await?)
+    }
+
+    pub async fn get_router_with_revision(
+        &self,
+        router_name: &str,
+    ) -> Result<(Option<RegisteredRouter>, i64)> {
+        count_call("get_router_with_revision");
+        let key = self.key(StoreKey::Router(router_name));
+        Ok(self.inner.get_with_revision(&key).await?)
+    }
+
+    pub async fn watch_router_from(
+        &self,
+        router_name: &str,
+        start_revision: i64,
+    ) -> Result<WatchStream> {
+        count_call("watch_router_from");
+        let key = self.key(StoreKey::Router(router_name));
+        Ok(self.inner.watch_key_from(&key, start_revision).await?)
     }
 
     pub async fn list_routers(&self) -> Result<Vec<RegisteredRouter>> {

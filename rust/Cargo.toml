@@ -62,6 +62,7 @@ members = [
   "ingestion-control-plane",
   "ingestion-worker-proto",
   "kafka-deduplicator",
+  "personhog-changelog-relay",
   "personhog-common",
   "personhog-coordination",
   "personhog-identity",
@@ -78,6 +79,9 @@ members = [
   "property-vals-rs",
   "pgcollector",
   "pgapi",
+  "ai-research/replay-core-v4",
+  "ai-research/replay-core-v4-node",
+  "ai-research/replay-recorder-v4",
 ]
 
 # NOTE: cargo allows only one crate with `links = "python"` (i.e. one pyo3 version) per
@@ -248,11 +252,12 @@ ahash = "0.8.11"
 aws-config = { version = "1.1.7", features = ["behavior-version-latest"] }
 aws-sdk-s3 = "1.58.0"
 aws-sdk-dynamodb = "1.55.0"
+aws-sdk-kms = "1"
 aws-smithy-runtime-api = { version = "1.11.5", features = ["client"] }
 aws-smithy-http-client = { version = "1.1.11", features = ["rustls-aws-lc"] }
 mockall = "0.13.0"
 moka = { version = "0.12.15", features = ["sync", "future"] }
-posthog-rs = { version = "0.27.0", features = ["async-client", "capture-v1"] }
+posthog-rs = { version = "0.27.1", features = ["async-client", "capture-v1"] }
 redis = { version = "0.32.7", features = [
   "tokio-comp",
   "cluster",
