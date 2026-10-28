@@ -80,7 +80,7 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
         )
 
     def test_complete_days_leave_out_the_day_the_ttl_may_have_dropped(self):
-        assert FLAG_EVALUATIONS_COMPLETE_DAYS == FLAG_EVALUATIONS_TTL_DAYS - 1
+        assert FLAG_EVALUATIONS_COMPLETE_DAYS < FLAG_EVALUATIONS_TTL_DAYS
 
     @parameterized.expand(
         [

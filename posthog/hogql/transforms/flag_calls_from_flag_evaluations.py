@@ -34,9 +34,10 @@ from posthog.date_util import start_of_day
 
 logger = structlog.get_logger(__name__)
 
-# FLAG_EVALUATIONS_TTL_DAYS - 1. That constant lives in posthog/models/flag_evaluations/sql.py, and importing it
-# loads the posthog.models package, which the printer's import path avoids. The TTL can already have dropped the
-# day FLAG_EVALUATIONS_TTL_DAYS back.
+# At most FLAG_EVALUATIONS_TTL_DAYS - 1, because the TTL can already have dropped the day FLAG_EVALUATIONS_TTL_DAYS
+# back. It stays lower while the table still lacks the oldest days that a shorter TTL dropped. The TTL constant
+# lives in posthog/models/flag_evaluations/sql.py, and importing it loads the posthog.models package, which the
+# printer's import path avoids.
 FLAG_EVALUATIONS_COMPLETE_DAYS = 89
 
 _FLAG_KEY_PROPERTY = "$feature_flag"
