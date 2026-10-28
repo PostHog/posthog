@@ -1145,6 +1145,7 @@ jobs:
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation timeout --kill-after=10s "$PY_DEPS_SYNC_TIMEOUT" uv sync --frozen --dev
             - name: Download Temporal test servers
               timeout-minutes: 10
+              continue-on-error: true
               run: python -m posthog.test.temporal_test_servers
             - name: Add service hostnames to /etc/hosts
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage temporal" | sudo tee -a /etc/hosts
@@ -3215,6 +3216,7 @@ jobs:
             - name: Download Temporal test servers
               shell: bash
               timeout-minutes: 10
+              continue-on-error: true
               run: python -m posthog.test.temporal_test_servers
             - name: Set up Node.js for canvas builder
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && hashFiles('products/canvas/packages/canvas_builder/package.json') != '' }}

@@ -4,7 +4,8 @@
 with no retry and no deadline, so a trickling transfer hangs the test until the job timeout.
 The SDK reuses an earlier download that it finds at `<temp dir>/<name>-sdk-python-<sdk version>`, without
 network access. CI runs this script before the tests to put both binaries there. curl cuts a stalled
-transfer with `--speed-limit` and `--max-time` and starts it again with `--retry`.
+transfer with `--speed-limit` and `--max-time` and starts it again with `--retry`. When this script fails,
+the SDK downloads the binaries itself, so a CI failure here does not stop the tests.
 
 Usage: python -m posthog.test.temporal_test_servers
 """
@@ -71,8 +72,9 @@ def sdk_cache_dir() -> Path:
     return Path(os.environ.get("TMPDIR") or "/tmp")
 
 
-def _curl(url: str, *args: str) -> bytes:
-    return subprocess.run([*CURL, *args, url], check=True, stdout=subprocess.PIPE).stdout
+def _curl(url: str, output: Path) -> None:
+    # curl truncates an --output file before each retry, but appends to stdout.
+    subprocess.run([*CURL, "--output", str(output), url], check=True)
 
 
 def download(binary: ServerBinary, cache_dir: Path) -> Path:
@@ -83,16 +85,18 @@ def download(binary: ServerBinary, cache_dir: Path) -> Path:
     params = {"arch": arch, "platform": sys.platform, "sdk-name": "sdk-python", "sdk-version": sdk_version}
     if binary.archive_format:
         params["format"] = binary.archive_format
-    info = json.loads(_curl(f"{DOWNLOAD_BASE_URL}/{binary.artifact}/default?{urlencode(params)}"))
-    archive_url: str = info["archiveUrl"]
-    # temporal.download proxies GitHub release assets under the same path. Its proxy can stall for runners in
-    # us-east-1, so the archive comes straight from GitHub. The version lookup above stays on temporal.download.
-    if archive_url.startswith(TEMPORAL_ASSETS_URL):
-        archive_url = GITHUB_URL + archive_url.removeprefix(TEMPORAL_ASSETS_URL)
 
     with tempfile.TemporaryDirectory(dir=cache_dir) as work_dir:
+        info_path = Path(work_dir) / "info.json"
+        _curl(f"{DOWNLOAD_BASE_URL}/{binary.artifact}/default?{urlencode(params)}", info_path)
+        info = json.loads(info_path.read_text())
+        archive_url: str = info["archiveUrl"]
+        # temporal.download proxies GitHub release assets under the same path. Its proxy can stall for runners in
+        # us-east-1, so the archive comes straight from GitHub. The version lookup above stays on temporal.download.
+        if archive_url.startswith(TEMPORAL_ASSETS_URL):
+            archive_url = GITHUB_URL + archive_url.removeprefix(TEMPORAL_ASSETS_URL)
         archive_path = Path(work_dir) / "archive.tar.gz"
-        _curl(archive_url, "--output", str(archive_path))
+        _curl(archive_url, archive_path)
         with tarfile.open(archive_path, "r:gz") as archive:
             archive.extract(info["fileToExtract"], work_dir, filter="data")
         extracted = Path(work_dir) / info["fileToExtract"]
