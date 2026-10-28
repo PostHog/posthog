@@ -9239,14 +9239,14 @@ Today (13): `Customers`, `Disputes`, `PaymentPages`, `PaymentRequests`, `Plans`,
 
 Diffed against: <https://raw.githubusercontent.com/PaystackOSS/openapi/main/dist/paystack.yaml>
 
-- [ ] `/settlement/{id}/transactions` — maps settlements we already sync to the transactions we already sync - the payout reconciliation join (high)
-- [ ] `/balance/ledger` — ledger entries behind every balance movement, the money-movement fact table (high)
-- [ ] `/split (transaction splits)` — lookup resolving split codes carried on transactions and subaccounts we already sync (high)
+- [x] `/settlement/{id}/transactions` — maps settlements we already sync to the transactions we already sync - the payout reconciliation join (high)
+- [x] `/balance/ledger` — ledger entries behind every balance movement, the money-movement fact table (high)
+- [x] `/split (transaction splits)` — lookup resolving split codes carried on transactions and subaccounts we already sync (high)
 - [ ] `/bank` — bank lookup resolving the bank codes on transfer recipients we already sync (medium)
 - [ ] `/transaction/timeline/{id}` — per-transaction event/state history for funnel and failure analysis (medium)
 - [ ] `/bulkcharge and /bulkcharge/{code}/charges` — batch charge runs plus their member charges (medium)
 - [ ] `/dedicated_account (dedicated virtual accounts)` — virtual NUBANs assigned to customers, needed to attribute bank-transfer inflows (medium)
-- [ ] `/directdebit/mandate-authorizations` — direct debit mandates underpinning recurring collections (medium)
+- [x] `/directdebit/mandate-authorizations` — direct debit mandates underpinning recurring collections (medium)
 - [ ] `/order and /order/{id}` — commerce orders with line items sitting above transactions (medium)
 - [ ] `/storefront and /storefront/{id}/order` — storefront dimension for the orders above (low)
 - [ ] `/transaction/totals and /paymentrequest/totals` — vendor-computed volume aggregates useful as a cross-check (low)
