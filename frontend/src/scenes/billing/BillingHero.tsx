@@ -4,6 +4,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { Link } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
+import { Dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { BillingPlan, BillingProductV2Type, StartupProgramLabel } from '~/types'
@@ -15,7 +16,7 @@ import planStartup from 'public/plan_startup.svg'
 import planTeams from 'public/plan_teams.png'
 import planYc from 'public/plan_yc.svg'
 
-import { billingLogic } from './billingLogic'
+import { YcCreditsState, billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { PlanComparisonModal } from './PlanComparison'
@@ -37,8 +38,26 @@ const STARTUP_PROGRAM_BADGES: Record<StartupProgramLabel, string> = {
 interface CopyVariation {
     title: string | null
     subtitle: string | null
-    getDescription: (billingPlan: BillingPlan, scrollToProduct: (productType: string) => void) => JSX.Element
+    getDescription: (
+        billingPlan: BillingPlan,
+        scrollToProduct: (productType: string) => void,
+        ycCreditsSummary: string
+    ) => JSX.Element
     backgroundColor: string
+}
+
+const getYcCreditsSummary = (ycCreditsState: YcCreditsState | null, expiresAt: Dayjs | undefined): string => {
+    const expiryDate = expiresAt?.format('LL')
+    switch (ycCreditsState) {
+        case 'ending':
+            return expiryDate
+                ? `Your YC credits expire on ${expiryDate} and won't renew.`
+                : "Your YC credits won't renew."
+        case 'used_until_renewal':
+            return `You'll get $50K in credits every year, forever, until you hit $25M in funding. You've used this year's credits, so you pay for usage until they renew${expiryDate ? ` on ${expiryDate}` : ''}.`
+        default:
+            return "You'll get $50K in credits every year, forever, until you hit $25M in funding. Your credits will renew automatically."
+    }
 }
 
 const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
@@ -143,12 +162,13 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
         title: 'Lucky you!',
         subtitle: "You're on the YC plan.",
         backgroundColor: 'bg-warning-highlight',
-        getDescription: (_billingPlan: BillingPlan, scrollToProduct: (productType: string) => void) => (
+        getDescription: (
+            _billingPlan: BillingPlan,
+            scrollToProduct: (productType: string) => void,
+            ycCreditsSummary: string
+        ) => (
             <>
-                <p>
-                    You'll get $50K in credits every year, forever, until you hit $25M in funding. Your credits will
-                    renew automatically.
-                </p>
+                <p>{ycCreditsSummary}</p>
                 <p>
                     If you're growing like crazy, you might want to check out our{' '}
                     {scrollToProduct ? (
@@ -172,7 +192,8 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
 
 export const BillingHero = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
-    const { redirectPath, billingPlan, startupProgramLabelCurrent, isManagedAccount } = useValues(billingLogic)
+    const { billing, redirectPath, billingPlan, startupProgramLabelCurrent, ycCreditsState, isManagedAccount } =
+        useValues(billingLogic)
     const { scrollToProduct } = useActions(billingLogic)
     const { isPlanComparisonModalOpen, billingProductLoading } = useValues(billingProductLogic({ product }))
     const { toggleIsPlanComparisonModalOpen } = useActions(billingProductLogic({ product }))
@@ -183,11 +204,13 @@ export const BillingHero = ({ product }: { product: BillingProductV2Type }): JSX
     }
 
     const showUpgradeOptions = billingPlan === BillingPlan.Free && (!isManagedAccount || showUpgradeToManagedAccount)
+    // YC credits that are used up and do not renew no longer cover any usage, so show the plan the customer pays on
+    const startupProgramLabel = ycCreditsState === 'ended' ? null : startupProgramLabelCurrent
     const copyVariation =
-        (startupProgramLabelCurrent ? BADGE_CONFIG[startupProgramLabelCurrent] : BADGE_CONFIG[billingPlan]) ||
+        (startupProgramLabel ? BADGE_CONFIG[startupProgramLabel] : BADGE_CONFIG[billingPlan]) ||
         BADGE_CONFIG[BillingPlan.Paid]
     const planBadge =
-        (startupProgramLabelCurrent ? STARTUP_PROGRAM_BADGES[startupProgramLabelCurrent] : PLAN_BADGES[billingPlan]) ||
+        (startupProgramLabel ? STARTUP_PROGRAM_BADGES[startupProgramLabel] : PLAN_BADGES[billingPlan]) ||
         PLAN_BADGES[BillingPlan.Paid]
 
     return (
@@ -195,16 +218,18 @@ export const BillingHero = ({ product }: { product: BillingProductV2Type }): JSX
             <div className="@container p-4 relative">
                 <img
                     src={planBadge}
-                    alt={
-                        startupProgramLabelCurrent
-                            ? `${startupProgramLabelCurrent} plan badge`
-                            : `${billingPlan} plan badge`
-                    }
+                    alt={startupProgramLabel ? `${startupProgramLabel} plan badge` : `${billingPlan} plan badge`}
                     className="float-right w-[33cqw] min-w-32 max-w-48 ml-6 mb-4"
                 />
                 {copyVariation.title && <h1 className="mb-0">{copyVariation.title}</h1>}
                 {copyVariation.subtitle && <h1 className="text-danger leading-tight">{copyVariation.subtitle}</h1>}
-                <div className="mt-2">{copyVariation.getDescription(billingPlan, scrollToProduct)}</div>
+                <div className="mt-2">
+                    {copyVariation.getDescription(
+                        billingPlan,
+                        scrollToProduct,
+                        getYcCreditsSummary(ycCreditsState, billing?.amount_off_expires_at)
+                    )}
+                </div>
                 {showUpgradeOptions && (
                     <div className="flex items-center gap-2">
                         <BillingUpgradeCTA

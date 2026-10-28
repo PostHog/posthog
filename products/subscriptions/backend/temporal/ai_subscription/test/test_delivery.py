@@ -424,19 +424,17 @@ class TestChartsOnSlackMessages:
             _mock_subscription(), "A short report.", delivery_id=_DELIVERY_ID, charts=[_CHART]
         )
 
-        assert [block["type"] for block in message.blocks[:5]] == [
+        assert [block["type"] for block in message.blocks[:4]] == [
             "divider",
             "header",
-            "context",
             "markdown",
             "image",
         ]
-        assert message.blocks[3]["text"] == "A short report."
-        assert message.blocks[1]["text"]["text"] == "Your subscription to Weekly report is ready! 🎉"
-        assert message.blocks[2]["elements"][0]["text"] == "🤖 AI prompt: Weekly report"
-        assert message.blocks[4]["image_url"] == _CHART["image_url"]
-        assert message.blocks[4]["alt_text"] == "signups by day"
-        assert message.blocks[4]["title"] == {"type": "plain_text", "text": "signups by day"}
+        assert message.blocks[2]["text"] == "A short report."
+        assert message.blocks[1]["text"]["text"] == 'Your report "Weekly report" is ready! 🎉'
+        assert message.blocks[3]["image_url"] == _CHART["image_url"]
+        assert message.blocks[3]["alt_text"] == "signups by day"
+        assert message.blocks[3]["title"] == {"type": "plain_text", "text": "signups by day"}
 
     def test_an_untitled_chart_posts_no_title_block(self) -> None:
         message = _build_ai_slack_message(
@@ -446,8 +444,8 @@ class TestChartsOnSlackMessages:
             charts=[{"title": "", "image_url": "https://ph.test/img.png"}],
         )
 
-        assert "title" not in message.blocks[4]
-        assert message.blocks[4]["alt_text"] == "Chart"
+        assert "title" not in message.blocks[3]
+        assert message.blocks[3]["alt_text"] == "Chart"
 
     def test_a_chartless_report_posts_no_image_blocks(self) -> None:
         message = _build_message("A short report.")
@@ -560,7 +558,7 @@ class TestBuildAISlackMessage:
     def test_complex_findings_keep_native_markdown(self, content: str) -> None:
         markdown = f"## Main result\n\n{content}"
         message = _build_message(markdown)
-        assert message.blocks[3] == {"type": "markdown", "text": markdown}
+        assert message.blocks[2] == {"type": "markdown", "text": markdown}
 
     def test_single_section_report_has_no_thread_messages(self) -> None:
         message = _build_message("A short report.")
@@ -570,18 +568,24 @@ class TestBuildAISlackMessage:
         assert all(text.strip() for text in section_texts), "no empty section text allowed"
 
     @pytest.mark.parametrize(
-        "markdown",
+        "markdown,expected",
         [
-            "## Weekly report\n\n| Day | Sessions |\n|---|---|\n| Monday | **42** |",
-            "**Bold** and *italic* with [dashboard](https://app.posthog.com/insights/abc)",
-            "```\n| Day | Sessions |\n| Monday | 42 |\n```",
-            "x" * SLACK_MARKDOWN_MESSAGE_LIMIT,
-            "",
+            ("## Weekly report\n\n| Day | Sessions |\n|---|---|\n| Monday | **42** |", None),
+            ("**Bold** and *italic* with [dashboard](https://app.posthog.com/insights/abc)", None),
+            ("```\n| Day | Sessions |\n| Monday | 42 |\n```", None),
+            ("x" * SLACK_MARKDOWN_MESSAGE_LIMIT, None),
+            ("", "_No report content was generated._"),
+            ("# Generated report title\n\n## Adoption\n\nReport content.", "## Adoption\n\nReport content."),
+            ("Generated report title\n=====\n\nReport content.", "Report content."),
+            ("# Generated report title", "_No report content was generated._"),
+            ("```\n# Keep this heading\n```", None),
+            ("# Generated report title\n\n    # Keep this code\n    value = 1", "    # Keep this code\n    value = 1"),
         ],
     )
-    def test_preserves_report_markdown(self, markdown: str) -> None:
+    def test_preserves_report_markdown(self, markdown: str, expected: str | None) -> None:
         message = _build_message(markdown)
-        assert message.blocks[3] == {"type": "markdown", "text": markdown or "_No report content was generated._"}
+        assert message.blocks[1]["text"]["text"] == 'Your report "Weekly report" is ready! 🎉'
+        assert message.blocks[2] == {"type": "markdown", "text": markdown if expected is None else expected}
         assert message.thread_messages == []
 
     def test_long_report_overflows_into_thread(self) -> None:
@@ -611,8 +615,8 @@ class TestBuildAISlackMessage:
             charts=[_CHART],
         )
 
-        assert [block["type"] for block in message.blocks] == ["divider", "header", "context", "markdown"]
-        assert message.blocks[3]["text"] == "A short report."
+        assert [block["type"] for block in message.blocks] == ["divider", "header", "markdown"]
+        assert message.blocks[2]["text"] == "A short report."
 
     def test_with_images_delivery_keeps_charts_without_posthog_controls(self) -> None:
         subscription = _mock_subscription()
@@ -634,11 +638,10 @@ class TestBuildAISlackMessage:
         assert [block["type"] for block in message.blocks] == [
             "divider",
             "header",
-            "context",
             "markdown",
             "image",
         ]
-        assert message.blocks[4]["image_url"] == _CHART["image_url"]
+        assert message.blocks[3]["image_url"] == _CHART["image_url"]
 
 
 class TestBuildAITeamsCard:

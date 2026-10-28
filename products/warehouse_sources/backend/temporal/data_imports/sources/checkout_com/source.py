@@ -280,6 +280,7 @@ Payments, payment actions, financial actions, customers and instruments sync fro
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

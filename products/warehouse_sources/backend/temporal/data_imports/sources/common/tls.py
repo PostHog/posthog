@@ -28,6 +28,12 @@ TLS_CONFIGURATION_ERRORS: dict[str, str | None] = {
     ENCRYPTED_CLIENT_KEY_ERROR: None,
 }
 
+_INVALID_CA_CERTIFICATE_ERROR = (
+    "The certificate authority you configured isn't a valid PEM certificate. Paste the complete "
+    "certificate (including the BEGIN/END lines), or remove it and turn off certificate "
+    "verification instead."
+)
+
 _CLIENT_CERTIFICATE_REJECTED_ERROR = (
     "Your database rejected the client certificate, or requires one. Add a client certificate and key that "
     "your database trusts."
@@ -51,6 +57,13 @@ CERTIFICATE_ERRORS: dict[str, str] = {
     # Postgres completes the TLS handshake and then rejects the certificate at its pg_hba check.
     "certificate authentication failed": _CLIENT_CERTIFICATE_REJECTED_ERROR,
     "connection requires a valid client certificate": _CLIENT_CERTIFICATE_REJECTED_ERROR,
+    # libpq fails to load the file `tls_files` wrote for the "Certificate authority" field when its
+    # content isn't a parseable PEM certificate (empty, truncated, or not a certificate at all). The
+    # raw message also names the per-run temp file path, so match the stable OpenSSL reason instead.
+    "no certificate or crl found": _INVALID_CA_CERTIFICATE_ERROR,
+    # libpq words every unreadable CA file this way, whatever OpenSSL's reason is (a truncated
+    # certificate reports "bad end line", not the reason above).
+    "could not read root certificate file": _INVALID_CA_CERTIFICATE_ERROR,
 }
 
 

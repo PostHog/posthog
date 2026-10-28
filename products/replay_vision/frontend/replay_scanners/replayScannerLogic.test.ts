@@ -46,14 +46,12 @@ describe('replayScannerLogic', () => {
     let logic: ReturnType<typeof replayScannerLogic.build>
     let observeSpy: jest.Mock
     let retrySpy: jest.Mock
-    let suggestSpy: jest.Mock
     let createSpy: jest.Mock
     let draftSpy: jest.Mock
 
     beforeEach(() => {
         observeSpy = jest.fn(() => [202, { workflow_id: 'wf-test' }])
         retrySpy = jest.fn(() => [202, { workflow_id: 'wf-retry' }])
-        suggestSpy = jest.fn(() => [200, { suggestions: [] }])
         createSpy = jest.fn(() => [201, { id: 'created-scanner' }])
         draftSpy = jest.fn(() => [200, {}])
         useMocks({
@@ -70,7 +68,6 @@ describe('replayScannerLogic', () => {
                 '/api/projects/:team/vision/scanners/': createSpy,
                 '/api/projects/:team/vision/scanners/:id/observe/': observeSpy,
                 '/api/projects/:team/vision/observations/:id/retry/': retrySpy,
-                '/api/projects/:team/vision/scanners/suggest_tags/': suggestSpy,
                 '/api/projects/:team/vision/scanners/draft/': draftSpy,
             },
         })
@@ -660,33 +657,6 @@ describe('replayScannerLogic', () => {
         })
     })
 
-    describe('appendClassifierTags', () => {
-        it('merges suggested tags into the vocabulary, deduping case-insensitively and trimming', async () => {
-            logic.actions.setScannerType('classifier')
-            logic.actions.setScannerValues({
-                scanner_config: {
-                    prompt: 'Categorize intent',
-                    tags: ['checkout', 'pricing'],
-                    multi_label: true,
-                } as ClassifierScanner['scanner_config'],
-            })
-            await expectLogic(logic, () => {
-                logic.actions.appendClassifierTags(['Checkout', '  billing ', 'pricing', '', 'account'])
-            }).toMatchValues({
-                scanner: expect.objectContaining({
-                    scanner_config: expect.objectContaining({ tags: ['checkout', 'pricing', 'billing', 'account'] }),
-                }),
-            })
-        })
-
-        it('is a no-op for non-classifier scanners', async () => {
-            // Default scanner is a monitor — appending classifier tags must not add a tags field.
-            await expectLogic(logic, () => logic.actions.appendClassifierTags(['x'])).toMatchValues({
-                scanner: expect.objectContaining({ scanner_type: 'monitor', scanner_config: { prompt: '' } }),
-            })
-        })
-    })
-
     describe('clearClassifierTags', () => {
         it('empties the categories of a classifier scanner', async () => {
             logic.actions.setScannerType('classifier')
@@ -709,81 +679,6 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic, () => logic.actions.clearClassifierTags()).toMatchValues({
                 scanner: expect.objectContaining({ scanner_type: 'monitor', scanner_config: { prompt: '' } }),
             })
-        })
-    })
-
-    describe('tag suggestions', () => {
-        const setupClassifier = (): void => {
-            logic.actions.setScannerType('classifier')
-            logic.actions.setScannerValues({
-                scanner_config: {
-                    prompt: 'Categorize intent',
-                    tags: ['pricing'],
-                    multi_label: true,
-                } as ClassifierScanner['scanner_config'],
-            })
-        }
-
-        it('loads grounded suggestions from the endpoint', async () => {
-            suggestSpy.mockReturnValueOnce([
-                200,
-                { suggestions: [{ tag: 'abandoned_checkout', rationale: 'seen 12x', source: 'observed' }] },
-            ])
-            setupClassifier()
-            await expectLogic(logic, () => logic.actions.loadTagSuggestions())
-                .toDispatchActions(['loadTagSuggestionsSuccess'])
-                .toMatchValues({
-                    tagSuggestions: [{ tag: 'abandoned_checkout', rationale: 'seen 12x', source: 'observed' }],
-                    tagSuggestionsLoading: false,
-                })
-        })
-
-        it('accepting a suggestion adds it to the vocabulary and drops it from the panel', async () => {
-            suggestSpy.mockReturnValueOnce([
-                200,
-                {
-                    suggestions: [
-                        { tag: 'abandoned_checkout', rationale: 'r', source: 'observed' },
-                        { tag: 'pricing_confusion', rationale: 'r', source: 'product' },
-                    ],
-                },
-            ])
-            setupClassifier()
-            await expectLogic(logic, () => logic.actions.loadTagSuggestions()).toDispatchActions([
-                'loadTagSuggestionsSuccess',
-            ])
-            await expectLogic(logic, () => logic.actions.acceptTagSuggestion('abandoned_checkout'))
-                .toFinishAllListeners()
-                .toMatchValues({
-                    scanner: expect.objectContaining({
-                        scanner_config: expect.objectContaining({ tags: ['pricing', 'abandoned_checkout'] }),
-                    }),
-                    tagSuggestions: [{ tag: 'pricing_confusion', rationale: 'r', source: 'product' }],
-                })
-        })
-
-        it('accept all adds every suggestion and clears the panel', async () => {
-            suggestSpy.mockReturnValueOnce([
-                200,
-                {
-                    suggestions: [
-                        { tag: 'rage_clicking', rationale: 'r', source: 'observed' },
-                        { tag: 'form_errors', rationale: 'r', source: 'product' },
-                    ],
-                },
-            ])
-            setupClassifier()
-            await expectLogic(logic, () => logic.actions.loadTagSuggestions()).toDispatchActions([
-                'loadTagSuggestionsSuccess',
-            ])
-            await expectLogic(logic, () => logic.actions.acceptAllTagSuggestions())
-                .toFinishAllListeners()
-                .toMatchValues({
-                    scanner: expect.objectContaining({
-                        scanner_config: expect.objectContaining({ tags: ['pricing', 'rage_clicking', 'form_errors'] }),
-                    }),
-                    tagSuggestions: [],
-                })
         })
     })
 
@@ -1437,6 +1332,7 @@ describe('replayScannerLogic', () => {
             observationDateTo: null as string | null,
             observationBackfillFilter: null as string | null,
             observationVariantFilter: null as string | null,
+            observationWatchGroupFilter: null as string | null,
             observationsSort: null,
             scanner: null,
         }

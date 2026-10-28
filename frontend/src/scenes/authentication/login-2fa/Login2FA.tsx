@@ -3,12 +3,14 @@ import { Form } from 'kea-forms'
 
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
+import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
+import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
+import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { loginTelemetryLogic } from 'scenes/authentication/shared/loginTelemetryLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -28,55 +30,62 @@ export function Login2FA(): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
 
     return (
-        <BridgePage view="login">
-            <div className="deprecated-space-y-2">
-                <h2>Two-Factor Authentication</h2>
-                <p>
-                    <span>Enter a token from your authenticator app, use your passkey, or enter a backup code.</span>
-                    {preflight?.cloud && (
+        <AuthScene notes={AUTH_NOTES.login2fa.default}>
+            <AuthSceneCard showPendingConnection>
+                <AuthCardTitle
+                    title="Two-factor authentication"
+                    sub={
                         <>
-                            {' '}
-                            <Link
-                                data-attr="2fa-contact-support"
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    openSupportForm({
-                                        kind: 'support',
-                                    })
-                                }}
-                            >
-                                Need help?
-                            </Link>
+                            <span>Your passkey, an authenticator code or a backup code will do.</span>
+                            {preflight?.cloud && (
+                                <>
+                                    {' '}
+                                    <Link
+                                        data-attr="2fa-contact-support"
+                                        onClick={(e) => {
+                                            e.preventDefault()
+                                            openSupportForm({
+                                                kind: 'support',
+                                            })
+                                        }}
+                                        className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                                    >
+                                        Need help?
+                                    </Link>
+                                </>
+                            )}
                         </>
-                    )}
-                </p>
-
+                    }
+                />
+                {generalError && (
+                    <AuthBanner variant="danger" className="mb-4">
+                        {generalError.detail}
+                    </AuthBanner>
+                )}
                 {passkeysAvailable && (
                     <>
                         <LemonButton
-                            type="primary"
+                            type="secondary"
                             htmlType="button"
                             onClick={() => beginPasskey2FA()}
                             loading={passkey2FALoading}
                             fullWidth
                             center
                             size="large"
-                            icon={<img src={passkeyLogo} alt="Passkey" className="object-contain w-6 h-6" />}
+                            icon={<img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />}
                         >
                             Use passkey
                         </LemonButton>
-                        {totpAvailable && <LemonDivider className="my-4" label="Or" />}
+                        {totpAvailable && <LemonDivider className="my-4" label="or use a code" />}
                     </>
                 )}
-
                 {totpAvailable && (
                     <Form
                         logic={login2FALogic}
                         formKey="twofactortoken"
                         enableFormOnSubmit
-                        className="deprecated-space-y-4"
+                        className="flex flex-col gap-4"
                     >
-                        {generalError && <LemonBanner type="error">{generalError.detail}</LemonBanner>}
                         <LemonField name="token" label="Authenticator token">
                             <LemonInput
                                 className="ph-ignore-input"
@@ -85,11 +94,11 @@ export function Login2FA(): JSX.Element {
                                 placeholder="123456"
                                 inputMode="numeric"
                                 autoComplete="one-time-code"
+                                fullWidth
                             />
                         </LemonField>
                         <LemonButton
                             type="primary"
-                            status="alt"
                             htmlType="submit"
                             data-attr="2fa-login"
                             fullWidth
@@ -97,18 +106,17 @@ export function Login2FA(): JSX.Element {
                             loading={isTwofactortokenSubmitting}
                             size="large"
                         >
-                            Login
+                            Log in
                         </LemonButton>
                     </Form>
                 )}
-
                 {!passkeysAvailable && !totpAvailable && (
-                    <LemonBanner type="error">
+                    <AuthBanner variant="danger">
                         No 2FA methods available. Please contact support if you believe this is an error.
-                    </LemonBanner>
+                    </AuthBanner>
                 )}
-            </div>
-        </BridgePage>
+            </AuthSceneCard>
+        </AuthScene>
     )
 }
 
