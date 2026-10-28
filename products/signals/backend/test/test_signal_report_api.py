@@ -1976,7 +1976,27 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["is_suggested_reviewer"] is True
 
-    def test_for_you_view_lists_only_the_open_actionable_reports_for_the_user(self):
+    @parameterized.expand(
+        [
+            ("priority", "priority", None, True, True, "US"),
+            ("recommended_control", "recommended", "control", True, True, "US"),
+            ("recommended_open", "recommended", "open", True, True, "US"),
+            ("ai_off", "recommended", "open", False, True, "US"),
+            ("autostart_off", "recommended", "open", True, False, "US"),
+            ("ai_and_autostart_off", "recommended", "open", False, False, "US"),
+            ("eu", "recommended", "open", True, True, "EU"),
+            ("flag_off", "recommended", None, True, True, "US"),
+        ]
+    )
+    def test_for_you_view_lists_only_the_open_actionable_reports_for_the_user(
+        self, _name: str, sort: str, variant: str | None, ai: bool, autostart: bool, region: str
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = ai
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        SignalTeamConfig.objects.update_or_create(team=self.team, defaults={"autostart_enabled": autostart})
+        self.user.is_staff = False
+        self.user.save(update_fields=["is_staff"])
+
         def report_naming_me(title: str, priority: str, **fields) -> SignalReport:
             report = self._create_report(title=title, **fields)
             SignalReportArtefact.objects.create(
@@ -1990,26 +2010,42 @@ class TestSignalReportListAPI(APIBaseTest):
 
         waiting = report_naming_me("Waits for my input", "P2", status=SignalReport.Status.PENDING_INPUT)
         reviewing = report_naming_me("Names me as reviewer", "P1")
+        self._ranking_score_artefact(waiting, scores={"open": 0.9})
+        self._ranking_score_artefact(reviewing, scores={"open": 0.1})
         report_naming_me("Not actionable", "P0", latest_actionability="not_actionable")
+        report_naming_me("Already addressed", "P0", latest_already_addressed=True)
         report_naming_me("Resolved", "P0", status=SignalReport.Status.RESOLVED)
+        old = report_naming_me("Old report", "P0")
+        SignalReport.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=8))
         unowned = self._create_report(title="Nobody owns it", latest_actionability="immediately_actionable")
         self._priority_artefact(unowned, priority="P0")
 
-        response = self.client.get(self._list_url(view="for_you", sort="priority", limit=1))
+        first, second = (
+            (waiting, reviewing)
+            if sort == "recommended" and variant == "open" and region != "EU"
+            else (reviewing, waiting)
+        )
+        params = {"view": "for_you", "sort": sort, "created_after": (timezone.now() - timedelta(days=7)).isoformat()}
+        with (
+            self.settings(CLOUD_DEPLOYMENT=region),
+            patch(
+                "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", return_value=variant
+            ),
+            patch("products.signals.backend.ranking.access.feature_enabled_or_false", return_value=False),
+        ):
+            response = self.client.get(self._list_url(**params, limit=1))
 
-        assert response.status_code == status.HTTP_200_OK
-        body = response.json()
-        assert [row["id"] for row in body["results"]] == [str(reviewing.id)]
-        assert body["count"] == 2
-        assert body["next"] is not None
-        next_page = self.client.get(body["next"]).json()
-        assert [row["id"] for row in next_page["results"]] == [str(waiting.id)]
+            assert response.status_code == status.HTTP_200_OK
+            body = response.json()
+            assert [row["id"] for row in body["results"]] == [str(first.id)]
+            assert body["count"] == 2
+            assert body["next"] is not None
+            next_page = self.client.get(body["next"]).json()
+            assert [row["id"] for row in next_page["results"]] == [str(second.id)]
 
-        without_shown = self.client.get(
-            self._list_url(view="for_you", sort="priority", exclude=str(reviewing.id), offset=0)
-        ).json()
-        assert [row["id"] for row in without_shown["results"]] == [str(waiting.id)]
-        assert without_shown["count"] == 1
+            without_shown = self.client.get(self._list_url(**params, exclude=str(first.id), offset=0)).json()
+            assert [row["id"] for row in without_shown["results"]] == [str(second.id)]
+            assert without_shown["count"] == 1
 
     def test_is_suggested_reviewer_uses_latest_reviewers_row(self):
         # suggested_reviewers is append-only: an older row listing the user must not keep them

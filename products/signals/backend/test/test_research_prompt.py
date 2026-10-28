@@ -722,6 +722,47 @@ _WINDOW_GOAL = {"goal_value": 0.01, "goal_direction": "at_most", "decision_windo
 
 
 class TestReportPresentationOutputMetrics:
+    @pytest.mark.parametrize("keep_valid_metric", [False, True])
+    def test_invalid_metrics_preserve_prose_and_valid_metrics(
+        self, keep_valid_metric: bool, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        valid_metric = {
+            "metric_id": "upload-failures",
+            "title": "Upload failures",
+            "kind": "occurrences",
+            "role": "primary",
+            "value_format": "count",
+            "query": trends_metric_query(series=[{"kind": "EventsNode", "event": "upload_failed"}]),
+            "series": [1, 2],
+            **_WINDOW_GOAL,
+        }
+        with caplog.at_level(logging.WARNING):
+            parsed = ReportPresentationOutput.model_validate(
+                {
+                    "title": "fix(uploads): Handle failed uploads",
+                    "summary": "Uploads can fail.",
+                    "metrics": [
+                        {**valid_metric, "title": "private-metric-title", "query": {"private-filter": "private-value"}},
+                        None,
+                        *([valid_metric] if keep_valid_metric else []),
+                    ],
+                }
+            )
+
+        assert parsed.title == "fix(uploads): Handle failed uploads"
+        assert parsed.summary == "Uploads can fail."
+        assert [metric.metric_id for metric in parsed.metrics] == (["upload-failures"] if keep_valid_metric else [])
+        if keep_valid_metric:
+            assert parsed.metrics[0].query == valid_metric["query"]
+            assert parsed.metrics[0].series is None
+            assert parsed.metrics[0].goal_value is None
+        warning = "".join(record.getMessage() for record in caplog.records)
+        assert "dropped metric at index 0" in warning
+        assert "query: value_error" in warning
+        assert "private-metric-title" not in warning
+        assert "private-filter" not in warning
+        assert "private-value" not in warning
+
     @pytest.mark.parametrize(
         "goal",
         [

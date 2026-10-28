@@ -132,6 +132,7 @@ def complete_implementation(
             consecutive_inconclusive=0,
             monitoring_fallback_expires_at=None,
             monitoring_dispatch_after=None,
+            legacy_monitoring_attempt_id=None,
             updated_at=now,
         )
         report.save(
