@@ -121,11 +121,16 @@ impl FromStr for TeamList {
 #[derive(Clone, Default)]
 pub struct ExcludedPropertyKeys {
     pub keys: Arc<HashSet<String>>,
+    pub prefixes: Arc<Vec<String>>,
 }
 
 impl ExcludedPropertyKeys {
     pub fn contains(&self, key: &str) -> bool {
         self.keys.contains(key)
+            || self
+                .prefixes
+                .iter()
+                .any(|prefix| key.starts_with(prefix.as_str()))
     }
 }
 
@@ -133,13 +138,19 @@ impl FromStr for ExcludedPropertyKeys {
     type Err = Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let keys: HashSet<String> = s
-            .split(',')
-            .map(|k| k.trim().to_string())
-            .filter(|k| !k.is_empty())
-            .collect();
+        let mut keys = HashSet::new();
+        let mut prefixes = Vec::new();
+        for entry in s.split(',').map(str::trim).filter(|k| !k.is_empty()) {
+            match entry.strip_suffix('*') {
+                Some(prefix) => prefixes.push(prefix.to_string()),
+                None => {
+                    keys.insert(entry.to_string());
+                }
+            }
+        }
         Ok(ExcludedPropertyKeys {
             keys: Arc::new(keys),
+            prefixes: Arc::new(prefixes),
         })
     }
 }

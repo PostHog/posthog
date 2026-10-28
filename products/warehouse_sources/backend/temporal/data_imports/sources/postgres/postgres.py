@@ -27,6 +27,7 @@ import psycopg
 import pyarrow as pa
 import structlog
 from psycopg import sql
+from psycopg.abc import AdaptContext
 from psycopg.adapt import Loader
 from psycopg.types.datetime import TimeLoader, TimestampLoader, TimestamptzLoader, TimetzLoader
 from structlog.types import FilteringBoundLogger
@@ -366,8 +367,8 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # the fetch succeeds again, so a fresh connect after backoff typically recovers. Match the full
     # "failed to retrieve database credentials" wording, NOT the bare "(ECIRCUITBREAKER)" code —
     # Supavisor reuses the same code for a different condition ("too many authentication failures",
-    # tripped by repeated bad credentials rather than pooler bookkeeping), which must stay
-    # non-retryable and is matched separately in source.py's `get_non_retryable_errors`.
+    # tripped by repeated failed sign-ins). That block is not retried in-process, because retrying
+    # during the block only adds attempts. source.py keeps it retryable across activity attempts.
     "(ecircuitbreaker) failed to retrieve database credentials",
     # pgcat (a Rust Postgres pooler) refuses to hand out a backend when every server in the pool is
     # currently banned/down — a failed health check bans a server and pgcat auto-unbans it after
@@ -614,7 +615,8 @@ def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
     `offset_chunking` reconnect. The schema-discovery path retries drops, connection-limit refusals,
     server-startup refusals, and recovery conflicts too (via `_is_dropped_or_connection_limit`) but
     deliberately keeps failing fast on connect-time *timeouts*, where a timeout usually means an
-    unreachable host / unconfigured firewall (see `PostgresErrors` and `get_non_retryable_errors`).
+    unreachable host / unconfigured firewall (see `PostgresErrors`). A fast failure there is still
+    retried by the activity, because `get_retryable_errors` lists the timeout.
     """
     return (
         _is_connection_dropped_error(error)
@@ -2078,6 +2080,31 @@ class NetworkAsStringLoader(Loader):
         if data is None:
             return None
         return bytes(data).decode("utf-8")
+
+
+class LenientTextLoader(Loader):
+    """Load PostgreSQL text values, replacing bytes that are not valid UTF-8.
+
+    Postgres does not re-validate stored text on output, so a `SQL_ASCII` database or an
+    extension that writes raw bytes into a `text` column (e.g. Supabase's `pg_net` storing
+    binary HTTP response bodies) can send invalid UTF-8. psycopg's default loader decodes
+    strictly, so one such value fails the whole sync with `UnicodeDecodeError`.
+
+    Decodes with the negotiated client encoding, because a pooler that rejects the startup
+    `options` leaves the connection on the server's own encoding (e.g. LATIN1). `SQL_ASCII`
+    decodes as UTF-8, because psycopg would return `bytes` for it, which Arrow cannot store
+    in a string column.
+    """
+
+    def __init__(self, oid: int, context: AdaptContext | None = None):
+        super().__init__(oid, context)
+        encoding = self.connection.info.encoding if self.connection else "utf-8"
+        self._encoding = "utf-8" if encoding == "ascii" else encoding
+
+    def load(self, data):
+        if data is None:
+            return None
+        return bytes(data).decode(self._encoding, "replace")
 
 
 class SafeDateLoader(Loader):
@@ -4207,6 +4234,10 @@ def postgres_source(
                 connection.adapters.register_loader("timetz", SafeTimetzLoader)
                 connection.adapters.register_loader("inet", NetworkAsStringLoader)
                 connection.adapters.register_loader("cidr", NetworkAsStringLoader)
+                connection.adapters.register_loader("text", LenientTextLoader)
+                connection.adapters.register_loader("varchar", LenientTextLoader)
+                connection.adapters.register_loader("bpchar", LenientTextLoader)
+                connection.adapters.register_loader("name", LenientTextLoader)
                 # Bump statement_timeout for the streaming connection. A server
                 # cursor FETCH inherits the session statement_timeout, and on
                 # wide/partitioned scans the source's default (often 30-60s)

@@ -235,6 +235,7 @@ export const StatusBlock: Story = {
                 task_id: null,
                 agent: 'Build agent',
                 claimed_at: '2026-06-11T10:00:00Z',
+                responsible_user: null,
             },
         })
         return (
@@ -278,6 +279,13 @@ export const ReportClaimedByTeammate: Story = {
                         task_id: null,
                         agent: null,
                         claimed_at: '2026-06-10T10:00:00Z',
+                        responsible_user: {
+                            id: 1,
+                            uuid: 'u-1',
+                            email: 'octo@example.com',
+                            first_name: 'Octo',
+                            last_name: 'Cat',
+                        },
                     },
                 }}
             />
@@ -394,6 +402,7 @@ const exportsPlan: ReportPlanApi = {
             depends_on: [],
             implementation_pr_url: 'https://github.com/example/app/pull/41',
             implementation_pr_state: 'merged',
+            suppression_source: null,
         },
         {
             id: '019e64b8-0000-7000-8000-000000000212',
@@ -402,6 +411,7 @@ const exportsPlan: ReportPlanApi = {
             depends_on: ['019e64b8-0000-7000-8000-000000000211'],
             implementation_pr_url: 'https://github.com/example/app/pull/42',
             implementation_pr_state: 'open',
+            suppression_source: null,
         },
         {
             id: '019e64b8-0000-7000-8000-000000000213',
@@ -410,6 +420,7 @@ const exportsPlan: ReportPlanApi = {
             depends_on: ['019e64b8-0000-7000-8000-000000000212'],
             implementation_pr_url: null,
             implementation_pr_state: null,
+            suppression_source: null,
         },
     ],
 }
