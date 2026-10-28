@@ -2685,6 +2685,188 @@ export interface EmailDraftApi {
     template_reason: EmailDraftFallbackReasonEnumApi | null
 }
 
+/**
+ * Customer.io snippet name to its content, inlined where a message uses `{% snippet "name" %}`.
+ */
+export type WorkflowImportRequestApiSnippets = { [key: string]: string }
+
+/**
+ * Customer.io segment id to the PostHog cohort that replaces it. Segment triggers and segment conditions with no cohort here are left for the team to set.
+ */
+export type WorkflowImportRequestApiSegmentCohorts = { [key: string]: number }
+
+/**
+ * Customer.io layout id to the layout's `body`, from `GET /v1/environments/{environment_id}/layouts/{layout_id}`. An email whose template names a `layout_id` is wrapped in that layout at `{{ content }}`.
+ */
+export type WorkflowImportRequestApiLayouts = { [key: string]: string }
+
+/**
+ * * `customerio` - Customer.io
+ */
+export type ImportProviderKeyEnumApi = (typeof ImportProviderKeyEnumApi)[keyof typeof ImportProviderKeyEnumApi]
+
+export const ImportProviderKeyEnumApi = {
+    Customerio: 'customerio',
+} as const
+
+/**
+ * The `campaign` object from Customer.io's `GET /v1/environments/{environment_id}/campaigns/{campaign_id}` (Journeys UI API, what the Customer.io CLI and MCP read). Must include `id`, `type`, `edges` and the trigger fields.
+ */
+export type CustomerioCampaignApiCampaign = { [key: string]: unknown }
+
+export type CustomerioCampaignApiActionsItem = { [key: string]: unknown }
+
+export interface CustomerioCampaignApi {
+    /** The `campaign` object from Customer.io's `GET /v1/environments/{environment_id}/campaigns/{campaign_id}` (Journeys UI API, what the Customer.io CLI and MCP read). Must include `id`, `type`, `edges` and the trigger fields. */
+    campaign: CustomerioCampaignApiCampaign
+    /** The top-level `actions` array from the same response, every step of the automation. */
+    actions: CustomerioCampaignApiActionsItem[]
+    /** The message templates the actions point at, from `GET /v1/environments/{environment_id}/templates/{template_id}`: a list of template objects, or an object keyed by template id. Leave them out when the project stored a Customer.io App API key: PostHog then reads the content from Customer.io itself. Without either, messages import with empty content. */
+    templates?: unknown
+}
+
+export interface CustomerioSenderIdentityApi {
+    /** The sender identity's id, which templates name in `from_identity_id`. */
+    id: string
+    /** The address the sender sends from. */
+    email: string
+    /** The sender's display name. */
+    name?: string
+}
+
+export interface CustomerioSegmentApi {
+    /** The segment's id. */
+    id: string
+    /** The segment's name. */
+    name: string
+    /** The segment's type: `dynamic`, or `static` for a hand-made list. */
+    type: string
+}
+
+export interface WorkflowImportRequestApi {
+    /** The tool the automations come from.
+     *
+     * * `customerio` - Customer.io */
+    source: ImportProviderKeyEnumApi
+    /** The automations to import, at most 50. People are never read from these objects. */
+    campaigns: CustomerioCampaignApi[]
+    /** Customer.io snippet name to its content, inlined where a message uses `{% snippet "name" %}`. */
+    snippets?: WorkflowImportRequestApiSnippets
+    /** Customer.io segment id to the PostHog cohort that replaces it. Segment triggers and segment conditions with no cohort here are left for the team to set. */
+    segment_cohorts?: WorkflowImportRequestApiSegmentCohorts
+    /** Customer.io layout id to the layout's `body`, from `GET /v1/environments/{environment_id}/layouts/{layout_id}`. An email whose template names a `layout_id` is wrapped in that layout at `{{ content }}`. */
+    layouts?: WorkflowImportRequestApiLayouts
+    /** Customer.io sender identities, from `GET /v1/environments/{environment_id}/identities?type=email`. Each email gets the PostHog sender with the same address. */
+    sender_identities?: CustomerioSenderIdentityApi[]
+    /** Customer.io segment ids, names and types, without members, so the notes can name each segment and flag static ones. */
+    segments?: CustomerioSegmentApi[]
+    /** When true, translate and check the automations but save nothing, to preview the import. */
+    dry_run?: boolean
+}
+
+/**
+ * * `preview` - Preview
+ * * `created` - Created
+ * * `updated` - Updated
+ * * `skipped` - Skipped
+ * * `failed` - Failed
+ */
+export type WorkflowImportStatusEnumApi = (typeof WorkflowImportStatusEnumApi)[keyof typeof WorkflowImportStatusEnumApi]
+
+export const WorkflowImportStatusEnumApi = {
+    Preview: 'preview',
+    Created: 'created',
+    Updated: 'updated',
+    Skipped: 'skipped',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `approximated` - Approximated
+ * * `unsupported` - Unsupported
+ * * `needs_input` - Needs input
+ */
+export type WorkflowImportNoteLevelEnumApi =
+    (typeof WorkflowImportNoteLevelEnumApi)[keyof typeof WorkflowImportNoteLevelEnumApi]
+
+export const WorkflowImportNoteLevelEnumApi = {
+    Approximated: 'approximated',
+    Unsupported: 'unsupported',
+    NeedsInput: 'needs_input',
+} as const
+
+export interface WorkflowImportNoteApi {
+    /** `approximated`: the step behaves differently in PostHog. `unsupported`: the setting was left out. `needs_input`: the team must set something before enabling.
+     *
+     * * `approximated` - Approximated
+     * * `unsupported` - Unsupported
+     * * `needs_input` - Needs input */
+    level: WorkflowImportNoteLevelEnumApi
+    /** What changed or was left out, and what to do about it. */
+    message: string
+    /**
+     * The workflow step the note is about, or null.
+     * @nullable
+     */
+    step_id: string | null
+    /**
+     * That step's name, or null.
+     * @nullable
+     */
+    step_name: string | null
+}
+
+export interface WorkflowImportResultApi {
+    /** The automation's id in Customer.io. */
+    source_id: string
+    /** The automation's name. */
+    name: string
+    /** `preview` when dry_run is set, `created` or `updated` for a saved draft, `skipped` when an earlier import of it is no longer a draft, `failed` when the draft does not pass the workflow checks.
+     *
+     * * `preview` - Preview
+     * * `created` - Created
+     * * `updated` - Updated
+     * * `skipped` - Skipped
+     * * `failed` - Failed */
+    status: WorkflowImportStatusEnumApi
+    /**
+     * The draft workflow's id, when one was saved. In a preview, the draft an import would replace.
+     * @nullable
+     */
+    workflow_id: string | null
+    /** What the import changed or left out. */
+    notes: WorkflowImportNoteApi[]
+    /** Why the draft failed the workflow checks, for `failed`. */
+    validation_errors: string[]
+}
+
+export interface WorkflowImportResponseApi {
+    /** One result per automation, in request order. */
+    results: WorkflowImportResultApi[]
+    /** True when PostHog read message content from Customer.io with the project's stored App API key. */
+    content_fetched: boolean
+}
+
+export interface WorkflowImportRecordApi {
+    /** The import record's id. */
+    readonly id: string
+    /** The tool the workflow was imported from. */
+    readonly source: string
+    /** The automation's id in that tool. */
+    readonly source_id: string
+    /** The automation's name in that tool. */
+    readonly source_name: string
+    /**
+     * The workflow.
+     * @nullable
+     */
+    readonly hog_flow: string | null
+    /** What the import changed or left out. */
+    readonly notes: readonly WorkflowImportNoteApi[]
+    /** When the workflow was last imported. */
+    readonly updated_at: string
+}
+
 export type PeopleImportCreateApiRowsItem = { [key: string]: string }
 
 export interface PeopleImportCreateApi {
@@ -3379,4 +3561,11 @@ export type HogFlowsSendCalendarRetrieveParams = {
      * Start of the shown range, inclusive, as an ISO 8601 datetime.
      */
     start: string
+}
+
+export type WorkflowImportsForWorkflowRetrieveParams = {
+    /**
+     * The workflow to read the import of.
+     */
+    hog_flow_id: string
 }
