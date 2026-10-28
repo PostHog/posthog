@@ -143,29 +143,20 @@ def restricted_property_keys_for_table_type(
             or restriction.group_type_index == group_type_index
         )
     }
+    native_event_json = context.uses_new_events_schema() and isinstance(table, (EventsTable, EventsPersonSubTable))
     if prop_def_type == PropertyDefinition.Type.EVENT:
-        # Identify events carry person properties inside `$set` / `$set_once`, so a restricted person property is
-        # also a restricted nested event path. JSONDropKeys and the path overlap check both read dotted keys as paths.
-        restricted_person_keys = {
-            restriction.name
-            for restriction in context.restricted_properties
-            if restriction.property_type == PropertyDefinition.Type.PERSON
-        }
-        restricted_keys |= {
-            f"{container}.{key}" for container in PERSON_PROPERTY_CONTAINERS for key in restricted_person_keys
-        }
-    if restricted_keys and context.uses_new_events_schema() and isinstance(table, (EventsTable, EventsPersonSubTable)):
+        # Identify events carry person properties inside `$set` / `$set_once`.
+        for restriction in context.restricted_properties:
+            if restriction.property_type == PropertyDefinition.Type.PERSON:
+                for container in PERSON_PROPERTY_CONTAINERS:
+                    restricted_keys.add(f"{container}.{restriction.name}")
+                    if native_event_json and "." in restriction.name:
+                        # Native JSON escapes dots in the property name, but not in the container.
+                        restricted_keys.add(f"{container}.{restriction.name.replace('.', '%2E')}")
+    if restricted_keys and native_event_json:
         # The native JSON columns store the flat key `a.b` under the path `a%2Eb`, and the printer reads a
         # requested `a%2Eb` from that same path. Restrict both spellings, or the encoded one reads the value.
         restricted_keys |= {key.replace(".", "%2E") for key in restricted_keys if "." in key}
-        if prop_def_type == PropertyDefinition.Type.EVENT:
-            # The container is a path segment, but dots inside a person property name are escaped within that key.
-            restricted_keys |= {
-                f"{container}.{key.replace('.', '%2E')}"
-                for container in PERSON_PROPERTY_CONTAINERS
-                for key in restricted_person_keys
-                if "." in key
-            }
         # Quarantine contains raw property values inside a string, beyond JSONDropKeys' reach.
         restricted_keys.add(UNPARSEABLE_PROPERTIES_KEY)
     return restricted_keys
