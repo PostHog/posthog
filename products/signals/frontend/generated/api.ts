@@ -109,6 +109,7 @@ import type {
     SignalReportFeedbackRequestApi,
     SignalReportFeedbackResponseApi,
     SignalReportFeedbackStateApi,
+    SignalReportLeaveReviewersApi,
     SignalReportMergeRequestApi,
     SignalReportMergeResponseApi,
     SignalReportMetricRefreshRequestApi,
@@ -177,6 +178,8 @@ import type {
     SignalsScoutRunsRecentPerScoutParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
+    SubmitMonitoringResultRequestApi,
+    SubmitMonitoringResultResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -1075,12 +1078,34 @@ export const signalsReportsReviewersUpdate = async (
     })
 }
 
+export const getSignalsReportsReviewersMeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/reviewers/me/`
+}
+
+/**
+ * Take the calling user off this report's suggested reviewers, and record why. The other reviewers stay, and the report stays open. Succeeds whether or not the caller was on the list.
+ * @summary Step off a report's suggested reviewers, with a reason
+ */
+export const signalsReportsReviewersMeCreate = async (
+    projectId: string,
+    id: string,
+    signalReportLeaveReviewersApi?: SignalReportLeaveReviewersApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSignalsReportsReviewersMeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportLeaveReviewersApi),
+    })
+}
+
 export const getSignalsReportsReviewersMeDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/reviewers/me/`
 }
 
 /**
- * Take the calling user off this report's suggested reviewers, leaving the other reviewers as they are. The report itself is untouched: it stays open for whoever is left, and for the project. Succeeds whether or not the caller was on the list.
+ * Take the calling user off this report's suggested reviewers, leaving the other reviewers as they are. The report itself is untouched: it stays open for whoever is left, and for the project. Succeeds whether or not the caller was on the list. POST to the same path to say why.
  * @summary Step off a report's suggested reviewers
  */
 export const signalsReportsReviewersMeDestroy = async (
@@ -2682,6 +2707,28 @@ export const signalsScoutLighthouseAudit = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(lighthouseAuditRequestApi),
+    })
+}
+
+export const getSignalsScoutSubmitMonitoringResultUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/monitoring_result/`
+}
+
+/**
+ * Submit the assigned Monitoring check's evidence and verdict while the scout is running. Only the owning Monitoring scout can call this endpoint. The server derives the check, attempt, definition, and fixed window from the run. Validation errors record nothing: correct the fields and retry in the same run. An identical accepted submission is idempotent. This records an evaluation and leaves the report in Monitoring.
+ * @summary Submit the result of an authored Monitoring check
+ */
+export const signalsScoutSubmitMonitoringResult = async (
+    projectId: string,
+    runId: string,
+    submitMonitoringResultRequestApi: SubmitMonitoringResultRequestApi,
+    options?: RequestInit
+): Promise<SubmitMonitoringResultResponseApi> => {
+    return apiMutator<SubmitMonitoringResultResponseApi>(getSignalsScoutSubmitMonitoringResultUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(submitMonitoringResultRequestApi),
     })
 }
 

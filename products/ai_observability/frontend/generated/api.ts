@@ -687,7 +687,8 @@ export const getAiObservabilityTracesEvaluationsRetrieveUrl = (projectId: string
 }
 
 /**
- * A trace's evaluation results, newest first and at most 250, each with its outcome and label ready to render.
+ * A trace's evaluation results, newest first and at most 250, each with its outcome and label ready to render,
+ * plus a roll-up of the latest run of each evaluation on each node.
  */
 export const aiObservabilityTracesEvaluationsRetrieve = async (
     projectId: string,

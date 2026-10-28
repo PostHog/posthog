@@ -101,8 +101,10 @@ describe('InboxBulkSelectionBar', () => {
             />
         )
 
+        // The button opens the reasons; picking one is what sends the requests.
+        fireEvent.click(screen.getByText('Unassign me'))
         await expectLogic(logic, () => {
-            fireEvent.click(screen.getByText('Unassign me'))
+            fireEvent.click(screen.getByText('Without a reason'))
         })
             .toDispatchActions([logic.actionCreators.unassignedMe(unassigned), 'bulkUnassignMeSuccess'])
             .toMatchValues({ selectedReportIds: [] })

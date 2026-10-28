@@ -43,6 +43,7 @@ import type {
     ExperimentsListParams,
     ExperimentsMatchingIdsRetrieveParams,
     ExperimentsPromptTemplatesRetrieve200Item,
+    ExperimentsRunningTimeTargetRetrieveParams,
     ExperimentsSessionContextRetrieveParams,
     ExperimentsTimeseriesResultsRetrieveParams,
     PaginatedExperimentBasicListApi,
@@ -54,6 +55,7 @@ import type {
     RecalculateMetricsRequestApi,
     RunningTimeCalculationInputApi,
     RunningTimeCalculationResultApi,
+    RunningTimeTargetApi,
     ShipVariantApi,
 } from './api.schemas'
 
@@ -731,10 +733,24 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * reads a warehouse table or view the caller may not query is not checked for them. The finding
  * names each failing metric in the `evidence` keys `metric_N`, `metric_N_role`, `metric_N_error`
  * (the error class, which is also the subcode of the first metric) and `metric_N_message` (the
- * compiler's message). It is a warning when a primary metric fails before the end, and info
- * otherwise. A failure inside ClickHouse, such as a type that the data holds, isn't found. A
- * failing metric compiles again on every request. A metric that compiles is cached per caller
- * for a day, so a cohort or table that is deleted after a compile can take up to a day to show.
+ * compiler's message). It is a warning when a primary metric fails, also after the end, because
+ * the calculation after the fix reads the events up to the end. It is info otherwise. A failure
+ * inside ClickHouse, such as a type that the data holds, isn't found. A failing metric compiles
+ * again on every request. A metric that compiles is cached per caller for a day, so a cohort or
+ * table that is deleted after a compile can take up to a day to show.
+ *
+ * `metric_calculation_failed` reports each metric whose latest calculation failed, from the
+ * latest finished calculation that the results page shows. It leaves out a metric that
+ * `metric_cannot_compile` reports. The subcode is the kind of the first failure: `busy`,
+ * `query_limit` (the query reached the read, memory, time or length limit), `settings` (a setting of
+ * the metric or the experiment), `not_enough_data`, `experiment_too_old` (the experiment
+ * started too long ago to calculate again) or `unexpected_error`. Each metric is in the
+ * `evidence` keys `metric_N`, `metric_N_role`, `metric_N_failure` (the kind), `metric_N_error`
+ * (the limit, or the family of a setting) and `metric_N_message` (only a message that PostHog
+ * wrote for users), and `calculated_at` is when the calculation finished. It is a
+ * warning when a primary metric fails for a kind that a change fixes (`query_limit`,
+ * `settings`, `experiment_too_old`), also after the end, because the calculation after the fix
+ * reads the events up to the end. It is info otherwise.
  *
  * The severity of the `some_conditions_pinned` finding follows the largest share that the
  * users of the pinned release conditions make up among the users who got one variant from
@@ -1073,6 +1089,46 @@ export const experimentsResumeCreate = async (
     return apiMutator<ExperimentApi>(getExperimentsResumeCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getExperimentsRunningTimeTargetRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: ExperimentsRunningTimeTargetRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiments/${id}/running_time_target/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiments/${id}/running_time_target/`
+}
+
+/**
+ * The target sample of the experiment's running time estimate, which the experiment page's header compares
+ * with the exposures so far, and what the experiment can detect over time.
+ *
+ * In manual running time mode it is the saved target. Otherwise it is sized from the first primary metric's
+ * current result: the variance the analysis uses (with CUPED when the analysis applied it) and the flag's
+ * traffic split, so that the comparison of each variant with the control reaches the minimum detectable effect.
+ */
+export const experimentsRunningTimeTargetRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: ExperimentsRunningTimeTargetRetrieveParams,
+    options?: RequestInit
+): Promise<RunningTimeTargetApi> => {
+    return apiMutator<RunningTimeTargetApi>(getExperimentsRunningTimeTargetRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

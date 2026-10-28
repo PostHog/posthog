@@ -490,4 +490,19 @@ class TestLoadSources(SimpleTestCase):
     def test_a_broken_declaration_raises(self, _name: str, module: SimpleNamespace) -> None:
         with patch.object(highlight_registry, "load_product_modules", return_value=[module]):
             with self.assertRaises(highlight_registry.HighlightRegistryError):
-                highlight_registry.load_sources.__wrapped__()
+                highlight_registry.load_registry.__wrapped__()
+
+    def test_each_source_belongs_to_the_product_that_declares_it(self) -> None:
+        flags = SimpleNamespace(
+            __name__="products.feature_flags.backend.facade.today_highlights",
+            HIGHLIGHT_SOURCES=(HighlightSource(name="flags", find=lambda _c: HighlightFindings()),),
+        )
+        pulse = SimpleNamespace(
+            __name__="products.today.backend.facade.today_highlights",
+            HIGHLIGHT_SOURCES=(HighlightSource(name="routine", find=lambda _c: HighlightFindings()),),
+        )
+
+        with patch.object(highlight_registry, "load_product_modules", return_value=[flags, pulse]):
+            registry = highlight_registry.load_registry.__wrapped__()
+
+        self.assertEqual(dict(registry.products), {"flags": "feature_flags", "routine": "today"})

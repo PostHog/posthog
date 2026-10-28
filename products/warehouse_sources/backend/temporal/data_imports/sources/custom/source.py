@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.custom_oauth2_integration import (
     CustomOAuth2Integration,
     get_custom_oauth2_integration,
@@ -874,7 +875,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # first sync's trust-on-first-use claim, closing the window where another create by the same
         # user (matching the same unbound row) could adopt it. The guarded filter makes a lost race
         # a no-op; sync-time authorization remains the backstop.
-        oauth2_integration_id = (source_model.job_inputs or {}).get("auth_oauth2_integration_id")
+        oauth2_integration_id = SourceInputsStore.load(source_model).get("auth_oauth2_integration_id")
         if oauth2_integration_id:
             CustomOAuth2Integration.objects.for_team(team_id).filter(
                 id=oauth2_integration_id, external_data_source__isnull=True

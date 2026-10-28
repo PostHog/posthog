@@ -22,12 +22,12 @@ interface HeatmapCaptureResult {
     short_id: string
 }
 
-interface CaptureProgress {
+export interface CaptureProgress {
     done: number
     total: number
 }
 
-interface CaptureSummary {
+export interface CaptureSummary {
     savedWidths: number
     totalWidths: number
 }

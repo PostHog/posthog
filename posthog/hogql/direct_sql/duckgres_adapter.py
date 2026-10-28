@@ -38,6 +38,7 @@ from posthog.psycopg_helpers import resolve_psycopg_hostaddr_with_timeout
 from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseSourceAuth, ServiceCredentialUnavailable
 from products.managed_warehouse.backend.facade.sql_editor import resolve_managed_warehouse_postgres_connection
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 
 if TYPE_CHECKING:
     from psycopg.pq.abc import PGresult
@@ -343,9 +344,10 @@ class DuckgresRawAdapter:
         if source.team_id != team.pk or not source.is_managed_warehouse_ready:
             raise ExposedHogQLError(MANAGED_WAREHOUSE_UNAVAILABLE_ERROR)
 
-        job_inputs = source.job_inputs
-        if not isinstance(job_inputs, dict):
-            raise ExposedHogQLError(MANAGED_WAREHOUSE_UNAVAILABLE_ERROR)
+        try:
+            job_inputs = SourceInputsStore.load(source)
+        except UnreadableSourceInputsError as error:
+            raise ExposedHogQLError(MANAGED_WAREHOUSE_UNAVAILABLE_ERROR) from error
 
         host = job_inputs.get("host")
         database = job_inputs.get("database")

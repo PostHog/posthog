@@ -679,6 +679,10 @@ class WorkflowRef:
     has_email_step: bool
 
 
+# Engagement tracking and message assets key on this id, so it stays stable across versions.
+TRANSACTIONAL_EMAIL_ACTION_ID: Final[str] = "transactional_email"
+
+
 @frozen
 class TransactionalEmailContent:
     """What a transactional email's workflow sends, taken from the message template it was made from."""
@@ -734,6 +738,7 @@ class WorkflowListQuery:
     suggestions_first: bool = False
     # A workflow matches when it carries at least one of these tags.
     tags: frozenset[str] = frozenset()
+    latest_send_first: bool = False
     field_filters: Mapping[str, str] = field(default_factory=dict)
 
 
@@ -958,6 +963,34 @@ class PreparedIdeas:
 
 class DataSuggestionNotFound(Exception):
     """The suggestion id is unknown, usually because the cached suggestions expired."""
+
+
+# not_yet: did one event but not the next one. regulars: did one event often. lapsed: did it before, not lately.
+AudienceKind = Literal["not_yet", "regulars", "lapsed"]
+
+
+@frozen
+class AudienceSuggestion:
+    id: str
+    name: str
+    description: str
+    reason: str
+    kind: AudienceKind
+    event: str
+    # The event the audience has not done yet. Set only for not_yet.
+    missing_event: str | None
+    window_days: int
+    # How many times the event must happen in the window. Set only for regulars.
+    min_count: int | None
+    # People in the audience with an email address, counted when the suggestion was made.
+    reachable_count: int
+    cohort_filters: dict[str, Any]
+
+
+@frozen
+class AudienceSuggestionsResult:
+    status: DataSuggestionsStatus
+    suggestions: tuple[AudienceSuggestion, ...]
 
 
 class WorkflowIdeaAlreadyResolved(Exception):
