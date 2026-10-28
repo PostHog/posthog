@@ -422,6 +422,8 @@ The BI assistant receives the current worksheet draft, including its unsaved nam
 
 ## Connected fields in BI mode
 
+**Check key uniqueness** opens an editable SQL check for repeated or null keys in a configured relationship's joined table. Press **Run** in the SQL editor to execute it. The check scans the full joined table, ignores worksheet filters, and returns at most 100 key groups. It does not check missing matches or prove that a join is safe for every aggregation. Expression-based keys require a custom SQL check.
+
 Below Dimensions and Measures, **Connections** lists the selected table's linked tables and views.
 Expand a connection to load its dimensions, measures, and nested connections. Inside connections,
 fields and further links appear without section headings.
