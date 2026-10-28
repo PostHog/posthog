@@ -19,6 +19,8 @@ It is exercised locally via management commands, and it is also used by the prod
   The repository a report's signals were filed against. A single unambiguous GitHub issue repository supplies a selection default; issues from two repositories supply none. An unavailable source can still route to an eligible confirmed-private repository, or to any eligible repository when the source is confirmed public.
 - `research.py`
   Orchestrates a multi-turn sandbox session over a report's signals.
+  With `code_available=False`, the opening prompt states once that no repository is checked out. Research uses project evidence, omits code-history requirements, and converts its response to the canonical `SignalFinding` before persistence.
+  Reviewer selection uses project evidence and human corrections; verification uses the shared evidence-based plan prompt, and PR-stack planning is skipped. Caller activities control production eligibility for repository-free research.
   The agent researches each signal, then produces:
   - per-signal findings
   - actionability assessment
