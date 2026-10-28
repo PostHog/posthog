@@ -53,6 +53,11 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertNotIn("personalization", response_data)
         self.assertNotIn("setup", response_data)
 
+    @parameterized.expand(["not-a-uuid", "123"])
+    def test_retrieve_organization_with_non_uuid_id_returns_404(self, organization_id: str) -> None:
+        response = self.client.get(f"/api/organizations/{organization_id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_project_group_tags_are_visible_in_organization_projects(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

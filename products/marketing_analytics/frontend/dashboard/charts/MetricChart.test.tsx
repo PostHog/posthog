@@ -37,8 +37,7 @@ describe('MetricChart', () => {
                     { key: 'upper', label: 'Upper line', data: [200, 200, 200] },
                 ]}
                 onFocus={onFocus}
-            />,
-            { nativeTooltip: true }
+            />
         )
 
         await clickAtIndex(chart.element, 1, props.labels.length)
@@ -52,8 +51,7 @@ describe('MetricChart', () => {
                 {...props}
                 format="percentage"
                 series={[{ key: 'email', label: 'Email', data: [0, 0.42, 1] }]}
-            />,
-            { nativeTooltip: true }
+            />
         )
         const tooltip = createDefaultTooltipAccessor(await hoverUntilTooltip(chart.element, 1, props.labels.length))
 
@@ -63,8 +61,7 @@ describe('MetricChart', () => {
 
     it('shows the supplied error instead of stale data and hides it during retry', () => {
         const { container, rerender, getByText, queryByText } = renderChart(
-            <MetricChart {...props} series={[{ key: 'email', label: 'Email', data: [0, 12, 8] }]} />,
-            { nativeTooltip: true }
+            <MetricChart {...props} series={[{ key: 'email', label: 'Email', data: [0, 12, 8] }]} />
         )
         rerender(
             <MetricChart

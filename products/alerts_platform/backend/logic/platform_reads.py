@@ -79,6 +79,8 @@ def _configuration_view(configuration: PlatformAlertConfiguration) -> PlatformAl
         created_at=configuration.created_at,
         updated_at=configuration.updated_at,
         alerts=tuple(instance_view(alert, configuration) for alert in configuration.alerts.all()),
+        labels=configuration.labels,
+        annotations=configuration.annotations,
     )
 
 
@@ -122,10 +124,16 @@ def list_configurations(
 
 
 def get_configuration(
-    *, team_id: int, source_kinds: Sequence[str], configuration_id: UUID
+    *, team_id: int, source_kinds: Sequence[str], configuration_id: UUID, lock: bool = False
 ) -> PlatformAlertConfigurationView | None:
-    """One configuration, or None when it does not exist or the caller may not read its kind."""
-    row = _readable(team_id, source_kinds).filter(id=configuration_id).first()
+    """One configuration, or None when it does not exist or the caller may not read its kind.
+
+    With `lock`, the row stays locked until the caller's transaction ends, so a delete waits for it.
+    """
+    rows = _readable(team_id, source_kinds).filter(id=configuration_id)
+    if lock:
+        rows = rows.select_for_update(no_key=True)
+    row = rows.first()
     return None if row is None else _configuration_view(row)
 
 

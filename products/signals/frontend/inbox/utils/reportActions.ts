@@ -17,10 +17,18 @@ export function canUnassignMe(report: SignalReport, isScopedToMe: boolean): bool
  * the server-side autostart rules: only when ready & actionable, or blocked on user input.
  */
 export function canCreateImplementationPr(report: SignalReport): boolean {
+    if (report.is_self_improvement_report && !report.repo_slug) {
+        return false
+    }
     if (primaryReportPullRequest(report).url) {
         return false
     }
     if (report.already_addressed === true) {
+        return false
+    }
+    // A plan's steps do its work, so a run on the plan itself would repeat theirs. Auto-start skips a
+    // plan for the same reason. List rows carry no `plan`, so only a loaded report can tell.
+    if (report.plan?.id === report.id) {
         return false
     }
     if (report.status === 'pending_input') {
