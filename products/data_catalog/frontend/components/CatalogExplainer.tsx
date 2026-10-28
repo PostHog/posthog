@@ -13,9 +13,9 @@ const EXPLAINER_PANEL_KEY = 'how-it-works'
 const HedgehogStampApproved = pngHoggie(stampApprovedPng)
 
 const STEPS = [
-    'You or an agent proposes a metric with a name, a description, and a definition.',
-    'Someone on your team reviews the definition and approves it.',
-    'PostHog AI and agents on the PostHog MCP compute the metric from the approved definition.',
+    'Add the metrics you and your team care about, like revenue or active users.',
+    'Approve the definition, so it becomes the one your team uses.',
+    'From then on, PostHog AI and every agent compute it from that definition.',
 ]
 
 export function CatalogExplainer(): JSX.Element | null {
@@ -39,7 +39,7 @@ export function CatalogExplainer(): JSX.Element | null {
                         children: (
                             <span className="flex items-center gap-2">
                                 <IconBook className="size-4 text-[var(--catalog-accent)]" />
-                                How the data catalog works
+                                One definition for every metric
                             </span>
                         ),
                         sideAction: {
