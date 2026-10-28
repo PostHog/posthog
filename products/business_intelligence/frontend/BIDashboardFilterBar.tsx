@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
-import { Badge, Button } from '@posthog/quill'
+import { IconFilter, IconX } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+import { Button, ButtonGroup, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Link, LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { biDashboardCrossFilterLogic } from './biDashboardCrossFilterLogic'
@@ -16,51 +18,72 @@ export function BIDashboardFilterBar({ dashboardId }: { dashboardId: number }): 
         return null
     }
     const targetCount = Object.keys(targets).length
+    const summary = selection.selection.labels.map(({ name, value }) => `${name}: ${value}`).join(', ')
     const clear = (): void => setSelection(null)
-    return (
-        <div
-            className="flex min-w-0 max-w-full flex-wrap items-center gap-2 border-l border-primary pl-2"
-            data-attr="bi-dashboard-filter-bar"
-            data-quill={todayRailNav ? '' : undefined}
-        >
-            <div className="flex min-w-0 flex-wrap items-center gap-2" role="status">
-                {todayRailNav ? <Badge>BI</Badge> : <LemonTag>BI</LemonTag>}
+    const details = (
+        <div className="flex max-w-80 flex-col gap-2 text-xs">
+            <span className="font-semibold break-words">{summary}</span>
+            <span className="break-words">
+                <span>Filter from </span>
                 {todayRailNav ? (
-                    <LinkPrimitive
-                        to={sourceInsightUrl}
-                        className="max-w-48 truncate text-xs underline"
-                        title={`Filter from ${selection.title}`}
-                    >
+                    <LinkPrimitive to={sourceInsightUrl} className="underline">
                         {selection.title}
                     </LinkPrimitive>
                 ) : (
-                    <Link
-                        to={sourceInsightUrl}
-                        className="max-w-48 truncate text-xs"
-                        title={`Filter from ${selection.title}`}
-                    >
-                        {selection.title}
-                    </Link>
+                    <Link to={sourceInsightUrl}>{selection.title}</Link>
                 )}
-                {selection.selection.labels.map(({ name, value }, index) =>
-                    todayRailNav ? (
-                        <Badge key={index} className="min-w-0 max-w-full">
-                            <span className="truncate">{`${name}: ${value}`}</span>
-                        </Badge>
-                    ) : (
-                        <LemonTag key={index} className="max-w-full">
-                            <span className="truncate">{`${name}: ${value}`}</span>
-                        </LemonTag>
-                    )
-                )}
-                <span className="text-secondary text-xs">{`${targetCount} ${targetCount === 1 ? 'worksheet' : 'worksheets'} filtered`}</span>
-            </div>
+            </span>
+            <span>{`${targetCount} ${targetCount === 1 ? 'worksheet' : 'worksheets'} filtered`}</span>
+        </div>
+    )
+    return (
+        <div className="flex min-w-0 max-w-full" data-attr="bi-dashboard-filter-bar">
             {todayRailNav ? (
-                <Button onClick={clear}>Clear BI filters</Button>
+                <Popover>
+                    <ButtonGroup className="min-w-0 max-w-full">
+                        <PopoverTrigger
+                            render={
+                                <Button variant="outline" className="min-w-0" aria-label={`BI filter: ${summary}`} />
+                            }
+                        >
+                            <IconFilter />
+                            <span className="max-w-64 truncate">{`BI: ${summary}`}</span>
+                        </PopoverTrigger>
+                        <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={clear}
+                            aria-label="Clear BI filters"
+                            tooltip="Clear BI filters"
+                        >
+                            <IconX />
+                        </Button>
+                    </ButtonGroup>
+                    <PopoverContent align="start">{details}</PopoverContent>
+                </Popover>
             ) : (
-                <LemonButton size="xsmall" onClick={clear}>
-                    Clear BI filters
-                </LemonButton>
+                <>
+                    <LemonDropdown overlay={details} placement="bottom-start">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconFilter />}
+                            className="min-w-0 rounded-r-none"
+                            aria-label={`BI filter: ${summary}`}
+                        >
+                            <span className="max-w-64 truncate">{`BI: ${summary}`}</span>
+                        </LemonButton>
+                    </LemonDropdown>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconX />}
+                        className="rounded-l-none border-l-0"
+                        onClick={clear}
+                        aria-label="Clear BI filters"
+                        tooltip="Clear BI filters"
+                    />
+                </>
             )}
         </div>
     )

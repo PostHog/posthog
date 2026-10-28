@@ -24,13 +24,11 @@ import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilte
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { Scene } from 'scenes/sceneTypes'
 
-import { isSharedView } from '~/exporter/exporterViewLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
 import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
-import { DashboardPlacement, InsightLogicProps, IntervalType } from '~/types'
+import { InsightLogicProps, IntervalType } from '~/types'
 
-import { BIDashboardFilterBar } from 'products/business_intelligence/frontend/BIDashboardFilterBar'
 import { DashboardMetricVariables } from 'products/metrics/frontend/components/dashboardVariables/DashboardMetricVariables'
 
 interface DashboardEditBarProps {
@@ -98,8 +96,7 @@ export function DashboardIntervalFilter(): JSX.Element {
 }
 
 export function DashboardEditBar({ showDateFilter = true, className }: DashboardEditBarProps): JSX.Element {
-    const { dashboard, placement, layoutEditMode, dashboardEditing, hasVariables, effectiveEditBarFilters } =
-        useValues(dashboardLogic)
+    const { dashboard, dashboardEditing, hasVariables, effectiveEditBarFilters } = useValues(dashboardLogic)
     const { setDates, setProperties, setBreakdownFilter, setDashboardEditing } = useActions(dashboardLogic)
     const controlsEnabled = useFeatureFlag('METRICS_DASHBOARD_CONTROLS')
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -244,9 +241,6 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                 </BindLogic>
             </DashboardControlSlot>
 
-            {dashboard && placement === DashboardPlacement.Dashboard && !layoutEditMode && !isSharedView() && (
-                <BIDashboardFilterBar dashboardId={dashboard.id} />
-            )}
             <VariablesForDashboard />
             <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
                 <DashboardEditBarAdvancedFilters showCompareFilter={showDateFilter} />
