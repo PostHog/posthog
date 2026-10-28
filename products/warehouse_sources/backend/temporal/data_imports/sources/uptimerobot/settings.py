@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -27,7 +29,7 @@ def _datetime_incremental_fields() -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@frozen
 class UptimeRobotEndpointConfig:
     name: str
     # v2 API method (e.g. "getMonitors"). Every v2 call is a form-encoded POST with the api_key in

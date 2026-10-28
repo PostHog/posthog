@@ -22,14 +22,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobo
 from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobot.source import UptimerobotSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobot.uptimerobot import (
     AUTH_ERROR_PREFIX,
+    MAX_RETRY_AFTER_SECONDS,
     UptimeRobotAPIError,
     UptimeRobotAuthError,
     UptimeRobotResumeConfig,
     UptimeRobotRetryableError,
+    _get_v3,
     _next_offset,
     _post,
     _scrub_alert_contact,
     _to_unix_timestamp,
+    _wait_v3,
     get_rows,
     uptimerobot_source,
 )
@@ -146,6 +149,45 @@ class TestPost:
     def test_transient_statuses_raise_retryable(self, _name: str, status_code: int) -> None:
         with pytest.raises(UptimeRobotRetryableError):
             self._call(_response(status_code=status_code))
+
+
+class TestGetV3RetryAfter:
+    @staticmethod
+    def _raised(status_code: int, headers: dict[str, str]) -> UptimeRobotRetryableError:
+        response = _response(status_code=status_code)
+        response.headers = headers
+        session = MagicMock()
+        session.get.return_value = response
+        with pytest.raises(UptimeRobotRetryableError) as excinfo:
+            _get_v3.__wrapped__(session, "/tags", {}, MagicMock())  # type: ignore[attr-defined]
+        return excinfo.value
+
+    @staticmethod
+    def _wait_after(exc: Exception) -> float:
+        retry_state = MagicMock()
+        retry_state.attempt_number = 1
+        retry_state.outcome.exception.return_value = exc
+        return _wait_v3(retry_state)
+
+    @parameterized.expand(
+        [
+            ("seconds", 429, {"Retry-After": "42"}, 42.0),
+            ("missing_header", 429, {}, None),
+            ("http_date_falls_back", 429, {"Retry-After": "Wed, 21 Oct 2015 07:28:00 GMT"}, None),
+            ("server_error_ignores_header", 503, {"Retry-After": "42"}, None),
+        ]
+    )
+    def test_parses_retry_after(
+        self, _name: str, status_code: int, headers: dict[str, str], expected: float | None
+    ) -> None:
+        assert self._raised(status_code, headers).retry_after == expected
+
+    def test_wait_honors_retry_after_up_to_the_cap(self) -> None:
+        assert self._wait_after(UptimeRobotRetryableError("x", retry_after=42)) == 42
+        assert self._wait_after(UptimeRobotRetryableError("x", retry_after=600)) == MAX_RETRY_AFTER_SECONDS
+
+    def test_wait_falls_back_to_backoff_without_retry_after(self) -> None:
+        assert self._wait_after(UptimeRobotRetryableError("x")) <= 30
 
 
 class _FakeResumableManager:

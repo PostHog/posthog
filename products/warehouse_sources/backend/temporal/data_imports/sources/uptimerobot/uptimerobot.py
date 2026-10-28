@@ -1,5 +1,4 @@
 import time
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -7,8 +6,10 @@ from urllib.parse import parse_qs, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     make_tracked_session,
@@ -27,6 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobo
 
 UPTIMEROBOT_BASE_URL = "https://api.uptimerobot.com/v2"
 UPTIMEROBOT_V3_BASE_URL = "https://api.uptimerobot.com/v3"
+
+# Cap on a server-requested v3 wait. Rate limits are per minute, so one window always fits.
+MAX_RETRY_AFTER_SECONDS = 60
 
 # Stable prefix for credential failures — matched by `get_non_retryable_errors` on the source class.
 AUTH_ERROR_PREFIX = "UptimeRobot API key was rejected"
@@ -66,7 +70,9 @@ def _scrub_alert_contact(row: dict[str, Any]) -> dict[str, Any]:
 
 
 class UptimeRobotRetryableError(Exception):
-    pass
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 class UptimeRobotAuthError(Exception):
@@ -77,7 +83,7 @@ class UptimeRobotAPIError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class UptimeRobotResumeConfig:
     # Next 0-indexed row offset to fetch within the current listing.
     offset: int = 0
@@ -156,10 +162,37 @@ def _post(session: requests.Session, method: str, data: dict[str, Any], logger: 
     return payload
 
 
+def _parse_retry_after(value: str | None) -> float | None:
+    """Parse a delta-seconds `Retry-After` header. Anything else falls back to exponential backoff."""
+    if not value:
+        return None
+    try:
+        delay = float(value.strip())
+    except ValueError:
+        return None
+    return delay if delay >= 0 else None
+
+
+_v3_backoff = wait_exponential_jitter(initial=1, max=30)
+
+
+def _v3_server_delay(retry_state: RetryCallState) -> float | None:
+    exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
+    return exc.retry_after if isinstance(exc, UptimeRobotRetryableError) else None
+
+
+def _wait_v3(retry_state: RetryCallState) -> float:
+    retry_after = _v3_server_delay(retry_state)
+    if retry_after is not None:
+        return min(retry_after, MAX_RETRY_AFTER_SECONDS)
+    return _v3_backoff(retry_state)
+
+
 @retry_with_deadline(
     retry=retry_if_exception_type((UptimeRobotRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
+    wait=_wait_v3,
+    requested_wait=_v3_server_delay,
     reraise=True,
 )
 def _get_v3(
@@ -169,8 +202,10 @@ def _get_v3(
     response = session.get(f"{UPTIMEROBOT_V3_BASE_URL}{path}", params=params, timeout=60)
 
     if response.status_code == 429 or response.status_code >= 500:
+        retry_after = _parse_retry_after(response.headers.get("Retry-After")) if response.status_code == 429 else None
         raise UptimeRobotRetryableError(
-            f"UptimeRobot API error (retryable): status={response.status_code}, method={path}"
+            f"UptimeRobot API error (retryable): status={response.status_code}, method={path}",
+            retry_after=retry_after,
         )
 
     if response.status_code == 401:
