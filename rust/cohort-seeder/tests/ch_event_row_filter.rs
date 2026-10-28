@@ -143,10 +143,10 @@ async fn the_row_filter_drops_rows_no_program_can_match() {
     assert_eq!(admitted, vec![false; dropped.len()], "{predicate}");
 }
 
-/// Only a live server shows how ClickHouse formats the stored default expression. Each table pair
-/// answers for its own scan: `$cross_to_flags` has its expression on `sharded_events` and its name
-/// on `flag_evaluations`, and `$cross_to_events` the reverse, so a lookup that mixes the pairs
-/// accepts one of them.
+/// Only a live server shows how ClickHouse formats the stored default expression. Each lookup
+/// reads only the table pair of its scan. `$cross_to_flags` has its expression on `sharded_events`
+/// and its name on `flag_evaluations`. `$cross_to_events` has the reverse. A lookup that mixed the
+/// two pairs would accept one of them.
 #[tokio::test]
 async fn the_lookup_accepts_only_trim_quotes_columns_on_both_tables_of_the_scanned_pair() {
     const DATABASE: &str = "seeder_materialized_lookup";
@@ -202,7 +202,7 @@ async fn the_lookup_accepts_only_trim_quotes_columns_on_both_tables_of_the_scann
         "$cross_to_events",
         "absent",
     ]);
-    // `response` holds `$feature_flag_response` with the same expression, but as a
+    // `response` holds `$feature_flag_response` with the same expression. Its type is
     // LowCardinality(String), so the lookup refuses it.
     for (table, expected) in [
         (ScanTable::Events, ("$feature_flag", "mat_$feature_flag")),
@@ -273,9 +273,7 @@ async fn the_scan_builds_the_join_from_the_overrides_and_streams_the_events() {
     assert_eq!(join_type(&client, &scan).await, "LEFT");
 }
 
-/// Every row is a flag call on `my-flag` from day 1. Each one resolves its person through the
-/// overrides join and counts only when it arrived before the chunk's claim. A row the 90-day import
-/// copied carries `inserted_at = timestamp`, which reads as arrived.
+/// A row that the 90-day import copied carries `inserted_at = timestamp`, which reads as arrived.
 #[tokio::test]
 async fn the_flag_evaluations_scan_resolves_overrides_and_reads_only_rows_inserted_before_the_claim(
 ) {
@@ -324,7 +322,8 @@ async fn the_flag_evaluations_scan_resolves_overrides_and_reads_only_rows_insert
             "INSERT INTO {DATABASE}.sharded_flag_evaluations ({columns}) VALUES {}",
             flag_call(4, "imported", 104, None)
         ),
-        // `plain` is merged only in team 3, and `unmerged` was merged and then deleted.
+        // `plain` has an override only in team 3. A later version deletes the override of
+        // `unmerged`.
         format!(
             "INSERT INTO {DATABASE}.person_distinct_id_overrides VALUES \
              (2, 'merged', toUUID('{}'), 0, 1), \
@@ -368,7 +367,6 @@ async fn the_flag_evaluations_scan_resolves_overrides_and_reads_only_rows_insert
 
 const S_CHUNK_MS: i64 = 200_000_000;
 
-/// The wide scan of one event on day 1 from `table`.
 fn day_one_scan(event_name: &str, table: ScanTable) -> String {
     let ScanPlan::Scan(spec) = plan_scan(
         TeamId(2),

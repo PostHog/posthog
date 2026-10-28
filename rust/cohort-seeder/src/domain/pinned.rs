@@ -85,8 +85,8 @@ impl ScanTable {
     /// Whether the TTL may already have dropped rows of `domain`'s day at `now_ms`. The TTL is
     /// `toDate(timestamp) + 90 days`, so the day's first rows expire 90 days after the UTC date of
     /// the day's start. A team east of UTC starts its day on the UTC date before. Django pins
-    /// `flag_evaluations` only for windows inside the TTL, but a chunk can run or retry days after
-    /// its run was created.
+    /// `flag_evaluations` only for windows inside the TTL. A chunk can still run or retry days
+    /// after Django created its run.
     pub fn past_retention(self, domain: &SeedDomain, now_ms: i64) -> bool {
         match self {
             Self::Events => false,
@@ -970,7 +970,6 @@ mod tests {
         snapshot(pinned, vec![])
     }
 
-    /// A run Django created before it wrote the key keeps scanning `events`.
     #[test]
     fn the_flag_calls_table_reads_events_when_absent_and_each_known_name_as_itself() {
         for (value, expected) in [
@@ -1013,8 +1012,6 @@ mod tests {
         }
     }
 
-    /// A row expires 90 days after its own timestamp's UTC date, so the day's earliest row goes
-    /// first. `events` keeps its history, so it is never past retention.
     #[test]
     fn a_flag_evaluations_day_is_past_retention_once_the_ttl_reaches_its_first_utc_date() {
         // Sydney's day 1 starts on 1970-01-01 in UTC, the date the TTL counts its first rows from.

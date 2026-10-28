@@ -97,7 +97,7 @@ fn lookup_sql(table: ScanTable, expressions: &[&str]) -> String {
 mod tests {
     use super::*;
 
-    /// Over both tables, because their names differ in length, so a batch packed for one can
+    /// Checks both tables because their names differ in length. A batch packed for one table can
     /// overflow a GET for the other.
     #[test]
     fn a_long_lookup_is_split_into_queries_that_each_fit_a_get() {

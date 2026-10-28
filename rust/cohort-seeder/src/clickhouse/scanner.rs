@@ -524,8 +524,8 @@ struct TableQuery {
     projection: ChunkProjection,
 }
 
-/// Methods rather than closures, because a closure that returns a borrow of its argument fails the
-/// `Send` check on the spawned chunk future.
+/// These are methods rather than closures because a closure that returns a borrow of its argument
+/// fails the `Send` check on the spawned chunk future.
 impl TableQuery {
     const fn spec(&self) -> &ScanSpec {
         &self.spec
@@ -1545,11 +1545,9 @@ mod tests {
 
     const PAGEVIEW_HASH: &str = "pageview00000000";
     const FLAG_CALL_HASH: &str = "flagcall00000000";
-    /// Day 2, so a day-1 chunk sits inside a window of a week or more.
+    /// This instant falls on day 2, so a day-1 chunk sits inside a window of a week or more.
     const NOW_MS: i64 = 200_000_000;
 
-    /// A run pinned to `flag_evaluations` whose one cohort ANDs `$pageview` with a
-    /// `$feature_flag_called` on `my-flag`, both over the last `window_days` days.
     fn mixed_run(window_days: u32) -> PinnedRun {
         use crate::domain::pinned::test_runs::{run_with, RunLeaf};
         use crate::domain::row_filter::test_catalog::{event_and_property, event_is};
@@ -1619,7 +1617,6 @@ mod tests {
         }
     }
 
-    /// Tiles built from what the TTL left of a day would undercount while the run still completes.
     /// The `flag_evaluations` query comes second, so a check of the first query alone passes the
     /// chunk. The refusal comes before any query, so the client needs no server.
     #[tokio::test]
@@ -1671,10 +1668,9 @@ mod tests {
             Uuid::from_u128(id)
         }
 
-        /// `$pageview` comes from `events`, and flag calls from `flag_evaluations`. `events` also
-        /// holds a flag call by person 4, which a run pinned to `flag_evaluations` must not count.
-        /// Each table pair backs `$feature_flag` with a column of its own name, so a query that
-        /// reads the other pair's column fails.
+        /// The flag call by person 4 in `events` must not count in a run pinned to
+        /// `flag_evaluations`. Each table pair backs `$feature_flag` with a column of its own name,
+        /// so a query that reads the other pair's column fails.
         async fn mixed_chunk_database(database: &str) -> ClickHouseClient {
             let events_columns = "uuid UUID, event String, properties String, \
                 timestamp DateTime64(6, 'UTC'), distinct_id String, person_id UUID, \
@@ -1758,8 +1754,8 @@ mod tests {
             )
         }
 
-        /// Tiles sort by person, and the expected order interleaves the tables. Two tile sets
-        /// joined end to end would put person 2 out of place whichever table came first.
+        /// Tiles sort by person. The expected order interleaves the tables. Two tile sets joined
+        /// end to end would put person 2 out of place whichever table came first.
         #[tokio::test]
         async fn a_mixed_chunk_folds_rows_from_both_tables_into_one_tile_set() {
             let client = mixed_chunk_database("seeder_scanner_mixed_chunk").await;
@@ -1814,7 +1810,7 @@ mod tests {
             );
         }
 
-        /// The verdict the backfill gate reads. A compare that re-scanned one table, or read flag
+        /// The backfill gate reads this verdict. A compare that re-scanned one table, or read flag
         /// calls from `events`, would report a diff on every mixed chunk.
         #[tokio::test]
         async fn the_shadow_compare_of_a_mixed_chunk_rescans_both_tables() {

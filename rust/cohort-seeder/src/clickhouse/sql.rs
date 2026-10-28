@@ -22,8 +22,8 @@ impl ScanTable {
         }
     }
 
-    /// `events.inserted_at` is nullable. `flag_evaluations.inserted_at` is not, and the table's
-    /// minmax index is on the bare column.
+    /// `events.inserted_at` is nullable. `flag_evaluations.inserted_at` is not. The
+    /// `flag_evaluations` minmax index is on the bare column.
     const fn arrival_sql(self) -> &'static str {
         match self {
             Self::Events => "coalesce(e.inserted_at, e._timestamp)",
@@ -310,8 +310,8 @@ fn clickhouse_identifier(name: &str) -> String {
 /// `person_id` are always selected: the fold places the row in its day by timestamp, the accumulator
 /// keys on the person, and the event name decides which conditions run.
 ///
-/// `flag_evaluations` has no `elements_chain`. A flag call never carries elements, and its live
-/// envelope has none either.
+/// `flag_evaluations` has no `elements_chain`. A flag call never carries elements, so the live
+/// path also evaluates it with an empty chain.
 fn render_select_list(plan: &ColumnPlan, table: ScanTable) -> String {
     format!(
         "{}, e.event, {}, toString(e.timestamp) AS timestamp,\n       e.distinct_id,\n       toString(if(notEmpty(ov.distinct_id), ov.person_id, e.person_id)) AS person_id,\n       {}, {}",

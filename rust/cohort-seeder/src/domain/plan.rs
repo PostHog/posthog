@@ -1,5 +1,5 @@
-//! Domain layer: pure day/band planning — `plan_days`, `conditions_active_on`, `bands_for_day` —
-//! and the split of one chunk's scan by table, `table_scans`. Depends on `pinned`, `condition`,
+//! Domain layer: pure day/band planning (`plan_days`, `conditions_active_on`, `bands_for_day`)
+//! and the split of one chunk's scan by table (`table_scans`). Depends on `pinned`, `condition`,
 //! `window`, `ids`, and `cohort-core`.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -346,8 +346,8 @@ mod tests {
             "a table with no active event name is not scanned"
         );
 
-        // An `events` run scans exactly what it did before the split: one table and every active
-        // condition, even one whose event name no active bucket holds.
+        // An `events` run scans one table with every active condition, even one whose event name
+        // no active bucket holds.
         let mut events = run_with(ScanTable::Events, 7, &leaves());
         events.conditions.push(PinnedCondition {
             cohort_id: CohortId(1),
