@@ -17,7 +17,7 @@ from posthog.utils import initialize_self_capture_api_token
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskRunDTO
 
-from ...adapters import REGISTRY
+from ...adapters.registry import REGISTRY
 from ...facade.contracts import AdapterVerdict, DocsCommandRequest, DocsRequest
 from ...facade.enums import DocsRequestSource
 from ...feature_flags import AGENT_LAUNCH_FLAG
