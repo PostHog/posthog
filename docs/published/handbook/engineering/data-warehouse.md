@@ -412,7 +412,7 @@ BI chart settings preserve custom scatter axes and implicit count formatting. Nu
 
 ## Catalog metrics in BI mode
 
-Catalog SQL metrics can open as BI query snapshots. Opening a metric shows a loading state until its definition is ready, or an error if it cannot load. Press **Run** to query the snapshot. Their dates, grouping, and bound values come from the metric definition; shelf edits, worksheet date filters, pivots, and result drilling are unavailable. Changing the chart changes the presentation of those results. Saved snapshots do not follow later catalog edits.
+Catalog SQL metrics can open as BI query snapshots. Opening a metric shows a loading state until its definition is ready, or an error if it cannot load. Press **Run** to query the snapshot. Their dates, grouping, and bound values come from the metric definition; shelf edits, worksheet date filters, pivots, and result drilling are unavailable. For snapshots with bound string, number, or boolean values, **Edit parameters** changes those values for the worksheet without changing the SQL or catalog definition. Number parameters require a finite number. Other parameter types remain unchanged. Apply follows the worksheet auto-update setting; with auto-update off, press **Run**. Changing the chart changes the presentation of those results. Saved snapshots do not follow later catalog edits.
 
 After running a worksheet, **Propose as catalog metric** sends its resolved SQL and date window through catalog review. A pending or failed query cannot be proposed. Proposing an existing metric name updates its definition for review. Direct-connection worksheets cannot be proposed as catalog metrics.
 
