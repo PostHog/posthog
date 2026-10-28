@@ -191,7 +191,7 @@ export class FakeEmailDomainBackend {
         const sender: IntegrationConfigApi = {
             id: this.nextSenderId++,
             kind: 'email',
-            auth_type: 'verified_domain',
+            auth_type: 'credentials',
             config: {
                 provider: 'ses',
                 name: 'Acme',
