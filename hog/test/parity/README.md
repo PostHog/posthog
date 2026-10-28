@@ -31,6 +31,8 @@ The `--include-source` scenarios put `native/src/` back in that folder first wit
 
 The `release`, `extract` and `download` scenarios compare requests and the files each CLI writes. The fake server stores symbol sets for download, built with hog's writers, which the upload scenarios already hold to posthog-cli's bytes.
 
+`real/` holds real Xcode, Rust and React Native output from getsentry/symbolic's test fixtures, with their MIT license. The `real-` scenarios run uploads, `--include-source`, `inject` and `clone` on them.
+
 Hermes scenarios run the React Native steps in order with `before`: inject the Metro bundle, clone into the composed map, then upload.
 The files in `hermes-fixtures.ts` are hand-written, with the Metro and Hermes keys, odd numbers and escapes that the serializer has to reproduce.
 
