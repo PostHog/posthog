@@ -422,6 +422,8 @@ The BI assistant receives the current worksheet draft, including its unsaved nam
 
 ## Connected fields in BI mode
 
+**Check key uniqueness** opens an editable SQL check for repeated or null keys in a configured relationship's joined table. Press **Run** in the SQL editor to execute it. The check scans the full joined table, ignores worksheet filters, and returns at most 100 key groups. It does not check missing matches or prove that a join is safe for every aggregation. Expression-based keys require a custom SQL check.
+
 Below Dimensions and Measures, **Connections** lists the selected table's linked tables and views.
 Expand a connection to load its dimensions, measures, and nested connections. Inside connections,
 fields and further links appear without section headings.
@@ -434,3 +436,7 @@ inside expanded connections, and a failed field load has a Retry button.
 Aliases load any intermediate tables automatically. Loading and failed connections stay visible during search.
 Virtual connections expose the field names provided by the existing schema as dimensions. The schema does
 not include their field types or nested link definitions, so these connections do not infer measures or further links.
+
+### Pivot conditional formatting
+
+BI pivot tables use the same saved conditional formatting rules as ordinary tables. Open **Conditional formatting** to select a measure and a rule. The rule applies to that measure across column groups, including displayed subtotals, grand totals, and collapsed groups. Rules evaluate raw aggregate values before display formatting. Empty intersections and hidden parent values remain uncolored.
