@@ -1,6 +1,7 @@
 import { CSSProperties, ComponentType, HTMLProps } from 'react'
 
 import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
+import type { TaskQueue } from 'scenes/dashboard/dashboardUtils'
 
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import {
@@ -19,7 +20,11 @@ import { BIVisualizationNode } from './schema/schema-business-intelligence'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
+    onSelectBIMark?: (record: Record<string, unknown>) => void
+    isBIMarkActiveFilter?: (record: Record<string, unknown>) => boolean
+    getBIMarkDashboardUrl?: (record: Record<string, unknown>) => string
     dashboardResultMenu?: boolean
+    loadQueue?: TaskQueue
 
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
