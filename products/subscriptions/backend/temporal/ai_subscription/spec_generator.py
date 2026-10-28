@@ -241,10 +241,28 @@ class _PlaceholderTokenFinder(TraversingVisitor):
     def __init__(self, hogql: str) -> None:
         self.hogql = hogql
         self.tokens: list[str] = []
+        self.quoted_window_tokens: list[str] = []
+        self.compared_filter_tokens: list[str] = []
+
+    def _text(self, node: ast.Placeholder) -> str | None:
+        if node.start is None or node.end is None:
+            return None
+        return self.hogql[node.start : node.end]
 
     def visit_placeholder(self, node: ast.Placeholder) -> None:
-        if node.start is not None and node.end is not None:
-            self.tokens.append(self.hogql[node.start : node.end])
+        if (text := self._text(node)) is not None:
+            self.tokens.append(text)
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        for side in (node.left, node.right):
+            if isinstance(side, ast.Placeholder) and self._text(side) in WINDOW_FILTER_PLACEHOLDERS:
+                self.compared_filter_tokens.append(self.hogql[side.start : side.end])
+        super().visit_compare_operation(node)
+
+    def visit_constant(self, node: ast.Constant) -> None:
+        if isinstance(node.value, str):
+            self.quoted_window_tokens.extend(token for token in WINDOW_PLACEHOLDERS if token in node.value)
+        super().visit_constant(node)
 
     def visit_call(self, node: ast.Call) -> None:
         literal = node.args[0] if node.args else None
@@ -259,14 +277,31 @@ class _PlaceholderTokenFinder(TraversingVisitor):
         super().visit_call(node)
 
 
-def unknown_placeholder_tokens(hogql: str) -> list[str]:
+def _backticked(tokens: Sequence[str]) -> str:
+    return ", ".join(f"`{token}`" for token in dict.fromkeys(tokens))
+
+
+def window_token_problems(hogql: str) -> list[str]:
     try:
         query = parse_select(hogql)
     except BaseHogQLError:
         return []
     finder = _PlaceholderTokenFinder(hogql)
     finder.visit(query)
-    return [token for token in dict.fromkeys(finder.tokens) if token not in WINDOW_PLACEHOLDERS]
+    problems = []
+    if unknown := [token for token in finder.tokens if token not in WINDOW_PLACEHOLDERS]:
+        problems.append(f"The query uses {_backticked(unknown)}, which the report doesn't fill in.")
+    if finder.quoted_window_tokens:
+        problems.append(
+            f"The query puts {_backticked(finder.quoted_window_tokens)} inside quotes, where the report "
+            "can't fill it in."
+        )
+    if finder.compared_filter_tokens:
+        problems.append(
+            f"The query compares a value with {_backticked(finder.compared_filter_tokens)}, which is a whole "
+            "time filter, not a timestamp."
+        )
+    return problems
 
 
 def _in_tz(dt: datetime, tz: tzinfo) -> datetime:

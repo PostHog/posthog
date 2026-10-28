@@ -41,8 +41,8 @@ from products.subscriptions.backend.temporal.ai_subscription.spec_generator impo
     generate_query_plan,
     get_ai_query_plan_status,
     sanitize_prompt,
-    unknown_placeholder_tokens,
     validate_stored_query_plan,
+    window_token_problems,
 )
 
 _SG = "products.subscriptions.backend.temporal.ai_subscription.spec_generator"
@@ -64,8 +64,10 @@ _NULL_ON_FAILURE_DATE_ALIASES = sorted(
 
 
 @pytest.mark.parametrize("alias", _NULL_ON_FAILURE_DATE_ALIASES)
-def test_unknown_placeholder_tokens_covers_every_null_on_failure_date_parser(alias: str) -> None:
-    assert unknown_placeholder_tokens(f"SELECT {alias}('{{{{D-1}}}}') FROM events") == ["{{D-1}}"]
+def test_window_token_problems_covers_every_null_on_failure_date_parser(alias: str) -> None:
+    assert window_token_problems(f"SELECT {alias}('{{{{D-1}}}}') FROM events") == [
+        "The query uses `{{D-1}}`, which the report doesn't fill in."
+    ]
 
 
 _RENDER_WINDOW = ReportWindow(start=datetime(2026, 6, 8, tzinfo=UTC), end=datetime(2026, 6, 15, tzinfo=UTC))

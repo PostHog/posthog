@@ -551,6 +551,30 @@ async def test_synthesis_prompt_carries_the_failure_marker(
             ("The query uses `{{yesterday_start}}`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
             id="double_brace_outside_quotes",
         ),
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= {{date_range}} AND timestamp < {{window_end}}",
+            (
+                "The query compares a value with `{{date_range}}`, which is a whole time filter, not a timestamp. "
+                + WINDOW_TOKEN_HINT
+            ),
+            id="filter_token_used_as_timestamp",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= toDateTime('{{window_start}}') AND {{date_range}}",
+            (
+                "The query puts `{{window_start}}` inside quotes, where the report can't fill it in. "
+                + WINDOW_TOKEN_HINT
+            ),
+            id="known_token_inside_quotes",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= toDateTime('{{D-1}}') AND timestamp < toDateTime('{{window_end}}')",
+            (
+                "The query uses `{{D-1}}`, which the report doesn't fill in. "
+                "The query puts `{{window_end}}` inside quotes, where the report can't fill it in. " + WINDOW_TOKEN_HINT
+            ),
+            id="invented_and_quoted_tokens",
+        ),
     ],
 )
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
@@ -618,6 +642,11 @@ async def test_run_steps_marks_a_step_that_returned_no_rows(
             "SELECT count() FROM events WHERE {{date_range}} AND timestamp < {{window_end}} "
             "AND timestamp >= {{compare_window_start}}",
             id="known_tokens",
+        ),
+        pytest.param(
+            "SELECT countIf(timestamp >= {{window_start}}) AS current, countIf(timestamp < {{window_start}}) AS previous "
+            "FROM events WHERE {{compare_date_range}}",
+            id="growth_pattern",
         ),
         pytest.param(
             "SELECT JSONExtractString('{\"name\": 1}', 'name') FROM events WHERE {{date_range}}", id="json_literal"

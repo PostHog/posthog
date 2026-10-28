@@ -69,7 +69,7 @@ from products.subscriptions.backend.temporal.ai_subscription.spec_generator impo
     build_frozen_prompt,
     get_ai_query_plan_status,
     resolve_ai_query_plan_status,
-    unknown_placeholder_tokens,
+    window_token_problems,
 )
 from products.subscriptions.backend.temporal.types import safe_query_error_details
 
@@ -138,10 +138,8 @@ WINDOW_TOKEN_HINT = (
 
 
 def _reject_unknown_placeholders(hogql: str) -> None:
-    tokens = unknown_placeholder_tokens(hogql)
-    if tokens:
-        found = ", ".join(f"`{token}`" for token in tokens)
-        raise QueryError(f"The query uses {found}, which the report doesn't fill in. {WINDOW_TOKEN_HINT}")
+    if problems := window_token_problems(hogql):
+        raise QueryError(" ".join([*problems, WINDOW_TOKEN_HINT]))
 
 
 def _all_queries_failed_notice(total_steps: int, *, include_manage_link: bool = True) -> str:
