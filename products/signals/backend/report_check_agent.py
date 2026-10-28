@@ -446,6 +446,8 @@ def legacy_check_dispatch_ready(
     )
     if check is None or check.team_id != check.report.team_id:
         return False
+    if check.report.team.parent_team_id is not None:
+        return False
     if (check.report.team.parent_team_id or check.team_id) != team_id or not legacy_agent_checks_enabled(check.report):
         return False
     try:
@@ -488,6 +490,9 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
     from products.signals.backend.temporal.agentic.scout_scheduler import start_check_signals_scout_run  # noqa: PLC0415
 
     now = now or timezone.now()
+
+    if check.report.team.parent_team_id is not None:
+        return "deferred"
 
     if check.dispatched_at is not None:
         paused_skill_name = _paused_dispatched_lane(check)

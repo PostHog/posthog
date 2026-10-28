@@ -1827,12 +1827,27 @@ class TestAgentCheckDispatch(APIBaseTest):
         )
 
     @parameterized.expand(
-        [("reopened", SignalReport.Status.READY, False), ("monitoring_enabled", SignalReport.Status.RESOLVED, True)]
+        [
+            ("reopened", SignalReport.Status.READY, False),
+            ("monitoring_enabled", SignalReport.Status.RESOLVED, True),
+            ("child_environment", SignalReport.Status.RESOLVED, False),
+            ("child_environment_dispatched", SignalReport.Status.RESOLVED, False),
+        ]
     )
     def test_a_report_invalidated_after_collection_does_not_dispatch_a_check(
         self, _name: str, report_status: str, monitoring_enabled: bool
     ) -> None:
-        check = self._check()
+        if _name.startswith("child_environment"):
+            child = Team.objects.create(
+                organization=self.organization, project_id=self.team.project_id, parent_team=self.team, name="Child"
+            )
+            report = SignalReport.objects.create(team=child, status=SignalReport.Status.RESOLVED, title="Child finding")
+            check = self._check(team=child, report=report)
+        else:
+            check = self._check()
+        claim = timezone.now() - AGENT_CHECK_RESULT_WINDOW if _name.endswith("dispatched") else None
+        check.dispatched_at = claim
+        check.save(update_fields=["dispatched_at"])
         self.report.status = report_status
         self.report.save(update_fields=["status"])
 
@@ -1848,8 +1863,24 @@ class TestAgentCheckDispatch(APIBaseTest):
 
         dispatch.assert_not_called()
         check.refresh_from_db()
-        assert check.dispatched_at is None
-        assert self._results() == []
+        assert check.dispatched_at == claim
+        assert check.last_outcome is None
+        assert check.consecutive_errors == 0
+        assert not check.report.artefacts.filter(type=SignalReportArtefact.ArtefactType.CHECK_RESULT).exists()
+        if _name.startswith("child_environment"):
+            raw = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="parent history",
+                user=self.user,
+                secure_value=hash_key_value(raw),
+                scopes=["signal_scout:read", "task:read"],
+                scoped_teams=[self.team.id],
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+            response = self.client.get(f"/api/projects/{self.team.id}/signals/scout/runs/")
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json() == []
 
     def test_the_run_note_carries_the_brief_and_the_resolution_note(self) -> None:
         SignalReportArtefact.append_dismissal(

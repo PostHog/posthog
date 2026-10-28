@@ -3621,6 +3621,7 @@ async def test_activity_returns_skip_outcome_when_already_running(ateam):
                 "missing_claim",
                 "wrong_team",
                 "wrong_lane",
+                "child_environment",
             ]
         ],
     ],
@@ -3629,10 +3630,17 @@ async def test_activity_only_starts_legacy_report_checks_with_monitoring_off(
     ateam, triggered_by: str, eligibility: str, monitoring_enabled: bool
 ) -> None:
     now = timezone.now()
-    report = await SignalReport.objects.acreate(team=ateam, status=SignalReport.Status.RESOLVED)
+    source_team = (
+        await Team.objects.acreate(
+            organization_id=ateam.organization_id, project_id=ateam.project_id, parent_team=ateam, name="Child"
+        )
+        if eligibility == "child_environment"
+        else ateam
+    )
+    report = await SignalReport.objects.acreate(team=source_team, status=SignalReport.Status.RESOLVED)
     claim = now - timedelta(hours=3) if eligibility == "claim_expired" else now
     check = await SignalReportCheck.all_teams.acreate(
-        team=ateam,
+        team=source_team,
         report=report,
         title="Confirm checkout recovery",
         kind=SignalReportCheck.Kind.AGENT,
