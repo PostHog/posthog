@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
@@ -11,6 +13,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import PropertyDefinition
 
 from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
+from products.data_modeling.backend.logic.view_column_refresh import refresh_view_columns
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 
@@ -66,3 +69,21 @@ class TestViewColumnRefresh(ClickhouseTestMixin, BaseTest):
 
         downstream.refresh_from_db()
         assert downstream.column_order == ["old_id"]
+
+    def test_refresh_keeps_the_columns_of_a_query_edit_made_during_inference(self) -> None:
+        view = self._create_view("edited_view", "SELECT 1 AS old_id")
+        edited_columns = {"edited_id": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt8", "valid": True}}
+        inferred_columns = {"new_id": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt8", "valid": True}}
+
+        def edit_the_view_during_inference(*args: object, **kwargs: object) -> dict:
+            DataWarehouseSavedQuery.objects.filter(pk=view.pk).update(
+                query_revision=uuid4(), columns=edited_columns, column_order=["edited_id"]
+            )
+            return inferred_columns
+
+        with patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=edit_the_view_during_inference):
+            changed = refresh_view_columns(self.team, [view.id], self.user)
+
+        assert changed == set()
+        view.refresh_from_db()
+        assert view.column_order == ["edited_id"]
