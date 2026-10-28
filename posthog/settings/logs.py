@@ -190,6 +190,8 @@ LOGGING: dict[str, Any] = {
         "posthog.warehouse_source_prewarm": {"level": "INFO", "handlers": ["console"], "propagate": False},
         # Same clamp: the api query budget logs the team and balance behind every would-be 429 at INFO.
         "posthog.api_queries_budget": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        # Same clamp: the signed-out-with-session-cookie diagnostic in posthog/utils.py logs at INFO.
+        "posthog.utils": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load": {
             "level": "DEBUG",
             "handlers": ["console"],
