@@ -194,6 +194,8 @@ depends_on = [
     "posthog",
     "products.cdp",
     "products.product_analytics", "products.access_control",
+    # Facade-only: alerts declares its Today highlight sources against the Today facade contract.
+    "products.today",
 ]
 layer = "modules"
 
@@ -283,6 +285,8 @@ depends_on = [
     # Facade-only: the deleted-ticket purge retracts the ticket's signal embeddings. products.signals
     # depends on products.conversations in turn, so keep this direction on the facade.
     "products.signals",
+    # Facade-only: conversations declares its Today highlight sources against the Today facade contract.
+    "products.today",
 ]
 layer = "modules"
 
@@ -491,6 +495,8 @@ depends_on = [
     "products.notifications",
     "products.signals",
     "products.warehouse_sources", "products.access_control",
+    # Facade-only: the built-in bot filter reads the bot user agent patterns.
+    "products.web_analytics",
 ]
 layer = "modules"
 
@@ -522,6 +528,8 @@ depends_on = [
     "products.surveys",
     "products.tasks",
     "products.warehouse_sources",
+    # Facade-only: experiments declares its Today highlight sources against the Today facade contract.
+    "products.today",
 ]
 layer = "modules"
 
@@ -541,6 +549,8 @@ depends_on = [
     "products.product_tours",
     "products.surveys", "products.access_control",
     "products.notifications",
+    # Facade-only: feature flags declares its Today highlight sources against the Today facade contract.
+    "products.today",
 ]
 layer = "modules"
 
@@ -938,6 +948,8 @@ depends_on = [
     # SignalSourceConfig row, so onboarding has to ask it whether any scanner is emitting.
     "products.replay_vision",
     "products.skills",
+    # Facade-only: anomaly scoring counts an insight that an enabled subscription delivers as active.
+    "products.subscriptions",
     "products.surveys",
     "products.tasks",
     "products.warehouse_sources",
@@ -1132,6 +1144,10 @@ depends_on = [
     # The web trends, web vitals and calendar heatmap runners subclass product analytics' trends runners.
     "products.product_analytics",
     "products.replay_vision",
+    # Facade-only: the rage-click highlight names the error people saw before rage-clicking.
+    "products.error_tracking",
+    # Facade-only: web analytics declares its Today highlight sources against the Today facade contract.
+    "products.today",
 ]
 layer = "modules"
 
@@ -1161,6 +1177,8 @@ depends_on = [
     # Facade-only: the Replay Vision step's endpoint starts a scan through
     # products.replay_vision.backend.facade.api.
     "products.replay_vision",
+    # Facade-only: workflows declares its Today highlight sources against the Today facade contract.
+    "products.today",
 ]
 layer = "modules"
 
@@ -1584,6 +1602,8 @@ depends_on = [
     "products.product_analytics",
     "products.warehouse_sources",
     "products.data_modeling", "products.access_control",
+    # Facade-only: data catalog declares its Today highlight sources against the Today facade contract.
+    "products.today",
 ]
 layer = "modules"
 
@@ -1680,19 +1700,11 @@ depends_on = [
     "ee",
     "posthog",
     "products.access_control",
-    "products.alerts",
-    "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
-    "products.data_catalog",
-    "products.error_tracking",
-    "products.experiments",
-    "products.feature_flags",
     "products.product_analytics",
     "products.signals",
     "products.tasks",
-    "products.web_analytics",
-    "products.workflows",
 ]
 layer = "modules"
 
@@ -1778,6 +1790,7 @@ depends_on = [
     "products.access_control",
     "products.data_catalog",
     "products.data_modeling",
+    "products.notifications",
     "products.warehouse_sources",
 ]
 layer = "modules"

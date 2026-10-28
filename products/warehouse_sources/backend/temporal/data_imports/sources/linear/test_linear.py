@@ -327,8 +327,6 @@ class TestLinearSourceNonRetryableErrors:
             ("deleted_integration", "Integration not found: 165665"),
             ("auth_401", "401 Client Error: Unauthorized for url: https://api.linear.app/graphql"),
             ("forbidden_403", "403 Client Error: Forbidden for url: https://api.linear.app/graphql"),
-            # NotImplementedError raised by OauthIntegration when the instance lacks Linear client id/secret.
-            ("app_not_configured", "Linear app not configured"),
         ]
     )
     def test_non_retryable_errors_match(self, _name: str, observed_error: str) -> None:
@@ -344,6 +342,8 @@ class TestLinearSourceNonRetryableErrors:
                 "read_timeout",
                 "Linear: transient network error - HTTPSConnectionPool(host='api.linear.app', port=443): Read timed out. (read timeout=60)",
             ),
+            # Raised when the worker has no Linear client credentials: a PostHog fault, not the customer's.
+            ("app_not_configured", "NotImplementedError: Linear app not configured"),
         ]
     )
     def test_non_retryable_errors_does_not_match_transient(self, _name: str, observed_error: str) -> None:

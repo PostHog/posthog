@@ -563,14 +563,15 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         def _resolve_job() -> ExternalDataJob | None:
             # Resolve this run's own job by run id; the finally-block update is the only finalizer for
             # zero-batch runs (e.g. quiet Slack channels) that never send a batch to complete the job.
+            # The create-job activity stamps the run id on every row it inserts, so a miss means this run
+            # never created a job. The legacy fallback would then pick an unrelated RUNNING job, such as
+            # an orphan from an earlier run, and fail it with this run's error.
             if inputs.workflow_run_id is not None:
-                job = (
+                return (
                     ExternalDataJob.objects.filter(team_id=inputs.team_id, workflow_run_id=inputs.workflow_run_id)
                     .order_by("-created_at")
                     .first()
                 )
-                if job is not None:
-                    return job
             # Legacy fallback for runs started before workflow_run_id existed; racy under concurrent runs.
             return (
                 ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)

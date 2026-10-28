@@ -220,7 +220,7 @@ def _body_snapshot(
         include_images=False,
         organization_id=team.organization_id,
     )
-    return {
+    snapshot = {
         "text": slack_text,
         "blocks": slack_blocks,
         "author_name": author.name,
@@ -228,6 +228,9 @@ def _body_snapshot(
         "media_team_id": media_team_id,
         "images": _image_refs(comment.rich_content if isinstance(comment.rich_content, dict) else None),
     }
+    if isinstance(comment.item_context, dict) and comment.item_context.get("internal_channel_only") is True:
+        snapshot["internal_channel_only"] = True
+    return snapshot
 
 
 def _enqueue_failed_slack_body(

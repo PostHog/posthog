@@ -118,6 +118,8 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
         max_length=16, choices=Owner.choices, default=Owner.SOURCE.value, db_default=Owner.SOURCE.value
     )
     owner_changed_at = models.DateTimeField(null=True, blank=True)
+    labels = models.JSONField(default=dict, db_default={})
+    annotations = models.JSONField(default=dict, db_default={})
     # Which rows an alert's destinations live in: the source's HogFunctions, or `AlertDestination`.
     # Separate from `owner`, because an alert moves its evaluation first and its destinations later.
     destinations_owner = models.CharField(

@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.file_uploads import (
     LegacyUpload,
     UploadLocation,
 )
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -128,9 +129,9 @@ def upload_in_use(
     if exclude_source_id is not None:
         sources = sources.exclude(pk=exclude_source_id)
     # `job_inputs` is encrypted, so the comparison runs here rather than in the query.
-    for other in sources.select_related(None).only("id", "team_id", "job_inputs", "connection_metadata"):
+    for other in sources.select_related(None).only("id", "team_id", "source_type", "job_inputs", "connection_metadata"):
         try:
-            if upload_from_job_inputs(other.team_id, other.job_inputs) == upload:
+            if upload_from_job_inputs(other.team_id, SourceInputsStore.load_settings(other)) == upload:
                 return True
         except InvalidUploadError:
             pass
@@ -187,7 +188,9 @@ def release_superseded_uploads(source_id: str, team_id: int, sync_started_at: da
         if not due:
             return []
         try:
-            current: UploadLocation | None = upload_from_job_inputs(source.team_id, source.job_inputs)
+            current: UploadLocation | None = upload_from_job_inputs(
+                source.team_id, SourceInputsStore.load_settings(source)
+            )
         except InvalidUploadError:
             current = None
         source.connection_metadata = _with_superseded(
@@ -220,7 +223,7 @@ def delete_source_uploads(source: ExternalDataSource) -> list[HostedUpload]:
     """Delete the files of a deleted source that nothing else reads."""
     uploads: list[HostedUpload] = [entry.upload for entry in superseded_uploads(source)]
     try:
-        uploads.insert(0, upload_from_job_inputs(source.team_id, source.job_inputs))
+        uploads.insert(0, upload_from_job_inputs(source.team_id, SourceInputsStore.load_settings(source)))
     except InvalidUploadError:
         pass
     deleted: list[HostedUpload] = []
