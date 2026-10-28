@@ -2930,8 +2930,6 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 #   - sandbox_cpu_cores / sandbox_memory_gb / sandbox_ttl_seconds / inactivity_timeout_seconds set
 #     the run's compute and lifetime at creation; a caller could otherwise PATCH a queued run to
 #     provision an oversized or long-lived sandbox beyond what they're entitled to.
-#   - use_modal_directory_resume_snapshots is the server-side directory snapshot rollout decision;
-#     a caller could otherwise force directory snapshot creation while the feature flag is off.
 #   - use_modal_vm_sandbox is reserved for trusted server-created runs such as image builders;
 #     a caller could otherwise force the VM runtime while the feature flag or custom-image gate is off.
 #   - snapshot_external_id / snapshot_kind / snapshot_mount_path control which Modal image is
@@ -3006,7 +3004,6 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "wizard_config",
         "reconciled_pr_merge_url",
         "wizard_head_branch",
-        "use_modal_directory_resume_snapshots",
         "use_modal_vm_sandbox",
         # The image a run boots from; a PATCHed value would pick an image the task never asked for.
         "sandbox_template",
