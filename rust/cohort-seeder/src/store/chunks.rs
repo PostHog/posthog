@@ -273,7 +273,9 @@ impl PgChunkStore {
                 -- claim before person chunks. The kind key must lead: person chunks sit on a
                 -- far-future sentinel day, which `day DESC` alone would claim first. Newest day
                 -- first lets a short-window cohort, whose days are all recent, finish without
-                -- waiting behind a long run's older days.
+                -- waiting behind a long run's older days. Claimable trailing days have no key of
+                -- their own and sort among the newest days, because their cohorts already serve
+                -- as ready and under-count the boundary day until the trailing tiles apply.
                 ORDER BY (r.backfill_kind = $9), c.day DESC, c.band
                 LIMIT 1
                 FOR UPDATE OF c SKIP LOCKED

@@ -146,6 +146,7 @@ A late event that reaches ClickHouse after `S_chunk` is not in the tile.
 If live folds it before the tile applies, `max` takes the larger of two disjoint counts instead of their sum, so the day is under-counted.
 If live folds it after the tile applies, live adds it on top of the tile, which is correct.
 That is bounded to late arrivals on old days.
+The day before the boundary day is claimed first, so when `B` falls just after the team's midnight, its events still in ingestion reach ClickHouse after the scan.
 It can drop a person out of a `gte` or `gt` cohort, and wrongly keep one in an `lt`, `lte`, `eq` or negated one.
 
 ### Rule 4: person seeds are judged by time, with a margin
@@ -303,4 +304,4 @@ A backlog, a failure or a slow catalog refresh makes it longer.
 - Reconcile requests are not fenced.
   A request that reaches a partition before the processor has loaded the cohort's current definition waits for the next catalog refresh, up to one refresh interval, and is withheld only if that refresh still disagrees.
 - Behavioral chunks are claimed newest day first across every run, so the older days of a long-window run wait behind the newer days of every other run.
-  Under sustained load, such a run can finish long after shorter runs created later.
+  They are claimed only once no newer day waits, so under sustained load the wait has no bound.

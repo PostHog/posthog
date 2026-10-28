@@ -82,7 +82,7 @@ It stays in `seeding`, holding the cohort's run slot, until an operator cancels 
 ### Claiming and fencing
 
 A worker claims the next chunk with one statement using `FOR UPDATE SKIP LOCKED`.
-It picks behavioral chunks before person chunks, then the newest day first across all seeding runs.
+It picks behavioral chunks before person chunks, then the newest day first across every run.
 It admits:
 
 - pending chunks and failed chunks past their backoff, both under the attempt cap,
@@ -445,6 +445,7 @@ Set them only to go below the profile.
 
 - `B` is the moment the seeder first saw the run, not when the run was created, except for disaster-recovery runs, whose `B` Django pins.
 - Behavioral claims take the newest day first across every run, so the older days of a long-window run wait behind the newer days of every other run.
+  If none of its chunks moves for `--stalled-for-hours`, `manage_cohort_backfill_runs inventory` lists it as a `seeding-stalled` cancel candidate, even though it is only queued.
 - A chunk in `produced` has enqueued its tiles but may not have all acknowledgments yet.
 - The seeder writes the claim epoch into every tile, but the processor ignores it.
   Fencing is purely a Postgres concern, and duplicates are absorbed by max-merge.
