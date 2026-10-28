@@ -3,17 +3,20 @@
 Every ranked row gets a group, not only issues, so a viewer who counts different anchors as issues finds those rows
 already grouped.
 
-The embedding consumer and the semantics backfill both call `assign_semantics`. It locks the scanner's semantic
-centre for the whole assignment, so two observations of one scanner never race on its clusters, and writes both ids
-to the observation's rank in one update, so a redelivered message finds them already there.
+The embedding consumer assigns one observation per message, and the semantics backfill assigns a scanner's rows in
+chunks, both through `assign_semantics_batch`. It locks the scanner's semantic centre for the whole chunk, so two
+writers never race on its clusters, and writes both ids to each observation's rank in the same transaction, so a
+redelivered message finds them already there.
 """
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime, timedelta
+from itertools import batched
 from typing import Any
 
 from django.db import transaction
-from django.db.models import F, Func, JSONField, Value
+from django.db.models import Case, F, Func, JSONField, Value, When
 
 import numpy as np
 
@@ -29,6 +32,7 @@ from products.replay_vision.backend.models.replay_scanner_semantics import (
 from products.replay_vision.backend.scanner_access import scanners_for_reading_observations
 from products.replay_vision.backend.semantic_space import (
     SEMANTIC_DIMENSIONS,
+    ClusterWrites,
     pack,
     scanner_space,
     semantic_vector,
@@ -36,12 +40,13 @@ from products.replay_vision.backend.semantic_space import (
 )
 from products.replay_vision.backend.watch_feed_groups import feed_group_cache
 from products.replay_vision.backend.watch_rank import current_rank
-from products.replay_vision.backend.watch_themes import ThemeAssignment, assign_theme, belongs_in_theme
+from products.replay_vision.backend.watch_themes import ThemeAssignment, ThemeBatch, belongs_in_theme
 
 # Clusters with no member for this long are deleted, since the feed's longest window no longer reaches them.
 SEMANTIC_RETENTION = timedelta(days=90)
 # Pruning runs on one in this many assignments of a scanner, which keeps it rare and still bounds the tables.
 _PRUNE_EVERY = 500
+_MERGE_CHUNK = 500
 
 
 @frozen
@@ -50,10 +55,30 @@ class SemanticAssignment:
     theme: ThemeAssignment | None
 
 
+@frozen
+class SemanticItem:
+    observation_id: str
+    vector: list[float] | np.ndarray
+    now: datetime
+
+
 def assign_semantics(
     *, team_id: int, scanner_id: str, observation_id: str, vector: list[float], now: datetime
 ) -> SemanticAssignment | None:
     """None when the observation has no current rank, already has its clusters, or is gone."""
+    assigned = assign_semantics_batch(
+        team_id=team_id,
+        scanner_id=scanner_id,
+        items=[SemanticItem(observation_id=observation_id, vector=vector, now=now)],
+    )
+    return assigned.get(observation_id)
+
+
+def assign_semantics_batch(
+    *, team_id: int, scanner_id: str, items: Sequence[SemanticItem]
+) -> dict[str, SemanticAssignment]:
+    """Assign one scanner's observations oldest first under a single centre lock, with one write per table, keyed by
+    observation id. An observation with no current rank, with its clusters already, or gone is left out."""
     scanner = (
         # Inline scans group and theme like configured scanners, so a question asked often enough becomes a theme.
         scanners_for_reading_observations(team_id)
@@ -61,8 +86,9 @@ def assign_semantics(
         .values("scanner_type", "prompt_valence", "scanner_config")
         .first()
     )
-    if scanner is None:
-        return None
+    if scanner is None or not items:
+        return {}
+    assigned: dict[str, SemanticAssignment] = {}
     try:
         with transaction.atomic():
             center, _ = (
@@ -73,74 +99,113 @@ def assign_semantics(
                     defaults={"team_id": team_id, "vector_sum": pack(np.zeros(SEMANTIC_DIMENSIONS, dtype=np.float32))},
                 )
             )
-            row = (
-                ReplayObservation.objects.filter(team_id=team_id, id=observation_id)
-                .values("watch_rank", "scanner_result", "scanner_snapshot")
-                .first()
-            )
-            if row is None:
-                return None
-            rank = current_rank({"watch_rank": row["watch_rank"]})
-            if rank is None or rank.get("group"):
-                return None
-
-            v = semantic_vector(vector)
-            center_sum = unpack(center.vector_sum)
-            space = scanner_space(center_sum, center.member_count, v)
-            group_id = feed_group_cache.assign(
-                team_id=team_id, scanner_id=scanner_id, space=space, version=center.member_count, now=now
-            )
-            theme = None
-            output = (row["scanner_result"] or {}).get("model_output") or {}
-            # A theme name surfaces as a suggestion to anyone who can read the scanner, so an observation scanned
-            # under experiment targeting, which only that experiment's viewers may read, never joins one.
-            if (
-                not _experiment_scoped(row["scanner_snapshot"])
-                and not _valence_unknown_for_row(
-                    scanner["scanner_type"],
-                    scanner["prompt_valence"],
-                    scanner["scanner_config"],
-                    row["scanner_snapshot"],
+            keys = [_as_uuid(item.observation_id) for item in items]
+            rows = {
+                row["id"]: row
+                for row in ReplayObservation.objects.filter(
+                    team_id=team_id, id__in=[key for key in keys if key]
+                ).values("id", "watch_rank", "scanner_result", "scanner_snapshot")
+            }
+            center_sum = unpack(center.vector_sum).copy()
+            member_count = center.member_count
+            group_writes = ClusterWrites(ReplayScannerFeedGroup, team_id, scanner_id)
+            themes: ThemeBatch | None = None
+            for item, key in zip(items, keys):
+                row = rows.get(key) if key else None
+                rank = current_rank({"watch_rank": row["watch_rank"]}) if row else None
+                if row is None or rank is None or rank.get("group"):
+                    continue
+                v = semantic_vector(item.vector)
+                space = scanner_space(center_sum, member_count, v)
+                group_id = feed_group_cache.assign(
+                    team_id=team_id,
+                    scanner_id=scanner_id,
+                    space=space,
+                    version=member_count,
+                    now=item.now,
+                    writes=group_writes,
                 )
-                and belongs_in_theme(
-                    category=rank["category"],
-                    scanner_type=scanner["scanner_type"],
-                    valence=scanner["prompt_valence"],
-                    output=output,
-                )
-            ):
-                theme = assign_theme(team_id=team_id, scanner_id=scanner_id, space=space, now=now)
+                theme = None
+                output = (row["scanner_result"] or {}).get("model_output") or {}
+                # A theme name surfaces as a suggestion to anyone who can read the scanner, so an observation scanned
+                # under experiment targeting, which only that experiment's viewers may read, never joins one.
+                if (
+                    not _experiment_scoped(row["scanner_snapshot"])
+                    and not _valence_unknown_for_row(
+                        scanner["scanner_type"],
+                        scanner["prompt_valence"],
+                        scanner["scanner_config"],
+                        row["scanner_snapshot"],
+                    )
+                    and belongs_in_theme(
+                        category=rank["category"],
+                        scanner_type=scanner["scanner_type"],
+                        valence=scanner["prompt_valence"],
+                        output=output,
+                    )
+                ):
+                    themes = themes or ThemeBatch(team_id, scanner_id, item.now)
+                    theme = themes.assign(space, item.now)
+                center_sum += v
+                member_count += 1
+                assigned[item.observation_id] = SemanticAssignment(group_id=group_id, theme=theme)
 
-            center.vector_sum = pack(center_sum + v)
-            center.member_count += 1
+            if not assigned:
+                return {}
+            group_writes.save()
+            if themes:
+                themes.save()
+            pruning_due = member_count // _PRUNE_EVERY > center.member_count // _PRUNE_EVERY
+            center.vector_sum = pack(center_sum)
+            center.member_count = member_count
             center.save(update_fields=["vector_sum", "member_count"])
-            if center.member_count % _PRUNE_EVERY == 0:
-                _prune(team_id, scanner_id, now)
-
-            merge_watch_rank(
-                team_id, observation_id, {"group": str(group_id)} | ({"theme": str(theme.theme_id)} if theme else {})
+            if pruning_due:
+                _prune(team_id, scanner_id, items[-1].now)
+            merge_watch_ranks(
+                team_id,
+                {
+                    observation_id: {"group": str(assignment.group_id)}
+                    | ({"theme": str(assignment.theme.theme_id)} if assignment.theme else {})
+                    for observation_id, assignment in assigned.items()
+                },
             )
     except Exception:
         feed_group_cache.forget(scanner_id)
         raise
-    return SemanticAssignment(group_id=group_id, theme=theme)
+    return assigned
 
 
-def merge_watch_rank(team_id: int, observation_id: str, keys: dict[str, Any]) -> None:
-    """Add keys to an observation's rank without rewriting what another writer put there, and drop the retired
+def _as_uuid(observation_id: str) -> uuid.UUID | None:
+    # A message's document id is an unchecked string, so its spelling may differ from the UUID Postgres returns.
+    try:
+        return uuid.UUID(observation_id)
+    except ValueError:
+        return None
+
+
+def merge_watch_ranks(team_id: int, keys_by_observation: dict[str, dict[str, Any]]) -> None:
+    """Add keys to each observation's rank without rewriting what another writer put there, and drop the retired
     duplicate link."""
     without_duplicate = Func(
         F("watch_rank"), Value("duplicate_of"), template="(%(expressions)s)", arg_joiner=" - ", output_field=JSONField()
     )
-    ReplayObservation.objects.filter(team_id=team_id, id=observation_id).update(
-        watch_rank=Func(
-            without_duplicate,
-            Value(keys, output_field=JSONField()),
-            template="%(expressions)s",
-            arg_joiner=" || ",
+    # Postgres tries each CASE branch in turn per row, so one update stays at a few hundred observations.
+    for chunk in batched(keys_by_observation.items(), _MERGE_CHUNK, strict=False):
+        keys = Case(
+            *(
+                When(id=observation_id, then=Value(observation_keys, output_field=JSONField()))
+                for observation_id, observation_keys in chunk
+            ),
+            default=Value({}, output_field=JSONField()),
             output_field=JSONField(),
         )
-    )
+        ReplayObservation.objects.filter(
+            team_id=team_id, id__in=[observation_id for observation_id, _ in chunk]
+        ).update(
+            watch_rank=Func(
+                without_duplicate, keys, template="%(expressions)s", arg_joiner=" || ", output_field=JSONField()
+            )
+        )
 
 
 def _valence_unknown_for_row(

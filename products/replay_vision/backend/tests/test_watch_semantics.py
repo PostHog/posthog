@@ -25,13 +25,21 @@ from products.replay_vision.backend.models.replay_scanner_semantics import (
     ReplayScannerSearchTheme,
     ReplayScannerSemanticCenter,
 )
-from products.replay_vision.backend.semantic_space import SEMANTIC_DIMENSIONS, pack, semantic_vector
+from products.replay_vision.backend.semantic_space import (
+    SEMANTIC_DIMENSIONS,
+    SemanticSpace,
+    nearest_cluster,
+    pack,
+    scanner_space,
+    semantic_vector,
+    unit,
+)
 from products.replay_vision.backend.tests.helpers import axis_anchors, snapshot_for
 from products.replay_vision.backend.watch_feed_groups import feed_group_cache
 from products.replay_vision.backend.watch_rank import ANCHOR_VERSION
-from products.replay_vision.backend.watch_semantics import assign_semantics
+from products.replay_vision.backend.watch_semantics import SemanticItem, assign_semantics, assign_semantics_batch
 from products.replay_vision.backend.watch_semantics_backfill import backfill_team_semantics
-from products.replay_vision.backend.watch_themes import belongs_in_theme, finalize_label, name_theme
+from products.replay_vision.backend.watch_themes import belongs_in_theme, finalize_label, name_theme, naming_candidates
 
 _THEMES = "products.replay_vision.backend.watch_themes"
 _BACKFILL = "products.replay_vision.backend.watch_semantics_backfill"
@@ -75,6 +83,29 @@ class TestThemeRules(SimpleTestCase):
     )
     def test_label_shape(self, _name: str, raw: str, expected: str) -> None:
         assert finalize_label(raw) == expected
+
+    @parameterized.expand([("raw", False), ("centred", True)])
+    def test_nearest_cluster_matches_comparing_every_centred_mean(self, _name: str, centring: bool) -> None:
+        rng = np.random.default_rng(7)
+        sums = rng.normal(size=(200, SEMANTIC_DIMENSIONS)).astype(np.float32)
+        counts = rng.integers(1, 40, size=200).astype(np.float32)
+        vector = unit(rng.normal(size=SEMANTIC_DIMENSIONS).astype(np.float32))
+        mean = (
+            unit(rng.normal(size=SEMANTIC_DIMENSIONS).astype(np.float32)) * 0.3 if centring else np.zeros_like(vector)
+        )
+        space = SemanticSpace(vector=vector, mean=mean, centring=centring)
+
+        expected = int(np.argmax(unit(sums / counts[:, None] - mean) @ unit(vector - mean)))
+
+        assert nearest_cluster(sums, counts, np.einsum("ij,ij->i", sums, sums), space, -1.0, -1.0) == expected
+
+    def test_a_cluster_whose_mean_matches_the_scanner_mean_still_takes_its_own_vector(self) -> None:
+        common, rare = np.eye(SEMANTIC_DIMENSIONS, dtype=np.float32)[:2]
+        sums = np.stack([common * 10_000, rare])
+        counts = np.array([10_000, 1], dtype=np.float32)
+        space = scanner_space(common * 10_000 + rare, 10_001, common)
+
+        assert nearest_cluster(sums, counts, np.einsum("ij,ij->i", sums, sums), space, 0.65, 0.90) == 0
 
 
 class TestAssignSemantics(BaseTest):
@@ -124,19 +155,47 @@ class TestAssignSemantics(BaseTest):
     def _counts(self, model: type[ReplayScannerFeedGroup] | type[ReplayScannerSearchTheme]) -> list[int]:
         return sorted(model.objects.for_team(self.team.id).values_list("member_count", flat=True))
 
-    @parameterized.expand([(ScannerOrigin.CONFIGURED,), (ScannerOrigin.INLINE,)])
-    def test_close_observations_share_a_group_and_a_theme_and_a_redelivery_counts_once(self, origin: str) -> None:
+    @parameterized.expand(
+        [
+            ("configured", ScannerOrigin.CONFIGURED, False),
+            ("inline", ScannerOrigin.INLINE, False),
+            # One chunk holds a group created earlier in the same chunk, so the result matches one call per row.
+            ("one_batch", ScannerOrigin.CONFIGURED, True),
+        ]
+    )
+    def test_close_observations_share_a_group_and_a_theme_and_a_redelivery_counts_once(
+        self, _name: str, origin: str, batch: bool
+    ) -> None:
         self.scanner = self._scanner(ScannerType.SUMMARIZER, name="refunds", origin=origin)
         first, close, far = self._observation(), self._observation(), self._observation()
         routine = self._observation(category="routine")
+        vectors = [(first, _vector(1.0)), (close, _vector(1.0, 0.1)), (far, _vector(0.0, 1.0)), (routine, _vector(1.0))]
 
-        joined = [self._assign(first, _vector(1.0)), self._assign(close, _vector(1.0, 0.1))]
+        if batch:
+            assigned = assign_semantics_batch(
+                team_id=self.team.id,
+                scanner_id=str(self.scanner.id),
+                items=[SemanticItem(observation_id=str(o.id), vector=v, now=timezone.now()) for o, v in vectors],
+            )
+            joined: list[Any] = [assigned[str(first.id)], assigned[str(close.id)]]
+            far_assignment: Any = assigned[str(far.id)]
+            routine_assignment: Any = assigned[str(routine.id)]
+        else:
+            joined = [self._assign(first, _vector(1.0)), self._assign(close, _vector(1.0, 0.1))]
+            far_assignment = self._assign(far, _vector(0.0, 1.0))
+            # A message may spell the id in another case, and the row must still be found.
+            routine_assignment = assign_semantics(
+                team_id=self.team.id,
+                scanner_id=str(self.scanner.id),
+                observation_id=str(routine.id).upper(),
+                vector=_vector(1.0),
+                now=timezone.now(),
+            )
         assert joined[0].group_id == joined[1].group_id
         assert joined[0].theme.theme_id == joined[1].theme.theme_id
         assert self._assign(first, _vector(1.0)) is None
-        assert self._assign(far, _vector(0.0, 1.0)).group_id != joined[0].group_id
+        assert far_assignment.group_id != joined[0].group_id
         # A routine row joins a feed group, so a viewer who counts it as an issue finds it grouped, but never a theme.
-        routine_assignment = self._assign(routine, _vector(1.0))
         assert routine_assignment.group_id == joined[0].group_id
         assert routine_assignment.theme is None
 
@@ -214,14 +273,20 @@ class TestAssignSemantics(BaseTest):
 
         assert self._counts(ReplayScannerFeedGroup) == [1, 2]
 
-    def test_the_backfill_fills_only_what_a_ranked_row_is_missing(self) -> None:
+    # An embedding stored long after its observation was created falls outside the slice's bounded read.
+    @parameterized.expand([("embedded_on_time", False), ("embedded_late", True)])
+    def test_the_backfill_fills_only_what_a_ranked_row_is_missing(self, _name: str, late: bool) -> None:
         grouped = self._observation()
         ReplayObservation.objects.filter(id=grouped.id).update(
             watch_rank={**_rank(), "group": "kept"}, status="succeeded", completed_at=timezone.now()
         )
         vector = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+
+        def stored(_team_id: int, ids: list[str], _since: Any, until: Any) -> dict[str, np.ndarray]:
+            return {} if late and until is not None else dict.fromkeys(ids, vector)
+
         with (
-            patch(f"{_BACKFILL}._stored_vectors", return_value={str(grouped.id): vector}),
+            patch(f"{_BACKFILL}.stored_vectors_between", side_effect=stored),
             patch(f"{_BACKFILL}.anchor_vectors", AsyncMock(return_value=axis_anchors())),
         ):
             backfill_team_semantics(self.team.id, timezone.now() - timedelta(days=1))
@@ -256,6 +321,26 @@ class TestAssignSemantics(BaseTest):
     def test_a_theme_is_due_a_name_at_its_fifth_member(self) -> None:
         due = [self._assign(self._observation(), _vector(1.0)).theme.name_due for _ in range(5)]
         assert due == [False, False, False, False, True]
+
+    def test_only_themes_a_suggestion_can_show_are_due_a_name(self) -> None:
+        def theme(member_count: int, rename_at: int) -> ReplayScannerSearchTheme:
+            return ReplayScannerSearchTheme.objects.for_team(self.team.id).create(
+                team=self.team,
+                scanner=self.scanner,
+                vector_sum=pack(semantic_vector(_vector(1.0))),
+                member_count=member_count,
+                rename_at_member_count=rename_at,
+                last_member_at=timezone.now(),
+            )
+
+        # The eight largest fill every suggestion slot and are named already, so the due ninth never shows.
+        for size in range(20, 28):
+            theme(size, rename_at=size * 2)
+        theme(10, rename_at=5)
+        assert list(naming_candidates(self.team.id, timezone.now())) == []
+
+        shown = theme(30, rename_at=5)
+        assert list(naming_candidates(self.team.id, timezone.now())) == [shown]
 
     def test_naming_writes_the_label_once_per_doubling_and_retries_a_failed_call(self) -> None:
         for _ in range(5):
