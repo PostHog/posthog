@@ -41,7 +41,7 @@ PII_FLAG_PROBABILITY = 0.4
 ASKS_FOR_IDENTITY_PROBABILITY = 0.5
 _JEV_TIMEOUT_SECONDS = 10.0
 _REWRITE_MODEL = "gemini-3.8-flash"
-_TEXT_FIELDS = ("title", "summary", "reasoning", "notability_reason")
+_TEXT_FIELDS = ("title", "summary", "reasoning")
 
 _NAME_QUESTION = DecisionQuestion(
     type=DecisionQuestionType.NOUL,
@@ -113,7 +113,6 @@ class _Rewrite(BaseModel):
     title: str | None = None
     summary: str | None = None
     reasoning: str | None = None
-    notability_reason: str | None = None
 
 
 def answer_text(output: BaseModel) -> dict[str, str]:
