@@ -6,18 +6,23 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
 import { ElementType } from '~/types'
 
+import { SelectorCount } from './SelectorCount'
+
 export const SelectorEditingModal = ({
     isOpen,
     setIsOpen,
     activeElementChain,
     onChange,
     startingSelector,
+    checkUniqueness = true,
 }: {
     isOpen: boolean
     setIsOpen: (open: boolean) => void
     activeElementChain: ElementType[]
     onChange?: (selector: string | null) => void
     startingSelector?: string | null
+    /** Pass false where the modal doesn't render in the page whose elements it edits. */
+    checkUniqueness?: boolean
 }): JSX.Element => {
     const [chosenSelector, setChosenSelector] = useState<string | null>(null)
 
@@ -50,10 +55,11 @@ export const SelectorEditingModal = ({
                 editable={true}
                 highlight={false}
                 elements={activeElementChain}
-                checkUniqueness={true}
+                checkUniqueness={checkUniqueness}
                 onChange={setChosenSelector}
                 startingSelector={startingSelector ?? undefined}
             />
+            {!checkUniqueness && chosenSelector ? <SelectorCount selector={chosenSelector} /> : null}
         </LemonModal>
     )
 }

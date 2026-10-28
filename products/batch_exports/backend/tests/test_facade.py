@@ -21,6 +21,7 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportRun,
 )
 from products.batch_exports.backend.service import BatchExportServiceScheduleNotFound
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 pytestmark = [pytest.mark.django_db]
 
@@ -300,6 +301,27 @@ def test_runs_and_backfills_are_scoped_to_the_team_and_export(team, organization
             api.create_batch_export_backfill(team_id, export_id, start_at=None, end_at=None)
 
 
+@pytest.mark.parametrize("scope", ["other_team", "deleted"])
+def test_pause_unpause_and_delete_refuse_another_teams_or_a_deleted_export(team, organization, scope):
+    export_id = _create_export(team, paused=True)
+    if scope == "other_team":
+        team_id = create_team(organization=organization).pk
+    else:
+        team_id = team.pk
+        testing.update_batch_export(export_id, team_id=team.pk, deleted=True)
+
+    # A leaked lookup would pause silently, reach Temporal to unpause, or run the delete.
+    with pytest.raises(contracts.BatchExportNotFoundError):
+        api.pause_batch_export(team_id, export_id, note="pause")
+    with pytest.raises(contracts.BatchExportNotFoundError):
+        api.unpause_batch_export(team_id, export_id, note="unpause", backfill=False)
+    with pytest.raises(contracts.BatchExportNotFoundError):
+        api.delete_batch_export(export_id, team_id)
+
+    export = BatchExport.objects.get(id=export_id)
+    assert (export.paused, export.deleted) == (True, scope == "deleted")
+
+
 def test_deleting_team_batch_exports_continues_past_a_missing_schedule(team):
     first = _create_export(team, name="first")
     second = _create_export(team, name="second")
@@ -406,7 +428,7 @@ def test_destination_test_step_refuses_an_integration_from_another_team(team, or
 
     with (
         mock.patch("products.batch_exports.backend.destination_tests.get_destination_test"),
-        pytest.raises(Integration.DoesNotExist),
+        pytest.raises(IntegrationNotFound),
     ):
         api.run_destination_test_step(
             team.pk,

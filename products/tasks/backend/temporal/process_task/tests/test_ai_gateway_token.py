@@ -132,13 +132,21 @@ class TestSharedRoutingContract:
     )
     def test_resolve_matches_contract(self, case):
         assert (
-            resolve_sandbox_ai_product(case["origin_product"], case["ai_stage"], internal=case["internal"])
+            resolve_sandbox_ai_product(
+                case["origin_product"],
+                case["ai_stage"],
+                internal=case["internal"],
+            )
             == case["expected"]
         )
 
     @pytest.mark.parametrize("case", _CASES["routed"], ids=lambda c: f"{c['origin_product']}/{c['ai_stage']}")
     def test_routed_matches_contract(self, case):
-        ai_product = resolve_sandbox_ai_product(case["origin_product"], case["ai_stage"], internal=case["internal"])
+        ai_product = resolve_sandbox_ai_product(
+            case["origin_product"],
+            case["ai_stage"],
+            internal=case["internal"],
+        )
         assert sandbox_product_routed(ai_product, case["ai_stage"], case["allowlist"]) == case["expected"]
 
 
@@ -316,6 +324,7 @@ class TestMintScopedToken:
                 "deepseek-ai/deepseek-v4.1-flash-1017-fast",
                 "zai-org/glm-5.3",
                 "zai-org/glm-5.3-flash",
+                "gpt-6.1-terra",
             }
         assert set(pin) == expected
 
@@ -454,21 +463,44 @@ class TestAiGatewayEnvVars:
         assert "AI_GATEWAY_AI_STAGE" not in env
         mint.assert_not_called()
 
-    def test_workflow_run_gets_a_pinned_token_when_routed(self, mint_settings):
-        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "workflows"
+    @pytest.mark.parametrize(
+        "origin, state, product",
+        [
+            ("workflow", None, "workflows"),
+            ("signal_report", {"ai_stage": "inbox", "billing_product": "posthog_ai"}, "posthog_ai"),
+            ("signal_report", {"billing_product": "posthog_ai"}, "posthog_ai"),
+            ("signals_scout", {"billing_product": "posthog_ai"}, "posthog_ai"),
+        ],
+    )
+    @pytest.mark.parametrize("over_quota", [False, True])
+    def test_user_billed_run_uses_its_credit_bucket(self, mint_settings, origin, state, product, over_quota):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = product
+        runtime = "pi" if origin == "signals_scout" else None
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
-                return_value="phe_abc",
+                "products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_abc"
             ) as mint,
             patch(
                 "products.tasks.backend.temporal.process_task.ai_gateway_token._team_credit_refusal",
-                return_value=None,
-            ),
+                return_value="ai_credits_exhausted" if over_quota else None,
+            ) as quota,
         ):
-            env = ai_gateway_env_vars(team_id=123, origin_product="workflow")
-        assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
-        mint.assert_called_once_with(ai_product="workflows", team_id=123, user=None)
+            if product == "workflows" and over_quota:
+                with pytest.raises(GatewayTokenUnavailableError):
+                    ai_gateway_env_vars(team_id=123, origin_product=origin, state=state, runtime=runtime, internal=True)
+                mint.assert_not_called()
+            else:
+                env = ai_gateway_env_vars(
+                    team_id=123, origin_product=origin, state=state, runtime=runtime, internal=True
+                )
+                if over_quota:
+                    assert "AI_GATEWAY_TOKEN" not in env
+                    mint.assert_not_called()
+                else:
+                    assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
+                    assert env["AI_GATEWAY_PRODUCT"] == product
+                    mint.assert_called_once_with(ai_product=product, team_id=123, user=None)
+            quota.assert_called_once_with(123, "ai_credits")
 
     # The agent trusts these as the worker's word, so the API must refuse a run-supplied value.
     def test_reserved_keys_cover_the_pinned_product_env(self):
@@ -823,23 +855,6 @@ class TestProvisioningBoundaries:
             patch.object(utils, "get_sandbox_api_url", return_value="url"),
         ):
             out = utils.build_sandbox_environment_variables(github_token="", access_token="tok", ctx=ctx, task=task)
-        env.assert_called_once_with(ctx, task)
-        assert out["AI_GATEWAY_TOKEN"] == "phe"
-
-    def test_repository_builder_uses_the_shared_derivation(self, mint_settings):
-        import importlib
-
-        mod = importlib.import_module(
-            "products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository"
-        )
-
-        ctx, task = self._ctx(), self._task()
-        with (
-            patch.object(mod, "run_gateway_env_vars", return_value={"AI_GATEWAY_TOKEN": "phe"}) as env,
-            patch.object(mod, "get_sandbox_jwt_public_key", return_value="jwt"),
-            patch.object(mod, "get_sandbox_api_url", return_value="url"),
-        ):
-            out = mod._build_environment_variables(ctx, task, "", "tok")
         env.assert_called_once_with(ctx, task)
         assert out["AI_GATEWAY_TOKEN"] == "phe"
 
@@ -1314,6 +1329,7 @@ class TestSlackAppMint:
             "deepseek-ai/deepseek-v4.1-flash-1017-fast",
             "zai-org/glm-5.3",
             "zai-org/glm-5.3-flash",
+            "gpt-6.1-terra",
         }
         assert reserved <= set(_PRODUCT_ALLOWED_MODELS["review_hog"])
         missing = routed - reserved - {"zai-org/glm-5.2"} - set(_PRODUCT_ALLOWED_MODELS["slack_app"])
@@ -1602,7 +1618,9 @@ class TestPosthogCodeSandboxMint:
         assert pin == DESKTOP_AGENT_MODELS
         assert len(pin) == len(set(pin))
         assert len(gateway_pin(pin)) <= MAX_GATEWAY_PIN_LENGTH
-        assert {entry.id for entry in model_catalog.MODELS} <= set(pin)
+        # A model reserved for ReviewHog alone would push the desktop pin past the gateway limit.
+        assert {entry.id for entry in model_catalog.MODELS} - {"gpt-6.1-terra"} <= set(pin)
+        assert "gpt-6.1-terra" not in pin
         assert set(SDK_IMPLICIT_MODELS) <= set(pin)
         assert {"gpt-5.4", "gpt-5.3-codex", "gpt-5.2", "gpt-5-mini"} <= set(pin)
 

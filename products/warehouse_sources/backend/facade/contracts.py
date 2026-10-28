@@ -16,12 +16,55 @@ demand map). The HogQL system-table model classes cross the boundary as objects 
 ``facade/hogql.py``, and temporal/source wiring via ``facade/temporal.py`` — not here.
 """
 
+from collections.abc import Sequence
 from dataclasses import field
 from datetime import datetime, time, timedelta
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
+
+from products.integrations.backend.facade.contracts import IntegrationUsage
+
+# The `job_inputs` key that holds the pk of the `Integration` row with a source's typed-in credentials.
+# An OAuth source keeps its own `*_integration_id` key instead and has no such row.
+CREDENTIALS_REFERENCE_KEY = "credentials_integration_id"
+
+# The request flag that confirms an edit of credentials that other sources or products also use.
+UPDATE_SHARED_CREDENTIALS_PARAM = "update_shared_credentials"
+
+# The `IntegrationUsage.type` of a warehouse source that uses an integration row.
+WAREHOUSE_SOURCE_USAGE_TYPE = "warehouse_source"
+
+
+class SharedCredentialsError(Exception):
+    """An edit would change a credentials row that other sources or products also use.
+
+    `usages` holds the other users, as the integrations SDK reports them. The API returns them in a
+    409 response, and the request can confirm with `update_shared_credentials`.
+    """
+
+    def __init__(self, integration_id: int, usages: Sequence[IntegrationUsage]) -> None:
+        super().__init__(f"Integration {integration_id} is also used by {len(usages)} other objects")
+        self.integration_id = integration_id
+        self.usages = tuple(usages)
+
+
+class UnusableCredentialsReferenceError(ValueError):
+    """An edit points a source at a credentials row that the source cannot use: a row of another team,
+    another kind or another auth type, or a row that no warehouse source made."""
+
+
+class SharedCredentialsEdit(StrEnum):
+    """What a write of a source's inputs does when other sources or products also use its credentials row."""
+
+    # Keep the shared row as it is. Internal writes use this, so they never change credentials of other users.
+    SKIP = "skip"
+    # Raise `SharedCredentialsError`, so the API can ask the person for a confirmation.
+    REFUSE = "refuse"
+    # The person confirmed the edit: write the shared row.
+    CONFIRMED = "confirmed"
 
 
 class UnsupportedSyncTypeError(ValueError):

@@ -1,8 +1,9 @@
 """Strip the connection fields from the `job_inputs` of warehouse sources, restore them, and prune the backups.
 
 A strip is the last step of the move of connection fields to the credentials rows. After it, the row is the
-only storage of the credentials, so the strip runs only for a source whose row verifies, and it writes a
-backup of the full `job_inputs` first. Each source is locked while it changes, so a concurrent write either
+only storage of the credentials, so the strip runs only for a source whose reference points at a row that
+verifies, and it writes a backup of the full `job_inputs` first. A source without a reference is refused:
+run the backfill first. A source with an OAuth connection has nothing to strip. Each source is locked while it changes, so a concurrent write either
 runs before the check or replaces the stripped value with a full one, which a later run strips again.
 """
 
@@ -19,8 +20,10 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.facade.contracts import UnreadableSourceInputsError
+from products.warehouse_sources.backend.facade.contracts import CREDENTIALS_REFERENCE_KEY, UnreadableSourceInputsError
+from products.warehouse_sources.backend.logic.credential_auth_types import has_typed_in_credentials
 from products.warehouse_sources.backend.logic.source_credentials import (
+    CredentialsNotFoundError,
     CredentialsUnreadableError,
     WarehouseSourceCredentialsStore,
 )
@@ -41,6 +44,8 @@ logger = structlog.get_logger(__name__)
 STRIPPED = "stripped"
 ALREADY_STRIPPED = "already_stripped"
 SKIPPED_READ_FLAG_OFF = "skipped_read_flag_off"
+SKIPPED_NO_ROW_NEEDED = "skipped_no_row_needed"
+SKIPPED_NO_REFERENCE = "skipped_no_reference"
 SKIPPED_MISSING_ROW = "skipped_missing_row"
 SKIPPED_UNREADABLE_ROW = "skipped_unreadable_row"
 SKIPPED_ROW_DIFFERS = "skipped_row_differs"
@@ -75,9 +80,10 @@ def strip_connection_fields(
 ) -> OutcomeCounts:
     """Strip each non-deleted source that passes all checks. With ``execute`` false, only count.
 
-    The checks, in order: the read flag is on for the team, `job_inputs` decodes and is not stripped, and the
-    credentials row exists, is readable and holds the same connection fields as `job_inputs`. Then the backup
-    is written (an existing backup is kept), and then `job_inputs` keeps only its settings and runtime state.
+    The checks, in order: the read flag is on for the team, `job_inputs` decodes and is not stripped, the source
+    has typed-in connection fields, `job_inputs` holds a credentials reference, and the row it points at exists,
+    is readable and holds the same connection fields as `job_inputs`. Then the backup is written (an existing
+    backup is kept), and then `job_inputs` keeps only its references, selectors, settings and runtime state.
     """
     counts: OutcomeCounts = Counter()
     last_id: UUID | None = None
@@ -188,8 +194,13 @@ def _check(source: ExternalDataSource) -> tuple[str, dict[str, Any] | None]:
         expected = split_connection_fields(str(source.source_type), stored_inputs)
     except ValueError:
         return SKIPPED_UNKNOWN_TYPE, None
+    if not expected or not has_typed_in_credentials(str(source.source_type)):
+        return SKIPPED_NO_ROW_NEEDED, None
+    ref = stored_inputs.get(CREDENTIALS_REFERENCE_KEY)
+    if ref is None:
+        return SKIPPED_NO_REFERENCE, None
     try:
-        row = WarehouseSourceCredentialsStore.get(source)
+        row = WarehouseSourceCredentialsStore.get(source, ref)
     except CredentialsUnreadableError:
         return SKIPPED_UNREADABLE_ROW, None
     if row is None:
@@ -208,11 +219,12 @@ def _restore_one(source_id: UUID, team_id: int, execute: bool, prefer_backup: bo
         if not is_stripped(stored_inputs):
             return NOT_STRIPPED
 
+        ref = stored_inputs.get(CREDENTIALS_REFERENCE_KEY)
         connection: dict[str, Any] | None = None
         outcome = RESTORED_FROM_ROW
         if not prefer_backup:
             try:
-                connection = WarehouseSourceCredentialsStore.get(source)
+                connection = WarehouseSourceCredentialsStore.get(source, ref)
             except CredentialsUnreadableError:
                 connection = None
         if connection is None:
@@ -223,10 +235,24 @@ def _restore_one(source_id: UUID, team_id: int, execute: bool, prefer_backup: bo
             outcome = RESTORED_FROM_BACKUP
             if execute:
                 # Credentials first, like every other write, so the row and `job_inputs` agree after the restore.
-                WarehouseSourceCredentialsStore.upsert(source, connection)
+                ref = _write_backup_to_row(source, ref, connection)
         if execute:
-            SourceInputsStore.write_restored(source, {**connection, **stored_inputs})
+            SourceInputsStore.write_restored(source, {**connection, **stored_inputs, CREDENTIALS_REFERENCE_KEY: ref})
     return outcome
+
+
+def _write_backup_to_row(source: ExternalDataSource, ref: Any, connection: dict[str, Any]) -> int:
+    """Write the backup to the row that ``ref`` points at, or to a new row when there is none. Returns its pk.
+
+    A row that other objects also use raises `SharedCredentialsError`, so an old backup never changes their
+    credentials without a person's decision.
+    """
+    if ref is not None:
+        try:
+            return WarehouseSourceCredentialsStore.update(source, ref, connection)
+        except CredentialsNotFoundError:
+            pass
+    return WarehouseSourceCredentialsStore.create(source, connection)
 
 
 def _lock(source_id: UUID, team_id: int) -> ExternalDataSource | None:
@@ -234,7 +260,7 @@ def _lock(source_id: UUID, team_id: int) -> ExternalDataSource | None:
         ExternalDataSource.objects.select_for_update(of=("self",))
         .select_related(None)
         .exclude(deleted=True)
-        .only("id", "team_id", "source_type", "job_inputs")
+        .only("id", "team_id", "source_type", "job_inputs", "prefix", "created_by_id")
         .filter(team_id=team_id, id=source_id)
         .first()
     )
@@ -244,7 +270,7 @@ def _get(source_id: UUID, team_id: int) -> ExternalDataSource | None:
     return (
         ExternalDataSource.objects.select_related(None)
         .exclude(deleted=True)
-        .only("id", "team_id", "source_type", "job_inputs")
+        .only("id", "team_id", "source_type", "job_inputs", "prefix", "created_by_id")
         .filter(team_id=team_id, id=source_id)
         .first()
     )

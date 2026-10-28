@@ -62,6 +62,11 @@ class NeonSource(PostgresSource):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.NEON
 
+    @property
+    def credential_kind(self) -> str | None:
+        # Without this, the source inherits the kind of `PostgresSource`.
+        return "neon"
+
     @staticmethod
     def _adjust_field(field: FieldType) -> FieldType:
         if isinstance(field, SourceFieldInputConfig):

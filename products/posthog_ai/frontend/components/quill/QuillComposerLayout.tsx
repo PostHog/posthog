@@ -1,6 +1,8 @@
-import { type ReactNode, type RefObject, useLayoutEffect, useRef } from 'react'
+import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from 'react'
 
 import { InputGroup, InputGroupAddon } from '@posthog/quill-primitives'
+
+import { cn } from 'lib/utils/css-classes'
 
 export interface QuillComposerLayoutProps {
     groupRef: RefObject<HTMLDivElement>
@@ -10,6 +12,52 @@ export interface QuillComposerLayoutProps {
     send: ReactNode
     controls?: ReactNode
     meta?: ReactNode
+    singleRow?: boolean
+}
+
+const SINGLE_ROW_CLASS =
+    'pr-1.5 pb-1.5 ' +
+    '[&_.quill-button--size-sm]:h-7 [&_.quill-button--size-lg]:h-7 [&_.quill-button--size-lg]:px-2 [&_.quill-button--size-lg]:text-xs ' +
+    '[&_.quill-button--size-icon-sm]:size-7 [&_.quill-button--size-icon-sm_svg]:size-3.5 [&_[data-attr=task-composer-add-menu]]:-ml-[3px]'
+
+function useTwoRows(
+    rowRef: RefObject<HTMLDivElement>,
+    controlsRef: RefObject<HTMLDivElement>,
+    metaRef: RefObject<HTMLDivElement>,
+    sendRef: RefObject<HTMLDivElement>,
+    enabled: boolean
+): boolean {
+    const [twoRows, setTwoRows] = useState(false)
+
+    useLayoutEffect(() => {
+        const row = rowRef.current
+        const parts = [controlsRef.current, metaRef.current, sendRef.current]
+        if (!enabled || !row || parts.some((part) => !part) || typeof ResizeObserver === 'undefined') {
+            return
+        }
+        const [controls, metaGroup, sendGroup] = parts as HTMLDivElement[]
+        const measure = (): void => {
+            const style = getComputedStyle(row)
+            const available = row.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+            const gap = parseFloat(style.columnGap) || 0
+            const metaWidth = Array.from(metaGroup.children).reduce((sum, child) => sum + child.scrollWidth, 0)
+            const needed = controls.scrollWidth + metaWidth + sendGroup.scrollWidth + gap * 2
+            setTwoRows(needed > available + 0.5)
+        }
+        measure()
+        const resizeObserver = new ResizeObserver(measure)
+        resizeObserver.observe(row)
+        resizeObserver.observe(controls)
+        Array.from(metaGroup.children).forEach((child) => resizeObserver.observe(child))
+        const mutationObserver = new MutationObserver(measure)
+        mutationObserver.observe(row, { childList: true, subtree: true, characterData: true })
+        return () => {
+            resizeObserver.disconnect()
+            mutationObserver.disconnect()
+        }
+    }, [rowRef, controlsRef, metaRef, sendRef, enabled])
+
+    return enabled && twoRows
 }
 
 export function QuillComposerLayout({
@@ -20,9 +68,15 @@ export function QuillComposerLayout({
     send,
     controls,
     meta,
+    singleRow = false,
 }: QuillComposerLayoutProps): JSX.Element {
     const chipsRowRef = useRef<HTMLDivElement>(null)
     const chipsContentRef = useRef<HTMLDivElement>(null)
+    const rowRef = useRef<HTMLDivElement>(null)
+    const controlsRef = useRef<HTMLDivElement>(null)
+    const metaRef = useRef<HTMLDivElement>(null)
+    const sendRef = useRef<HTMLDivElement>(null)
+    const twoRows = useTwoRows(rowRef, controlsRef, metaRef, sendRef, singleRow)
 
     useLayoutEffect(() => {
         const row = chipsRowRef.current
@@ -75,16 +129,45 @@ export function QuillComposerLayout({
                     </InputGroupAddon>
                 )}
                 <div className="relative w-full min-w-0">{field}</div>
-                <div
-                    data-quill
-                    className="@container/composer flex w-full flex-wrap items-center gap-1 pr-1 pb-1 pl-1.5 text-[var(--muted-foreground)]"
-                >
-                    {controls}
-                    <div className="ml-auto flex shrink-0 items-center gap-1">
-                        {meta}
-                        {send}
+                {singleRow ? (
+                    <div
+                        ref={rowRef}
+                        data-quill
+                        data-two-rows={twoRows || undefined}
+                        className={cn(
+                            '@container/composer w-full items-center gap-1 pl-1.5 text-[var(--muted-foreground)]',
+                            SINGLE_ROW_CLASS,
+                            twoRows ? 'grid grid-cols-[auto_1fr_auto]' : 'flex flex-nowrap'
+                        )}
+                    >
+                        <div ref={controlsRef} className="col-start-1 row-start-1 flex shrink-0 items-center gap-1">
+                            {controls}
+                        </div>
+                        <div
+                            ref={metaRef}
+                            className={cn(
+                                'flex min-w-0 items-center',
+                                twoRows ? 'col-span-full row-start-2 -ml-1' : 'ml-auto'
+                            )}
+                        >
+                            {meta}
+                        </div>
+                        <div ref={sendRef} className="col-start-3 row-start-1 flex shrink-0 items-center">
+                            {send}
+                        </div>
                     </div>
-                </div>
+                ) : (
+                    <div
+                        data-quill
+                        className="@container/composer flex w-full flex-wrap items-center gap-1 pr-1 pb-1 pl-1.5 text-[var(--muted-foreground)]"
+                    >
+                        {controls}
+                        <div className="ml-auto flex shrink-0 items-center gap-1">
+                            {meta}
+                            {send}
+                        </div>
+                    </div>
+                )}
             </InputGroup>
         </div>
     )

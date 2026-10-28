@@ -10,7 +10,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
 
-from posthog.models.integration import Integration
+from posthog.models.integration import ANY, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY, Integration
 
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.validation import (
@@ -599,28 +599,48 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
     @parameterized.expand(
         [
-            ("single_slack", "integration", "slack"),
-            ("multi_slack", "integration_multi", "slack"),
-            ("single_posthog_connection", "integration", "posthog"),
-            ("multi_posthog_connection", "integration_multi", "posthog"),
-            ("single_warehouse_source", "integration", "warehouse-source"),
-            ("multi_warehouse_source", "integration_multi", "warehouse-source"),
+            ("single_slack", "integration", "slack", None, None),
+            ("multi_slack", "integration_multi", "slack", None, None),
+            ("single_posthog_connection", "integration", "posthog", None, "PostHog connection"),
+            ("multi_posthog_connection", "integration_multi", "posthog", None, "PostHog connection"),
+            # Warehouse source rows are blocked by the marker, whatever their kind and auth type.
+            ("single_warehouse_default_auth", "integration", "postgresql", None, "can't be used as a function input"),
+            ("multi_warehouse_default_auth", "integration_multi", "postgresql", None, "can't be used"),
+            ("warehouse_typed_in_auth", "integration", "stripe", "token", "can't be used as a function input"),
+            ("warehouse_generated_kind", "integration", "ably", None, "can't be used as a function input"),
         ]
     )
-    def test_integration_input_rejects_a_posthog_connection(self, _name, item_type, kind):
-        integration = Integration.objects.create(team=self.team, kind=kind, created_by=self.user)
+    def test_integration_input_rejects_a_posthog_connection_or_warehouse_credentials(
+        self, _name, item_type, kind, auth_type, expected_error
+    ):
+        config = (
+            {} if expected_error in (None, "PostHog connection") else {WAREHOUSE_SOURCE_TYPE_CONFIG_KEY: "Postgres"}
+        )
+        if auth_type:
+            config["auth_type"] = auth_type
+        integration = Integration.objects._with_auth(ANY).create(
+            team=self.team, kind=kind, config=config, created_by=self.user
+        )
         value = integration.id if item_type == "integration" else [integration.id]
         inputs_schema = [{"key": "connection", "type": item_type, "integration": "slack", "required": True}]
         inputs = {"connection": {"value": value}}
         context_extra = {"get_team": lambda: self.team}
 
-        if kind == "slack":
+        if expected_error is None:
             assert validate_inputs(inputs_schema, inputs, context_extra=context_extra)["connection"]["value"] == value
         else:
             with pytest.raises(ValidationError) as ctx:
                 validate_inputs(inputs_schema, inputs, context_extra=context_extra)
-            expected = "PostHog connection" if kind == "posthog" else "can't be used as a function input"
-            assert expected in str(ctx.value.detail)
+            assert expected_error in str(ctx.value.detail)
+
+    def test_integration_input_allows_an_unmarked_row_of_a_warehouse_kind(self):
+        integration = Integration.objects.create(team=self.team, kind="postgresql", config={"host": "db.example.com"})
+        inputs_schema = [{"key": "connection", "type": "integration", "integration": "postgresql", "required": True}]
+        inputs = {"connection": {"value": integration.id}}
+
+        validated = validate_inputs(inputs_schema, inputs, context_extra={"get_team": lambda: self.team})
+
+        assert validated["connection"]["value"] == integration.id
 
     def _create_email_integration(self, domain="posthog.com"):
         return Integration.objects.create(

@@ -13,9 +13,12 @@ from django.core.management.base import CommandError
 
 from parameterized import parameterized
 
-from posthog.models.integration import Integration
+from posthog.models.integration import ANY, Integration
 
-from products.warehouse_sources.backend.facade.contracts import CONNECTION_FIELDS_STRIPPED_KEY
+from products.warehouse_sources.backend.facade.contracts import (
+    CONNECTION_FIELDS_STRIPPED_KEY,
+    CREDENTIALS_REFERENCE_KEY,
+)
 from products.warehouse_sources.backend.logic.source_credentials import WarehouseSourceCredentialsStore
 from products.warehouse_sources.backend.logic.source_credentials_rollout import DUAL_WRITE_FLAG, READ_FLAG, reset_caches
 from products.warehouse_sources.backend.logic.source_credentials_sync import SKIPPED_STRIPPED, _process_batch
@@ -30,6 +33,7 @@ from products.warehouse_sources.backend.tests.management.test_source_credentials
 )
 
 POSTGRES_SETTINGS = {"schema": "public"}
+REF = CREDENTIALS_REFERENCE_KEY
 
 
 class _StripTestCase(_CredentialsCommandTestCase):
@@ -48,11 +52,24 @@ class _StripTestCase(_CredentialsCommandTestCase):
 
     def _backfilled_source(self, **kwargs: Any) -> ExternalDataSource:
         source = self._source(**kwargs)
-        WarehouseSourceCredentialsStore.upsert(source, POSTGRES_CONNECTION)
-        return source
+        pk = self._row_for(source, POSTGRES_CONNECTION)
+        ExternalDataSource.objects.filter(pk=source.pk).update(job_inputs={**POSTGRES_INPUTS, REF: str(pk)})
+        return ExternalDataSource.objects.get(pk=source.pk)
 
     def _stored(self, source: ExternalDataSource) -> dict[str, Any]:
         return SourceInputsStore.load_stored(ExternalDataSource.objects.get(pk=source.pk))
+
+    def _inputs(self, source: ExternalDataSource) -> dict[str, Any]:
+        return {**POSTGRES_INPUTS, REF: self._stored(source)[REF]}
+
+    def _row(self, source: ExternalDataSource) -> dict[str, Any] | None:
+        return WarehouseSourceCredentialsStore.get(source, self._stored(source).get(REF))
+
+    def _set_row(self, source: ExternalDataSource, fields: dict[str, Any]) -> None:
+        WarehouseSourceCredentialsStore.update(source, self._stored(source)[REF], fields)
+
+    def _delete_row(self, source: ExternalDataSource) -> None:
+        Integration.objects._with_auth(ANY).filter(id=self._stored(source)[REF]).delete()
 
     def _backups(self) -> list[ExternalDataSourceInputsBackup]:
         return list(ExternalDataSourceInputsBackup.objects.unscoped().all())
@@ -67,7 +84,7 @@ class TestStripWarehouseSourceConnectionFields(_StripTestCase):
 
         assert "Dry run" in output
         assert "would_strip=1" in output
-        assert self._stored(source) == POSTGRES_INPUTS
+        assert self._stored(source) == self._inputs(source)
         assert self._backups() == []
 
     def test_execute_backs_up_then_strips_and_reads_still_return_every_field(self) -> None:
@@ -78,11 +95,11 @@ class TestStripWarehouseSourceConnectionFields(_StripTestCase):
         assert "stripped=1" in output
         assert "fake-password-value" not in output
         stored = self._stored(source)
-        assert set(stored) == {*POSTGRES_SETTINGS, CONNECTION_FIELDS_STRIPPED_KEY}
+        assert set(stored) == {*POSTGRES_SETTINGS, REF, CONNECTION_FIELDS_STRIPPED_KEY}
         backup = ExternalDataSourceInputsBackup.objects.for_team(self.team.pk).get(source_id=source.id)
-        assert backup.inputs == POSTGRES_INPUTS
+        assert backup.inputs == self._inputs(source)
         assert backup.source_type == "Postgres"
-        assert SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk)) == POSTGRES_INPUTS
+        assert SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk)) == self._inputs(source)
 
     @parameterized.expand(
         [
@@ -92,18 +109,23 @@ class TestStripWarehouseSourceConnectionFields(_StripTestCase):
                 lambda case, source: case.enabled_flags.discard(DUAL_WRITE_FLAG),
                 "skipped_read_flag_off",
             ),
-            ("missing_row", lambda case, source: WarehouseSourceCredentialsStore.delete(source), "skipped_missing_row"),
+            ("missing_row", lambda case, source: case._delete_row(source), "skipped_missing_row"),
             (
                 "unreadable_row",
-                lambda case, source: Integration.objects.filter(kind="warehouse-source").update(sensitive_config={}),
+                lambda case, source: (
+                    Integration.objects._with_auth(ANY).filter(id=case._stored(source)[REF]).update(sensitive_config={})
+                ),
                 "skipped_unreadable_row",
             ),
             (
                 "row_differs",
-                lambda case, source: WarehouseSourceCredentialsStore.upsert(
-                    source, {**POSTGRES_CONNECTION, "password": "fake-other"}
-                ),
+                lambda case, source: case._set_row(source, {**POSTGRES_CONNECTION, "password": "fake-other"}),
                 "skipped_row_differs",
+            ),
+            (
+                "no_reference",
+                lambda case, source: ExternalDataSource.objects.filter(pk=source.pk).update(job_inputs=POSTGRES_INPUTS),
+                "skipped_no_reference",
             ),
         ]
     )
@@ -112,12 +134,22 @@ class TestStripWarehouseSourceConnectionFields(_StripTestCase):
     ) -> None:
         source = self._backfilled_source()
         break_check(self, source)
+        before = self._stored(source)
 
         output = self._run("strip_warehouse_source_connection_fields", "--execute")
 
         assert f"{expected_outcome}=1" in output
-        assert self._stored(source) == POSTGRES_INPUTS
+        assert self._stored(source) == before
         assert self._backups() == []
+
+    def test_an_oauth_connection_has_nothing_to_strip(self) -> None:
+        inputs = {"hubspot_integration_id": "7"}
+        source = self._source(inputs, source_type="Hubspot")
+
+        output = self._run("strip_warehouse_source_connection_fields", "--execute")
+
+        assert "skipped_no_row_needed=1" in output
+        assert self._stored(source) == inputs
 
     def test_rerun_keeps_the_first_backup(self) -> None:
         source = self._backfilled_source()
@@ -129,7 +161,7 @@ class TestStripWarehouseSourceConnectionFields(_StripTestCase):
         SourceInputsStore.save(reloaded, {**SourceInputsStore.load(reloaded), "schema": "analytics"})
         assert "stripped=1" in self._run("strip_warehouse_source_connection_fields", "--execute")
 
-        assert [backup.inputs for backup in self._backups()] == [POSTGRES_INPUTS]
+        assert [backup.inputs for backup in self._backups()] == [self._inputs(source)]
         assert self._stored(source)["schema"] == "analytics"
 
     def test_backfill_never_overwrites_the_row_of_a_stripped_source(self) -> None:
@@ -139,9 +171,9 @@ class TestStripWarehouseSourceConnectionFields(_StripTestCase):
         output = self._run("backfill_warehouse_source_credentials", "--execute")
 
         assert "skipped_stripped=1" in output
-        assert WarehouseSourceCredentialsStore.get(source) == POSTGRES_CONNECTION
+        assert self._row(source) == POSTGRES_CONNECTION
 
-        WarehouseSourceCredentialsStore.delete(source)
+        self._delete_row(source)
         with pytest.raises(CommandError):
             self._run("reconcile_warehouse_source_credentials", "--verify")
 
@@ -150,13 +182,13 @@ class TestStripWarehouseSourceConnectionFields(_StripTestCase):
         stale = ExternalDataSource.objects.get(pk=source.pk)
         self._run("strip_warehouse_source_connection_fields", "--execute")
         rotated = {**POSTGRES_CONNECTION, "password": "fake-rotated"}
-        WarehouseSourceCredentialsStore.upsert(source, rotated)
+        self._set_row(source, rotated)
 
         counts: Counter[tuple[str, str]] = Counter()
         _process_batch([stale], True, counts)
 
         assert counts == Counter({("Postgres", SKIPPED_STRIPPED): 1})
-        assert WarehouseSourceCredentialsStore.get(source) == rotated
+        assert self._row(source) == rotated
 
 
 class TestRestoreWarehouseSourceConnectionFields(_StripTestCase):
@@ -170,23 +202,21 @@ class TestRestoreWarehouseSourceConnectionFields(_StripTestCase):
             # The row holds a credential changed after the strip, which the restore must keep.
             (
                 "from_row",
-                lambda source: WarehouseSourceCredentialsStore.upsert(
-                    source, {**POSTGRES_CONNECTION, "password": "fake-rotated"}
-                ),
+                lambda case, source: case._set_row(source, {**POSTGRES_CONNECTION, "password": "fake-rotated"}),
                 (),
                 "restored_from_row",
                 "fake-rotated",
             ),
             (
                 "missing_row",
-                lambda source: WarehouseSourceCredentialsStore.delete(source),
+                lambda case, source: case._delete_row(source),
                 (),
                 "restored_from_backup",
                 "fake-password-value",
             ),
             (
                 "prefer_backup",
-                lambda source: WarehouseSourceCredentialsStore.upsert(source, {}),
+                lambda case, source: case._set_row(source, {}),
                 ("--prefer-backup",),
                 "restored_from_backup",
                 "fake-password-value",
@@ -196,13 +226,13 @@ class TestRestoreWarehouseSourceConnectionFields(_StripTestCase):
     def test_restore_puts_full_inputs_back_and_clears_the_marker(
         self,
         _name: str,
-        change_row: Callable[[ExternalDataSource], Any],
+        change_row: Callable[[Any, ExternalDataSource], Any],
         args: tuple[str, ...],
         expected_outcome: str,
         expected_password: str,
     ) -> None:
         source = self._stripped_source()
-        change_row(source)
+        change_row(self, source)
 
         dry_run = self._run("restore_warehouse_source_connection_fields", "--source-id", str(source.id), *args)
         assert f"{expected_outcome}=1" in dry_run
@@ -211,13 +241,13 @@ class TestRestoreWarehouseSourceConnectionFields(_StripTestCase):
         self._run("restore_warehouse_source_connection_fields", "--execute", "--source-id", str(source.id), *args)
 
         expected = {**POSTGRES_INPUTS, "password": expected_password}
-        assert self._stored(source) == expected
-        assert WarehouseSourceCredentialsStore.get(source) == {**POSTGRES_CONNECTION, "password": expected_password}
+        assert {key: value for key, value in self._stored(source).items() if key != REF} == expected
+        assert self._row(source) == {**POSTGRES_CONNECTION, "password": expected_password}
         assert len(self._backups()) == 1
 
     def test_restore_without_row_or_backup_changes_nothing(self) -> None:
         source = self._stripped_source()
-        WarehouseSourceCredentialsStore.delete(source)
+        self._delete_row(source)
         ExternalDataSourceInputsBackup.objects.unscoped().all().delete()
 
         out = StringIO()

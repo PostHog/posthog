@@ -1,11 +1,11 @@
 from datetime import UTC, datetime, timedelta
 
-from django.db import transaction
-
 from requests import PreparedRequest
 
-from posthog.models.integration import Integration, OauthIntegration
+from posthog.models.integration import OauthIntegration
 
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
+from products.integrations.backend.facade.contracts import IntegrationPatch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
 
 # Resend access tokens live ~15m. Re-mint through the DB a few minutes before that so a token never
@@ -27,12 +27,15 @@ def resolve_resend_oauth_token(integration_id: int, team_id: int, current_token:
     ``current_token`` is the token the caller just refreshed from; when it still matches the row
     (nobody else rotated past it) we refresh, otherwise we hand back the fresher token already on the row.
     """
-    with transaction.atomic():
-        integration = Integration.objects.select_for_update().get(id=integration_id, team_id=team_id, kind="resend")
-        oauth = OauthIntegration(integration)
-        if oauth.access_token_expired() or (current_token is not None and integration.access_token == current_token):
+
+    def refresh_if_needed(row: IntegrationRecord) -> IntegrationPatch:
+        oauth = OauthIntegration(row)
+        if oauth.access_token_expired() or (current_token is not None and row.access_token == current_token):
+            # The refresh persists the rotated tokens itself, so the patch stays empty.
             oauth.refresh_access_token()
-        token = integration.access_token
+        return IntegrationPatch()
+
+    token = IntegrationManager.resend.oauth.update_atomically(team_id, integration_id, refresh_if_needed).access_token
 
     if not token:
         raise ValueError("Resend access token not found")

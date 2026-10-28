@@ -13,8 +13,8 @@ from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials as OAuthCredentials
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
 
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
@@ -85,7 +85,7 @@ def _backoff_sleep(attempt: int) -> None:
 _MAX_INTEGRATION_FETCH_ATTEMPTS = 4
 
 
-def _get_integration(integration_id: int, team_id: int) -> Integration:
+def _get_integration(integration_id: int, team_id: int) -> IntegrationRecord:
     """Fetch the OAuth ``Integration`` row, retrying a transient DB failure with backoff.
 
     Temporal activities run in a long-lived worker that never goes through Django's request
@@ -95,14 +95,14 @@ def _get_integration(integration_id: int, team_id: int) -> Integration:
     ``close_old_connections()`` evicts connections already known to be stale (and, after a failed
     query marks one unusable, drops it), so each attempt runs on a fresh connection; the short
     backoff also gives a saturated pool time to drain rather than retrying straight back into the
-    same wait timeout. This read is idempotent, so it is safe to repeat. ``Integration.DoesNotExist``
+    same wait timeout. This read is idempotent, so it is safe to repeat. ``IntegrationNotFound``
     is left to propagate.
     """
     attempt = 0
     while True:
         close_old_connections()
         try:
-            return Integration.objects.get(id=integration_id, team_id=team_id)
+            return IntegrationManager.google_analytics.oauth.get(team_id, integration_id)
         except OperationalError:
             attempt += 1
             if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:
