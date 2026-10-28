@@ -92257,22 +92257,22 @@ export namespace Schemas {
     }
 
     /**
-     * Supabase email action type to transactional message template id. Replaces the whole mapping. Valid action types: signup, invite, magiclink, email, recovery, email_change, reauthentication, password_changed_notification, email_changed_notification, phone_changed_notification, identity_linked_notification, identity_unlinked_notification, mfa_factor_enrolled_notification, mfa_factor_unenrolled_notification.
+     * Supabase email action type to the id of the email template that sends it. Each template must be transactional and marked sensitive. This replaces the whole mapping: include every type to keep, and leave a type out to unmap it. A core auth email with no template fails in Supabase, and a notification with no template is skipped. Valid action types: signup, invite, magiclink, email, recovery, email_change, reauthentication, password_changed_notification, email_changed_notification, phone_changed_notification, identity_linked_notification, identity_unlinked_notification, mfa_factor_enrolled_notification, mfa_factor_unenrolled_notification.
      */
     export type PatchedSupabaseAuthEmailSettingsUpdateTemplates = {[key: string]: string};
 
     export interface PatchedSupabaseAuthEmailSettingsUpdate {
       /**
-         * The Supabase project URL, such as https://abcdefgh.supabase.co.
+         * The Supabase project URL, such as https://abcdefgh.supabase.co, from the project's API settings in the Supabase dashboard. It must use https.
          * @maxLength 200
          */
       supabase_url?: string;
       /**
-         * The Send Email Hook secret from Supabase, starting with v1,whsec_. Leave it out to keep the stored secret.
+         * The Send Email Hook secret, starting with v1,whsec_. Supabase generates it under Authentication, Hooks, Send Email hook. Leave it out to keep the stored secret.
          * @maxLength 500
          */
       hook_secret?: string;
-      /** Supabase email action type to transactional message template id. Replaces the whole mapping. Valid action types: signup, invite, magiclink, email, recovery, email_change, reauthentication, password_changed_notification, email_changed_notification, phone_changed_notification, identity_linked_notification, identity_unlinked_notification, mfa_factor_enrolled_notification, mfa_factor_unenrolled_notification. */
+      /** Supabase email action type to the id of the email template that sends it. Each template must be transactional and marked sensitive. This replaces the whole mapping: include every type to keep, and leave a type out to unmap it. A core auth email with no template fails in Supabase, and a notification with no template is skipped. Valid action types: signup, invite, magiclink, email, recovery, email_change, reauthentication, password_changed_notification, email_changed_notification, phone_changed_notification, identity_linked_notification, identity_unlinked_notification, mfa_factor_enrolled_notification, mfa_factor_unenrolled_notification. */
       templates?: PatchedSupabaseAuthEmailSettingsUpdateTemplates;
     }
 
