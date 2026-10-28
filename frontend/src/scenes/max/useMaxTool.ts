@@ -3,7 +3,11 @@ import React, { useEffect, useMemo, useRef } from 'react'
 
 import { IconWrench } from '@posthog/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { todayAiChatLogic } from '~/layout/today/todayAiChatLogic'
 import { SidePanelTab } from '~/types'
 
 import { ToolDefinition, ToolRegistration, getToolDefinition } from './max-constants'
@@ -47,6 +51,7 @@ export function useMaxTool({
     const { registerTool, deregisterTool } = useActions(maxGlobalLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const definition = getToolDefinition(identifier)
     const isMaxOpen = sidePanelOpen && selectedTab === SidePanelTab.Max
@@ -110,7 +115,14 @@ export function useMaxTool({
             : (): void => {
                   const { startNewConversation, setActiveGroup } = sidePanelMaxLogic().actions
                   // Start a new conversation so the prompt doesn't get added to an existing session
-                  startNewConversation()
+                  if (featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
+                      // The Today panel can show a task chat too, so its own logic starts the new chat.
+                      const unmount = todayAiChatLogic.mount()
+                      todayAiChatLogic.actions.startNewChatForTool()
+                      unmount()
+                  } else {
+                      startNewConversation()
+                  }
                   // Show the suggestions from this specific tool
                   if (definition && suggestions && suggestions.length > 0) {
                       setActiveGroup(

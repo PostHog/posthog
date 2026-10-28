@@ -2,11 +2,17 @@ import { act, cleanup, render } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { todayPanelChatSessionLogic } from '~/layout/today/todayPanelChatSessionLogic'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
+import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+
+import { MAX_SIDE_PANEL_ID } from './components/PhaiSidePanelChat'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import { UseMaxToolReturn, useMaxTool } from './useMaxTool'
@@ -82,5 +88,25 @@ describe('useMaxTool', () => {
         expect(maxLogic({ panelId: SIDE_PANEL_PANEL_ID }).values.activeSuggestionGroup?.suggestions).toEqual([
             { content: 'Show me signups' },
         ])
+    })
+
+    it('replaces an open Today panel task chat with a new chat and queues the previous chats hint', () => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
+        })
+        const panelChat = todayPanelChatSessionLogic()
+        panelChat.mount()
+        const runner = runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID })
+        runner.actions.setActiveCreation({ streamKey: 'run-1', taskId: 'task-1', runId: 'run-1' })
+
+        let openMax: UseMaxToolReturn['openMax'] = null
+        render(<TestMaxTool context={{ query: 'select 1' }} onRender={(result) => (openMax = result.openMax)} />)
+        act(() => openMax?.())
+
+        expect(runner.values.activeCreation).toBeNull()
+        expect(panelChat.values.previousChatsHintQueued).toBe(true)
+        expect(sidePanelStateLogic.values.selectedTab).toEqual(SidePanelTab.Max)
+        panelChat.unmount()
     })
 })
