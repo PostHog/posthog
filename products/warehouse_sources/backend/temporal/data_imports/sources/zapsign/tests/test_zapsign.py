@@ -256,7 +256,7 @@ class TestAuditTrailSource:
 
 
 class TestSignerVerificationsSource:
-    def test_fans_out_from_documents_through_signers_and_skips_signers_without_attempts(self) -> None:
+    def test_fans_out_from_documents_through_signers_and_skips_missing_documents_and_attempts(self) -> None:
         verification = {
             "token": "s1",
             "selfie_validation_type": "identity-verification-global",
@@ -265,11 +265,12 @@ class TestSignerVerificationsSource:
         result = _driver().run(
             SIGNER_VERIFICATIONS_RESOURCE,
             [
-                _scripted_page([{"token": "d1"}, {"token": "d2"}]),
+                _scripted_page([{"token": "d1"}, {"token": "d2"}, {"token": "d3"}]),
                 ScriptedResponse(json={"token": "d1", "signers": [{"token": "s1"}, {"token": "s2"}]}),
                 ScriptedResponse(json=verification),
                 ScriptedResponse(status=404, json={"error": "Signer has no attempts"}),
-                ScriptedResponse(json={"token": "d2", "signers": []}),
+                ScriptedResponse(status=404, json={"detail": "Not found."}),
+                ScriptedResponse(json={"token": "d3", "signers": []}),
             ],
         )
 
@@ -283,6 +284,7 @@ class TestSignerVerificationsSource:
             f"{ZAPSIGN_BASE_URL}/api/v1/signer-verification-details/s1/",
             f"{ZAPSIGN_BASE_URL}/api/v1/signer-verification-details/s2/",
             f"{ZAPSIGN_BASE_URL}/api/v1/docs/d2/",
+            f"{ZAPSIGN_BASE_URL}/api/v1/docs/d3/",
         ]
 
 

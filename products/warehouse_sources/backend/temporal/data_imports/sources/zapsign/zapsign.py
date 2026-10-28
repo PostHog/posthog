@@ -61,7 +61,7 @@ REQUEST_TIMEOUT_SECONDS = 30
 WEBHOOK_CREATE_PATH = "/api/v1/user/company/webhook/"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ZapSignResumeConfig:
     """Resume state for one endpoint's pagination.
 
@@ -168,7 +168,8 @@ def _documents_parent_resource() -> EndpointResource:
         "write_disposition": "replace",
         "endpoint": {
             "path": ENDPOINT_PATHS[DOCUMENTS_RESOURCE],
-            "params": {"sort_order": "asc"},
+            # `include_signers` guarantees the `results` envelope the selector requires.
+            "params": {"sort_order": "asc", "include_signers": "true"},
             "data_selector": "results",
             "data_selector_required": True,
         },
@@ -192,6 +193,8 @@ def _signers_child_resource() -> EndpointResource:
                 },
             },
             "data_selector": "signers",
+            # A document deleted between the list and the detail request answers 404.
+            "response_actions": [{"status_code": 404, "action": "ignore"}],
         },
         "columns": _timestamp_columns(SIGNERS_RESOURCE),
         "table_format": "delta",
