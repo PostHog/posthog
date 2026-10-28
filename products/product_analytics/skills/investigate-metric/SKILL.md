@@ -86,10 +86,10 @@ If the user's question spans multiple kinds, run the playbooks in sequence.
 
 Decide this now, before the investigation, because it changes which queries you keep.
 
-The findings go in a walkthrough when the chart is a `TrendsQuery` over time (not a box plot, 2D heatmap or scatter plot) and `posthog:explain-chart` exists in this session.
-It exists when `posthog:render-ui` lists `explain-chart` in its `tool_name`, or when `info explain-chart` works through `exec`.
-Without `render-ui`, only some hosts draw the walkthrough from `exec`, so Step 5 checks that it appeared and falls back to the written report when it did not.
-Otherwise the findings go in a written report.
+When the chart is a `TrendsQuery` over time (not a box plot, 2D heatmap or scatter plot), the investigation ends with the `posthog:explain-chart` walkthrough.
+Do not check first whether the tool exists. Step 5 calls it, and falls back to the written report when the call fails or the user cannot see the result.
+The walkthrough is the answer, in place of a notebook or a long reply. Write a notebook as well only when the user asks for one.
+For any other chart, the findings go in a written report.
 
 When it is a walkthrough:
 
@@ -145,7 +145,9 @@ in the control = strong hypothesis; moved too = expand the investigation. Skip w
 
 ## Step 5 — Write findings
 
-Use the format you chose in Step 1: the walkthrough when `explain-chart` exists and the chart is a `TrendsQuery` over time, and the written report otherwise.
+**Before you write your answer, call `posthog:explain-chart` when the chart is a `TrendsQuery` over time.**
+Do this after a long investigation too, and when most of your evidence is SQL.
+For any other chart, use the written report.
 
 ### The walkthrough
 
@@ -168,12 +170,12 @@ Call `posthog:explain-chart` first. It reports any chapter whose dates match no 
 chart, so fix those dates and call it again.
 When its response says the user already sees the result, the walkthrough is on screen, and you are done.
 Otherwise call `posthog:render-ui` with `tool_name` `explain-chart` and the same input as `tool_input`.
-When `render-ui` does not exist either, the user sees nothing, so write the written report instead.
+When the call fails because the tool does not exist, or `render-ui` does not exist either, the user sees nothing, so write the written report instead.
 
-Then reply in at most three short sentences: which chapter to look at first, one caveat
-about the data if the walkthrough cannot show it, and one offer from below. The walkthrough
-already holds the chart, the chapters, their causes and their evidence, so the reply has no
-bullet points, no description of the chart and no list of the moments.
+Then reply briefly.
+Say which chapter to look at first, then add only what the walkthrough cannot hold, such as a caveat about the data, a linked fix or a decision that is still open.
+End with one offer from below.
+The walkthrough already holds the chart, the chapters, their causes and their evidence, so do not describe the chart or list the moments again.
 
 ### The written report
 

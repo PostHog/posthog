@@ -24,7 +24,7 @@ type Params = z.infer<typeof schema>
 type Result = ExplainChartData & { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: string }
 
 const RENDERED_NOTE =
-    'The person sees the walkthrough rendered inline: the chart, every chapter, each cause and each piece of evidence. Do not write any of that again in any form, not as a recap, a bullet list or a summary of the moments. Your whole reply is at most three short sentences: which chapter to start with, one caveat the walkthrough cannot show if there is one, and one next step you offer. If the person says the walkthrough did not load, give the findings in text.'
+    'The person sees the walkthrough rendered inline: the chart, every chapter, each cause and each piece of evidence. Do not write any of that again in any form, not as a recap, a bullet list or a summary of the moments. Keep your reply short: which chapter to start with, only what the walkthrough cannot hold (a caveat about the data, a linked fix, a decision that is still open), and one next step you offer. If the person says the walkthrough did not load, give the findings in text.'
 
 // The markers sit on one value over time. These displays draw that as they are.
 const TIME_SERIES_DISPLAYS = new Set([

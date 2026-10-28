@@ -521,6 +521,25 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('**Dashboard**')
         })
 
+        it.each(surfaces)(
+            '$name sends chart explanations to the walkthrough only when explain-chart exists',
+            ({ render }) => {
+                const formatter = new InstructionsFormatter()
+                const withTool = render(formatter, {
+                    ...fullCtx,
+                    tools: [...(fullCtx.tools ?? []), { name: 'explain-chart', category: 'Insights' }],
+                })
+                const withoutTool = render(formatter, {
+                    ...fullCtx,
+                    tools: fullCtx.tools?.filter(({ name }) => name !== 'explain-chart'),
+                })
+
+                expect(withTool).toContain('### Explaining a chart')
+                expect(withTool.indexOf('### Explaining a chart')).toBeGreaterThan(withTool.indexOf('**Notebook**'))
+                expect(withoutTool).not.toContain('explain-chart')
+            }
+        )
+
         // The SQL and Python guidance names `notebooks-add-cell`, so it must stay out of prompts
         // for clients that aren't advertised the cell tools.
         it.each(surfaces)('$name gates the SQL and Python sections on the notebook cell tools', ({ render }) => {
