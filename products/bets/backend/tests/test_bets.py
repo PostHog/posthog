@@ -356,6 +356,18 @@ class TestBetLoop(APIBaseTest):
         assert self.work(bet, second, "build").status_code == 400
         first.refresh_from_db(using=WRITER_DB)
         assert first.stage == "working" and first.flag_key == f"bet-{bet.reference}-1"
+        changed = self.client.patch(f"/api/projects/{self.team.id}/bets/{bet.id}/", {"target": "0.9"}, format="json")
+        assert changed.status_code == 200
+        self.tick(bet)
+        self.world.finish(self.only(bet, "tracking"))
+        self.tick(bet)
+        assert bet.status == "running" and bet.goal_version == 2
+        self.new_report("Bet idea: show upload progress")
+        self.tick(bet)
+        after_change = self.only(bet, "idea")
+        assert self.work(bet, after_change, "build").status_code == 200
+        after_change.refresh_from_db(using=WRITER_DB)
+        assert after_change.flag_key == f"bet-{bet.reference}-2"
 
     @parameterized.expand(
         [

@@ -865,7 +865,14 @@ def act(
         if totals(bet.team_id, bet).available_cents <= 0:
             raise ValidationError("The budget is used. Add budget to build an idea.")
         owner = User.objects.get(id=bet.owner_id)
-        number = items(bet).filter(kind=WorkKind.IDEA).exclude(flag_key="").count() + 1
+        number = (
+            WorkItem.objects.for_team(bet.team_id)
+            .using(WRITER_DB)
+            .filter(bet=bet, kind=WorkKind.IDEA)
+            .exclude(flag_key="")
+            .count()
+            + 1
+        )
         move(
             work,
             WorkStage.WORKING,
