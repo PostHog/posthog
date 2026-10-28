@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import sys
 import hashlib
 import subprocess
 import urllib.parse
@@ -20,17 +21,18 @@ from .coder import (
     _fail,
     ensure_runtime_ready,
     extract_workspace_label,
+    fetch_user_workspaces,
     get_coder_url,
     get_username,
     get_workspace,
     get_workspace_name,
     get_workspace_status,
-    list_user_workspaces,
     region_from_workspace_name,
 )
 from .config import (
     WORKTREE_AUTO_SOURCES,
     WORKTREE_BOX_CLEANUP_ACTIONS,
+    WorktreeBoxRecord,
     clear_worktree_auto_sources,
     clear_worktree_box_cleanup,
     load_worktree_boxes,
@@ -155,10 +157,14 @@ def _resolve_target(
     A worktree that already has a registered box keeps it, even after a branch
     rename, so a re-run never creates a second box.
     """
-    registered = load_worktree_boxes().get(str(root))
-    registered_label = extract_workspace_label(registered) if registered is not None else None
+    boxes = load_worktree_boxes()
+    registered = boxes.get(str(root))
+    registered_box = get_workspace(registered.workspace, workspaces) if registered is not None else None
+    if registered is not None and registered_box is not None and not registered.owns(registered_box):
+        registered = registered_box = None
+    registered_label = extract_workspace_label(registered.workspace) if registered is not None else None
     if registered is not None and registered_label is not None and label in (None, registered_label):
-        return _WorktreeTarget(workspace_name=registered, label=registered_label)
+        return _WorktreeTarget(workspace_name=registered.workspace, label=registered_label)
 
     if cloning:
         region = region_from_workspace_name(resolve_workspace_name(clone_source)[0])
@@ -170,17 +176,39 @@ def _resolve_target(
     if len(name) > CODER_NAME_MAX_LENGTH:
         _fail(f"'{name}' is longer than Coder's {CODER_NAME_MAX_LENGTH}-character limit. Pick a shorter `--label`.")
 
-    if registered is not None and registered != name and get_workspace(registered, workspaces) is not None:
+    if registered is not None and registered.workspace != name and registered_box is not None:
         _fail(
-            f"This worktree already has devbox '{registered}'. Remove it with "
+            f"This worktree already has devbox '{registered.workspace}'. Remove it with "
             f"`hogli devbox:destroy {registered_label or ''}` before you pick another label."
         )
-    if label is None and registered != name and get_workspace(name, workspaces) is not None:
+    existing = get_workspace(name, workspaces)
+    owner = next(
+        (
+            path
+            for path, record in boxes.items()
+            if path != str(root) and record.workspace == name and existing is not None and record.owns(existing)
+        ),
+        None,
+    )
+    if owner is not None:
+        _fail(f"Devbox '{name}' belongs to the worktree at {owner}. Pick another `--label`.")
+    if label is None and registered is None and existing is not None:
         _fail(
             f"A devbox named '{name}' already exists and is not tied to this worktree. "
             f"Pass `--label {resolved_label}` to use it anyway, or `--label <other>` for a new box."
         )
     return _WorktreeTarget(workspace_name=name, label=resolved_label)
+
+
+def _list_workspaces_or_fail() -> list[dict[str, Any]]:
+    workspaces = fetch_user_workspaces()
+    if workspaces is None:
+        _fail(
+            "Couldn't list your devboxes, so hogli can't tell which one belongs to this worktree. "
+            "Run `hogli devbox:doctor`."
+        )
+        raise SystemExit(1)  # unreachable; helps the type checker see no fall-through
+    return workspaces
 
 
 @click.command(name="devbox:worktree", help="Give this worktree its own devbox and sync mirror")
@@ -240,7 +268,7 @@ def devbox_worktree(
         )
 
     ensure_runtime_ready()
-    workspaces = list_user_workspaces()
+    workspaces = _list_workspaces_or_fail()
     cloning = clone_from is not None
     clone_source = None if clone_from in (None, "default") else clone_from
     target = _resolve_target(root, label, cloning, clone_source, workspaces)
@@ -270,7 +298,15 @@ def devbox_worktree(
         click.echo("[DRY-RUN] Nothing changed.")
         return
 
-    record_worktree_box(root, target.workspace_name)
+    git_dir = str(_git_dir(root))
+    record_worktree_box(
+        root,
+        WorktreeBoxRecord(
+            workspace=target.workspace_name,
+            git_dir=git_dir,
+            workspace_id=None if existing is None else existing.get("id"),
+        ),
+    )
     if on_clean == "keep":
         clear_worktree_box_cleanup()
     elif on_clean is not None:
@@ -284,7 +320,13 @@ def devbox_worktree(
     else:
         ctx.invoke(devbox_start, workspace=target.label, region=region, verbose=verbose)
 
-    ensure_sync_session(target.workspace_name, list_user_workspaces(), root, verbose=verbose)
+    workspaces = _list_workspaces_or_fail()
+    created = get_workspace(target.workspace_name, workspaces)
+    if existing is None and created is not None:
+        record_worktree_box(
+            root, WorktreeBoxRecord(workspace=target.workspace_name, git_dir=git_dir, workspace_id=created.get("id"))
+        )
+    ensure_sync_session(target.workspace_name, workspaces, root, verbose=verbose)
     click.echo()
     click.echo(f"App URL, once the stack runs on the box: {_app_url(target.workspace_name)}")
 
@@ -304,7 +346,7 @@ def devbox_worktree_auto() -> None:
     log_path = _git_dir(root) / _AUTO_LOG_NAME
     with log_path.open("ab") as log:
         subprocess.Popen(
-            [str(root / "bin" / "hogli"), "devbox:worktree", "--yes"],
+            [sys.executable, "-m", "hogli", "devbox:worktree", "--yes"],
             cwd=root,
             stdin=subprocess.DEVNULL,
             stdout=log,

@@ -47,7 +47,7 @@ from .devbox.coder import (
     get_workspace_status,
     stop_workspace,
 )
-from .devbox.config import forget_worktree_boxes, load_worktree_boxes, saved_worktree_box_cleanup
+from .devbox.config import WorktreeBoxRecord, forget_worktree_boxes, load_worktree_boxes, saved_worktree_box_cleanup
 from .doctor import _format_size
 
 
@@ -68,9 +68,12 @@ def _worktree_roots(repo_root: Path) -> list[tuple[str, Path]]:
 
 def worktree_source(path: Path) -> str:
     """Name the tool whose worktree root holds *path*, or ``other`` for a worktree made elsewhere."""
-    resolved = _resolve(path)
-    for source, root in _worktree_roots(_resolve_repo(str(path))):
-        if _is_under(resolved, root):
+    return _source_under(_resolve(path), _resolve_repo(str(path)))
+
+
+def _source_under(resolved_path: Path, repo_root: Path) -> str:
+    for source, root in _worktree_roots(repo_root):
+        if _is_under(resolved_path, root):
             return source
     return "other"
 
@@ -156,7 +159,11 @@ class Worktree:
 @dataclass(frozen=True)
 class WorktreeBox:
     worktree_path: Path
-    workspace: str
+    record: WorktreeBoxRecord
+
+    @property
+    def workspace(self) -> str:
+        return self.record.workspace
 
 
 @click.command(
@@ -252,14 +259,15 @@ def worktrees_clean(
 
     mode = mode.lower()
     box_action = _resolve_box_action(stop_boxes, delete_boxes, keep_boxes, mode)
-    if box_action:
-        _clean_boxes_of_removed_worktrees(load_worktree_boxes(), box_action, dry_run, yes)
     orphan_policy = _resolve_orphan_policy(orphans, mode)
     repo_root = _resolve_repo(repo)
     repo_common = _git_common_dir(repo_root)
     cutoff, cutoff_label = _parse_cutoff(before)
 
     selected_sources = {s.lower() for s in sources} if sources else None
+    if box_action:
+        pending = _boxes_of_removed_worktrees(load_worktree_boxes(), repo_root, repo_common, selected_sources)
+        _clean_boxes_of_removed_worktrees(pending, box_action, dry_run, yes)
     protected = _protected_paths(repo_root)
 
     registry = _registered_worktrees(repo_root)
@@ -346,7 +354,8 @@ def worktrees_clean(
         "(cloned/hardlinked deps free less — the actual reclaimed total is measured after deletion)."
     )
 
-    boxes = _match_worktree_boxes(stale, load_worktree_boxes()) if box_action else []
+    registered_boxes = _match_worktree_boxes(stale, load_worktree_boxes()) if mode == "full" else []
+    boxes = registered_boxes if box_action else []
     if boxes:
         click.echo(f"\nWould {box_action} {len(boxes)} devbox(es) set up for these worktrees:")
         for box in boxes:
@@ -372,9 +381,14 @@ def worktrees_clean(
         summary += f" {failed} could not be fully removed (see warnings above)."
     click.echo(summary)
 
-    removed_boxes = [box for box in boxes if not box.worktree_path.exists()]
+    removed_boxes = [box for box in registered_boxes if not box.worktree_path.exists()]
     if box_action and removed_boxes:
         _clean_worktree_boxes(removed_boxes, box_action)
+    elif removed_boxes:
+        # A box left alone on purpose must not look like a failed cleanup to a later run.
+        forget_worktree_boxes([box.worktree_path for box in removed_boxes])
+        names = " ".join(box.workspace for box in removed_boxes)
+        click.echo(f"Left these devboxes as they are. worktrees:clean no longer tracks them: {names}")
 
 
 def _resolve_box_action(stop_boxes: bool, delete_boxes: bool, keep_boxes: bool, mode: str) -> str | None:
@@ -393,16 +407,31 @@ def _resolve_box_action(stop_boxes: bool, delete_boxes: bool, keep_boxes: bool, 
     return saved_worktree_box_cleanup()
 
 
-def _boxes_of_removed_worktrees(registry: dict[str, str]) -> list[WorktreeBox]:
-    return [
-        WorktreeBox(worktree_path=Path(path), workspace=workspace)
-        for path, workspace in registry.items()
-        if not Path(path).exists()
-    ]
+def _boxes_of_removed_worktrees(
+    registry: dict[str, WorktreeBoxRecord],
+    repo_root: Path,
+    repo_common: Path | None,
+    selected_sources: set[str] | None,
+) -> list[WorktreeBox]:
+    """Registered boxes whose worktree is gone, limited to the selected repo and sources.
+
+    The admin directory in the shared git dir outlives a moved or unmounted
+    checkout, so only its absence shows that the worktree was removed.
+    """
+    if repo_common is None:
+        return []
+    boxes: list[WorktreeBox] = []
+    for path, record in registry.items():
+        admin_dir = Path(record.git_dir)
+        if Path(path).exists() or admin_dir.exists() or _resolve(admin_dir.parent.parent) != _resolve(repo_common):
+            continue
+        if selected_sources is not None and _source_under(_resolve(Path(path)), repo_root) not in selected_sources:
+            continue
+        boxes.append(WorktreeBox(worktree_path=Path(path), record=record))
+    return boxes
 
 
-def _clean_boxes_of_removed_worktrees(registry: dict[str, str], box_action: str, dry_run: bool, yes: bool) -> None:
-    boxes = _boxes_of_removed_worktrees(registry)
+def _clean_boxes_of_removed_worktrees(boxes: list[WorktreeBox], box_action: str, dry_run: bool, yes: bool) -> None:
     if not boxes:
         return
     click.echo(f"{len(boxes)} devbox(es) belong to worktrees that were already removed:")
@@ -416,14 +445,13 @@ def _clean_boxes_of_removed_worktrees(registry: dict[str, str], box_action: str,
     click.echo()
 
 
-def _match_worktree_boxes(worktrees: list[Worktree], registry: dict[str, str]) -> list[WorktreeBox]:
-    registry_by_path = {_resolve(Path(path)): workspace for path, workspace in registry.items()}
+def _match_worktree_boxes(worktrees: list[Worktree], registry: dict[str, WorktreeBoxRecord]) -> list[WorktreeBox]:
+    registry_by_path = {_resolve(Path(path)): (Path(path), record) for path, record in registry.items()}
     boxes: list[WorktreeBox] = []
     for wt in worktrees:
-        resolved = _resolve(wt.path)
-        workspace = registry_by_path.get(resolved)
-        if workspace is not None:
-            boxes.append(WorktreeBox(worktree_path=resolved, workspace=workspace))
+        match = registry_by_path.get(_resolve(wt.path))
+        if match is not None:
+            boxes.append(WorktreeBox(worktree_path=match[0], record=match[1]))
     return boxes
 
 
@@ -445,6 +473,10 @@ def _clean_worktree_boxes(boxes: list[WorktreeBox], box_action: str) -> None:
         workspace = get_workspace(box.workspace, workspaces)
         if workspace is None:
             click.echo(f"  {box.workspace} no longer exists.")
+            handled.append(box.worktree_path)
+            continue
+        if not box.record.owns(workspace):
+            click.echo(f"  {box.workspace} was recreated after this worktree set it up, so it was left alone.")
             handled.append(box.worktree_path)
             continue
         try:

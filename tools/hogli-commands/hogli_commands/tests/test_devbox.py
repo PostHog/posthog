@@ -28,6 +28,26 @@ from hogli_commands.devbox import (
 runner = CliRunner()
 
 
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            "commit.gpgsign=false",
+            *args,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
 @pytest.fixture(autouse=True)
 def agent_ready_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(devbox_cli, "wait_for_agent_ready", lambda name: "ready")
@@ -960,6 +980,7 @@ class TestDevboxWorktreeCommand:
         monkeypatch.setattr(devbox_worktree, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_worktree, "_preferred_region", lambda: "us-east-1")
         monkeypatch.setattr(devbox_worktree.mutagen, "sync_list", lambda label_selector=None: [])
+        monkeypatch.setattr(devbox_worktree, "_git_dir", lambda root: root / "admin")
         return root
 
     @pytest.mark.parametrize(
@@ -987,6 +1008,14 @@ class TestDevboxWorktreeCommand:
                 id="new-label-refused-while-registered-box-exists",
             ),
             pytest.param("other", [], 0, "devbox-test-user-other", id="new-label-allowed-once-registered-box-is-gone"),
+            pytest.param(
+                "shared",
+                ["devbox-test-user-shared"],
+                1,
+                "devbox-test-user-feat-eu",
+                id="label-of-another-worktrees-box-refused",
+            ),
+            pytest.param(None, None, 1, "devbox-test-user-feat-eu", id="listing-failure-refused"),
         ],
     )
     def test_keeps_the_registered_box_through_start_and_sync(
@@ -994,14 +1023,29 @@ class TestDevboxWorktreeCommand:
         monkeypatch: pytest.MonkeyPatch,
         worktree_root: Path,
         label: str | None,
-        existing: list[str],
+        existing: list[str] | None,
         expected_exit: int,
         expected_box: str,
     ) -> None:
-        workspaces = [{"name": name, "latest_build": {"status": "running"}} for name in existing]
-        monkeypatch.setattr(devbox_worktree, "list_user_workspaces", lambda: workspaces)
-        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: workspaces)
-        devbox_config.record_worktree_box(worktree_root, "devbox-test-user-feat-eu")
+        workspaces = (
+            None
+            if existing is None
+            else [{"name": name, "id": f"id-{name}", "latest_build": {"status": "running"}} for name in existing]
+        )
+        monkeypatch.setattr(devbox_worktree, "fetch_user_workspaces", lambda: workspaces)
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: workspaces or [])
+        devbox_config.record_worktree_box(
+            worktree_root,
+            devbox_config.WorktreeBoxRecord(
+                workspace="devbox-test-user-feat-eu", git_dir="admin", workspace_id="id-devbox-test-user-feat-eu"
+            ),
+        )
+        devbox_config.record_worktree_box(
+            worktree_root.parent / "other-worktree",
+            devbox_config.WorktreeBoxRecord(
+                workspace="devbox-test-user-shared", git_dir="admin", workspace_id="id-devbox-test-user-shared"
+            ),
+        )
         started: list[str] = []
         synced: list[str] = []
 
@@ -1016,7 +1060,7 @@ class TestDevboxWorktreeCommand:
         assert result.exit_code == expected_exit, result.output
         expected_calls = [expected_box] if expected_exit == 0 else []
         assert (started, synced) == (expected_calls, expected_calls)
-        assert devbox_config.load_worktree_boxes() == {str(worktree_root): expected_box}
+        assert devbox_config.load_worktree_boxes()[str(worktree_root)].workspace == expected_box
 
 
 class TestWorkspaceRegion:
@@ -4420,21 +4464,52 @@ class TestDevboxSyncCommand:
     def test_read_local_head_returns_branch_and_full_sha(
         self, tmp_path: Path, detach: bool, expected_branch: str
     ) -> None:
-        def git(*args: str) -> str:
-            return subprocess.run(
-                ["git", "-C", str(tmp_path), "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout.strip()
-
-        git("init", "--quiet", "--initial-branch=feat/x")
-        git("-c", "commit.gpgsign=false", "commit", "--quiet", "--allow-empty", "-m", "init")
-        sha = git("rev-parse", "HEAD")
+        _git(tmp_path, "init", "--quiet", "--initial-branch=feat/x")
+        _git(tmp_path, "commit", "--quiet", "--allow-empty", "-m", "init")
+        sha = _git(tmp_path, "rev-parse", "HEAD")
         if detach:
-            git("checkout", "--quiet", "--detach")
+            _git(tmp_path, "checkout", "--quiet", "--detach")
 
         assert devbox_sync._read_local_head(tmp_path) == devbox_sync.GitHead(branch=expected_branch, sha=sha)
+
+    @pytest.mark.parametrize(
+        "box_state, expected_exit, box_keeps_head",
+        [
+            ("detached-on-master", 0, False),
+            ("detached-with-unsaved-commit", devbox_sync._CHECKOUT_DETACHED_UNSAVED, True),
+            ("ignored-file-tracked-on-target", None, True),
+        ],
+        ids=["reachable-detached-head-is-switched", "unsaved-detached-commit-kept", "ignored-file-kept"],
+    )
+    def test_checkout_script_never_drops_box_work(
+        self, tmp_path: Path, box_state: str, expected_exit: int | None, box_keeps_head: bool
+    ) -> None:
+        _git(tmp_path, "init", "--quiet", "--initial-branch=master")
+        (tmp_path / ".gitignore").write_text(".env.local\n")
+        _git(tmp_path, "add", ".gitignore")
+        _git(tmp_path, "commit", "--quiet", "-m", "init")
+        _git(tmp_path, "checkout", "--quiet", "-b", "feat/x")
+        if box_state == "ignored-file-tracked-on-target":
+            (tmp_path / ".env.local").write_text("from branch\n")
+            _git(tmp_path, "add", "--force", ".env.local")
+        _git(tmp_path, "commit", "--quiet", "--allow-empty", "-m", "target")
+        target = _git(tmp_path, "rev-parse", "HEAD")
+        (tmp_path / ".env.local").unlink(missing_ok=True)
+        _git(tmp_path, "checkout", "--quiet", "--detach", "master")
+        if box_state == "detached-with-unsaved-commit":
+            _git(tmp_path, "commit", "--quiet", "--allow-empty", "-m", "box only")
+        (tmp_path / ".env.local").write_text("box secret\n")
+        box_head = _git(tmp_path, "rev-parse", "HEAD")
+
+        script = devbox_sync._CHECKOUT_SCRIPT.replace(devbox_sync._REMOTE_REPO_PATH, str(tmp_path))
+        result = subprocess.run(["bash", "-c", script, "hogli-sync", "feat/x", target], capture_output=True, text=True)
+
+        if expected_exit is None:
+            assert result.returncode != 0
+        else:
+            assert result.returncode == expected_exit, result.stderr
+        assert _git(tmp_path, "rev-parse", "HEAD") == (box_head if box_keeps_head else target)
+        assert (tmp_path / ".env.local").read_text() == "box secret\n"
 
     def test_detect_local_checkout_fails_outside_repo(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.chdir(tmp_path)

@@ -5,10 +5,11 @@ from __future__ import annotations
 import os
 import json
 import fcntl
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict
 
 
 class DevboxConfig(TypedDict, total=False):
@@ -172,7 +173,25 @@ def saved_worktree_auto_sources() -> frozenset[str]:
     return frozenset(source.strip() for source in saved.split(",")) & frozenset(WORKTREE_AUTO_SOURCES)
 
 
-def load_worktree_boxes() -> dict[str, str]:
+@dataclass(frozen=True)
+class WorktreeBoxRecord:
+    """The devbox that `devbox:worktree` set up for one worktree.
+
+    ``workspace_id`` is Coder's immutable ID, so a box destroyed and recreated
+    under the same name is never mistaken for this one. ``git_dir`` is the
+    worktree's admin directory in the shared git dir, which survives
+    `git worktree move` and an unmounted checkout.
+    """
+
+    workspace: str
+    git_dir: str
+    workspace_id: str | None = None
+
+    def owns(self, workspace: Mapping[str, Any]) -> bool:
+        return self.workspace_id is None or workspace.get("id") == self.workspace_id
+
+
+def load_worktree_boxes() -> dict[str, WorktreeBoxRecord]:
     """Map each worktree path that `devbox:worktree` set up to the workspace it owns.
 
     `worktrees:clean` acts only on boxes listed here, so a hand-made labeled box
@@ -184,7 +203,18 @@ def load_worktree_boxes() -> dict[str, str]:
         return {}
     if not isinstance(data, dict):
         return {}
-    return {path: name for path, name in data.items() if isinstance(path, str) and isinstance(name, str) and name}
+    boxes: dict[str, WorktreeBoxRecord] = {}
+    for path, entry in data.items():
+        if not isinstance(path, str) or not isinstance(entry, dict):
+            continue
+        workspace, git_dir, workspace_id = entry.get("workspace"), entry.get("git_dir"), entry.get("workspace_id")
+        if isinstance(workspace, str) and workspace and isinstance(git_dir, str) and git_dir:
+            boxes[path] = WorktreeBoxRecord(
+                workspace=workspace,
+                git_dir=git_dir,
+                workspace_id=workspace_id if isinstance(workspace_id, str) and workspace_id else None,
+            )
+    return boxes
 
 
 @contextmanager
@@ -196,23 +226,24 @@ def _locked_worktree_boxes() -> Iterator[None]:
         yield
 
 
-def _save_worktree_boxes(boxes: dict[str, str]) -> None:
+def _save_worktree_boxes(boxes: dict[str, WorktreeBoxRecord]) -> None:
     path = get_worktree_boxes_path()
     staging = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    staging.write_text(json.dumps(dict(sorted(boxes.items())), indent=2) + "\n")
+    serialized = {key: asdict(record) for key, record in sorted(boxes.items())}
+    staging.write_text(json.dumps(serialized, indent=2) + "\n")
     staging.replace(path)
 
 
-def record_worktree_box(worktree_path: Path, workspace_name: str) -> None:
+def record_worktree_box(worktree_path: Path, record: WorktreeBoxRecord) -> None:
     with _locked_worktree_boxes():
         boxes = load_worktree_boxes()
-        boxes[str(worktree_path)] = workspace_name
+        boxes[str(worktree_path)] = record
         _save_worktree_boxes(boxes)
 
 
 def forget_worktree_boxes(worktree_paths: list[Path]) -> None:
     with _locked_worktree_boxes():
         boxes = load_worktree_boxes()
-        remaining = {path: name for path, name in boxes.items() if path not in {str(p) for p in worktree_paths}}
+        remaining = {path: record for path, record in boxes.items() if path not in {str(p) for p in worktree_paths}}
         if remaining != boxes:
             _save_worktree_boxes(remaining)

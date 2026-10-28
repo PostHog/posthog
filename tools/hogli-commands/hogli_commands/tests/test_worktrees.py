@@ -32,6 +32,10 @@ from hogli_commands.worktrees import (
 )
 
 
+def _box(name: str, git_dir: Path | str = "admin", workspace_id: str | None = None) -> devbox_config.WorktreeBoxRecord:
+    return devbox_config.WorktreeBoxRecord(workspace=name, git_dir=str(git_dir), workspace_id=workspace_id)
+
+
 def _make_worktree(path: Path) -> Worktree:
     return Worktree(source="claude", path=path, registered=True, locked=False, branch="", last_activity=0.0)
 
@@ -357,50 +361,82 @@ class TestWorktreeBoxes:
         unregistered = tmp_path / "other"
         unregistered.mkdir()
 
-        registry = {str(real): "devbox-test-user-feature", str(tmp_path / "gone"): "devbox-test-user-gone"}
+        registry = {str(real): _box("devbox-test-user-feature")}
 
         boxes = _match_worktree_boxes([_make_worktree(linked / "feature"), _make_worktree(unregistered)], registry)
 
-        assert boxes == [WorktreeBox(worktree_path=real.resolve(), workspace="devbox-test-user-feature")]
-        assert _boxes_of_removed_worktrees(registry) == [
-            WorktreeBox(worktree_path=tmp_path / "gone", workspace="devbox-test-user-gone")
-        ]
+        assert boxes == [WorktreeBox(worktree_path=real, record=_box("devbox-test-user-feature"))]
 
     @pytest.mark.parametrize(
-        ("action", "status", "expected_calls"),
+        ("case", "sources", "pending"),
         [
-            ("delete", "running", [("delete", "devbox-test-user-a")]),
-            ("stop", "running", [("stop", "devbox-test-user-a")]),
-            ("stop", "stopped", []),
+            ("removed", None, True),
+            ("removed", {"claude"}, True),
+            ("removed", {"phw"}, False),
+            ("moved", None, False),
+            ("other-repo", None, False),
         ],
-        ids=["delete", "stop-running", "stop-already-stopped"],
+        ids=["removed", "removed-source-selected", "source-not-selected", "moved-or-unmounted", "other-repo"],
+    )
+    def test_pending_boxes_need_a_removed_worktree_in_the_selected_scope(
+        self, tmp_path, case, sources, pending
+    ) -> None:
+        repo = tmp_path / "repo"
+        common = repo / ".git"
+        other_common = tmp_path / "other" / ".git"
+        (common / "worktrees").mkdir(parents=True)
+        (other_common / "worktrees").mkdir(parents=True)
+        admin = (other_common if case == "other-repo" else common) / "worktrees" / "feature"
+        if case == "moved":
+            admin.mkdir()
+        record = _box("devbox-test-user-feature", git_dir=admin)
+        registry = {str(repo / ".claude" / "worktrees" / "feature"): record}
+
+        boxes = _boxes_of_removed_worktrees(registry, repo, common, sources)
+
+        expected = [WorktreeBox(worktree_path=repo / ".claude" / "worktrees" / "feature", record=record)]
+        assert boxes == (expected if pending else [])
+
+    @pytest.mark.parametrize(
+        ("action", "status", "live_id", "expected_calls"),
+        [
+            ("delete", "running", "id-a", [("delete", "devbox-test-user-a")]),
+            ("stop", "running", "id-a", [("stop", "devbox-test-user-a")]),
+            ("stop", "stopped", "id-a", []),
+            ("delete", "running", "id-recreated", []),
+        ],
+        ids=["delete", "stop-running", "stop-already-stopped", "recreated-box-left-alone"],
     )
     def test_acts_on_existing_box_and_forgets_it(
-        self, tmp_path, monkeypatch, registry_path, action, status, expected_calls
+        self, tmp_path, monkeypatch, registry_path, action, status, live_id, expected_calls
     ) -> None:
         calls: list[tuple[str, str]] = []
         terminated: list[str] = []
         monkeypatch.setattr(worktrees, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(
-            worktrees, "fetch_user_workspaces", lambda: [{"name": "devbox-test-user-a", "status": status}]
+            worktrees,
+            "fetch_user_workspaces",
+            lambda: [{"name": "devbox-test-user-a", "id": live_id, "status": status}],
         )
         monkeypatch.setattr(worktrees, "get_workspace_status", lambda ws: ws["status"])
         monkeypatch.setattr(worktrees, "delete_workspace", lambda name: calls.append(("delete", name)))
         monkeypatch.setattr(worktrees, "stop_workspace", lambda name: calls.append(("stop", name)))
         monkeypatch.setattr(worktrees.mutagen, "sync_terminate", terminated.append)
-        devbox_config.record_worktree_box(tmp_path / "a", "devbox-test-user-a")
-        devbox_config.record_worktree_box(tmp_path / "b", "devbox-test-user-b")
+        box_a, box_b = _box("devbox-test-user-a", workspace_id="id-a"), _box("devbox-test-user-b")
+        devbox_config.record_worktree_box(tmp_path / "a", box_a)
+        devbox_config.record_worktree_box(tmp_path / "b", box_b)
 
         _clean_worktree_boxes(
             [
-                WorktreeBox(worktree_path=tmp_path / "a", workspace="devbox-test-user-a"),
-                WorktreeBox(worktree_path=tmp_path / "b", workspace="devbox-test-user-b"),
+                WorktreeBox(worktree_path=tmp_path / "a", record=box_a),
+                WorktreeBox(worktree_path=tmp_path / "b", record=box_b),
             ],
             action,
         )
 
         assert calls == expected_calls
-        assert terminated == [worktrees.mutagen.workspace_label_selector("devbox-test-user-a")]
+        owned = live_id == box_a.workspace_id
+        assert terminated == ([worktrees.mutagen.workspace_label_selector("devbox-test-user-a")] if owned else [])
         assert devbox_config.load_worktree_boxes() == {}
 
     @pytest.mark.parametrize(
@@ -417,11 +453,11 @@ class TestWorktreeBoxes:
         monkeypatch.setattr(worktrees, "delete_workspace", fail)
         monkeypatch.setattr(worktrees, "extract_workspace_label", lambda name: "a")
         monkeypatch.setattr(worktrees.mutagen, "sync_terminate", lambda selector: None)
-        devbox_config.record_worktree_box(tmp_path / "a", "devbox-test-user-a")
+        devbox_config.record_worktree_box(tmp_path / "a", _box("devbox-test-user-a"))
 
-        _clean_worktree_boxes([WorktreeBox(worktree_path=tmp_path / "a", workspace="devbox-test-user-a")], "delete")
+        _clean_worktree_boxes([WorktreeBox(worktree_path=tmp_path / "a", record=_box("devbox-test-user-a"))], "delete")
 
-        assert devbox_config.load_worktree_boxes() == {str(tmp_path / "a"): "devbox-test-user-a"}
+        assert devbox_config.load_worktree_boxes() == {str(tmp_path / "a"): _box("devbox-test-user-a")}
 
 
 class TestReclaimedBytes:

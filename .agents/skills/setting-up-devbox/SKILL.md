@@ -177,9 +177,10 @@ hogli devbox:worktree --on-clean stop           # save what worktrees:clean does
 
 - The label comes from the branch name, lowercased, with `/` and `_` turned into `-` and a leading `worktree-` dropped. Coder caps workspace names at 32 characters, so a long branch gets a shortened label with a 4-character hash. Pass `--label` to choose one.
 - hogli records the worktree path and box name in `~/.config/posthog/hogli_devbox_worktrees.json`. A re-run reuses that box, even after a branch rename, and keeps an existing mirror.
-- It refuses a derived label whose box already exists and is not recorded for this worktree, so it never takes over a box the user made by hand. Pass `--label <label>` to use that box on purpose.
+- It refuses a derived label whose box already exists and is not recorded for this worktree, so it never takes over a box the user made by hand. Pass `--label <label>` to use that box on purpose. It always refuses a box recorded for another worktree.
 - `--clone-from` uses `devbox:clone`, so the source must be running and the clone asks for confirmation unless `-y` is passed. Pass `-y` only after the user agrees.
-- `hogli worktrees:clean --mode full --stop-boxes` stops the recorded box of each worktree it removes, and `--delete-boxes` deletes it with its disk. With neither flag, it uses the action saved by `--on-clean`, and `--keep-boxes` overrides that. It acts only on boxes in the record file. `--dry-run` lists the boxes, and the confirmation prompt counts them.
+- `hogli worktrees:clean --mode full --stop-boxes` stops the recorded box of each worktree it removes, and `--delete-boxes` deletes it with its disk. With neither flag, it uses the action saved by `--on-clean`, and `--keep-boxes` overrides that. It acts only on boxes in the record file, and skips a box that was recreated under the same name. A box it leaves alone is dropped from the record file, so a later run never touches it. `--dry-run` lists the boxes, and the confirmation prompt counts them.
+- A box whose worktree was already removed gets the same action on the next `worktrees:clean` run, within that run's `--repo` and `--source` selection. A moved or unmounted worktree does not count as removed.
 - Clear the saved action with `hogli devbox:config:rm worktree-boxes`.
 
 ### Provision a box for every new worktree

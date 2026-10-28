@@ -36,10 +36,13 @@ git status --porcelain --untracked-files=no | head -n 1 | wc -l
 _CHECKOUT_DIRTY = 3
 _CHECKOUT_SHA_UNAVAILABLE = 2
 _CHECKOUT_BRANCH_DIVERGED = 4
+_CHECKOUT_DETACHED_UNSAVED = 5
 
 # The dirty check repeats inside the script so that an edit made on the box
 # after the probe still blocks the checkout. `checkout -B` only runs when the
-# box's branch is an ancestor of the target, so it never drops box-only commits.
+# box's branch is an ancestor of the target, and a detached HEAD is left only
+# when a ref or the target still reaches it, so box-only commits are never
+# dropped. `--no-overwrite-ignore` keeps ignored files such as `.env.local`.
 _CHECKOUT_SCRIPT = f"""
 branch="$1"; sha="$2"
 cd {_REMOTE_REPO_PATH} || exit 1
@@ -48,12 +51,17 @@ has_sha() {{ git cat-file -e "$sha^{{commit}}" 2>/dev/null; }}
 has_sha || [ "$branch" = {_DETACHED} ] || git fetch --quiet origin "$branch" 2>/dev/null || true
 has_sha || git fetch --quiet origin "$sha" 2>/dev/null || true
 has_sha || exit {_CHECKOUT_SHA_UNAVAILABLE}
-[ "$branch" = {_DETACHED} ] && exec git checkout --quiet --detach "$sha"
+if ! git symbolic-ref --quiet HEAD >/dev/null \\
+    && ! git merge-base --is-ancestor HEAD "$sha" \\
+    && [ -z "$(git for-each-ref --contains HEAD --count=1)" ]; then
+    exit {_CHECKOUT_DETACHED_UNSAVED}
+fi
+[ "$branch" = {_DETACHED} ] && exec git checkout --quiet --no-overwrite-ignore --detach "$sha"
 if git rev-parse --verify --quiet "refs/heads/$branch" >/dev/null \\
     && ! git merge-base --is-ancestor "refs/heads/$branch" "$sha"; then
     exit {_CHECKOUT_BRANCH_DIVERGED}
 fi
-exec git checkout --quiet -B "$branch" "$sha"
+exec git checkout --quiet --no-overwrite-ignore -B "$branch" "$sha"
 """
 
 
@@ -194,6 +202,8 @@ def _align_box_checkout(workspace: str, local_path: Path, requested: bool | None
         give_up(f"The devbox couldn't fetch {local.sha[:10]} from origin. Push the branch to avoid this.")
     elif returncode == _CHECKOUT_BRANCH_DIVERGED:
         give_up(f"The devbox has commits on `{local.branch}` that your local branch doesn't, so hogli left it alone.")
+    elif returncode == _CHECKOUT_DETACHED_UNSAVED:
+        give_up("The devbox has commits on a detached HEAD that no branch holds, so hogli left it alone.")
     elif returncode == _CHECKOUT_DIRTY:
         give_up("The devbox got uncommitted changes before the checkout, so hogli left it alone.")
     else:
