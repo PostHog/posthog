@@ -201,3 +201,4 @@ class TestAdRollSourceResponse:
         assert result.response.sort_mode == "asc"
         assert result.response.partition_mode is None
         assert result.response.partition_keys is None
+        assert result.response.supports_resume is (not config.pixel_scoped)

@@ -169,6 +169,7 @@ def adroll_source(
         partition_count=1,
         partition_size=1,
         sort_mode="asc",
+        supports_resume=not config.pixel_scoped,
     )
 
 
