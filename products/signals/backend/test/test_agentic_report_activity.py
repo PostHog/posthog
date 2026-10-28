@@ -70,7 +70,7 @@ from products.signals.backend.temporal.agentic.report import (
     RunAgenticReportInput,
     _load_linked_report_context,
     _load_previous_research,
-    _load_resolved_report_context,
+    _load_recurrence_report_context,
     _parse_artefact_content,
     _parse_stored_charts,
     _parse_stored_metrics,
@@ -305,23 +305,35 @@ def _build_signals() -> list[SignalData]:
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("parent_status", "dismissal_reason", "expected"),
+    ("parent_status", "prior_status", "dismissal_reason", "expected"),
     [
-        (SignalReport.Status.RESOLVED, None, True),
-        (SignalReport.Status.SUPPRESSED, "already_fixed", True),
-        (SignalReport.Status.SUPPRESSED, "wrong_repo", False),
+        (SignalReport.Status.RESOLVED, None, None, True),
+        (SignalReport.Status.CLOSED, None, None, True),
+        (SignalReport.Status.SUPPRESSED, SignalReport.Status.CLOSED, None, True),
+        (SignalReport.Status.SUPPRESSED, None, "already_fixed", True),
+        (SignalReport.Status.SUPPRESSED, None, "wrong_repo", False),
         # Archived because nobody wants to see it, not because it was fixed: there is no prior fix
         # to reason about, so the research agent is told nothing.
-        (SignalReport.Status.SUPPRESSED, "wontfix_intentional", False),
+        (SignalReport.Status.SUPPRESSED, None, "wontfix_intentional", False),
     ],
 )
 @pytest.mark.parametrize("typed_link", [False, True])
 @pytest.mark.parametrize("safety_verdicts", [[], [False], [True], [False, True], [True, False], ["invalid"]])
-async def test_recurrence_context_comes_from_a_parent_closed_as_fixed(
-    ateam, parent_status, dismissal_reason, expected, typed_link, safety_verdicts
-):
+async def test_recurrence_context_preserves_the_predecessor_outcome(
+    ateam: Team,
+    parent_status: str,
+    prior_status: str | None,
+    dismissal_reason: str | None,
+    expected: bool,
+    typed_link: bool,
+    safety_verdicts: list[bool | str],
+) -> None:
     parent = await database_sync_to_async(SignalReport.objects.create)(
-        team=ateam, status=parent_status, title="stale chunk TypeError", summary="Imports fail after a deploy."
+        team=ateam,
+        status=parent_status,
+        status_before_suppression=prior_status,
+        title="stale chunk TypeError",
+        summary="Imports fail after a deploy.",
     )
     if dismissal_reason is not None:
         await database_sync_to_async(SignalReportArtefact.append_dismissal)(
@@ -349,13 +361,21 @@ async def test_recurrence_context_comes_from_a_parent_closed_as_fixed(
         attribution=ArtefactAttribution.system(),
     )
 
-    context = await _load_resolved_report_context(ateam.id, str(fork.id))
+    context = await _load_recurrence_report_context(ateam.id, str(fork.id))
 
     safe = not safety_verdicts or safety_verdicts[-1] is True
-    valid_link = typed_link or parent_status == SignalReport.Status.RESOLVED
-    assert context == (
-        ("stale chunk TypeError", "Imports fail after a deploy.") if expected and safe and valid_link else (None, None)
-    )
+    valid_link = typed_link or parent_status in {SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED}
+    if expected and safe and valid_link:
+        assert context is not None
+        assert context.title == "stale chunk TypeError"
+        assert context.summary == "Imports fail after a deploy."
+        assert context.status == (
+            "closed"
+            if parent_status == SignalReport.Status.CLOSED or prior_status == SignalReport.Status.CLOSED
+            else "resolved"
+        )
+    else:
+        assert context is None
     assert await _load_previous_research(ateam.id, str(fork.id)) is None
 
 
