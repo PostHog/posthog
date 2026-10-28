@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { basename, resolve } from 'node:path'
 
 import { defineCommand } from '@/core/command'
 import { HogError } from '@/core/errors'
@@ -38,12 +38,12 @@ export default defineCommand({
         } catch (error) {
             throw new HogError('file_unreadable', `hog couldn't read ${args.file}: ${(error as Error).message}`)
         }
-        const name =
-            args.file
-                .split('/')
-                .filter((part) => part !== '' && part !== '.')
-                .pop() ?? 'symbol_set'
-        return extractSymbolSet(data, deriveBaseName(name), options.outputDir ?? '.', ctx.runtime.cwd())
+        return extractSymbolSet(
+            data,
+            deriveBaseName(basename(args.file) || 'symbol_set'),
+            options.outputDir ?? '.',
+            ctx.runtime.cwd()
+        )
     },
 
     human({ result, out }) {

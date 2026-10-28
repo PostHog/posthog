@@ -1,14 +1,20 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { inflateRawSync, zstdDecompressSync } from 'node:zlib'
 
 import { HogError } from '@/core/errors'
 
 import { SymbolDataType } from './container'
 import { decodeUtf8 } from './json'
+import { crc32 } from './native/zip'
 import type { SymbolSetClient } from './upload'
 
 const MAGIC = Buffer.from('posthog_error_tracking', 'latin1')
+// Uploads are at most 100 MB compressed. These caps stop a crafted symbol set from inflating
+// until the process runs out of memory.
+const MAX_PAYLOAD_BYTES = 2 * 1024 * 1024 * 1024
+const MAX_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024
+const DOWNLOAD_TIMEOUT_MS = 10 * 60 * 1000
 
 export type ExtractedKind = 'sourcemap' | 'hermes' | 'proguard' | 'elf' | 'dsym'
 
@@ -18,9 +24,15 @@ export interface ExtractReport {
     files: string[]
 }
 
+// Rust's `Path` splits on `\` too on Windows.
+const pathParts = (path: string, platform: NodeJS.Platform): string[] =>
+    path.split(platform === 'win32' ? /[\\/]/ : '/')
+
 // `derive_base_name`: the last path component, without the extension the extracted files get back.
-export function deriveBaseName(reference: string): string {
-    const parts = reference.split('/').filter((part) => part !== '' && part !== '.')
+// posthog-cli checks for `.` and `..` before it strips the extension, so `...dSYM` becomes `..`
+// there. hog checks after too, so the files never land above the output folder.
+export function deriveBaseName(reference: string, platform: NodeJS.Platform = process.platform): string {
+    const parts = pathParts(reference, platform).filter((part) => part !== '' && part !== '.')
     let name = parts.length === 0 ? reference : parts[parts.length - 1]!
     if (name === '..' || name === '.') {
         name = 'symbol_set'
@@ -31,7 +43,7 @@ export function deriveBaseName(reference: string): string {
             break
         }
     }
-    return name === '' ? 'symbol_set' : name
+    return name === '' || name === '.' || name === '..' ? 'symbol_set' : name
 }
 
 class SymbolDataError extends Error {
@@ -75,7 +87,11 @@ function readPayload(data: Buffer, expected: SymbolDataType): Buffer {
     if (compression !== 1) {
         throw new SymbolDataError(`Unknown compression ${compression}`)
     }
-    return zstdDecompressSync(body)
+    try {
+        return zstdDecompressSync(body, { maxOutputLength: MAX_PAYLOAD_BYTES })
+    } catch (error) {
+        throw new SymbolDataError(`The payload doesn't decompress: ${(error as Error).message}`)
+    }
 }
 
 function sourceAndMap(payload: Buffer): { source: Buffer; map: Buffer } {
@@ -106,33 +122,57 @@ interface ZipEntry {
 }
 
 function readZip(zip: Buffer): ZipEntry[] {
+    const unreadable = (why: string): HogError =>
+        new HogError('invalid_symbol_set', `The symbol set's zip archive is unreadable: ${why}.`)
     const end = zip.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]))
     if (end < 0 || end + 22 > zip.length) {
-        throw new HogError('invalid_symbol_set', "The symbol set's zip archive is unreadable.")
+        throw unreadable('no end of central directory')
     }
     const count = zip.readUInt16LE(end + 10)
     let offset = zip.readUInt32LE(end + 16)
+    let total = 0
     const entries: ZipEntry[] = []
     for (let index = 0; index < count; index++) {
         if (offset + 46 > zip.length || zip.readUInt32LE(offset) !== 0x02014b50) {
-            throw new HogError('invalid_symbol_set', "The symbol set's zip archive is unreadable.")
+            throw unreadable('a central directory entry is out of bounds')
         }
         const method = zip.readUInt16LE(offset + 10)
+        const crc = zip.readUInt32LE(offset + 16)
         const compressedSize = zip.readUInt32LE(offset + 20)
+        const size = zip.readUInt32LE(offset + 24)
         const nameLength = zip.readUInt16LE(offset + 28)
         const extraLength = zip.readUInt16LE(offset + 30)
         const commentLength = zip.readUInt16LE(offset + 32)
         const local = zip.readUInt32LE(offset + 42)
         const name = zip.subarray(offset + 46, offset + 46 + nameLength).toString('utf8')
+        if (local + 30 > zip.length) {
+            throw unreadable(`${name} is out of bounds`)
+        }
         const dataStart = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28)
-        const raw = zip.subarray(dataStart, dataStart + compressedSize)
+        if (dataStart + compressedSize > zip.length) {
+            throw unreadable(`${name} is out of bounds`)
+        }
         if (method !== 0 && method !== 8) {
             throw new HogError(
                 'invalid_symbol_set',
                 `The symbol set's zip uses compression method ${method}, which hog can't read.`
             )
         }
-        entries.push({ name, data: method === 8 ? inflateRawSync(raw) : raw })
+        total += size
+        if (total > MAX_ARCHIVE_BYTES) {
+            throw unreadable('it unpacks to more than 2 GiB')
+        }
+        const raw = zip.subarray(dataStart, dataStart + compressedSize)
+        let data: Buffer
+        try {
+            data = method === 8 ? inflateRawSync(raw, { maxOutputLength: Math.max(1, size) }) : raw
+        } catch (error) {
+            throw unreadable(`${name} doesn't decompress: ${(error as Error).message}`)
+        }
+        if (data.length !== size || crc32(data) !== crc) {
+            throw unreadable(`${name} doesn't match its recorded size and checksum`)
+        }
+        entries.push({ name, data })
         offset += 46 + nameLength + extraLength + commentLength
     }
     return entries
@@ -142,14 +182,28 @@ function readZip(zip: Buffer): ZipEntry[] {
 // an entry can't escape the folder.
 function extractZip(zip: Buffer, baseName: string, output: string, cwd: string): string[] {
     const folder = join(output, baseName)
-    mkdirSync(resolve(cwd, folder), { recursive: true })
+    const root = resolve(cwd, folder)
+    mkdirSync(root, { recursive: true })
     const written: string[] = []
     for (const entry of readZip(zip)) {
-        const parts = entry.name.split('/').filter((part) => part !== '' && part !== '.' && part !== '..')
+        const parts = pathParts(entry.name, process.platform).filter(
+            (part) =>
+                part !== '' &&
+                part !== '.' &&
+                part !== '..' &&
+                !(process.platform === 'win32' && /^[a-z]:$/i.test(part))
+        )
         if (parts.length === 0) {
             continue
         }
         const path = join(folder, ...parts)
+        const within = relative(root, resolve(cwd, path))
+        if (within.startsWith('..') || isAbsolute(within)) {
+            throw new HogError(
+                'invalid_symbol_set',
+                `The symbol set's zip has an entry outside its folder: ${entry.name}`
+            )
+        }
         mkdirSync(dirname(resolve(cwd, path)), { recursive: true })
         writeFileSync(resolve(cwd, path), entry.data)
         written.push(path)
@@ -164,14 +218,23 @@ export function extractSymbolSet(bytes: Uint8Array, baseName: string, output: st
     const data = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
     mkdirSync(resolve(cwd, output), { recursive: true })
     const write = (path: string, data: Uint8Array): void => writeFileSync(resolve(cwd, path), data)
-    const attempt = <T>(read: () => T): T | undefined => {
+    // A container of a known type whose payload fails to decode: posthog-cli reports it as an
+    // unknown type, which sends people after the wrong cause.
+    let decodeError: { type: number; message: string } | undefined
+    const attempt = <T>(read: () => T, type: SymbolDataType): T | undefined => {
         try {
             return read()
-        } catch {
+        } catch (error) {
+            if (!(error instanceof SymbolDataError && error.wrongType !== undefined)) {
+                decodeError ??= { type, message: (error as Error).message }
+            }
             return undefined
         }
     }
-    const pair = attempt(() => sourceAndMap(readPayload(data, SymbolDataType.SourceAndMap)))
+    const pair = attempt(
+        () => sourceAndMap(readPayload(data, SymbolDataType.SourceAndMap)),
+        SymbolDataType.SourceAndMap
+    )
     if (pair) {
         const files = [join(output, `${baseName}.js`), join(output, `${baseName}.js.map`)]
         write(files[0]!, pair.source)
@@ -183,7 +246,7 @@ export function extractSymbolSet(bytes: Uint8Array, baseName: string, output: st
             const read = readPayload(data, type)
             decodeUtf8(read)
             return read
-        })
+        }, type)
         if (!payload) {
             return undefined
         }
@@ -197,7 +260,7 @@ export function extractSymbolSet(bytes: Uint8Array, baseName: string, output: st
     if (text) {
         return text
     }
-    const elf = attempt(() => readPayload(data, SymbolDataType.ElfDebugInfo))
+    const elf = attempt(() => readPayload(data, SymbolDataType.ElfDebugInfo), SymbolDataType.ElfDebugInfo)
     if (elf) {
         return { kind: 'elf', output: join(output, baseName), files: extractZip(elf, baseName, output, cwd) }
     }
@@ -206,6 +269,12 @@ export function extractSymbolSet(bytes: Uint8Array, baseName: string, output: st
         dsym = readPayload(data, SymbolDataType.AppleDsym)
     } catch (error) {
         if (error instanceof SymbolDataError && error.wrongType !== undefined) {
+            if (decodeError?.type === error.wrongType) {
+                throw new HogError(
+                    'invalid_symbol_set',
+                    `The symbol set is a ${SymbolDataType[decodeError.type]} whose payload hog couldn't read: ${decodeError.message}`
+                )
+            }
             throw new HogError('unknown_symbol_set', `Unknown symbol data type: ${error.wrongType}`)
         }
         throw new HogError('invalid_symbol_set', `hog couldn't read the symbol set: ${(error as Error).message}`)
@@ -255,9 +324,16 @@ export async function downloadSymbolSet(
         throw new HogError('invalid_symbol_set_id', `${id} isn't a symbol set ID.`, 'Symbol set IDs are UUIDs.')
     }
     const { url } = (await client.api('GET', `error_tracking/symbol_sets/${id}/download/`)) as { url: string }
-    const response = await fetcher(url)
-    if (!response.ok) {
-        throw new HogError('download_failed', `The symbol set download failed with status ${response.status}.`)
+    try {
+        const response = await fetcher(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) })
+        if (!response.ok) {
+            throw new HogError('download_failed', `The symbol set download failed with status ${response.status}.`)
+        }
+        return new Uint8Array(await response.arrayBuffer())
+    } catch (error) {
+        if (error instanceof HogError) {
+            throw error
+        }
+        throw new HogError('download_failed', `The symbol set download failed: ${(error as Error).message}`)
     }
-    return new Uint8Array(await response.arrayBuffer())
 }

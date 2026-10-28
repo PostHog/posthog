@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { contentHash, SymbolDataType, writeSymbolData } from '@/error-tracking/container'
+import { ZipWriter } from '@/error-tracking/native/zip'
+import { deriveBaseName } from '@/error-tracking/symbols'
 import { runHog } from '@/testing'
 
 import { GIT_REPO, SMALL_MAPPING } from '../../../test/parity/fixtures'
@@ -257,5 +259,41 @@ describe('hog error-tracking upload', () => {
         })
         expect(result.exitCode).toBe(exitCode)
         expect(result.error()).toMatchObject({ code, hint: expect.any(String) })
+    })
+
+    function dsymWithBadChecksum(): Buffer {
+        const zip = new ZipWriter()
+        zip.add('dwarf', Buffer.from('not really dwarf, but bytes all the same'))
+        const archive = zip.finish()
+        const central = archive.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]))
+        archive.writeUInt32LE((archive.readUInt32LE(central + 16) ^ 1) >>> 0, central + 16)
+        return writeSymbolData(SymbolDataType.AppleDsym, archive)
+    }
+
+    test.each([
+        ['a zip entry whose checksum is wrong', dsymWithBadChecksum, "doesn't match its recorded size and checksum"],
+        [
+            'a Hermes map that is not UTF-8, by its type rather than as unknown',
+            () => writeSymbolData(SymbolDataType.HermesMap, Buffer.from([0xff, 0xfe])),
+            'HermesMap whose payload',
+        ],
+    ])('extract rejects %s', async (_name, build, message) => {
+        const folder = project({})
+        writeFileSync(join(folder, 'Shop.dSYM'), build())
+        const result = await runHog(['et', 'extract', 'Shop.dSYM'], {
+            env: { CLAUDECODE: '1' },
+            cwd: folder,
+            useDisk: true,
+        })
+        expect(result.exitCode).toBe(1)
+        expect(result.error()).toMatchObject({ code: 'invalid_symbol_set', message: expect.stringContaining(message) })
+    })
+
+    test.each([
+        ['...dSYM', 'linux', 'symbol_set'],
+        ['C:\\build\\symbols.bin', 'win32', 'symbols.bin'],
+        ['static/chunks/app.js.map', 'linux', 'app'],
+    ] as const)('the base name of %s on %s is %s', (reference, platform, expected) => {
+        expect(deriveBaseName(reference, platform)).toBe(expected)
     })
 })
