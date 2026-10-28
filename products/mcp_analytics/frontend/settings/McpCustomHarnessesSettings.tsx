@@ -38,22 +38,26 @@ export function McpCustomHarnessesSettings(): JSX.Element {
                 ]}
             />
             <Form logic={mcpCustomHarnessesLogic} formKey="newCustomHarness" enableFormOnSubmit>
-                <div className="flex flex-wrap items-end gap-2">
-                    <LemonField name="name" label="Name">
-                        <LemonInput placeholder="Acme agent" maxLength={100} />
-                    </LemonField>
-                    <LemonField
-                        name="match_pattern"
-                        label="Client name contains"
-                        help="Not case sensitive. Matches the client name or User-Agent product the harness reports."
-                    >
-                        <LemonInput placeholder="acme-agent" maxLength={100} />
-                    </LemonField>
+                <div className="flex flex-col gap-2">
+                    <div className="flex flex-wrap items-start gap-2">
+                        <LemonField name="name" label="Name" className="flex-1 min-w-60">
+                            <LemonInput placeholder="Acme agent" maxLength={100} />
+                        </LemonField>
+                        <LemonField
+                            name="match_pattern"
+                            label="Client name contains"
+                            help="Not case sensitive. Matches the client name or User-Agent product the harness reports."
+                            className="flex-1 min-w-60"
+                        >
+                            <LemonInput placeholder="acme-agent" maxLength={100} />
+                        </LemonField>
+                    </div>
                     <LemonButton
                         type="primary"
                         htmlType="submit"
                         loading={isNewCustomHarnessSubmitting}
                         data-attr="mcp-custom-harness-add"
+                        className="self-start"
                     >
                         Add harness
                     </LemonButton>
