@@ -121010,6 +121010,13 @@ export namespace Schemas {
       hasError: boolean;
     }
 
+    export interface TraceGit {
+      /** The git branch checked out when the trace ran. */
+      branch: string;
+      /** The repository as owner/name, or null when the branch's event has none. */
+      repo: string | null;
+    }
+
     export interface Trace {
       id: string;
       name: string | null;
@@ -121025,6 +121032,8 @@ export namespace Schemas {
       threadNodeIds: string[];
       defaultNodeId: string;
       nodeIdsByAlias: TraceNodeIdsByAlias;
+      /** The branch the trace's work ran on: the latest stamped branch other than main or master, else the first stamp. Null when no event carries a branch. */
+      git: TraceGit | null;
     }
 
     export type TraceEvaluationResultOutcomeEnum = typeof TraceEvaluationResultOutcomeEnum[keyof typeof TraceEvaluationResultOutcomeEnum];
