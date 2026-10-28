@@ -188,8 +188,6 @@ struct Dial {
     hold: Arc<DialHold>,
 }
 
-/// Holds dials open so a test can act while one is in flight; a real
-/// broker otherwise finishes the connect before the test can observe it.
 #[cfg(any(test, feature = "test-support"))]
 #[derive(Default)]
 struct DialHold {
@@ -758,7 +756,6 @@ pub struct FencedChangelogProducers {
     connect_attempts: Arc<AtomicUsize>,
     #[cfg(any(test, feature = "test-support"))]
     dial_hold: Arc<DialHold>,
-    /// Claims that waited for a dial in flight.
     #[cfg(any(test, feature = "test-support"))]
     dial_waits: AtomicUsize,
 
@@ -850,9 +847,7 @@ impl FencedChangelogProducers {
         let topic = target.topic.as_str();
         let start = Instant::now();
         self.await_dial_in_flight(partition).await;
-        // A claim still Connecting here has outlived its dial's bound;
-        // removing it makes that dial discard on completion instead of
-        // parking a connection nothing will consume.
+        // A claim still Connecting has outlived its dial; removing it discards the late result.
         let mut parked = self.take_prepared(partition, topic);
         let path = if parked.is_empty() {
             "cold"
@@ -975,11 +970,7 @@ impl FencedChangelogProducers {
         }
     }
 
-    /// Wait for the partition's dial in flight to finish, so a claim
-    /// reuses its connection instead of dialing a second one. The wait
-    /// follows only the dial seen first and ends at its bound, since it
-    /// cannot succeed after it: a claim never spends more than the time
-    /// that dial has left, even if a replacement dial starts meanwhile.
+    /// Wait for the first dial seen to finish, up to its own bound, so a claim reuses its connection.
     async fn await_dial_in_flight(&self, partition: u32) {
         let mut followed = None;
         let mut waited = false;
@@ -1284,7 +1275,6 @@ impl FencedChangelogProducers {
         self.connect_attempts.load(Ordering::SeqCst)
     }
 
-    /// Hold every dial open until [`Self::release_dials_for_test`].
     #[cfg(any(test, feature = "test-support"))]
     pub fn hold_dials_for_test(&self) {
         *self
@@ -1304,7 +1294,6 @@ impl FencedChangelogProducers {
         self.dial_hold.released.notify_all();
     }
 
-    /// How many claims waited for a dial in flight.
     #[cfg(any(test, feature = "test-support"))]
     pub fn dial_waits_for_test(&self) -> usize {
         self.dial_waits.load(Ordering::SeqCst)

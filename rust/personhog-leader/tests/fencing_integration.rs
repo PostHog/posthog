@@ -298,9 +298,7 @@ async fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
     }
 }
 
-/// An acquire that arrives while a preconnect is still dialing must
-/// reuse that dial: going cold pays a second connection, which is what
-/// stretches a handoff's warm on a broker that is slow to connect.
+/// An acquire during a preconnect's dial must reuse it, not open a second connection.
 #[tokio::test]
 async fn an_acquire_during_a_dial_reuses_its_connection() {
     let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
@@ -337,9 +335,7 @@ async fn an_acquire_during_a_dial_reuses_its_connection() {
     );
 }
 
-/// The wait for a dial in flight ends at that dial's own bound: a claim
-/// staged nearly that old stands for a dial about to give up, and the
-/// acquire must spend only what is left of it before going cold.
+/// The wait ends at the dial's own bound, not a full timeout from the acquire.
 #[tokio::test]
 async fn an_acquire_waits_only_for_what_the_dial_has_left() {
     let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
@@ -359,10 +355,7 @@ async fn an_acquire_waits_only_for_what_the_dial_has_left() {
     );
 }
 
-/// The wait follows the dial it first saw. A replacement dial that
-/// claims the slot meanwhile starts a fresh bound, and following it would
-/// let repeated dials against a failing broker hold the acquire for as
-/// long as they keep starting.
+/// The wait follows only the first dial, so replacement dials cannot hold the acquire.
 #[tokio::test]
 async fn an_acquire_does_not_wait_out_a_replacement_dial() {
     let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
