@@ -8,7 +8,6 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.schema import (
     ActionsNode,
-    BaseMathType,
     Compare,
     CompareFilter,
     DataWarehouseNode,
@@ -34,6 +33,7 @@ from posthog.models import Team
 
 from products.actions.backend.models.action import Action
 from products.product_analytics.backend.hogql_queries.trends.aggregation_operations import (
+    ACTIVE_USERS_LOOKBACK_DAYS,
     AggregationOperations,
     FirstTimeForUserEventsQueryAlternator,
 )
@@ -194,17 +194,9 @@ class TrendsActorsQueryBuilder:
         return self.trends_aggregation_operations.is_active_users_math()
 
     @cached_property
-    def is_weekly_active_math(self) -> bool:
-        return self.entity.math == BaseMathType.WEEKLY_ACTIVE
-
-    @cached_property
-    def is_monthly_active_math(self) -> bool:
-        return self.entity.math == BaseMathType.MONTHLY_ACTIVE
-
-    @cached_property
     def active_users_lookback_days(self) -> int:
         # A weekly or monthly active actor has an event in the 7 or 30 days that end on the data point.
-        return 6 if self.is_weekly_active_math else 29
+        return ACTIVE_USERS_LOOKBACK_DAYS[self.entity.math] - 1
 
     @cached_property
     def is_hourly(self) -> bool:

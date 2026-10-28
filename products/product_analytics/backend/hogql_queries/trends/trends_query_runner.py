@@ -84,6 +84,7 @@ from posthog.utils import multisort
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.product_analytics.backend.hogql_queries.trends.aggregation_operations import AggregationOperations
 from products.product_analytics.backend.hogql_queries.trends.display import TrendsDisplay
 from products.product_analytics.backend.hogql_queries.trends.series_with_extras import SeriesWithExtras
 from products.product_analytics.backend.hogql_queries.trends.trend_validation_rules import (
@@ -412,6 +413,27 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             compare=res_compare,
         )
 
+    def _resolved_date_range(self, date_range: QueryDateRange) -> ResolvedDateRangeResponse:
+        reads_from = [
+            read_from
+            for series in self.query.series
+            if (
+                read_from := AggregationOperations(
+                    self.team,
+                    series,
+                    self._trends_display.display_type,
+                    date_range,
+                    self._trends_display.is_total_value(),
+                ).read_from()
+            )
+            is not None
+        ]
+        return ResolvedDateRangeResponse(
+            date_from=date_range.date_from(),
+            date_to=date_range.date_to(),
+            read_from=min(reads_from, default=None),
+        )
+
     def _calculate(self):
         if self.query.marketingAnalyticsCostFallback is not None:
             from products.marketing_analytics.backend.facade.queries import (
@@ -536,14 +558,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             hogql=response_hogql,
             modifiers=self.modifiers,
             error=". ".join(debug_errors),
-            resolved_date_range=ResolvedDateRangeResponse(
-                date_from=self.query_date_range.date_from(),
-                date_to=self.query_date_range.date_to(),
-            ),
-            resolved_compare_date_range=ResolvedDateRangeResponse(
-                date_from=self.query_previous_date_range.date_from(),
-                date_to=self.query_previous_date_range.date_to(),
-            )
+            resolved_date_range=self._resolved_date_range(self.query_date_range),
+            resolved_compare_date_range=self._resolved_date_range(self.query_previous_date_range)
             if self.query.compareFilter is not None and self.query.compareFilter.compare
             else None,
         )

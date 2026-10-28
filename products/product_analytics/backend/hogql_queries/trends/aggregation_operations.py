@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+from datetime import datetime, timedelta
 from typing import Optional, Union, cast
 
 from posthog.schema import (
@@ -40,6 +42,8 @@ FIRST_TIME_EVER_MATH_TYPES = frozenset(
 FIRST_MATCHING_EVENT_MATH_TYPES = frozenset(
     {BaseMathType.FIRST_MATCHING_EVENT_FOR_USER, GroupMathType.FIRST_MATCHING_EVENT_FOR_GROUP}
 )
+
+ACTIVE_USERS_LOOKBACK_DAYS: Mapping[str | None, int] = {BaseMathType.WEEKLY_ACTIVE: 7, BaseMathType.MONTHLY_ACTIVE: 30}
 
 ALLOWED_SESSION_MATH_PROPERTIES = frozenset(
     [
@@ -219,7 +223,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         ]
 
     def is_active_users_math(self):
-        return self.series.math in ["weekly_active", "monthly_active"]
+        return self.series.math in ACTIVE_USERS_LOOKBACK_DAYS
 
     def is_first_time_ever_math(self):
         return self.series.math in FIRST_TIME_EVER_MATH_TYPES
@@ -430,21 +434,21 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             ],
         )
 
-    def _interval_placeholders(self):
-        if self.series.math == "weekly_active":
-            return {
-                "exclusive_lookback": ast.Call(name="toIntervalDay", args=[ast.Constant(value=6)]),
-                "inclusive_lookback": ast.Call(name="toIntervalDay", args=[ast.Constant(value=7)]),
-            }
-        elif self.series.math == "monthly_active":
-            return {
-                "exclusive_lookback": ast.Call(name="toIntervalDay", args=[ast.Constant(value=29)]),
-                "inclusive_lookback": ast.Call(name="toIntervalDay", args=[ast.Constant(value=30)]),
-            }
+    def _counts_active_users_back_from_date_to(self) -> bool:
+        return self.chart_display_type in NON_TIME_SERIES_DISPLAY_TYPES and self.is_active_users_math()
 
+    def read_from(self) -> datetime | None:
+        """The lower bound of _actors_events_query's date range, when it is before date_from."""
+        date_from = self.query_date_range.date_from()
+        lookback_end = self.query_date_range.date_to() if self._counts_active_users_back_from_date_to() else date_from
+        read_from = lookback_end - timedelta(days=ACTIVE_USERS_LOOKBACK_DAYS.get(self.series.math, 0))
+        return read_from if read_from < date_from else None
+
+    def _interval_placeholders(self):
+        lookback_days = ACTIVE_USERS_LOOKBACK_DAYS.get(self.series.math, 0)
         return {
-            "exclusive_lookback": ast.Call(name="toIntervalDay", args=[ast.Constant(value=0)]),
-            "inclusive_lookback": ast.Call(name="toIntervalDay", args=[ast.Constant(value=0)]),
+            "exclusive_lookback": ast.Call(name="toIntervalDay", args=[ast.Constant(value=max(lookback_days - 1, 0))]),
+            "inclusive_lookback": ast.Call(name="toIntervalDay", args=[ast.Constant(value=lookback_days)]),
         }
 
     @property
@@ -577,10 +581,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr
     ) -> ast.SelectQuery | ast.SelectSetQuery:
         date_from_with_lookback = "{date_from} - {inclusive_lookback}"
-        if self.chart_display_type in NON_TIME_SERIES_DISPLAY_TYPES and self.series.math in (
-            BaseMathType.WEEKLY_ACTIVE,
-            BaseMathType.MONTHLY_ACTIVE,
-        ):
+        if self._counts_active_users_back_from_date_to():
             # TRICKY: On total value (non-time-series) insights, WAU/MAU math is simply meaningless.
             # There's no intuitive way to define the semantics of such a combination, so what we do is just turn it
             # into a count of unique users between `date_to - INTERVAL (7|30) DAY` and `date_to`.

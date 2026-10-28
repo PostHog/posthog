@@ -6938,6 +6938,12 @@ export interface ResolvedDateRangeResponse {
     date_from: string
     /**  @format date-time */
     date_to: string
+    /**
+     * The earliest timestamp the query reads, when it reads rows from before date_from.
+     * Lifecycle reads the interval before the range. Weekly and monthly active users read 7 or 30 days before it.
+     * @format date-time
+     */
+    read_from?: string
 }
 
 export type MultipleBreakdownType =

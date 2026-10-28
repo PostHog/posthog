@@ -51391,6 +51391,11 @@
                 "date_to": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "read_from": {
+                    "description": "The earliest timestamp the query reads, when it reads rows from before date_from. Lifecycle reads the interval before the range. Weekly and monthly active users read 7 or 30 days before it.",
+                    "format": "date-time",
+                    "type": "string"
                 }
             },
             "required": ["date_from", "date_to"],
