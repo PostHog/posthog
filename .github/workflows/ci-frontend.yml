@@ -530,6 +530,9 @@ jobs:
             - name: Check toolbar for CSP eval violations
               run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
 
+            - name: Check auth prototype boot size
+              run: node --test frontend/bin/auth-prototype-graph.test.mjs && node frontend/bin/check-auth-prototype-budget.mjs
+
             # Keep the PR-side poster available after the base reset below. This is especially
             # important on the PR that introduces or updates the poster itself.
             - name: Preserve PR toolbar report poster
