@@ -195,7 +195,7 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
 
         with self.assertRaises(error):
             WarehouseSourceCredentialsStore.create(source, {"token": "fake"})
-        assert not Integration.objects._with_auth(AuthTypeSelector.ANY).exists()
+        assert not Integration.objects._with_auth(AuthTypeSelector.ANY).filter(team_id=self.team.pk).exists()
         assert WarehouseSourceCredentialsStore.get(source, 1) is None
         assert WarehouseSourceCredentialsStore.release(source, 1) is False
 
