@@ -314,6 +314,9 @@ def with_attribute_set_guards(filters: list[SpanPropertyFilter]) -> list[SpanPro
     """
     guards: dict[str, SpanPropertyFilter] = {}
     for prop in filters:
+        # property_to_expr reads a filter without a value as "match all", so a guard would be its only effect.
+        if prop.value is None or prop.value == []:
+            continue
         if prop.operator not in _EXISTENCE_OPERATORS and prop.key not in guards:
             guards[prop.key] = SpanPropertyFilter(key=prop.key, type=prop.type, operator=PropertyOperator.IS_SET)
     return [*filters, *guards.values()]

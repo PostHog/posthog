@@ -119,6 +119,11 @@ class TestSpanAttributeFilter(ClickhouseTestMixin, APIBaseTest):
                 },
                 [],
             ),
+            (
+                "is_not_without_value_matches_all",
+                {"key": "code.filepath", "type": "span_attribute", "operator": "is_not", "value": []},
+                sorted([WITH_CODE, WITHOUT_CODE]),
+            ),
             ("is_set", {"key": "code.filepath", "type": "span_attribute", "operator": "is_set"}, [WITH_CODE]),
             (
                 "is_not_set",
