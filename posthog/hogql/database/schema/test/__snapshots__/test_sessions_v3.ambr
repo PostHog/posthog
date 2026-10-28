@@ -535,7 +535,9 @@
          sessions.`$entry__bhlid` AS `$entry__bhlid`,
          sessions.`$entry_has__bhlid` AS `$entry_has__bhlid`,
          sessions.`$entry_rtid` AS `$entry_rtid`,
-         sessions.`$entry_has_rtid` AS `$entry_has_rtid`
+         sessions.`$entry_has_rtid` AS `$entry_has_rtid`,
+         sessions.`$entry_oppref` AS `$entry_oppref`,
+         sessions.`$entry_has_oppref` AS `$entry_has_oppref`
   FROM
     (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS session_id,
             raw_sessions_v3.session_timestamp AS session_timestamp,
@@ -634,6 +636,8 @@
             arrayExists(x -> startsWith(x, '_bhlid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has__bhlid`,
             replaceOne(arrayFirst(x -> startsWith(x, 'rtid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'rtid=', '') AS `$entry_rtid`,
             arrayExists(x -> startsWith(x, 'rtid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_rtid`,
+            replaceOne(arrayFirst(x -> startsWith(x, 'oppref='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'oppref=', '') AS `$entry_oppref`,
+            arrayExists(x -> startsWith(x, 'oppref='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_oppref`,
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
      WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))))
