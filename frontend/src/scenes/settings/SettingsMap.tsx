@@ -186,6 +186,7 @@ import { OrganizationDesktopBetaTerms } from './organization/OrgDesktopBetaTerms
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationVariables } from './organization/OrgVariables'
+import { SSFSetting } from './organization/SSFSetting'
 import { EnforceVerifiedDomains } from './organization/VerifiedDomains/EnforceVerifiedDomains'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
@@ -2585,6 +2586,19 @@ export const SETTINGS_MAP: SettingSection[] = [
                     "See which members' personal API keys can reach this organization or its projects, who owns them, and the scopes they grant.",
                 component: <OrganizationPersonalAPIKeys />,
                 keywords: ['api key', 'personal', 'token', 'access', 'audit'],
+            },
+        ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-ssf',
+        title: 'SSF',
+        settings: [
+            {
+                id: 'organization-ssf',
+                title: 'Shared Signals Framework (SSF)',
+                component: <SSFSetting />,
+                keywords: ['ssf', 'shared signals framework', 'security', 'signals', 'closed beta'],
             },
         ],
     },
