@@ -1,4 +1,4 @@
-import { IconBrain, IconCheck } from '@posthog/icons'
+import { IconLogomark } from '@posthog/icons'
 
 import { AnthropicLogo } from 'scenes/onboarding/shared/logos/AnthropicLogo'
 import { OpenAILogo } from 'scenes/onboarding/shared/logos/OpenAILogo'
@@ -8,27 +8,21 @@ export interface ComposerModelIconProps {
     ownPlan: boolean
 }
 
+/** Shows who pays for the run: the provider's logo for the user's own plan, the PostHog logo for PostHog credits. */
 export function ComposerModelIcon({ model, ownPlan }: ComposerModelIconProps): JSX.Element {
-    const Logo = model.startsWith('gpt-') ? OpenAILogo : model.startsWith('claude-') ? AnthropicLogo : null
+    const PlanLogo = !ownPlan
+        ? null
+        : model.startsWith('gpt-')
+          ? OpenAILogo
+          : model.startsWith('claude-')
+            ? AnthropicLogo
+            : null
     return (
         <span
-            className={`relative inline-flex shrink-0 items-center justify-center ${Logo ? 'size-3.5' : 'size-3.5 @max-[299px]/composer:hidden'} ${ownPlan ? 'mr-0.5' : ''}`}
+            className="inline-flex size-3.5 shrink-0 items-center justify-center [&_svg]:size-full"
+            title={ownPlan ? 'Billed to your plan' : 'Billed to PostHog credits'}
         >
-            {Logo ? (
-                <span className="inline-flex size-3.5 items-center justify-center [&_svg]:size-full">
-                    <Logo />
-                </span>
-            ) : (
-                <IconBrain className="text-muted-foreground @max-[299px]/composer:hidden" />
-            )}
-            {ownPlan && (
-                <span
-                    className="absolute -right-1 -bottom-1 flex size-2.5 items-center justify-center rounded-full bg-[#10a37f] text-white ring-[1.5px] ring-[var(--card)]"
-                    title="ChatGPT plan"
-                >
-                    <IconCheck className="size-2" />
-                </span>
-            )}
+            {PlanLogo ? <PlanLogo /> : <IconLogomark />}
         </span>
     )
 }

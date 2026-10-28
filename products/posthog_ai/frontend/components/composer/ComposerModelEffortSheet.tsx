@@ -66,7 +66,7 @@ export function ComposerModelEffortSheet({
         <>
             <Button
                 size="sm"
-                className="h-8 min-w-0 shrink text-left"
+                className="h-auto! min-h-8 min-w-0 shrink py-0.5 text-left"
                 onClick={() => setOpen(true)}
                 data-attr="composer-model-sheet-open"
             >

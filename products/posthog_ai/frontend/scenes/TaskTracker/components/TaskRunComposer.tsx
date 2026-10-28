@@ -300,7 +300,7 @@ export function TaskRunComposer({
                                     onOpenChange={setContextPickerOpen}
                                     anchor={groupRef}
                                 />
-                                {pickers(modePicker, null)}
+                                <div className="shrink-0">{pickers(modePicker, null)}</div>
                             </>
                         }
                         singleRow
