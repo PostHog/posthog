@@ -15,6 +15,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -118,6 +119,7 @@ SESSION_OVERLAP_BUFFER = timedelta(days=7)
 SESSIONS_CACHE_TTL_SECONDS = 30
 
 ACTIVITY_OVERVIEW_CACHE_TTL_SECONDS = 20
+UNRESTRICTED_ACTIVITY_OVERVIEW_CACHE_TTL_SECONDS = 5 * 60
 
 # One row per $session_id, aggregated straight from events. The column shape
 # (min/max/count/groupUniqArray/argMax) maps 1:1 onto a future AggregatingMergeTree
@@ -691,13 +693,10 @@ def _activity_overview_cache_key(
     team: Team,
     properties: list[AnyPropertyFilterDiscriminated] | None,
     filter_test_accounts: bool,
-    user: User | None,
+    restrictions: set[RestrictedProperty],
 ) -> str:
-    restrictions = restriction_fingerprint(
-        get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
-    )
     filters = _filters_cache_fragment(team, properties, filter_test_accounts)
-    return generate_cache_key(team.pk, f"mcp_activity_overview_{filters}_{restrictions}")
+    return generate_cache_key(team.pk, f"mcp_activity_overview_{filters}_{restriction_fingerprint(restrictions)}")
 
 
 def get_activity_overview(
@@ -708,10 +707,11 @@ def get_activity_overview(
 ) -> contracts.ActivityOverview:
     """Return everything the activity view renders, bounded to ``ACTIVITY_WINDOW``.
 
-    The view polls to watch data arrive. A cache entry lives for less than one poll
-    interval, so open tabs and teammates share one computation and the view stays live.
+    Members without property restrictions share one cache entry, so it lives for minutes.
+    Restricted members each have their own entry, which lives for less than one poll interval.
     """
-    cache_key = _activity_overview_cache_key(team, properties, filter_test_accounts, user)
+    restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
+    cache_key = _activity_overview_cache_key(team, properties, filter_test_accounts, restrictions)
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -719,7 +719,8 @@ def get_activity_overview(
     overview = _query_activity_overview(team, properties, filter_test_accounts, user)
     # Don't cache an empty overview: a newly set-up team waits on this view for its first call.
     if overview.stats.total_calls:
-        cache.set(cache_key, overview, ACTIVITY_OVERVIEW_CACHE_TTL_SECONDS)
+        ttl = ACTIVITY_OVERVIEW_CACHE_TTL_SECONDS if restrictions else UNRESTRICTED_ACTIVITY_OVERVIEW_CACHE_TTL_SECONDS
+        cache.set(cache_key, overview, ttl)
     return overview
 
 

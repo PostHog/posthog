@@ -1,7 +1,8 @@
 import hashlib
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
@@ -908,10 +909,12 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
 
     @parameterized.expand(
         [
-            ("same_request_is_served_from_cache", 1, False, False, 1),
-            ("empty_result_is_not_cached", 0, False, False, 2),
-            ("other_filters_query_again", 1, True, False, 2),
-            ("other_property_restrictions_query_again", 1, False, True, 2),
+            ("same_request_is_served_from_cache", 1, False, "never", 0, 1),
+            ("empty_result_is_not_cached", 0, False, "never", 0, 2),
+            ("other_filters_query_again", 1, True, "never", 0, 2),
+            ("other_property_restrictions_query_again", 1, False, "between_requests", 0, 2),
+            ("unrestricted_entry_outlives_a_poll_interval", 1, False, "never", 61, 1),
+            ("restricted_entry_expires_before_the_next_poll", 1, False, "before_requests", 21, 2),
         ]
     )
     def test_caches_overview_per_filters_and_property_restrictions(
@@ -919,18 +922,22 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
         _name: str,
         calls_before: int,
         change_filters: bool,
-        restrict_a_property: bool,
+        restrict_a_property: Literal["never", "before_requests", "between_requests"],
+        seconds_later: int,
         expected_calls: int,
     ) -> None:
         self.team.test_account_filters = TEST_ACCOUNT_FILTERS
         self.team.save()
+        if restrict_a_property == "before_requests":
+            self._restrict_a_property()
         self._emit_call({"$mcp_client_name": "claude-code"}, count=calls_before)
         api.get_activity_overview(self.team, user=self.user)
 
         self._emit_call({"$mcp_client_name": "claude-code"}, count=2 - calls_before)
-        if restrict_a_property:
+        if restrict_a_property == "between_requests":
             self._restrict_a_property()
-        overview = api.get_activity_overview(self.team, filter_test_accounts=change_filters, user=self.user)
+        with time_machine.travel(datetime.now(tz=UTC) + timedelta(seconds=seconds_later), tick=False):
+            overview = api.get_activity_overview(self.team, filter_test_accounts=change_filters, user=self.user)
 
         assert overview.stats.total_calls == expected_calls
 
