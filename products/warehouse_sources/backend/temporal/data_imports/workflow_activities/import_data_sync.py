@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.temporal.data_imports.import_attempt imp
     current_import_attempt,
     set_attempts_before_this_execution,
 )
+from products.warehouse_sources.backend.temporal.data_imports.incremental_history import attach_history_lanes
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     TERMINAL_JOB_STATUSES,
     get_import_attempt_duration_metric,
@@ -940,6 +941,8 @@ async def _import_data_with_reporting(
                     resumable_source_manager=resumable_source_manager,
                     on_resumable_retry_budget=inputs.on_resumable_retry_budget,
                 )
+
+            await database_sync_to_async_pool(attach_history_lanes)(schema, source_response)
 
             return await _run(
                 job_inputs=job_inputs,

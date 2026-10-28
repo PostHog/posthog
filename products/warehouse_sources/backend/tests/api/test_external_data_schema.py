@@ -37,6 +37,7 @@ from products.data_warehouse.backend.facade.api import (
 )
 from products.data_warehouse.backend.facade.contracts import WebhookHogFunctionCreateResult
 from products.warehouse_sources.backend.facade.models import (
+    INCREMENTAL_HISTORY_KEY,
     DataWarehouseTable,
     ExternalDataSchema,
     ExternalDataSource,
@@ -4767,15 +4768,69 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("flag_off", "both", "consolidated", "datetime", False, "not enabled"),
+            ("integer_cursor", "both", "consolidated", "integer", True, "date or a time"),
+            ("turn_on", "both", "consolidated", "datetime", True, None),
+            ("turn_off", "consolidated", "both", "date", True, None),
+        ]
+    )
+    @override_settings(DATA_WAREHOUSE_PH_HISTORY_NAMING=True)
+    def test_patch_sets_the_output_tables_of_an_incremental_table(
+        self, _name: str, mode: str, initial_mode: str, cursor_type: str, flag_on: bool, refusal: str | None
+    ):
+        self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        self.schema.sync_type_config = {
+            "incremental_field": "updated_at",
+            "incremental_field_type": cursor_type,
+            "primary_key_columns": ["id"],
+            "cdc_table_mode": initial_mode,
+            INCREMENTAL_HISTORY_KEY: initial_mode != "consolidated",
+        }
+        self.schema.table = DataWarehouseTable.objects.create(
+            team=self.team, name="orders", format="Parquet", external_data_source=self.source
+        )
+        self.schema.save()
+
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.is_incremental_history_enabled_for_team",
+            return_value=flag_on,
+        ):
+            if refusal:
+                with pytest.raises(ValidationError, match=refusal):
+                    self._save_through_serializer(self.schema, {"cdc_table_mode": mode})
+            else:
+                self._save_through_serializer(self.schema, {"cdc_table_mode": mode})
+
+        self.schema.refresh_from_db()
+        assert self.schema.cdc_table_mode == (initial_mode if refusal else mode)
+        assert self.schema.keeps_history == ((initial_mode if refusal else mode) != "consolidated")
+        assert bool(self.schema.sync_type_config.get("reset_pipeline")) == (_name == "turn_on")
+
+    @parameterized.expand(
+        [
             ("no_history_table", ExternalDataSchema.SyncType.CDC, "consolidated", False, None),
             ("legacy_naming", ExternalDataSchema.SyncType.CDC, "both", False, "public.orders_cdc"),
             ("new_naming", ExternalDataSchema.SyncType.CDC, "both", True, "public.orders_history"),
             # Leaving CDC keeps the stored table mode, but the table no longer keeps history.
             ("left_cdc", ExternalDataSchema.SyncType.INCREMENTAL, "both", True, None),
+            (
+                "incremental_history",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                "both",
+                True,
+                "public.orders_history",
+                True,
+            ),
         ]
     )
     def test_history_table_name_names_the_table_the_mode_writes(
-        self, _name: str, sync_type: str, mode: str, ph_naming: bool, storage_name: str | None
+        self,
+        _name: str,
+        sync_type: str,
+        mode: str,
+        ph_naming: bool,
+        storage_name: str | None,
+        chose_incremental_history: bool = False,
     ):
         from products.warehouse_sources.backend.presentation.views.external_data_schema import (
             ExternalDataSchemaSerializer,
@@ -4784,6 +4839,8 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
 
         self.schema.sync_type = sync_type
         self.schema.sync_type_config["cdc_table_mode"] = mode
+        if chose_incremental_history:
+            self.schema.sync_type_config[INCREMENTAL_HISTORY_KEY] = True
         self.schema.save()
 
         with mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: ph_naming):

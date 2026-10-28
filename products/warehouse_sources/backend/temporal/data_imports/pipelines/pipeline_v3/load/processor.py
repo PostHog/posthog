@@ -40,6 +40,11 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     resolve_batch,
     verify_delete_enrichment,
 )
+from products.warehouse_sources.backend.temporal.data_imports.incremental_history import (
+    finalize_history_lane,
+    stage_history_batch,
+    stages_history,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     PostLoadResult,
     run_post_load_operations,
@@ -569,6 +574,9 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
             job=job,
             logger=logger,
         )
+        if stages_history(export_signal.cdc_write_mode, export_signal.sync_type):
+            # The staged rows of a history lane become versions only here, and finalize runs again safely.
+            await finalize_history_lane(delta_table_ref, export_signal.primary_keys or [])
 
         delta_table = await delta_table_ref.get_delta_table()
         if delta_table is None:
@@ -1183,6 +1191,14 @@ def _finalize_run(
 
     with _record_post_load_phases(run_signal):
         report_phase("post_load")
+        if stages_history(run_signal.cdc_write_mode, run_signal.sync_type):
+            # Before post-load, which registers and publishes the history table this writes.
+            async_to_sync(finalize_history_lane)(delta_table_ref, run_signal.primary_keys or [])
+            history_table = async_to_sync(delta_table_ref.get_delta_table)()
+            if history_table is not None:
+                # The batches went to the staging table, whose columns are not the history table's.
+                internal_schema = HogQLSchema()
+                internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(history_table.schema()))
         post_load_result = async_to_sync(run_post_load_operations)(
             job=job,
             schema=schema,
@@ -1590,7 +1606,8 @@ def _process_message_reported(
             )
         skips_write = is_scope_carrier
 
-        if not skips_write:
+        # A history table keeps its own layout, whatever partitioning the main table uses.
+        if not skips_write and not stages_history(cdc_write_mode, export_signal.sync_type):
             with timer.step("partition"):
                 pa_table = _apply_partitioning(export_signal, pa_table, existing_delta_table, schema)
 
@@ -1665,7 +1682,19 @@ def _process_message_reported(
 
         # The writer narrows this to `merge` for an upsert; an append stays `write` to its commit.
         report_phase("write")
-        if cdc_write_mode == "scd2_append":
+        if stages_history(cdc_write_mode, export_signal.sync_type):
+            with (
+                timer.step("write"),
+                DELTA_WRITE_DURATION_SECONDS.labels(write_type="history_stage").time(),
+            ):
+                delta_table = async_to_sync(stage_history_batch)(
+                    delta_table_ref,
+                    pa_table,
+                    primary_keys=primary_keys or [],
+                    run_uuid=export_signal.run_uuid,
+                    batch_index=export_signal.batch_index,
+                )
+        elif cdc_write_mode == "scd2_append":
             logger.debug(
                 "writing_scd2_to_delta_lake",
                 primary_keys=primary_keys,

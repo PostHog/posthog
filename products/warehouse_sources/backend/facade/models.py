@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.models.external_data_job import (
 )
 from products.warehouse_sources.backend.models.external_data_schema import (
     CDC_SNAPSHOT_LANE_KEY,
+    INCREMENTAL_HISTORY_KEY,
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     SCHEDULED_FULL_REFRESH_SYNC_TYPES,
     SCHEMA_RESOURCE_ID_METADATA_KEY,
@@ -144,6 +145,7 @@ __all__ = [
     "UnsupportedSyncTypeError",
     "resolve_sync_type",
     "CDC_SNAPSHOT_LANE_KEY",
+    "INCREMENTAL_HISTORY_KEY",
     "validate_source_prefix",
     "validate_warehouse_table_url_pattern",
 ]

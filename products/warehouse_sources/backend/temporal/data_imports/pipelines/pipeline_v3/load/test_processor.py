@@ -26,11 +26,13 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     TOAST_OMITTED_COLUMN,
     HistoryNaming,
 )
+from products.warehouse_sources.backend.temporal.data_imports.incremental_history import stage_history_batch
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import PostLoadResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
     make_local_table_ref,
+    make_logger,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import (
     DeltaWriter,
@@ -47,6 +49,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _dedupe_before_write,
     _enrich_cdc_rows,
     _file_count_after_write,
+    _finalize_run,
     _get_write_type,
     _mark_job_completed,
     _partial_data_loading_applies,
@@ -777,6 +780,67 @@ class TestFileCountAfterWrite:
 
         # Both a current handle and one that a deltalite commit left behind were read.
         assert handle_lags == {0, 1}
+
+
+class TestHistoryLaneFinalBatch:
+    @parameterized.expand([("final_batch",), ("redelivered_final_batch",)])
+    @patch(f"{_PROCESSOR}._complete_run")
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value=_POST_LOAD_RESULT)
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    def test_post_load_sees_the_history_table_after_finalize(
+        self,
+        case: str,
+        mock_job_model: MagicMock,
+        mock_post_load: AsyncMock,
+        _analytics: MagicMock,
+        _complete: MagicMock,
+    ) -> None:
+        ts = pa.timestamp("us", tz="UTC")
+        batch = pa.table({"id": pa.array([1], pa.int64()), "_ph_valid_from": pa.array([1_000_000], ts)})
+        seen: dict[str, Any] = {}
+
+        with tempfile.TemporaryDirectory() as root:
+
+            async def _local_uri(ref: DeltaTableRef) -> str:
+                return f"{root}/{ref.resource_name}"
+
+            async def _post_load(**kwargs: Any) -> PostLoadResult:
+                seen["rows"] = DeltaTable(f"{root}/orders_history").to_pyarrow_table().num_rows
+                seen["columns"] = set(kwargs["table_schema_dict"])
+                return _POST_LOAD_RESULT
+
+            mock_post_load.side_effect = _post_load
+            with (
+                patch.object(DeltaTableRef, "_get_delta_table_uri", autospec=True, side_effect=_local_uri),
+                patch.object(DeltaTableRef, "_get_credentials", return_value={}),
+                patch(f"{_PROCESSOR}.read_parquet_first_values", return_value=batch),
+            ):
+                ref = DeltaTableRef(resource_name="orders_history", job=MagicMock(), logger=make_logger())
+                async_to_sync(stage_history_batch)(ref, batch, primary_keys=["id"], run_uuid="run", batch_index=0)
+                signal = MagicMock(
+                    cdc_write_mode="scd2_append",
+                    sync_type="incremental",
+                    primary_keys=["id"],
+                    resource_name="orders_history",
+                    total_rows=1,
+                )
+                if case == "final_batch":
+                    _finalize_run(
+                        signal,
+                        job=MagicMock(),
+                        schema=MagicMock(),
+                        delta_table_ref=ref,
+                        internal_schema=MagicMock(),
+                        verify_ownership=None,
+                    )
+                else:
+                    mock_job_model.objects.prefetch_related.return_value.aget = AsyncMock(return_value=MagicMock())
+                    _run_post_load_for_already_processed_batch(signal)
+
+        assert seen["rows"] == 1
+        assert {"_ph_valid_to", "_ph_history_partition"} <= seen["columns"]
+        assert not {"_ph_staged_batch", "_ph_staged_row"} & seen["columns"]
 
 
 class TestFinalDataBatch:

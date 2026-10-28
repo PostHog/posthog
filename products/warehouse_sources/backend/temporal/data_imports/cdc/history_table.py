@@ -203,7 +203,10 @@ def is_another_schemas_history_table(schema: ExternalDataSchema) -> bool:
         source, resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name).table_storage_name
     )
     siblings = ExternalDataSchema.objects.filter(
-        team_id=schema.team_id, source_id=schema.source_id, deleted=False, sync_type=ExternalDataSchema.SyncType.CDC
+        team_id=schema.team_id,
+        source_id=schema.source_id,
+        deleted=False,
+        sync_type__in=[ExternalDataSchema.SyncType.CDC, ExternalDataSchema.SyncType.INCREMENTAL],
     ).exclude(id=schema.id)
     # Only a sibling whose history name under some naming matches pays for the registration lookup.
     candidates = [
