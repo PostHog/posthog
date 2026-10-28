@@ -11,10 +11,12 @@ from posthog.schema import (
     ActionsNode,
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
+    ExperimentWarehouseNativeExposureConfig,
     MultipleVariantHandling,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.models.team.team import Team
@@ -174,13 +176,17 @@ def normalize_to_exposure_criteria(
             if config and isinstance(config, dict):
                 if _is_actions_node_dict(config):
                     criteria_copy[config_key] = ActionsNode.model_validate(config)
+                elif config.get("kind") == "ExperimentWarehouseNativeExposureConfig":
+                    criteria_copy[config_key] = ExperimentWarehouseNativeExposureConfig.model_validate(config)
                 else:
                     criteria_copy[config_key] = ExperimentEventExposureConfig.model_validate(config)
 
         return ExperimentExposureCriteria.model_validate(criteria_copy)
 
 
-def is_default_exposure_config(config: Union[ActionsNode, ExperimentEventExposureConfig, None]) -> bool:
+def is_default_exposure_config(
+    config: Union[ActionsNode, ExperimentEventExposureConfig, ExperimentWarehouseNativeExposureConfig, None],
+) -> bool:
     """A missing config or one naming a default exposure event is the default exposure, not a
     custom one (same convention as get_exposure_event_and_property)."""
     if config is None:
@@ -257,13 +263,14 @@ def get_exposure_event_and_property(
 
     exposure_config = criteria.exposure_config if criteria else None
 
+    if isinstance(exposure_config, ExperimentWarehouseNativeExposureConfig):
+        raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
     if isinstance(exposure_config, ActionsNode):
         # build_exposure_event_conditions applies the action filter.
         feature_flag_variant_property = f"$feature/{feature_flag_key}"
         event = None
     elif (
-        exposure_config
-        and hasattr(exposure_config, "event")
+        isinstance(exposure_config, ExperimentEventExposureConfig)
         and exposure_config.event
         and exposure_config.event not in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT)
     ):
@@ -285,7 +292,9 @@ def get_exposure_event_and_property(
 
 
 def _get_event_name_from_config(
-    exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]],
+    exposure_config: Optional[
+        Union[ActionsNode, ExperimentEventExposureConfig, ExperimentWarehouseNativeExposureConfig]
+    ],
     default_exposure_event: str,
 ) -> str:
     if not exposure_config or not hasattr(exposure_config, "event"):
@@ -310,13 +319,17 @@ def _build_action_filter(action_id: int, team: Team) -> ast.Expr:
 
 
 def _build_event_filters(
-    exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]],
+    exposure_config: Optional[
+        Union[ActionsNode, ExperimentEventExposureConfig, ExperimentWarehouseNativeExposureConfig]
+    ],
     team: Team,
     feature_flag_key: Optional[str],
     default_exposure_event: str,
 ) -> list[ast.Expr]:
     if isinstance(exposure_config, ActionsNode):
         return [_build_action_filter(int(exposure_config.id), team)]
+    if isinstance(exposure_config, ExperimentWarehouseNativeExposureConfig):
+        raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
 
     event = _get_event_name_from_config(exposure_config, default_exposure_event)
     filters: list[ast.Expr] = [exposure_event_name_filter(event)]
@@ -336,7 +349,10 @@ def _build_event_filters(
 
 
 def _build_property_filters(
-    exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]], team: Team
+    exposure_config: Optional[
+        Union[ActionsNode, ExperimentEventExposureConfig, ExperimentWarehouseNativeExposureConfig]
+    ],
+    team: Team,
 ) -> list[ast.Expr]:
     if not exposure_config or exposure_config.kind != "ExperimentEventExposureConfig" or not exposure_config.properties:
         return []
