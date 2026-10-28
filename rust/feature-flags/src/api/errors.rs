@@ -121,6 +121,11 @@ pub enum FlagError {
     DependencyFailed(i64),
     #[error("Group type mapping lookup failed: {0}")]
     GroupTypeLookupFailed(Arc<FlagError>),
+    /// A failed `posthog_cohort` query. Clients see the same `internal_error` code and
+    /// `Internal error: ` description as from `FlagError::internal`, but the request outcome
+    /// counts it as a database failure.
+    #[error("Internal error: {0}")]
+    CohortQueryFailed(String),
     #[error("Failed to parse cohort filters")]
     CohortFiltersParsingError,
     #[error("Dependency cycle detected: {0} id {1} starts the cycle")]
@@ -266,6 +271,7 @@ impl FlagError {
             FlagError::DependencyNotFound(_, _) => ("dependency_not_found", 500),
             FlagError::DependencyFailed(_) => (CODE_DEPENDENCY_FAILED, 500),
             FlagError::GroupTypeLookupFailed(cause) => cause.error_metadata(),
+            FlagError::CohortQueryFailed(_) => ("internal_error", 500),
             FlagError::CohortFiltersParsingError => ("cohort_filters_parsing_error", 500),
             FlagError::DependencyCycle(_, _) => ("dependency_cycle", 500),
             FlagError::HashKeyOverrideError => ("hash_key_override_error", 500),
@@ -404,6 +410,7 @@ impl FlagError {
             | FlagError::DatabaseUnavailable
             | FlagError::TimeoutError(_)
             | FlagError::HashKeyOverrideError
+            | FlagError::CohortQueryFailed(_)
             // The lookup reports a failed query, a statement timeout included, as an internal error.
             | FlagError::GroupTypeLookupFailed(_) => true,
             FlagError::ClientFacing(_)
@@ -609,6 +616,9 @@ impl IntoResponse for FlagError {
                         .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
                     "Group type mapping lookup failed".to_string(),
                 )
+            }
+            FlagError::CohortQueryFailed(msg) => {
+                return FlagError::internal(anyhow::anyhow!(msg)).into_response()
             }
             FlagError::CohortFiltersParsingError => {
                 tracing::error!("Failed to parse cohort filters: {:?}", self);
