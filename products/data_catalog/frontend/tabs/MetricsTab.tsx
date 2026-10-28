@@ -8,7 +8,6 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -21,6 +20,7 @@ import { urls } from 'scenes/urls'
 import { METRIC_BULK_MAX, compareText, humanizeDefinitionKind, metricCount, reportCatalogTableSorted } from '../common'
 import { CatalogExplainer } from '../components/CatalogExplainer'
 import { LifecycleStrip } from '../components/LifecycleStrip'
+import { MetricDescription } from '../components/MetricDescription'
 import { MetricOwnerSelect } from '../components/MetricOwnerSelect'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
 import { BulkMetricAction, MetricStatusFilter, metricsLogic } from '../metricsLogic'
@@ -188,13 +188,8 @@ export function MetricsTab(): JSX.Element {
                 <LemonTableLink
                     to={urls.dataCatalogMetric(metric.name)}
                     title={metric.display_name || metric.name}
-                    // Render descriptions with images disabled so a stored image URL can't beacon other viewers.
                     description={
-                        metric.description ? (
-                            <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings disableImages>
-                                {metric.description}
-                            </LemonMarkdown>
-                        ) : undefined
+                        metric.description ? <MetricDescription description={metric.description} /> : undefined
                     }
                 />
             ),
