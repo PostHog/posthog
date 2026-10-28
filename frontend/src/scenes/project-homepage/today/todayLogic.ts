@@ -62,7 +62,7 @@ const CLOCK_MS = 30_000
 function todayReportListParams(): Record<string, string | undefined> {
     return {
         view: 'for_you',
-        ...buildSignalReportListSortParams('ranking_open', 'desc'),
+        ...buildSignalReportListSortParams('recommended', 'asc'),
         created_after: createdAfterForWindow('7d'),
     }
 }

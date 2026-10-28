@@ -381,7 +381,7 @@ describe('todayLogic', () => {
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ reports, moreReportCount: 7 })
         expect(Object.fromEntries(listParams!.entries())).toEqual({
             view: 'for_you',
-            ordering: '-ranking_open,status,-updated_at',
+            sort: 'recommended',
             created_after: '2026-10-21T12:00:00.000Z',
             limit: String(TOP_REPORT_COUNT),
         })
@@ -405,7 +405,7 @@ describe('todayLogic', () => {
             .toMatchValues({ loadedMoreReports: first, canLoadMoreReports: true, moreReportsInInbox: 0 })
         expect(Object.fromEntries(listParams!.entries())).toEqual({
             view: 'for_you',
-            ordering: '-ranking_open,status,-updated_at',
+            sort: 'recommended',
             created_after: '2026-10-21T12:00:00.000Z',
             limit: String(MORE_REPORTS_PAGE_SIZE),
             offset: '0',
@@ -462,10 +462,17 @@ describe('todayLogic', () => {
         { status: 403, expected: { topReports: { results: [], count: 0 }, reportsFailed: false } },
     ])('keeps a failed load apart from an empty list, and treats $status that way', async ({ status, expected }) => {
         listResponse = [status, { detail: 'Error' }]
+        const item = makeHighlightItem({ key: 'alert:synthetic', source: 'alerts' })
+        highlightResponses = [[200, makeHighlights({ items: [item] })]]
         const logic = todayLogic()
         logic.mount()
 
-        await expectLogic(logic).toFinishAllListeners().toMatchValues(expected)
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                ...expected,
+                forYouRows: { rows: [expect.objectContaining({ kind: 'highlight', item })], limit: 1 },
+            })
     })
 
     it('remembers the report to focus and the home scroll only while the person stays on Today', async () => {
