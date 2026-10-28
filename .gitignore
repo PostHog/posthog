@@ -225,6 +225,9 @@ posthog/hogql/scripts/.local/
 rust/cohort-store/
 rust/cohort-stream-processor/cohort-store/
 
+# Local build output of a cyclotron-node addon that has no sources in this repo
+rust/cyclotron-node/
+
 # Local TLS certs (e.g. mkcert) — never commit private keys
 *.pem
 
