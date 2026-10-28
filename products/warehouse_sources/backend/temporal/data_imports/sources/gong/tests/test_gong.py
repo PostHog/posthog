@@ -5,6 +5,7 @@ import time_machine
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -147,6 +148,39 @@ class TestWindowedCalls:
         assert result.raised is None
         # The first request starts from the resumed window, not the DB cursor value.
         assert result.requests[0].param("fromDateTime") == _format_datetime(resume_start)
+
+
+class TestLibraryFolders400IsNonRetryable:
+    # 401/403/429/500/timeout are already covered for every source, Gong included, by
+    # `sources/tests/test_source_error_contract.py`. Only the library_folders-specific 400 needs a
+    # test here.
+    @parameterized.expand(
+        [
+            ("library_folders", "library_folders", [ScriptedResponse(status=400)]),
+            # library_folder_calls fans out from a library_folders listing, so the same account-level
+            # rejection surfaces here too, on the parent lookup.
+            ("library_folder_calls", "library_folder_calls", [ScriptedResponse(status=400)]),
+        ]
+    )
+    def test_classified_non_retryable(self, _name: str, endpoint: str, responses: list[ScriptedResponse]) -> None:
+        result = _driver().run(endpoint, responses)
+
+        assert result.raised is not None
+        assert error_message_matches(str(result.raised), GongSource().get_non_retryable_errors())
+
+    def test_same_status_on_a_different_endpoint_stays_retryable(self) -> None:
+        # A 400 elsewhere in the API must still surface rather than be swallowed as if it were the
+        # account-level library_folders rejection.
+        last_value = datetime.now(UTC) - timedelta(days=5)
+        result = _driver().run(
+            "calls",
+            [ScriptedResponse(status=400)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is not None
+        assert not error_message_matches(str(result.raised), GongSource().get_non_retryable_errors())
 
 
 class TestGongSource:

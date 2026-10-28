@@ -2,8 +2,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { loginLogic } from 'scenes/authentication/auth/loginLogic'
 import { login2FALogic } from 'scenes/authentication/login-2fa/login2FALogic'
-import { loginLogic } from 'scenes/authentication/login/loginLogic'
 import { passwordResetLogic } from 'scenes/authentication/password-reset/passwordResetLogic'
 import { LISTENED_ACTIONS, loginTelemetryLogic } from 'scenes/authentication/shared/loginTelemetryLogic'
 

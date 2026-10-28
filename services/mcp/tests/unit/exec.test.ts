@@ -1200,8 +1200,12 @@ describe('exec tool', () => {
 
         it.each([
             ['proposed', { status: 'proposed', is_drifted: false }, "'/data-catalog/metrics/{name}'"],
-            ['drifted proposed', { status: 'proposed', is_drifted: true }, 'Do not present this as the answer'],
-            ['drifted approved', { status: 'approved', is_drifted: true }, 'Do not present this as the answer'],
+            [
+                'drifted proposed',
+                { status: 'proposed', is_drifted: true },
+                '(<url>), not yet approved, and its source insight',
+            ],
+            ['drifted approved', { status: 'approved', is_drifted: true }, '(<url>), approved, and its source insight'],
             ['deprecated', { status: 'deprecated', is_drifted: false }, 'Do not present this as the answer'],
         ])('marks a %s metric result noncanonical', async (_label, envelope, guidance) => {
             const exec = metricRunExec({ ...envelope, results: [[42]] })
@@ -2004,6 +2008,7 @@ describe('exec tool', () => {
             ['self-driving-inbox-get', 'inbox-reports-list'],
             ['experiment-get-all', 'experiment-list'],
             ['llma-tagger-create', 'llma-evaluation-create'],
+            ['vision-scanners-suggest-tags', 'vision-scanners-update'],
         ])('throws redirect when calling deprecated %s', async (deprecated, replacement) => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: `call ${deprecated} {}` })).rejects.toThrow(

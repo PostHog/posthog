@@ -198,7 +198,7 @@ function previousRateOf(row: EvaluationResultApi): number | null {
     return previous ? (previous.passed / (previous.passed + previous.failed)) * 100 : null
 }
 
-/** Totals built from the rows, the way the backend builds them, so the cards agree with the chart. */
+/** Totals built from the rows, the way the backend builds them, so the tabs agree with the chart. */
 function overview(evaluations: EvaluationResultApi[]): EvaluationsOverviewApi {
     const active = evaluations.filter((row) => row.enabled)
     const passRates = active.filter((row) => row.summary.kind === 'pass_rate' && row.gradedCount > 0)

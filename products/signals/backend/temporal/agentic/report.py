@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any, TypeVar
 from uuid import UUID
@@ -11,6 +11,7 @@ import structlog
 import temporalio
 import posthoganalytics
 from pydantic import BaseModel, ValidationError
+from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
@@ -69,8 +70,15 @@ from products.signals.backend.report_generation.select_repo import RepoSelection
 from products.signals.backend.report_lifecycle import report_status_filter
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, ReportMetric, metric_batch_error
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
+from products.signals.backend.report_tags import team_tag_vocabulary
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules, StaleReviewerProposal
 from products.signals.backend.source_suggestions import unused_suggestable_products
+from products.signals.backend.startup_failure import (
+    RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE as RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE,
+    RESEARCH_STARTUP_FAILURE,
+    reconcile_research_startups,
+    startup_failure_message,
+)
 from products.signals.backend.supersession import research_implementation_context
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
@@ -84,7 +92,12 @@ from products.signals.backend.typed_report_links import (
     outgoing_links,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+from products.tasks.backend.facade.agents import (
+    AgentStartupFailed,
+    CustomPromptSandboxContext,
+    SandboxRunFailed,
+    turn_failure_error_type,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -100,6 +113,7 @@ class RunAgenticReportInput:
     # correcting or clearing it) so the run does not bury that newer row. Defaults to None so an
     # older workflow history that predates this field replays cleanly (guard off).
     repo_selection_as_of: datetime | None = None
+    signal_id: str | None = None
 
 
 @frozen
@@ -144,6 +158,10 @@ class RunAgenticReportOutput:
     # that chose not to chart apart from one that was never allowed to, which would otherwise read
     # as the agent's charting rate moving on every rollout step. `None` predates the field.
     charts_enabled: bool | None = None
+    # The report's whole tag set, already normalized. The transition activity writes it with the
+    # matching title and summary. `None` keeps the stored set, which is also what an older workflow
+    # history replays as.
+    tags: list[str] | None = None
 
 
 _ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
@@ -238,6 +256,17 @@ async def _load_previous_research(team_id: int, report_id: str) -> ReportResearc
         # reuses these writes nothing; only what it changes lands in new_artefacts.
         old_artefacts=[*findings, actionability, *([priority] if priority else [])],
     )
+
+
+@frozen
+class _TagContext:
+    current_tags: list[str]
+    team_tags: list[str]
+
+
+def _load_tag_context(team_id: int, report_id: str) -> _TagContext:
+    current = SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("tags", flat=True).first()
+    return _TagContext(current_tags=list(current or []), team_tags=team_tag_vocabulary(team_id))
 
 
 def _parse_stored_charts(raw: object, report_id: str) -> list[ReportChart]:
@@ -1142,6 +1171,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 runtime_adapter=agent_runtime.runtime_adapter,
                 reasoning_effort=agent_runtime.reasoning_effort,
                 service_tier=agent_runtime.service_tier,
+                disable_repo_hooks=True,
             )
             has_bk = await database_sync_to_async(_team_has_business_knowledge, thread_sensitive=False)(input.team_id)
             metrics_enabled = await database_sync_to_async(team_report_metrics_enabled, thread_sensitive=False)(
@@ -1194,6 +1224,9 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             await database_sync_to_async(_capture_research_steering_attached, thread_sensitive=False)(
                 team_id=input.team_id, report_id=input.report_id, steering=steering
             )
+            tag_context = await database_sync_to_async(_load_tag_context, thread_sensitive=False)(
+                input.team_id, input.report_id
+            )
             # 3. Run the agentic research in the sandbox
             # The report's current PR, when it has one. It keeps the in-flight check from reading
             # the report's own draft as somebody else's work, and it is what the supersede turn asks
@@ -1209,6 +1242,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 previous_checks=previous_checks,
                 implementation_context=implementation_context,
                 signal_report_id=input.report_id,
+                spend_signal_id=input.signal_id,
                 has_business_knowledge=has_bk,
                 resolved_report_title=resolved_report_title,
                 resolved_report_summary=resolved_report_summary,
@@ -1219,6 +1253,8 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 agent_checks_enabled=agent_checks_enabled,
                 steering_section=steering.section,
                 suggestable_products=suggestable_products,
+                current_tags=tag_context.current_tags,
+                team_tags=tag_context.team_tags,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(
@@ -1270,7 +1306,33 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             layers=[layer.model_dump(mode="json") for layer in result.layers],
             research_task_id=result.research_task_id,
             charts_enabled=True,
+            tags=result.tags,
         )
+    except AgentStartupFailed as error:
+        raise ApplicationError(
+            startup_failure_message(error.failure),
+            {
+                "failure": asdict(error.failure),
+                "task_id": error.task_id,
+                "run_id": error.run_id,
+                "repository": input.repo_selection.repository,
+            },
+            type=RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE if error.transient else RESEARCH_STARTUP_FAILURE,
+            non_retryable=error.failure.retryability == "requires_action",
+        ) from error
+    except SandboxRunFailed as error:
+        logger.exception(
+            "signals agentic report failed",
+            report_id=input.report_id,
+            team_id=input.team_id,
+            error=str(error),
+            sandbox_error_type=error.error_type,
+        )
+        if error.transient:
+            raise temporalio.exceptions.ApplicationError(
+                str(error), type=RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
+            ) from error
+        raise
     except Exception as error:
         logger.exception(
             "signals agentic report failed",
@@ -1278,4 +1340,15 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             team_id=input.team_id,
             error=str(error),
         )
+        error_type = turn_failure_error_type(error)
+        if error_type is not None:
+            raise ApplicationError(str(error), type=error_type) from error
         raise
+    finally:
+        if input.repo_selection.repository:
+            try:
+                await database_sync_to_async(reconcile_research_startups, thread_sensitive=False)(
+                    input.team_id, input.repo_selection.repository
+                )
+            except Exception:
+                logger.warning("signals_startup_recovery_failed", team_id=input.team_id, exc_info=True)

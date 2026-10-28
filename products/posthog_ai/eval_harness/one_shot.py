@@ -13,7 +13,6 @@ import time
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Sequence
-from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from .base import _BaseEvalRun
@@ -48,19 +47,15 @@ class _OneShotEvalRun(_BaseEvalRun):
         cases: Sequence[BaseEvalCase],
         scorers: Sequence[Any],
         ctx: EvalContext,
-        is_public: bool,
-        no_send_logs: bool,
         task_fn: OneShotTaskFn,
         offline_suite: OfflineEvalSuite | None = None,
-        send_to_posthog: bool | None = None,
+        send_to_posthog: bool = True,
     ) -> None:
         super().__init__(
             experiment_name=experiment_name,
             cases=cases,
             scorers=scorers,
             ctx=ctx,
-            is_public=is_public,
-            no_send_logs=no_send_logs,
             offline_suite=offline_suite,
             send_to_posthog=send_to_posthog,
         )
@@ -113,10 +108,8 @@ async def OneShotEval(
     scorers: Sequence[Any],
     task: OneShotTaskFn,
     ctx: EvalContext,
-    is_public: bool = False,
-    no_send_logs: bool = True,
     offline_suite: OfflineEvalSuite | None = None,
-    send_to_posthog: bool | None = None,
+    send_to_posthog: bool = True,
 ) -> ExperimentResult:
     """Run a one-shot evaluation suite via Braintrust.
 
@@ -131,17 +124,8 @@ async def OneShotEval(
         cases=cases,
         scorers=scorers,
         ctx=ctx,
-        is_public=is_public,
-        no_send_logs=no_send_logs,
         task_fn=task,
         offline_suite=offline_suite,
         send_to_posthog=send_to_posthog,
     )
     return await run.run()
-
-
-OneShotPublicEval = partial(OneShotEval, is_public=True, no_send_logs=False)
-"""One-shot evaluation whose Braintrust experiment is publicly accessible."""
-
-OneShotPrivateEval = partial(OneShotEval, is_public=False, no_send_logs=True)
-"""One-shot evaluation with Braintrust uploads disabled; PostHog publishing is opt-in."""

@@ -86,6 +86,16 @@ class TestFirstReportNotification(BaseTest):
     def notification(self) -> SignalFirstReportNotification:
         return SignalFirstReportNotification.objects.for_team(self.team.id).get()
 
+    def test_first_investigation_can_notify_about_a_report_needing_a_decision(self) -> None:
+        report = self.report(
+            status=SignalReport.Status.PENDING_INPUT,
+            latest_actionability="requires_human_input",
+            scout_idempotency_key=f"first-report:{self.team.id}",
+        )
+        deliver_first_report_email(self.team.id)
+        assert self.notification().report_id == report.id
+        self.send.assert_called_once()
+
     @parameterized.expand(
         [
             (
