@@ -14,7 +14,7 @@ import { buildStoryPages } from 'products/product_analytics/mcp/apps/explainChar
 const DAYS = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05']
 const MARKER_LAYOUT = { radius: 10, distance: 22, bounds: { left: 0, top: 0, right: 400, bottom: 300 } }
 
-describe('explain chart walkthrough', () => {
+describe('explain chart', () => {
     it('keeps a small rate from rounding to zero', () => {
         const facts = chapterFacts([0.02, 0.02, 0.02, 0.02, 0.02], DAYS, [1, 3], {
             interval: 'day',
