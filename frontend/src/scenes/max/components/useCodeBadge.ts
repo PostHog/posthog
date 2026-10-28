@@ -15,8 +15,8 @@ export interface CodeBadge {
     closeIntro: () => void
 }
 
-export function useCodeBadge(): CodeBadge {
-    const visible = useFeatureFlag('PRODUCT_AUTONOMY')
+export function useCodeBadge(enabled: boolean): CodeBadge {
+    const visible = useFeatureFlag('PRODUCT_AUTONOMY') && enabled
     const { featureFlags } = useValues(featureFlagLogic)
     // Intro-modal visibility is pure view state, so it stays local instead of in a logic
     const [introOpen, setIntroOpen] = useState(false)

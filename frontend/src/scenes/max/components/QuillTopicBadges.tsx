@@ -1,14 +1,10 @@
-import { IconCode } from '@posthog/icons'
-import { Badge, Button, Card, CardGroup, Text, cn } from '@posthog/quill'
+import { Button, Card, CardGroup, Text, cn } from '@posthog/quill'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
-import { SelfDrivingIntroModal } from 'products/signals/frontend/inbox/components/onboarding/SelfDrivingIntroModal'
-
 import { SuggestionTopic } from '../suggestionTopics'
 import { COLORFUL_ICONS, type TopicBadgesProps, type TopicSuggestionsProps } from './TopicBadges'
-import { useCodeBadge } from './useCodeBadge'
 
 function badgeIcon(topic: SuggestionTopic): JSX.Element {
     return topic.icon ?? iconForType(topic.iconType)
@@ -19,8 +15,6 @@ function badgeIcon(topic: SuggestionTopic): JSX.Element {
 
 /** The topic badge row in the quill skin: outline buttons that press in when selected. */
 export function QuillTopicBadges({ topics, selectedKey, onSelect, className }: TopicBadgesProps): JSX.Element | null {
-    const codeBadge = useCodeBadge()
-
     if (!topics.length) {
         return null
     }
@@ -48,18 +42,6 @@ export function QuillTopicBadges({ topics, selectedKey, onSelect, className }: T
                     {topic.label}
                 </Button>
             ))}
-
-            {codeBadge.visible && (
-                <>
-                    <Button size="sm" variant="outline" onClick={codeBadge.openIntro} data-attr="capability-badge-code">
-                        <IconCode />
-                        {codeBadge.label}
-                        <Badge variant="warning">Beta</Badge>
-                    </Button>
-
-                    <SelfDrivingIntroModal isOpen={codeBadge.introOpen} onClose={codeBadge.closeIntro} />
-                </>
-            )}
         </div>
     )
 }

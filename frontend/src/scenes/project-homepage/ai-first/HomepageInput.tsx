@@ -682,6 +682,7 @@ export function HomepageInput(): JSX.Element {
                                 topics={HOMEPAGE_SUGGESTION_TOPICS}
                                 selectedKey={selectedTopic}
                                 onSelect={setSelectedTopic}
+                                showCodeBadge
                             />
                             <IdleGrid />
                         </div>
