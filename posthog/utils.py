@@ -80,7 +80,7 @@ TEMPLATE_CONTEXT_DURATION_HISTOGRAM = Histogram(
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
-    from posthog.models import Team, User
+    from posthog.models import Organization, Team, User
 
     from products.dashboards.backend.models.dashboard import Dashboard
     from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -515,53 +515,70 @@ def _app_evaluates_flag(definition: dict[str, Any]) -> bool:
 
 
 @frozen
-class _FlagIdentity:
+class FlagIdentity:
+    """The inputs the web app sends to /flags for a signed-in user, for a local evaluation of the app's flags."""
+
+    distinct_id: str
     person_properties: dict[str, Any]
     groups: dict[str, str]
     group_properties: dict[str, dict[str, Any]]
 
 
-def _flag_identity(current_user: dict[str, Any], joined_at: str) -> _FlagIdentity:
+def flag_identity(
+    user: "User",
+    team: "Team | None",
+    organization: "Organization | None",
+    *,
+    member_count: int | None = None,
+    project_count: int | None = None,
+) -> FlagIdentity | None:
     """
     Mirrors `userIdentity()` in `frontend/src/lib/utils/posthogIdentity.ts`, which sends these inputs to /flags.
     Local evaluation drops any flag it cannot decide from them, and decides a flag differently when they differ.
+    The organization serializer computes `member_count` and `project_count`, so a caller without it leaves them
+    out, and a flag that reads them stays undecided. None for a user without a distinct id, who gets no flags.
     """
+    # A worker loads the user with the fields it needs, and Django reads each other field in a query of its own.
+    deferred = {"distinct_id", "email", "anonymize_data", "date_joined"} & user.get_deferred_fields()
+    if deferred:
+        user.refresh_from_db(fields=sorted(deferred))
+    if not user.distinct_id:
+        return None
     groups: dict[str, str] = {}
     group_properties: dict[str, dict[str, Any]] = {}
-    organization = current_user.get("organization")
-    team = current_user.get("team")
-    metadata = (organization.get("metadata") or {}) if organization else {}
-    if team:
-        groups["project"] = team["uuid"]
+    if team is not None:
+        groups["project"] = str(team.uuid)
         group_properties["project"] = {
-            "id": team["id"],
-            "uuid": team["uuid"],
-            "name": team["name"],
-            "ingested_event": team["ingested_event"],
-            "is_demo": team["is_demo"],
-            "timezone": team["timezone"],
-            "instance_tag": metadata.get("instance_tag"),
+            "id": team.id,
+            "uuid": str(team.uuid),
+            "name": team.name,
+            "ingested_event": team.ingested_event,
+            "is_demo": team.is_demo,
+            "timezone": team.timezone,
+            "instance_tag": settings.INSTANCE_TAG,
         }
-    if organization:
-        groups["organization"] = organization["id"]
+    if organization is not None:
+        groups["organization"] = str(organization.id)
         group_properties["organization"] = {
-            "id": organization["id"],
-            "name": organization["name"],
-            "slug": organization["slug"],
-            "created_at": organization["created_at"],
-            "available_product_features": organization["available_product_features"],
-            "member_count": organization["member_count"],
-            "project_count": len(organization["teams"]),
-            **metadata,
+            "id": str(organization.id),
+            "name": organization.name,
+            "slug": organization.slug,
+            # The serializer's datetime format.
+            "created_at": organization.created_at.isoformat().replace("+00:00", "Z"),
+            "available_product_features": organization.available_product_features or [],
+            **({"member_count": member_count} if member_count is not None else {}),
+            **({"project_count": project_count} if project_count is not None else {}),
+            "instance_tag": settings.INSTANCE_TAG,
         }
-        if organization.get("customer_id"):
-            groups["customer"] = organization["customer_id"]
+        if organization.customer_id:
+            groups["customer"] = organization.customer_id
     groups["instance"] = settings.SITE_URL
     group_properties["instance"] = {"site_url": settings.SITE_URL}
-    return _FlagIdentity(
+    return FlagIdentity(
+        distinct_id=user.distinct_id,
         person_properties={
-            "email": None if current_user["anonymize_data"] else current_user["email"],
-            "joined_at": joined_at,
+            "email": None if user.anonymize_data else user.email,
+            "joined_at": user.date_joined.isoformat(),
         },
         groups=groups,
         group_properties=group_properties,
@@ -848,13 +865,19 @@ def deferred_app_context_variant(request: HttpRequest, user: "User") -> Optional
 
 
 def feature_flag_bootstrap(user: "User", current_user: dict[str, Any]) -> Optional[dict[str, Any]]:
-    distinct_id = current_user.get("distinct_id")
-    if not distinct_id:
+    organization = current_user.get("organization")
+    identity = flag_identity(
+        user,
+        user.team if current_user.get("team") else None,
+        user.organization if organization else None,
+        member_count=organization["member_count"] if organization else None,
+        project_count=len(organization["teams"]) if organization else None,
+    )
+    if identity is None:
         return None
-    identity = _flag_identity(current_user, user.date_joined.isoformat())
     with tracer.start_as_current_span("template.feature_flag_bootstrap"):
         feature_flags = posthoganalytics.get_all_flags(
-            distinct_id,
+            identity.distinct_id,
             only_evaluate_locally=True,
             person_properties=identity.person_properties,
             groups=identity.groups,

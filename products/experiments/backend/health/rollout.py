@@ -2,6 +2,7 @@ import posthoganalytics
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.utils import flag_identity
 
 # pinned: FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS in the frontend, which shows the findings.
 HEALTH_FINDINGS_FLAG = "experiment-health-findings"
@@ -13,20 +14,16 @@ def shows_health_findings(user: User, team: Team) -> bool:
     the person and group inputs that the app sends to /flags, so it never waits on the network. An evaluation that
     is undecided or fails is False.
     """
-    organization_id = str(team.organization_id)
+    identity = flag_identity(user, team, team.organization)
+    if identity is None:
+        return False
     try:
         enabled = posthoganalytics.feature_enabled(
             HEALTH_FINDINGS_FLAG,
-            str(user.distinct_id),
-            groups={"organization": organization_id, "project": str(team.uuid)},
-            person_properties={
-                "email": None if user.anonymize_data else user.email,
-                "joined_at": user.date_joined.isoformat(),
-            },
-            group_properties={
-                "organization": {"id": organization_id},
-                "project": {"id": team.id, "uuid": str(team.uuid)},
-            },
+            identity.distinct_id,
+            groups=identity.groups,
+            person_properties=identity.person_properties,
+            group_properties=identity.group_properties,
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )

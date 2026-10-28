@@ -1,4 +1,6 @@
+import unicodedata
 from collections.abc import Mapping
+from enum import StrEnum
 from zoneinfo import ZoneInfo
 
 from scipy.stats import chi2_contingency, chisquare
@@ -23,13 +25,21 @@ from products.feature_flags.backend.facade.edits import SplitChange
 SAMPLE_RATIO_MISMATCH_P_VALUE = 0.001
 SRM_MINIMUM_SAMPLE_SIZE = 100
 TOP_SEGMENT_VALUES = 5
+# Below this, a skew of a few points passes the homogeneity test for lack of power, and would read as the same skew
+# everywhere. Two segments this large are needed before the finding calls a dimension uniform.
+UNIFORM_SEGMENT_MINIMUM_SIZE = 1000
+SEGMENT_LABEL_MAX_LENGTH = 60
 
 # pinned: the subcode is sent as `finding_variant` on the health finding events, so insights group on it.
 SPLIT_CHANGED = "split_changed"
 
-# pinned: sent as `finding_reason` on the health finding events, so insights group on them.
-REASON_LIBRARY_AND_PAGE = "library_and_page"
-REASON_UNIFORM = "uniform"
+
+class SrmReason(StrEnum):
+    # pinned: sent as `finding_reason` on the health finding events, so insights group on them.
+    LIBRARY = ExposureSegmentDimension.LIBRARY.value
+    PAGE = ExposureSegmentDimension.PAGE.value
+    LIBRARY_AND_PAGE = "library_and_page"
+    UNIFORM = "uniform"
 
 
 def sample_ratio_test(observed: Mapping[str, int], weights: Mapping[str, float]) -> SampleRatioMismatch | None:
@@ -170,7 +180,7 @@ def _mismatch(exposures: ExposureTotals, p_value: float) -> ExperimentHealthFind
     cause, reason = _cause(verdicts, unit)
     evidence: dict[str, str | int | float | None] = {"p_value": p_value, **_segment_evidence(tests, verdicts)}
     if reason is not None:
-        evidence["reason"] = reason
+        evidence["reason"] = reason.value
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.SRM,
         subcode=None,
@@ -200,6 +210,7 @@ class _SegmentTest:
 class _Verdict:
     dimension: ExposureSegmentDimension
     homogeneity_p_value: float | None
+    powered: bool
     located: ExposureSegment | None
 
 
@@ -221,16 +232,17 @@ def _verdict(tests: list[_SegmentTest], dimension: ExposureSegmentDimension, wei
         variant for variant in weights if any(test.segment.exposed_by_variant.get(variant, 0) for test in compared)
     ]
     if len(compared) < 2 or len(variants) < 2:
-        return _Verdict(dimension=dimension, homogeneity_p_value=None, located=None)
+        return _Verdict(dimension=dimension, homogeneity_p_value=None, powered=False, located=None)
     table = [[test.segment.exposed_by_variant.get(variant, 0) for variant in variants] for test in compared]
     homogeneity_p_value = float(chi2_contingency(table).pvalue)
+    powered = sum(1 for row in table if sum(row) >= UNIFORM_SEGMENT_MINIMUM_SIZE) >= 2
     if homogeneity_p_value >= SAMPLE_RATIO_MISMATCH_P_VALUE:
-        return _Verdict(dimension=dimension, homogeneity_p_value=homogeneity_p_value, located=None)
+        return _Verdict(dimension=dimension, homogeneity_p_value=homogeneity_p_value, powered=powered, located=None)
     failing = [
         test.segment for test in compared if test.p_value is not None and test.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
     ]
     located = max(failing, key=lambda segment: _distance_from_split(segment, weights), default=None)
-    return _Verdict(dimension=dimension, homogeneity_p_value=homogeneity_p_value, located=located)
+    return _Verdict(dimension=dimension, homogeneity_p_value=homogeneity_p_value, powered=powered, located=located)
 
 
 def _distance_from_split(segment: ExposureSegment, weights: Mapping[str, float]) -> float:
@@ -246,7 +258,7 @@ def _distance_from_split(segment: ExposureSegment, weights: Mapping[str, float])
     )
 
 
-def _cause(verdicts: list[_Verdict], unit: str) -> tuple[list[str], str | None]:
+def _cause(verdicts: list[_Verdict], unit: str) -> tuple[list[str], SrmReason | None]:
     """The sentences that follow the mismatch, and the finding's reason."""
     located = [verdict.located for verdict in verdicts if verdict.located is not None]
     if located:
@@ -254,20 +266,21 @@ def _cause(verdicts: list[_Verdict], unit: str) -> tuple[list[str], str | None]:
         return [
             f"The mismatch comes from {places}.",
             f"Check that the code there sends the exposure for every {unit} in every variant.",
-        ], REASON_LIBRARY_AND_PAGE if len(located) > 1 else located[0].dimension.value
+        ], SrmReason.LIBRARY_AND_PAGE if len(located) > 1 else SrmReason(located[0].dimension.value)
     compared = {
         verdict.dimension: verdict.homogeneity_p_value
         for verdict in verdicts
         if verdict.homogeneity_p_value is not None
     }
-    if compared and all(p_value >= SAMPLE_RATIO_MISMATCH_P_VALUE for p_value in compared.values()):
+    powered = [verdict.dimension for verdict in verdicts if verdict.powered]
+    if powered and all(p_value >= SAMPLE_RATIO_MISMATCH_P_VALUE for p_value in compared.values()):
         across = " and ".join(
-            "SDK libraries" if dimension == ExposureSegmentDimension.LIBRARY else "pages" for dimension in compared
+            "SDK libraries" if dimension == ExposureSegmentDimension.LIBRARY else "pages" for dimension in powered
         )
         return [
             f"The mismatch looks the same across {across}, which points at how {unit}s get their variants rather "
             "than at one integration."
-        ], REASON_UNIFORM
+        ], SrmReason.UNIFORM
     return ["This may indicate issues with randomization or data collection."], None
 
 
@@ -277,10 +290,19 @@ def _segment_place(segment: ExposureSegment) -> str:
             return f"whose first exposure was sent by a library other than the {TOP_SEGMENT_VALUES} most common"
         if segment.value == BREAKDOWN_NULL_STRING_LABEL:
             return "whose first exposure was sent by an unknown library"
-        return f'whose first exposure was sent by the "{segment.value}" library'
+        return f"whose first exposure was sent by the {_segment_label(segment.value)} library"
     if segment.value == BREAKDOWN_OTHER_STRING_LABEL:
         return f"first exposed on a page other than the {TOP_SEGMENT_VALUES} most common"
-    return f"first exposed on the page {segment.value}"
+    return f"first exposed on the page {_segment_label(segment.value)}"
+
+
+def _segment_label(value: str) -> str:
+    """The value quoted for the detail. It comes from an event property, so anyone with the project's token writes
+    it, and agents read the detail as PostHog's own words. The evidence keeps the raw value."""
+    printable = "".join(char for char in value if not unicodedata.category(char).startswith("C"))
+    if len(printable) > SEGMENT_LABEL_MAX_LENGTH:
+        printable = printable[: SEGMENT_LABEL_MAX_LENGTH - 1] + "…"
+    return f'"{printable}"'
 
 
 def _segment_evidence(tests: list[_SegmentTest], verdicts: list[_Verdict]) -> dict[str, str | int | float | None]:

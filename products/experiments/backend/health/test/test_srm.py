@@ -65,7 +65,7 @@ class TestSrmSegments(TestCase):
                     _segment(PAGE, BREAKDOWN_OTHER_STRING_LABEL, 100, 100),
                 ),
                 "page",
-                f"{MISMATCH} The mismatch comes from users first exposed on the page /checkout. {NEXT_STEP}",
+                f'{MISMATCH} The mismatch comes from users first exposed on the page "/checkout". {NEXT_STEP}',
             ),
             (
                 "the_largest_segment_with_the_skew",
@@ -77,7 +77,7 @@ class TestSrmSegments(TestCase):
                 ),
                 "library_and_page",
                 f'{MISMATCH} The mismatch comes from users whose first exposure was sent by the "web" library, and '
-                f"from users first exposed on the page /checkout. {NEXT_STEP}",
+                f'from users first exposed on the page "/checkout". {NEXT_STEP}',
             ),
             (
                 "the_same_skew_everywhere",
@@ -89,6 +89,12 @@ class TestSrmSegments(TestCase):
             (
                 "too_few_to_compare",
                 (_segment(LIBRARY, "web", 40, 50), _segment(LIBRARY, "posthog-node", 560, 850)),
+                None,
+                NO_LOCATION,
+            ),
+            (
+                "too_few_in_the_small_segment_to_call_it_uniform",
+                (_segment(LIBRARY, "web", 51000, 49000), _segment(LIBRARY, "posthog-node", 505, 475)),
                 None,
                 NO_LOCATION,
             ),
@@ -104,6 +110,28 @@ class TestSrmSegments(TestCase):
         self.assertEqual(
             (outcome.subcode, outcome.title, outcome.detail, outcome.evidence.get("reason")),
             (None, "Users are not split across variants as configured", detail, reason),
+        )
+
+    @parameterized.expand(
+        [
+            ("control_characters", "/checkout\x00\n\x1b[31m", '"/checkout[31m"'),
+            ("format_characters", "/pri\u200bcing", '"/pricing"'),
+            ("long_path", "/" + "a" * 80, '"/' + "a" * 58 + '…"'),
+        ]
+    )
+    def test_quotes_the_segment_value_as_customer_text(self, _name: str, value: str, label: str) -> None:
+        segments = (
+            _segment(LIBRARY, "web", 500, 800),
+            _segment(PAGE, "/pricing", 300, 300),
+            _segment(PAGE, value, 100, 400),
+        )
+
+        outcome = srm(replace(RUNNING_CONTEXT, exposures=_exposures(segments)))
+
+        assert isinstance(outcome, ExperimentHealthFinding)
+        self.assertEqual(
+            (outcome.detail, outcome.evidence["page_2"]),
+            (f"{MISMATCH} The mismatch comes from users first exposed on the page {label}. {NEXT_STEP}", value),
         )
 
     def test_puts_every_segment_in_the_evidence(self) -> None:

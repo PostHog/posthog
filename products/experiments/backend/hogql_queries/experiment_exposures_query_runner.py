@@ -30,6 +30,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_queries, tags_context
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -322,7 +323,9 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
     def _runs_health_queries(self) -> bool:
         # The queries that explain a finding scan the exposure events, so they run only for a reader who sees the
-        # findings. A userless run sees none.
+        # findings. A userless run sees none. The answer stays out of the cache key: an async run computes the key
+        # again in a worker, from that worker's flag definitions, and a key that disagrees with the web request's
+        # makes every page load miss the cache.
         if not isinstance(self.user, User):
             return False
         if self._health_findings_shown is None or self._health_findings_shown[0] != self.user.pk:
@@ -404,6 +407,10 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                     # The exposure query runs both on a page load and in the background, and this query follows it.
                     workload=self.workload,
                 )
+        except ClickHouseQueryTimeOut:
+            # The timeout above is the query's budget, so hitting it on a large project is expected, not an error.
+            logger.warning("exposure_health_query_timed_out", experiment_id=self.experiment.id, query_type=query_type)
+            return None
         except Exception as error:
             capture_exception(error)
             return None
@@ -573,7 +580,4 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # history, a userless run included, must not get a cached answer of one who can.
         if not self._can_read_flag_history():
             payload["flag_history_hidden"] = True
-        # The findings of a reader who sees them can carry what the extra queries found.
-        if self._runs_health_queries():
-            payload["health_queries"] = True
         return payload

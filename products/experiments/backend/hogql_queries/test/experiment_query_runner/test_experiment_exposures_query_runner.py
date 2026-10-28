@@ -27,6 +27,8 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import AvailableFeature
+from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.user import User
 from posthog.test.test_journeys import journeys_for
@@ -1592,9 +1594,24 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                     "library_2": "posthog-node",
                     "library_2_exposed_control": 5,
                     "library_2_exposed_test": 120,
-                    "page_1": "/pricing",
-                    "page_1_exposed_control": 100,
-                    "page_1_exposed_test": 100,
+                    "page_1": "/",
+                    "page_1_exposed_control": 34,
+                    "page_1_exposed_test": 34,
+                    "page_2": "/pricing",
+                    "page_2_exposed_control": 20,
+                    "page_2_exposed_test": 20,
+                    "page_3": "/docs",
+                    "page_3_exposed_control": 15,
+                    "page_3_exposed_test": 15,
+                    "page_4": "/blog",
+                    "page_4_exposed_control": 12,
+                    "page_4_exposed_test": 12,
+                    "page_5": "/about",
+                    "page_5_exposed_control": 10,
+                    "page_5_exposed_test": 10,
+                    "page_6": BREAKDOWN_OTHER_STRING_LABEL,
+                    "page_6_exposed_control": 9,
+                    "page_6_exposed_test": 9,
                 },
             ),
             (
@@ -1617,14 +1634,28 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 "properties": {**properties, "$pathname": path} if path else properties,
             }
 
-        # Half of the users first exposed on the web are exposed by the server later, and stay web users.
+        # Seven pages, so that the two smallest share the "other" segment. Half of the users first exposed on the
+        # web are exposed by the server later, and stay web users.
+        pages = [
+            page
+            for page, users in (
+                ("/", 34),
+                ("/pricing", 20),
+                ("/docs", 15),
+                ("/blog", 12),
+                ("/about", 10),
+                ("/careers", 5),
+                ("/contact", 4),
+            )
+            for _ in range(users)
+        ]
         web_first = {
             f"web_{variant}_{i}": [
-                exposure(variant, "2024-01-02T10:00:00Z", "web", "/pricing"),
+                exposure(variant, "2024-01-02T10:00:00Z", "web", page),
                 *([exposure(variant, "2024-01-03T10:00:00Z", "posthog-node", None)] if i % 2 else []),
             ]
             for variant in ("control", "test")
-            for i in range(100)
+            for i, page in enumerate(pages)
         }
         server_only = {
             f"server_{variant}_{i}": [exposure(variant, "2024-01-03T10:00:00Z", "posthog-node", None)]
@@ -1646,8 +1677,11 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             {key: value for key, value in finding.evidence.items() if not key.endswith("p_value")}, evidence
         )
 
+    @parameterized.expand([("timeout", ClickHouseQueryTimeOut(), True), ("other_error", RuntimeError("boom"), False)])
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
-    def test_srm_keeps_the_finding_when_the_segment_query_fails(self) -> None:
+    def test_srm_keeps_the_finding_when_the_segment_query_fails(
+        self, _name: str, error: Exception, logged: bool
+    ) -> None:
         ff_property = f"$feature/{self.feature_flag.key}"
         journeys_for(
             {
@@ -1674,18 +1708,22 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         def execute(**kwargs: Any) -> Any:
             query_types.append(kwargs["query_type"])
             if kwargs["query_type"] == "ExperimentExposureSegmentsQuery":
-                raise TimeoutError("Timeout exceeded")
+                raise error
             return execute_hogql_query(**kwargs)
 
+        runner_module = ExperimentExposuresQueryRunner.__module__
         with (
-            patch(f"{ExperimentExposuresQueryRunner.__module__}.execute_hogql_query", side_effect=execute),
-            patch(f"{ExperimentExposuresQueryRunner.__module__}.shows_health_findings", return_value=True),
+            patch(f"{runner_module}.execute_hogql_query", side_effect=execute),
+            patch(f"{runner_module}.shows_health_findings", return_value=True),
+            patch(f"{runner_module}.logger") as logger,
+            patch(f"{runner_module}.capture_exception") as capture_exception,
         ):
             response = ExperimentExposuresQueryRunner(
                 team=self.team, query=self._running_exposure_query(), user=self.user
             ).calculate()
 
         self.assertIn("ExperimentExposureSegmentsQuery", query_types)
+        self.assertEqual((logger.warning.called, capture_exception.called), (logged, not logged))
         self.assertEqual(response.total_exposures, {"control": 90, "test": 10})
         self.assertEqual(
             [(finding.code, finding.detail, set(finding.evidence)) for finding in response.health_findings or []],
