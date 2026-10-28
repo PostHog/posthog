@@ -106,6 +106,46 @@ class TestProviderImportRuns(BaseTest):
         assert run.progress["suppressions"]["processed"] == 4
         assert self._suppressed() == {"a@example.com", "b@example.com", "c@example.com", "d@example.com"}
 
+    def test_an_attempt_stops_without_writing_once_its_run_closes(
+        self, mock_client_class: MagicMock, _start_workflow: MagicMock
+    ) -> None:
+        run = self._start(["suppressions"])
+
+        def get_suppressions(suppression_type: str, limit: int, offset: int) -> list[dict]:
+            if (suppression_type, offset) == ("bounces", 2):
+                runs.finish_run(self.team.id, run.id)
+            return self.pages.get((suppression_type, offset), [])
+
+        mock_client_class.return_value.get_suppressions.side_effect = get_suppressions
+
+        with self.assertRaises(runs.ImportRunClosed):
+            runs.run_step(self.team.id, run.id, "suppressions", attempt=1)
+
+        run.refresh_from_db()
+        assert run.status == "failed"
+        assert run.progress["suppressions"]["checkpoint"] == {"suppression_type": "bounces", "offset": 2}
+        assert self._suppressed() == {"a@example.com", "b@example.com"}
+
+    def test_category_warnings_never_carry_raw_exception_text(
+        self, mock_client_class: MagicMock, _start_workflow: MagicMock
+    ) -> None:
+        mock_client_class.return_value.get_subscription_topics.return_value = [
+            {"id": 1, "identifier": "topic_1", "name": "Newsletter"},
+            {"id": 2, "identifier": "topic_2", "name": "Product updates"},
+        ]
+        run = self._start(["categories"])
+
+        with patch(
+            f"{SERVICE}.MessageCategory.objects.update_or_create",
+            side_effect=IntegrityError("Key (key)=(internal-detail) already exists."),
+        ):
+            runs.run_step(self.team.id, run.id, "categories", attempt=1)
+
+        run.refresh_from_db()
+        assert run.progress["categories"]["warnings"] == [
+            "2 subscription topics couldn't be imported. Run the import again to retry them."
+        ]
+
     @parameterized.expand(
         [
             ("provider_error", "get_suppressions", CustomerIOAPIError("error for a@example.com", status_code=503)),

@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Iterator
 from functools import partial
 
@@ -25,6 +26,8 @@ from products.messaging.backend.services.customerio_import_service import (
     GlobalUnsubscribePage,
     SuppressionPage,
 )
+
+logger = logging.getLogger(__name__)
 
 SUPPRESSION_TYPE_ORDER = tuple(CUSTOMERIO_SUPPRESSION_TYPES)
 # The key check runs on the request path and tries both regions, so it gets a shorter timeout than the import steps.
@@ -147,7 +150,15 @@ class CustomerIOImportProvider(ImportProvider):
 
 def _save_categories(service: CustomerIOImportService, topics: list[dict]) -> SavedPage:
     service.import_categories(topics)
-    return SavedPage(imported=service.progress["categories_created"], warnings=tuple(service.progress["errors"]))
+    errors = service.progress["errors"]
+    if not errors:
+        return SavedPage(imported=service.progress["categories_created"])
+    # The service's errors hold raw exception text, which stays in the server log.
+    logger.warning("Customer.io topics failed to import", extra={"team_id": service.team_id, "errors": errors})
+    return SavedPage(
+        imported=service.progress["categories_created"],
+        warnings=(f"{len(errors)} subscription topics couldn't be imported. Run the import again to retry them.",),
+    )
 
 
 def _save_suppressions(service: CustomerIOImportService, page: SuppressionPage) -> SavedPage:

@@ -121,7 +121,7 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
             if page.checkpoint is None:
                 return
         _update_owned_step(team_id, run_id, step, attempt, _mark_completed)
-    except StaleImportAttempt:
+    except (StaleImportAttempt, ImportRunClosed):
         raise
     except Exception as e:
         if not isinstance(e, ImportStepError):
@@ -129,7 +129,7 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
         last_error = str(e)[:500] if isinstance(e, ImportStepError) else UNEXPECTED_ERROR_MESSAGE
         try:
             _update_owned_step(team_id, run_id, step, attempt, lambda progress: progress.update(last_error=last_error))
-        except StaleImportAttempt:
+        except (StaleImportAttempt, ImportRunClosed):
             pass
         raise
 
@@ -232,6 +232,8 @@ def _update_owned_step(
 
 def _lock_owned_step(team_id: int, run_id: UUID, step: str, attempt: int) -> tuple[ProviderImportRun, dict[str, Any]]:
     run = _runs(team_id).select_for_update().get(id=run_id)
+    if run.status not in ACTIVE_IMPORT_STATUSES:
+        raise ImportRunClosed(f"Import run {run_id} ended while step {step} was running.")
     progress = run.progress.setdefault(step, _new_step_progress())
     if progress.get("attempt") != attempt:
         raise StaleImportAttempt(f"Attempt {attempt} of step {step} no longer owns import run {run_id}.")
