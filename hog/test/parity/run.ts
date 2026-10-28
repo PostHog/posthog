@@ -140,7 +140,7 @@ export async function runScenario(scenario: ParityScenario, cli: { rust: string 
     const server = startFakeServer(scenario.server)
     server.store(scenario.objects?.() ?? [])
     try {
-        const env = environment(server.url, home)
+        const env = { ...environment(server.url, home), ...scenario.env }
         for (const step of scenario.before ?? []) {
             await invoke(cli === 'hog' ? step.hog : step.rust, cli, folder, env)
         }

@@ -1,0 +1,24 @@
+{
+  "exitCode": 0,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/projects/1/error_tracking/releases/hash/80d00782640ffdd7dca2827c1dee25c5ae052ad20084b0decfc286a31f97642c5defec75f4d53a4ac3d87fc447b4a1d751e52490ac024eaeb839c2bc0b246ba3",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "status": 404
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/releases",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"hash_id\":\"80d00782640ffdd7dca2827c1dee25c5ae052ad20084b0decfc286a31f97642c5defec75f4d53a4ac3d87fc447b4a1d751e52490ac024eaeb839c2bc0b246ba3\",\"version\":\"5.0.1+88\",\"project\":\"com.example.settings\"}",
+      "status": 201
+    }
+  ]
+}
