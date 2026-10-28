@@ -137,13 +137,14 @@ class TrunkIoSource(ResumableSource[TrunkIoSourceConfig, TrunkIoResumeConfig]):
         if endpoint not in endpoints_for_version(api_version):
             raise ValueError(f"Unknown Trunk.io endpoint: {endpoint}")
         on_v2 = api_version == TRUNK_IO_API_VERSION_V2
+        repository_id = (config.trunk_repository_id or "").strip() or None
 
         if endpoint == "UnhealthyTests" and on_v2:
-            items = list_unhealthy_tests(config.api_token, resumable_source_manager)
+            items = list_unhealthy_tests(config.api_token, resumable_source_manager, repository_id)
         elif endpoint == "QuarantinedTests" and on_v2:
-            items = list_quarantined_tests(config.api_token, resumable_source_manager)
+            items = list_quarantined_tests(config.api_token, resumable_source_manager, repository_id)
         elif endpoint == "FailingTests" and on_v2:
-            items = list_failing_tests(config.api_token, resumable_source_manager)
+            items = list_failing_tests(config.api_token, resumable_source_manager, repository_id)
         elif endpoint == "UnhealthyTests":
             items = unhealthy_tests(config.api_token, repo, config.org_url_slug, resumable_source_manager)
         elif endpoint == "QuarantinedTests":
@@ -261,6 +262,16 @@ Create an API key in the Trunk app under Settings > Developer > API Keys.
                         placeholder="main",
                         secret=False,
                         caption="Only needed for the `MergeQueuePullRequests` table. A Trunk merge queue covers one target branch, so this is the branch your queue merges into.",
+                    ),
+                    SourceFieldInputConfig(
+                        name="trunk_repository_id",
+                        sync_setting=True,
+                        label="Trunk repository ID",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="7a2b3c4d-5e6f-4a1b-8c9d-0e1f2a3b4c5d",
+                        secret=False,
+                        caption="Optional, API version v2 only. Limits `UnhealthyTests`, `QuarantinedTests` and `FailingTests` to tests from this repository. Copy the `repositoryId` of any of its tests from the Trunk API. Tests uploaded without a repository are left out. Leave this empty to sync tests from every repository in your Trunk organization.",
                     ),
                 ],
             ),

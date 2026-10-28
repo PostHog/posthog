@@ -54,6 +54,7 @@ def _run(
     script: Script,
     resume_state: TrunkIoResumeConfig | None = None,
     api_version: str = "v1",
+    trunk_repository_id: str | None = None,
     **kwargs: Any,
 ) -> DriveResult:
     config = TrunkIoSourceConfig(
@@ -63,6 +64,7 @@ def _run(
         repo_owner=REPO.owner,
         repo_name=REPO.name,
         merge_queue_target_branch="main",
+        trunk_repository_id=trunk_repository_id,
     )
     return SourceDriver(TrunkIoSource(), config).run(
         endpoint, script, resume_state=resume_state, api_version=api_version, **kwargs
@@ -337,6 +339,20 @@ class TestV2Lists:
         )
 
         assert result.requests[0].param("cursor") == "cursor-resumed"
+
+    def test_repository_id_keeps_only_that_repositorys_tests_across_pages(self) -> None:
+        result = _run(
+            "QuarantinedTests",
+            [
+                _ok({"data": [{"id": "other", "repositoryId": "repo-b"}], "nextCursor": "cursor-1", "hasMore": True}),
+                _ok({"data": [{"id": "ours", "repositoryId": "repo-a"}], "nextCursor": None, "hasMore": False}),
+            ],
+            api_version="v2",
+            trunk_repository_id=" repo-a ",
+        )
+
+        assert [row["id"] for row in result.rows] == ["ours"]
+        assert len(result.requests) == 2
 
 
 class TestClientRedirectHandling:

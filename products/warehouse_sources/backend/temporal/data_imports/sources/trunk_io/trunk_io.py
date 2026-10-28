@@ -372,6 +372,7 @@ def _v2_list(
     resumable_source_manager: ResumableSourceManager[TrunkIoResumeConfig],
     params: Optional[dict[str, Any]] = None,
     synced_through: Optional[str] = None,
+    repository_id: Optional[str] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     client = _v2_client(api_token)
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -391,6 +392,9 @@ def _v2_list(
         resume_hook=checkpoint,
         initial_paginator_state={"cursor": resume.cursor} if resume and resume.cursor else None,
     ):
+        # `GET /v2/tests` has no repository filter, so rows from the org's other repositories drop here.
+        if repository_id:
+            page = [row for row in page if row.get("repositoryId") == repository_id]
         if page:
             if synced_through:
                 for row in page:
@@ -418,30 +422,35 @@ def list_tests(
 def list_unhealthy_tests(
     api_token: str,
     resumable_source_manager: ResumableSourceManager[TrunkIoResumeConfig],
+    repository_id: Optional[str] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     return _v2_list(
         api_token,
         "/v2/tests",
         resumable_source_manager,
         params={"status": "flaky,broken", **TEST_METRICS_PARAMS},
+        repository_id=repository_id,
     )
 
 
 def list_quarantined_tests(
     api_token: str,
     resumable_source_manager: ResumableSourceManager[TrunkIoResumeConfig],
+    repository_id: Optional[str] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     return _v2_list(
         api_token,
         "/v2/tests",
         resumable_source_manager,
         params={"quarantineState": "quarantined", **TEST_METRICS_PARAMS},
+        repository_id=repository_id,
     )
 
 
 def list_failing_tests(
     api_token: str,
     resumable_source_manager: ResumableSourceManager[TrunkIoResumeConfig],
+    repository_id: Optional[str] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     synced_through = (resume.synced_through if resume else None) or _format_rfc3339(datetime.now(UTC))
@@ -453,6 +462,7 @@ def list_failing_tests(
         resumable_source_manager,
         params={"sort": "lastFailureAt", **TEST_METRICS_PARAMS},
         synced_through=synced_through,
+        repository_id=repository_id,
     )
 
 
