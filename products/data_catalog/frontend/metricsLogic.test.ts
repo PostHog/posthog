@@ -315,6 +315,16 @@ describe('metricsLogic', () => {
             'their_proposal',
         ])
         expect(logic.values.approvedMetrics.map((m) => m.name)).toEqual(['approved_clean'])
+
+        logic.actions.toggleStage('approved')
+        expect(logic.values.reviewQueue.map((m) => m.name)).toEqual(['their_drifted_approved'])
+        expect(logic.values).toMatchObject({ showReviewQueue: true, showApproved: true })
+
+        logic.actions.loadMetricsSuccess([metric('approved_clean', { status: 'approved' })])
+        expect(logic.values).toMatchObject({ showReviewQueue: false, showApproved: true })
+
+        logic.actions.toggleStage('proposed')
+        expect(logic.values).toMatchObject({ showReviewQueue: true, showApproved: false })
     })
 
     it('patches approved rows and reloads to reconcile skipped ones', async () => {
