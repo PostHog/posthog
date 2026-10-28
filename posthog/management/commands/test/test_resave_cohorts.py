@@ -13,7 +13,6 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase, override_settings
 
-from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from parameterized import parameterized
 
 from posthog.management.commands.resave_cohorts import UNWIND_SIGNALS, StaleFlagsCacheError, termination_unwinds
@@ -21,6 +20,8 @@ from posthog.models.team.team import Team
 from posthog.test.db_context_capturing import capture_db_queries
 
 from products.cohorts.backend.models.cohort import Cohort
+
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
 
 def _default_unwind_signals(test: SimpleTestCase) -> None:

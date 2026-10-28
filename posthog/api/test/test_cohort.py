@@ -599,10 +599,14 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             (leaf["key"], leaf["type"], leaf["operator"], leaf["value"]), ("name", "person", "exact", "Alice")
         )
 
-    def test_create_cohort_with_invalid_legacy_groups_returns_400(self):
+    @patch("posthog.api.cohort.legacy_groups_to_filters", return_value=None)
+    def test_create_cohort_with_invalid_legacy_groups_returns_400(self, mock_legacy_groups_to_filters):
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
-            data={"name": "Malformed legacy group cohort", "groups": [{"properties": []}]},
+            data={
+                "name": "Malformed legacy group cohort",
+                "groups": [{"properties": [{"key": "email", "value": "test@example.com"}]}],
+            },
         )
         self.assertEqual(response.status_code, 400, response.content)
         self.assertEqual(response.json()["attr"], "groups")
