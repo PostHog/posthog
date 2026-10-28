@@ -391,6 +391,83 @@ PARDOT_ENDPOINTS: dict[str, PardotEndpointConfig] = {
             *_TIMESTAMPS,
         ),
     ),
+    "emails": PardotEndpointConfig(
+        name="emails",
+        path="emails",
+        # Emails have no createdAt/updatedAt; sentAt is the only datetime they filter and
+        # sort on. Unsent scheduled emails carry a null sentAt, so it can't partition.
+        order_by="id",
+        incremental_fields=[incremental_field("sentAt")],
+        # textMessage/htmlMessage aren't queryable and scheduledTime is write-only on
+        # create — v5 400s if any of them is in a query's `fields` list.
+        fields=(
+            "id",
+            "name",
+            "subject",
+            "campaignId",
+            "prospectId",
+            "listEmailId",
+            "emailTemplateId",
+            "trackerDomainId",
+            "folderId",
+            "clientType",
+            "type",
+            "isOperational",
+            "salesforceCmsId",
+            "sentAt",
+            "createdById",
+        ),
+    ),
+    "lifecycle_stages": PardotEndpointConfig(
+        name="lifecycle_stages",
+        path="lifecycle-stages",
+        order_by="id",
+        incremental_fields=_CREATED_AND_UPDATED,
+        fields=(
+            "id",
+            "name",
+            "position",
+            "matchType",
+            "isLocked",
+            "isDeleted",
+            "createdAt",
+            "updatedAt",
+        ),
+    ),
+    "lifecycle_histories": PardotEndpointConfig(
+        name="lifecycle_histories",
+        path="lifecycle-histories",
+        # Lifecycle histories are append-only and only filter/sort on createdAt.
+        order_by="id",
+        incremental_fields=[incremental_field("createdAt")],
+        partition_key="createdAt",
+        fields=(
+            "id",
+            "prospectId",
+            "previousStageId",
+            "nextStageId",
+            "secondsElapsed",
+            "createdAt",
+        ),
+    ),
+    "visitor_page_views": PardotEndpointConfig(
+        name="visitor_page_views",
+        path="visitor-page-views",
+        order_by="id",
+        incremental_fields=[incremental_field("createdAt")],
+        partition_key="createdAt",
+        fields=(
+            "id",
+            "url",
+            "title",
+            "visitorId",
+            "visitId",
+            "campaignId",
+            "durationInSeconds",
+            "salesforceId",
+            "createdAt",
+        ),
+    ),
 }
 
 ENDPOINTS = tuple(PARDOT_ENDPOINTS.keys())

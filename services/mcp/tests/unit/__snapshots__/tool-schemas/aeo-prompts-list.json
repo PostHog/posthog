@@ -12,6 +12,11 @@
             ],
             "description": "Only list prompts that are on (true) or off (false). Omit to list both."
         },
+        "include_archived": {
+            "default": false,
+            "description": "Also list archived prompts. Archived prompts are left out by default.",
+            "type": "boolean"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"

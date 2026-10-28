@@ -46,6 +46,7 @@ import type {
     OrganizationNotificationLockApi,
     ProjectApi,
     SharingConfigurationApi,
+    TeamFeatureFlagPolicyConfigApi,
 } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
@@ -926,7 +927,7 @@ export interface TeamType extends TeamBasicType {
     customer_analytics_config: CustomerAnalyticsConfig
     workflows_config: WorkflowsConfig
     // Optional so cached team objects from before this field shipped still typecheck.
-    feature_flag_policy_config?: FeatureFlagPolicyConfig
+    feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     business_model?: 'b2b' | 'b2c' | 'other' | null
 }
 
@@ -946,10 +947,6 @@ export interface WorkflowsConfig {
     // Null on either disables the marketing frequency cap.
     marketing_frequency_cap_max_messages?: number | null
     marketing_frequency_cap_window_days?: number | null
-}
-
-export interface FeatureFlagPolicyConfig {
-    require_tags: boolean
 }
 
 export interface ProductIntentType {
@@ -1042,7 +1039,7 @@ export const TOOLBAR_USER_INTENTS = [
     'edit-product-tour',
     'preview-product-tour',
 ] as const satisfies readonly ToolbarUserIntent[]
-export type ToolbarSource = 'url' | 'localstorage'
+export type ToolbarSource = 'url' | 'localstorage' | 'extension'
 export type ToolbarVersion = 'toolbar'
 
 export type ExperimentIdType = number | 'new' | 'web'
@@ -2512,6 +2509,8 @@ export interface BillingType {
     billing_plan: BillingPlan | null
     startup_program_label?: StartupProgramLabel | null
     startup_program_label_previous?: StartupProgramLabel | null
+    /** False when the YC credits do not renew, for example after a YC program block */
+    startup_program_credits_renew?: boolean
     is_annual_plan_customer?: boolean | null
     account_owner?: {
         email?: string
@@ -2824,11 +2823,14 @@ export interface DashboardType extends DashboardBasicType {
     customization?: {
         tile_spacing?: DashboardTileSpacing
         layout_compaction?: 'vertical' | 'horizontal' | 'stable'
+        group_display?: TileGroupDisplay
         groups?: Record<string, DashboardTileGroupApi>
     }
 }
 
 export type DashboardTileSpacing = 'tight' | 'condensed' | 'standard' | 'relaxed' | 'wide'
+
+export type TileGroupDisplay = 'sections' | 'tabs'
 
 export enum TemplateAvailabilityContext {
     GENERAL = 'general',
@@ -2848,6 +2850,7 @@ export type DashboardTemplateStoredInsightTile = {
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
     transparent_background?: boolean | null
+    group_key?: string | null
     filters?: Record<string, unknown>
 }
 
@@ -2858,6 +2861,7 @@ export type DashboardTemplateStoredTextTile = {
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
     transparent_background?: boolean | null
+    group_key?: string | null
 }
 
 export type DashboardTemplateStoredButtonTile = {
@@ -2871,6 +2875,7 @@ export type DashboardTemplateStoredButtonTile = {
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
     transparent_background?: boolean | null
+    group_key?: string | null
 }
 
 export type DashboardTemplateStoredWidgetTile = {
@@ -2880,6 +2885,7 @@ export type DashboardTemplateStoredWidgetTile = {
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
     transparent_background?: boolean | null
+    group_key?: string | null
 }
 
 export type DashboardTemplateStoredTile =
@@ -2905,6 +2911,7 @@ export interface DashboardTemplateType {
     dashboard_filters?: DashboardFilter
     tiles: DashboardTemplateStoredTile[]
     variables?: DashboardTemplateVariableType[]
+    customization?: DashboardType['customization'] | null
     tags?: string[]
     image_url?: string
     scope?: DashboardTemplateScope
@@ -4506,7 +4513,6 @@ interface FeatureFlagRulesV2RuleBase {
     targeting: { properties: AnyPropertyFilter[] }
     description?: string
     metadata?: Record<string, unknown>
-    value: JsonType
 }
 
 interface FeatureFlagRulesV2RolloutFields {
@@ -4519,18 +4525,34 @@ interface FeatureFlagRulesV2RolloutFields {
 
 export interface FeatureFlagRulesV2TargetedReleaseRule extends FeatureFlagRulesV2RuleBase {
     rule_type: 'targeted_release'
+    value: JsonType
 }
 
 export interface FeatureFlagRulesV2PercentageRolloutRule
     extends FeatureFlagRulesV2RuleBase, FeatureFlagRulesV2RolloutFields {
     rule_type: 'percentage_rollout'
+    value: JsonType
 }
 
+export interface FeatureFlagRulesV2Variant {
+    key: string
+    /** Percentage of the subjects the rule enrolls; the weights of a rule total 100. */
+    weight: number
+    value: JsonType
+}
+
+/** Belongs to its rule. The seed is server-owned. */
+export interface FeatureFlagRulesV2Holdout {
+    seed: string
+    exclusion_percentage: number
+}
+
+/** Serves the values of its variants. An experiment links to its rule, so the rule never names an experiment. */
 export interface FeatureFlagRulesV2ExperimentRule extends FeatureFlagRulesV2RuleBase, FeatureFlagRulesV2RolloutFields {
     rule_type: 'experiment'
     paused: boolean
-    variants: { key: string; weight: number; value: JsonType }[]
-    holdout?: { seed: string; exclusion_percentage: number }
+    variants: FeatureFlagRulesV2Variant[]
+    holdout?: FeatureFlagRulesV2Holdout
 }
 
 export type FeatureFlagRulesV2Rule =
@@ -4552,10 +4574,22 @@ export interface FeatureFlagUnsupportedConfig extends WithoutFeatureFlagFiltersK
     aggregation_group_type_index?: never
 }
 
-/** A rule while the editor drafts it: a new rule has no `id` until the server assigns one, and no draft holds a `seed`. */
+/**
+ * A rule while the editor drafts it. A new rule has no `id`, and a new rollout or holdout no `seed`, until the server
+ * assigns them. A stored rule keeps both, and every field the editor does not render, as it was loaded.
+ */
 export type FeatureFlagRulesV2DraftRule =
     | (Omit<FeatureFlagRulesV2TargetedReleaseRule, 'id'> & { id?: string })
-    | (Omit<FeatureFlagRulesV2PercentageRolloutRule, 'id' | 'seed'> & { id?: string })
+    | (Omit<FeatureFlagRulesV2PercentageRolloutRule, 'id' | 'seed'> & { id?: string; seed?: string })
+    | (Omit<FeatureFlagRulesV2ExperimentRule, 'id' | 'seed' | 'holdout'> & {
+          id?: string
+          seed?: string
+          holdout?: FeatureFlagRulesV2DraftHoldout
+      })
+
+export type FeatureFlagRulesV2DraftExperimentRule = Extract<FeatureFlagRulesV2DraftRule, { rule_type: 'experiment' }>
+
+export type FeatureFlagRulesV2DraftHoldout = Omit<FeatureFlagRulesV2Holdout, 'seed'> & { seed?: string }
 
 export interface FeatureFlagRulesV2DraftConfig extends Omit<FeatureFlagRulesV2Config, 'rules'> {
     rules: FeatureFlagRulesV2DraftRule[]
@@ -4855,6 +4889,7 @@ export interface PreflightStatus {
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
+    cohort_csv_upload_max_bytes?: number
     /** Whether the instance has an MCP server that the WebMCP proxy can reach. */
     webmcp_available?: boolean
     object_storage: boolean
@@ -5304,6 +5339,10 @@ export interface TiledIconModuleProps {
 export type EventOrPropType = EventDefinition & PropertyDefinition
 
 export interface AppContext {
+    /** The page left out the user's data, and the app fetches it at boot. See lib/utils/deferredAppContext. */
+    deferred?: boolean
+    /** The user's variant in the deferred app context experiment. Absent outside the experiment. */
+    deferred_app_context_variant?: string
     run_mode?: 'US' | 'EU' | 'DEV' | 'E2E' | 'LOCAL' | 'HOBBY'
     current_user: UserType | null
     current_project: ProjectType | null
@@ -6159,6 +6198,7 @@ export enum ActivityScope {
     CROSS_PROJECT_DASHBOARD = 'CrossProjectDashboard',
     REPLAY = 'Replay',
     REPLAY_SCANNER = 'ReplayScanner',
+    REPLAY_OBSERVATION = 'ReplayObservation',
     VISION_ALERT_CONFIGURATION = 'VisionAlertConfiguration',
     // TODO: doh! we don't need replay and recording
     RECORDING = 'recording',
@@ -6304,9 +6344,6 @@ export interface DataModelingEdge {
     id: string
     source_id: string
     target_id: string
-    properties: Record<string, unknown>
-    created_at: string
-    updated_at: string
 }
 
 export type DataModelingSyncInterval = '15min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'

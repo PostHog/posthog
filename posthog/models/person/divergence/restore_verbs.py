@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import time
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
 from functools import partial
 from typing import TYPE_CHECKING, Any
@@ -47,6 +47,8 @@ if TYPE_CHECKING:
     from .verbs import VerbContext
 
 _LIVE = "is_deleted = 0 AND _row_exists"
+# The replica rejects a RestorePersons request that carries more distinct ids than this, across all its persons.
+RESTORE_MAX_DISTINCT_IDS = 1_000
 _PAYLOAD_SQL = f"""
 SELECT
     toString(id),
@@ -153,12 +155,17 @@ def _write_mappings(context: VerbContext, rows: list[dict[str, Any]], targets: d
                 )
             continue
         context.pacer.before_write()
-        response = personhog_call(
-            "person_consistency_write_distinct_ids",
+        response = repairs._retry_transient(
             partial(
-                require_personhog_client().write_distinct_ids,
-                WriteDistinctIdsRequest(team_id=context.team_id, writes=writes),
+                personhog_call,
+                "person_consistency_write_distinct_ids",
+                partial(
+                    require_personhog_client().write_distinct_ids,
+                    WriteDistinctIdsRequest(team_id=context.team_id, writes=writes),
+                ),
             ),
+            what="write distinct ids",
+            log=context.log,
         )
         wanted = {w.distinct_id: w for w in writes}
         for result in response.results:
@@ -201,6 +208,23 @@ def restore(rows: list[dict[str, Any]], context: VerbContext) -> None:
     _write_mappings(context, rest, {r["key"]: r["evidence"]["ch"]["winner_person_uuid"] for r in rest}, "restored")
 
 
+def _batches_by_distinct_id_count(
+    person_uuids: list[str], id_rows: dict[str, list[dict[str, Any]]]
+) -> Iterator[list[str]]:
+    """Group persons so one RestorePersons request carries at most RESTORE_MAX_DISTINCT_IDS distinct ids."""
+    batch: list[str] = []
+    count = 0
+    for person_uuid in person_uuids:
+        width = len(id_rows[person_uuid])
+        if batch and count + width > RESTORE_MAX_DISTINCT_IDS:
+            yield batch
+            batch, count = [], 0
+        batch.append(person_uuid)
+        count += width
+    if batch:
+        yield batch
+
+
 @frozen
 class _RestoreOutcome:
     restored: dict[str, list[str]]
@@ -234,6 +258,8 @@ def _restore_persons(
             elif not ids_by_owner.get(person_uuid):
                 # Restored alone, the person would have no distinct id, so nothing could reach it.
                 context.action(row, "skipped_no_distinct_id")
+            elif len(ids_by_owner[person_uuid]) > RESTORE_MAX_DISTINCT_IDS:
+                context.action(row, "skipped_too_many_distinct_ids")
             else:
                 candidates.append(person_uuid)
         if not candidates:
@@ -247,60 +273,70 @@ def _restore_persons(
             continue
         ch = observe.ch_mapping_states(context.team_id, [r["key"] for u in candidates for r in id_rows[u]])
         versions = {key: (state.max_version + 1) for key, state in ch.items()}
-        context.pacer.before_write()
-        request = RestorePersonsRequest(
-            team_id=context.team_id,
-            persons=[
-                RestoredPerson(
-                    person_uuid=u,
-                    properties=json.dumps(payloads[u].properties).encode(),
-                    created_at_ms=int(payloads[u].created_at.timestamp() * 1000),
-                    is_identified=payloads[u].is_identified,
-                    version=payloads[u].max_version + 1,
-                    distinct_ids=[
-                        RestoredDistinctId(distinct_id=r["key"], version=versions.get(r["key"], 0)) for r in id_rows[u]
-                    ],
-                )
-                for u in candidates
-            ],
-        )
-        response = personhog_call(
-            "person_consistency_restore_persons", partial(require_personhog_client().restore_persons, request)
-        )
-        for result in response.results:
-            row = by_uuid[result.person_uuid]
-            ids = list(result.restored_distinct_ids)
-            if result.outcome == RESTORE_OUTCOME_INSERTED:
-                # A person whose publish does not land is recorded undelivered; it then exists in Postgres, so the
-                # next scan reports it as behind ClickHouse, and republish publishes it.
-                context.deliveries.track(
-                    _publish_person(
-                        context.team_id, result.person_uuid, payloads[result.person_uuid], int(result.version)
-                    ),
-                    repairs.PublishedKey(kind="person", key=result.person_uuid),
-                )
-                for distinct_id in ids:
+        for request_uuids in _batches_by_distinct_id_count(candidates, id_rows):
+            context.pacer.before_write()
+            request = RestorePersonsRequest(
+                team_id=context.team_id,
+                persons=[
+                    RestoredPerson(
+                        person_uuid=u,
+                        properties=json.dumps(payloads[u].properties).encode(),
+                        created_at_ms=int(payloads[u].created_at.timestamp() * 1000),
+                        is_identified=payloads[u].is_identified,
+                        version=payloads[u].max_version + 1,
+                        distinct_ids=[
+                            RestoredDistinctId(distinct_id=r["key"], version=versions.get(r["key"], 0))
+                            for r in id_rows[u]
+                        ],
+                    )
+                    for u in request_uuids
+                ],
+            )
+            # A retry after a lost response finds these persons live and reports them skipped, not restored.
+            # They then sit one version above ClickHouse, so the next scan sends them to republish.
+            response = repairs._retry_transient(
+                partial(
+                    personhog_call,
+                    "person_consistency_restore_persons",
+                    partial(require_personhog_client().restore_persons, request),
+                ),
+                what="restore persons",
+                log=context.log,
+            )
+            for result in response.results:
+                row = by_uuid[result.person_uuid]
+                ids = list(result.restored_distinct_ids)
+                if result.outcome == RESTORE_OUTCOME_INSERTED:
+                    # A person whose publish does not land is recorded undelivered; it then exists in Postgres, so the
+                    # next scan reports it as behind ClickHouse, and republish publishes it.
                     context.deliveries.track(
-                        create_person_distinct_id(
-                            context.team_id, distinct_id, result.person_uuid, version=versions.get(distinct_id, 0)
+                        _publish_person(
+                            context.team_id, result.person_uuid, payloads[result.person_uuid], int(result.version)
                         ),
-                        repairs.PublishedKey(kind="mapping", key=distinct_id),
+                        repairs.PublishedKey(kind="person", key=result.person_uuid),
                     )
-                restored[result.person_uuid] = ids
-                context.action(row, "restored", version=int(result.version))
-            elif result.outcome == RESTORE_OUTCOME_NO_DISTINCT_ID:
-                context.action(row, "skipped_no_distinct_id")
-            else:
-                live = result.outcome == RESTORE_OUTCOME_EXISTS_LIVE
-                context.action(row, "skipped_exists_live" if live else "skipped_exists_tombstoned")
-            for id_row in id_rows[result.person_uuid]:
-                if id_row["key"] in ids:
-                    context.action(
-                        id_row, "restored", target_person=result.person_uuid, version=versions.get(id_row["key"], 0)
-                    )
+                    for distinct_id in ids:
+                        context.deliveries.track(
+                            create_person_distinct_id(
+                                context.team_id, distinct_id, result.person_uuid, version=versions.get(distinct_id, 0)
+                            ),
+                            repairs.PublishedKey(kind="mapping", key=distinct_id),
+                        )
+                    restored[result.person_uuid] = ids
+                    context.action(row, "restored", version=int(result.version))
+                elif result.outcome == RESTORE_OUTCOME_NO_DISTINCT_ID:
+                    context.action(row, "skipped_no_distinct_id")
                 else:
-                    # Claimed since the scan, or its person was not inserted: the next scan names its new state.
-                    context.action(id_row, "skipped_changed", target_person=result.person_uuid)
+                    live = result.outcome == RESTORE_OUTCOME_EXISTS_LIVE
+                    context.action(row, "skipped_exists_live" if live else "skipped_exists_tombstoned")
+                for id_row in id_rows[result.person_uuid]:
+                    if id_row["key"] in ids:
+                        context.action(
+                            id_row, "restored", target_person=result.person_uuid, version=versions.get(id_row["key"], 0)
+                        )
+                    else:
+                        # Claimed since the scan, or its person was not inserted: the next scan names its new state.
+                        context.action(id_row, "skipped_changed", target_person=result.person_uuid)
     return _RestoreOutcome(restored=restored, handled_ids=frozenset(handled))
 
 

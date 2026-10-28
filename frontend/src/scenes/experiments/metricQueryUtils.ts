@@ -25,6 +25,7 @@ import type {
     ExperimentMetric,
     ExperimentMetricSource,
     ExperimentMetricTypeProps,
+    ExperimentWarehouseNativeNode,
     FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
@@ -33,7 +34,7 @@ import type {
     TrendsFilter,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentMetricType, ExperimentWarehouseNativeMathType, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import type { IntervalType } from '~/types'
 import { ChartDisplayType, ExperimentMetricMathType } from '~/types'
@@ -97,6 +98,9 @@ const convertSourceToQueryNode = (source: ExperimentMetricSource): EventsNode | 
                 id_field: dataWarehouse.data_warehouse_join_key,
             })
         )
+        .with({ kind: NodeKind.ExperimentWarehouseNativeNode }, () => {
+            throw new Error('Warehouse-native sources cannot be shown as an insight yet')
+        })
         .exhaustive()
 }
 
@@ -121,6 +125,11 @@ const getDefaultDateRange = (): DateRange => ({
  * returns the math properties for the source
  */
 export const getMathProperties = (source: ExperimentMetricSource): MathProperties => {
+    if (source.kind === NodeKind.ExperimentWarehouseNativeNode) {
+        return source.math === ExperimentWarehouseNativeMathType.Sum
+            ? { math: ExperimentMetricMathType.Sum, math_property: source.math_property }
+            : { math: ExperimentMetricMathType.TotalCount, math_property: undefined }
+    }
     if (!source.math || source.math === ExperimentMetricMathType.TotalCount) {
         return { math: ExperimentMetricMathType.TotalCount, math_property: undefined }
     }
@@ -253,16 +262,32 @@ const getFunnelSeries = (
     )
 
 /**
+ * The series editor has rows for events, actions and synced warehouse tables only. A
+ * warehouse-native source has no row yet, so the form refuses it like the insight converters do.
+ */
+export function metricSourcesToSeries(sources: ExperimentMetricSource[]): SeriesNode[] {
+    return sources.map((source) => {
+        if (source.kind === NodeKind.ExperimentWarehouseNativeNode) {
+            throw new Error('Warehouse-native sources cannot be edited in the metric form yet')
+        }
+        return source
+    })
+}
+
+/**
  * The picker mirrors a warehouse table's name onto `id`, which `ExperimentDataWarehouseNode` does
  * not accept, so a table keeps only `table_name`. A group has no experiment equivalent and gives null.
  */
-const toExperimentSourceNode = (node: SeriesNode): ExperimentMetricSource | null => {
+/** The sources the series picker can produce. A warehouse-native source has no picker row. */
+type PickedMetricSource = Exclude<ExperimentMetricSource, ExperimentWarehouseNativeNode>
+
+const toExperimentSourceNode = (node: SeriesNode): PickedMetricSource | null => {
     if (isEventsSeriesNode(node) || isActionsSeriesNode(node)) {
         return node
     }
     if (isWarehouseSeriesNode(node)) {
         const { id: _id, ...warehouseNode } = node as SeriesNode & { id?: string }
-        return { ...warehouseNode, kind: NodeKind.ExperimentDataWarehouseNode } as ExperimentMetricSource
+        return { ...warehouseNode, kind: NodeKind.ExperimentDataWarehouseNode } as PickedMetricSource
     }
     return null
 }
@@ -271,7 +296,7 @@ const toExperimentSourceNode = (node: SeriesNode): ExperimentMetricSource | null
  * Turns the series a single-source picker emits into a metric source, with total count as the
  * default math. Returns null when the picker holds no event, action or table.
  */
-export function seriesToMetricSource(series: SeriesNode[]): ExperimentMetricSource | null {
+export function seriesToMetricSource(series: SeriesNode[]): PickedMetricSource | null {
     const [node] = cleanSeriesNodes(series.slice(0, 1), MathAvailability.All)
     const source = node ? toExperimentSourceNode(node) : null
     if (source?.kind === NodeKind.EventsNode) {

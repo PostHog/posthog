@@ -790,6 +790,14 @@ def _start_billing_active_sync_workflow(organization_id: str) -> None:
         logger.warning("billing_active_state_sync_dispatch_failed", organization_id=organization_id, exc_info=True)
 
 
+class OrganizationAITerms(Organization):
+    # Gives staff one admin page for the AI terms an organization accepts, across products.
+    class Meta:
+        proxy = True
+        verbose_name = "AI terms and conditions"
+        verbose_name_plural = "AI terms and conditions"
+
+
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     class Level(models.IntegerChoices):
         """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""

@@ -111,7 +111,7 @@ pub struct FeatureFlagMatch {
     pub reason: FeatureFlagMatchReason,
     pub condition_index: Option<usize>,
     pub payload: Option<Value>,
-    /// Set only by `get_match_v2`; the v3 record is built from it.
+    /// Set only by `get_match_v2`; the v4 record is built from it.
     pub evaluation_v2: Option<EvaluationDetail>,
 }
 
@@ -2103,7 +2103,7 @@ impl FeatureFlagMatcher {
             use_explicit_exact_matching: self.use_explicit_exact_matching,
             now: self.now,
         })?;
-        // `/flags?v=2` reports these v1 reasons; `/flags?v=3` reports the evaluator's own code.
+        // `/flags?v=2` reports these v1 reasons; `/flags?v=4` reports the evaluator's own code.
         let reason = match evaluation {
             Evaluation::TargetingMatch { .. } | Evaluation::ExperimentSplit { .. } => {
                 FeatureFlagMatchReason::ConditionMatch

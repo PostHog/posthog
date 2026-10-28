@@ -1,19 +1,40 @@
 """Tests for experiments facade layer."""
 
-from datetime import UTC, datetime
+import uuid
+from datetime import UTC, datetime, timedelta
 
+import pytest
 import time_machine
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_flag_evaluations,
+    flush_persons_and_events,
+)
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.test.persons import create_person
 
-from products.experiments.backend.facade import count_running_experiments_on_feature_flag_called, create_experiment
-from products.experiments.backend.facade.contracts import CreateExperimentInput
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade import api, count_running_experiments_on_feature_flag_called, create_experiment
+from products.experiments.backend.facade.contracts import (
+    CreateExperimentInput,
+    EndedExperiment,
+    ExperimentValidationError,
+    StoredPrimaryResult,
+)
+from products.experiments.backend.metric_calculation.config import build_primary_calculation_configs
+from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricResult
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 PAGEVIEW_EXPOSURE = {
     "exposure_config": {"kind": "ExperimentEventExposureConfig", "event": "$pageview", "properties": []}
@@ -140,6 +161,18 @@ class TestCreateExperiment(APIBaseTest):
         assert result.name == "Comprehensive Test"
         assert result.description == "Full feature test"
 
+    def test_create_experiment_refuses_a_holdout_of_another_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        holdout = ExperimentHoldout.objects.create(team=other_team, created_by=self.user, name="Other team holdout")
+        input_dto = CreateExperimentInput(name="Test Experiment", feature_flag_key="test-flag-9", holdout_id=holdout.id)
+
+        with self.assertRaisesMessage(
+            ExperimentValidationError, f"Holdout with id {holdout.id} does not exist for this team"
+        ):
+            create_experiment(team=self.team, user=self.user, input_dto=input_dto)
+
+        assert not Experiment.objects.filter(team=self.team, name="Test Experiment").exists()
+
 
 class TestCountRunningExperimentsOnFeatureFlagCalled(BaseTest):
     @parameterized.expand(
@@ -191,3 +224,184 @@ class TestCountRunningExperimentsOnFeatureFlagCalled(BaseTest):
         )
 
         assert count_running_experiments_on_feature_flag_called(self.organization.id) == expected
+
+
+@time_machine.travel("2026-10-14T12:00:00Z", tick=False)
+class TestHighlightFacts(BaseTest):
+    def _experiment(self, name: str, created_by: User | None = None, **fields: object) -> Experiment:
+        flag = FeatureFlag.objects.create(team=self.team, key=f"flag-{uuid.uuid4().hex[:8]}", created_by=self.user)
+        return Experiment.objects.create(
+            team=self.team, name=name, feature_flag=flag, created_by=created_by or self.user, **fields
+        )
+
+    def test_lists_ended_experiments_without_a_conclusion(self) -> None:
+        now = timezone.now()
+        started = now - timedelta(days=30)
+        ended_at = now - timedelta(days=1)
+        listed = self._experiment("Pricing page layout", start_date=started, end_date=ended_at)
+        self._experiment("Concluded", start_date=started, end_date=ended_at, conclusion="won")
+        self._experiment("Ended long ago", start_date=started, end_date=now - timedelta(days=10))
+        self._experiment("Archived", start_date=started, end_date=ended_at, archived=True)
+        self._experiment("Deleted", start_date=started, end_date=ended_at, deleted=True)
+        self._experiment("Still running", start_date=started)
+        self._experiment(
+            "Not yours", start_date=started, end_date=ended_at, created_by=self._create_user("other@example.com")
+        )
+
+        assert api.list_ended_experiments_without_conclusion(
+            team_id=self.team.pk, user_id=self.user.pk, since=now - timedelta(days=7), limit=20
+        ) == [EndedExperiment(id=listed.id, name="Pricing page layout", ended_at=ended_at)]
+
+    @parameterized.expand(
+        [("any start", None, ["Checkout copy", "Onboarding tips"]), ("a recent start", 67, ["Checkout copy"])]
+    )
+    def test_lists_running_experiments_that_started_in_the_window(
+        self, _name: str, started_after_days: int | None, expected: list[str]
+    ) -> None:
+        now = timezone.now()
+        listed = {
+            experiment.name: experiment.feature_flag.key
+            for experiment in (
+                self._experiment("Onboarding tips", start_date=now - timedelta(days=80)),
+                self._experiment("Checkout copy", start_date=now - timedelta(days=62)),
+            )
+        }
+        self._experiment("Started recently", start_date=now - timedelta(days=10))
+        self._experiment("Custom exposure", start_date=now - timedelta(days=62), exposure_criteria=PAGEVIEW_EXPOSURE)
+        self._experiment(
+            "Activation",
+            start_date=now - timedelta(days=62),
+            exposure_criteria={"activation_config": {"event": "signed up", "properties": []}},
+        )
+        self._experiment(
+            "Filtered exposure",
+            start_date=now - timedelta(days=62),
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "$feature_flag_called",
+                    "properties": [{"key": "plan", "value": ["paid"], "operator": "exact", "type": "person"}],
+                }
+            },
+        )
+        self._experiment(
+            "Legacy criteria",
+            start_date=now - timedelta(days=62),
+            exposure_criteria={"multiple_variant_handling": "whatever_this_was"},
+        )
+        self._experiment("Draft")
+        self._experiment("Ended", start_date=now - timedelta(days=80), end_date=now - timedelta(days=1))
+        self._experiment(
+            "Not yours", start_date=now - timedelta(days=80), created_by=self._create_user("other@example.com")
+        )
+
+        found = api.list_running_experiments(
+            team_id=self.team.pk,
+            user_id=self.user.pk,
+            started_after=None if started_after_days is None else now - timedelta(days=started_after_days),
+            started_before=now - timedelta(days=60),
+            limit=20,
+        )
+
+        assert [(e.name, e.flag_key) for e in found] == [(name, listed[name]) for name in expected]
+
+
+class TestCountEnrolledPeople(ClickhouseTestMixin, BaseTest):
+    def _ago(self, days: int) -> datetime:
+        return timezone.now() - timedelta(days=days)
+
+    @parameterized.expand(
+        [("events", FlagEvaluationsMode.EVENTS), ("flag_evaluations", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)]
+    )
+    def test_counts_people_who_got_a_variant_in_the_last_14_days(self, _name: str, mode: FlagEvaluationsMode) -> None:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+        )
+        calls = [
+            ("checkout", "test", 2),
+            ("checkout", "control", 3),
+            ("checkout", "false", 2),
+            ("checkout", "test", 20),
+            ("other", "test", 2),
+        ]
+        for flag_key, response, days_ago in calls:
+            distinct_id = str(uuid.uuid4())
+            if mode == FlagEvaluationsMode.EVENTS:
+                create_person(team=self.team, distinct_ids=[distinct_id])
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=distinct_id,
+                    properties={"$feature_flag": flag_key, "$feature_flag_response": response},
+                    timestamp=self._ago(days_ago),
+                )
+            else:
+                _create_flag_evaluations(
+                    self.team.pk, flag_key, timestamp=self._ago(days_ago), distinct_id=distinct_id, response=response
+                )
+        flush_persons_and_events()
+
+        assert api.count_enrolled_people(team=self.team, user=self.user, flag_keys=["checkout"]) == {"checkout": 2}
+
+
+_CHECKOUT = {"kind": "EventsNode", "event": "checkout"}
+
+
+class TestGetStoredPrimaryResult(BaseTest):
+    def _stored(self, metric: dict, stats_config: dict, baseline_sum: int) -> StoredPrimaryResult | None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="stored-result")
+        experiment = Experiment.objects.create(
+            team=self.team,
+            feature_flag=flag,
+            name="stored result",
+            start_date=datetime(2026, 8, 1, tzinfo=UTC),
+            stats_config=stats_config,
+            metrics=[{"uuid": "m1", "kind": "ExperimentMetric", "name": "Checkout", "goal": "decrease", **metric}],
+        )
+        ExperimentMetricResult.objects.create(
+            experiment=experiment,
+            metric_uuid="m1",
+            fingerprint=build_primary_calculation_configs(experiment)[0].calculation_key(),
+            query_from=datetime(2026, 8, 1, tzinfo=UTC),
+            query_to=datetime(2026, 8, 5, tzinfo=UTC),
+            status=ExperimentMetricResult.Status.COMPLETED,
+            completed_at=datetime(2026, 8, 5, tzinfo=UTC),
+            result={
+                "baseline": {"key": "control", "number_of_samples": 100, "sum": baseline_sum, "sum_squares": 20},
+                "variant_results": [
+                    {
+                        "key": "test",
+                        "method": "frequentist",
+                        "number_of_samples": 50,
+                        "sum": 15,
+                        "sum_squares": 15,
+                        "confidence_interval": [0.1, 0.4],
+                        "significant": True,
+                    }
+                ],
+            },
+        )
+        return api.get_stored_primary_result(team_id=self.team.pk, experiment_id=experiment.pk)
+
+    @parameterized.expand(
+        [
+            ("funnel", {"metric_type": "funnel", "series": [_CHECKOUT]}, 20, 0.25, True),
+            ("thresholded_mean", {"metric_type": "mean", "threshold": 5, "source": _CHECKOUT}, 20, 0.25, True),
+            ("negative_baseline_mean", {"metric_type": "mean", "source": _CHECKOUT}, -20, None, False),
+        ]
+    )
+    def test_returns_the_current_stored_result_of_the_primary_metric(
+        self, _name: str, metric: dict, baseline_sum: int, change: float | None, proportion: bool
+    ) -> None:
+        result = self._stored(metric, {"method": "frequentist"}, baseline_sum)
+
+        assert result is not None
+        assert (result.metric_name, result.proportion, result.goal) == ("Checkout", proportion, "decrease")
+        assert result.baseline.mean == pytest.approx(baseline_sum / 100)
+        assert (result.variants[0].mean, result.variants[0].significant) == (0.3, True)
+        assert result.variants[0].change == (None if change is None else pytest.approx(change))
+
+    def test_returns_nothing_for_absolute_differences(self) -> None:
+        stats_config = {"method": "frequentist", "frequentist": {"difference_type": "ABSOLUTE"}}
+
+        assert self._stored({"metric_type": "funnel", "series": [_CHECKOUT]}, stats_config, 20) is None

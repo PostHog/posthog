@@ -1,6 +1,8 @@
 import json
 from uuid import UUID
 
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -21,6 +23,7 @@ from products.tasks.backend.facade.onboarding_brief import (
 from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas
 from products.tasks.backend.facade.onboarding_prompt import (
     BUNDLED_ONBOARDING_PROMPT,
+    load_onboarding_prompt,
     missing_onboarding_prompt_placeholders,
     render_onboarding_prompt,
 )
@@ -381,6 +384,17 @@ class TestWhereFindingsLive(SimpleTestCase):
 
 
 class TestBundledPromptRendering(SimpleTestCase):
+    @parameterized.expand([("no_key", None), ("project_secret_key", "phs_test")])
+    def test_without_a_personal_key_the_bundled_prompt_loads_without_a_fetch(self, _name: str, key: str | None) -> None:
+        with (
+            patch("posthog.llm.managed_decision_model.posthoganalytics.personal_api_key", key),
+            patch("products.tasks.backend.facade.onboarding_prompt._PROMPTS.get") as get,
+        ):
+            result = load_onboarding_prompt()
+
+        assert (result.source, result.prompt) == ("code_fallback", BUNDLED_ONBOARDING_PROMPT)
+        get.assert_not_called()
+
     def test_the_managed_prompt_requires_every_runtime_value(self) -> None:
         assert missing_onboarding_prompt_placeholders("{{brief}} {{homepage}}") == ("channel_id", "followup")
 

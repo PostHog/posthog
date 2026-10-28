@@ -8,6 +8,8 @@ const DEFAULT_API_KEY = 'sTMFPsFhdP1Ssg'
 const runningOnPosthog = !!window.POSTHOG_APP_CONTEXT
 const apiKey = runningOnPosthog ? window.JS_POSTHOG_API_KEY : DEFAULT_API_KEY
 const apiHost = runningOnPosthog ? window.JS_POSTHOG_HOST : 'https://internal-cf.posthog.com'
+// Manifest V3 forbids remote code in an extension, and the browser stores reject it.
+const runningInBrowserExtension = !!(globalThis as { chrome?: { runtime?: { id?: string } } }).chrome?.runtime?.id
 
 const initResult = posthog.init(
     apiKey || DEFAULT_API_KEY,
@@ -32,6 +34,7 @@ const initResult = posthog.init(
         disable_scroll_properties: true,
         disable_product_tours: true,
         disable_session_recording: true,
+        disable_external_dependency_loading: runningInBrowserExtension,
         session_recording: {
             // we want to capture the toolbar (which is marked with ph-no-capture
             // so customer sessions don't see it), but also respect the customer's

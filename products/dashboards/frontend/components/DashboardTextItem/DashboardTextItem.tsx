@@ -2,7 +2,10 @@ import { useValues } from 'kea'
 import React from 'react'
 
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
-import { DashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
+import {
+    DashboardWidgetPlacementMenus,
+    type DashboardWidgetPlacementMenusProps,
+} from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -15,7 +18,10 @@ import { getImageOnlyTextCardImage } from '../ImageTile/imageTileUtils'
 
 type BaseTextCardProps = React.ComponentProps<typeof TextCard>
 
-interface DashboardTextItemProps extends Omit<BaseTextCardProps, 'textTile' | 'placement' | 'moreButtonOverlay'> {
+interface DashboardTextItemProps
+    extends
+        Omit<BaseTextCardProps, 'textTile' | 'placement' | 'moreButtonOverlay'>,
+        Pick<DashboardWidgetPlacementMenusProps, 'tileGroupMoveOptions' | 'onMoveToTileGroup'> {
     tile: DashboardTile
     placement: DashboardPlacement
     dashboardId?: number | null
@@ -34,6 +40,8 @@ function DashboardTextItemInternal(
         onEdit,
         onMoveToDashboard,
         onCopyToDashboard,
+        tileGroupMoveOptions,
+        onMoveToTileGroup,
         onDuplicate,
         onRemove,
         ...textCardProps
@@ -61,6 +69,8 @@ function DashboardTextItemInternal(
                 placementDestinations={copyToDestinations}
                 onMoveToDashboard={onMoveToDashboard}
                 onCopyToDashboard={onCopyToDashboard}
+                tileGroupMoveOptions={tileGroupMoveOptions}
+                onMoveToTileGroup={onMoveToTileGroup}
             />
 
             <LemonButton onClick={onDuplicate} fullWidth data-attr={`duplicate-${tileType}-from-dashboard`}>

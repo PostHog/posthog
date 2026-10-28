@@ -66,6 +66,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.facade import api as notebooks
+from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
 from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.config_registry import live_scout_skill_names
@@ -89,7 +90,7 @@ logger = logging.getLogger(__name__)
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache. A redaction change bumps it too, so rows built before the
 # redaction stop being served.
-INVENTORY_SOURCE_VERSION = "v18"
+INVENTORY_SOURCE_VERSION = "v19"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -350,7 +351,7 @@ def _scout_fleet(team: Team) -> dict[str, Any]:
     # `SignalScoutConfigViewSet.list`: this payload is readable with `signal_scout:read`, so
     # listing a withheld row (even as not-running) would disclose the name and rollout status of
     # an unreleased scout to the very team it is withheld from.
-    withheld = withheld_skills_for_team(team.id)
+    withheld = withheld_skills_for_team(team.id) | SYSTEM_SCOUT_NAMES
     live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld)
     # One query for the whole fleet: a skill default pre-check applies only to a canonical skill row.
     canonical_skills = {
@@ -850,12 +851,15 @@ def _recent_reviewer_corrections(team: Team) -> dict[str, Any]:
         detail = row.detail or {}
         changes = detail.get("changes") or []
         change = changes[0] if changes and isinstance(changes[0], dict) else {}
+        stated = {c.get("field"): c.get("after") for c in changes if isinstance(c, dict)}
         corrections.append(
             {
                 "report_id": str(row.item_id),
                 "report_title": detail.get("name"),
                 "before": change.get("before") or [],
                 "after": change.get("after") or [],
+                "removal_reason": stated.get("removal_reason"),
+                "removal_reason_reviewers": stated.get("removal_reason_reviewers") or [],
                 "at": row.created_at.isoformat() if row.created_at else None,
             }
         )

@@ -140,6 +140,7 @@ Note: each selected table costs one request per ticker on every sync, and SimFin
                     ),
                     SourceFieldInputConfig(
                         name="tickers",
+                        sync_setting=True,
                         label="Tickers (comma-separated)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

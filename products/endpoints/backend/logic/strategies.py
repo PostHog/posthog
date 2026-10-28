@@ -175,16 +175,30 @@ def get_breakdown_infos(breakdown_filter: dict) -> list[tuple[str, str]]:
     return list(iter_breakdowns(breakdown_filter))
 
 
-def build_breakdown_filter_condition(query_kind: str | None, value: str, array_index: int = 0) -> ast.Expr | None:
+def breakdown_value_is_array(query_kind: str | None, breakdown_filter: dict) -> bool:
+    """Return whether the materialized `breakdown_value` column is an Array.
+
+    RetentionQuery always converts its breakdown to the `breakdowns` form, so it stores an Array.
+    TrendsQuery stores an Array only for `breakdowns`; the single `breakdown` form stores a scalar.
+    """
+    if query_kind == "RetentionQuery":
+        return True
+    return bool(breakdown_filter.get("breakdowns"))
+
+
+def build_breakdown_filter_condition(
+    query_kind: str | None, value: str, array_index: int = 0, *, is_array: bool = True
+) -> ast.Expr | None:
     """Build the appropriate WHERE condition for breakdown filtering based on query type.
 
     Different insight types store breakdowns in different columns:
-    - TrendsQuery, RetentionQuery: `breakdown_value` Array column
+    - TrendsQuery, RetentionQuery: `breakdown_value` column, see `breakdown_value_is_array`
     - LifecycleQuery: No breakdown support
 
-    array_index controls how to access the breakdown column:
-    - 0: single breakdown — use has() on the full array
-    - 1+: multiple breakdowns — use equality on breakdown_value[N]
+    is_array=False: scalar column, so use equality on breakdown_value.
+    Otherwise array_index controls how to access the breakdown column:
+    - 0: single breakdown, so use has() on the full array
+    - 1+: multiple breakdowns, so use equality on breakdown_value[N]
     """
     if query_kind not in BREAKDOWN_SUPPORTED_QUERY_TYPES:
         logger.warning(
@@ -192,6 +206,13 @@ def build_breakdown_filter_condition(query_kind: str | None, value: str, array_i
             query_kind=query_kind,
         )
         return None
+
+    if not is_array:
+        return ast.CompareOperation(
+            left=ast.Field(chain=["breakdown_value"]),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value=value),
+        )
 
     if array_index > 0:
         return ast.CompareOperation(
@@ -670,6 +691,10 @@ class InsightEndpointStrategy(EndpointQueryStrategy):
     def _breakdown_filter(self) -> dict:
         return self.query.get("breakdownFilter") or {}
 
+    @property
+    def _breakdown_value_is_array(self) -> bool:
+        return breakdown_value_is_array(self.query_kind, self._breakdown_filter)
+
     def allowed_variables(self, is_materialized: bool) -> set[str]:
         allowed: set[str] = set()
 
@@ -709,7 +734,12 @@ class InsightEndpointStrategy(EndpointQueryStrategy):
             prop_value = getattr(prop, "value", None)
             if prop_value is not None:
                 value = prop_value[0] if isinstance(prop_value, list) else prop_value
-                return build_breakdown_filter_condition(self.query_kind, str(value)) is not None
+                return (
+                    build_breakdown_filter_condition(
+                        self.query_kind, str(value), is_array=self._breakdown_value_is_array
+                    )
+                    is not None
+                )
         return False
 
     def build_materialized_select(
@@ -733,7 +763,9 @@ class InsightEndpointStrategy(EndpointQueryStrategy):
                     if hasattr(prop, "key") and hasattr(prop, "value") and prop.value is not None:
                         # Convert value to string for breakdown filter
                         value = prop.value[0] if isinstance(prop.value, list) else prop.value
-                        condition = build_breakdown_filter_condition(self.query_kind, str(value))
+                        condition = build_breakdown_filter_condition(
+                            self.query_kind, str(value), is_array=self._breakdown_value_is_array
+                        )
                         if condition:
                             add_where_condition(select_query, condition)
                         # filters_override is deprecated — only the first property is used
@@ -745,7 +777,10 @@ class InsightEndpointStrategy(EndpointQueryStrategy):
             for breakdown_prop, array_index in index_mapping.items():
                 if breakdown_prop in data.variables:
                     condition = build_breakdown_filter_condition(
-                        self.query_kind, data.variables[breakdown_prop], array_index=array_index
+                        self.query_kind,
+                        data.variables[breakdown_prop],
+                        array_index=array_index,
+                        is_array=self._breakdown_value_is_array,
                     )
                     if condition:
                         add_where_condition(select_query, condition)

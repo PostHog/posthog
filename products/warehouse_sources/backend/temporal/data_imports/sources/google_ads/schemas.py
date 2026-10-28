@@ -896,6 +896,30 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
             "segments.date",
         ],
     },
+    "performance_max_search_term_stats": {
+        "resource_name": "campaign_search_term_view",
+        "primary_key": [
+            "campaign_search_term_view.search_term",
+            "campaign.id",
+            "customer.id",
+            "segments.date",
+        ],
+        "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
+        "description": "Search terms that triggered Performance Max campaigns. Search campaign terms are in search_term_stats.",
+        # campaign_search_term_view also returns Search and Shopping campaigns, which search_term_stats already covers.
+        "extra_where": "campaign.advertising_channel_type = 'PERFORMANCE_MAX'",
+        "field_names": [
+            "campaign_search_term_view.search_term",
+            "campaign.id",
+            "customer.id",
+            "metrics.clicks",
+            "metrics.impressions",
+            "metrics.cost_micros",
+            "metrics.conversions",
+            "metrics.conversions_value",
+            "segments.date",
+        ],
+    },
     "geographic_stats": {
         "resource_name": "geographic_view",
         "primary_key": [
@@ -1596,6 +1620,36 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
             "segments.quarter",
             "segments.week",
             "segments.year",
+        ],
+    },
+    "search_term_conversion_action_stats": {
+        "resource_name": "search_term_view",
+        "primary_key": [
+            "search_term_view.search_term",
+            "ad_group.id",
+            "campaign.id",
+            "customer.id",
+            "segments.conversion_action",
+            "segments.date",
+        ],
+        "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
+        "should_sync_default": False,
+        "description": "This table fans out per conversion action at search term level, so it only carries conversion metrics. Clicks, impressions and cost are in search_term_stats.",
+        # Most search terms never convert, and those rows carry no information in this table.
+        "extra_where": "metrics.all_conversions > 0",
+        "field_names": [
+            "search_term_view.search_term",
+            "ad_group.id",
+            "campaign.id",
+            "customer.id",
+            "segments.conversion_action",
+            "segments.conversion_action_name",
+            "segments.conversion_action_category",
+            "segments.date",
+            "metrics.conversions",
+            "metrics.conversions_value",
+            "metrics.all_conversions",
+            "metrics.all_conversions_value",
         ],
     },
 }
