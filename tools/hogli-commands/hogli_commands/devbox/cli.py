@@ -572,7 +572,7 @@ def _resolve_local_signing_key() -> str | None:
 
     Git accepts three formats: a literal ``ssh-... / ecdsa-... / sk-...``
     string, the same with a ``key::`` prefix (used by tools like Secretive),
-    or a path to a public-key file. All are normalized here. Returns ``None``
+    or a path to a key file. All are normalized here. Returns ``None``
     when the value is unset or the referenced file can't be read.
     """
     result = subprocess.run(
@@ -589,8 +589,13 @@ def _resolve_local_signing_key() -> str | None:
         value = value.removeprefix("key::")
     if value.startswith(("ssh-", "ecdsa-", "sk-")):
         return value
+    key_path = Path(os.path.expanduser(value))
+    # git also accepts a private key path. Read the .pub file next to it, because the
+    # returned value goes into a Coder secret and private key material must stay local.
+    if key_path.suffix != ".pub":
+        key_path = key_path.with_name(f"{key_path.name}.pub")
     try:
-        return Path(os.path.expanduser(value)).read_text().strip() or None
+        return key_path.read_text().strip() or None
     except OSError:
         return None
 

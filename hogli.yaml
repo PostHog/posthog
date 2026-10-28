@@ -1136,6 +1136,9 @@ devex:
     devex:feedback:
         click: hogli_commands.feedback:devex_feedback
         description: Send feedback about the dev experience to the devex team (humans and agents)
+    git:signing-key:
+        click: hogli_commands.git_signing:signing_key
+        description: Create a Secure Enclave commit-signing key (macOS 26 or later) and point git at it
 utilities:
     nuke:
         steps:

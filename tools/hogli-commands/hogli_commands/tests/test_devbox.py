@@ -3078,13 +3078,16 @@ class TestResolveLocalSigningKey:
         )
         assert devbox_cli._resolve_local_signing_key() == "ecdsa-sha2-nistp256 AAAA GitHub-Commit-Signing@host"
 
-    def test_reads_file_when_value_is_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        key_file = tmp_path / "id_ed25519.pub"
-        key_file.write_text("ssh-ed25519 AAAAFROMFILE user@host\n")
+    @pytest.mark.parametrize("configured_name", ["id_ed25519.pub", "id_ed25519"])
+    def test_reads_public_file_when_value_is_path(
+        self, configured_name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "id_ed25519").write_text("-----BEGIN OPENSSH PRIVATE KEY-----\n")
+        (tmp_path / "id_ed25519.pub").write_text("ssh-ed25519 AAAAFROMFILE user@host\n")
         monkeypatch.setattr(
             devbox_cli.subprocess,
             "run",
-            lambda *a, **kw: subprocess.CompletedProcess(a[0], 0, str(key_file), ""),
+            lambda *a, **kw: subprocess.CompletedProcess(a[0], 0, str(tmp_path / configured_name), ""),
         )
         assert devbox_cli._resolve_local_signing_key() == "ssh-ed25519 AAAAFROMFILE user@host"
 
