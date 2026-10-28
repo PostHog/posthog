@@ -5,7 +5,9 @@ of the kind, so the default is stored data. The result is frozen in the generate
 `facade/credential_auth_types.py`, and the warehouse product registers it with the integrations SDK at
 startup. `generate_source_field_classification` writes that file, and a test fails when it is out of date.
 
-The default comes from the source's connection fields, the same split as `job_input_classification`:
+Each source gives the auth type of its kind with `credential_auth_type` on its class. The default,
+`derive_credential_auth_type`, comes from the source's connection fields, the same split as
+`job_input_classification`:
 
 - `oauth`: the source has an OAuth field and no typed-in connection field.
 - `token`: the source has exactly one typed-in field, and it is a secret.
@@ -15,18 +17,18 @@ The default comes from the source's connection fields, the same split as `job_in
 from collections.abc import Iterator
 from pathlib import Path
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldSelectConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_kind import (
-    compute_credential_kinds,
+from products.warehouse_sources.backend.facade.source_config import (
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldSelectConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_input_classification import (
     JobInputKind,
     field_kind,
     reference_option_values,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 CREDENTIAL_AUTH_TYPES_PATH = Path(__file__).resolve().parents[4] / "facade" / "credential_auth_types.py"
 
@@ -58,8 +60,8 @@ def _typed_in_fields(field: FieldType) -> Iterator[FieldType]:
     yield field
 
 
-def derive_credential_auth_type(source_type: ExternalDataSourceType) -> str:
-    fields = list(SourceRegistry.get_source(source_type).get_source_config.fields)
+def derive_credential_auth_type(source_config: SourceConfig) -> str:
+    fields = list(source_config.fields)
     has_oauth = any(field_kind(field) == JobInputKind.REFERENCE or reference_option_values(field) for field in fields)
     try:
         typed_in = [
@@ -76,12 +78,11 @@ def derive_credential_auth_type(source_type: ExternalDataSourceType) -> str:
 
 def compute_credential_auth_types() -> dict[str, str]:
     """The default auth type of each credential kind, keyed by kind."""
-    kinds = compute_credential_kinds()
-    auth_types = {
-        kinds[source_type.value]: derive_credential_auth_type(source_type)
-        for source_type in SourceRegistry.get_all_sources()
-        if source_type.value in kinds
-    }
+    auth_types: dict[str, str] = {}
+    for source in SourceRegistry.get_all_sources().values():
+        kind = source.credential_kind
+        if kind is not None:
+            auth_types[kind] = source.credential_auth_type
     return dict(sorted(auth_types.items()))
 
 

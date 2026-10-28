@@ -240,6 +240,10 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CLICKHOUSE
 
+    @property
+    def credential_kind(self) -> str | None:
+        return "clickhouse"
+
     def _bypass_env_proxy(self, config: ClickHouseSourceConfig, team_id: int) -> BypassEnvProxy:
         """Why this connection may skip the egress proxy, or None to stay proxied.
 

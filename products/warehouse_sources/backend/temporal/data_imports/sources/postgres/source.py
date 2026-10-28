@@ -729,6 +729,10 @@ class PostgresSource(
         return ExternalDataSourceType.POSTGRES
 
     @property
+    def credential_kind(self) -> str | None:
+        return "postgresql"
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=ExternalDataSourceType.POSTGRES,
