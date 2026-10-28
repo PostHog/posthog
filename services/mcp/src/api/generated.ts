@@ -73094,7 +73094,7 @@ export namespace Schemas {
       overview: ModelUsageTotals;
       /** Daily usage, attributed to when each run finished. */
       trends: ModelUsageDay[];
-      /** Model breakdown, highest measured bytes first. */
+      /** Model breakdown in the requested sort order. */
       models: ModelUsageRow[];
       /** Total number of models in the breakdown. */
       count: number;
@@ -132240,6 +132240,26 @@ export namespace Schemas {
      * @minLength 1
      */
     saved_query_ids?: string;
+    /**
+     * Column to sort models by.
+     *
+     * * `name` - Model
+     * * `read_bytes` - Bytes read
+     * * `clickhouse_read_bytes` - ClickHouse bytes
+     * * `managed_warehouse_read_bytes` - Managed warehouse bytes
+     * * `cpu_microseconds` - CPU time
+     * * `runs` - Runs
+     * @minLength 1
+     */
+    sort_by?: DataModelingUsageListSortBy;
+    /**
+     * Sort direction. Unmeasured values are always last.
+     *
+     * * `asc` - Ascending
+     * * `desc` - Descending
+     * @minLength 1
+     */
+    sort_direction?: DataModelingUsageListSortDirection;
     };
 
     export type DataModelingUsageListEngine = typeof DataModelingUsageListEngine[keyof typeof DataModelingUsageListEngine];
@@ -132249,6 +132269,26 @@ export namespace Schemas {
       All: 'all',
       Clickhouse: 'clickhouse',
       ManagedWarehouse: 'managed_warehouse',
+    } as const;
+
+    export type DataModelingUsageListSortBy = typeof DataModelingUsageListSortBy[keyof typeof DataModelingUsageListSortBy];
+
+
+    export const DataModelingUsageListSortBy = {
+      Name: 'name',
+      ReadBytes: 'read_bytes',
+      ClickhouseReadBytes: 'clickhouse_read_bytes',
+      ManagedWarehouseReadBytes: 'managed_warehouse_read_bytes',
+      CpuMicroseconds: 'cpu_microseconds',
+      Runs: 'runs',
+    } as const;
+
+    export type DataModelingUsageListSortDirection = typeof DataModelingUsageListSortDirection[keyof typeof DataModelingUsageListSortDirection];
+
+
+    export const DataModelingUsageListSortDirection = {
+      Asc: 'asc',
+      Desc: 'desc',
     } as const;
 
     export type DataQualityChecksListParams = {
