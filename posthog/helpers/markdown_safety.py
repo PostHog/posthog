@@ -31,9 +31,12 @@ _MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
 _ORPHAN_DEST_RE = re.compile(r"\]\(((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)
 _AUTOLINK_RE = re.compile(r"<(https?://[^\s>]+)>", re.IGNORECASE)
 _BARE_URL_RE = re.compile(r"(?<!\]\()((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)
-# A closed code span: a backtick run, then content, then a run of the same length. Content inside one
-# is already inert, and wrapping it again would split the span and release the URL as plain text.
-_CODE_SPAN_RE = re.compile(r"(?<!`)(`+)(?!`).+?(?<!`)\1(?!`)", re.DOTALL)
+# A code span that every destination renderer agrees is code: one backtick, content on one line, one
+# backtick. Content inside one is already inert, and wrapping it again would split the span and
+# release the URL as plain text. The shape is deliberately narrower than CommonMark, because Slack's
+# renderer reads one line at a time: a multi-line span or a fenced block is code to CommonMark but
+# plain text to Slack, so those must keep going through the bare-URL rule.
+_CODE_SPAN_RE = re.compile(r"(?<!`)`(?!`)[^`\n]+`(?!`)")
 
 
 def is_allowed_link_url(url: str, additional_allowed_origin: str | None = None) -> bool:

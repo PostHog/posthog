@@ -139,6 +139,10 @@ class TestStripExternalLinks(SimpleTestCase):
             ("at_prefixed", "Ping @https://evil.example.com/hook"),
             ("unpaired_backtick", "See `https://evil.example.com/x"),
             ("padded_code_span", "see ` https://evil.example.com/x ` here"),
+            # Slack reads one line at a time, so a span or a fence that covers several lines is code
+            # to CommonMark and plain text to Slack. The URL in it must still be defanged.
+            ("multiline_code_span", "See `start\nhttps://evil.example.com/collect\nend`"),
+            ("fenced_block", "```\nhttps://evil.example.com/collect\n```"),
         ]
     )
     def test_defanged_urls_never_reach_a_plain_slack_element(self, _label: str, markdown: str) -> None:
