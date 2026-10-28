@@ -38,6 +38,9 @@ Generation evaluations extract message text without the per-message character cu
 They reserve space for the complete output, then sample input and tool definitions into the remaining space within the 150,000-character limit.
 If the output and section labels alone exceed that limit, the run is skipped with reason `generation_output_too_long` without calling the judge.
 
+Generation evaluation and LLM tagger user prompts repair UTF-16 surrogate sequences after sampling.
+Lone surrogates become replacement characters (`�`), while valid pairs become their Unicode character.
+
 Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_evaluation.py), [session judge](../../posthog/temporal/ai_observability/run_session_evaluation.py), and [generation judge](../../posthog/temporal/ai_observability/evaluation_llm_judge.py).
 
 ## OpenAI-compatible judges
@@ -69,11 +72,8 @@ Changing the judge method marks the evaluation as edited, including when the sel
 The selection is stored as `evaluation_config.judge_method` (`llm` or `decision`). Evaluations without this field keep automatic routing until a method or model is explicitly selected.
 Automatic OpenRouter routing selects decisions only for models without text output. Models supporting both methods keep chat routing unless decisions are explicitly selected.
 Prompt-only `evaluation_config` PATCH requests preserve the saved method; an explicit `judge_method: null` restores automatic routing.
-The detail editor PATCHes only changed fields on existing evaluations, so renaming or disabling a saved decision evaluation still works after its feature flag is turned off. Re-enabling it or changing its model or output configuration still validates decision access.
+The detail editor PATCHes only changed fields on existing evaluations. Re-enabling an evaluation or changing its model or output configuration still validates decision access.
 Explicit method selection requires a selected model, including for legacy evaluations that use the project's default connection.
-The `llm-analytics-system-one-evaluations` project-group feature flag controls access in the browser and background workers.
-Both use the project's UUID as its group key; the numeric project ID is a group property.
-Deploy the ingestion and evaluation worker changes before enabling the flag.
 Projects use their saved provider keys or configure a System One-compatible deployment and its authentication.
 Evaluation connections never fall back to an instance credential or gateway configuration.
 The configured endpoint authorizes the supplied credential, including connections to PostHog's regional AI gateway endpoints.
@@ -192,6 +192,10 @@ This excludes the calendar day whose AI payloads have expired under the 30-day r
 Ranges ending at or before that boundary are rejected.
 Existing backfills keep their stored windows; **Retry remaining** applies the boundary when it creates a new backfill.
 
+Generation references get up to three lookup attempts.
+A final miss for a backfill reference records the evaluation as skipped with `generation_not_found`, emits no `$ai_evaluation` event, and reports no exception to error tracking.
+Live references marked `awaiting_ingestion` wait 15 seconds between misses and still report the final miss.
+
 A backfill that stops on its own shows as **Interrupted**, with a stop reason.
 A backfill a user stops shows as **Cancelled**.
 Backfills read a page of units (500 by default, bounded between 1 and 1,000) and wait for every outcome before advancing progress.
@@ -281,6 +285,14 @@ Existing reports remain accessible through the Reports tab and the report list, 
 The report agent's `list_all_eval_results` and `sample_eval_results` tools cap each response at 30,000 characters.
 Large results reduce the number of examples returned; each returned example keeps its complete category list.
 The tools indicate when examples are omitted, and aggregate counts and pass rates still cover the full period.
+
+The report agent's `sample_generation_details` tool keeps the beginning and end of input and input-state previews within 500 characters, with an elision marker.
+Each sample includes `input_length`, the stored input's character count before shortening the preview.
+Both sampled and full generation details include input, output, cache-read, and cache-creation token counts.
+The agent must inspect full generation details before claiming captured input is truncated or instrumentation is broken, and report a limitation only when those details confirm it.
+Shortened previews and low input token counts alongside high cache-read or cache-creation token counts are expected and alone do not justify an auditability caveat.
+A trace can contain many generations by design; use generation IDs to distinguish individual calls.
+The agent must recheck these caveats from prior reports against current full generation details and omit caveats that the data does not support.
 
 ## Browser compatibility
 

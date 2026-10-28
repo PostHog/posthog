@@ -2,7 +2,7 @@ import json
 from datetime import timedelta
 from uuid import UUID, uuid4
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import Mock, patch
 
 from django.db import IntegrityError, connection, transaction
@@ -21,6 +21,7 @@ from posthog.models import Organization, OrganizationMembership, Project, Team, 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.evaluations import (
     EvaluationSerializer,
+    EvaluationsOverviewPeriodSerializer,
     ModelConfigurationSerializer,
     TestHogRequestSerializer as HogRequestSerializer,
     _TargetConfigField,
@@ -160,7 +161,6 @@ class TestModelConfigurationSerializer(SimpleTestCase):
             context={"get_team": lambda: Mock(id=1)},
         )
         with (
-            patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=True),
             patch(
                 "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
                 return_value={"example/dual-model": ["text", "decisions"]},
@@ -216,10 +216,9 @@ class TestModelConfigurationSerializer(SimpleTestCase):
             ("unsupported_decision", "decision", "openai", ["text"], None),
             ("custom_chat", "llm", "system_one", ["decisions"], None),
             ("decision_only_chat", "llm", "openrouter", ["decisions"], None),
-            ("openai_decision", "decision", "openai", ["text"], True, "gpt-6-luna", True),
-            ("openai_legacy", None, "openai", ["text"], False, "gpt-6-luna", True),
-            ("openai_chat", "llm", "openai", ["text"], False, "gpt-6-luna", True),
-            ("openai_disabled", "decision", "openai", ["text"], None, "gpt-6-luna", False),
+            ("openai_decision", "decision", "openai", ["text"], True, "gpt-6-luna"),
+            ("openai_legacy", None, "openai", ["text"], False, "gpt-6-luna"),
+            ("openai_chat", "llm", "openai", ["text"], False, "gpt-6-luna"),
         ]
     )
     def test_judge_method_matches_model_capabilities(
@@ -230,7 +229,6 @@ class TestModelConfigurationSerializer(SimpleTestCase):
         modalities: list[str],
         expected: bool | None,
         model: str = "example/model",
-        flag: bool = True,
     ) -> None:
         config = {"prompt": "Check the response."}
         if method:
@@ -244,7 +242,6 @@ class TestModelConfigurationSerializer(SimpleTestCase):
         )
         serializer = EvaluationSerializer(instance=evaluation, partial=True, context={"get_team": lambda: Mock(id=1)})
         with (
-            patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=flag),
             patch(
                 "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
                 return_value={"example/model": modalities},
@@ -260,36 +257,6 @@ class TestModelConfigurationSerializer(SimpleTestCase):
                 with patch.object(serializer, "_validate_re_enable"), patch.object(serializer, "_validate_can_run"):
                     validated = serializer.validate(data)
                 self.assertEqual(validated["evaluation_config"], config)
-
-    @parameterized.expand(
-        [
-            ({"name": "Renamed decision evaluation"}, True),
-            ({"enabled": False}, True),
-            ({"enabled": True}, False),
-            ({"output_config": {"allows_na": True}}, False),
-        ]
-    )
-    def test_native_decision_flag_off_allows_rename_and_disable(self, data: dict[str, object], valid: bool) -> None:
-        evaluation = Evaluation(
-            evaluation_type="llm_judge",
-            evaluation_config={"prompt": "Check the response.", "judge_method": "decision"},
-            enabled=data.get("enabled") is not True,
-            output_type="boolean",
-            output_config={},
-            model_configuration=LLMModelConfiguration(provider="openai", model="gpt-6-luna"),
-        )
-        serializer = EvaluationSerializer(
-            instance=evaluation, data=data, partial=True, context={"get_team": lambda: Mock(id=1)}
-        )
-        with patch(
-            "products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=False
-        ):
-            self.assertEqual(serializer.is_valid(), valid, serializer.errors)
-        if valid:
-            for field, value in data.items():
-                self.assertEqual(serializer.validated_data[field], value)
-        else:
-            self.assertIn("model_configuration", serializer.errors)
 
     def test_judge_method_change_validates_the_stored_model(self) -> None:
         evaluation = Evaluation(
@@ -319,13 +286,12 @@ class TestModelConfigurationSerializer(SimpleTestCase):
             "selection_mode": mode,
             "options": [{"key": f"option_{i}", "label": f"Option {i}"} for i in range(count)],
         }
-        with patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=True):
-            if valid:
-                assert serializer.validate({"output_config": config})["output_config"]["selection_mode"] == mode
-            else:
-                with self.assertRaises(ValidationError) as error:
-                    serializer.validate({"output_config": config})
-                assert "at least two options" in str(error.exception)
+        if valid:
+            assert serializer.validate({"output_config": config})["output_config"]["selection_mode"] == mode
+        else:
+            with self.assertRaises(ValidationError) as error:
+                serializer.validate({"output_config": config})
+            assert "at least two options" in str(error.exception)
 
     @parameterized.expand([("boolean", {}), ("categorical", {}), ("numeric", {"min": 0, "max": 10})])
     def test_system_one_supports_evaluation_output_types(
@@ -377,7 +343,6 @@ class TestModelConfigurationSerializer(SimpleTestCase):
                 "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
                 return_value={"typesafe/jev-1.13": ["decisions"]},
             ),
-            patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=True),
         ):
             self.assertEqual(serializer.is_valid(), valid, serializer.errors)
         if valid:
@@ -387,17 +352,15 @@ class TestModelConfigurationSerializer(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (True, {"name": "Updated judge"}, True),
-            (True, {"enabled": False}, True),
-            (True, {"output_config": {"max": None}}, False),
-            (False, {"output_config": {"max": None}}, True),
-            (True, {"model_configuration": {"provider": "openrouter", "model": "openai/gpt-4o"}}, False),
-            (False, {"model_configuration": {"provider": "openrouter", "model": "openai/gpt-4o"}}, True),
-            (True, {"enabled": True}, False),
+            ({"name": "Updated judge"}, True),
+            ({"enabled": False}, True),
+            ({"output_config": {"max": None}}, False),
+            ({"model_configuration": {"provider": "openrouter", "model": "openai/gpt-4o"}}, False),
+            ({"enabled": True}, False),
         ]
     )
     def test_openrouter_catalogue_outage_only_blocks_model_validation(
-        self, flag: bool, data: dict[str, object], valid: bool
+        self, data: dict[str, object], valid: bool
     ) -> None:
         evaluation = Evaluation(
             evaluation_type="llm_judge",
@@ -414,7 +377,6 @@ class TestModelConfigurationSerializer(SimpleTestCase):
             patch(
                 "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities", return_value=None
             ) as catalogue,
-            patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=flag),
         ):
             self.assertEqual(serializer.is_valid(), valid, serializer.errors)
         if valid:
@@ -1145,14 +1107,13 @@ class TestEvaluationConfigsApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("decision_model_enabled", "typesafe/jev-1.13", True, 201),
-            ("decision_model_disabled", "typesafe/jev-1.13", False, 400),
-            ("decision_model_alias", "~typesafe/jev-latest", True, 201),
-            ("chat_model", "openai/gpt-4o", False, 201),
-            ("other_non_chat_model", "example/embedding", True, 400),
+            ("decision_model", "typesafe/jev-1.13", 201),
+            ("decision_model_alias", "~typesafe/jev-latest", 201),
+            ("chat_model", "openai/gpt-4o", 201),
+            ("other_non_chat_model", "example/embedding", 400),
         ]
     )
-    def test_llm_judge_creation_checks_openrouter_model_capabilities(self, _name, model, flag, expected_status):
+    def test_llm_judge_creation_checks_openrouter_model_capabilities(self, _name, model, expected_status):
         with (
             patch(
                 "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
@@ -1162,7 +1123,6 @@ class TestEvaluationConfigsApi(APIBaseTest):
                     "example/embedding": ["embeddings"],
                 },
             ),
-            patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=flag),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/evaluations/",
@@ -1180,10 +1140,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, expected_status, response.json())
         if expected_status == 400:
             self.assertEqual(response.data["attr"], "model_configuration")
-            if flag:
-                self.assertIn("Choose a chat model or a supported decision model.", response.data["detail"])
-            else:
-                self.assertIn("Choose a chat model.", response.data["detail"])
+            self.assertIn("Choose a chat model or a supported decision model.", response.data["detail"])
 
     @parameterized.expand([("omitted", False), ("null", True)])
     def test_llm_judge_creation_requires_model_configuration(self, _name, include_null_configuration):
@@ -2468,8 +2425,7 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
         self.assertTrue(eval_obj.enabled)
         self.assertIsNone(eval_obj.status_reason)
 
-    @parameterized.expand([(False, 400), (True, 200)])
-    def test_re_enable_openrouter_decision_model_depends_on_rollout(self, flag, expected_status):
+    def test_re_enable_openrouter_decision_model(self):
         key = LLMProviderKey.objects.create(
             team=self.team,
             provider="openrouter",
@@ -2487,7 +2443,6 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
                 "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
                 return_value={"typesafe/jev-1.13": ["decisions"]},
             ),
-            patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=flag),
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
@@ -2495,9 +2450,9 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
                 format="json",
             )
 
-        self.assertEqual(response.status_code, expected_status, response.json())
+        self.assertEqual(response.status_code, 200, response.json())
         eval_obj.refresh_from_db()
-        self.assertEqual(eval_obj.enabled, flag)
+        self.assertTrue(eval_obj.enabled)
 
     def test_allows_re_enable_when_model_not_found_with_new_model(self):
         key = LLMProviderKey.objects.create(
@@ -2550,7 +2505,7 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
         self.assertIsNone(eval_obj.status_reason)
 
 
-class TestEvaluationsAccessControl(APIBaseTest):
+class _EvaluationAccessControlCase(APIBaseTest):
     # Evaluations have their own access control resource (see ACCESS_CONTROL_RESOURCES in
     # products/access_control/backend/facade/user_access_control.py). They used to inherit from `llm_analytics`.
     def setUp(self) -> None:
@@ -2560,13 +2515,7 @@ class TestEvaluationsAccessControl(APIBaseTest):
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
-
-        self.viewer_user = User.objects.create_and_join(self.organization, "eval-viewer@posthog.com", "testtest")
-        self.editor_user = User.objects.create_and_join(self.organization, "eval-editor@posthog.com", "testtest")
         self.no_access_user = User.objects.create_and_join(self.organization, "eval-noaccess@posthog.com", "testtest")
-
-        self._grant(self.viewer_user, "viewer")
-        self._grant(self.editor_user, "editor")
         self._grant(self.no_access_user, "none")
 
     def _grant(
@@ -2581,15 +2530,26 @@ class TestEvaluationsAccessControl(APIBaseTest):
             organization_member=membership,
         )
 
-    def _create_evaluation(self, name: str = "Existing Evaluation") -> Evaluation:
+    def _create_evaluation(self, name: str = "Existing Evaluation", enabled: bool = False) -> Evaluation:
         return Evaluation.objects.create(
             team=self.team,
             name=name,
+            enabled=enabled,
             evaluation_type="hog",
             evaluation_config={"source": "return true"},
             output_type="boolean",
             created_by=self.user,
         )
+
+
+class TestEvaluationsAccessControl(_EvaluationAccessControlCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.viewer_user = User.objects.create_and_join(self.organization, "eval-viewer@posthog.com", "testtest")
+        self.editor_user = User.objects.create_and_join(self.organization, "eval-editor@posthog.com", "testtest")
+
+        self._grant(self.viewer_user, "viewer")
+        self._grant(self.editor_user, "editor")
 
     def _create_payload(self, name: str = "New Evaluation") -> dict:
         return {
@@ -2720,3 +2680,91 @@ class TestEvaluationsAccessControl(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/llm_analytics/models/?provider=openai")
 
         assert response.status_code == status.HTTP_200_OK
+
+
+class TestEvaluationsOverviewAccessControl(ClickhouseTestMixin, _EvaluationAccessControlCase):
+    def test_overview_hides_evaluations_the_user_cannot_see(self) -> None:
+        visible = self._create_evaluation("Visible", enabled=True)
+        hidden = self._create_evaluation("Hidden", enabled=True)
+        self._grant(self.no_access_user, "viewer", resource_id=str(visible.id))
+        for evaluation in (visible, hidden, hidden):
+            _create_event(
+                team=self.team,
+                event="$ai_evaluation",
+                distinct_id="user-1",
+                timestamp="2026-03-09T10:00:00Z",
+                properties={"$ai_evaluation_id": str(evaluation.id), "$ai_evaluation_result": True},
+            )
+        flush_persons_and_events()
+        url = (
+            f"/api/projects/{self.team.id}/evaluations/overview/?date_from=2026-03-08&date_to=2026-03-10"
+            f"&evaluation_ids={visible.id},{hidden.id}"
+        )
+        # A user who sees both evaluations fills the cache first, so a shared entry would leak their totals.
+        assert self.client.get(url).json()["totals"]["graded"] == 3
+        self.client.force_login(self.no_access_user)
+
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["name"] for row in response.json()["evaluations"]] == ["Visible"]
+        assert response.json()["totals"]["graded"] == 1
+
+    @parameterized.expand([("runs",), ("score_distribution",)])
+    def test_evaluation_reads_need_access_to_the_evaluation(self, endpoint: str) -> None:
+        hidden = self._create_evaluation("Hidden")
+        self.client.force_login(self.no_access_user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/evaluations/{hidden.id}/{endpoint}/")
+
+        assert response.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("period", "{id}/runs/?date_from=2026-03-10&date_to=2026-03-09", "date_from", "Must be before date_to."),
+            (
+                "period out of range",
+                "overview/?date_to=9999-12-31",
+                None,
+                "The period is outside the supported date range.",
+            ),
+            (
+                "outcome without a passing rule",
+                "{id}/runs/?outcome=failed",
+                "outcome",
+                "This evaluation has no passing rule, so its runs are neither passed nor failed.",
+            ),
+            (
+                "score distribution without bounds",
+                "{id}/score_distribution/",
+                None,
+                "Only a numeric evaluation with a minimum and a maximum score has a score distribution.",
+            ),
+        ]
+    )
+    def test_invalid_reads_return_400(self, _name: str, path: str, attr: str | None, detail: str) -> None:
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Score",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="numeric",
+            output_config={},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/evaluations/{path.format(id=evaluation.id)}")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (response.json()["attr"], response.json()["detail"]) == (attr, detail)
+
+
+class TestEvaluationsOverviewPeriod(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("date", {"date_from": "2026-03-10"}, True),
+            ("instant with offset", {"date_to": "2026-03-10T05:30:00+05:30"}, True),
+            ("not a date", {"date_from": "2026-13-01"}, False),
+        ]
+    )
+    def test_period_parsing(self, _name: str, data: dict[str, str], valid: bool) -> None:
+        assert EvaluationsOverviewPeriodSerializer(data=data).is_valid() is valid

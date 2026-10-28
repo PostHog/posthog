@@ -1,6 +1,6 @@
-import { act } from '@testing-library/react'
+import { act, fireEvent } from '@testing-library/react'
 
-import { mockRect, renderHogChart } from '../../testing'
+import { mockRect, renderChart } from '../../testing'
 import { Chart } from '../Chart'
 import type { ChartDrawArgs, ChartScales, ChartTheme, Series } from '../types'
 
@@ -16,8 +16,8 @@ const createScales = (): ChartScales => ({
     yTicks: () => [0, 50, 100],
 })
 
-function renderChart(drawStatic: (args: ChartDrawArgs) => void): HTMLCanvasElement {
-    const { chart } = renderHogChart(
+function renderCanvas(drawStatic: (args: ChartDrawArgs) => void): HTMLCanvasElement {
+    const { chart } = renderChart(
         <Chart
             series={SERIES}
             labels={LABELS}
@@ -53,7 +53,7 @@ describe('useChartCanvas', () => {
 
     it('keeps the last frame until the repaint resizes the backing store', () => {
         const drawStatic = jest.fn()
-        const canvas = renderChart(drawStatic)
+        const canvas = renderCanvas(drawStatic)
         const frames: FrameRequestCallback[] = []
         const rafSpy = jest.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((cb) => frames.push(cb))
         drawStatic.mockClear()
@@ -74,7 +74,7 @@ describe('useChartCanvas', () => {
 
     it('keeps the painted canvas when the wrapper collapses to zero size and comes back', () => {
         const drawStatic = jest.fn()
-        const canvas = renderChart(drawStatic)
+        const canvas = renderCanvas(drawStatic)
         drawStatic.mockClear()
 
         reportWrapperSize(0, 0)
@@ -86,7 +86,7 @@ describe('useChartCanvas', () => {
 
     it('repaints a context restored while the wrapper had zero size once the size comes back', () => {
         const drawStatic = jest.fn()
-        const canvas = renderChart(drawStatic)
+        const canvas = renderCanvas(drawStatic)
         drawStatic.mockClear()
 
         jest.mocked(Element.prototype.getBoundingClientRect).mockReturnValueOnce({ ...mockRect, width: 0, height: 0 })
@@ -99,9 +99,32 @@ describe('useChartCanvas', () => {
         expect(drawStatic).toHaveBeenCalled()
     })
 
+    it('holds a hover overlay bitmap only while the chart is hovered', () => {
+        const { chart } = renderChart(
+            <Chart
+                series={SERIES}
+                labels={LABELS}
+                theme={THEME}
+                createScales={createScales}
+                drawStatic={() => {}}
+                drawHover={() => true}
+            />
+        )
+        const overlay = chart.element.querySelector<HTMLCanvasElement>('canvas[aria-hidden="true"]')!
+        expect([overlay.width, overlay.height]).toEqual([0, 0])
+
+        chart.hoverAtIndex(1)
+        expect([overlay.width, overlay.height]).toEqual([mockRect.width, mockRect.height])
+
+        act(() => {
+            fireEvent.mouseLeave(chart.element)
+        })
+        expect([overlay.width, overlay.height]).toEqual([0, 0])
+    })
+
     it('repaints against a restored backing store after the 2D context is lost', () => {
         const drawStatic = jest.fn()
-        const canvas = renderChart(drawStatic)
+        const canvas = renderCanvas(drawStatic)
         expect(drawStatic).toHaveBeenCalled()
 
         drawStatic.mockClear()

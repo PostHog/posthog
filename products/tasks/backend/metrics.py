@@ -57,6 +57,20 @@ TASK_RUN_CREATED_TOTAL = Counter(
     ],
 )
 
+TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL = Counter(
+    "posthog_tasks_task_run_started_beside_live_run_total",
+    "Cloud TaskRuns started while another cloud run of the same task was still live",
+    labelnames=[
+        "origin_product",
+        "run_environment",
+        "mode",
+        "run_source",
+        "task_runtime",
+        "runtime_adapter",
+        "prewarmed",
+    ],
+)
+
 TASK_RUN_WORKFLOW_START_TOTAL = Counter(
     "posthog_tasks_task_run_workflow_start_total",
     "TaskRun workflow start lifecycle events",
@@ -449,6 +463,12 @@ DESKTOP_ACCESS_DECISIONS_TOTAL = Counter(
     labelnames=["outcome"],
 )
 
+DESKTOP_ACCESS_FLAG_UNRESOLVED_TOTAL = Counter(
+    "posthog_tasks_desktop_access_flag_unresolved_total",
+    "PostHog Desktop access flag evaluations that returned no boolean value",
+    labelnames=["flag"],
+)
+
 
 def observe_compute_quota_check(outcome: ComputeQuotaOutcome) -> None:
     COMPUTE_QUOTA_CHECK_TOTAL.labels(outcome=outcome).inc()
@@ -537,6 +557,10 @@ def _task_run_labels(task_run: "TaskRun | None") -> dict[str, str]:
 
 def observe_task_run_created(task_run: "TaskRun") -> None:
     TASK_RUN_CREATED_TOTAL.labels(**_task_run_labels(task_run)).inc()
+
+
+def observe_task_run_started_beside_live_run(task_run: "TaskRun") -> None:
+    TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL.labels(**_task_run_labels(task_run)).inc()
 
 
 def observe_sandbox_run_start(*, endpoint: str, outcome: str) -> None:
@@ -802,3 +826,7 @@ def observe_code_usage_gate_check(*, outcome: CodeUsageGateOutcome) -> None:
 
 def observe_desktop_access_decision(*, outcome: DesktopAccessOutcome) -> None:
     DESKTOP_ACCESS_DECISIONS_TOTAL.labels(outcome=outcome).inc()
+
+
+def observe_desktop_access_flag_unresolved(*, flag: str) -> None:
+    DESKTOP_ACCESS_FLAG_UNRESOLVED_TOTAL.labels(flag=flag).inc()

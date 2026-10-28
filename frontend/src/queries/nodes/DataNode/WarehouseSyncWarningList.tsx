@@ -7,7 +7,7 @@ import { trimRedundantTail } from './warehouseSyncWarnings'
 
 export function WarehouseSyncWarningList({ warnings }: { warnings: DataWarehouseSyncWarning[] }): JSX.Element {
     return (
-        <ul className="list-disc pl-5">
+        <ul className="list-disc pl-5 max-h-28 overflow-y-auto">
             {warnings.map((warning, index) => (
                 <li key={`${warning.table_name}-${warning.schema_name}-${index}`}>
                     <span>{trimRedundantTail(warning.message)}</span>

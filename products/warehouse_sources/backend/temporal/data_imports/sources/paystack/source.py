@@ -146,6 +146,6 @@ You can find your secret key (it starts with `sk_live_` or `sk_test_`) under **S
         return SourceResponse(
             name=resource.name,
             items=lambda: resource,
-            primary_keys=[PAYSTACK_ENDPOINTS[inputs.schema_name].primary_key],
+            primary_keys=PAYSTACK_ENDPOINTS[inputs.schema_name].primary_keys,
             column_hints=resource.column_hints,
         )

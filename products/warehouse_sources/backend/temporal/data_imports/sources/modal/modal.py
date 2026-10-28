@@ -2,14 +2,16 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit, urlunsplit
 
 import modal
 from google.protobuf.descriptor import EnumDescriptor
+from google.protobuf.empty_pb2 import Empty
 from grpclib import GRPCError, Status
 from modal._utils.async_utils import synchronizer
 from modal.client import _Client
 from modal.environments import list_environments
-from modal.exception import AuthError, PermissionDeniedError
+from modal.exception import AuthError, NotFoundError, PermissionDeniedError
 from modal_proto import api_pb2
 
 from posthog.dataclasses import frozen
@@ -17,6 +19,7 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.modal.settings import (
+    APP_DEPLOYMENTS,
     APPS,
     BILLING_REPORT_PARTITION_KEY,
     BILLING_REPORT_PRIMARY_KEYS,
@@ -24,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.modal.sett
     BILLING_SUMMARY,
     BILLING_SUMMARY_DEFAULT_CYCLES,
     SANDBOXES,
+    WORKSPACE_MEMBERS,
 )
 
 if TYPE_CHECKING:
@@ -99,8 +103,19 @@ async def _list_sandbox_page(
     return list(response.sandboxes)
 
 
+async def _get_deployment_history(client: _Client, app_id: str) -> api_pb2.AppDeploymentHistoryResponse:
+    return await client.stub.AppDeploymentHistory(api_pb2.AppDeploymentHistoryRequest(app_id=app_id))
+
+
+async def _list_workspace_members(client: _Client) -> list[api_pb2.WorkspaceMembersListItem]:
+    response = await client.stub.WorkspaceMembersList(Empty())
+    return list(response.members)
+
+
 _list_apps_blocking = synchronizer.create_blocking(_list_apps)
 _list_sandbox_page_blocking = synchronizer.create_blocking(_list_sandbox_page)
+_get_deployment_history_blocking = synchronizer.create_blocking(_get_deployment_history)
+_list_workspace_members_blocking = synchronizer.create_blocking(_list_workspace_members)
 
 
 def list_apps(client: modal.Client, environment_name: str) -> list[api_pb2.AppListResponse.AppListItem]:
@@ -111,6 +126,14 @@ def list_sandbox_page(
     client: modal.Client, app_id: str, environment_name: str, before_timestamp: float
 ) -> list[api_pb2.SandboxInfo]:
     return _list_sandbox_page_blocking(client, app_id, environment_name, before_timestamp)
+
+
+def get_deployment_history(client: modal.Client, app_id: str) -> api_pb2.AppDeploymentHistoryResponse:
+    return _get_deployment_history_blocking(client, app_id)
+
+
+def list_workspace_members(client: modal.Client) -> list[api_pb2.WorkspaceMembersListItem]:
+    return _list_workspace_members_blocking(client)
 
 
 @contextmanager
@@ -159,6 +182,10 @@ def modal_source(
         return apps_source(config, inputs, resumable_source_manager)
     if inputs.schema_name == SANDBOXES:
         return sandboxes_source(config, inputs, resumable_source_manager)
+    if inputs.schema_name == APP_DEPLOYMENTS:
+        return app_deployments_source(config, inputs, resumable_source_manager)
+    if inputs.schema_name == WORKSPACE_MEMBERS:
+        return workspace_members_source(config, inputs)
     return billing_report_source(config, inputs, resumable_source_manager)
 
 
@@ -395,4 +422,118 @@ def sandboxes_source(
         partition_keys=["created_at"],
         partition_mode="datetime",
         partition_format="month",
+    )
+
+
+# Apps in these states come from `modal run` or `modal serve`, which never deploy.
+UNDEPLOYED_APP_STATES = frozenset(
+    {
+        api_pb2.APP_STATE_EPHEMERAL,
+        api_pb2.APP_STATE_DETACHED,
+        api_pb2.APP_STATE_DETACHED_DISCONNECTED,
+    }
+)
+
+
+def strip_url_credentials(url: str) -> str:
+    # The SDK copies the Git origin verbatim, so an HTTPS origin can carry an access token.
+    parts = urlsplit(url)
+    if not parts.scheme or "@" not in parts.netloc:
+        return url
+    return urlunsplit(parts._replace(netloc=parts.netloc.rpartition("@")[2]))
+
+
+def deployment_row(
+    deployment: api_pb2.AppDeploymentHistory,
+    app: api_pb2.AppListResponse.AppListItem,
+    environment_name: str,
+    production_version: int,
+) -> dict[str, object]:
+    has_commit = deployment.HasField("commit_info")
+    commit = deployment.commit_info
+    return {
+        "app_id": app.app_id,
+        "app_name": app.name or None,
+        "environment_name": environment_name,
+        "version": deployment.version,
+        "is_production": deployment.version == production_version,
+        "deployed_at": from_epoch(deployment.deployed_at),
+        "deployed_by": deployment.deployed_by or None,
+        "client_version": deployment.client_version or None,
+        "tag": deployment.tag or None,
+        "deployment_type": enum_label(
+            api_pb2.DeploymentType.DESCRIPTOR, deployment.deployment_type, "DEPLOYMENT_TYPE_"
+        ),
+        "rollback_version": deployment.rollback_version or None,
+        "rollback_allowed": deployment.rollback_allowed,
+        "commit_hash": commit.commit_hash or None,
+        "commit_branch": commit.branch or None,
+        "commit_repo_url": strip_url_credentials(commit.repo_url) or None,
+        "commit_dirty": commit.dirty if has_commit else None,
+        "commit_author_name": commit.author_name or None,
+        "committed_at": from_epoch(commit.commit_timestamp),
+    }
+
+
+def app_deployments_source(
+    config: ModalSourceConfig,
+    inputs: SourceInputs,
+    resumable_source_manager: ResumableSourceManager[ModalResumeConfig],
+) -> SourceResponse:
+    def get_rows() -> Iterator[list[dict[str, object]]]:
+        with billing_client(config) as client:
+            for environment in list_environments(client=client):
+                for app in list_apps(client, environment.name):
+                    if app.state in UNDEPLOYED_APP_STATES:
+                        continue
+                    try:
+                        history = get_deployment_history(client, app.app_id)
+                    except NotFoundError:
+                        # The App can be deleted after the listing.
+                        history = None
+                    if history and history.app_deployment_histories:
+                        yield [
+                            deployment_row(deployment, app, environment.name, history.production_app_version)
+                            for deployment in history.app_deployment_histories
+                        ]
+                    resumable_source_manager.safe_point()
+
+    return SourceResponse(
+        name=inputs.schema_name,
+        items=get_rows,
+        primary_keys=["app_id", "version"],
+        column_hints={"deployed_at": "timestamp", "committed_at": "timestamp"},
+        partition_keys=["deployed_at"],
+        partition_mode="datetime",
+        partition_format="month",
+    )
+
+
+def member_row(member: api_pb2.WorkspaceMembersListItem) -> dict[str, object]:
+    return {
+        "user_id": member.user_id,
+        "name": member.member_displayname or None,
+        "email": member.email or None,
+        "role": enum_label(api_pb2.MemberRole.DESCRIPTOR, member.member_role, "MEMBER_ROLE_"),
+        "identity_provider": enum_label(
+            api_pb2.IdentityProviderType.DESCRIPTOR, member.identity_provider_type, "IDENTITY_PROVIDER_TYPE_"
+        ),
+        "joined_at": from_epoch(member.joined_at),
+        "last_active_at": from_epoch(member.last_active_at),
+        "deleted_at": from_epoch(member.deleted_at),
+    }
+
+
+def workspace_members_source(config: ModalSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_rows() -> Iterator[list[dict[str, object]]]:
+        with billing_client(config) as client:
+            members = list_workspace_members(client)
+        if members:
+            yield [member_row(member) for member in members]
+
+    return SourceResponse(
+        name=inputs.schema_name,
+        items=get_rows,
+        primary_keys=["user_id"],
+        column_hints={"joined_at": "timestamp", "last_active_at": "timestamp", "deleted_at": "timestamp"},
     )

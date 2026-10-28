@@ -16,7 +16,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { IntegrationType, PreflightStatus, TeamPublicType, TeamType } from '../../types'
-import type { AvailableFeature, OrganizationType } from '../../types'
+import type { AvailableFeature, OrganizationType, UserType } from '../../types'
 import { matchesFlagDefinition } from './flagGating'
 import { ADMIN_ONLY_SECTION_IDS, findUnavailableSection } from './sectionGating'
 import { SETTINGS_MAP } from './SettingsMap'
@@ -91,6 +91,7 @@ export interface settingsLogicValues {
     preflight: PreflightStatus | null // preflightLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    user: UserType | null // userLogic
     collapsedGroups: Record<string, boolean>
     collapsedLevels: Record<SettingLevelId, boolean>
     defaultSectionId: SettingSectionId | null
@@ -177,7 +178,8 @@ export interface settingsLogicMeta {
             preflight: PreflightStatus | null,
             billingEntryUrl: string | null,
             isAdminOrOwner: boolean | null,
-            featureFlags: FeatureFlagsSet
+            featureFlags: FeatureFlagsSet,
+            user: UserType | null
         ) => SettingSection[]
         selectedLevel: (
             selectedLevelRaw: 'environment' | 'organization' | 'project' | 'user',
@@ -210,7 +212,8 @@ export interface settingsLogicMeta {
             doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
             preflight: PreflightStatus | null,
             currentTeam: TeamPublicType | TeamType | null,
-            isAdminOrOwner: boolean | null
+            isAdminOrOwner: boolean | null,
+            user: UserType | null
         ) => Setting[]
         selectedSetting: (settings: Setting[], selectedSettingId: SettingId | null) => Setting | null
         doesMatchFlags: (featureFlags: FeatureFlagsSet) => (flagDefinition: Pick<Setting, 'flag'>) => boolean
@@ -222,7 +225,8 @@ export interface settingsLogicMeta {
             doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
             preflight: PreflightStatus | null,
             currentTeam: TeamPublicType | TeamType | null,
-            isAdminOrOwner: boolean | null
+            isAdminOrOwner: boolean | null,
+            user: UserType | null
         ) => GlobalSearchFuse
         searchResults: (searchTerm: string, globalSearchIndex: GlobalSearchFuse) => SearchResultGroup[]
         filteredLevels: (
@@ -264,7 +268,7 @@ export const settingsLogic = kea<settingsLogicType>([
             featureFlagLogic,
             ['featureFlags', 'receivedFeatureFlags'],
             userLogic,
-            ['hasAvailableFeature'],
+            ['hasAvailableFeature', 'user'],
             preflightLogic,
             ['preflight', 'isCloudOrDev'],
             teamLogic,
@@ -454,6 +458,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 s.billingEntryUrl,
                 s.isAdminOrOwner,
                 s.featureFlags,
+                s.user,
             ],
             (
                 doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
@@ -464,7 +469,8 @@ export const settingsLogic = kea<settingsLogicType>([
                 preflight: null | import('../../types').PreflightStatus,
                 billingEntryUrl: string | null,
                 isAdminOrOwner: boolean | null,
-                featureFlags: FeatureFlagsSet
+                featureFlags: FeatureFlagsSet,
+                user: UserType | null
             ): SettingSection[] => {
                 const isSettingVisible = (setting: Setting): boolean => {
                     if (!doesMatchFlags(setting)) {
@@ -477,6 +483,9 @@ export const settingsLogic = kea<settingsLogicType>([
                         return false
                     }
                     if (setting.organizationAdminOnly && !isAdminOrOwner) {
+                        return false
+                    }
+                    if (setting.staffOnly && !user?.is_staff) {
                         return false
                     }
                     return true
@@ -627,6 +636,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 s.preflight,
                 s.currentTeam,
                 s.isAdminOrOwner,
+                s.user,
             ],
             (
                 selectedLevel: SettingLevelId,
@@ -636,7 +646,8 @@ export const settingsLogic = kea<settingsLogicType>([
                 doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
                 preflight: null | import('../../types').PreflightStatus,
                 currentTeam: null | import('../../types').TeamPublicType | import('../../types').TeamType,
-                isAdminOrOwner: boolean | null
+                isAdminOrOwner: boolean | null,
+                user: UserType | null
             ): Setting[] => {
                 const effectiveSectionId = selectedSectionId ?? defaultSectionId
 
@@ -661,6 +672,9 @@ export const settingsLogic = kea<settingsLogicType>([
                         return false
                     }
                     if (x.organizationAdminOnly && !isAdminOrOwner) {
+                        return false
+                    }
+                    if (x.staffOnly && !user?.is_staff) {
                         return false
                     }
                     if (x.allowForTeam) {
@@ -718,13 +732,14 @@ export const settingsLogic = kea<settingsLogicType>([
         isSearching: [(s) => [s.searchTerm], (searchTerm: string): boolean => searchTerm.trim().length > 0],
 
         globalSearchIndex: [
-            (s) => [s.sections, s.doesMatchFlags, s.preflight, s.currentTeam, s.isAdminOrOwner],
+            (s) => [s.sections, s.doesMatchFlags, s.preflight, s.currentTeam, s.isAdminOrOwner, s.user],
             (
                 sections: SettingSection[],
                 doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
                 preflight: null | import('../../types').PreflightStatus,
                 currentTeam: null | import('../../types').TeamPublicType | import('../../types').TeamType,
-                isAdminOrOwner: boolean | null
+                isAdminOrOwner: boolean | null,
+                user: UserType | null
             ): GlobalSearchFuse => {
                 const isSettingVisible = (setting: Setting): boolean => {
                     if (!doesMatchFlags(setting)) {
@@ -734,6 +749,9 @@ export const settingsLogic = kea<settingsLogicType>([
                         return false
                     }
                     if (setting.organizationAdminOnly && !isAdminOrOwner) {
+                        return false
+                    }
+                    if (setting.staffOnly && !user?.is_staff) {
                         return false
                     }
                     return !setting.allowForTeam || setting.allowForTeam(currentTeam)

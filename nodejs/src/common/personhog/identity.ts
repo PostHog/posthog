@@ -84,6 +84,8 @@ export interface MergeSagaRequest {
 export const SEMANTIC_REFUSAL_METADATA_KEY = 'x-semantic-refusal'
 /** The op id belongs to a different recorded merge; refused before any durable work. */
 export const SEMANTIC_REFUSAL_OP_ID_REUSED = 'op_id_reused'
+/** Metadata key on a refusal made before the request reached the service; the value is a reason slug. */
+export const NOT_APPLIED_METADATA_KEY = 'x-not-applied'
 
 /** Only a created person carries a document; a found one is identity only, the leader owns its properties. */
 export type GetOrCreatePersonOutcome =

@@ -32,6 +32,7 @@ import type {
 import {
     isActionsNode,
     isEventsNode,
+    isFunnelsQuery,
     isGroupNode,
     isInsightQueryWithSeries,
     isInsightVizNode,
@@ -44,6 +45,7 @@ import { insightsDataChecksCreate } from 'products/product_analytics/frontend/ge
 import type {
     InsightDataCheckApi,
     InsightDataCheckKeyEnumApi,
+    InsightDataCheckSkipReasonEnumApi,
     InsightDataChecksApi,
     InsightDataChecksRequestApi,
     InsightDataChecksStatusEnumApi,
@@ -110,6 +112,7 @@ export interface insightDataChecksLogicValues {
     sidePanelOpen: boolean // sidePanelStateLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamLoading: boolean // teamLogic
+    canRunFullCheck: boolean
     checkAgainRequested: boolean
     checkedQuery: DataChecksQuery | null
     checks: InsightDataCheckApi[]
@@ -118,6 +121,7 @@ export interface insightDataChecksLogicValues {
     filterRemovesBots: boolean
     filtersTestAccounts: boolean
     findings: InsightDataCheckApi[]
+    fullCheckQuery: DataChecksQuery | null
     labelHeldOpen: boolean
     labelOpen: boolean
     lastResult: InsightDataChecksApi | null
@@ -258,6 +262,9 @@ export interface insightDataChecksLogicActions {
     reportDataChecksViewed: () => {
         value: true
     }
+    runFullCheck: (query: DataChecksQuery) => {
+        query: DataChecksQuery
+    }
     setFiltersTestAccounts: (
         filtersTestAccounts: boolean,
         check: InsightDataCheckKeyEnumApi
@@ -294,6 +301,12 @@ export interface insightDataChecksLogicMeta {
         queryFiltersTestAccounts: (checkedQuery: DataChecksQuery | null) => boolean
         checks: (result: InsightDataChecksApi | null) => InsightDataCheckApi[]
         findings: (checks: InsightDataCheckApi[]) => InsightDataCheckApi[]
+        canRunFullCheck: (
+            status: InsightDataChecksStatus,
+            checks: InsightDataCheckApi[],
+            checkedQuery: DataChecksQuery | null,
+            fullCheckQuery: DataChecksQuery | null
+        ) => boolean
         labelOpen: (status: InsightDataChecksStatus, labelHeldOpen: boolean) => boolean
     }
 }
@@ -306,9 +319,10 @@ export type insightDataChecksLogicType = MakeLogicType<
 >
 
 const FORCED_REFRESHES: (RefreshType | undefined)[] = ['force_async', 'force_blocking']
-// The checks run up to four queries of 20 seconds each, after a wait for server slots.
+// A full check stops its queries after 60 seconds on the server, which leaves the rest for a wait for server slots.
 const DATA_CHECKS_TIMEOUT_MS = 120_000
 const LABEL_OPEN_MS = 2500
+const CHECK_DELAY_MS = 500
 const YIELDED_TO_CHART = 'yielded to chart'
 
 function isEventsOrActionsNode(node: Node): boolean {
@@ -317,6 +331,13 @@ function isEventsOrActionsNode(node: Node): boolean {
 
 function readsEvents(series: Node): boolean {
     return isEventsOrActionsNode(series) || (isGroupNode(series) && series.nodes.every(isEventsOrActionsNode))
+}
+
+// A full check lifts these limits. It still does not count a day with too many events, so that reason is not here.
+const LIMIT_SKIP_REASONS: (InsightDataCheckSkipReasonEnumApi | null)[] = ['read_limit', 'time_limit', 'memory_limit']
+
+function stoppedAtALimit(skipReason: InsightDataCheckSkipReasonEnumApi | null): boolean {
+    return LIMIT_SKIP_REASONS.includes(skipReason)
 }
 
 export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = kea<insightDataChecksLogicType>([
@@ -365,8 +386,9 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
         }),
         reportCheckExpanded: (check: InsightDataCheckApi) => ({ check }),
         reportDataChecksViewed: true,
+        runFullCheck: (query: DataChecksQuery) => ({ query }),
     }),
-    loaders(({ cache }) => ({
+    loaders(({ cache, values }) => ({
         dataChecksRun: [
             null as DataChecksRun | null,
             {
@@ -395,6 +417,7 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                                         {
                                             query,
                                             client_query_id: clientQueryId,
+                                            depth: values.fullCheckQuery === query ? 'full' : 'quick',
                                         } as unknown as InsightDataChecksRequestApi,
                                         undefined,
                                         { signal: abortController.signal }
@@ -424,6 +447,13 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             null as DataChecksQuery | null,
             {
                 loadDataChecks: (_, query) => query,
+            },
+        ],
+        // A person asks for each query, so a changed query gets a quick check again.
+        fullCheckQuery: [
+            null as DataChecksQuery | null,
+            {
+                runFullCheck: (_, { query }) => query,
             },
         ],
         // A person can refresh the chart during a run. That run is for the events as they were before.
@@ -471,7 +501,13 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                     return null
                 }
                 const source = query.source
-                if (!isInsightQueryWithSeries(source) || !source.series.length || !source.series.every(readsEvents)) {
+                // A funnel with one step runs no query, and the server rejects it.
+                const minSeries = isFunnelsQuery(source) ? 2 : 1
+                if (
+                    !isInsightQueryWithSeries(source) ||
+                    source.series.length < minSeries ||
+                    !source.series.every(readsEvents)
+                ) {
                     return null
                 }
                 return { kind: NodeKind.InsightVizNode, source }
@@ -526,6 +562,18 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             (s) => [s.checks],
             (checks: InsightDataCheckApi[]): InsightDataCheckApi[] => checks.filter(isFinding),
         ],
+        canRunFullCheck: [
+            (s) => [s.status, s.checks, s.checkedQuery, s.fullCheckQuery],
+            (
+                status: InsightDataChecksStatus,
+                checks: InsightDataCheckApi[],
+                checkedQuery: DataChecksQuery | null,
+                fullCheckQuery: DataChecksQuery | null
+            ): boolean =>
+                checkedQuery !== null &&
+                checkedQuery !== fullCheckQuery &&
+                (status === 'on_request' || checks.some((check) => stoppedAtALimit(check.skip_reason))),
+        ],
         labelOpen: [
             (s) => [s.status, s.labelHeldOpen],
             // A finding keeps its label, because the icon alone does not say what the person needs to look at.
@@ -536,10 +584,12 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
     listeners(({ actions, values, cache }) => ({
         // The chart can load more than once for one query, and the answer for that query is already on its way.
         // One run at a time: a run for an older query keeps its queries on the server until it ends.
-        checkData: () => {
+        // The chart starts to load on the render after its query changes, so a check that starts at once gives way to it.
+        checkData: async (_, breakpoint) => {
+            await breakpoint(CHECK_DELAY_MS)
             const query = values.checkedQuery
             const isWanted = values.checkAgainRequested || query !== values.requestedQuery
-            if (query && isWanted && !values.dataChecksRunLoading) {
+            if (query && isWanted && !values.dataChecksRunLoading && !values.insightDataLoading) {
                 actions.loadDataChecks(query)
             }
         },
@@ -557,17 +607,13 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                     ? dataChecksRun.result.checks.filter(isFinding).map((check) => check.key)
                     : [],
             })
-            if (!values.insightDataLoading) {
-                actions.checkData()
-            }
+            actions.checkData()
             await breakpoint(LABEL_OPEN_MS)
             actions.closeLabel()
         },
         // The flags can arrive after the chart has loaded.
         setFeatureFlags: () => {
-            if (!values.insightDataLoading) {
-                actions.checkData()
-            }
+            actions.checkData()
         },
         // The queue has one slot, so a check in flight would hold back the chart. The check runs again after the chart.
         loadData: ({ pollOnly }) => {
@@ -579,6 +625,13 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
         // A person refreshes the chart after a fix in the project's filter, which leaves the query as it was.
         loadDataSuccess: ({ payload }) => {
             actions.checkData(FORCED_REFRESHES.includes(payload?.refresh))
+        },
+        runFullCheck: ({ query }) => {
+            // pinned: analytics event name, renaming breaks dashboards
+            posthog.capture('insight data checks full check requested', { status: values.status })
+            if (!values.dataChecksRunLoading) {
+                actions.loadDataChecks(query)
+            }
         },
         setFiltersTestAccounts: ({ filtersTestAccounts, check }) => {
             actions.updateQuerySource({ filterTestAccounts: filtersTestAccounts })
@@ -654,11 +707,9 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
     })),
     // Also on mount, because the chart can finish loading before this logic mounts. A change such as the chart
     // type can reuse the chart's result, so no chart load follows it.
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions }) => ({
         checkedQuery: () => {
-            if (!values.insightDataLoading) {
-                actions.checkData()
-            }
+            actions.checkData()
         },
     })),
 ])

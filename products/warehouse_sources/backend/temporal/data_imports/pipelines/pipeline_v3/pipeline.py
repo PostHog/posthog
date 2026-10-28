@@ -2,6 +2,7 @@ import time
 import asyncio
 import decimal
 import datetime
+import functools
 import contextlib
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import TYPE_CHECKING, Any, Generic
@@ -34,7 +35,10 @@ from products.warehouse_sources.backend.temporal.data_imports.import_attempt imp
     current_import_attempt,
     current_import_attempt_cause,
 )
-from products.warehouse_sources.backend.temporal.data_imports.metrics import get_shutdown_handoff_delay_metric
+from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+    get_import_finished_during_shutdown_metric,
+    get_shutdown_handoff_delay_metric,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     cleanup_memory,
     commit_source_cursor,
@@ -59,6 +63,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.p
     SourcePreemptedError,
     SourcePreemptor,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.ride_out import (
+    DurableProgress,
+    HandoffGate,
+    RideOutConfig,
+    activity_execution_age_seconds,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.safe_point import (
     PipelineSafePointHandler,
     framework_cursor_covers_buffered_rows,
@@ -67,6 +77,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.s
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     _append_debug_column_to_pyarrows_table,
     _handle_null_columns_with_definitions,
+    drop_internal_columns,
     evolve_pyarrow_schema,
     merge_observed_columns_into_schema_metadata,
     normalize_column_name,
@@ -188,6 +199,12 @@ class PipelineV3(Generic[ResumableData]):
     # None when the pipeline waits for the source for as long as the source takes.
     _preemption: PreemptionConfig | None = None
     _shutdown_stopwatch: ShutdownStopwatch | None = None
+    # None when an import without durable progress hands off at once, as it always did.
+    _ride_out: RideOutConfig | None = None
+    _progress: DurableProgress | None = None
+    _handoff_gate: HandoffGate | None = None
+    # The grace of the run's `ShutdownMonitor`. The age checks of a hand-off leave it out.
+    _shutdown_grace_seconds: float = 0.0
     _resumed_incremental_run_uuid: str | None = None
     _sent_resumed_run_finalization: bool = False
     _writes_staged_repartition_scheme: bool = False
@@ -214,9 +231,17 @@ class PipelineV3(Generic[ResumableData]):
         resumed_incremental_value: Any = None,
         preemption: PreemptionConfig | None = None,
         kept_rows_synced: int | None = None,
+        continued_workflow_run_id: str | None = None,
+        continued_job_ids: tuple[str, ...] = (),
+        ride_out: RideOutConfig | None = None,
+        progress: DurableProgress | None = None,
+        shutdown_grace_seconds: float = 0.0,
     ) -> None:
         self._resource = source_response
         self._kept_rows_synced = kept_rows_synced
+        self._ride_out = ride_out
+        self._progress = progress
+        self._shutdown_grace_seconds = shutdown_grace_seconds
         self._source_cursor_manager = source_cursor_manager
         self._resource_name = source_response.name
 
@@ -370,6 +395,7 @@ class PipelineV3(Generic[ResumableData]):
             "partition_format": partition_format,
             "partition_mode": partition_mode,
             "is_first_ever_sync": is_first_ever_sync,
+            "continued_job_ids": list(continued_job_ids),
         }
         self._pg_producer = self._build_producer(
             self._s3_batch_writer, resource_name=self._resource_name, cdc_write_mode=self._resource.cdc_write_mode
@@ -407,9 +433,13 @@ class PipelineV3(Generic[ResumableData]):
             # value of the earlier attempts of this run. Without their newest value, the run promotes the
             # largest value of its own rows as the watermark, and the next run reads every newer row again.
             # `models.schema` is loaded when this attempt starts, so it holds what the earlier attempts staged.
-            self._last_incremental_field_value = staged_run_last_value(
-                models.schema.sync_type_config or {}, self._job.workflow_run_id
-            )
+            staged_config = models.schema.sync_type_config or {}
+            self._last_incremental_field_value = staged_run_last_value(staged_config, self._job.workflow_run_id)
+            if self._last_incremental_field_value is None and continued_workflow_run_id is not None:
+                # The first attempt of a job that continues the cursor of an interrupted job has the same
+                # gap: the interrupted run read the newest rows. A later attempt of this run staged that
+                # value again, so the lookup above finds it.
+                self._last_incremental_field_value = staged_run_last_value(staged_config, continued_workflow_run_id)
             if self._last_incremental_field_value is None and self._schema.should_use_incremental_field:
                 self._logger.warning(
                     "V3 Pipeline: Resumed non-ascending extract found no staged last value of this run",
@@ -632,17 +662,19 @@ class PipelineV3(Generic[ResumableData]):
         scope = contextlib.ExitStack()
         if self._resumable_source_manager is not None:
             handler = PipelineSafePointHandler(
-                shutdown_monitor=self._shutdown_monitor,
+                raise_if_should_hand_off=self._open_handoff_gate().raise_if_should_hand_off,
                 resumable_source_manager=self._resumable_source_manager,
                 has_unwritten_rows=lambda: (
                     self._batcher.should_yield(include_incomplete_chunk=True) or self._pg_producer.has_held_batch
                 ),
             )
+            # The gate, not the raw signal: a source wait that ended early during a ride-out would
+            # skip every backoff and Retry-After for as long as the gate keeps the run here.
             scope.enter_context(
                 activate_safe_point(
                     handler,
                     covers_framework_checkpoints=source_items_are_framework_output(items),
-                    is_shutting_down=self._shutdown_monitor.is_worker_shutdown,
+                    is_shutting_down=self._open_handoff_gate().should_hand_off_now,
                 )
             )
         return scope
@@ -661,18 +693,55 @@ class PipelineV3(Generic[ResumableData]):
         carry_over_enabled = self._preemption is not None and self._preemption.watermark_carry_over_enabled
         if checkpoint is not None and not checkpoint.is_void and carry_over_enabled:
             return PreemptionDecision(eligible=True, reason="watermark_carry_over")
-        if is_young_first_attempt():
+        if is_young_first_attempt(self._shutdown_grace_seconds):
             return PreemptionDecision(eligible=True, reason="young_first_attempt")
         if checkpoint is not None and not checkpoint.is_void:
-            return PreemptionDecision(eligible=False, reason="watermark_carry_over_disabled")
+            return PreemptionDecision(
+                eligible=False, reason="watermark_carry_over_disabled", restarts_from_scratch=True
+            )
         if self._schema.should_use_incremental_field:
-            return PreemptionDecision(eligible=False, reason="no_watermark_carry_over")
-        return PreemptionDecision(eligible=False, reason="non_resumable_full_refresh")
+            return PreemptionDecision(eligible=False, reason="no_watermark_carry_over", restarts_from_scratch=True)
+        return PreemptionDecision(eligible=False, reason="non_resumable_full_refresh", restarts_from_scratch=True)
 
     async def _fence_abandoned_source(self) -> bool:
         if self._source_resume_manager is None:
             return True
         return await asyncio.to_thread(self._source_resume_manager.revoke_writes, SOURCE_FENCE_TIMEOUT_SECONDS)
+
+    def _open_handoff_gate(self) -> HandoffGate:
+        """Build the gate once per run, from the monitor and stopwatch the run has at that point."""
+        if self._handoff_gate is not None:
+            return self._handoff_gate
+        if self._progress is None:
+            self._progress = DurableProgress()
+        if self._shutdown_stopwatch is None:
+            self._shutdown_stopwatch = ShutdownStopwatch(self._shutdown_monitor)
+        progress = self._progress
+        if self._resumable_source_manager is not None:
+            self._resumable_source_manager.on_commit(lambda: progress.mark("resume_commit"))
+        self._handoff_gate = HandoffGate(
+            shutdown_monitor=self._shutdown_monitor,
+            stopwatch=self._shutdown_stopwatch,
+            progress=progress,
+            # A hand-off retires a laned run's companion jobs, so that run keeps the legacy rule.
+            config=None if self._resource.lanes else self._ride_out,
+            legacy_wants_handoff=lambda: should_check_shutdown(
+                self._schema,
+                self._resource,
+                self._reset_pipeline,
+                self._resumable_source_manager is not None,
+                shutdown_grace_seconds=self._shutdown_grace_seconds,
+            ),
+            restarts_from_scratch=self._restarts_from_scratch,
+            logger=self._logger,
+            execution_age_seconds=functools.partial(
+                activity_execution_age_seconds, shutdown_grace_seconds=self._shutdown_grace_seconds
+            ),
+        )
+        return self._handoff_gate
+
+    def _restarts_from_scratch(self) -> bool:
+        return self._preemption_decision().restarts_from_scratch
 
     def _source_items(self, items: Any, source_type: str) -> AsyncIterator[Any]:
         if self._preemption is None or self._shutdown_stopwatch is None:
@@ -685,6 +754,7 @@ class PipelineV3(Generic[ResumableData]):
             fence_source=self._fence_abandoned_source,
             source_type=source_type,
             logger=self._logger,
+            gate=self._open_handoff_gate(),
         ).iterate(items)
 
     def _record_handoff_delay(self, error: WorkerShuttingDownError, source_type: str) -> None:
@@ -693,7 +763,8 @@ class PipelineV3(Generic[ResumableData]):
         delay = self._shutdown_stopwatch.elapsed_seconds()
         if delay is not None:
             mode = "preempted" if isinstance(error, SourcePreemptedError) else "cooperative"
-            get_shutdown_handoff_delay_metric(source_type, mode).record(delay)
+            reason = (self._progress.handoff_reason if self._progress is not None else None) or "unknown"
+            get_shutdown_handoff_delay_metric(source_type, mode, reason).record(delay)
 
     async def _commit_resume_state(self) -> None:
         if self._resumable_source_manager is None:
@@ -741,6 +812,9 @@ class PipelineV3(Generic[ResumableData]):
         )
         self._staged_handoff_resume_value = resume_value
         self._staged_handoff_resume_owner = owner_run_uuid
+        # A value inherited from an earlier attempt, or a void one, is not progress of this execution.
+        if resume_value is not None and self._queued_own_batch and self._progress is not None:
+            self._progress.mark("carry_over_staged")
 
     async def _advance_handoff_checkpoint(self, pa_table: pa.Table) -> None:
         if self._handoff_checkpoint is None:
@@ -762,6 +836,7 @@ class PipelineV3(Generic[ResumableData]):
         )
         should_resume = resumes_source_cursor or self._continues_incremental_handoff
         source_is_resumable = self._resumable_source_manager is not None
+        handoff_gate = self._open_handoff_gate()
 
         if resumes_source_cursor:
             await self._logger.ainfo("V3 Pipeline: Resumable source detected - attempting to resume previous import")
@@ -966,7 +1041,7 @@ class PipelineV3(Generic[ResumableData]):
                     if wrote_chunk:
                         await self._commit_resume_state()
 
-                    if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
+                    if handoff_gate.may_hand_off():
                         if self._shutdown_monitor.is_worker_shutdown() and (
                             self._handoff_checkpoint is not None
                             or (source_is_resumable and framework_cursor_covers_buffered_rows(items))
@@ -1016,6 +1091,14 @@ class PipelineV3(Generic[ResumableData]):
                 await self._stage_empty_replace_scope_batch(self._replace_scope_ref)
                 chunk_index += 1
             await self._finalize(row_count=row_count)
+
+            # The signal, not the monitor: an import that finished inside the shutdown grace counts too.
+            if activity.in_activity() and activity.is_worker_shutdown():
+                get_import_finished_during_shutdown_metric(
+                    source_type,
+                    handoff_gate.rode_out,
+                    within_grace=not self._shutdown_monitor.is_worker_shutdown(),
+                ).add(1)
 
             # With zero batches, `_finalize` sent no final-batch notification, so the load
             # consumer will never hear about this run and cannot finalize it — the workflow must.
@@ -1079,7 +1162,7 @@ class PipelineV3(Generic[ResumableData]):
             cleanup_memory(pa_memory_pool, py_table if "py_table" in locals() else None)
 
     async def _process_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> None:
-        pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
+        pa_table = _append_debug_column_to_pyarrows_table(drop_internal_columns(pa_table), self._load_id)
         if not self._resource.preserve_column_names:
             pa_table = normalize_table_column_names(pa_table)
 

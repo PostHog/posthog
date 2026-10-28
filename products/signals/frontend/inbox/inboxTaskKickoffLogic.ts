@@ -46,6 +46,7 @@ import {
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import { InboxReportActionType, captureInboxReportActionCompleted } from './inboxAnalytics'
+import { reportGithubAccessLogic } from './logics/reportGithubAccessLogic'
 import {
     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
@@ -136,7 +137,7 @@ const REPORT_STATE_INSTRUCTIONS = `Keep the report's own state honest while you 
 - Read the report before you start. This run took the report when its task was created, but a rerun of a run that released it starts unclaimed: claim it again first, so the work you are about to do is visible to everyone else.
 - Opening the PR is enough by itself. The PR is linked to the report for you, and merging it resolves the report. Do NOT set the state to resolved because you opened a PR: that closes the PR you just opened.
 - If the work is finished without a PR, set the state to resolved with the reason that fits (\`fixed_outside_posthog\`, \`pr_merged\`, or \`already_fixed\`) and a short note that says what you did.
-- If the report holds no work to do, set the state to suppressed with the reason that says why (\`report_unclear\`, \`analysis_wrong\`, \`wrong_repo\` with \`corrected_repository\`, \`wontfix_intentional\`, \`wontfix_irrelevant\`, or \`other\`) and a short note, then release your claim: suppressing does not release it for you.
+- If the report holds no work to do, set the state to suppressed with the reason that says why (\`report_unclear\`, \`analysis_wrong\`, \`wrong_repo\` with \`corrected_repository\`, \`wontfix_intentional\`, \`wontfix_irrelevant\`, or \`other\`) and a short note, then release your claim: suppressing does not release it for you. A report sent to the wrong person still holds work, so do not suppress it for that reason.
 - If you stop for any other reason, release your claim on the report, so it does not look like work is still in flight.`
 
 export function buildCreatePrReportPrompt(report: SignalReport, feedback?: string): string {
@@ -968,13 +969,19 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         createPrFromReport: async ({ report, feedback }) => {
-            if (values.createPrDisabledReason) {
-                lemonToast.error(values.createPrDisabledReason)
+            const disabledReason =
+                values.createPrDisabledReason ??
+                (
+                    reportGithubAccessLogic.findMounted({ report, surface: 'triage_mode' }) ??
+                    reportGithubAccessLogic.findMounted({ report })
+                )?.values.disabledReason
+            if (disabledReason) {
+                lemonToast.error(disabledReason)
                 captureInboxReportActionCompleted({
                     report,
                     actionType: 'create_pr',
                     outcome: 'blocked',
-                    blockedReason: values.createPrDisabledReason,
+                    blockedReason: disabledReason,
                 })
                 actions.createPrFailure()
                 return

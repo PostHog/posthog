@@ -21,6 +21,11 @@ from posthog.enums import LabeledStrEnum
 ERROR_TRACKING_ISSUE_SEVERITIES = ("low", "medium", "high", "critical")
 
 
+class BuiltInFilterEvaluation(LabeledStrEnum):
+    CLIENT = "client"
+    SERVER = "server"
+
+
 class IssueTrendDirection(LabeledStrEnum):
     NEW = "new"
     INCREASING = "increasing"
@@ -171,6 +176,7 @@ class ErrorTrackingSettings:
     project_rate_limit_bucket_size_minutes: int | None
     per_issue_rate_limit_value: int | None
     per_issue_rate_limit_bucket_size_minutes: int | None
+    ingestion_enabled: bool
 
 
 @dataclass(frozen=True)
@@ -296,6 +302,16 @@ class ErrorTrackingSuppressionRule:
 
 
 @dataclass(frozen=True)
+class ErrorTrackingBuiltInFilter:
+    key: str
+    name: str
+    description: str
+    evaluation: BuiltInFilterEvaluation
+    enabled: bool
+    disabled_reason: str | None
+
+
+@dataclass(frozen=True)
 class ErrorTrackingBypassRule:
     id: UUID
     filters: dict
@@ -312,6 +328,7 @@ class ErrorTrackingIssueBasics:
     description: str | None
     status: str
     severity: str | None
+    created_at: datetime
     # Earliest across all fingerprints, merged ones included.
     first_seen: datetime | None
 
@@ -454,3 +471,5 @@ class ErrorTrackingIssueSummary:
     category: IssueSummaryCategory | None
     model: str
     generated_at: datetime
+    # When the summary was last generated or confirmed unchanged. The 24h regenerate interval runs from it.
+    checked_at: datetime

@@ -1,10 +1,14 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # UptimeRobot v2 caps `limit` at 50 on every paginated list endpoint.
 PAGE_LIMIT = 50
+# v3 list endpoints that take `limit` cap it at 200.
+V3_PAGE_LIMIT = 200
 
 # UptimeRobot rejects response-time windows wider than 7 days, so history is walked in 7-day chunks.
 RESPONSE_TIMES_WINDOW_DAYS = 7
@@ -25,14 +29,18 @@ def _datetime_incremental_fields() -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@frozen
 class UptimeRobotEndpointConfig:
     name: str
     # v2 API method (e.g. "getMonitors"). Every v2 call is a form-encoded POST with the api_key in
-    # the body — there are no plain GET endpoints.
+    # the body — there are no plain GET endpoints. For v3 endpoints this is the REST path (e.g. "/tags").
     method: str
     # Key in the response JSON holding the row list ("monitors", "alert_contacts", "mwindows", "psps").
     response_key: str
+    # Some tables only exist on the v3 REST API: a bearer-authenticated GET with cursor pagination.
+    api_version: Literal["v2", "v3"] = "v2"
+    # v3 only: whether the endpoint accepts a `limit` page-size param.
+    v3_accepts_limit: bool = False
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Stable datetime-ish field to partition by (Unix epoch int). None disables partitioning.
     partition_key: Optional[str] = None
@@ -105,6 +113,30 @@ UPTIMEROBOT_ENDPOINTS: dict[str, UptimeRobotEndpointConfig] = {
         name="status_pages",
         method="getPSPs",
         response_key="psps",
+    ),
+    # Incidents change after they start (an open incident gets a resolvedAt and duration later), and
+    # the only server-side filter is on startedAt, so an incremental sync would never pick up the
+    # resolution. Full refresh every run.
+    "incidents": UptimeRobotEndpointConfig(
+        name="incidents",
+        method="/incidents",
+        response_key="data",
+        api_version="v3",
+        partition_key="startedAt",
+    ),
+    "monitor_groups": UptimeRobotEndpointConfig(
+        name="monitor_groups",
+        method="/monitor-groups",
+        response_key="data",
+        api_version="v3",
+        v3_accepts_limit=True,
+    ),
+    "tags": UptimeRobotEndpointConfig(
+        name="tags",
+        method="/tags",
+        response_key="data",
+        api_version="v3",
+        v3_accepts_limit=True,
     ),
 }
 

@@ -11,6 +11,7 @@ import { AIObservabilityScorerScene } from './AIObservabilityScorerScene'
 const definition: ScoreDefinitionApi = {
     tags: [],
     id: 'b4f331fe-7d3b-4bbe-9f88-52e1b0a8b000',
+    short_name: 'Quality',
     name: 'Answer quality',
     description: 'How well the response answers the question, scored from 0 to 1.',
     kind: 'numeric',

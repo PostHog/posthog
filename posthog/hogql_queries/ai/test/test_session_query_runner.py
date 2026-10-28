@@ -339,10 +339,11 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
             ]
         )
 
-        response = SessionQueryRunner(
-            team=self.team,
-            query=SessionQuery(sessionId="session-sentiment", includeSentiment=True),
-        ).calculate()
+        with patch.object(Database, "create_for", side_effect=AssertionError("built the full HogQL catalog")):
+            response = SessionQueryRunner(
+                team=self.team,
+                query=SessionQuery(sessionId="session-sentiment", includeSentiment=True),
+            ).calculate()
 
         self.assertEqual(len(response.results), 1)
         trace = response.results[0]
@@ -525,7 +526,10 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         )
 
-        with self.capture_select_queries() as queries:
+        with (
+            self.capture_select_queries() as queries,
+            patch.object(Database, "create_for", side_effect=AssertionError("built the full HogQL catalog")),
+        ):
             runner.calculate()
 
         select_queries = _select_queries_without_metadata(queries)

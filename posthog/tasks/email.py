@@ -43,7 +43,8 @@ from posthog.models import (
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
-from posthog.models.comment.utils import DESKTOP_COMMENT_SCOPES, build_comment_item_url
+from posthog.models.comment.comment import OBSERVATION_COMMENT_SCOPES
+from posthog.models.comment.utils import DESKTOP_COMMENT_SCOPES, OBSERVATION_NOTE_PLACEHOLDER, build_comment_item_url
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.organization_notification_lock import (
     GovernedSetting,
@@ -63,6 +64,7 @@ from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.conversations.backend.models import Ticket
 from products.data_modeling.backend.facade.api import (
     declared_targets_by_saved_query,
+    get_node_ids_for_saved_queries,
     suspended_saved_query_ids_by_team,
     suspension_state_for_saved_query,
 )
@@ -1021,8 +1023,11 @@ def send_email_sending_reputation_finding(
         if high_impact
         else f"Reputation warning for email sending in project '{team}'"
     )
+    # AWS can close and reopen a LOW finding many times a day, and every reopen dispatches this
+    # task again. Keying LOW on the ISO week lets the per-recipient dedupe send it once a week.
+    dedupe_period = found_at if high_impact else datetime.datetime.fromisoformat(found_at).strftime("%G-W%V")
     message = EmailMessage(
-        campaign_key=f"email_sending_reputation_finding_{team_id}_{impact}_{found_at}",
+        campaign_key=f"email_sending_reputation_finding_{team_id}_{impact}_{dedupe_period}",
         subject=subject,
         template_name="email_sending_reputation_finding",
         template_context={
@@ -1268,7 +1273,7 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     return delivered
 
 
-def _filter_members_by_external_data_source_access(
+def filter_members_by_external_data_source_access(
     memberships: list[OrganizationMembership], team: Team
 ) -> list[OrganizationMembership]:
     """Drop members who cannot view destinations, which `ExternalDataDestinationViewSet` gates on `external_data_source`.
@@ -1311,7 +1316,7 @@ def send_warehouse_destination_paused(
     memberships_to_email = get_members_to_notify_for_pipeline_error(
         team, failure_rate=1.0, pipeline_id=f"warehouse_destination:{destination_id}"
     )
-    memberships_to_email = _filter_members_by_external_data_source_access(memberships_to_email, team)
+    memberships_to_email = filter_members_by_external_data_source_access(memberships_to_email, team)
     if not memberships_to_email:
         return
 
@@ -1481,6 +1486,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
     }
     new_failure_cutoff = timezone.now() - datetime.timedelta(hours=24)
     declared_targets = declared_targets_by_saved_query(team_id, all_ids)
+    node_ids = get_node_ids_for_saved_queries(team_id, all_ids)
 
     latest_jobs: dict[str, DataModelingJob] = {}
     for latest_job in (
@@ -1535,7 +1541,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
                 "section": section,
                 "suspended": suspended,
                 "schedule": schedule,
-                "url": f"{settings.SITE_URL}/project/{team_id}/sql?open_view={sq.id}",
+                "url": settings.SITE_URL + matview_view_path(team_id, qid, node_ids.get(qid)),
             }
         )
 
@@ -1600,6 +1606,16 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         )
 
 
+def matview_view_path(team_id: int, saved_query_id: str, node_id: str | None) -> str:
+    """Where a failure email or notification sends the reader: the view's node detail, which shows its runs and error.
+
+    A view with no DAG node has no node detail page, so it falls back to the SQL editor.
+    """
+    if node_id:
+        return f"/project/{team_id}/models/{node_id}"
+    return f"/project/{team_id}/sql?open_view={saved_query_id}"
+
+
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_matview_failure_immediate_email(
@@ -1638,6 +1654,7 @@ def send_matview_failure_immediate_email(
 
     job = DataModelingJob.objects.filter(id=job_id, team_id=team_id).first()
     error = (job.error if job else None) or saved_query.latest_error or ""
+    node_id = get_node_ids_for_saved_queries(team_id, [saved_query.id]).get(str(saved_query.id))
     if len(error) > MAX_ERROR_CHARS:
         error = error[: MAX_ERROR_CHARS - 3] + "..."
 
@@ -1655,6 +1672,7 @@ def send_matview_failure_immediate_email(
             "team": team,
             "saved_query_name": saved_query.name,
             "saved_query_id": str(saved_query.id),
+            "view_url": settings.SITE_URL + matview_view_path(team_id, str(saved_query.id), node_id),
             "error": error,
             "suspended": suspended,
         },
@@ -2125,7 +2143,10 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
             template_name="discussions_mentioned",
             template_context={
                 "commenter": commenter,
-                "content": comment.content,
+                # The email is sent later than the access check on the mention, so it never carries an observation note.
+                "content": OBSERVATION_NOTE_PLACEHOLDER
+                if comment.scope in OBSERVATION_COMMENT_SCOPES
+                else comment.content,
                 "team": team,
                 "href": href,
             },

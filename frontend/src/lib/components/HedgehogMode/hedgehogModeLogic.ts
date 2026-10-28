@@ -18,8 +18,8 @@ import api from 'lib/api'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { toolbarFetch } from '~/toolbar/toolbarFetch'
+import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
+import { toolbarFetch } from '~/toolbar/shared/toolbarFetch'
 import { HedgehogConfig, MinimalHedgehogConfig } from '~/types'
 
 import type { OrganizationMemberType, UserType } from '../../../types'

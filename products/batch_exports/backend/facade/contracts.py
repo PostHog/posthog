@@ -33,6 +33,24 @@ class InvalidBatchExportFilters(ValueError):
     """Raised when event filters are not a list of filters a batch export can apply."""
 
 
+class InvalidDestinationConfigError(ValueError):
+    """Raised when a destination config does not match the workflow inputs of its destination type.
+
+    The message says which field is wrong.
+    """
+
+
+class InvalidBatchExportDestinationError(ValueError):
+    """Raised when a destination cannot be saved, for a new export or as a change to an existing one.
+
+    The message says which check failed.
+    """
+
+
+class BatchExportScheduleError(Exception):
+    """Raised when Temporal rejects a change to the schedule of a batch export."""
+
+
 class UnsupportedDestinationTestError(ValueError):
     """Raised when a destination type has no connection test."""
 

@@ -37,6 +37,7 @@ import type {
     ScoreDefinitionVersionApi,
     ScoreDefinitionVersionPageApi,
 } from '../generated/api.schemas'
+import { OFFLINE_HISTORY_BREAKDOWN_LABELS, type OfflineHistoryBreakdown } from './offlineHistoryBreakdown'
 import { OFFLINE_ALL_UPLOAD_STATES, offlineFiltersFromUrl } from './offlineOverviewState'
 import {
     previousOfflinePeriod,
@@ -54,6 +55,7 @@ export interface OfflineHistoryFilters
         ResourceTagFilters,
         Pick<AiObservabilityOfflineScorersHistoryListParams, 'created_by' | 'created_by_is_null'> {
     version: string
+    breakdown: OfflineHistoryBreakdown | ''
     date_from: string
     date_to: string | null
     compare: 'none' | 'previous' | 'custom'
@@ -65,6 +67,7 @@ export interface OfflineHistoryFilters
 
 const DEFAULT_FILTERS: OfflineHistoryFilters = {
     version: '',
+    breakdown: '',
     date_from: '-30d',
     date_to: null,
     compare: 'none',
@@ -86,6 +89,9 @@ function readFilters(search: Record<string, unknown>): OfflineHistoryFilters {
     }
     if (filters.compare_to === 'now') {
         filters.compare_to = null
+    }
+    if (!Object.hasOwn(OFFLINE_HISTORY_BREAKDOWN_LABELS, filters.breakdown)) {
+        filters.breakdown = ''
     }
     if (!['none', 'previous', 'custom'].includes(filters.compare)) {
         filters.compare = 'none'
@@ -526,6 +532,7 @@ export const offlineScorerHistoryLogic = kea<offlineScorerHistoryLogicType>([
             (s) => [s.filters],
             (filters: OfflineHistoryFilters): AiObservabilityOfflineScorersHistoryListParams => ({
                 scorer_version_ids: filters.version,
+                breakdown: filters.breakdown || undefined,
                 limit: 50,
                 statuses: filters.statuses,
                 run_source: filters.run_source || undefined,

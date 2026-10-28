@@ -112,15 +112,25 @@ class TestIsHostSafe(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("postwh_us", "entirely-chief-wildcat.us.postwh.com"),
-            ("postwh_eu", "my-db.eu.postwh.com"),
-            ("postwh_bare", "something.postwh.com"),
+            ("legacy_us_shape", "entirely-chief-wildcat.us.postwh.com"),
+            ("legacy_eu_shape", "my-db.eu.postwh.com"),
+            ("bare_suffix", "something.postwh.com"),
+            ("managed_shape", "acme.dw.us.postwh.com"),
         ]
     )
-    @override_settings(CLOUD_DEPLOYMENT="US")
-    def test_allows_postwh_hosts(self, _name: str, host: str):
-        valid, _ = _is_host_safe(host, team_id=999)
-        assert valid
+    @override_settings(CLOUD_DEPLOYMENT="US", MANAGED_WAREHOUSE_INGRESS_IPS="10.1.0.1")
+    def test_a_postwh_name_alone_earns_no_exemption(self, _name: str, host: str):
+        # The exemption used to be the `.postwh.com` suffix. A name is now only a prefilter: the
+        # organization's own control-plane host and the resolved ingress address both have to
+        # agree, and no control plane is configured here, so every one of these is refused.
+        with patch(
+            f"{_MIXINS_MODULE}.socket.getaddrinfo",
+            return_value=[(None, None, None, None, ("10.1.0.1", 0))],
+        ):
+            valid, error = _is_host_safe(host, team_id=999, port=5432, source_type="postgres")
+
+        assert not valid
+        assert error is not None
 
     @parameterized.expand(
         [
@@ -920,7 +930,6 @@ class TestCheckResolvedAddresses(SimpleTestCase):
         [
             ("team_allowlist", "US", "db.internal.example.com", 2),
             ("not_cloud", None, "db.internal.example.com", 999),
-            ("posthog_managed", "US", "warehouse.postwh.com", 999),
         ]
     )
     def test_exemptions_skip_the_check_and_keep_the_set(

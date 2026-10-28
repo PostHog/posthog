@@ -11,9 +11,18 @@ import { initKeaTests } from '~/test/init'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
 import { TraceScene } from '../TraceScene'
-import { decodeIdSegment, makeEvent, makeNodeDetail, makeTrace, makeTraceResource } from './testFixtures'
+import {
+    decodeIdSegment,
+    makeEvaluationResult,
+    makeEvaluationResults,
+    makeEvent,
+    makeNodeDetail,
+    makeTrace,
+    makeTraceResource,
+} from './testFixtures'
 
 const FLAG = FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN
+const DATASETS_FLAG = FEATURE_FLAGS.LLM_ANALYTICS_DATASETS
 
 jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), performQuery: jest.fn() }))
 jest.mock('../../../utils', () => ({
@@ -24,6 +33,7 @@ jest.mock('../../../utils', () => ({
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
+const DATASETS_URL = '/api/projects/:team_id/datasets/'
 const answeredGeneration = makeNodeDetail({
     id: 'gen-2',
     properties: {
@@ -40,7 +50,7 @@ const nodeMock = {
         return [200, nodeId === 'gen-2' ? answeredGeneration : makeNodeDetail({ id: nodeId })]
     },
 }
-const evaluationsMock = { [EVALUATIONS_URL]: () => [200, { results: [] }] }
+const evaluationsMock = { [EVALUATIONS_URL]: () => [200, makeEvaluationResults()] }
 
 const generation = makeEvent({
     id: 'gen-1',
@@ -54,8 +64,13 @@ const generation = makeEvent({
     },
 })
 
-function renderNewView(): ReturnType<typeof render> {
+function renderNewView(flags: Record<string, boolean> = {}): ReturnType<typeof render> {
     initKeaTests()
+    featureFlagLogic.mount()
+    featureFlagLogic.actions.setFeatureFlags(
+        Object.keys(flags).filter((flag) => flags[flag]),
+        flags
+    )
     nodeRequests = []
     jest.mocked(performQuery).mockReset()
     jest.mocked(performQuery).mockResolvedValue({ results: [] })
@@ -72,6 +87,7 @@ describe('TraceScene', () => {
             useMocks({
                 get: {
                     [TRACE_URL]: () => [200, makeTraceResource({ defaultNodeId: 'gen-2' })],
+                    [DATASETS_URL]: () => [200, { count: 0, results: [] }],
                     ...nodeMock,
                     ...evaluationsMock,
                 },
@@ -97,6 +113,60 @@ describe('TraceScene', () => {
             fireEvent.mouseEnter(row)
 
             await waitFor(() => expect(nodeRequests).toContain('span-1'))
+        })
+
+        it('opens the failing step on its Evals tab from the evals chip', async () => {
+            useMocks({
+                get: {
+                    [EVALUATIONS_URL]: () => [
+                        200,
+                        makeEvaluationResults({
+                            results: [
+                                makeEvaluationResult({
+                                    evaluationName: 'Cites a source',
+                                    targetNodeId: 'gen-1',
+                                    outcome: 'fail',
+                                    label: 'False',
+                                }),
+                            ],
+                            summary: {
+                                passed: 0,
+                                failed: 1,
+                                unrated: 0,
+                                nodes: [{ nodeId: 'gen-1', outcome: 'fail' }],
+                            },
+                        }),
+                    ],
+                },
+            })
+            const { findByText, queryByText } = renderNewView()
+            const chip = await findByText('Evals 0/1 passed')
+            expect(queryByText('Cites a source')).toBeNull()
+
+            fireEvent.click(chip)
+
+            expect(await findByText('Cites a source')).toBeTruthy()
+        })
+
+        it('shows the trace git branch in the summary bar', async () => {
+            useMocks({
+                get: {
+                    [TRACE_URL]: () => [
+                        200,
+                        makeTraceResource({ defaultNodeId: 'gen-2', git: { branch: 'feat/rag', repo: 'acme/app' } }),
+                    ],
+                },
+            })
+            const { findByText } = renderNewView()
+
+            expect(await findByText('feat/rag')).toBeTruthy()
+        })
+
+        it.each([true, false])('offers add to dataset on the step only when datasets are on (%s)', async (enabled) => {
+            const { findByText, queryByText } = renderNewView({ [DATASETS_FLAG]: enabled })
+
+            expect(await findByText('Two seats were added.')).toBeTruthy()
+            expect(queryByText('Add to dataset') !== null).toBe(enabled)
         })
     })
 

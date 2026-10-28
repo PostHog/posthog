@@ -46,7 +46,7 @@ export interface AnalyticsListUrlParams {
 
 export const urls = {
     ...productUrls,
-    absolute: (path = ''): string => window.location.origin + path,
+    absolute: (path = ''): string => new URL(path, window.location.origin).href,
     default: (): string => '/',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
     currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),
@@ -121,6 +121,10 @@ export const urls = {
 
         if (query) {
             params.set('open_query', typeof query === 'string' ? query : JSON.stringify(query))
+            // With a view, the query opens as unsaved edits on top of that view
+            if (view_id) {
+                params.set('open_view', view_id)
+            }
         } else if (view_id) {
             params.set('open_view', view_id)
         } else if (insightShortId) {

@@ -41,14 +41,13 @@
                     word-break: break-word">{{ error }}</div>
     {% endif %}
     <div class="mb mt text-center">
-        <a href="{% absolute_uri '/project' %}/{{ team.id }}/sql?open_view={{ saved_query_id }}"
-           target="_blank"><b>Open the view</b></a>
+        <a href="{{ view_url }}" target="_blank"><b>Open the view</b></a>
     </div>
     <div class="mt">
         <p>
             If the button above doesn't work, paste this link into your browser:
             <br />
-            <a href="{% absolute_uri '/project' %}/{{ team.id }}/sql?open_view={{ saved_query_id }}">{% absolute_uri '/project' %}/{{ team.id }}/sql?open_view={{ saved_query_id }}</a>
+            <a href="{{ view_url }}">{{ view_url }}</a>
         </p>
     </div>
     <p>If you can't diagnose the issue, please contact us for help.</p>

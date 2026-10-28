@@ -251,7 +251,7 @@ re-check the key's scopes before anything else.
    to identify which team, experiment, and metric type is responsible.
 3. **Drill to ground truth**: for a specific `query_id`, the full `query_log` row
    (settings, replica, ProfileEvents) needs ClickHouse —
-   use the `querying-production-databases-via-metabase` skill.
+   use the `querying-production-databases` skill.
 4. **Result-consistency questions** (precomputed vs direct results diverging) are out of scope here —
    these endpoints see performance and failures, not result values.
    That's the precompute result-consistency canary's territory:
@@ -262,7 +262,7 @@ re-check the key's scopes before anything else.
 
 - `slowest_queries` is a top-100 **duration ranking**, not a cost census —
   cheap-but-chatty query patterns are invisible in it; use the overview totals for volume questions.
-- `hours` is clamped to 1–168 server-side; longer lookbacks need `query_log_archive` directly (Metabase skill).
+- `hours` is clamped to 1–168 server-side; longer lookbacks need `query_log_archive` directly (`querying-production-databases` skill).
 - `organization_arr` is best-effort (billing lookup can return null).
 - These endpoints exist for the scene and have no OpenAPI schema or generated types;
   response shapes are defined by `queryPerformanceLogic.ts`.

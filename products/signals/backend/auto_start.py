@@ -15,6 +15,7 @@ import posthoganalytics
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority as EgressPriority
 from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
@@ -39,6 +40,7 @@ from products.signals.backend.billing import (
 )
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.free_trial import capture_signal_report_free_trial_paused, self_driving_free_trial_enabled
+from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     SignalReport,
@@ -749,6 +751,7 @@ def _create_implementation_task_if_absent(
     *,
     team_id: int,
     report_id: str,
+    implementation_spend_kind: str = "reviewer_triggered_implementation",
     title: str,
     description: str,
     expected_content: ImplementationReportContent,
@@ -906,6 +909,7 @@ def _create_implementation_task_if_absent(
             repository=repository,
             branch=base_branch,
             signal_report_id=report_id,
+            implementation_spend_kind=implementation_spend_kind,
             # Resolved by the caller outside this lock, like `agent_runtime` above, so the
             # create-time free-trial gate makes no flag request while the report row is locked.
             free_trial_enabled=free_trial_enabled,
@@ -1351,6 +1355,7 @@ async def maybe_autostart_implementation_task(
     *,
     team_id: int,
     report_id: str,
+    implementation_spend_kind: str = "reviewer_triggered_implementation",
     repository: str,
     title: str,
     summary: str,
@@ -1460,6 +1465,7 @@ async def maybe_autostart_implementation_task(
                 team_id=team_id,
                 report_id=report_id,
                 remaining_retries=remaining_retries - 1,
+                implementation_spend_kind=implementation_spend_kind,
                 dispatch=dispatch,
                 ch_user=ch_user,
             )
@@ -1514,6 +1520,10 @@ async def maybe_autostart_implementation_task(
         )
         return AutostartOutcome(status="blocked", reason="Autostart is disabled")
     team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P4
+    if await database_sync_to_async(ResearchAccessPolicy.enabled)(team_id) and not await database_sync_to_async(
+        ResearchAccessPolicy.repository_available, thread_sensitive=False
+    )(team_id, repository, priority=EgressPriority.BATCH):
+        return AutostartOutcome(status="blocked", reason="Connect or repair GitHub access to the selected repository")
 
     # Between the team's master switch and the quota gate. A team that opted out of auto-start
     # entirely gets no artefact and no gate reason, and a duplicate or a plan parent never counts
@@ -1641,6 +1651,7 @@ async def maybe_autostart_implementation_task(
         created = await database_sync_to_async(_create_implementation_task_if_absent, thread_sensitive=False)(
             team_id=team_id,
             report_id=report_id,
+            implementation_spend_kind=implementation_spend_kind,
             title=title,
             expected_content=expected_content,
             expected_reviewers=assignment.state,
@@ -1675,6 +1686,7 @@ async def maybe_autostart_implementation_task(
                 team_id=team_id,
                 report_id=report_id,
                 remaining_retries=remaining_retries - 1,
+                implementation_spend_kind=implementation_spend_kind,
                 dispatch=dispatch,
                 ch_user=ch_user,
             )
@@ -1738,6 +1750,7 @@ async def maybe_autostart_from_report_artefacts(
     *,
     team_id: int,
     report_id: str,
+    implementation_spend_kind: str = "reviewer_triggered_implementation",
     remaining_retries: int = 2,
     dispatch: ImplementationDispatch | None = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
@@ -1830,6 +1843,7 @@ async def maybe_autostart_from_report_artefacts(
     return await maybe_autostart_implementation_task(
         team_id=team_id,
         report_id=report_id,
+        implementation_spend_kind=implementation_spend_kind,
         repository=repository,
         title=report.title,
         summary=report.summary,

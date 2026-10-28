@@ -139,6 +139,22 @@ class InsightDataChecks:
 
 
 @dataclass(frozen=True)
+class SavedTrendsInsight:
+    team_id: int
+    insight_id: int
+    # The trends interval, "day" when the query sets none.
+    interval: str
+
+
+@dataclass(frozen=True)
+class ViewableInsight:
+    id: int
+    short_id: str
+    # The saved name, else the generated one. None when the insight has neither.
+    name: str | None
+
+
+@dataclass(frozen=True)
 class TeamEmailAccess:
     # A match reveals that an email belongs to the team, so each source needs the caller to be allowed to read it.
     member_emails: bool

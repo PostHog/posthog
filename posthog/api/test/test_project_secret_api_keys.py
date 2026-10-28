@@ -81,13 +81,20 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert data["last_used_at"] is None
         assert data["value"].startswith("phs_")
 
-    def test_create_feature_flag_read_scope(self):
+    @parameterized.expand(
+        [
+            ("feature_flag_local_evaluation", "feature_flag:read"),
+            # A service that polls a transactional email's status must not need a key that can also send.
+            ("transactional_email_status", "hog_flow:read"),
+        ]
+    )
+    def test_create_read_only_scope(self, _name, scope):
         response = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys",
-            {"label": "local eval key", "scopes": ["feature_flag:read"]},
+            {"label": "read only key", "scopes": [scope]},
         )
-        assert response.status_code == 201
-        assert response.json()["scopes"] == ["feature_flag:read"]
+        assert response.status_code == 201, response.json()
+        assert response.json()["scopes"] == [scope]
 
     def test_create_too_many_api_keys(self):
         for i in range(0, MAX_PROJECT_SECRET_API_KEYS_PER_TEAM):
@@ -248,13 +255,9 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         )
         assert response.status_code == 400, response.json()
 
-    @parameterized.expand([("wizard_blocklist", True, False), ("security_rule", False, True)])
-    def test_banned_staff_cannot_grant_llm_gateway_scope(self, _name, wizard_blocked, security_refused):
+    def test_banned_staff_cannot_grant_llm_gateway_scope(self):
         self._make_staff()
-        with (
-            patch("posthog.api.project_secret_api_key.wizard_identity_blocked", return_value=wizard_blocked),
-            patch("posthog.api.project_secret_api_key.security_access_refused", return_value=security_refused),
-        ):
+        with patch("posthog.api.project_secret_api_key.security_access_refused", return_value=True):
             create = self.client.post(
                 f"/api/projects/{self.team.id}/project_secret_api_keys",
                 {"label": "my key", "scopes": ["llm_gateway:read"]},
@@ -269,9 +272,8 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert update.status_code == 403, update.json()
         assert not ProjectSecretAPIKey.objects.filter(team=self.team, label="my key").exists()
 
-    @patch("posthog.api.project_secret_api_key.security_access_refused", return_value=False)
-    @patch("posthog.api.project_secret_api_key.wizard_identity_blocked", return_value=True)
-    def test_ban_checks_skip_kept_and_other_scopes(self, mock_blocked, mock_refused):
+    @patch("posthog.api.project_secret_api_key.security_access_refused", return_value=True)
+    def test_ban_checks_skip_kept_and_other_scopes(self, mock_refused):
         self._make_staff()
         key = self._key(["llm_gateway:read"])
         kept = self.client.patch(
@@ -284,7 +286,6 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         )
         assert kept.status_code == 200, kept.json()
         assert other.status_code == 201, other.json()
-        mock_blocked.assert_not_called()
         mock_refused.assert_not_called()
 
     def test_llm_gateway_write_scope_rejected(self):

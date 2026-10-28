@@ -9,6 +9,18 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Broadcast audiences written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const broadcastAudienceSuggestionsGenerateBodyRefreshDefault = false
+
+export const BroadcastAudienceSuggestionsGenerateBody = /* @__PURE__ */ zod.object({
+    refresh: zod
+        .boolean()
+        .default(broadcastAudienceSuggestionsGenerateBodyRefreshDefault)
+        .describe('Make new suggestions even when the cached ones are still valid.'),
+})
+
 export const hogFlowTemplatesCreateBodyNameMax = 400
 
 export const hogFlowTemplatesCreateBodyImageUrlMax = 8201
@@ -512,6 +524,9 @@ export const hogFlowsCreateBodyTagsItemMax = 255
 
 export const hogFlowsCreateBodyTagsMax = 10
 
+export const hogFlowsCreateBodySourceRecordMax = 255
+
+export const hogFlowsCreateBodySourceRecordRegExp = new RegExp('^[a-z_]+:[A-Za-z0-9_-]+$')
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -560,6 +575,14 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails'
+            ),
+        source_record: zod
+            .string()
+            .max(hogFlowsCreateBodySourceRecordMax)
+            .regex(hogFlowsCreateBodySourceRecordRegExp)
+            .nullish()
+            .describe(
+                "The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`."
             ),
         trigger_masking: zod
             .union([
@@ -1933,6 +1956,9 @@ export const hogFlowsInvocationsCreateBodyConfigurationOneTagsItemMax = 255
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneTagsMax = 10
 
+export const hogFlowsInvocationsCreateBodyConfigurationOneSourceRecordMax = 255
+
+export const hogFlowsInvocationsCreateBodyConfigurationOneSourceRecordRegExp = new RegExp('^[a-z_]+:[A-Za-z0-9_-]+$')
 export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneDistinctIdMax = 200
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneFirstNameMax = 150
@@ -2005,6 +2031,14 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe(
                     'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails'
+                ),
+            source_record: zod
+                .string()
+                .max(hogFlowsInvocationsCreateBodyConfigurationOneSourceRecordMax)
+                .regex(hogFlowsInvocationsCreateBodyConfigurationOneSourceRecordRegExp)
+                .nullish()
+                .describe(
+                    "The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`."
                 ),
             created_at: zod.iso.datetime({ offset: true }),
             created_by: zod.object({
@@ -2842,6 +2876,22 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Variable value overrides merged with the workflow defaults on each run.'),
 })
 
+export const hogFlowsApplyUtmDefaultsCreateBodyDryRunDefault = true
+export const hogFlowsApplyUtmDefaultsCreateBodyEnableWhereOffDefault = false
+
+export const HogFlowsApplyUtmDefaultsCreateBody = /* @__PURE__ */ zod.object({
+    dry_run: zod
+        .boolean()
+        .default(hogFlowsApplyUtmDefaultsCreateBodyDryRunDefault)
+        .describe('When true, only count the emails the change would update. Nothing is saved.'),
+    enable_where_off: zod
+        .boolean()
+        .default(hogFlowsApplyUtmDefaultsCreateBodyEnableWhereOffDefault)
+        .describe(
+            'Also turn UTM tags on in emails that have them off. Off by default, so those emails keep sending untagged links.'
+        ),
+})
+
 export const hogFlowsBulkDeleteCreateBodyNameMax = 400
 
 export const hogFlowsBulkDeleteCreateBodyDescriptionDefault = ``
@@ -2849,6 +2899,9 @@ export const hogFlowsBulkDeleteCreateBodyTagsItemMax = 255
 
 export const hogFlowsBulkDeleteCreateBodyTagsMax = 10
 
+export const hogFlowsBulkDeleteCreateBodySourceRecordMax = 255
+
+export const hogFlowsBulkDeleteCreateBodySourceRecordRegExp = new RegExp('^[a-z_]+:[A-Za-z0-9_-]+$')
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -2902,6 +2955,14 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails'
+            ),
+        source_record: zod
+            .string()
+            .max(hogFlowsBulkDeleteCreateBodySourceRecordMax)
+            .regex(hogFlowsBulkDeleteCreateBodySourceRecordRegExp)
+            .nullish()
+            .describe(
+                "The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`."
             ),
         trigger_masking: zod
             .union([
@@ -3385,6 +3446,87 @@ export const WorkflowEmailDraftsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(workflowEmailDraftsCreateBodySourceIdMax)
         .describe('ID of that entity: an issue, early access feature or survey UUID, or a feature flag or cohort ID.'),
+})
+
+/**
+ * Turns Customer.io automations into draft workflows. Pass each automation as Customer.io's Journeys UI API returns it. Pass the templates its messages use, or leave them out when the project stored a Customer.io App API key, and PostHog reads them. Each result lists what the import changed or left out. Importing an automation again updates its draft, unless that workflow is no longer a draft. Set dry_run to preview without saving.
+ * @summary Import Customer.io automations as draft workflows
+ */
+export const workflowImportsCreateBodySenderIdentitiesItemNameDefault = ``
+export const workflowImportsCreateBodyDryRunDefault = false
+
+export const WorkflowImportsCreateBody = /* @__PURE__ */ zod.object({
+    source: zod
+        .enum(['customerio'])
+        .describe('\* `customerio` - Customer.io')
+        .describe('The tool the automations come from.\n\n\* `customerio` - Customer.io'),
+    campaigns: zod
+        .array(
+            zod.object({
+                campaign: zod
+                    .record(zod.string(), zod.unknown())
+                    .describe(
+                        "The `campaign` object from Customer.io's `GET \/v1\/environments\/{environment_id}\/campaigns\/{campaign_id}` (Journeys UI API, what the Customer.io CLI and MCP read). Must include `id`, `type`, `edges` and the trigger fields."
+                    ),
+                actions: zod
+                    .array(zod.record(zod.string(), zod.unknown()))
+                    .describe('The top-level `actions` array from the same response, every step of the automation.'),
+                templates: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        'The message templates the actions point at, from `GET \/v1\/environments\/{environment_id}\/templates\/{template_id}`: a list of template objects, or an object keyed by template id. Leave them out when the project stored a Customer.io App API key: PostHog then reads the content from Customer.io itself. Without either, messages import with empty content.'
+                    ),
+            })
+        )
+        .describe('The automations to import, at most 50. People are never read from these objects.'),
+    snippets: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe('Customer.io snippet name to its content, inlined where a message uses `{% snippet \"name\" %}`.'),
+    segment_cohorts: zod
+        .record(zod.string(), zod.number())
+        .optional()
+        .describe(
+            'Customer.io segment id to the PostHog cohort that replaces it. Segment triggers and segment conditions with no cohort here are left for the team to set.'
+        ),
+    layouts: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Customer.io layout id to the layout's `body`, from `GET \/v1\/environments\/{environment_id}\/layouts\/{layout_id}`. An email whose template names a `layout_id` is wrapped in that layout at `{{ content }}`."
+        ),
+    sender_identities: zod
+        .array(
+            zod.object({
+                id: zod.string().describe("The sender identity's id, which templates name in `from_identity_id`."),
+                email: zod.email().describe('The address the sender sends from.'),
+                name: zod
+                    .string()
+                    .default(workflowImportsCreateBodySenderIdentitiesItemNameDefault)
+                    .describe("The sender's display name."),
+            })
+        )
+        .optional()
+        .describe(
+            'Customer.io sender identities, from `GET \/v1\/environments\/{environment_id}\/identities?type=email`. Each email gets the PostHog sender with the same address.'
+        ),
+    segments: zod
+        .array(
+            zod.object({
+                id: zod.string().describe("The segment's id."),
+                name: zod.string().describe("The segment's name."),
+                type: zod.string().describe("The segment's type: `dynamic`, or `static` for a hand-made list."),
+            })
+        )
+        .optional()
+        .describe(
+            'Customer.io segment ids, names and types, without members, so the notes can name each segment and flag static ones.'
+        ),
+    dry_run: zod
+        .boolean()
+        .default(workflowImportsCreateBodyDryRunDefault)
+        .describe('When true, translate and check the automations but save nothing, to preview the import.'),
 })
 
 /**

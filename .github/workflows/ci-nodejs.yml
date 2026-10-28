@@ -49,13 +49,15 @@ jobs:
         steps:
             - name: Ask Trunk which jobs this diff needs
               continue-on-error: true
-              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              uses: trunk-io/dynamic-ci@5bfe63e878e3ec8bf14c0fa3b7e250685e668d75 # v0.1.6
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
     # Job to decide if we should run nodejs services ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
+        if: github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         name: Determine need to run Node.js checks
@@ -85,7 +87,7 @@ jobs:
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -117,6 +119,9 @@ jobs:
                         # its Rust tests; a rust-side change (incl. the shared fixtures) must run it.
                         - 'rust/replay-anonymizer/**'
                         - 'rust/replay-anonymizer-node/**'
+                        # The v4 image fetcher's Jest tests load the URL policy through this addon.
+                        - 'rust/ai-research/replay-core-v4/**'
+                        - 'rust/ai-research/replay-core-v4-node/**'
                         # These native addons are built by Turbo before Node.js tests. Their Rust
                         # dependencies are not part of the ingestion consumer's targeted e2e set.
                         - 'rust/common/hogvm/**'
@@ -130,6 +135,9 @@ jobs:
                         - 'ee/migrations/**'
                         - 'posthog/management/commands/setup_test_environment.py'
                         - 'posthog/migrations/**'
+                        # A migration change makes the test job build Postgres from the Django
+                        # models, and the Jest integration tests read product tables too.
+                        - 'products/*/backend/migrations/**'
                         - 'posthog/plugins/**'
                         # Django reads this to decide which filter globals it accepts, and the only
                         # check that it still matches the runtime type is a jest test.
@@ -164,6 +172,7 @@ jobs:
                         # readFileSync, so jest cannot reach the parity test through --findRelatedTests.
                         - 'products/cdp/backend/filter_globals.json'
                         - 'common/hogvm/typescript/src/**'
+                        - '**/crosslang/**'
                         - '.github/scripts/jest-retries.cjs'
                         - 'patches/jest-junit@16.0.0.patch'
                         - 'nodejs/jest*.config.js'
