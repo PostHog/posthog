@@ -1,6 +1,7 @@
 import { ReactNode, memo } from 'react'
 
 import { DateDisplay } from 'lib/components/DateDisplay'
+import { percentage } from 'lib/utils/numbers'
 import { formatAggregationValue } from 'scenes/insights/utils'
 
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
@@ -50,6 +51,7 @@ type ValueColumnItemProps = {
     isStickiness: boolean
     renderCount: (value: number) => ReactNode
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction
+    percentOfDayTotal?: number | null
 }
 
 export const ValueColumnItem = memo(function ValueColumnItem({
@@ -59,6 +61,7 @@ export const ValueColumnItem = memo(function ValueColumnItem({
     isStickiness,
     renderCount,
     formatPropertyValueForDisplay,
+    percentOfDayTotal,
 }: ValueColumnItemProps): JSX.Element {
     const formattedValue = formatAggregationValue(
         mathProperty,
@@ -66,6 +69,14 @@ export const ValueColumnItem = memo(function ValueColumnItem({
         renderCount,
         formatPropertyValueForDisplay
     )
+    if (percentOfDayTotal != null) {
+        return (
+            <span className="whitespace-nowrap">
+                <span>{formattedValue}</span>
+                <span className="text-secondary ml-1">({percentage(percentOfDayTotal, 1)})</span>
+            </span>
+        )
+    }
     return (
         <span>
             {isStickiness ? (

@@ -220,7 +220,11 @@ class AnomalyInsightRowSerializer(serializers.Serializer):
 class AnomalySearchResponseSerializer(serializers.Serializer):
     scoring_enabled = serializers.BooleanField(help_text="Whether anomaly scoring covers this project.")
     watched_insights = serializers.IntegerField(
-        help_text="Insights that scoring watches: saved trends insights on a dashboard or viewed in the last 30 days."
+        help_text=(
+            "Active insights that scoring checks: saved trends insights that a person viewed, that sit on a "
+            "dashboard someone opened, or that were edited in the active window (90 days by default), "
+            "or that have an enabled alert or subscription."
+        )
     )
     insights_scored_in_range = serializers.IntegerField(
         help_text="Insights with at least one scored bucket in the range. Results cover only these insights."

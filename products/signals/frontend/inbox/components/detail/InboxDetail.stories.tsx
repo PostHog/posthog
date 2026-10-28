@@ -235,6 +235,7 @@ export const StatusBlock: Story = {
                 task_id: null,
                 agent: 'Build agent',
                 claimed_at: '2026-06-11T10:00:00Z',
+                responsible_user: null,
             },
         })
         return (
@@ -278,6 +279,13 @@ export const ReportClaimedByTeammate: Story = {
                         task_id: null,
                         agent: null,
                         claimed_at: '2026-06-10T10:00:00Z',
+                        responsible_user: {
+                            id: 1,
+                            uuid: 'u-1',
+                            email: 'octo@example.com',
+                            first_name: 'Octo',
+                            last_name: 'Cat',
+                        },
                     },
                 }}
             />

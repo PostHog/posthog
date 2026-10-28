@@ -1559,6 +1559,22 @@
             "enum": ["amazon", "amazon_ads"],
             "type": "string"
         },
+        "AnalyticsListDisplayConfiguration": {
+            "additionalProperties": false,
+            "description": "One person's display choices for the Analytics lists.",
+            "properties": {
+                "default_sort": {
+                    "description": "The sort a list opens with. A column header click still changes the sort for that visit.",
+                    "enum": ["-last_viewed_at", "-created_at"],
+                    "type": "string"
+                },
+                "hide_insights": {
+                    "description": "Leaves insights out of the All list.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "AnalyticsQueryResponseBase": {
             "additionalProperties": false,
             "properties": {
@@ -9581,25 +9597,8 @@
                 "clickhouse_sql": {
                     "type": "string"
                 },
-                "credible_intervals": {
-                    "additionalProperties": {
-                        "items": {
-                            "type": "number"
-                        },
-                        "maxItems": 2,
-                        "minItems": 2,
-                        "type": "array"
-                    },
-                    "type": "object"
-                },
                 "hogql": {
                     "type": "string"
-                },
-                "insight": {
-                    "items": {
-                        "type": "object"
-                    },
-                    "type": "array"
                 },
                 "is_cached": {
                     "type": "boolean"
@@ -9616,21 +9615,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
-                "metric": {
-                    "$ref": "#/definitions/ExperimentMetric"
-                },
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
-                },
-                "p_value": {
-                    "type": "number"
-                },
-                "probability": {
-                    "additionalProperties": {
-                        "type": "number"
-                    },
-                    "type": "object"
                 },
                 "query_metadata": {
                     "type": "object"
@@ -9642,15 +9629,6 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "significance_code": {
-                    "$ref": "#/definitions/ExperimentSignificanceCode"
-                },
-                "significant": {
-                    "type": "boolean"
-                },
-                "stats_version": {
-                    "$ref": "#/definitions/integer"
                 },
                 "timezone": {
                     "type": "string"
@@ -9666,22 +9644,6 @@
                         {
                             "items": {
                                 "$ref": "#/definitions/ExperimentVariantResultBayesian"
-                            },
-                            "type": "array"
-                        }
-                    ]
-                },
-                "variants": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
                             },
                             "type": "array"
                         }
@@ -25974,6 +25936,9 @@
                 },
                 {
                     "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeExposureConfig"
                 }
             ]
         },
@@ -25981,8 +25946,15 @@
             "additionalProperties": false,
             "properties": {
                 "activation_config": {
-                    "$ref": "#/definitions/ExperimentExposureConfig",
-                    "description": "Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`."
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ExperimentEventExposureConfig"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ],
+                    "description": "Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. Warehouse-native activation has no defined semantics yet, so only events and actions apply here."
                 },
                 "exposure_config": {
                     "$ref": "#/definitions/ExperimentExposureConfig"
@@ -26651,6 +26623,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentDataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeNode"
                 }
             ],
             "required": ["kind"],
@@ -26835,25 +26810,8 @@
                 "clickhouse_sql": {
                     "type": "string"
                 },
-                "credible_intervals": {
-                    "additionalProperties": {
-                        "items": {
-                            "type": "number"
-                        },
-                        "maxItems": 2,
-                        "minItems": 2,
-                        "type": "array"
-                    },
-                    "type": "object"
-                },
                 "hogql": {
                     "type": "string"
-                },
-                "insight": {
-                    "items": {
-                        "type": "object"
-                    },
-                    "type": "array"
                 },
                 "is_precomputed": {
                     "description": "Whether exposures were served from the precomputation system",
@@ -26862,27 +26820,6 @@
                 "kind": {
                     "const": "ExperimentQuery",
                     "type": "string"
-                },
-                "metric": {
-                    "$ref": "#/definitions/ExperimentMetric"
-                },
-                "p_value": {
-                    "type": "number"
-                },
-                "probability": {
-                    "additionalProperties": {
-                        "type": "number"
-                    },
-                    "type": "object"
-                },
-                "significance_code": {
-                    "$ref": "#/definitions/ExperimentSignificanceCode"
-                },
-                "significant": {
-                    "type": "boolean"
-                },
-                "stats_version": {
-                    "$ref": "#/definitions/integer"
                 },
                 "variant_results": {
                     "anyOf": [
@@ -26895,22 +26832,6 @@
                         {
                             "items": {
                                 "$ref": "#/definitions/ExperimentVariantResultBayesian"
-                            },
-                            "type": "array"
-                        }
-                    ]
-                },
-                "variants": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
                             },
                             "type": "array"
                         }
@@ -27010,6 +26931,27 @@
             "required": ["metric_type", "numerator", "denominator"],
             "type": "object"
         },
+        "ExperimentRetentionCompletion": {
+            "$ref": "#/definitions/ExperimentRetentionCompletionUnion"
+        },
+        "ExperimentRetentionCompletionUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentDataWarehouseNode"
+                }
+            ],
+            "required": ["kind"],
+            "type": "object"
+        },
         "ExperimentRetentionMetric": {
             "additionalProperties": false,
             "properties": {
@@ -27017,7 +26959,7 @@
                     "$ref": "#/definitions/BreakdownFilter"
                 },
                 "completion_event": {
-                    "$ref": "#/definitions/ExperimentMetricSource"
+                    "$ref": "#/definitions/ExperimentRetentionCompletion"
                 },
                 "conversion_window": {
                     "$ref": "#/definitions/integer"
@@ -27091,7 +27033,7 @@
             "additionalProperties": false,
             "properties": {
                 "completion_event": {
-                    "$ref": "#/definitions/ExperimentMetricSource"
+                    "$ref": "#/definitions/ExperimentRetentionCompletion"
                 },
                 "metric_type": {
                     "const": "retention",
@@ -27178,10 +27120,6 @@
                 }
             },
             "type": "object"
-        },
-        "ExperimentSignificanceCode": {
-            "enum": ["significant", "not_enough_exposure", "low_win_probability", "high_loss", "high_p_value"],
-            "type": "string"
         },
         "ExperimentStatsBase": {
             "additionalProperties": false,
@@ -27329,22 +27267,6 @@
                 }
             },
             "required": ["kind", "count_query"],
-            "type": "object"
-        },
-        "ExperimentVariantFunnelsBaseStats": {
-            "additionalProperties": false,
-            "properties": {
-                "failure_count": {
-                    "type": "number"
-                },
-                "key": {
-                    "type": "string"
-                },
-                "success_count": {
-                    "type": "number"
-                }
-            },
-            "required": ["key", "success_count", "failure_count"],
             "type": "object"
         },
         "ExperimentVariantResultBayesian": {
@@ -27499,23 +27421,74 @@
             "required": ["key", "method", "number_of_samples", "sum", "sum_squares"],
             "type": "object"
         },
-        "ExperimentVariantTrendsBaseStats": {
+        "ExperimentWarehouseNativeExposureConfig": {
             "additionalProperties": false,
+            "description": "Exposures that live in the customer's warehouse, read through a direct connection. An experiment with this exposure runs entirely in the warehouse, so every metric source must be an `ExperimentWarehouseNativeNode` on the same connection.",
             "properties": {
-                "absolute_exposure": {
-                    "type": "number"
-                },
-                "count": {
-                    "type": "number"
-                },
-                "exposure": {
-                    "type": "number"
-                },
-                "key": {
+                "connection_id": {
+                    "description": "The direct-query source (an ExternalDataSource id) the SQL is written for.",
                     "type": "string"
+                },
+                "kind": {
+                    "const": "ExperimentWarehouseNativeExposureConfig",
+                    "type": "string"
+                },
+                "query": {
+                    "description": "Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies the experiment's date range and multiple-variant handling.",
+                    "type": "string"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
-            "required": ["key", "count", "exposure", "absolute_exposure"],
+            "required": ["connection_id", "kind", "query"],
+            "type": "object"
+        },
+        "ExperimentWarehouseNativeMathType": {
+            "description": "The subset of `ExperimentMetricMathType` a warehouse-native source supports, with the same values.",
+            "enum": ["total", "sum"],
+            "type": "string"
+        },
+        "ExperimentWarehouseNativeNode": {
+            "additionalProperties": false,
+            "description": "Outcome rows that live in the customer's warehouse, read through a direct connection. PostHog joins them to the experiment's exposures and aggregates them inside the warehouse, so the SQL never mentions variants or exposures and only per-variant aggregates leave the warehouse. Distinct from `ExperimentDataWarehouseNode`, which reads tables synced into PostHog. It does not extend `EntityNode`: property filters and the other event settings cannot apply to SQL PostHog does not parse, so the shape lists every supported field. Only mean and ratio metrics accept it.",
+            "properties": {
+                "connection_id": {
+                    "description": "The direct-query source (an ExternalDataSource id) the SQL is written for.",
+                    "type": "string"
+                },
+                "custom_name": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "ExperimentWarehouseNativeNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeMathType",
+                    "description": "How to aggregate the rows per entity. Defaults to `total` (row count)."
+                },
+                "math_property": {
+                    "description": "The numeric column `math` reads. Required when `math` is `sum`. One SQL relation can serve several metrics, each reading a different column.",
+                    "type": "string"
+                },
+                "query": {
+                    "description": "Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure.",
+                    "type": "string"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["connection_id", "kind", "query"],
             "type": "object"
         },
         "ExternalQueryError": {
@@ -27769,6 +27742,7 @@
                 "uptime_monitoring",
                 "workflows",
                 "broadcasts",
+                "transactional",
                 "notebook",
                 "action",
                 "activity",
@@ -40156,10 +40130,12 @@
                 "ExperimentQuery",
                 "ExperimentExposureQuery",
                 "ExperimentEventExposureConfig",
+                "ExperimentWarehouseNativeExposureConfig",
                 "ExperimentActorsQuery",
                 "ExperimentTrendsQuery",
                 "ExperimentFunnelsQuery",
                 "ExperimentDataWarehouseNode",
+                "ExperimentWarehouseNativeNode",
                 "ExperimentExposureNode",
                 "DatabaseSchemaQuery",
                 "SuggestedQuestionsQuery",
@@ -43560,25 +43536,8 @@
                         "clickhouse_sql": {
                             "type": "string"
                         },
-                        "credible_intervals": {
-                            "additionalProperties": {
-                                "items": {
-                                    "type": "number"
-                                },
-                                "maxItems": 2,
-                                "minItems": 2,
-                                "type": "array"
-                            },
-                            "type": "object"
-                        },
                         "hogql": {
                             "type": "string"
-                        },
-                        "insight": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
                         },
                         "is_precomputed": {
                             "description": "Whether exposures were served from the precomputation system",
@@ -43587,27 +43546,6 @@
                         "kind": {
                             "const": "ExperimentQuery",
                             "type": "string"
-                        },
-                        "metric": {
-                            "$ref": "#/definitions/ExperimentMetric"
-                        },
-                        "p_value": {
-                            "type": "number"
-                        },
-                        "probability": {
-                            "additionalProperties": {
-                                "type": "number"
-                            },
-                            "type": "object"
-                        },
-                        "significance_code": {
-                            "$ref": "#/definitions/ExperimentSignificanceCode"
-                        },
-                        "significant": {
-                            "type": "boolean"
-                        },
-                        "stats_version": {
-                            "$ref": "#/definitions/integer"
                         },
                         "variant_results": {
                             "anyOf": [
@@ -43620,22 +43558,6 @@
                                 {
                                     "items": {
                                         "$ref": "#/definitions/ExperimentVariantResultBayesian"
-                                    },
-                                    "type": "array"
-                                }
-                            ]
-                        },
-                        "variants": {
-                            "anyOf": [
-                                {
-                                    "items": {
-                                        "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
-                                    },
-                                    "type": "array"
-                                },
-                                {
-                                    "items": {
-                                        "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
                                     },
                                     "type": "array"
                                 }
@@ -57083,8 +57005,10 @@
         },
         "UserUIConfiguration": {
             "additionalProperties": {},
-            "description": "Per-user UI customization, persisted on the User model as a single JSONB blob. A null configuration and any absent key mean \"default\". Writers must send the complete object; the server validates and replaces it wholesale.",
             "properties": {
+                "analytics_list": {
+                    "$ref": "#/definitions/AnalyticsListDisplayConfiguration"
+                },
                 "sql_editor": {
                     "$ref": "#/definitions/SQLEditorConfiguration"
                 },

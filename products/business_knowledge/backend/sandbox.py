@@ -18,6 +18,7 @@ from posthog.models.user import User
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import CreatedTaskDTO, TaskRunDTO
 
+from .constants import BK_MCP_SCOPES
 from .github_repos import repository_tools_enabled
 from .logic import KnowledgeSearchResult, get_always_on_context
 
@@ -25,15 +26,8 @@ BUSINESS_KNOWLEDGE_SANDBOX_ENV_NAME = "BUSINESS_KNOWLEDGE_SANDBOX"
 SANDBOX_MODEL = "claude-sonnet-5"
 SANDBOX_RUNTIME_ADAPTER = "claude"
 MAX_SANDBOX_QUESTION_CHARS = 4_000
-# Chats run in parallel, but the request throttles skip session auth, so this caps billable runs per person.
-MAX_OPEN_RUNS_PER_OWNER = 3
 FINISHED_ACTIVITY_CACHE_SECONDS = 60 * 60
 
-BK_MCP_SCOPE = "business_knowledge:read"
-# The PostHog MCP server reads /api/users/@me/ to start a session, so without user:read it never connects.
-# It reads the project to find its organization, and the business knowledge tools sit behind a flag
-# targeted by organization, so without project:read the search tool is hidden.
-BK_MCP_SCOPES = [BK_MCP_SCOPE, "user:read", "project:read"]
 BK_SEARCH_TOOL = "business-knowledge-documents-search"
 BK_WINDOW_TOOL = "business-knowledge-document-window-retrieve"
 BK_REPO_SEARCH_TOOL = "business-knowledge-repositories-search"

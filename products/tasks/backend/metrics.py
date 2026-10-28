@@ -57,6 +57,20 @@ TASK_RUN_CREATED_TOTAL = Counter(
     ],
 )
 
+TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL = Counter(
+    "posthog_tasks_task_run_started_beside_live_run_total",
+    "Cloud TaskRuns started while another cloud run of the same task was still live",
+    labelnames=[
+        "origin_product",
+        "run_environment",
+        "mode",
+        "run_source",
+        "task_runtime",
+        "runtime_adapter",
+        "prewarmed",
+    ],
+)
+
 TASK_RUN_WORKFLOW_START_TOTAL = Counter(
     "posthog_tasks_task_run_workflow_start_total",
     "TaskRun workflow start lifecycle events",
@@ -543,6 +557,10 @@ def _task_run_labels(task_run: "TaskRun | None") -> dict[str, str]:
 
 def observe_task_run_created(task_run: "TaskRun") -> None:
     TASK_RUN_CREATED_TOTAL.labels(**_task_run_labels(task_run)).inc()
+
+
+def observe_task_run_started_beside_live_run(task_run: "TaskRun") -> None:
+    TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL.labels(**_task_run_labels(task_run)).inc()
 
 
 def observe_sandbox_run_start(*, endpoint: str, outcome: str) -> None:
