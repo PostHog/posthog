@@ -9,6 +9,7 @@ from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, e
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -429,10 +430,25 @@ EDIT_RESPONSES = {
 }
 
 
+class ParentProjectMemberPermission(BasePermission):
+    """A child environment's URL serves its parent project's alerts, so the caller must be a member of that project.
+
+    The default membership check covers only the URL's team.
+    """
+
+    message = "You don't have access to the project."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        # An unauthenticated request is refused by the authentication checks that run first.
+        if not request.user.is_authenticated or view.team.parent_team_id is None:
+            return True
+        return view.user_permissions.team(view.canonical_team).effective_membership_level is not None
+
+
 class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "alert"
     posthog_feature_flag = "platform-alerts"
-    permission_classes = [PostHogFeatureFlagPermission]
+    permission_classes = [PostHogFeatureFlagPermission, ParentProjectMemberPermission]
     serializer_class = PlatformAlertConfigurationSerializer
     pagination_class = PrecountedLimitOffsetPagination
 
@@ -448,12 +464,6 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         scoped_teams = get_authenticator_scoped_team_ids(getattr(self.request, "successful_authenticator", None))
         if scoped_teams is not None and parent_team.id not in scoped_teams:
             raise PermissionDenied(f"API key does not have access to the requested project: ID {parent_team.id}.")
-        # The membership check before the view ran saw only the URL's team, so the parent needs its own.
-        parent_access = UserAccessControl(
-            user=cast(User, self.request.user), team=parent_team, organization_id=self.organization_id
-        )
-        if not parent_access.check_access_level_for_object(parent_team, "member"):
-            raise PermissionDenied(f"You don't have access to the requested project: ID {parent_team.id}.")
         return parent_team
 
     @cached_property
