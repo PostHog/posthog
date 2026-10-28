@@ -27,8 +27,11 @@ from products.experiments.backend.facade.contracts import (
     CreateExperimentInput,
     EndedExperiment,
     ExperimentValidationError,
+    StoredArmResult,
+    StoredPrimaryResult,
 )
-from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout
+from products.experiments.backend.metric_calculation.config import build_primary_calculation_configs
+from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricResult
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
@@ -339,3 +342,55 @@ class TestCountEnrolledPeople(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         assert api.count_enrolled_people(team=self.team, user=self.user, flag_keys=["checkout"]) == {"checkout": 2}
+
+
+class TestGetStoredPrimaryResult(BaseTest):
+    def test_returns_the_current_stored_result_of_the_primary_metric(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="stored-result")
+        experiment = Experiment.objects.create(
+            team=self.team,
+            feature_flag=flag,
+            name="stored result",
+            start_date=datetime(2026, 8, 1, tzinfo=UTC),
+            metrics=[
+                {
+                    "uuid": "m1",
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "goal": "decrease",
+                    "series": [{"kind": "EventsNode", "event": "checkout"}],
+                }
+            ],
+        )
+        ExperimentMetricResult.objects.create(
+            experiment=experiment,
+            metric_uuid="m1",
+            fingerprint=build_primary_calculation_configs(experiment)[0].calculation_key(),
+            query_from=datetime(2026, 8, 1, tzinfo=UTC),
+            query_to=datetime(2026, 8, 5, tzinfo=UTC),
+            status=ExperimentMetricResult.Status.COMPLETED,
+            completed_at=datetime(2026, 8, 5, tzinfo=UTC),
+            result={
+                "baseline": {"key": "control", "number_of_samples": 100, "sum": 20, "sum_squares": 20},
+                "variant_results": [
+                    {
+                        "key": "test",
+                        "method": "frequentist",
+                        "number_of_samples": 50,
+                        "sum": 15,
+                        "sum_squares": 15,
+                        "confidence_interval": [0.1, 0.4],
+                        "significant": True,
+                    }
+                ],
+            },
+        )
+
+        assert api.get_stored_primary_result(experiment) == StoredPrimaryResult(
+            metric_type="funnel",
+            goal="decrease",
+            baseline=StoredArmResult(key="control", number_of_samples=100, mean=0.2),
+            variants=(
+                StoredArmResult(key="test", number_of_samples=50, mean=0.3, interval=(0.1, 0.4), significant=True),
+            ),
+        )

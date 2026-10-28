@@ -30,6 +30,8 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     normalize_to_exposure_criteria,
     resolve_default_exposure_event,
 )
+from products.experiments.backend.metric_calculation.config import build_primary_calculation_configs
+from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.models.experiment import Experiment as ExperimentModel
 from products.experiments.backend.running_time_target import load_running_time_target
 
@@ -45,6 +47,8 @@ from .contracts import (
     ExperimentValidationError,
     RunningExperiment,
     RunningTimeMode,
+    StoredArmResult,
+    StoredPrimaryResult,
 )
 
 logger = structlog.get_logger(__name__)
@@ -170,6 +174,33 @@ def get_experiment_health_inputs(
         team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user
     )
     return health_inputs_payload(inputs)
+
+
+def get_stored_primary_result(experiment: ExperimentModel) -> StoredPrimaryResult | None:
+    """The current stored result of the experiment's primary metric. It reads Postgres only and runs no query."""
+    configs = build_primary_calculation_configs(experiment)
+    if not configs:
+        return None
+    stats = MetricResultStore(experiment_id=experiment.pk).current_result(configs[0])
+    if stats is None:
+        return None
+    return StoredPrimaryResult(
+        metric_type=configs[0].definition.get("metric_type"),
+        goal=configs[0].definition.get("goal"),
+        baseline=StoredArmResult(
+            key=stats.baseline.key, number_of_samples=stats.baseline.number_of_samples, mean=stats.baseline.mean
+        ),
+        variants=tuple(
+            StoredArmResult(
+                key=variant.key,
+                number_of_samples=variant.number_of_samples,
+                mean=variant.mean,
+                interval=(variant.interval.low, variant.interval.high) if variant.interval else None,
+                significant=variant.significant,
+            )
+            for variant in stats.variants
+        ),
+    )
 
 
 def get_running_time_target(

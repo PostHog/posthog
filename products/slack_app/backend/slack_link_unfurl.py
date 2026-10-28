@@ -45,6 +45,8 @@ from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.error_tracking.backend.facade import api as error_tracking_facade
+from products.experiments.backend.facade import api as experiments_facade
+from products.experiments.backend.facade.contracts import StoredArmResult, StoredPrimaryResult
 from products.experiments.backend.models.experiment import Experiment
 from products.exports.backend.facade import api as exports_facade
 from products.feature_flags.backend.facade.config import ConfigFormatError
@@ -1009,15 +1011,79 @@ def _experiment_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _
     metric = _primary_metric(experiment.metrics)
     if metric:
         details.append(f"Metric: {metric}")
+    variants = _flag_variants(experiment.feature_flag)
+    results = _experiment_results(experiment)
+    if results:
+        details.append(f"Split {'/'.join(str(variant['rollout_percentage']) for variant in variants)}")
+    verdict, chart = results or (None, _chart_rows(_variant_rows(variants)))
     return _UnfurlCard(
         label="Experiment",
         title=experiment.name,
         status=_humanize(experiment.status_label),
         details=tuple(details),
-        chart=_chart_rows(_variant_rows(_flag_variants(experiment.feature_flag))),
-        body=experiment.description,
+        chart=chart,
+        body="\n\n".join(part for part in (verdict, experiment.description) if part),
         timestamp=experiment.updated_at,
     )
+
+
+def _experiment_results(experiment: Experiment) -> tuple[str, str | None] | None:
+    try:
+        stats = experiments_facade.get_stored_primary_result(experiment)
+    except Exception:
+        logger.exception("slack_app_unfurl_experiment_results_failed", experiment_id=experiment.pk)
+        return None
+    if (
+        stats is None
+        or stats.metric_type not in ("funnel", "mean")
+        or stats.baseline.mean is None
+        or not stats.variants
+    ):
+        return None
+    increase = stats.goal != "decrease"
+    return _experiment_verdict(stats, increase), _experiment_chart(stats, funnel=stats.metric_type == "funnel")
+
+
+def _variant_delta(stats: StoredPrimaryResult, variant: StoredArmResult) -> float | None:
+    if variant.interval:
+        return (variant.interval[0] + variant.interval[1]) / 2
+    if variant.mean is None or not stats.baseline.mean:
+        return None
+    return variant.mean / stats.baseline.mean - 1
+
+
+def _experiment_verdict(stats: StoredPrimaryResult, increase: bool) -> str:
+    control = stats.baseline.key
+    if all(variant.interval is None for variant in stats.variants):
+        exposed = stats.baseline.number_of_samples + sum(variant.number_of_samples for variant in stats.variants)
+        return f"⏳ *Too early to call.* {exposed:,} exposed so far."
+    direction = 1 if increase else -1
+    scored = [(variant, delta) for variant in stats.variants if (delta := _variant_delta(stats, variant)) is not None]
+    winners = [(variant, delta) for variant, delta in scored if variant.significant and delta * direction > 0]
+    if winners:
+        variant, delta = max(winners, key=lambda pair: pair[1] * direction)
+        return f"🏆 *Winner so far: {variant.key}.* {delta:+.1%} vs {control}."
+    losers = [(variant, delta) for variant, delta in scored if variant.significant]
+    if losers:
+        variant, delta = min(losers, key=lambda pair: pair[1] * direction)
+        return f"🔻 *Losing: {variant.key}.* {delta:+.1%} vs {control}."
+    leader = max(scored, key=lambda pair: pair[1] * direction, default=None)
+    if leader and leader[1] * direction > 0:
+        return f"⚖️ *No clear winner yet.* {leader[0].key} leads at {leader[1]:+.1%} vs {control}, but it is not significant."
+    return f"⚖️ *No clear winner yet.* No variant beats {control}."
+
+
+def _experiment_chart(stats: StoredPrimaryResult, *, funnel: bool) -> str | None:
+    arms = [stats.baseline, *stats.variants]
+    top = max((arm.mean or 0.0) for arm in arms)
+    rows = []
+    for arm in arms:
+        mean = arm.mean or 0.0
+        value = f"{mean:.1%}" if funnel else f"{mean:,.2f}"
+        if arm is not stats.baseline and (delta := _variant_delta(stats, arm)) is not None:
+            value += f"  {delta:+.1%}{' ✓' if arm.significant else ''}"
+        rows.append(_ChartRow(label=_chart_label(arm.key), bar=_bar(mean / top if top else 0.0), value=value))
+    return _chart_rows(rows)
 
 
 def _survey_status(survey: Survey) -> str:
