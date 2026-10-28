@@ -15,6 +15,7 @@ import posthoganalytics
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority as EgressPriority
 from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
@@ -39,6 +40,7 @@ from products.signals.backend.billing import (
 )
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.free_trial import capture_signal_report_free_trial_paused, self_driving_free_trial_enabled
+from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     SignalReport,
@@ -1518,6 +1520,10 @@ async def maybe_autostart_implementation_task(
         )
         return AutostartOutcome(status="blocked", reason="Autostart is disabled")
     team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P4
+    if await database_sync_to_async(ResearchAccessPolicy.enabled)(team_id) and not await database_sync_to_async(
+        ResearchAccessPolicy.repository_available, thread_sensitive=False
+    )(team_id, repository, priority=EgressPriority.BATCH):
+        return AutostartOutcome(status="blocked", reason="Connect or repair GitHub access to the selected repository")
 
     # Between the team's master switch and the quota gate. A team that opted out of auto-start
     # entirely gets no artefact and no gate reason, and a duplicate or a plan parent never counts

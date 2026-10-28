@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { markExecPayload, type ToolResultPayload } from '@/lib/build-tool-result'
 import { DISPATCHABLE_APP_KEYS, RENDER_UI_RESOURCE_URI, URI_MAP, type UiAppKey } from '@/resources/ui-apps.generated'
+import RENDER_UI_EXPLAIN_CHART from '@/templates/render-ui-explain-chart.md'
 import RENDER_UI_PROMPT from '@/templates/render-ui-prompt.md'
 
 import { type Context, type Tool, type ZodObjectAny } from './types'
@@ -10,6 +11,12 @@ import { type Context, type Tool, type ZodObjectAny } from './types'
 export const RENDER_UI_TOOL_NAME = 'render-ui'
 export const RENDER_UI_TOOL_TITLE = 'Render a PostHog visualization'
 export const RENDER_UI_TOOL_DESCRIPTION = RENDER_UI_PROMPT.trim()
+
+export function renderUiDescription(renderableNames: string[]): string {
+    return renderableNames.includes('explain-chart')
+        ? `${RENDER_UI_TOOL_DESCRIPTION}\n\n${RENDER_UI_EXPLAIN_CHART.trim()}`
+        : RENDER_UI_TOOL_DESCRIPTION
+}
 
 // Reverse of URI_MAP so a tool's `_meta.ui.resourceUri` resolves back to its app key.
 const URI_TO_APP_KEY = new Map<string, UiAppKey>(
@@ -79,7 +86,7 @@ export function createRenderUiTool(
     return {
         name: RENDER_UI_TOOL_NAME,
         title: RENDER_UI_TOOL_TITLE,
-        description: RENDER_UI_TOOL_DESCRIPTION,
+        description: renderUiDescription(renderableNames),
         schema,
         scopes: [],
         annotations: {

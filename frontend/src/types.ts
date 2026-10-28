@@ -120,7 +120,7 @@ import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflo
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { PluginConfigSchema } from './legacy-plugin-scaffold'
-import { InferredSelector } from './toolbar/product-tours/elementInference'
+import { InferredSelector } from './toolbar/shared/product-tours/elementInference'
 
 export enum ConversionRateInputType {
     MANUAL = 'manual',
@@ -5336,6 +5336,8 @@ export type EventOrPropType = EventDefinition & PropertyDefinition
 export interface AppContext {
     /** The page left out the user's data, and the app fetches it at boot. See lib/utils/deferredAppContext. */
     deferred?: boolean
+    /** The user's variant in the deferred app context experiment. Absent outside the experiment. */
+    deferred_app_context_variant?: string
     run_mode?: 'US' | 'EU' | 'DEV' | 'E2E' | 'LOCAL' | 'HOBBY'
     current_user: UserType | null
     current_project: ProjectType | null
@@ -6336,9 +6338,6 @@ export interface DataModelingEdge {
     id: string
     source_id: string
     target_id: string
-    properties: Record<string, unknown>
-    created_at: string
-    updated_at: string
 }
 
 export type DataModelingSyncInterval = '15min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'

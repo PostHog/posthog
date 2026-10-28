@@ -1,6 +1,8 @@
 import { DataColorToken } from 'lib/colors'
 // eslint-disable-next-line import/no-cycle
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import type { FunnelLayout } from 'lib/constants'
+import type { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 
 import { ConversionGoalSchema } from '~/taxonomy/marketingAnalytics'
 import {
@@ -10,6 +12,7 @@ import {
     AnyPersonScopeFilter,
     AnyPropertyFilter,
     BaseMathType,
+    BinCountValue,
     BreakdownAttributionType,
     BreakdownKeyType,
     BreakdownType,
@@ -31,19 +34,20 @@ import {
     FilterType,
     FunnelConversionWindowTimeUnit,
     FunnelMathType,
-    FunnelsFilterType,
+    FunnelPathType,
+    FunnelStepReference,
+    FunnelVizType,
     GroupMathType,
     HogQLMathType,
     InsightShortId,
     InsightType,
     IntegrationType,
     IntervalType,
-    LifecycleFilterType,
     LifecycleToggle,
     LogEntryPropertyFilter,
     MatchedRecordingEvent,
     PathCleaningFilter,
-    PathsFilterType,
+    PathType,
     PersonPropertyFilter,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -51,13 +55,13 @@ import {
     PropertyOperator,
     RecordingPropertyFilter,
     RetentionDashboardDisplayType,
-    RetentionFilterType,
+    RetentionEntity,
+    RetentionPeriod,
+    RetentionType,
     SessionPropertyFilter,
     SessionRecordingType,
     SlackIntegrationScope,
     StepOrderValue,
-    StickinessFilterType,
-    TrendsFilterType,
 } from '~/types'
 
 import { BIVisualizationNode } from './schema-business-intelligence'
@@ -562,6 +566,8 @@ export interface HogQLQueryModifiers {
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
+    /** Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag. */
+    materializeRepeatedCTEs?: boolean
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
     typeAwareCastSimplification?: boolean
     pushDownPredicates?: boolean
@@ -1793,9 +1799,6 @@ export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase> extends
     tags?: QueryLogTags
 }
 
-/** `TrendsFilterType` minus everything inherited from `FilterType` and `shown_as` */
-export type TrendsFilterLegacy = Omit<TrendsFilterType, keyof FilterType | 'shown_as'>
-
 export enum ResultCustomizationBy {
     Value = 'value',
     Position = 'position',
@@ -1820,21 +1823,21 @@ export type TrendsFilter = {
     /** @default 1 */
     smoothingIntervals?: integer
     /** @deprecated Use formulaNodes instead. */
-    formula?: TrendsFilterLegacy['formula']
+    formula?: string
     /** @deprecated Use formulaNodes instead. */
     formulas?: string[]
     /** List of formulas with optional custom names. Takes precedence over formula/formulas if set. */
     formulaNodes?: TrendsFormulaNode[]
     /** @default ActionsLineGraph */
-    display?: TrendsFilterLegacy['display']
+    display?: ChartDisplayType
     /** @default false */
-    showLegend?: TrendsFilterLegacy['show_legend']
+    showLegend?: boolean
     /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
      * @default bottom */
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default false */
     showAlertThresholdLines?: boolean
-    breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
+    breakdown_histogram_bin_count?: number // TODO: fully move into BreakdownFilter
     // The aggregation-axis description below is duplicated, intentionally and divergently, on
     // `AssistantTrendsFilter` in schema-assistant-queries.ts. The assistant copy is deliberately
     // more cautious ("do not use unless absolutely sure") because Max picks formats without explicit
@@ -1852,28 +1855,28 @@ export type TrendsFilter = {
      * - `short`: compact notation for large counts (`1.2K`, `3.4M`).
      * @default numeric
      */
-    aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
+    aggregationAxisFormat?: AggregationAxisFormat
     /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
-    aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
+    aggregationAxisPrefix?: string
     /** Literal suffix applied to every value (e.g. ` req`). Reserve for units that `aggregationAxisFormat` cannot express. Do not use ` mins`, ` s`, ` ms`, `%` etc. — pick the matching `aggregationAxisFormat` instead so the underlying values stay numerically correct for breakdowns, formulas, and alerts. Include any leading space yourself. */
-    aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
+    aggregationAxisPostfix?: string
     /** Maximum number of decimal places shown. 1 or 2 is usually right for percentages and currency. */
-    decimalPlaces?: TrendsFilterLegacy['decimal_places']
-    minDecimalPlaces?: TrendsFilterLegacy['min_decimal_places']
+    decimalPlaces?: number
+    minDecimalPlaces?: number
     /** Custom label rendered under the X axis. */
-    xAxisLabel?: TrendsFilterLegacy['x_axis_label']
+    xAxisLabel?: string
     /** Custom label rendered alongside the Y axis. */
-    yAxisLabel?: TrendsFilterLegacy['y_axis_label']
+    yAxisLabel?: string
     /** @default false */
-    showValuesOnSeries?: TrendsFilterLegacy['show_values_on_series']
-    showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
+    showValuesOnSeries?: boolean
+    showLabelsOnSeries?: boolean
     /** @default false */
-    showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
+    showPercentStackView?: boolean
     /** On the horizontal bar-value chart, stack a series' breakdown values into a single bar
      *  instead of rendering one bar per breakdown value.
      * @default false */
     stackBreakdownValues?: boolean
-    yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
+    yAxisScaleType?: 'log10' | 'linear'
     /** Y-axis baseline. When false the axis floats to the data range instead of starting at zero.
      *  Ignored on bar displays (bars always draw from zero), on a logarithmic scale, and while
      *  showing percentages.
@@ -1886,7 +1889,7 @@ export type TrendsFilter = {
      *  `yAxisStartAtZero`, and when `yAxisMin` is not below it. */
     yAxisMax?: number
     /** @default false */
-    showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
+    showMultipleYAxes?: boolean
     hiddenLegendIndexes?: integer[]
     /**
      * Wether result datasets are associated by their values or by their order.
@@ -2127,17 +2130,6 @@ export interface IntegrationFilter {
     includeNonIntegrated?: boolean
 }
 
-/** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params */
-export type FunnelsFilterLegacy = Omit<
-    FunnelsFilterType,
-    | keyof FilterType
-    | 'funnel_step_breakdown'
-    | 'entrance_period_start'
-    | 'drop_off'
-    | 'funnel_step'
-    | 'funnel_custom_steps'
->
-
 export interface FunnelExclusionSteps {
     funnelFromStep: integer
     funnelToStep: integer
@@ -2153,29 +2145,29 @@ export type FunnelsFilter = {
     /** @default [] */
     exclusions?: FunnelExclusion[]
     /** @default vertical */
-    layout?: FunnelsFilterLegacy['layout']
+    layout?: FunnelLayout
     /** @asType integer */
-    binCount?: FunnelsFilterLegacy['bin_count']
+    binCount?: BinCountValue
     /** @default first_touch */
-    breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
+    breakdownAttributionType?: BreakdownAttributionType
     breakdownAttributionValue?: integer
-    funnelAggregateByHogQL?: FunnelsFilterLegacy['funnel_aggregate_by_hogql']
+    funnelAggregateByHogQL?: string | null
     /** For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups. */
     customAggregationTarget?: boolean
     /** To select the range of steps for trends & time to convert funnels, 0-indexed */
     funnelToStep?: integer
     funnelFromStep?: integer
     /** @default ordered */
-    funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']
+    funnelOrderType?: StepOrderValue
     /** @default steps */
-    funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
+    funnelVizType?: FunnelVizType
     /** @default 14 */
     funnelWindowInterval?: integer
     /** @default day */
-    funnelWindowIntervalUnit?: FunnelsFilterLegacy['funnel_window_interval_unit']
+    funnelWindowIntervalUnit?: FunnelConversionWindowTimeUnit
     hiddenLegendBreakdowns?: string[]
     /** @default total */
-    funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
+    funnelStepReference?: FunnelStepReference
     useUdf?: boolean
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
@@ -2258,20 +2250,18 @@ export interface FunnelsQueryResponse extends AnalyticsQueryResponseBase {
 
 export type CachedFunnelsQueryResponse = CachedQueryResponse<FunnelsQueryResponse>
 
-/** `RetentionFilterType` minus everything inherited from `FilterType` */
-export type RetentionFilterLegacy = Omit<RetentionFilterType, keyof FilterType>
-
 export type RetentionFilter = {
-    retentionType?: RetentionFilterLegacy['retention_type']
-    retentionReference?: RetentionFilterLegacy['retention_reference']
+    retentionType?: RetentionType
+    /** Whether retention is with regard to initial cohort size, or that of the previous period. */
+    retentionReference?: 'total' | 'previous'
     /** @default 8 */
     totalIntervals?: integer
     minimumOccurrences?: integer
-    returningEntity?: RetentionFilterLegacy['returning_entity']
-    targetEntity?: RetentionFilterLegacy['target_entity']
+    returningEntity?: RetentionEntity
+    targetEntity?: RetentionEntity
     /** @default Day */
-    period?: RetentionFilterLegacy['period']
-    cumulative?: RetentionFilterLegacy['cumulative']
+    period?: RetentionPeriod
+    cumulative?: boolean
     /** @description The time window mode to use for retention calculations */
     timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
     /** @description Custom brackets for retention calculations */
@@ -2288,7 +2278,7 @@ export type RetentionFilter = {
     customAggregationTarget?: boolean
 
     //frontend only
-    meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
+    meanRetentionCalculation?: 'simple' | 'weighted' | 'none'
     /** controls the display of the retention graph */
     display?: ChartDisplayType
     dashboardDisplay?: RetentionDashboardDisplayType
@@ -2347,27 +2337,23 @@ export interface PathsQueryResponse extends AnalyticsQueryResponseBase {
 
 export type CachedPathsQueryResponse = CachedQueryResponse<PathsQueryResponse>
 
-/** `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params */
-export type PathsFilterLegacy = Omit<
-    PathsFilterType,
-    keyof FilterType | 'path_start_key' | 'path_end_key' | 'path_dropoff_key'
->
-
 export type PathsFilter = {
     /** @default 50 */
     edgeLimit?: integer
-    pathsHogQLExpression?: PathsFilterLegacy['paths_hogql_expression']
-    includeEventTypes?: PathsFilterLegacy['include_event_types']
-    startPoint?: PathsFilterLegacy['start_point']
-    endPoint?: PathsFilterLegacy['end_point']
-    pathGroupings?: PathsFilterLegacy['path_groupings']
-    excludeEvents?: PathsFilterLegacy['exclude_events']
+    pathsHogQLExpression?: string
+    includeEventTypes?: PathType[]
+    startPoint?: string
+    endPoint?: string
+    pathGroupings?: string[]
+    excludeEvents?: string[]
     /** @default 5 */
     stepLimit?: integer
-    pathReplacements?: PathsFilterLegacy['path_replacements']
-    localPathCleaningFilters?: PathsFilterLegacy['local_path_cleaning_filters'] | null
-    minEdgeWeight?: PathsFilterLegacy['min_edge_weight']
-    maxEdgeWeight?: PathsFilterLegacy['max_edge_weight']
+    pathReplacements?: boolean
+    localPathCleaningFilters?: PathCleaningFilter[] | null
+    /** @asType integer */
+    minEdgeWeight?: number
+    /** @asType integer */
+    maxEdgeWeight?: number
     showFullUrls?: boolean
     /** Remove the query string from page view URLs, so pages that differ only in query parameters become one path item */
     stripQueryString?: boolean
@@ -2380,7 +2366,7 @@ export type PathsFilter = {
 }
 
 export type FunnelPathsFilter = {
-    funnelPathType: PathsFilterLegacy['funnel_paths']
+    funnelPathType: FunnelPathType | undefined
     funnelSource: FunnelsQuery
     funnelStep?: integer
 }
@@ -2578,9 +2564,6 @@ export interface PathsV2Query extends Omit<
     pathsV2Filter?: PathsV2Filter
 }
 
-/** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params  */
-export type StickinessFilterLegacy = Omit<StickinessFilterType, keyof FilterType | 'stickiness_days' | 'shown_as'>
-
 export type StickinessOperator =
     | PropertyOperator.GreaterThanOrEqual
     | PropertyOperator.LessThanOrEqual
@@ -2599,13 +2582,13 @@ export interface StickinessCriteria {
 }
 
 export type StickinessFilter = {
-    display?: StickinessFilterLegacy['display']
-    showLegend?: StickinessFilterLegacy['show_legend']
+    display?: ChartDisplayType
+    showLegend?: boolean
     /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
      * @default bottom */
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
-    showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
-    showMultipleYAxes?: StickinessFilterLegacy['show_multiple_y_axes']
+    showValuesOnSeries?: boolean
+    showMultipleYAxes?: boolean
     hiddenLegendIndexes?: integer[]
     stickinessCriteria?: StickinessCriteria
     computedAs?: StickinessComputationMode
@@ -2671,20 +2654,14 @@ export interface StickinessQuery extends Omit<
     compareFilter?: CompareFilter
 }
 
-/** `LifecycleFilterType` minus everything inherited from `FilterType` */
-export type LifecycleFilterLegacy = Omit<LifecycleFilterType, keyof FilterType | 'shown_as'> & {
-    /** Lifecycles that have been removed from display are not included in this array */
-    toggledLifecycles?: LifecycleToggle[]
-} // using everything except what it inherits from FilterType
-
 export type LifecycleFilter = {
-    showValuesOnSeries?: LifecycleFilterLegacy['show_values_on_series']
+    showValuesOnSeries?: boolean
     /** Append per-band percentage to each value label (e.g. `580 (42%)`). Requires
      *  `showValuesOnSeries` — on its own it has no visible effect. */
     showPercentagesOnSeries?: boolean
-    toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
+    toggledLifecycles?: LifecycleToggle[]
     /** @default false */
-    showLegend?: LifecycleFilterLegacy['show_legend']
+    showLegend?: boolean
     /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
      * @default bottom */
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'

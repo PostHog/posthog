@@ -128,7 +128,7 @@ export function captureBIWorksheetAction(
         hierarchy_axis?: 'rows' | 'columns'
         hierarchy_depth?: number
         expanded?: boolean
-        starter_kind?: 'metric' | 'certified_source' | 'events'
+        starter_kind?: 'metric' | 'certified_source' | 'events' | 'daily_people' | 'event_reach' | 'pageview_sources'
         source_certification?: 'certified' | 'deprecated' | 'unmarked'
         setting_keys?: string[]
         rule_count?: number

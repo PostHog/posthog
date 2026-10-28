@@ -21,6 +21,7 @@ from products.workflows.backend.facade.enums import (
     HogFlowTemplateExitCondition,
     HogFlowTemplateScope,
     SetupStepKey,
+    WorkflowImportNoteLevel,
     WorkflowProposalStatus,
 )
 
@@ -679,6 +680,10 @@ class WorkflowRef:
     has_email_step: bool
 
 
+# Engagement tracking and message assets key on this id, so it stays stable across versions.
+TRANSACTIONAL_EMAIL_ACTION_ID: Final[str] = "transactional_email"
+
+
 @frozen
 class TransactionalEmailContent:
     """What a transactional email's workflow sends, taken from the message template it was made from."""
@@ -1019,3 +1024,116 @@ class SetupStep:
 
     key: SetupStepKey
     done: bool
+
+
+@frozen
+class ImportNote:
+    """What an import changed or left out of a workflow, for the team to review before enabling it."""
+
+    level: WorkflowImportNoteLevel
+    message: str
+    # The workflow step the note is about, or None for the whole workflow.
+    step_id: str | None = None
+    step_name: str | None = None
+
+
+@frozen
+class TranslatedWorkflow:
+    source_id: str
+    name: str
+    workflow: dict[str, Any]
+    notes: tuple[ImportNote, ...]
+
+
+@frozen
+class CampaignSource:
+    """A Customer.io automation as its Journeys UI API returns it, with the templates its messages use."""
+
+    campaign: dict[str, Any]
+    actions: list[dict[str, Any]]
+    templates: dict[str, dict[str, Any]]
+
+
+@frozen
+class ImportSender:
+    """A PostHog email sender that an imported email sends from."""
+
+    integration_id: int
+    email: str
+    name: str
+
+
+@frozen
+class ImportCategory:
+    """The PostHog message category that stands in for a Customer.io subscription topic."""
+
+    id: str
+    category_type: str
+
+
+@frozen
+class ImportSegment:
+    name: str
+    # Customer.io's segment type: `dynamic`, or `static`/`manual` for a list people are added to by hand.
+    type: str
+
+
+@frozen
+class ImportOptions:
+    # Customer.io snippet name to its content, inlined wherever a message includes the snippet.
+    snippets: dict[str, str]
+    # Customer.io segment id to the PostHog cohort that stands in for it.
+    segment_cohorts: dict[str, int]
+    # Customer.io layout id to its HTML, which wraps the email body at `{{ content }}`.
+    layouts: dict[str, str] = field(default_factory=dict)
+    # Customer.io sender identity id to its email address.
+    sender_addresses: dict[str, str] = field(default_factory=dict)
+    # Lower-cased email address to the team's PostHog sender for it.
+    senders: dict[str, ImportSender] = field(default_factory=dict)
+    # Customer.io subscription topic id to the PostHog category made from it.
+    topic_categories: dict[str, ImportCategory] = field(default_factory=dict)
+    # Customer.io segment id to its name and type.
+    segments: dict[str, ImportSegment] = field(default_factory=dict)
+
+
+@frozen
+class ImportContent:
+    """Automations with the content PostHog read for them, and the options to translate them with."""
+
+    sources: list[CampaignSource]
+    options: ImportOptions
+    # Per campaign id, what went wrong reading its content from Customer.io.
+    fetch_notes: dict[str, tuple[ImportNote, ...]]
+    fetched: bool
+
+
+@dataclass(frozen=False)
+class SnippetRoom:
+    """How many more bytes of snippet content one import request may inline, shared by every automation in it.
+
+    Snippets are inlined by copy, so a short template that repeats a large one could grow without bound.
+    """
+
+    remaining: int = 5_000_000
+
+
+@frozen
+class PreviousImport:
+    """The earlier import of a source object, when there is one."""
+
+    record_id: UUID | None
+    hog_flow_id: UUID | None
+    hog_flow_is_draft: bool
+    hog_flow_created_by_id: int | None = None
+
+
+@frozen
+class WorkflowImportRecord:
+    id: UUID
+    source: str
+    source_id: str
+    source_name: str
+    hog_flow_id: UUID | None
+    notes: tuple[dict[str, Any], ...]
+    updated_at: datetime
+    hog_flow_created_by_id: int | None = None
