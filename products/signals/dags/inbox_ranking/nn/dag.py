@@ -62,6 +62,7 @@ from products.signals.dags.inbox_ranking.nn.examples import (
 )
 from products.signals.dags.inbox_ranking.nn.model import (
     HOLDOUT_MODEL_FILE,
+    TrainedNetwork,
     candidate_metadata,
     champion_grades,
     network_recipe,
@@ -299,6 +300,27 @@ def train_candidate(
             experiment_scores=seed_scores(examples.table, inputs, NN_HEADS, NETWORK_CONFIG, EXPERIMENT_SEEDS),
             baseline_scores=seed_scores(examples.table, baseline_inputs, NN_HEADS, NETWORK_CONFIG, EXPERIMENT_SEEDS),
         )
+    return write_candidate(
+        context, client, bucket, partition_key, family, trained, windows=examples.windows, vs_baseline=vs_baseline
+    )
+
+
+def write_candidate(
+    context: dagster.AssetExecutionContext,
+    client,
+    bucket: str,
+    partition_key: str,
+    family: ModelFamily,
+    trained: TrainedNetwork,
+    *,
+    windows: Mapping[str, Mapping[str, object]],
+    vs_baseline: Mapping[str, Any] | None,
+    pair_settings: Mapping[str, Any] | None = None,
+) -> dict[str, dagster.MetadataValue]:
+    """Write a fitted `family` network's graphs and `metadata.json` under `<model_name>/dt=D/`,
+    replacing what a previous run of the partition left, capture its events, and return the asset
+    metadata."""
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     for head in trained.heads:
         context.log.info(f"{family.name} {head.metrics.head}: {head.metrics.as_dict()}")
     for name in trained.skipped:
@@ -317,12 +339,13 @@ def train_candidate(
         trained,
         family=family,
         config=NETWORK_CONFIG,
-        windows=examples.windows,
+        windows=windows,
         trained_at=datetime.datetime.now(datetime.UTC),
         run_id=context.run_id,
+        pair_settings=pair_settings,
     )
     if vs_baseline is not None:
-        metadata = {**metadata, "vs_baseline": vs_baseline}
+        metadata = {**metadata, "vs_baseline": dict(vs_baseline)}
     metadata_key = model_object_key(prefix, family.name, partition_key, METADATA_FILE)
     _put_json(client, bucket, metadata_key, metadata)
     written.add(metadata_key)
