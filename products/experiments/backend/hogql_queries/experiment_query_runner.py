@@ -114,6 +114,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         as_of: Optional[datetime] = None,
         user_facing: bool = True,
         max_execution_time: Optional[int] = None,
+        max_threads: Optional[int] = None,
         bypass_warehouse_access_control: bool = False,
         error_event_context: Optional[str] = "ui",
         experiment: Optional[Experiment] = None,
@@ -123,6 +124,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         super().__init__(*args, **kwargs)
         self.user_facing = user_facing
         self.max_execution_time = max_execution_time if max_execution_time is not None else MAX_EXECUTION_TIME
+        self.max_threads = max_threads
         self.bypass_warehouse_access_control = bypass_warehouse_access_control
         self._requested_as_of = as_of
         # Tags the terminal `experiment metric error` event with where the load came from. Defaults to "ui"
@@ -228,7 +230,12 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             builder,
             self.experiment.start_date,
             experiment_window_end(self.experiment, self.as_of),
+            insert_settings=self._precompute_insert_settings,
         )
+
+    @property
+    def _precompute_insert_settings(self) -> Optional[dict[str, int]]:
+        return {"max_threads": self.max_threads} if self.max_threads is not None else None
 
     @cached_property
     def _metric_events_precompute(self) -> MetricEventsPrecompute:
@@ -241,6 +248,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             has_breakdowns=bool(self._get_breakdowns_for_builder()),
             cuped_enabled=self.cuped_config.enabled,
             is_data_warehouse_query=self.is_data_warehouse_query,
+            insert_settings=self._precompute_insert_settings,
         )
 
     def _ensure_metric_events_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
@@ -539,6 +547,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         settings = HogQLGlobalSettings(
             max_execution_time=self.max_execution_time,
             max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
+            max_threads=self.max_threads,
         )
         # Mean metric queries join exposures with a potentially large metric-events table and
         # can exceed memory with the default hash join. grace_hash spills to disk when needed.
@@ -726,13 +735,14 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         raise ValidationError(f"Cannot convert source query of type {self.query.metric.kind} to query")
 
     def single_flight_variant(self) -> str:
-        # A recalculation passes its own window end, warehouse access, and execution time. None of
+        # A recalculation passes its own window end, warehouse access, execution time, and threads. None of
         # them reach the cache key, so a recalculation must not pair with a results request.
         as_of = self._requested_as_of.isoformat() if self._requested_as_of else ""
         return (
             f"{super().single_flight_variant()}:as_of={as_of}"
             f":bypass_warehouse_access_control={self.bypass_warehouse_access_control}"
             f":max_execution_time={self.max_execution_time}"
+            f":max_threads={self.max_threads}"
         )
 
     def get_cache_payload(self) -> dict:

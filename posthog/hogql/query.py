@@ -972,6 +972,14 @@ class HogQLQueryExecutor:
             if table_workload is not None and table_workload != Workload.DEFAULT and workload in MAIN_CLUSTER_WORKLOADS:
                 workload = table_workload
 
+            # The SQL SETTINGS clause already carries max_threads. The kill switch merges its cap into the driver
+            # settings, which ClickHouse checks against profile constraints before the clause applies, so a
+            # query must also send its lower value there.
+            max_threads = self.clickhouse_settings.max_threads if self.clickhouse_settings else None
+            driver_kwargs: dict[str, Any] = (
+                {"settings": {"max_threads": max_threads}} if max_threads is not None else {}
+            )
+
             def run_clickhouse_query() -> Any:
                 return sync_execute(
                     self.clickhouse_sql,
@@ -982,6 +990,7 @@ class HogQLQueryExecutor:
                     readonly=True,
                     ch_user=self.ch_user,
                     external_tables=list(clickhouse_context.external_tables.values()) or None,
+                    **driver_kwargs,
                 )
 
             stats = query_stats.get_active()

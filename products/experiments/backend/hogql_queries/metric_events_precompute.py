@@ -6,6 +6,7 @@ The per-source build query and read CTE live in metric_source_precompute; this m
 decides when they apply and runs the builds.
 """
 
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -77,6 +78,7 @@ class MetricEventsPrecompute:
     has_breakdowns: bool
     cuped_enabled: bool
     is_data_warehouse_query: bool
+    insert_settings: Optional[Mapping[str, int | str]] = None
 
     def ensure_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
         """
@@ -124,6 +126,7 @@ class MetricEventsPrecompute:
             sentinel_placeholders={"experiment_date_to"},
             end_is_data_horizon=True,
             spill_to_disk=True,
+            insert_settings=self.insert_settings,
         )
 
     @property

@@ -17,7 +17,7 @@ from posthog.clickhouse.client.connection import (
     Workload,
     get_default_clickhouse_workload_type,
 )
-from posthog.clickhouse.client.execute import query_with_columns, sync_execute
+from posthog.clickhouse.client.execute import _KILL_SWITCH_SETTINGS, KillSwitchLevel, query_with_columns, sync_execute
 from posthog.clickhouse.client.limit import ConcurrencySlot, RateLimit, get_llm_analytics_rate_limiter
 from posthog.clickhouse.query_tagging import AccessMethod, Feature, Product, tags_context
 
@@ -153,6 +153,25 @@ def test_llm_analytics_queries_take_a_concurrency_slot(client_from_pool, llm_ana
         sync_execute("SELECT 1", flush=False)
 
     assert llm_analytics_slots.call_count == expected_slots
+
+
+@pytest.mark.parametrize(
+    "level,query_settings,expected_max_threads",
+    [
+        (KillSwitchLevel.LIGHT, {"max_threads": 16}, 16),
+        (KillSwitchLevel.FULL, {"max_threads": 16}, 16),
+        (KillSwitchLevel.LIGHT, {}, _KILL_SWITCH_SETTINGS[KillSwitchLevel.LIGHT]["max_threads"]),
+        (KillSwitchLevel.FULL, {}, _KILL_SWITCH_SETTINGS[KillSwitchLevel.FULL]["max_threads"]),
+    ],
+)
+def test_kill_switch_keeps_the_lower_max_threads(client_from_pool, level, query_settings, expected_max_threads):
+    with patch(
+        "posthog.clickhouse.client.execute.kill_switch_overrides", return_value=dict(_KILL_SWITCH_SETTINGS[level])
+    ):
+        sync_execute("SELECT 1", settings=query_settings, flush=False)
+
+    client = client_from_pool.return_value.__enter__.return_value
+    assert client.execute.call_args.kwargs["settings"]["max_threads"] == expected_max_threads
 
 
 def _fake_query_info(rows: int, elapsed_ns: int) -> SimpleNamespace:

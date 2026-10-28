@@ -5,6 +5,7 @@ decide whether a query may use precomputed data at all.
 Shared by the experiment query runner, the exposures query runner, and replay linkage.
 """
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -198,6 +199,8 @@ def ensure_exposures_precomputed(
     builder: ExperimentQueryBuilder,
     time_range_start: datetime,
     time_range_end: datetime,
+    *,
+    insert_settings: Optional[Mapping[str, int | str]] = None,
 ) -> LazyComputationResult:
     query_string, placeholders = builder.get_exposure_query_for_precomputation()
 
@@ -214,4 +217,5 @@ def ensure_exposures_precomputed(
         # High-volume teams' builds OOM even at capped window widths; spilling the
         # GROUP BY to disk degrades gracefully instead of failing the build.
         spill_to_disk=True,
+        insert_settings=insert_settings,
     )

@@ -52,6 +52,7 @@ from products.experiments.backend.temporal.models import (
     CAPACITY_RETRY_MAX_DELAY_SECONDS,
     MAX_METRIC_ATTEMPTS,
     METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
+    METRIC_CALC_MAX_THREADS,
     NON_RETRYABLE_ERROR_TYPES,
     RECALCULATION_RETRY_BACKOFF_COEFFICIENT,
     RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS,
@@ -747,6 +748,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 error_event_context=None,
                 # Must fail typed inside the activity before Temporal's start_to_close kill — see models.py.
                 max_execution_time=METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
+                max_threads=METRIC_CALC_MAX_THREADS,
             )
 
             # Deferred: recalculation.py imports temporal.models, whose package __init__ imports this module.

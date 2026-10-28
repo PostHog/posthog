@@ -35,7 +35,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLQuerySettings
+from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
@@ -456,6 +456,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(executor.results, [])
         self.assertEqual(executor.types, [])
         mock_sync_execute.assert_not_called()
+
+    @parameterized.expand([("unset", None, None), ("set", 16, {"max_threads": 16})])
+    @patch("posthog.hogql.query.sync_execute", return_value=([], []))
+    def test_max_threads_reaches_the_driver_settings(self, _name, max_threads, expected_settings, mock_sync_execute):
+        execute_hogql_query("select 1", team=self.team, settings=HogQLGlobalSettings(max_threads=max_threads))
+
+        self.assertEqual(mock_sync_execute.call_args.kwargs.get("settings"), expected_settings)
 
     def test_compiled_hogql_select_can_be_embedded_in_insert(self) -> None:
         sync_execute(ADHOC_EVENTS_DELETION_TABLE_SQL(on_cluster=False))

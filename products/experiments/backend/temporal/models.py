@@ -93,6 +93,10 @@ METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS = 60
 # also stops the orphaned query from burning ClickHouse for the full default 600s.
 METRIC_CALC_MAX_EXECUTION_TIME_SECONDS = 270
 
+# Caps the CPU a burst of recalculations takes on a node. Keep it at or below every kill-switch level, because a
+# profile constraint at this value rejects any query that carries a higher one.
+METRIC_CALC_MAX_THREADS = 16
+
 RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS = 90
 RECALCULATION_PROGRESS_MAX_ATTEMPTS = 3
 
