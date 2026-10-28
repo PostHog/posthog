@@ -130,6 +130,19 @@ class _Term:
     absolute_top: float | None
 
 
+@frozen
+class _Spend:
+    cost: float
+    conversions: float
+
+
+@frozen
+class _BrandSpend:
+    cost: float
+    conversions: float
+    top_term: str
+
+
 def _site_brand(site_url: str) -> str | None:
     match = SITE_HOST.match(site_url.lower())
     if not match:
@@ -202,8 +215,8 @@ class _Recommender:
             for campaign in self.campaigns.values()
             if campaign.channel_type == "SEARCH" and not self._is_brand_campaign(campaign, brand_spend)
         ]
-        nonbrand_cost = sum(nonbrand[campaign.id][0] for campaign in search_campaigns)
-        nonbrand_conversions = sum(nonbrand[campaign.id][1] for campaign in search_campaigns)
+        nonbrand_cost = sum(nonbrand[campaign.id].cost for campaign in search_campaigns)
+        nonbrand_conversions = sum(nonbrand[campaign.id].conversions for campaign in search_campaigns)
         nonbrand_cpa = nonbrand_cost / nonbrand_conversions if nonbrand_conversions else None
         search_cost = sum(campaign.cost for campaign in self.campaigns.values() if campaign.channel_type == "SEARCH")
 
@@ -236,7 +249,7 @@ class _Recommender:
             if campaign.channel_type != "PERFORMANCE_MAX" or campaign.primary_status in INACTIVE_STATUSES:
                 continue
             leak = brand_spend.get(campaign.id)
-            if leak and leak[0] >= 0.05 * max(self._term_cost(campaign.id), 1):
+            if leak and leak.cost >= 0.05 * max(self._term_cost(campaign.id), 1):
                 recommendations.append(self._brand_leak(campaign, leak, has_brand_campaign))
             if campaign.conversions > 0 and (campaign.lost_to_rank or 0) >= 0.4:
                 recommendations.append(self._performance_max_rank(campaign))
@@ -245,9 +258,10 @@ class _Recommender:
             if campaign.primary_status in INACTIVE_STATUSES:
                 continue
             leak = brand_spend.get(campaign.id)
-            if leak and leak[0] >= 0.05 * max(self._term_cost(campaign.id), 1):
+            if leak and leak.cost >= 0.05 * max(self._term_cost(campaign.id), 1):
                 recommendations.append(self._brand_leak(campaign, leak, has_brand_campaign))
-            cost, conversions = nonbrand[campaign.id]
+            totals = nonbrand[campaign.id]
+            cost, conversions = totals.cost, totals.conversions
             cpa = cost / conversions if conversions else None
             lost = (campaign.lost_to_budget or 0) + (campaign.lost_to_rank or 0)
             if nonbrand_cpa and cpa and conversions >= 5 and cpa <= nonbrand_cpa and lost >= 0.4:
@@ -287,9 +301,9 @@ class _Recommender:
         )
 
     def _brand_leak(
-        self, campaign: CampaignStats, leak: tuple[float, float, str], has_brand_campaign: bool
+        self, campaign: CampaignStats, leak: _BrandSpend, has_brand_campaign: bool
     ) -> MarketingAnalyticsRecommendation:
-        cost, conversions, top_term = leak
+        cost, conversions, top_term = leak.cost, leak.conversions, leak.top_term
         share = cost / max(self._term_cost(campaign.id), 1)
         brand = next((brand for brand in self.brands if brand in top_term.replace(" ", "")), top_term)
         # Performance Max takes no negative keywords; brand exclusions are its equivalent.
@@ -614,7 +628,7 @@ class _Recommender:
             and (organic.clicks + paid_clicks) / organic.impressions > 0.3
         )
 
-    def _brand_spend_by_campaign(self) -> dict[str, tuple[float, float, str]]:
+    def _brand_spend_by_campaign(self) -> dict[str, _BrandSpend]:
         spend: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
         top: dict[str, tuple[float, str]] = {}
         for row in self.inputs.search_terms:
@@ -624,19 +638,24 @@ class _Recommender:
             spend[row.campaign_id][1] += row.conversions
             if row.cost > top.get(row.campaign_id, (-1.0, ""))[0]:
                 top[row.campaign_id] = (row.cost, row.term)
-        return {campaign: (cost, conversions, top[campaign][1]) for campaign, (cost, conversions) in spend.items()}
+        return {
+            campaign: _BrandSpend(cost=cost, conversions=conversions, top_term=top[campaign][1])
+            for campaign, (cost, conversions) in spend.items()
+        }
 
-    def _is_brand_campaign(self, campaign: CampaignStats, brand_spend: dict[str, tuple[float, float, str]]) -> bool:
+    def _is_brand_campaign(self, campaign: CampaignStats, brand_spend: dict[str, _BrandSpend]) -> bool:
         spend = brand_spend.get(campaign.id)
-        return spend is not None and spend[0] >= 0.5 * max(self._term_cost(campaign.id), 1)
+        return spend is not None and spend.cost >= 0.5 * max(self._term_cost(campaign.id), 1)
 
     def _term_cost(self, campaign_id: str) -> float:
         return self.term_cost_by_campaign.get(campaign_id, 0.0)
 
-    def _nonbrand_totals(self, campaign: CampaignStats, leak: tuple[float, float, str] | None) -> tuple[float, float]:
+    def _nonbrand_totals(self, campaign: CampaignStats, leak: _BrandSpend | None) -> _Spend:
         if not leak:
-            return campaign.cost, campaign.conversions
-        return max(campaign.cost - leak[0], 0), max(campaign.conversions - leak[1], 0)
+            return _Spend(cost=campaign.cost, conversions=campaign.conversions)
+        return _Spend(
+            cost=max(campaign.cost - leak.cost, 0), conversions=max(campaign.conversions - leak.conversions, 0)
+        )
 
     def _vocabulary(self, terms: list[_Term], cpa: float | None) -> set[str]:
         # Words from non-brand terms that convert at or below the account CPA: the account's own
