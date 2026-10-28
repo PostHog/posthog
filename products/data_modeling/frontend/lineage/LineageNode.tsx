@@ -229,9 +229,25 @@ function NodeHandles({ handles }: { handles: NodeHandle[] }): JSX.Element {
     )
 }
 
+function hiddenCountLabel(count: number): string {
+    return count > HIDDEN_DOWNSTREAM_COUNT_CAP ? `${HIDDEN_DOWNSTREAM_COUNT_CAP}+` : `+${count}`
+}
+
+function hiddenCountDescription(count: number): string {
+    return count > HIDDEN_DOWNSTREAM_COUNT_CAP
+        ? `More than ${HIDDEN_DOWNSTREAM_COUNT_CAP} hidden models downstream`
+        : `${pluralize(count, 'hidden model')} downstream`
+}
+
 function CollapsedLineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     const { node, state, callbacks } = data
-    const description = `Hidden ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}: ${node.name}`
+    const hiddenCount = state.hiddenDownstreamCount ?? 0
+    const description = [
+        `Hidden ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}: ${node.name}`,
+        hiddenCount > 0 && hiddenCountDescription(hiddenCount),
+    ]
+        .filter(Boolean)
+        .join('. ')
     return (
         <Tooltip title={description}>
             <div
@@ -258,23 +274,21 @@ function CollapsedLineageNode({ data }: { data: LineageNodeData }): JSX.Element 
                 )}
                 <NodeHandles handles={data.handles} />
                 <span aria-hidden="true">⋯</span>
+                {hiddenCount > 0 && (
+                    <span aria-hidden="true" className="ml-0.5 text-[10px]">
+                        {hiddenCountLabel(hiddenCount)}
+                    </span>
+                )}
             </div>
         </Tooltip>
     )
 }
 
 function HiddenDownstreamTag({ count }: { count: number }): JSX.Element {
-    const overCap = count > HIDDEN_DOWNSTREAM_COUNT_CAP
     return (
-        <Tooltip
-            title={
-                overCap
-                    ? `More than ${HIDDEN_DOWNSTREAM_COUNT_CAP} hidden models downstream`
-                    : `${pluralize(count, 'hidden model')} downstream`
-            }
-        >
+        <Tooltip title={hiddenCountDescription(count)}>
             <span className="text-[10px] text-secondary whitespace-nowrap px-1 rounded border border-dashed">
-                {overCap ? `${HIDDEN_DOWNSTREAM_COUNT_CAP}+` : `+${count}`} hidden
+                {hiddenCountLabel(count)} hidden
             </span>
         </Tooltip>
     )

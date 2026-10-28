@@ -10,7 +10,7 @@ const NODE_SIZES: Record<LineageVariant, { width: number; height: number }> = {
     canvas: { width: 180, height: 120 },
 }
 
-const COLLAPSED_NODE_SIZE = { width: 40, height: 24 }
+const COLLAPSED_NODE_SIZE = { width: 56, height: 24 }
 
 const NODE_GAP = 60
 

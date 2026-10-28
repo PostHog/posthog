@@ -5,6 +5,7 @@ import { AdjacencyMaps, buildAdjacencyMaps, edgesWithinNodes } from './lineageSe
 export const HIDDEN_DOWNSTREAM_COUNT_CAP = 99
 
 const PATH_COUNT_CEILING = 1_000_000
+const CACHED_REACH_LIMIT = 2
 const EMPTY_NODE_IDS: ReadonlySet<string> = new Set()
 
 export interface LineageEdge extends DataModelingEdge {
@@ -56,7 +57,8 @@ class HiddenSubgraph {
     readonly terminals: Set<string>
     readonly hubNodeIds: Set<string>
     private readonly maps: AdjacencyMaps
-    private readonly reachedTerminals = new Map<string, ReadonlySet<string>>()
+    private readonly downstreamPaths: Map<string, number>
+    private readonly cachedReach = new Map<string, ReadonlySet<string>>()
     private readonly deadEndsBelow = new Map<string, ReadonlySet<string>>()
 
     constructor(
@@ -65,15 +67,34 @@ class HiddenSubgraph {
         private readonly visibleNodeIds: Set<string>
     ) {
         this.maps = buildAdjacencyMaps(scopedEdges)
-        this.hubNodeIds = this.findHubs()
+        this.downstreamPaths = this.countVisiblePaths(this.maps.downstream)
+        this.hubNodeIds = this.findHubs(this.countVisiblePaths(this.maps.upstream))
         this.terminals = new Set([...visibleNodeIds, ...this.hubNodeIds])
         this.walkHiddenNodes()
     }
 
     terminalsReachedFrom(sourceId: string): Set<string> {
         const reached = new Set<string>()
-        for (const childId of this.hiddenChildren(sourceId)) {
-            this.reachedTerminals.get(childId)?.forEach((targetId) => reached.add(targetId))
+        const visited = new Set<string>()
+        const stack = this.hiddenChildren(sourceId)
+        while (stack.length > 0) {
+            const nodeId = stack.pop() as string
+            if (visited.has(nodeId)) {
+                continue
+            }
+            visited.add(nodeId)
+            const cached = this.cachedReach.get(nodeId)
+            if (cached) {
+                cached.forEach((targetId) => reached.add(targetId))
+                continue
+            }
+            for (const childId of this.maps.downstream.get(nodeId) ?? []) {
+                if (this.terminals.has(childId)) {
+                    reached.add(childId)
+                } else {
+                    stack.push(childId)
+                }
+            }
         }
         reached.delete(sourceId)
         return reached
@@ -95,13 +116,11 @@ class HiddenSubgraph {
         return (this.maps.downstream.get(nodeId) ?? []).filter(this.isHiddenNonTerminal)
     }
 
-    private findHubs(): Set<string> {
-        const upstreamPaths = this.countVisiblePaths(this.maps.upstream)
-        const downstreamPaths = this.countVisiblePaths(this.maps.downstream)
+    private findHubs(upstreamPaths: Map<string, number>): Set<string> {
         return new Set(
             [...upstreamPaths.keys()].filter((nodeId) => {
                 const upstream = upstreamPaths.get(nodeId) ?? 0
-                const downstream = downstreamPaths.get(nodeId) ?? 0
+                const downstream = this.downstreamPaths.get(nodeId) ?? 0
                 return upstream * downstream > upstream + downstream
             })
         )
@@ -121,9 +140,11 @@ class HiddenSubgraph {
 
     private walkHiddenNodes(): void {
         for (const nodeId of childrenFirstOrder(this.scopeNodeIds, this.maps.downstream, this.isHiddenNonTerminal)) {
-            const reached = this.collectReachedTerminals(nodeId)
-            this.reachedTerminals.set(nodeId, reached)
-            const deadEnds = new Set<string>(reached.size === 0 ? [nodeId] : [])
+            const downstreamPaths = this.downstreamPaths.get(nodeId) ?? 0
+            if (downstreamPaths <= CACHED_REACH_LIMIT) {
+                this.cachedReach.set(nodeId, this.reachFromCachedChildren(nodeId))
+            }
+            const deadEnds = new Set<string>(downstreamPaths === 0 ? [nodeId] : [])
             for (const childId of this.hiddenChildren(nodeId)) {
                 addCapped(deadEnds, this.deadEndsBelow.get(childId) ?? EMPTY_NODE_IDS)
             }
@@ -131,17 +152,16 @@ class HiddenSubgraph {
         }
     }
 
-    private collectReachedTerminals(nodeId: string): ReadonlySet<string> {
-        const terminalChildren = (this.maps.downstream.get(nodeId) ?? []).filter((childId) =>
-            this.terminals.has(childId)
-        )
-        const hiddenChildReach = this.hiddenChildren(nodeId)
-            .map((childId) => this.reachedTerminals.get(childId) ?? EMPTY_NODE_IDS)
-            .filter((reached) => reached.size > 0)
-        if (terminalChildren.length === 0 && hiddenChildReach.length === 1) {
-            return hiddenChildReach[0]
+    private reachFromCachedChildren(nodeId: string): ReadonlySet<string> {
+        const reached = new Set<string>()
+        for (const childId of this.maps.downstream.get(nodeId) ?? []) {
+            if (this.terminals.has(childId)) {
+                reached.add(childId)
+            } else {
+                this.cachedReach.get(childId)?.forEach((targetId) => reached.add(targetId))
+            }
         }
-        return new Set([...terminalChildren, ...hiddenChildReach.flatMap((childReach) => [...childReach])])
+        return reached.size === 0 ? EMPTY_NODE_IDS : reached
     }
 }
 
@@ -198,7 +218,7 @@ export function bridgeHiddenNodes(
         }
     }
 
-    for (const sourceId of visibleNodeIds) {
+    for (const sourceId of subgraph.terminals) {
         const deadEndCount = subgraph.deadEndCountBelow(sourceId)
         if (deadEndCount > 0) {
             hiddenDownstreamCounts.set(sourceId, deadEndCount)

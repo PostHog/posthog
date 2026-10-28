@@ -68,6 +68,23 @@ describe('bridgeHiddenNodes', () => {
             expectedHubs: ['h1', 'h2'],
         },
         {
+            name: 'counts a hidden leaf below a hidden hub on the hub',
+            edges: [
+                edge('a1', 'h'),
+                edge('a2', 'h'),
+                edge('a3', 'h'),
+                edge('h', 'b1'),
+                edge('h', 'b2'),
+                edge('h', 'b3'),
+                edge('h', 'm'),
+            ],
+            scope: ['a1', 'a2', 'a3', 'h', 'b1', 'b2', 'b3', 'm'],
+            visible: ['a1', 'a2', 'a3', 'b1', 'b2', 'b3'],
+            expectedEdges: ['a1>h', 'a2>h', 'a3>h', 'h>b1', 'h>b2', 'h>b3'],
+            expectedCounts: { h: 1 },
+            expectedHubs: ['h'],
+        },
+        {
             name: 'caps the hidden count past the display limit',
             edges: Array.from({ length: HIDDEN_DOWNSTREAM_COUNT_CAP + 5 }, (_, index) => edge('v', `m${index}`)),
             scope: ['v', ...Array.from({ length: HIDDEN_DOWNSTREAM_COUNT_CAP + 5 }, (_, index) => `m${index}`)],
