@@ -128,5 +128,95 @@ This spend is already part of "Spend by signal source" under `signals_scout`. Do
 
 ## Yield
 
-- Reports per source or scout: `inbox-reports-list` with `source_product` or `scout`, then read `count`.
-- What happened to each report: join `report_id` to `system.inbox_reports` for status, `system.inbox_report_actions` for actions taken or dismissals, and `system.inbox_report_pull_requests` for pull requests and merges.
+Yield is the number of reports resolved.
+A report is resolved when its status is `resolved`: someone resolved it, or its pull request merged.
+Dismissed reports have the status `suppressed` and do not count.
+
+A report needs time to resolve, so recent reports always look worse than they will.
+`settled_reports` counts the reports first shown in the inbox at least 14 days ago.
+Judge a source or scout on its settled reports.
+When most reports in the period are not settled, say so in the report (see the report template).
+
+HogQL does not allow a function call in a join condition, so each subquery converts the report id to a string first.
+
+### Yield by signal source
+
+```sql
+SELECT
+    b.source_product AS source_product,
+    b.source_type AS source_type,
+    count() AS reports,
+    countIf(r.status = 'resolved') AS resolved,
+    countIf(r.status = 'suppressed') AS dismissed,
+    countIf(r.settled = 1) AS settled_reports,
+    countIf(r.settled = 1 AND r.status = 'resolved') AS settled_resolved,
+    round(sum(b.spend) / 100, 2) AS spend_usd,
+    round(sum(b.spend) / 100 / greatest(countIf(r.status = 'resolved'), 1), 2) AS usd_per_resolved
+FROM (
+    SELECT source_product, source_type, report_id, sum(spend) AS spend
+    FROM (
+        SELECT
+            document_id,
+            argMax(JSONExtractString(metadata, 'source_product'), inserted_at) AS source_product,
+            argMax(JSONExtractString(metadata, 'source_type'), inserted_at) AS source_type,
+            argMax(JSONExtractString(metadata, 'report_id'), inserted_at) AS report_id,
+            argMax(JSONExtractFloat(metadata, 'total_spend'), inserted_at) AS spend
+        FROM document_embeddings
+        WHERE model_name = 'text-embedding-3-small-1536'
+            AND product = 'signals'
+            AND document_type = 'signal'
+            AND rendering = 'plain'
+            AND timestamp >= {date_from}
+            AND timestamp < {date_to}
+        GROUP BY document_id
+    )
+    WHERE source_product NOT IN ('health_checks', 'engineering_analytics')
+        AND report_id != ''
+    GROUP BY source_product, source_type, report_id
+) AS b
+LEFT JOIN (
+    SELECT
+        toString(id) AS rid,
+        status,
+        if(first_visible_at IS NOT NULL AND first_visible_at <= now() - INTERVAL 14 DAY, 1, 0) AS settled
+    FROM system.inbox_reports
+) AS r ON r.rid = b.report_id
+GROUP BY source_product, source_type
+ORDER BY spend_usd DESC
+```
+
+A report with signals from several sources counts once under each source.
+Its spend splits correctly, because each signal carries its own spend.
+
+### Yield by scout
+
+```sql
+SELECT
+    e.scout AS scout,
+    count() AS reports_created,
+    countIf(r.status = 'resolved') AS resolved,
+    countIf(r.status = 'suppressed') AS dismissed,
+    countIf(r.settled = 1) AS settled_reports,
+    countIf(r.settled = 1 AND r.status = 'resolved') AS settled_resolved
+FROM (
+    SELECT DISTINCT
+        skill_name AS scout,
+        arrayJoin(JSONExtract(ifNull(emitted_report_ids, '[]'), 'Array(String)')) AS report_id
+    FROM system.scout_runs
+    WHERE created_at >= {date_from}
+        AND created_at < {date_to}
+) AS e
+LEFT JOIN (
+    SELECT
+        toString(id) AS rid,
+        status,
+        if(first_visible_at IS NOT NULL AND first_visible_at <= now() - INTERVAL 14 DAY, 1, 0) AS settled
+    FROM system.inbox_reports
+) AS r ON r.rid = e.report_id
+GROUP BY scout
+ORDER BY reports_created DESC
+```
+
+This counts only the reports a scout created.
+A scout that mostly edits existing reports shows little yield here, so check `reports_edited` in "Spend by scout" before you judge it.
+A scout that writes digests or sends findings to Slack may resolve nothing and still be useful. Ask the user before you recommend pausing one.

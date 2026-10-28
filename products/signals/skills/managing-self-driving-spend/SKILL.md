@@ -36,8 +36,8 @@ When you recommend a change to automatic pull requests, say that its saving is n
    Add "Signals created by scouts" to charge scout-emitted signals back to the scout.
 5. **By day.** Run both daily queries and add them together.
    Look for spikes, then find the source or scout behind each one.
-6. **Yield.** For each source and scout, count reports and what happened to them: acted on, dismissed, pull request opened, merged.
-   Cost per useful report matters more than raw spend.
+6. **Yield.** Run "Yield by signal source" and "Yield by scout".
+   Yield is the number of reports resolved, and cost per resolved report matters more than raw spend.
 7. **Recommend.** Rank changes by expected savings with [references/recommendations.md](references/recommendations.md).
    Give each one a dollar figure, what the user loses, and whether you can apply it.
 8. **Apply.** Change nothing without an explicit yes for that specific change.
@@ -54,11 +54,15 @@ Present the result with [references/report-template.md](references/report-templa
   A signal's spend grows as its report is researched, and each update writes a new row.
 - Leave out the `health_checks` and `engineering_analytics` sources. They have no spend.
 - Spend from the last day or two can still grow. Say that the latest days are provisional.
+- Reports need about 14 days to resolve. When most reports in the period are not settled, add the footnote from the report template, and recommend no cut that rests on a low resolved count.
 - A signal or run with entries in `spend_accounting_failed_stages` has incomplete spend.
   Report how many there are.
 - A daily view buckets a signal's spend on the day the signal arrived and a run's spend on the day the run started.
   Totals over a whole period still add up.
 - A scout that rarely creates reports can still be useful if it edits existing ones.
   Check `edited_report_ids` before you recommend pausing it.
+- The inbox validation scout checks whether resolved reports stayed fixed.
+  It runs only when reports were resolved in the last 14 days.
+  Recommend running it less often rather than pausing it.
 - Never turn off error tracking ingestion or lower its rate limits to save Self-driving spend.
   That drops exception data permanently. Change the Self-driving source instead.
