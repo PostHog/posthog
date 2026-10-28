@@ -13,6 +13,7 @@ function ThrowChunkError(): JSX.Element {
 }
 
 describe('RootErrorBoundary', () => {
+    const initialUrl = window.location.href
     let consoleErrorSpy: jest.SpyInstance
     let sendBeacon: jest.Mock
 
@@ -34,6 +35,8 @@ describe('RootErrorBoundary', () => {
         delete window.JS_POSTHOG_HOST
         delete window.POSTHOG_USER_IDENTITY_WITH_FLAGS
         window.localStorage.removeItem('ph_test-api-key_posthog')
+        document.cookie = 'ph_test-api-key_posthog=; max-age=0; path=/'
+        window.history.replaceState({}, '', initialUrl)
         cleanup()
     })
 
@@ -107,5 +110,36 @@ describe('RootErrorBoundary', () => {
         expect(event.distinct_id).toBe('synthetic-person')
         expect(event.properties.$device_id).toBe('synthetic-device')
         expect(event.properties['$feature/standalone-login-entry']).toBe(variant)
+    })
+
+    it('uses the analytics cookie when local storage has no identity', () => {
+        document.cookie = `ph_test-api-key_posthog=${encodeURIComponent(
+            JSON.stringify({ distinct_id: 'synthetic-cookie-person', $device_id: 'synthetic-cookie-device' })
+        )}; path=/`
+        render(
+            <RootErrorBoundary>
+                <ThrowRenderError />
+            </RootErrorBoundary>
+        )
+
+        const event = JSON.parse(sendBeacon.mock.calls[0][1])
+        expect(event.distinct_id).toBe('synthetic-cookie-person')
+        expect(event.properties.$device_id).toBe('synthetic-cookie-device')
+    })
+
+    it.each([
+        ['normal', '/login?next=%2Fproject%2F1', '/login?next=%2Fproject%2F1'],
+        ['metric variables', '/login?next=%2Fdashboard%3FmetricVariables%3Dprivate', '/login'],
+    ])('reports a %s boot URL safely', (_case, url, expectedPath) => {
+        window.history.replaceState({}, '', url)
+        render(
+            <RootErrorBoundary>
+                <ThrowRenderError />
+            </RootErrorBoundary>
+        )
+
+        expect(JSON.parse(sendBeacon.mock.calls[0][1]).properties.$current_url).toBe(
+            `${window.location.origin}${expectedPath}`
+        )
     })
 })

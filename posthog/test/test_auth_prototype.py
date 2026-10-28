@@ -94,6 +94,8 @@ class TestLoginEntryExperiment(SimpleTestCase):
             send_feature_flag_events=False,
         )
         self.assertEqual(capture.call_count, int(expected is not None))
+        if expected is not None:
+            self.assertEqual(capture.call_args.kwargs["properties"]["$device_id"], "synthetic-device")
 
     def test_flag_failure_keeps_the_current_entry(self) -> None:
         request = RequestFactory().get("/login", HTTP_HOST="us.posthog.com")

@@ -1,6 +1,7 @@
 import React from 'react'
 
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
+import { redactMetricVariableUrl } from 'lib/utils/metricVariableUrlRedaction'
 
 /**
  * Report a boot failure straight to the capture API. posthog-js lives inside the App chunk —
@@ -25,6 +26,19 @@ export function reportBootFailure(error: unknown): void {
         } catch {
             // storage unavailable or corrupt — report anonymously
         }
+        if (!distinctId || !deviceId) {
+            try {
+                const key = `ph_${apiKey}_posthog=`
+                const cookie = document.cookie.split('; ').find((part) => part.startsWith(key))
+                if (cookie) {
+                    const identity = JSON.parse(decodeURIComponent(cookie.slice(key.length)))
+                    distinctId = identity.distinct_id || distinctId
+                    deviceId = identity.$device_id || deviceId
+                }
+            } catch {
+                // Cookie access can fail under strict browser settings.
+            }
+        }
         const err = error instanceof Error ? error : new Error(String(error))
         const payload = JSON.stringify({
             api_key: apiKey,
@@ -36,7 +50,7 @@ export function reportBootFailure(error: unknown): void {
                 $device_id: deviceId,
                 '$feature/standalone-login-entry':
                     window.POSTHOG_USER_IDENTITY_WITH_FLAGS?.featureFlags?.['standalone-login-entry'],
-                $current_url: window.location.href,
+                $current_url: redactMetricVariableUrl(window.location.href),
                 $exception_level: 'fatal',
                 $exception_list: [
                     {

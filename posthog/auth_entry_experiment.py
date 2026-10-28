@@ -58,6 +58,7 @@ class LoginEntryExperiment:
                     properties={
                         "$feature_flag": LOGIN_ENTRY_FLAG,
                         "$feature_flag_response": variant,
+                        "$device_id": device_id,
                         "login_entry_exposure": True,
                         f"$feature/{LOGIN_ENTRY_FLAG}": variant,
                         "$current_url": request.build_absolute_uri(request.path),

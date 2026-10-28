@@ -5,16 +5,20 @@ import '../buffer-polyfill'
 import { Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
 
+import { retryBootImport } from '../lib/utils/retryImport'
 import { RootErrorBoundary, reportBootFailure } from '../RootErrorBoundary'
+import { ChunkLoadErrorBoundary } from '../scenes/ChunkLoadErrorBoundary'
 
 performance.mark('auth-prototype:entry')
 
-const modules = Promise.all([import('./AuthPrototype'), import('../initKea'), import('../loadPostHogJS')]).then(
-    (loaded) => {
-        performance.mark('auth-prototype:modules-loaded')
-        return loaded
-    }
-)
+const modules = Promise.all([
+    retryBootImport(() => import('./AuthPrototype')),
+    retryBootImport(() => import('../initKea')),
+    retryBootImport(() => import('../loadPostHogJS')),
+]).then((loaded) => {
+    performance.mark('auth-prototype:modules-loaded')
+    return loaded
+})
 void modules.catch(() => {})
 
 const AuthPrototype = lazy(async () => {
@@ -31,35 +35,41 @@ async function renderAuthPrototype(): Promise<void> {
     }
 
     const appRoot = createRoot(root)
-    let timeout: ReturnType<typeof setTimeout> | undefined
-    const stylesReady = await Promise.race([
-        window.ESBUILD_CSS_READY ?? Promise.resolve(true),
-        new Promise<boolean>((resolve) => {
-            timeout = setTimeout(() => resolve(false), 5000)
-        }),
-    ])
-    clearTimeout(timeout)
+    const stylesReady = window.ESBUILD_CSS_READY ?? Promise.resolve(true)
     const fallback = new URL(window.location.href)
     fallback.searchParams.set('auth_app', 'fallback')
-    if (!stylesReady) {
+    function renderStylesheetFailure(): void {
         reportBootFailure(new Error('Login styles could not load'))
-    }
-
-    appRoot.render(
-        stylesReady ? (
-            <RootErrorBoundary fallbackHref={fallback.href}>
-                <Suspense fallback={null}>
-                    <AuthPrototype />
-                </Suspense>
-            </RootErrorBoundary>
-        ) : (
+        appRoot.render(
             <div role="alert">
                 Login styles could not load.{' '}
                 {/* eslint-disable-next-line react/forbid-elements -- Recovery must work before the app router starts. */}
                 <a href={fallback.href}>Open the standard login page</a> to try again.
             </div>
         )
-    )
+    }
+
+    void stylesReady.then((ready) => {
+        if (!ready) {
+            renderStylesheetFailure()
+        }
+    })
+
+    const readyAtGate = await Promise.race([
+        stylesReady,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
+    ])
+    if (readyAtGate !== false) {
+        appRoot.render(
+            <RootErrorBoundary fallbackHref={fallback.href}>
+                <ChunkLoadErrorBoundary>
+                    <Suspense fallback={null}>
+                        <AuthPrototype />
+                    </Suspense>
+                </ChunkLoadErrorBoundary>
+            </RootErrorBoundary>
+        )
+    }
 }
 
 if (document.readyState === 'loading') {
