@@ -896,14 +896,23 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             ],
         )
         query = trunk_quarantined_tests.build_query(table_name, v2_shape=v2_shape)
-        rows = self._select(f"SELECT runner, nodeid, source_path, crate FROM ({query}) AS q ORDER BY runner")
+        rows = self._select(f"SELECT runner, nodeid, source_path, crate, trunk_url FROM ({query}) AS q ORDER BY runner")
+
+        def url(name: str) -> str | None:
+            return (
+                f"https://app.trunk.io/example/flaky-tests/collections/collection/tests/case-{name}"
+                if v2_shape
+                else None
+            )
+
         assert rows == [
-            ("jest", "src/cdp/cdp.test.ts::routes", "src/cdp/cdp.test.ts", ""),
+            ("jest", "src/cdp/cdp.test.ts::routes", "src/cdp/cdp.test.ts", "", url("routes")),
             (
                 "pytest",
                 "posthog/api/test/test_person.py::TestPerson::test_merge",
                 "posthog/api/test/test_person.py",
                 "",
+                url("test_merge"),
             ),
-            ("rust", "personhog-coordination::k3s_integration", "", "personhog-coordination"),
+            ("rust", "personhog-coordination::k3s_integration", "", "personhog-coordination", url("k3s_integration")),
         ]

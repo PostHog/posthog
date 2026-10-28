@@ -352,6 +352,12 @@ class CuratedGitHubSource:
         source = self._trunk_quarantine()
         return source.org_url_slug if source else None
 
+    def trunk_quarantined_tests_v2_shape(self) -> bool:
+        """Whether the synced quarantined-tests table holds the v2 API shape, which carries each
+        test's Trunk URL; False when unsynced."""
+        source = self._trunk_quarantine()
+        return source.v2_shape if source else False
+
     def members_source(self) -> str | None:
         """Curated team-membership ``SELECT`` subquery, or None when the optional table isn't synced."""
         if not self._tables.team_members:

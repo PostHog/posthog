@@ -382,6 +382,9 @@ def _v2_list(
             resumable_source_manager.save_state(
                 TrunkIoResumeConfig(cursor=str(state["cursor"]), synced_through=synced_through)
             )
+            # The hook runs once the page is consumed. A run of pages filtered down to nothing yields no
+            # item, so the pipeline sees a shutdown or commits the cursor only here.
+            resumable_source_manager.safe_point()
 
     for page in client.paginate(
         path=path,

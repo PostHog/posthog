@@ -345,6 +345,7 @@ class TestV2Lists:
             "QuarantinedTests",
             [
                 _ok({"data": [{"id": "other", "repositoryId": "repo-b"}], "nextCursor": "cursor-1", "hasMore": True}),
+                _ok({"data": [{"id": "other-2", "repositoryId": "repo-b"}], "nextCursor": "cursor-2", "hasMore": True}),
                 _ok({"data": [{"id": "ours", "repositoryId": "repo-a"}], "nextCursor": None, "hasMore": False}),
             ],
             api_version="v2",
@@ -352,7 +353,9 @@ class TestV2Lists:
         )
 
         assert [row["id"] for row in result.rows] == ["ours"]
-        assert len(result.requests) == 2
+        assert len(result.requests) == 3
+        # Pages filtered down to nothing yield no item, so only a safe point commits their cursors.
+        assert [state.cursor for state in result.committed_states] == ["cursor-1", "cursor-2"]
 
 
 class TestClientRedirectHandling:

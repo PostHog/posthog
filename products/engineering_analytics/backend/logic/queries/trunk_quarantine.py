@@ -30,9 +30,12 @@ _QUARANTINED_SELECT = f"""
 """
 
 
-def _trunk_url(org_url_slug: str | None, repository: str) -> str | None:
+def _trunk_url(*, v2_shape: bool, org_url_slug: str | None, repository: str) -> str | None:
     if not org_url_slug:
         return None
+    # Trunk closes the repo-scoped page once an org moves to test collections.
+    if v2_shape:
+        return f"https://app.trunk.io/{org_url_slug}/flaky-tests/collections"
     return f"https://app.trunk.io/{org_url_slug}/flaky-tests?repo={repository}"
 
 
@@ -42,6 +45,14 @@ def _trunk_test_url(org_url_slug: str | None, repository: str, test_case_id: str
     if not org_url_slug or not test_case_id:
         return None
     return f"https://app.trunk.io/{org_url_slug}/flaky-tests/test/{test_case_id}?repo={repository}"
+
+
+def _test_link(
+    *, v2_shape: bool, url: str | None, org_url_slug: str | None, repository: str, test_case_id: str
+) -> str | None:
+    if v2_shape:
+        return url
+    return _trunk_test_url(org_url_slug, repository, test_case_id)
 
 
 def query_trunk_quarantine_debt(
@@ -66,7 +77,8 @@ def query_trunk_quarantine_debt(
             limit=_LIMIT,
         )
     org_url_slug = curated.trunk_org_url_slug()
-    trunk_url = _trunk_url(org_url_slug, curated.repository)
+    v2_shape = curated.trunk_quarantined_tests_v2_shape()
+    trunk_url = _trunk_url(v2_shape=v2_shape, org_url_slug=org_url_slug, repository=curated.repository)
 
     quarantined = curated.run(
         _QUARANTINED_SELECT.replace("__TRUNK_SOURCE__", source),
@@ -116,7 +128,13 @@ def query_trunk_quarantine_debt(
                 quarantined_at=quarantined_at,
                 age_days=age_days,
                 overdue=age_days > ttl_days,
-                trunk_url=test_url or _trunk_test_url(org_url_slug, curated.repository, test_case_id),
+                trunk_url=_test_link(
+                    v2_shape=v2_shape,
+                    url=test_url,
+                    org_url_slug=org_url_slug,
+                    repository=curated.repository,
+                    test_case_id=test_case_id,
+                ),
             )
         )
     tests.sort(key=lambda test: (-test.age_days, test.nodeid))

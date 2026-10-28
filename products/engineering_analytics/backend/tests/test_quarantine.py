@@ -791,6 +791,9 @@ class _StubCurated:
     def trunk_org_url_slug(self) -> str | None:
         return None
 
+    def trunk_quarantined_tests_v2_shape(self) -> bool:
+        return True
+
     def run(self, sql: str, **_kwargs: Any) -> SimpleNamespace:
         self.sql = sql
         return SimpleNamespace(results=self._rows)

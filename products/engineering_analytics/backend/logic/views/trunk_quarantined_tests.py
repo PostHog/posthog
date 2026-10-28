@@ -7,7 +7,7 @@ V2_SHAPE_COLUMN = "parent_name"
 def build_query(table: str, *, v2_shape: bool) -> str:
     """Curated SELECT over a synced Trunk quarantined-tests table: the reconstructed runner-native
     nodeid, a runner label, where the test lives, the parsed quarantine timestamp, the test's id,
-    and its Trunk page when the API returned one.
+    and its Trunk page when the API returned one (always null on the v1 shape, which has no URL).
 
     The table holds the v1 or the v2 shape, depending on the source's API version pin and whether it
     resynced since the pin changed. Both shapes carry the same values under different names: v1
@@ -31,7 +31,7 @@ def build_query(table: str, *, v2_shape: bool) -> str:
             "class_name",
             "quarantined_since",
             "id",
-            "ifNull(url, '')",
+            "url",
         )
     else:
         parent, classname, quarantined_at, test_id, url = (
@@ -39,7 +39,7 @@ def build_query(table: str, *, v2_shape: bool) -> str:
             "classname",
             "quarantined_at",
             "test_case_id",
-            "''",
+            "NULL",
         )
     return f"""
     SELECT
