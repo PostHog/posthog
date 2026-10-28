@@ -7,7 +7,7 @@ from django.conf import settings
 
 import structlog
 
-from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
+from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models import OAuthApplication
 from posthog.models.oauth import mint_oauth_access_token
 from posthog.models.team.team import Team
@@ -70,17 +70,6 @@ SIGNALS_OAUTH_APP_CLIENT_IDS = frozenset(
         SIGNALS_APP_CLIENT_ID_US,
         SIGNALS_APP_CLIENT_ID_EU,
         SIGNALS_APP_CLIENT_ID_DEV,
-    }
-)
-
-# Apps that mint tokens for a cloud task's own coding agent, which is what the task-comment
-# channel is restricted to. Signals joined when its runs moved off the Array app; PostHog AI is
-# deliberately absent, as it was before. The `sandbox_task_id` binding on the token is what
-# actually scopes access to one task — this set only keeps unrelated first-party tokens out.
-TASK_AGENT_OAUTH_APP_CLIENT_IDS = frozenset(
-    {
-        *POSTHOG_CODE_OAUTH_APP_CLIENT_IDS,
-        *SIGNALS_OAUTH_APP_CLIENT_IDS,
     }
 )
 
@@ -687,7 +676,7 @@ def _organization_id_for_team(team_id: int) -> str:
 
 
 class WizardIdentityBlockedError(Exception):
-    """The abuse blocklist refuses this identity a wizard credential. Distinct from
+    """An access rule refuses this identity a wizard credential. Distinct from
     the mint's RuntimeError cases because it is permanent, and a caller that retries
     a transient token failure must not retry this one."""
 
@@ -702,16 +691,6 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     resume reaches with no request in front of it.
     """
     organization_id = _organization_id_for_team(team_id)
-    if wizard_identity_blocked(
-        distinct_id=str(user.distinct_id),
-        email=user.email,
-        surface="wizard_mint",
-        user_uuid=str(user.uuid),
-        organization_ids=[organization_id],
-        team_ids=[team_id],
-    ):
-        raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
-
     try:
         refused = security_access_refused(
             SecuritySubject(

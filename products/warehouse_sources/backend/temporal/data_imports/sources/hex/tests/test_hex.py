@@ -2,6 +2,7 @@ from typing import Any
 
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -117,6 +118,18 @@ class TestProjectRunsFanout:
         assert result.raised is None
         assert [row["runId"] for row in result.rows] == ["r-b"]
         assert result.paths == ["/api/v1/projects", "/api/v1/projects/p2/runs"]
+
+    def test_422_on_project_runs_is_classified_non_retryable(self) -> None:
+        # Hex rejects GetProjectRuns for a specific project with a 422 and a structured error
+        # code. Every retry sends the identical request and fails identically, so the raised
+        # error must match a `get_non_retryable_errors()` key, not just reach the caller.
+        result = _driver().run(
+            "project_runs",
+            [_projects_page(["p1"]), ScriptedResponse(status=422, json={"code": "UNPROCESSABLE_CONTENT"})],
+        )
+
+        assert result.raised is not None
+        assert error_message_matches(str(result.raised), HexSource().get_non_retryable_errors())
 
 
 class TestPerProjectCursorFanout:

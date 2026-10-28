@@ -1,13 +1,16 @@
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
+import time_machine
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.apps import apps
 
 from parameterized import parameterized
 
-from posthog.models import Team
+from posthog.models import Organization, Team
 
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_TYPE_RESEARCH
 from products.signals.backend.billing import (
@@ -20,7 +23,13 @@ from products.signals.backend.billing import (
     mark_report_billing_exempt,
     system_billing_exempt_reason,
 )
-from products.signals.backend.models import SignalReport, SignalReportRefund, SignalReportTask, SignalScoutRun
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportRefund,
+    SignalReportTask,
+    SignalScoutRun,
+    SignalSpend,
+)
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.skills.backend.models.skills import LLMSkill
 
@@ -129,10 +138,46 @@ class TestSignalsBilling(BaseTest):
         # 1 credit = $0.01, so $15 == 1500 credits.
         self.assertEqual(SIGNALS_CREDITS_PER_REPORT_WITH_PR, 1500)
 
-    def test_report_with_pr_billed_flat(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_organization_filter_excludes_other_organizations(self, as_list: bool) -> None:
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Other org"))
+        with time_machine.travel(_at(10), tick=False):
+            for team in (self.team, other_team):
+                self._pr_run(self._report(team=team), created_at=_at(10), team=team)
+                SignalSpend.objects.for_team(team.id).create(
+                    team=team,
+                    kind=SignalSpend.Kind.AD_HOC,
+                    signal_id=uuid4(),
+                    spend=20,
+                    finalized_at=_at(10),
+                )
+        org_filter = (
+            {"organization_ids": [self.organization.id]} if as_list else {"organization_id": self.organization.id}
+        )
+        with patch("posthoganalytics.get_feature_flag", return_value="2026-06-01") as flag:
+            self.assertEqual(
+                dict(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END, **org_filter)),
+                {self.team.id: 1500},
+            )
+        flag.assert_not_called()
+
+    @parameterized.expand([(None, 1500), ("posthog_ai", 0)])
+    def test_report_with_pr_billed_only_when_not_billed_as_phai(self, product: str | None, credits: int) -> None:
         report = self._report()
-        self._pr_run(report, created_at=_at(10))
-        self.assertEqual(self._credits(), {self.team.id: 1500})
+        run = self._pr_run(report, created_at=_at(10))
+        if product:
+            run.state = {"billing_product": product}
+            run.save(update_fields=["state"])
+        self.assertEqual(self._credits(), {self.team.id: credits} if credits else {})
+        self.assertEqual(first_billable_pr_run(report.id, team_id=report.team_id) is not None, bool(credits))
+        _task_run_model().objects.create(
+            team=self.team,
+            task=run.task,
+            created_at=_at(11),
+            output={"pr_url": "https://github.com/x/y/pull/2"},
+            state={"billing_product": "posthog_ai"},
+        )
+        self.assertEqual(self._credits(), {self.team.id: credits} if credits else {})
 
     def test_report_without_pr_not_billed(self) -> None:
         self._report()
@@ -376,14 +421,15 @@ class TestSignalsBilling(BaseTest):
         self._pr_run(report, created_at=_at(5), pr_url="https://github.com/x/y/pull/1")
         self._pr_run(report, created_at=_at(12), pr_url="https://github.com/x/y/pull/2")
         self.assertEqual(
-            first_billable_pr_run(report.id),
+            first_billable_pr_run(report.id, team_id=report.team_id),
             FirstBillablePrRun(created_at=_at(5), pr_url="https://github.com/x/y/pull/1"),
         )
+        self.assertIsNone(first_billable_pr_run(report.id, team_id=report.team_id + 1))
 
     def test_first_billable_pr_run_none_without_billable_run(self) -> None:
         report = self._report()
         self._pr_run(report, created_at=_at(3), pr_url=None)
-        self.assertIsNone(first_billable_pr_run(report.id))
+        self.assertIsNone(first_billable_pr_run(report.id, team_id=report.team_id))
 
     def test_aggregates_across_teams_and_reports(self) -> None:
         team_b = Team.objects.create(organization=self.organization, name="team-b")

@@ -108,6 +108,7 @@ export enum NodeKind {
     ErrorTrackingBreakdownsQuery = 'ErrorTrackingBreakdownsQuery',
     ErrorTrackingReleasesQuery = 'ErrorTrackingReleasesQuery',
     ErrorTrackingIssueCorrelationQuery = 'ErrorTrackingIssueCorrelationQuery',
+    ErrorTrackingIssueEventsQuery = 'ErrorTrackingIssueEventsQuery',
     LogsQuery = 'LogsQuery',
     LogAttributesQuery = 'LogAttributesQuery',
     LogValuesQuery = 'LogValuesQuery',
@@ -145,6 +146,7 @@ export enum NodeKind {
     WebExternalClicksTableQuery = 'WebExternalClicksTableQuery',
     WebBotsTableQuery = 'WebBotsTableQuery',
     WebAgentAnalyticsQuery = 'WebAgentAnalyticsQuery',
+    WebPageDirectoryQuery = 'WebPageDirectoryQuery',
     WebGoalsQuery = 'WebGoalsQuery',
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
@@ -192,6 +194,7 @@ export enum NodeKind {
     UsageMetricsQuery = 'UsageMetricsQuery',
     AccountsQuery = 'AccountsQuery',
     AccountsTableQuery = 'AccountsTableQuery',
+    AccountUsersQuery = 'AccountUsersQuery',
 
     // Endpoints usage queries
     EndpointsUsageOverviewQuery = 'EndpointsUsageOverviewQuery',
@@ -252,6 +255,7 @@ export type AnyDataNode =
     | WebExternalClicksTableQuery
     | WebBotsTableQuery
     | WebAgentAnalyticsQuery
+    | WebPageDirectoryQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
@@ -265,6 +269,7 @@ export type AnyDataNode =
     | ErrorTrackingBreakdownsQuery
     | ErrorTrackingReleasesQuery
     | ErrorTrackingIssueCorrelationQuery
+    | ErrorTrackingIssueEventsQuery
     | LogsQuery
     | LogAttributesQuery
     | LogValuesQuery
@@ -336,6 +341,7 @@ export type QuerySchema =
     | ErrorTrackingBreakdownsQuery
     | ErrorTrackingReleasesQuery
     | ErrorTrackingIssueCorrelationQuery
+    | ErrorTrackingIssueEventsQuery
     | ExperimentQuery
     | ExperimentExposureQuery
     | DocumentSimilarityQuery
@@ -346,6 +352,7 @@ export type QuerySchema =
     | WebExternalClicksTableQuery
     | WebBotsTableQuery
     | WebAgentAnalyticsQuery
+    | WebPageDirectoryQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
@@ -538,10 +545,8 @@ export interface HogQLQueryModifiers {
     materializedColumnsOptimizationMode?: 'disabled' | 'optimized'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
-    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
     useNewEventsSchema?: boolean
-    /** Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported. */
-    useNewEventsCluster?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     customBotDefinitions?: CustomBotRule[]
     /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
@@ -1982,6 +1987,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
 export interface BoxPlotDatum {
     day: string
     label: string
+    count?: integer
     min: number
     p25: number
     median: number
@@ -2847,6 +2853,8 @@ export interface DataWarehouseSourceUsage {
     source_type?: string
     /** Warehouse table name that was referenced */
     table_name: string
+    /** Whether the query read a history table of this source */
+    uses_history_table?: boolean
 }
 
 export interface AnalyticsQueryResponseBase {
@@ -3033,6 +3041,7 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
         | ExperimentActorsQuery
         | StickinessActorsQuery
         | PathsV2ActorsQuery
+        | AccountUsersQuery
         | HogQLQuery
     select?: HogQLExpression[]
     search?: string
@@ -3404,6 +3413,13 @@ export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse>
     offset?: integer
 }
 
+/** The persons who use an account. Only valid as an `ActorsQuery` source. */
+export interface AccountUsersQuery extends DataNode<ActorsQueryResponse> {
+    kind: NodeKind.AccountUsersQuery
+    /** ID of the account whose users to list. */
+    accountId: string
+}
+
 export interface TimelineEntry {
     /** Session ID. None means out-of-session events */
     sessionId?: string
@@ -3529,6 +3545,10 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
     /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
     preComputeIneligibleReason?: string
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    preComputeStale?: boolean
+    /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+    preComputedAt?: string
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
@@ -3908,6 +3928,12 @@ export interface MCPToolQualityDailyStatItem {
     p50: number
     p95: number
     p99: number
+    /** Latency spread for the box plot view. Optional so responses cached before these fields existed still parse. */
+    min?: number | null
+    p25?: number | null
+    mean?: number | null
+    p75?: number | null
+    max?: number | null
 }
 
 export interface MCPToolQualityDailyStatsQueryResponse extends AnalyticsQueryResponseBase {
@@ -4162,6 +4188,8 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
     preComputeStale?: boolean
     /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
     preComputeIneligibleReason?: string
+    /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+    preComputedAt?: string
 }
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
 
@@ -4246,6 +4274,74 @@ export interface WebAgentAnalyticsQueryResponse extends AnalyticsQueryResponseBa
 }
 export type CachedWebAgentAnalyticsQueryResponse = CachedQueryResponse<WebAgentAnalyticsQueryResponse>
 
+export enum WebPageDirectoryMetric {
+    Visitors = 'visitors',
+    GoogleSearch = 'google_search',
+    AiReferrals = 'ai_referrals',
+    AiCrawls = 'ai_crawls',
+    Conversions = 'conversions',
+    TimeOnPage = 'time_on_page',
+    BounceRate = 'bounce_rate',
+}
+
+export enum WebPageDirectorySortBy {
+    Page = 'page',
+    Visitors = 'visitors',
+    GoogleSearch = 'google_search',
+    AiReferrals = 'ai_referrals',
+    AiCrawls = 'ai_crawls',
+    Conversions = 'conversions',
+    TimeOnPage = 'time_on_page',
+    BounceRate = 'bounce_rate',
+}
+
+export interface WebPageDirectoryQuery extends WebAnalyticsQueryBase<WebPageDirectoryQueryResponse> {
+    kind: NodeKind.WebPageDirectoryQuery
+    search?: string
+    sortBy?: WebPageDirectorySortBy
+    sortDirection?: 'ASC' | 'DESC'
+    metrics?: WebPageDirectoryMetric[]
+    pageKeys?: string[]
+    includeSiteTotals?: boolean
+    excludeStaticAssets?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export interface WebPageDirectoryValue {
+    current: number
+    previous?: number | null
+}
+
+export interface WebPageDirectoryMetrics {
+    visitors?: WebPageDirectoryValue
+    googleSearch?: WebPageDirectoryValue
+    aiReferrals?: WebPageDirectoryValue
+    aiCrawls?: WebPageDirectoryValue
+    aiCrawlers?: integer | null
+    aiCrawlerNames?: string[] | null
+    conversions?: WebPageDirectoryValue
+    timeOnPageP90?: number | null
+    bounceRate?: number | null
+}
+
+export interface WebPageDirectoryRow extends WebPageDirectoryMetrics {
+    page: string
+}
+
+export interface WebPageDirectorySiteTotals extends WebPageDirectoryMetrics {
+    serverLogs: integer
+}
+
+export interface WebPageDirectoryQueryResponse extends AnalyticsQueryResponseBase {
+    results: WebPageDirectoryRow[]
+    siteTotals?: WebPageDirectorySiteTotals
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+export type CachedWebPageDirectoryQueryResponse = CachedQueryResponse<WebPageDirectoryQueryResponse>
+
 export interface WebGoalsQuery extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
     kind: NodeKind.WebGoalsQuery
     limit?: integer
@@ -4265,6 +4361,10 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase {
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
     /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
     preComputeIneligibleReason?: string
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    preComputeStale?: boolean
+    /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+    preComputedAt?: string
 }
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
 
@@ -4316,6 +4416,10 @@ export interface WebVitalsPathBreakdownQueryResponse extends AnalyticsQueryRespo
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
     /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
     preComputeIneligibleReason?: string
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    preComputeStale?: boolean
+    /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+    preComputedAt?: string
 }
 export type CachedWebVitalsPathBreakdownQueryResponse = CachedQueryResponse<WebVitalsPathBreakdownQueryResponse>
 
@@ -4510,6 +4614,26 @@ export interface ErrorTrackingIssueCorrelationQueryResponse extends AnalyticsQue
 }
 export type CachedErrorTrackingIssueCorrelationQueryResponse =
     CachedQueryResponse<ErrorTrackingIssueCorrelationQueryResponse>
+
+/** The exceptions of one issue, optionally only the ones with a recording. */
+export interface ErrorTrackingIssueEventsQuery extends DataNode<ErrorTrackingIssueEventsQueryResponse> {
+    kind: NodeKind.ErrorTrackingIssueEventsQuery
+    issueId: string
+    /** The issue's exceptions list. It must order by `timestamp DESC`, the default, so that pages continue from a cursor. */
+    source: EventsQuery
+    /** Keep only the exceptions whose session has a recording the player can open. */
+    onlyWithRecording?: boolean
+}
+
+export interface ErrorTrackingIssueEventsQueryResponse extends AnalyticsQueryResponseBase {
+    results: any[][]
+    columns: any[]
+    types: string[]
+    hasMore?: boolean
+    /** Where the next page starts. */
+    nextCursor?: string
+}
+export type CachedErrorTrackingIssueEventsQueryResponse = CachedQueryResponse<ErrorTrackingIssueEventsQueryResponse>
 
 export interface ErrorTrackingIssueFilteringToolOutput extends Pick<
     ErrorTrackingQuery,
@@ -4982,6 +5106,8 @@ export interface MetricsQuerySeries {
     clause?: string
     /** UCUM unit of the returned values, e.g. "By", "ms", "1/s". It is the ingested unit, except that a count of series has no unit and a rate is per second. Empty when the values have no unit. */
     unit?: string
+    /** Bucket upper edges a histogram quantile series was estimated from. The true quantile can be anywhere between two edges. */
+    histogramBounds?: number[]
 }
 
 export interface MetricsQueryResponse extends AnalyticsQueryResponseBase {
@@ -5001,11 +5127,13 @@ export interface MetricsHistogramQuery extends DataNode<MetricsHistogramQueryRes
     filters?: MetricsQueryFilter[]
     /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
     dateRange?: DateRange
-    /** Bucket size; auto-picked from the range when omitted */
+    /** Bucket size; auto-picked from the range when omitted. A dashboard variable reference such as `$window`
+     * pins the interval to its single duration value (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w).
+     * Variable intervals that exceed 500 buckets require a larger value or shorter date range. */
     interval?: string
     /** UCUM unit for the y-axis bounds, e.g. "s", "ms". Presentation only. */
     unit?: string
-    /** Values of the dashboard variables that the filters refer to as `$name`. */
+    /** Values of the dashboard variables that the filters or interval refer to as `$name`. */
     variables?: Record<string, MetricsVariableValue>
 }
 
@@ -5102,13 +5230,17 @@ export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
     sql?: string
     /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
     dateRange?: DateRange
-    /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
+    /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week;
+     * auto-picked from the range when omitted. Fixed intervals are coarsened above 500 buckets.
+     * A dashboard variable reference such as `$window` pins the interval to its single duration value
+     * (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w). Variable intervals that exceed 500 buckets require
+     * a larger value or shorter date range, so the step stays consistent with PromQL lookbacks using that variable. */
     interval?: string
     /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
     formula?: string
     /** Chart presentation. A node without it renders as a line chart. */
     display?: MetricsDisplaySettings
-    /** Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`. */
+    /** Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`. */
     variables?: Record<string, MetricsVariableValue>
 }
 
@@ -5552,6 +5684,7 @@ export type FileSystemIconType =
     | 'uptime_monitoring'
     | 'workflows'
     | 'broadcasts'
+    | 'transactional'
     | 'notebook'
     | 'action'
     | 'activity'
@@ -5675,19 +5808,6 @@ export type InsightQueryNode =
 
 export type ProductAnalyticsInsightQueryNode = Exclude<InsightQueryNode, WebStatsTableQuery | WebOverviewQuery>
 
-export interface ExperimentVariantTrendsBaseStats {
-    key: string
-    count: number
-    exposure: number
-    absolute_exposure: number
-}
-
-export interface ExperimentVariantFunnelsBaseStats {
-    key: string
-    success_count: number
-    failure_count: number
-}
-
 export interface MaxExperimentVariantResultBayesian {
     key: string
     chance_to_win: number | null
@@ -5719,14 +5839,6 @@ export interface MaxExperimentSummaryContext {
     primary_metrics_results: MaxExperimentMetricResult[]
     secondary_metrics_results: MaxExperimentMetricResult[]
     stats_method: ExperimentStatsMethod
-}
-
-export enum ExperimentSignificanceCode {
-    Significant = 'significant',
-    NotEnoughExposure = 'not_enough_exposure',
-    LowWinProbability = 'low_win_probability',
-    HighLoss = 'high_loss',
-    HighPValue = 'high_p_value',
 }
 
 /** Stored shape of a legacy experiment metric. It no longer runs, so it is kept only to list and migrate legacy experiments. */
@@ -6169,19 +6281,7 @@ export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQuer
 }
 
 export interface ExperimentQueryResponse {
-    // Legacy fields
     kind?: NodeKind.ExperimentQuery
-    insight?: Record<string, any>[]
-    metric?: ExperimentMetric
-    variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[]
-    probability?: Record<string, number>
-    significant?: boolean
-    significance_code?: ExperimentSignificanceCode
-    stats_version?: integer
-    p_value?: number
-    credible_intervals?: Record<string, [number, number]>
-
-    // New fields
     baseline?: ExperimentStatsBaseValidated
     variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
 
@@ -6322,6 +6422,7 @@ export type ExperimentExposureHealthFindingCode =
 export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
 
 export type ExperimentExposureHealthFindingActionKind =
+    | 'open_feature_flag'
     | 'edit_exposure_criteria'
     | 'adjust_distribution'
     | 'use_first_seen_variant'
@@ -6840,7 +6941,7 @@ export interface DashboardFilter {
     filterTestAccounts?: boolean | null
     /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
     compareFilter?: CompareFilter | null
-    /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
+    /** @deprecated Ignored. Kept so that dashboards saved with label filters still load. */
     metricFilters?: MetricsQueryFilter[] | null
     /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
     metricVariables?: MetricsDashboardVariable[] | null
@@ -7139,19 +7240,6 @@ export interface LLMDetectorConfig {
      * @maxLength 2000
      */
     instructions?: string
-    /**
-     * Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)
-     * @minimum 0
-     * @maximum 1
-     */
-    threshold?: number
-    /**
-     * How many recent points the model is shown (default: 90)
-     * @asType integer
-     * @minimum 5
-     * @maximum 400
-     */
-    window?: number
 }
 
 export enum EnsembleOperator {
@@ -9093,7 +9181,7 @@ export interface EndpointsUsageTrendsQuery extends EndpointsUsageQueryBase<Endpo
 }
 
 export interface CustomerAnalyticsPinnedProperty {
-    kind: 'custom_property' | 'relationship'
+    kind: 'custom_property' | 'relationship' | 'account_field'
     id: string
 }
 
@@ -9161,6 +9249,14 @@ export interface SQLEditorConfiguration {
  * A null configuration and any absent key mean "default".
  * Writers must send the complete object; the server validates and replaces it wholesale.
  */
+/** One person's display choices for the Analytics lists. */
+export interface AnalyticsListDisplayConfiguration {
+    /** Leaves insights out of the All list. */
+    hide_insights?: boolean
+    /** The sort a list opens with. A column header click still changes the sort for that visit. */
+    default_sort?: '-last_viewed_at' | '-created_at'
+}
+
 export interface UserUIConfiguration {
     /**
      * Schema version of this configuration blob, for future format migrations.
@@ -9168,6 +9264,7 @@ export interface UserUIConfiguration {
      */
     version: number
     sql_editor?: SQLEditorConfiguration
+    analytics_list?: AnalyticsListDisplayConfiguration
     [key: string]: unknown
 }
 

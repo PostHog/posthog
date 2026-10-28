@@ -1,6 +1,7 @@
 import uuid
 from collections.abc import Sequence
 from dataclasses import field
+from datetime import datetime
 
 from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.dataclasses import frozen
@@ -22,6 +23,7 @@ def mint_personal_api_key(
     teams: AccessibleTeams,
     organization_ids: Sequence[str] = (),
     description: str | None = None,
+    expires_at: datetime | None = None,
 ) -> MintedPersonalAPIKey:
     """Insert a personal API key and return it with its raw value.
 
@@ -43,6 +45,7 @@ def mint_personal_api_key(
         scopes=list(scopes),
         scoped_teams=list(teams.team_ids or []),
         scoped_organizations=list(organization_ids),
+        expires_at=expires_at,
     )
     return MintedPersonalAPIKey(key=key, value=value)
 

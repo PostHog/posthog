@@ -21,18 +21,28 @@ from __future__ import annotations
 
 import os
 import fcntl
+import shlex
 import shutil
 import hashlib
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from django.conf import settings
+
+from pydantic import TypeAdapter
+
+from products.tasks.backend.exceptions import ProcessTaskFatalError
+
+if TYPE_CHECKING:
+    from .sandbox import SandboxBase
 
 logger = logging.getLogger(__name__)
 
 BUILT_SKILLS_RELATIVE_PATH = Path("products/posthog_ai/dist/skills")
 BUILD_HASH_FILENAME = ".build-hash"
 ENV_LOCAL_SKILLS_HOST_PATH = "SANDBOX_LOCAL_SKILLS_HOST_PATH"
+ENV_EVAL_SKILLS_MANIFEST = "SANDBOX_EVAL_SKILLS_MANIFEST"
 ENV_DISABLE_BUNDLED_SKILLS = "POSTHOG_CODE_DISABLE_BUNDLED_SKILLS"
 BUNDLED_SKILLS_PATHS: tuple[str, ...] = (
     "/scripts/plugins/posthog/skills",
@@ -43,6 +53,47 @@ BUNDLED_SKILLS_PATHS: tuple[str, ...] = (
 
 def bundled_skills_disabled(environment_variables: dict[str, str] | None) -> bool:
     return environment_variables is not None and environment_variables.get(ENV_DISABLE_BUNDLED_SKILLS) == "1"
+
+
+def verify_eval_skills(sandbox: SandboxBase) -> None:
+    manifest_path = os.environ.get(ENV_EVAL_SKILLS_MANIFEST)
+    if manifest_path is None:
+        return
+    try:
+        manifest = Path(manifest_path).read_bytes()
+        expected = TypeAdapter(dict[str, str]).validate_json(manifest)
+    except (OSError, ValueError) as error:
+        raise ProcessTaskFatalError(
+            "Cannot read the eval skill manifest", {"sandbox_id": sandbox.id}, cause=error
+        ) from error
+    if not expected:
+        raise ProcessTaskFatalError(
+            "The eval skill snapshot is empty", {"sandbox_id": sandbox.id}, cause=ValueError("Empty skill manifest")
+        )
+    digest = hashlib.sha256(manifest).hexdigest()
+    source = Path(__file__).with_name("skill_manifest.py").read_text()
+    program = (
+        source
+        + f"\nimport os\nexpected = {expected!r}\nroots = {list(BUNDLED_SKILLS_PATHS)!r}\n"
+        + f"if os.environ.get({ENV_DISABLE_BUNDLED_SKILLS!r}) == '1':\n    expected = {{}}\n"
+        + f"verify_skill_files(expected, roots)\nprint({digest!r})\n"
+    )
+    target = "/opt/posthog/eval-skill-verification.py"
+    written = sandbox.write_file(target, program.encode(), timeout_seconds=60)
+    if written.exit_code != 0:
+        raise ProcessTaskFatalError(
+            "Could not stage eval skill verification",
+            {"sandbox_id": sandbox.id},
+            cause=RuntimeError(written.stderr[-2000:]),
+        )
+    result = sandbox.execute_in_task_filesystem(f"python3 {shlex.quote(target)}", timeout_seconds=60)
+    if result.exit_code != 0 or result.stdout.strip() != digest:
+        raise ProcessTaskFatalError(
+            "Eval skill verification failed",
+            {"sandbox_id": sandbox.id, "skills_sha256": digest, "stderr": result.stderr[-2000:]},
+            cause=RuntimeError(result.stderr[-2000:] or "Unexpected skill verification output"),
+        )
+    logger.info("Eval skill snapshot verified: sha256=%s sandbox=%s", digest, sandbox.id)
 
 
 def _copy_directory_contents(source: Path, destination: Path) -> None:
@@ -77,7 +128,11 @@ def populate_skills_directory(destination: Path, base_dir: Path | None = None) -
     is reserved for the user's local Claude Code workspace.
     """
     root = base_dir or Path(settings.BASE_DIR)
-    built_skills_dir = root / BUILT_SKILLS_RELATIVE_PATH
+    built_skills_dir = (
+        Path(os.environ[ENV_LOCAL_SKILLS_HOST_PATH])
+        if os.environ.get(ENV_EVAL_SKILLS_MANIFEST)
+        else root / BUILT_SKILLS_RELATIVE_PATH
+    )
     if built_skills_dir.exists() and any(f for f in built_skills_dir.iterdir() if f.name != BUILD_HASH_FILENAME):
         logger.info("Using pre-built skills from %s", built_skills_dir)
         _copy_directory_contents(built_skills_dir, destination)
@@ -99,6 +154,10 @@ class LocalSkillsCache:
         self.output_dir = output_dir or self.base_dir / "products" / "posthog_ai"
         self.dist_dir = self.output_dir / "dist" / "skills"
         self.hash_file = self.dist_dir / BUILD_HASH_FILENAME
+
+    @property
+    def source_sha256(self) -> str:
+        return self._compute_source_hash()
 
     def ensure_built(self, *, allow_stale: bool = True) -> Path:
         """Build skills if source changed; return ``dist/skills``.

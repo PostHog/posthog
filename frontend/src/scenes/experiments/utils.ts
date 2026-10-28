@@ -29,6 +29,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
+    AnyPropertyFilter,
     BreakdownAttributionType,
     ChartDisplayType,
     Experiment,
@@ -38,6 +39,7 @@ import {
     FeatureFlagType,
     FunnelConversionWindowTimeUnit,
     MultivariateFlagVariant,
+    PropertyFilterType,
     type InsightModel,
     UniversalFiltersGroupValue,
 } from '~/types'
@@ -148,13 +150,21 @@ export function isEvenlyDistributed(variants: MultivariateFlagVariant[]): boolea
     return variants.every((variant, index) => variant.rollout_percentage === evenPercentages[index])
 }
 
+// The experiments backend replaces these HogQL filter keys with the team's current evaluation pass rules. Other query
+// kinds cannot resolve them, so queries outside the experiment results drop them.
+const EVALUATION_PASS_MARKERS = new Set(['aiEvaluationGraded()', 'aiEvaluationPassed()'])
+
+function withoutEvaluationPassMarkers(properties: AnyPropertyFilter[]): AnyPropertyFilter[] {
+    return properties.filter((p) => !(p.type === PropertyFilterType.HogQL && EVALUATION_PASS_MARKERS.has(p.key)))
+}
+
 function seriesToFilter(series: AnyEntityNode | ExperimentMetricSource): UniversalFiltersGroupValue | null {
     if (series.kind === NodeKind.EventsNode) {
         return {
             id: series.event ?? null,
             name: series.event as string,
             type: 'events',
-            properties: series.properties ?? [],
+            properties: withoutEvaluationPassMarkers(series.properties ?? []),
         }
     }
 
@@ -653,7 +663,9 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
                         event: lastStep.event,
                         math: ExperimentMetricMathType.TotalCount,
                         ...(lastStep.properties &&
-                            lastStep.properties.length > 0 && { properties: lastStep.properties }),
+                            lastStep.properties.length > 0 && {
+                                properties: withoutEvaluationPassMarkers(lastStep.properties),
+                            }),
                     },
                 ]
             } else if (lastStep.kind === NodeKind.ActionsNode) {
@@ -693,7 +705,10 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
                 name: eventsNode.event || undefined,
                 event: eventsNode.event || undefined,
                 math: ExperimentMetricMathType.TotalCount,
-                ...(eventsNode.properties && eventsNode.properties.length > 0 && { properties: eventsNode.properties }),
+                ...(eventsNode.properties &&
+                    eventsNode.properties.length > 0 && {
+                        properties: withoutEvaluationPassMarkers(eventsNode.properties),
+                    }),
             },
         ])
         .with({ kind: NodeKind.ActionsNode }, (actionsNode) => [

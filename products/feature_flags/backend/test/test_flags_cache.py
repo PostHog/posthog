@@ -629,8 +629,9 @@ def _insert_config_format_fixture(team: Team, user) -> tuple[dict, dict[str, Fea
         filters = copy.deepcopy(row["filters"])
         groups = filters.get("groups") if isinstance(filters, dict) else None
         for group in groups if isinstance(groups, list) else []:
-            for prop in group.get("properties") or []:
-                if prop.get("type") == "flag":
+            properties = group.get("properties") if isinstance(group, dict) else None
+            for prop in properties if isinstance(properties, list) else []:
+                if isinstance(prop, dict) and prop.get("type") == "flag":
                     reference = prop["key"]
                     prop["key"] = str(
                         fixture["missing_dependency_id"] if reference == "$missing" else flags[reference].id

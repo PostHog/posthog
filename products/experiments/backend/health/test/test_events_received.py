@@ -97,7 +97,9 @@ class TestEventsReceived(BaseTest):
         )
         ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=shared, metadata={"type": "primary"})
 
-        health = get_experiment_health(team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES)
+        health = get_experiment_health(
+            team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES, user=self.user
+        )
 
         findings = {finding.code: finding for finding in health.findings}
         metric = findings[Code.METRIC_EVENT_NOT_INGESTED]
@@ -120,12 +122,38 @@ class TestEventsReceived(BaseTest):
         self.assertEqual((exposure.subcode, dict(exposure.evidence)), expected_exposure)
         self.assertEqual(exposure.severity, WARNING)
 
+    def test_a_filter_on_a_deleted_flags_own_key_can_match(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="checkout-test", created_by=self.user)
+        flag.key, flag.deleted = flag.tombstoned_key(), True
+        flag.save()
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Checkout",
+            feature_flag=flag,
+            start_date=timezone.now() - timedelta(days=2),
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "$feature_flag_called",
+                    "properties": [
+                        {"key": "$feature_flag", "type": "event", "value": ["checkout-test"], "operator": "exact"}
+                    ],
+                }
+            },
+        )
+
+        health = get_experiment_health(
+            team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES, user=self.user
+        )
+
+        self.assertNotIn(Code.EXPOSURE_CRITERIA_CANNOT_MATCH, {finding.code for finding in health.findings})
+
     def test_shared_metrics_add_no_queries(self) -> None:
         flag = FeatureFlag.objects.create(team=self.team, key="checkout-test", created_by=self.user)
         experiment = Experiment.objects.create(team=self.team, name="Checkout", feature_flag=flag)
 
         query_counts = []
-        for number in range(3):
+        for number in range(4):
             shared = ExperimentSavedMetric.objects.create(
                 team=self.team,
                 name=f"Shared {number}",
@@ -136,7 +164,11 @@ class TestEventsReceived(BaseTest):
                 experiment=experiment, saved_metric=shared, metadata={"type": "primary"}
             )
             with CaptureQueriesContext(connection) as queries:
-                get_experiment_health(team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES)
+                get_experiment_health(
+                    team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES, user=self.user
+                )
             query_counts.append(len(queries))
 
-        self.assertEqual(len(set(query_counts)), 1, query_counts)
+        # The first compile builds HogQL's database, which reads instance settings that the process caches and
+        # writes the team's revenue analytics settings row once.
+        self.assertEqual(len(set(query_counts[1:])), 1, query_counts)

@@ -88,15 +88,15 @@ export function ExcludeFromFilterButton({
                     <AlertDialogDescription>
                         {`Every insight that filters out internal and test users will also leave out events where ${property} is one of these:`}
                     </AlertDialogDescription>
+                    <ul className="my-1 flex max-h-48 list-disc flex-col gap-1 overflow-y-auto ps-4 text-xs">
+                        {rule.value.map((value) => (
+                            <li key={value}>{value}</li>
+                        ))}
+                    </ul>
+                    <Text size="xs" variant="muted">
+                        You can change the rule later in project settings.
+                    </Text>
                 </AlertDialogHeader>
-                <ul className="m-0 flex max-h-48 flex-col gap-1 overflow-y-auto ps-4 text-xs">
-                    {rule.value.map((value) => (
-                        <li key={value}>{value}</li>
-                    ))}
-                </ul>
-                <Text size="xs" variant="muted">
-                    You can change the rule later in project settings.
-                </Text>
                 <AlertDialogFooter>
                     <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
                     <AlertDialogClose

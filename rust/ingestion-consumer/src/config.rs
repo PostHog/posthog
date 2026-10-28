@@ -13,6 +13,7 @@ use crate::batcher::packer::{PackTargets, Packer};
 use crate::batcher::retry_policy::RetryPolicy;
 use crate::batcher::state_machine::{BatcherStateMachine, RequestBudget};
 use crate::batcher::worker_assigner::WorkerAssigner;
+use crate::charge_limit::ChargeLimit;
 use crate::discovery::DiscoveryMode;
 use crate::partition_budget::BudgetLimits;
 use crate::routing::{Router, RoutingStrategy};
@@ -39,22 +40,35 @@ impl FromStr for CompletionGranularity {
     }
 }
 
-/// Configuration for the ingestion consumer.
-///
-/// Kafka env vars match the Node.js ingestion consumer so this can be a
-/// drop-in replacement using the same Kubernetes ConfigMap/env config.
-/// The Node.js consumer reads `KAFKA_CONSUMER_*` env vars and maps them to
-/// rdkafka config keys. We use the same env var names and defaults here.
-///
-/// Any `KAFKA_CONSUMER_*` env var is also read and applied as an rdkafka
-/// config override — e.g. `KAFKA_CONSUMER_METADATA_BROKER_LIST=kafka:9092`
-/// becomes `metadata.broker.list=kafka:9092`. This matches the Node.js
-/// `getKafkaConfigFromEnv('CONSUMER')` behavior.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Polling {
+    #[default]
+    Capped,
+    Continuous,
+}
+
+impl FromStr for Polling {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_lowercase().as_str() {
+            "capped" => Ok(Self::Capped),
+            "continuous" => Ok(Self::Continuous),
+            other => Err(format!(
+                "unknown consumer polling strategy '{other}' (expected 'capped' or 'continuous')"
+            )),
+        }
+    }
+}
+
+/// Configuration for the ingestion consumer. Env var names and defaults match
+/// the Node.js ingestion consumer, so both read the same ConfigMap.
+/// `KAFKA_CONSUMER_*` vars also apply as rdkafka overrides; see
+/// `parse_kafka_consumer_env_overrides`.
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     // ---- Kafka connection (matches Node.js KafkaConsumer defaults) ----
-    /// Kafka broker list. Overridable via KAFKA_CONSUMER_METADATA_BROKER_LIST
-    /// (same as Node.js). This is used as the base default.
+    /// Kafka broker list. `KAFKA_CONSUMER_METADATA_BROKER_LIST` overrides it.
     #[envconfig(default = "kafka:9092")]
     pub kafka_hosts: String,
 
@@ -91,7 +105,6 @@ pub struct Config {
     #[envconfig(default = "300000")]
     pub kafka_consumer_max_poll_interval_ms: u32,
 
-    /// 1MB — matches Node.js default
     #[envconfig(default = "1048576")]
     pub kafka_consumer_max_partition_fetch_bytes: u32,
 
@@ -113,18 +126,16 @@ pub struct Config {
     #[envconfig(default = "52428800")]
     pub kafka_consumer_fetch_max_bytes: u32,
 
-    /// 10MB — matches Node.js fetch.message.max.bytes
     #[envconfig(default = "10485760")]
     pub kafka_consumer_fetch_message_max_bytes: u32,
 
-    /// 50ms — matches Node.js default (aggressive fetch for low latency)
+    /// Below the librdkafka default of 500ms, for low fetch latency.
     #[envconfig(default = "50")]
     pub kafka_consumer_fetch_wait_max_ms: u32,
 
     #[envconfig(default = "100000")]
     pub kafka_consumer_queued_min_messages: u32,
 
-    /// 100MB — matches Node.js default (reduced from rdkafka default of 1GB)
     #[envconfig(default = "102400")]
     pub kafka_consumer_queued_max_messages_kbytes: u32,
 
@@ -137,8 +148,8 @@ pub struct Config {
     #[envconfig(default = "15000")]
     pub kafka_consumer_statistics_interval_ms: u32,
 
-    /// Pod hostname from K8s, used as client.id and group.instance.id
-    /// for sticky partition assignment (same as Node.js hostname())
+    /// Pod hostname from K8s. Used as `client.id`, and as `group.instance.id`
+    /// when `KAFKA_CONSUMER_STATIC_MEMBERSHIP` is on.
     #[envconfig(from = "HOSTNAME")]
     pub pod_hostname: Option<String>,
 
@@ -159,26 +170,10 @@ pub struct Config {
     #[envconfig(default = "500")]
     pub consumer_batch_size: usize,
 
-    /// Maximum payload bytes to collect before dispatching a batch, in KiB.
-    /// `0` (default) disables the bound, leaving collection count-only.
-    ///
-    /// Resident memory is `CONSUMER_MAX_BACKGROUND_TASKS x batch x event size`,
-    /// doubled while a sub-batch is in flight, so a count-only cap only bounds
-    /// memory if every lane's event size is known and stable. It is not: measured
-    /// mean payloads across analytics lanes span ~1KB to ~43KB, a 45x spread, and
-    /// the same `CONSUMER_BATCH_SIZE` therefore means 45x the memory on one lane
-    /// versus another. This bound restates the limit in the unit that actually
-    /// constrains the pod, so one value is safe everywhere.
-    ///
-    /// Whichever bound is reached first ends collection. The count cap stays
-    /// useful as a downstream-shape guard (worker request size, per-batch
-    /// overhead); this one is the memory guard. Checked before appending, so a
-    /// batch always carries at least one message and overshoot is bounded by a
-    /// single message (itself capped by `fetch.message.max.bytes`).
-    ///
-    /// Default is off so that rolling this image out changes no lane's batch
-    /// composition; lanes opt in where their memory arithmetic is already
-    /// written down.
+    /// Maximum payload bytes to collect into one poll, in KiB. `0` (default)
+    /// disables the bound. Whichever of this and `CONSUMER_BATCH_SIZE` is reached
+    /// first ends collection: the count bounds request shape, this bounds memory,
+    /// because event size differs per lane. A poll can pass it by one message.
     #[envconfig(from = "CONSUMER_BATCH_SIZE_KB", default = "0")]
     pub consumer_batch_size_kb: usize,
 
@@ -265,8 +260,8 @@ pub struct Config {
     #[envconfig(from = "INGESTION_GOVERNOR_STEP_INTERVAL_MS", default = "1000")]
     pub governor_step_interval_ms: u64,
 
-    /// Maximum Kafka batches to process concurrently. Matches the Node.js
-    /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
+    /// Maximum polls in flight under the capped polling strategy; continuous
+    /// polling does not read it. Same name as the Node.js setting.
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
     pub consumer_max_background_tasks: usize,
 
@@ -294,6 +289,26 @@ pub struct Config {
     /// every set axis, before its fetch resumes. Above 0 and at most 1.
     #[envconfig(from = "CONSUMER_PARTITION_BUDGET_LOW_WATERMARK", default = "0.8")]
     pub consumer_partition_budget_low_watermark: f64,
+
+    /// `capped` or `continuous`. `continuous` runs only with `group`
+    /// granularity, a partition budget, and an in-flight limit; without all
+    /// three the consumer runs `capped`.
+    #[envconfig(from = "CONSUMER_POLLING_STRATEGY", default = "capped")]
+    pub consumer_polling_strategy: Polling,
+
+    /// Uncommitted events across all partitions at which the continuous
+    /// strategy stops reading from Kafka. The poll in progress still
+    /// completes, so the total can pass it by `CONSUMER_BATCH_SIZE`. `0`
+    /// (default) sets no event limit.
+    #[envconfig(from = "CONSUMER_IN_FLIGHT_EVENTS", default = "0")]
+    pub consumer_in_flight_events: u64,
+
+    /// Uncommitted key-plus-value-plus-header bytes across all partitions at
+    /// which the continuous strategy stops reading from Kafka. The poll in
+    /// progress still completes, so the total can pass it by one poll. `0`
+    /// (default) sets no byte limit.
+    #[envconfig(from = "CONSUMER_IN_FLIGHT_BYTES", default = "0")]
+    pub consumer_in_flight_bytes: u64,
 
     // ---- Debug API ----
     /// Serve the real-time debug API (`/debug/load`, `/debug/state`,
@@ -326,17 +341,18 @@ pub struct Config {
     #[envconfig(default = "http://localhost:9001")]
     pub worker_addresses: String,
 
-    /// Cap on un-acked sub-batches per worker stream. Ideally aligned with the
-    /// worker's `BatchingPipeline.concurrentBatches`
-    /// (`INGESTION_WORKER_CONCURRENT_BATCHES` on the Node.js side) so the
-    /// stream backpressures before the worker stalls its reads.
+    /// The most requests the batcher keeps in flight on one worker, and the
+    /// governor's permits per worker at its ceiling. Aligned with the worker's
+    /// `BatchingPipeline.concurrentBatches` (`INGESTION_WORKER_CONCURRENT_BATCHES`
+    /// on the Node.js side), because the worker queues requests past it
+    /// without saying so.
     #[envconfig(from = "INGESTION_WORKER_CONCURRENT_BATCHES", default = "1")]
     pub ingestion_worker_concurrent_batches: usize,
 
     /// Cap on the estimated serialized size of one sub-batch frame (bytes).
     /// Sub-batches above it ride the worker stream as consecutive chunks. Must
     /// stay under the worker's gRPC message limit with headroom for the size
-    /// estimate. Default 10 MiB.
+    /// estimate.
     #[envconfig(from = "INGESTION_TRANSPORT_MAX_BODY_BYTES", default = "10485760")]
     pub transport_max_body_bytes: usize,
 
@@ -352,14 +368,17 @@ pub struct Config {
     #[envconfig(from = "INGESTION_WORKER_GRPC_PORT_OFFSET", default = "0")]
     pub ingestion_worker_grpc_port_offset: u16,
 
-    /// Fence a worker stream (fail its un-acked and queued sub-batches into the
-    /// deferral path, reconnect, re-route) when un-acked work sees no ack for
-    /// this long (milliseconds). The stream has no per-send timeout, so this
-    /// watchdog is what turns a worker that stops acking into a re-route
-    /// instead of a silent forever-wait. Sized above the worst-case batch
-    /// processing time, like the HTTP timeout it replaces.
+    /// Fence a worker stream (fail its un-acked and queued sub-batches back to
+    /// the caller, reconnect) when one sub-batch waits this long for its ack
+    /// (milliseconds). The stream has no other per-send timeout. Size it above
+    /// the worst-case batch processing time.
     #[envconfig(from = "INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS", default = "60000")]
     pub ingestion_worker_stream_ack_timeout_ms: u64,
+
+    /// Close a worker stream after nothing on it is un-acked for this long.
+    /// `0` keeps idle streams open.
+    #[envconfig(from = "INGESTION_WORKER_STREAM_IDLE_CLOSE_MS", default = "5000")]
+    pub ingestion_worker_stream_idle_close_ms: u64,
 
     // ---- Worker discovery ----
     /// How the worker pool is discovered: `static` (use WORKER_ADDRESSES — the
@@ -399,9 +418,7 @@ pub struct Config {
     /// Minimum aperture width for `INGESTION_ROUTING_STRATEGY=aperture`: how
     /// many workers this dispatcher's ring slice spans. The effective width
     /// is floored at `ceil(pool / dispatchers)` so the fleet's slices always
-    /// cover the whole pool, no matter the pool/dispatcher ratio. Small
-    /// values maximize sub-batch consolidation; the width becomes
-    /// feedback-driven in a later stage.
+    /// cover the whole pool. Small values maximize sub-batch consolidation.
     #[envconfig(from = "INGESTION_MIN_APERTURE", default = "3")]
     pub min_aperture: usize,
 
@@ -512,9 +529,8 @@ impl Config {
         format!("{}:{}", self.bind_host, self.bind_port)
     }
 
-    /// The batcher state machine. It reuses the stream's un-acked cap as its
-    /// per-worker request cap, the parked-retry interval for every retry, and
-    /// the deferred-flush timeout as its stall timeout.
+    /// The batcher state machine. It takes the parked-retry interval for every
+    /// retry and the deferred-flush timeout as its stall timeout.
     pub fn batcher_state_machine(&self) -> Result<BatcherStateMachine, String> {
         let mut packer = Packer::new(PackTargets {
             events: NonZeroUsize::new(self.pack_target_events),
@@ -610,6 +626,13 @@ impl Config {
         )
     }
 
+    pub fn in_flight_limit(&self) -> ChargeLimit {
+        ChargeLimit::new(
+            NonZeroU64::new(self.consumer_in_flight_events),
+            NonZeroU64::new(self.consumer_in_flight_bytes),
+        )
+    }
+
     const MIN_REQUEST_SOFT_BUDGET_MS: u64 = 100;
 
     pub fn request_budget(&self) -> Result<Option<RequestBudget>, String> {
@@ -671,13 +694,10 @@ impl Config {
             .collect()
     }
 
-    /// Build a fully-configured rdkafka ClientConfig.
-    ///
-    /// Mirrors the Node.js KafkaConsumer constructor config with the same
-    /// defaults and override priority:
-    /// 1. Hardcoded defaults (from struct field defaults)
-    /// 2. `KAFKA_CONSUMER_*` env var overrides (same as Node.js getKafkaConfigFromEnv)
-    /// 3. Non-overridable settings (partition.assignment.strategy, enable.auto.offset.store)
+    /// Build a fully-configured rdkafka ClientConfig, in Node.js order:
+    /// 1. Defaults from the struct fields.
+    /// 2. `KAFKA_CONSUMER_*` env var overrides.
+    /// 3. Classic-protocol keys removed when `group.protocol=consumer`.
     pub fn build_consumer_config(&self) -> ClientConfig {
         let mut builder = ConsumerConfigBuilder::for_batch_consumer(
             &self.kafka_hosts,
@@ -724,7 +744,6 @@ impl Config {
             builder = builder.set("client.rack", &self.kafka_client_rack);
         }
 
-        // Apply KAFKA_CONSUMER_* env var overrides (same as Node.js getKafkaConfigFromEnv)
         let overrides = parse_kafka_consumer_env_overrides();
         for (key, value) in &overrides {
             info!(key = %key, value = %value, "Applying KAFKA_CONSUMER_ env override");

@@ -135,7 +135,12 @@ describe('RunSurface', () => {
 
         expect(screen.getByTestId('thread')).toBeInTheDocument()
         expect(screen.getByTestId('composer-child')).toBeInTheDocument()
-        expect(bootstrapRun).toHaveBeenCalledWith({ taskId: 'task-1', runId: 'run-1', taskRuntime: runtime })
+        expect(bootstrapRun).toHaveBeenCalledWith({
+            taskId: 'task-1',
+            runId: 'run-1',
+            taskRuntime: runtime,
+            pagedHistory: true,
+        })
     })
 
     it('keeps a Pi task behind the unavailable banner until Pi web sessions are on', () => {

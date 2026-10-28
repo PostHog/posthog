@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconHide, IconLeave, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
-import type { SignalReport } from '../../types'
+import { SignalReport, SignalReportStatus } from '../../types'
 import { canUnassignMe, hasOpenImplementationPr } from '../../utils/reportActions'
+import { reviewerRemovalReasonOptions } from '../../utils/reviewerRemovalReasons'
 import { openDismissReportDialog } from './DismissReportDialog'
 import { openResolveReportDialog } from './ResolveReportDialog'
 
@@ -27,6 +28,10 @@ export function InboxBulkSelectionBar({ reports }: { reports: SignalReport[] }):
     }
     const busy = isDismissing || isResolving || isUnassigning
     const selectedIds = new Set(selectedReportIds)
+    const selectedReports = reports.filter((report) => selectedIds.has(report.id))
+    const isMonitoring =
+        selectedReports.length === selectedCount &&
+        selectedReports.every((report) => report.status === SignalReportStatus.MONITORING)
     const hasOpenPr = reports.some((report) => selectedIds.has(report.id) && hasOpenImplementationPr(report))
     const unassignableIds = reports
         .filter((report) => selectedIds.has(report.id) && canUnassignMe(report, isScopedToMe))
@@ -50,6 +55,7 @@ export function InboxBulkSelectionBar({ reports }: { reports: SignalReport[] }):
                         openResolveReportDialog({
                             selectedCount,
                             hasOpenPr,
+                            isMonitoring,
                             onConfirm: ({ reason, note }) => bulkResolve(reason, note),
                         })
                     }
@@ -74,23 +80,36 @@ export function InboxBulkSelectionBar({ reports }: { reports: SignalReport[] }):
                 >
                     Dismiss
                 </LemonButton>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconLeave />}
-                    loading={isUnassigning}
-                    disabledReason={
-                        busy
-                            ? 'Working…'
-                            : unassignableIds.length === 0
-                              ? "You're not a reviewer on any selected report"
-                              : undefined
-                    }
-                    onClick={() => bulkUnassignMe(unassignableIds)}
-                    data-attr="inbox-bulk-unassign-me"
+                <LemonMenu
+                    placement="top-end"
+                    items={[
+                        {
+                            title: 'Remove yourself',
+                            items: reviewerRemovalReasonOptions(true).map((option) => ({
+                                label: option.label,
+                                onClick: () => bulkUnassignMe(unassignableIds, option.value),
+                            })),
+                        },
+                        { items: [{ label: 'Without a reason', onClick: () => bulkUnassignMe(unassignableIds) }] },
+                    ]}
                 >
-                    Unassign me
-                </LemonButton>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconLeave />}
+                        loading={isUnassigning}
+                        disabledReason={
+                            busy
+                                ? 'Working…'
+                                : unassignableIds.length === 0
+                                  ? "You're not a reviewer on any selected report"
+                                  : undefined
+                        }
+                        data-attr="inbox-bulk-unassign-me"
+                    >
+                        Unassign me
+                    </LemonButton>
+                </LemonMenu>
                 <LemonButton
                     type="tertiary"
                     size="small"

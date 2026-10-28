@@ -578,9 +578,8 @@ export function useInboxBulkActions(
 
   /**
    * Remove the current user from each selected report's suggested reviewers.
-   * The artefact PUT replaces the whole list, so per report we fetch the latest
-   * `suggested_reviewers` artefact, drop the entry matching the current user's
-   * uuid, and write the rest back. Reports where the user isn't listed are a
+   * Keep a full-list fallback for older servers and send only the current user's
+   * UUID as the removal target. Reports where the user isn't listed are a
    * no-op (fetched only for reports the list already flags via
    * `is_suggested_reviewer`).
    */
@@ -609,6 +608,7 @@ export function useInboxBulkActions(
           reportId,
           artefact.id,
           toReviewerWriteContent(next),
+          { action: "remove", targets: [{ user_uuid: input.meUuid }] },
         );
       }),
     {

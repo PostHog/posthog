@@ -79,6 +79,10 @@ def page_headings(markdown: str) -> list[str]:
     return [parsed[1] for parsed in _headings(markdown.splitlines()).values() if parsed[0] >= 2]
 
 
+def first_h1(lines: list[str]) -> tuple[int, str] | None:
+    return next(((index, text) for index, (level, text) in _headings(lines).items() if level == 1), None)
+
+
 def _section_end(lines: list[str], start: int, level: int) -> int:
     return next(
         (index for index, parsed in _headings(lines).items() if index > start and parsed[0] <= level),
@@ -127,7 +131,8 @@ def _append(lines: list[str], edit: PageEdit) -> list[str]:
 
 def _replace_intro(lines: list[str], edit: PageEdit) -> list[str]:
     headings = _headings(lines)
-    h1 = next((index for index, parsed in headings.items() if parsed[0] == 1), -1)
+    heading = first_h1(lines)
+    h1 = heading[0] if heading else -1
     new_lines = edit.markdown.splitlines()
     replaces_title = bool(new_lines) and (parsed := _heading(new_lines[0])) is not None and parsed[0] == 1
     start = h1 if replaces_title and h1 >= 0 else h1 + 1

@@ -1280,9 +1280,7 @@ export interface HogQLQueryModifiersApi {
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
     typeAwareCastSimplification?: boolean | null
     useMaterializedViews?: boolean | null
-    /** Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported. */
-    useNewEventsCluster?: boolean | null
-    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
     useNewEventsSchema?: boolean | null
     usePreaggregatedIntermediateResults?: boolean | null
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
@@ -1329,6 +1327,7 @@ export interface PropertyGroupFilterApi {
 }
 
 export interface BoxPlotDatumApi {
+    count?: number | null
     day: string
     label: string
     max: number
@@ -1460,6 +1459,8 @@ export interface DataWarehouseSourceUsageApi {
     source_type?: string | null
     /** Warehouse table name that was referenced */
     table_name: string
+    /** Whether the query read a history table of this source */
+    uses_history_table?: boolean | null
 }
 
 export interface DataWarehouseSyncWarningApi {
@@ -3589,6 +3590,8 @@ export interface WebStatsTableQueryResponseApi {
     /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
     preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
+    /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+    preComputedAt?: string | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -3683,7 +3686,11 @@ export interface WebOverviewQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
     preComputeIneligibleReason?: string | null
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
+    /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+    preComputedAt?: string | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -4039,7 +4046,11 @@ export interface Response4Api {
     modifiers?: HogQLQueryModifiersApi | null
     /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
     preComputeIneligibleReason?: string | null
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
+    /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+    preComputedAt?: string | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -4072,6 +4083,8 @@ export interface Response5Api {
     /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
     preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
+    /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+    preComputedAt?: string | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -4157,7 +4170,11 @@ export interface Response8Api {
     offset?: number | null
     /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
     preComputeIneligibleReason?: string | null
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
+    /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+    preComputedAt?: string | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -4195,7 +4212,11 @@ export interface Response9Api {
     modifiers?: HogQLQueryModifiersApi | null
     /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
     preComputeIneligibleReason?: string | null
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
+    /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+    preComputedAt?: string | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -5571,60 +5592,16 @@ export interface ExperimentBreakdownResultApi {
     variants: ExperimentVariantResultFrequentistApi[] | ExperimentVariantResultBayesianApi[]
 }
 
-export type ExperimentSignificanceCodeApi =
-    (typeof ExperimentSignificanceCodeApi)[keyof typeof ExperimentSignificanceCodeApi]
-
-export const ExperimentSignificanceCodeApi = {
-    Significant: 'significant',
-    NotEnoughExposure: 'not_enough_exposure',
-    LowWinProbability: 'low_win_probability',
-    HighLoss: 'high_loss',
-    HighPValue: 'high_p_value',
-} as const
-
-export interface ExperimentVariantTrendsBaseStatsApi {
-    absolute_exposure: number
-    count: number
-    exposure: number
-    key: string
-}
-
-export interface ExperimentVariantFunnelsBaseStatsApi {
-    failure_count: number
-    key: string
-    success_count: number
-}
-
-export type ExperimentQueryResponseApiCredibleIntervals = { [key: string]: number[] } | null
-
-export type ExperimentQueryResponseApiInsight = { [key: string]: unknown }[] | null
-
-export type ExperimentQueryResponseApiProbability = { [key: string]: number } | null
-
 export interface ExperimentQueryResponseApi {
     baseline?: ExperimentStatsBaseValidatedApi | null
     /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
     breakdown_results?: ExperimentBreakdownResultApi[] | null
     clickhouse_sql?: string | null
-    credible_intervals?: ExperimentQueryResponseApiCredibleIntervals
     hogql?: string | null
-    insight?: ExperimentQueryResponseApiInsight
     /** Whether exposures were served from the precomputation system */
     is_precomputed?: boolean | null
     kind?: 'ExperimentQuery'
-    metric?:
-        | ExperimentMeanMetricApi
-        | ExperimentFunnelMetricApi
-        | ExperimentRatioMetricApi
-        | ExperimentRetentionMetricApi
-        | null
-    p_value?: number | null
-    probability?: ExperimentQueryResponseApiProbability
-    significance_code?: ExperimentSignificanceCodeApi | null
-    significant?: boolean | null
-    stats_version?: number | null
     variant_results?: ExperimentVariantResultFrequentistApi[] | ExperimentVariantResultBayesianApi[] | null
-    variants?: ExperimentVariantTrendsBaseStatsApi[] | ExperimentVariantFunnelsBaseStatsApi[] | null
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarningApi[] | null
 }
@@ -5719,6 +5696,18 @@ export interface PathsV2ActorsQueryApi {
     modifiers?: HogQLQueryModifiersApi | null
     response?: ActorsQueryResponseApi | null
     source: PathsV2QueryApi
+    tags?: QueryLogTagsApi | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export interface AccountUsersQueryApi {
+    /** ID of the account whose users to list. */
+    accountId: string
+    kind?: 'AccountUsersQuery'
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    response?: ActorsQueryResponseApi | null
     tags?: QueryLogTagsApi | null
     /** version of the node, used for schema migrations */
     version?: number | null
@@ -5891,6 +5880,7 @@ export interface ActorsQueryApi {
         | ExperimentActorsQueryApi
         | StickinessActorsQueryApi
         | PathsV2ActorsQueryApi
+        | AccountUsersQueryApi
         | HogQLQueryApi
         | null
     tags?: QueryLogTagsApi | null
@@ -6088,7 +6078,11 @@ export interface WebGoalsQueryResponseApi {
     offset?: number | null
     /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
     preComputeIneligibleReason?: string | null
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
+    /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+    preComputedAt?: string | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -6211,7 +6205,11 @@ export interface WebVitalsPathBreakdownQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
     preComputeIneligibleReason?: string | null
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
+    /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+    preComputedAt?: string | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -8647,7 +8645,6 @@ export interface DashboardFilterApi {
     filterTestAccounts?: boolean | null
     /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
     interval?: IntervalTypeApi | null
-    /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
     metricFilters?: MetricsQueryFilterApi[] | null
     /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
     metricVariables?: MetricsDashboardVariableApi[] | null
@@ -9059,6 +9056,8 @@ export interface ActivityLogPaginatedResponseApi {
  * * `passed` - No data issues found
  * * `warning` - A check found a small issue
  * * `problem` - A check found a large issue
+ * * `partial` - Some checks could not run, and the others found no issue
+ * * `on_request` - The checks would read a lot of data, so they run only on request
  * * `no_events` - No events to check
  * * `unsupported` - This kind of insight cannot be checked
  * * `inconclusive` - No check could run
@@ -9070,6 +9069,8 @@ export const InsightDataChecksStatusEnumApi = {
     Passed: 'passed',
     Warning: 'warning',
     Problem: 'problem',
+    Partial: 'partial',
+    OnRequest: 'on_request',
     NoEvents: 'no_events',
     Unsupported: 'unsupported',
     Inconclusive: 'inconclusive',
@@ -9115,6 +9116,7 @@ export const InsightDataCheckLevelEnumApi = {
  * * `filtered_by_traffic_type` - The insight already filters on traffic type
  * * `hidden_property` - A property the check reads is hidden from you
  * * `invalid_filter` - The project's internal and test users filter cannot run
+ * * `on_request` - The check would read a lot of data, so it runs only on request
  */
 export type InsightDataCheckSkipReasonEnumApi =
     (typeof InsightDataCheckSkipReasonEnumApi)[keyof typeof InsightDataCheckSkipReasonEnumApi]
@@ -9128,6 +9130,7 @@ export const InsightDataCheckSkipReasonEnumApi = {
     FilteredByTrafficType: 'filtered_by_traffic_type',
     HiddenProperty: 'hidden_property',
     InvalidFilter: 'invalid_filter',
+    OnRequest: 'on_request',
 } as const
 
 /**
@@ -9189,7 +9192,8 @@ export interface InsightDataCheckApi {
      * * `too_few_sampled_events` - The sample has too few events to give a share
      * * `filtered_by_traffic_type` - The insight already filters on traffic type
      * * `hidden_property` - A property the check reads is hidden from you
-     * * `invalid_filter` - The project's internal and test users filter cannot run */
+     * * `invalid_filter` - The project's internal and test users filter cannot run
+     * * `on_request` - The check would read a lot of data, so it runs only on request */
     skip_reason: InsightDataCheckSkipReasonEnumApi | null
     /** `counted` when the check counted every event on the days checked, `sampled` when it read a sample. Null when the check did not run.
      *
@@ -9284,11 +9288,13 @@ export interface InsightDataChecksCoverageApi {
 }
 
 export interface InsightDataChecksApi {
-    /** The worst result across the checks. `no_events` when no event matches the insight's events, filters and date range. `unsupported` when the insight has no event series to check, such as a SQL insight, and when a property the checks read is hidden from the caller. `inconclusive` when no check could run.
+    /** The worst result across the checks. `no_events` when no event matches the insight's events, filters and date range. `unsupported` when the insight has no event series to check, such as a SQL insight, and when a property the checks read is hidden from the caller. `inconclusive` when no check could run. `partial` when some checks could not run and the others found nothing. `on_request` when the checks would read a lot of data for a quick check, so they did not run: send `depth` `full` to run them.
      *
      * * `passed` - No data issues found
      * * `warning` - A check found a small issue
      * * `problem` - A check found a large issue
+     * * `partial` - Some checks could not run, and the others found no issue
+     * * `on_request` - The checks would read a lot of data, so they run only on request
      * * `no_events` - No events to check
      * * `unsupported` - This kind of insight cannot be checked
      * * `inconclusive` - No check could run */
@@ -9405,6 +9411,18 @@ export interface BulkUpdateTagsResponseApi {
     skipped: BulkUpdateTagsErrorApi[]
 }
 
+/**
+ * * `quick` - Read within a small budget, so the checks can run on every load
+ * * `full` - Read with the same limits as the insight's own query
+ */
+export type InsightDataChecksDepthEnumApi =
+    (typeof InsightDataChecksDepthEnumApi)[keyof typeof InsightDataChecksDepthEnumApi]
+
+export const InsightDataChecksDepthEnumApi = {
+    Quick: 'quick',
+    Full: 'full',
+} as const
+
 export interface InsightDataChecksRequestApi {
     /** The insight query to check, in the shape an insight stores it: an `InsightVizNode` with its `source`. Pass the query of a saved insight, or one that is not saved yet. */
     query: _InsightQuerySchemaApi
@@ -9413,6 +9431,11 @@ export interface InsightDataChecksRequestApi {
      * @maxLength 128
      */
     client_query_id?: string
+    /** `quick`, the default, reads within a small budget so the checks can run on every load. On an insight they would read a lot of data for, a quick check does not run and `status` is `on_request`. `full` runs the checks with the same limits as the insight's own query.
+     *
+     * * `quick` - Read within a small budget, so the checks can run on every load
+     * * `full` - Read with the same limits as the insight's own query */
+    depth?: InsightDataChecksDepthEnumApi
 }
 
 /**
@@ -9848,8 +9871,24 @@ export const InsightsActivityRetrieveFormat = {
 } as const
 
 export type InsightsDataChecksRetrieveParams = {
+    /**
+     * `quick`, the default, reads within a small budget so the checks can run on every load. On an insight they would read a lot of data for, a quick check does not run and `status` is `on_request`. `full` runs the checks with the same limits as the insight's own query.
+     *
+     * * `quick` - Read within a small budget, so the checks can run on every load
+     * * `full` - Read with the same limits as the insight's own query
+     * @minLength 1
+     */
+    depth?: InsightsDataChecksRetrieveDepth
     format?: InsightsDataChecksRetrieveFormat
 }
+
+export type InsightsDataChecksRetrieveDepth =
+    (typeof InsightsDataChecksRetrieveDepth)[keyof typeof InsightsDataChecksRetrieveDepth]
+
+export const InsightsDataChecksRetrieveDepth = {
+    Quick: 'quick',
+    Full: 'full',
+} as const
 
 export type InsightsDataChecksRetrieveFormat =
     (typeof InsightsDataChecksRetrieveFormat)[keyof typeof InsightsDataChecksRetrieveFormat]

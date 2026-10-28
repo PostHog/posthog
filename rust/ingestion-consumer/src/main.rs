@@ -281,10 +281,12 @@ async fn async_main(config: Config) -> Result<()> {
 
     let mut transport = GrpcTransport::new(
         grpc_port,
-        config.ingestion_worker_concurrent_batches,
         Duration::from_millis(config.ingestion_worker_stream_ack_timeout_ms),
     );
     transport.set_max_body_bytes(config.transport_max_body_bytes);
+    transport.set_idle_close(Duration::from_millis(
+        config.ingestion_worker_stream_idle_close_ms,
+    ));
     transport.set_assignment_epoch(assignment_epoch);
     let transport = Arc::new(transport);
 

@@ -174,8 +174,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     def single_flight_variant(self) -> str:
         # A caller can pass its own execution time, which does not reach the cache key.
         variant = super().single_flight_variant()
-        if self.ch_user != ClickHouseUser.DEFAULT:
-            variant = f"{variant}:ch_user={self.ch_user.value}"
         if self.hogql_settings is not None:
             variant = f"{variant}:max_execution_time={self.hogql_settings.max_execution_time}"
         return variant
@@ -439,7 +437,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 workload=self.workload,
                 hogql_settings=self.hogql_settings,
             )
-            runner._shared_database = self._shared_database
+            # The live fallback reads other warehouse tables, so it needs a database built with its own modifiers.
+            if runner.modifiers == self.modifiers:
+                runner._shared_database = self._shared_database
             return runner.calculate()
 
         queries = self.to_queries()
@@ -508,7 +508,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     thread_name_prefix="trends_series",
                 )
 
-        # Raise any errors raised in a seperate thread
+        # Raise any errors raised in a separate thread
         if len(errors) > 0:
             raise errors[0]
 

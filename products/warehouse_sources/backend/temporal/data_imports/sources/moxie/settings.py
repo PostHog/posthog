@@ -74,6 +74,14 @@ MOXIE_ENDPOINTS: dict[str, MoxieEndpointConfig] = {
     ),
     "pipeline_stages": MoxieEndpointConfig(name="pipeline_stages", path=f"{MOXIE_API_PATH_PREFIX}/pipelineStages/list"),
     "task_stages": MoxieEndpointConfig(name="task_stages", path=f"{MOXIE_API_PATH_PREFIX}/taskStages/list"),
+    # List Tasks and List Tickets default to `archived=false`, so archived records are not synced.
+    "tasks": MoxieEndpointConfig(name="tasks", path=f"{MOXIE_API_PATH_PREFIX}/tasks/list", partition_key="created"),
+    "tickets": MoxieEndpointConfig(
+        name="tickets", path=f"{MOXIE_API_PATH_PREFIX}/tickets/list", partition_key="created"
+    ),
+    "agreements": MoxieEndpointConfig(
+        name="agreements", path=f"{MOXIE_API_PATH_PREFIX}/agreements/search", partition_key="dateCreated"
+    ),
     # Rows are keyed by the nested `user.userId`, flattened onto the row root as `user_id` (see
     # `moxie.py`) since a nested field can't be declared as a primary key.
     "workspace_users": MoxieEndpointConfig(

@@ -43,6 +43,7 @@ import type {
     ExperimentsListParams,
     ExperimentsMatchingIdsRetrieveParams,
     ExperimentsPromptTemplatesRetrieve200Item,
+    ExperimentsRunningTimeTargetRetrieveParams,
     ExperimentsSessionContextRetrieveParams,
     ExperimentsTimeseriesResultsRetrieveParams,
     PaginatedExperimentBasicListApi,
@@ -54,6 +55,7 @@ import type {
     RecalculateMetricsRequestApi,
     RunningTimeCalculationInputApi,
     RunningTimeCalculationResultApi,
+    RunningTimeTargetApi,
     ShipVariantApi,
 } from './api.schemas'
 
@@ -726,6 +728,16 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * hours after launch, and when only secondary metrics read it, and a warning otherwise.
  * `filter_on_another_flag` is a warning in every state, and the other findings stop at the end.
  *
+ * `metric_cannot_compile` builds and compiles the query of each metric without running it, as
+ * the caller, so a metric that every calculation fails on shows before launch. A metric that
+ * reads a warehouse table or view the caller may not query is not checked for them. The finding
+ * names each failing metric in the `evidence` keys `metric_N`, `metric_N_role`, `metric_N_error`
+ * (the error class, which is also the subcode of the first metric) and `metric_N_message` (the
+ * compiler's message). It is a warning when a primary metric fails before the end, and info
+ * otherwise. A failure inside ClickHouse, such as a type that the data holds, isn't found. A
+ * failing metric compiles again on every request. A metric that compiles is cached per caller
+ * for a day, so a cohort or table that is deleted after a compile can take up to a day to show.
+ *
  * The severity of the `some_conditions_pinned` finding follows the largest share that the
  * users of the pinned release conditions make up among the users who got one variant from
  * the flag, in the last 7 days, or since launch or the flag's last save if later. It reads
@@ -756,6 +768,17 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * `running_but_flag_disabled`, as a warning. A caller who can't view the linked flag's
  * history gets the warning, because the pause is not read. A draft whose flag is already
  * active with multiple variants gets `not_started_but_multiple_variants_rolled_out` as info.
+ * An ended experiment whose flag is still active with multiple variants gets
+ * `ended_but_multiple_variants_rolled_out` as a warning, or `ended_flag_not_called` as info
+ * when the flag's `last_called_at` shows no call in the 3 days after the end. The info waits
+ * an extra hour, because `last_called_at` trails a call.
+ *
+ * A running experiment whose first primary metric is a funnel gets the info
+ * `early_significance` (subcode `below_detectable_effect`) when a significant variant's
+ * difference is smaller than the smallest difference its sample can detect, while that
+ * sample is below the one the running time estimate plans for the minimum detectable
+ * effect. It reads the metric's current stored result, the one the results page shows
+ * after its last calculation, and the running time calculator's formula.
  */
 export const experimentsHealthRetrieve = async (
     projectId: string,
@@ -1052,6 +1075,46 @@ export const experimentsResumeCreate = async (
     return apiMutator<ExperimentApi>(getExperimentsResumeCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getExperimentsRunningTimeTargetRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: ExperimentsRunningTimeTargetRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiments/${id}/running_time_target/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiments/${id}/running_time_target/`
+}
+
+/**
+ * The target sample of the experiment's running time estimate, which the experiment page's header compares
+ * with the exposures so far, and what the experiment can detect over time.
+ *
+ * In manual running time mode it is the saved target. Otherwise it is sized from the first primary metric's
+ * current result: the variance the analysis uses (with CUPED when the analysis applied it) and the flag's
+ * traffic split, so that the comparison of each variant with the control reaches the minimum detectable effect.
+ */
+export const experimentsRunningTimeTargetRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: ExperimentsRunningTimeTargetRetrieveParams,
+    options?: RequestInit
+): Promise<RunningTimeTargetApi> => {
+    return apiMutator<RunningTimeTargetApi>(getExperimentsRunningTimeTargetRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

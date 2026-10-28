@@ -221,8 +221,10 @@ export enum Scene {
     Endpoint = 'Endpoint',
     Workflow = 'Workflow',
     Broadcasts = 'Broadcasts',
+    Transactional = 'Transactional',
     Workflows = 'Workflows',
     Broadcast = 'Broadcast',
+    WorkflowsEmailDomain = 'WorkflowsEmailDomain',
     Wizard = 'Wizard',
     EarlyAccessFeature = 'EarlyAccessFeature',
     EndpointsScene = 'EndpointsScene',
@@ -455,8 +457,10 @@ export const sceneToAccessControlResourceType: Partial<
     // Workflows
     [Scene.Workflow]: AccessControlResourceType.Workflow,
     [Scene.Broadcasts]: AccessControlResourceType.Workflow,
+    [Scene.Transactional]: AccessControlResourceType.Workflow,
     [Scene.Workflows]: AccessControlResourceType.Workflow,
     [Scene.Broadcast]: AccessControlResourceType.Workflow,
+    [Scene.WorkflowsEmailDomain]: AccessControlResourceType.Workflow,
 
     // Product Tours
     [Scene.ProductTour]: AccessControlResourceType.ProductTour,
@@ -487,7 +491,10 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.AIObservabilityEvaluations]: [AccessControlResourceType.Evaluation, AccessControlResourceType.LlmAnalytics],
     [Scene.AIObservabilityScorers]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityScorer]: AccessControlResourceType.LlmAnalytics,
-    [Scene.AIObservabilityOfflineExperiments]: AccessControlResourceType.Evaluation,
+    [Scene.AIObservabilityOfflineExperiments]: [
+        AccessControlResourceType.Evaluation,
+        AccessControlResourceType.LlmAnalytics,
+    ],
     [Scene.AIObservabilityOfflineExperiment]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityOfflineScorerHistory]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityEvaluationTemplates]: AccessControlResourceType.Evaluation,

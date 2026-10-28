@@ -49,6 +49,7 @@ import {
 
 import { ChartAlternatives } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives'
 import { InsightDataChecks } from 'products/product_analytics/frontend/insights/dataChecks/InsightDataChecks'
+import { InsightDisplayConfig } from 'products/product_analytics/frontend/insights/editor/InsightDisplayConfig'
 import { Funnel } from 'products/product_analytics/frontend/insights/funnels/Funnel'
 import { FunnelCanvasLabel } from 'products/product_analytics/frontend/insights/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
@@ -65,7 +66,6 @@ import { BoxPlotResultsTable } from 'products/product_analytics/frontend/insight
 import { TrendInsight } from 'products/product_analytics/frontend/insights/trends/Trends'
 
 import { FlagCallsRetentionNotice } from './FlagCallsRetentionNotice'
-import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
 

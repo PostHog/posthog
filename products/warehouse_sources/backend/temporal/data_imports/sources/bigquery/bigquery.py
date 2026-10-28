@@ -79,6 +79,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     incremental_type_to_operator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.credentials_service import get_secret
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import make_tracked_channel
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
@@ -681,7 +682,7 @@ def _impersonated_credentials(service_account_email: str, team_id: int) -> googl
         verify_impersonated_service_account_ownership,
     )
 
-    if not settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD or not settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT:
+    if not settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD or not get_secret("BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT"):
         raise BigQueryAuthResolutionError(BIGQUERY_IMPERSONATION_UNAVAILABLE_ERROR)
 
     # The ownership check below authenticates with PostHog's own credentials. If this worker cannot

@@ -17,7 +17,7 @@ import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
 from botocore.stub import Stubber
-from deltalake import DeltaTable, write_deltalake
+from deltalake import DeltaTable, WriterProperties, write_deltalake
 from fsspec.implementations.local import LocalFileSystem
 from parameterized import parameterized
 
@@ -626,6 +626,19 @@ class TestReadTable:
         with pytest.raises(ObjectStorageError, match=FILE_PARSE_ERROR):
             read_rows(store, table)
 
+    @parameterized.expand([("plain", "orders.parquet", False), ("gzipped", "orders.parquet.gz", True)])
+    def test_a_parquet_file_with_one_brotli_column_is_a_parse_error(self, _name: str, path: str, gzipped: bool) -> None:
+        buffer = io.BytesIO()
+        pq.write_table(
+            pa.table({"id": ["1", "2"], "note": ["a", "b"]}),
+            buffer,
+            compression={"id": "snappy", "note": "brotli"},
+        )
+        content = gzip.compress(buffer.getvalue()) if gzipped else buffer.getvalue()
+
+        with pytest.raises(ObjectStorageError, match=f"{FILE_PARSE_ERROR} '{path}' as Parquet: Brotli"):
+            list(iter_file_tables(io.BytesIO(content), stored(path), "parquet", CsvOptions()))
+
     def test_a_parquet_file_with_no_rows_still_yields_its_schema(self, tmp_path: Path) -> None:
         pq.write_table(pa.table({"id": pa.array([], pa.string())}), tmp_path / "empty.parquet")
         store = local_store(tmp_path)
@@ -667,6 +680,17 @@ class TestReadTable:
         tables = list(iter_delta_tables(store.delta_uri("sales"), {}, "sales"))
 
         assert [(table.column_names, table.num_rows) for table in tables] == [(["id"], 0)]
+
+    @parameterized.expand([("whole_snapshot", False), ("by_file", True)])
+    def test_a_delta_table_with_brotli_compression_is_a_parse_error(self, _name: str, with_file_names: bool) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = str(Path(folder) / "sales")
+            write_deltalake(path, pa.table({"id": [1, 2]}), writer_properties=WriterProperties(compression="BROTLI"))
+
+            read = plan_delta_read(path, {}, "sales")
+
+            with pytest.raises(ObjectStorageError, match=f"{FILE_PARSE_ERROR} '.+' in the Delta table 'sales': Brotli"):
+                list(read.iter_tables(with_file_names=with_file_names))
 
 
 def _append(path: str) -> None:

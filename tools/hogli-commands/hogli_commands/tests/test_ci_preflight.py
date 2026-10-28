@@ -294,7 +294,7 @@ class TestStalenessRisks:
                 ["migrations added on both sides in posthog/migrations"],
             ),
             (["posthog/api/ours.py"], ["posthog/api/theirs.py"], [], ["master also changed build:openapi"]),
-            (["a.py"], [".github/workflows/ci-backend.yml"], [], ["CI workflows changed on master (1 file(s))"]),
+            (["a.py"], [".github/workflows/ci-python.yml"], [], ["CI workflows changed on master (1 file(s))"]),
         ],
     )
     def test_risk_derivation(
@@ -396,7 +396,7 @@ class TestWorkspaceScopedLockfile:
         assert "products/desktop: needs node" in detail
 
 
-class TestShadowDriftCheck:
+class TestDepotMirrorsCheck:
     @pytest.mark.parametrize(
         "changed,expected_exit,expected_fragment",
         [
@@ -427,4 +427,4 @@ class TestShadowDriftCheck:
         if expected_fragment:
             assert expected_fragment in result.output
         else:
-            assert "shadow-drift" not in result.output
+            assert "depot-mirrors" not in result.output
