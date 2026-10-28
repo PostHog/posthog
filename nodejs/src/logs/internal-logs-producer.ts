@@ -22,6 +22,9 @@ const SEVERITY_NUMBERS: Readonly<Record<string, number>> = { debug: 5, info: 9, 
 // Half of capture-logs' default 2 MiB body limit, which leaves room for the envelope.
 const MAX_REQUEST_RECORD_BYTES = 1024 * 1024
 
+// A JSON-escaped character takes at most 6 bytes, so a message cut to this length always fits in one request.
+const MAX_MESSAGE_LENGTH = 128 * 1024
+
 /** One row of `log_entries`, the table every internal log source writes to. */
 export type InternalLogEntry = {
     team_id: number
@@ -143,8 +146,8 @@ function toOtlpLogRecord(entry: InternalLogEntry): OtlpLogRecord {
         timeUnixNano: (BigInt(entry.timestamp.toMillis()) * 1_000_000n).toString(),
         severityText: entry.level.toUpperCase(),
         severityNumber: SEVERITY_NUMBERS[entry.level] ?? 0,
-        // capture-logs rejects a whole request that holds one unpaired surrogate.
-        body: { stringValue: sanitizeForUTF8(entry.message) },
+        // capture-logs rejects a whole request that holds one unpaired surrogate. The cut can split a pair, so sanitize after it.
+        body: { stringValue: sanitizeForUTF8(entry.message.slice(0, MAX_MESSAGE_LENGTH)) },
         attributes: [
             { key: 'log_source_id', value: { stringValue: entry.log_source_id } },
             { key: 'instance_id', value: { stringValue: entry.instance_id } },

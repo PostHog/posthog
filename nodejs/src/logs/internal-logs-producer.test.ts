@@ -158,6 +158,17 @@ describe('InternalLogsProducer', () => {
         expect(sent.reduce((a, b) => a + b, 0)).toEqual(250)
     })
 
+    it('cuts a message too large for one request, so capture-logs still accepts the record', async () => {
+        await send(new InternalLogsProducer(config(), teamManager), [entry({ message: '"'.repeat(3 * 1024 * 1024) })])
+
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        const body = fetchMock.mock.calls[0][1]!.body as string
+        expect(Buffer.byteLength(body)).toBeLessThan(2 * 1024 * 1024)
+        expect((parseJSON(body) as any).resourceLogs[0].scopeLogs[0].logRecords[0].body.stringValue).toEqual(
+            '"'.repeat(128 * 1024)
+        )
+    })
+
     it('replaces an unpaired surrogate so capture-logs can decode the rest of the batch', async () => {
         await send(new InternalLogsProducer(config(), teamManager), [
             entry({ message: '😀'.substring(0, 1) }),
