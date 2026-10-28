@@ -1637,6 +1637,42 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
         mock_patch.assert_not_called()
 
     @patch("ee.billing.billing_manager.http_session.patch")
+    def test_sync_organization_users_leaves_out_values_billing_rejects(self, mock_patch):
+        mock_patch.return_value = MagicMock(status_code=200, json=MagicMock(return_value={}))
+        owner = User.objects.create_and_join(
+            organization=self.organization,
+            email="owner@example.com",
+            password=None,
+            level=OrganizationMembership.Level.OWNER,
+        )
+        admin_without_distinct_id = User.objects.create_and_join(
+            organization=self.organization,
+            email="admin@example.com",
+            password=None,
+            level=OrganizationMembership.Level.ADMIN,
+        )
+        User.objects.filter(id=admin_without_distinct_id.id).update(distinct_id=None)
+        admin_with_invalid_email = User.objects.create_and_join(
+            organization=self.organization,
+            email="not-an-email",
+            password=None,
+            level=OrganizationMembership.Level.ADMIN,
+        )
+
+        BillingManager(self.license, user=owner).sync_organization_users(self.organization)
+
+        payload = mock_patch.call_args.kwargs["json"]
+        assert sorted(payload["distinct_ids"]) == sorted(
+            [self.user.distinct_id, owner.distinct_id, admin_with_invalid_email.distinct_id]
+        )
+        assert payload["org_customer_email"] == "owner@example.com"
+        assert sorted(payload["org_admin_emails"]) == ["admin@example.com", "owner@example.com"]
+        assert payload["org_users"] == [
+            {"email": "not-an-email", "distinct_id": admin_with_invalid_email.distinct_id, "role": 8},
+            {"email": "owner@example.com", "distinct_id": owner.distinct_id, "role": 15},
+        ]
+
+    @patch("ee.billing.billing_manager.http_session.patch")
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_update_billing_org_users_without_billing_manager_user(self, mock_capture, mock_patch):
         """

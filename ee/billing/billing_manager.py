@@ -10,7 +10,9 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import F
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
+from django.db.models import F, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -143,6 +145,14 @@ def _free_trial_active(customer: CustomerInfo) -> bool:
     if timezone.is_naive(expires):
         expires = expires.replace(tzinfo=UTC)
     return expires > timezone.now()
+
+
+def _is_valid_email(email: str) -> bool:
+    try:
+        validate_email(email)
+    except ValidationError:
+        return False
+    return True
 
 
 def get_most_recent_owner(organization: Organization) -> User | None:
@@ -527,16 +537,22 @@ class BillingManager:
         if not first_owner:
             raise OrganizationHasNoOwnerError()
 
-        distinct_ids = list(organization.members.values_list("distinct_id", flat=True))
+        # Billing rejects the whole update when one value fails its validation, so values it would
+        # reject are left out: a NULL or empty distinct_id, and an admin email that is not valid.
+        members_with_distinct_id = organization.members.exclude(Q(distinct_id__isnull=True) | Q(distinct_id=""))
 
-        admin_emails = list(
-            organization.members.filter(
+        distinct_ids = list(members_with_distinct_id.values_list("distinct_id", flat=True))
+
+        admin_emails = [
+            email
+            for email in organization.members.filter(
                 organization_membership__level__gte=OrganizationMembership.Level.ADMIN
             ).values_list("email", flat=True)
-        )
+            if _is_valid_email(email)
+        ]
 
         org_users = list(
-            organization.members.values("email", "distinct_id", "organization_membership__level")
+            members_with_distinct_id.values("email", "distinct_id", "organization_membership__level")
             .order_by("email")  # Deterministic order for tests
             .annotate(role=F("organization_membership__level"))
             .filter(role__gte=OrganizationMembership.Level.ADMIN)
