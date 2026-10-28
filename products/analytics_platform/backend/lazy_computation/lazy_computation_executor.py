@@ -16,6 +16,7 @@ from django.utils import timezone as django_timezone
 
 import redis as redis_lib
 import structlog
+from cachetools import TTLCache, cached
 from clickhouse_driver.errors import ServerException
 from prometheus_client import Counter
 
@@ -651,7 +652,13 @@ _SPREAD_READ_TABLE_CLUSTERS: dict[LazyComputationTable, str] = {
     LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED: CLICKHOUSE_AUX_CLUSTER,
 }
 
+_REPLICAS_PER_SHARD_CACHE: TTLCache = TTLCache(maxsize=8, ttl=300)
+# Outlives the TTL cache, so a failed lookup still knows the topology of this process's last
+# good lookup instead of guessing a quorum that may not cover every replica.
+_LAST_KNOWN_REPLICAS_PER_SHARD: dict[str, int] = {}
 
+
+@cached(cache=_REPLICAS_PER_SHARD_CACHE)
 def _replicas_per_shard(cluster: str) -> int:
     rows = sync_execute(
         """
@@ -661,10 +668,7 @@ def _replicas_per_shard(cluster: str) -> int:
         {"cluster": cluster},
         workload=Workload.DEFAULT,
     )
-    replicas = int(rows[0][0]) if rows else 0
-    if replicas < 1:
-        raise RuntimeError(f"Cluster {cluster} is not in system.clusters")
-    return replicas
+    return int(rows[0][0]) if rows else 0
 
 
 def _insert_quorum(table: LazyComputationTable, read_after_write: bool) -> str | int:
@@ -673,9 +677,25 @@ def _insert_quorum(table: LazyComputationTable, read_after_write: bool) -> str |
     cluster = _SPREAD_READ_TABLE_CLUSTERS.get(table)
     if cluster is None:
         return PREAGGREGATION_INSERT_QUORUM
-    # Read for every INSERT and never cached, because a replica added to the cluster takes spread
-    # reads at once. A failed lookup fails the INSERT, so the caller reads without precomputed rows.
-    replicas = _replicas_per_shard(cluster)
+    try:
+        replicas = _replicas_per_shard(cluster)
+    except Exception:
+        last_known = _LAST_KNOWN_REPLICAS_PER_SHARD.get(cluster)
+        logger.warning(
+            "lazy_computation.replica_count_lookup_failed",
+            table=table.value,
+            cluster=cluster,
+            last_known_replicas=last_known,
+            exc_info=True,
+        )
+        # With no known count, fail the INSERT: the caller then reads without precompute.
+        if last_known is None:
+            raise
+        replicas = last_known
+    if replicas >= 1:
+        _LAST_KNOWN_REPLICAS_PER_SHARD[cluster] = replicas
+    if replicas < 1:
+        return PREAGGREGATION_INSERT_QUORUM
     # With two replicas this equals "auto". With more, "auto" acknowledges a majority only,
     # and a spread read can reach a replica that does not have the part yet.
     if replicas > 2:

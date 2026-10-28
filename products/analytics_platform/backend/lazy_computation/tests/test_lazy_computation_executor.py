@@ -30,7 +30,9 @@ from products.analytics_platform.backend.lazy_computation.computation_notificati
     set_ch_query_started,
 )
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    _LAST_KNOWN_REPLICAS_PER_SHARD,
     _READ_TABLES,
+    _REPLICAS_PER_SHARD_CACHE,
     _SPREAD_READ_TABLE_CLUSTERS,
     DEFAULT_POLL_INTERVAL_SECONDS,
     DEFAULT_RETRIES,
@@ -3553,27 +3555,26 @@ class TestInsertSettings(BaseTest):
         [
             ("in_order_table", LazyComputationTable.PREAGGREGATION_RESULTS, [], [(3,)], "auto"),
             ("spread_table_two_replicas", LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED, [], [(2,)], 2),
-            ("spread_table_three_replicas", LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED, [], [(3,)], 3),
             (
-                "spread_table_replica_added_between_inserts",
+                "spread_table_three_replicas",
                 LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
-                [[(2,)]],
+                [],
                 [(3,)],
                 3,
             ),
             (
-                "spread_table_lookup_fails",
+                "spread_table_lookup_fails_after_a_known_count",
+                LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
+                [[(3,)]],
+                ServerException(message="boom", code=999),
+                3,
+            ),
+            (
+                "spread_table_lookup_fails_with_no_known_count",
                 LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
                 [],
                 ServerException(message="boom", code=999),
                 ServerException,
-            ),
-            (
-                "spread_table_cluster_missing",
-                LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
-                [],
-                [(0,)],
-                RuntimeError,
             ),
         ]
     )
@@ -3584,6 +3585,9 @@ class TestInsertSettings(BaseTest):
         # value to make the branch observable. Background builders skip quorum: without
         # that a downed or stale-registered replica fails every background build with
         # TOO_FEW_LIVE_REPLICAS until the cluster is repaired.
+        for state in (_REPLICAS_PER_SHARD_CACHE, _LAST_KNOWN_REPLICAS_PER_SHARD):
+            state.clear()
+            self.addCleanup(state.clear)
         module = "products.analytics_platform.backend.lazy_computation.lazy_computation_executor"
         with (
             patch(f"{module}.PREAGGREGATION_INSERT_QUORUM", "auto"),
@@ -3591,6 +3595,7 @@ class TestInsertSettings(BaseTest):
         ):
             for _ in earlier_lookups:
                 _get_insert_settings(self.team.pk, table)
+                _REPLICAS_PER_SHARD_CACHE.clear()
             if isinstance(expected_quorum, type):
                 with pytest.raises(expected_quorum):
                     _get_insert_settings(self.team.pk, table)
