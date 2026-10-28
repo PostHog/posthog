@@ -15,11 +15,6 @@ const { privateKey } = generateKeyPairSync('rsa', {
     privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
     publicKeyEncoding: { type: 'spki', format: 'pem' },
 })
-const certificate = execFileSync(
-    'openssl',
-    ['req', '-new', '-x509', '-key', '/dev/stdin', '-subj', '/CN=Invented mobile release test', '-days', '1'],
-    { input: privateKey, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
-)
 
 function fixture(t) {
     const temporary = mkdtempSync(join(tmpdir(), 'mobile-hosted-test-'))
@@ -33,6 +28,11 @@ function fixture(t) {
     const preload = join(temporary, 'expo-api.mjs')
     const keyPath = join(temporary, 'private-key.pem')
     writeFileSync(keyPath, privateKey, { mode: 0o600 })
+    const certificate = execFileSync(
+        'openssl',
+        ['req', '-new', '-x509', '-key', keyPath, '-subj', '/CN=Invented mobile release test', '-days', '1'],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+    )
     writeFileSync(
         preload,
         `import {readFileSync,writeFileSync} from 'node:fs';globalThis.fetch=async()=>{const state=JSON.parse(readFileSync(process.env.MOBILE_FAKE_STATE,'utf8'));state.expoReads=(state.expoReads??0)+1;writeFileSync(process.env.MOBILE_FAKE_STATE,JSON.stringify(state));const variables=process.env.MOBILE_FAKE_SECRET==='1'?[{name:'NATIVE_CONFIG',type:'STRING',visibility:'SECRET',value:null}]:process.env.MOBILE_FAKE_FILE==='unreadable'?[{name:'GOOGLE_SERVICES_JSON',type:'FILE_BASE64',visibility:'SENSITIVE'}]:process.env.MOBILE_FAKE_CHANGE==='remove'&&state.expoReads===1?[{name:'NATIVE_SWITCH',type:'STRING',visibility:'SENSITIVE',value:'on'}]:[];return {ok:true,json:async()=>({data:{app:{byId:{environmentVariablesIncludingSensitive:variables,ownerAccount:{environmentVariablesIncludingSensitive:[]}}}}})}}`
