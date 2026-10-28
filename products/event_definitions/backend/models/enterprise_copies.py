@@ -34,6 +34,13 @@ PROPERTY_DEFINITION_COPIES: Mapping[str, str] = {
 }
 
 
+def _attname(instance: models.Model, name: str) -> str:
+    field = instance._meta.get_field(name)
+    if not isinstance(field, models.Field):
+        raise TypeError(f"{instance._meta.label}.{name} is not a concrete field")
+    return field.attname
+
+
 def copy_enterprise_fields(
     instance: models.Model, copies: Mapping[str, str], update_fields: Iterable[str] | None
 ) -> set[str] | None:
@@ -41,15 +48,10 @@ def copy_enterprise_fields(
 
     A partial save that names an enterprise field must also name its copy, or the copy goes stale.
     """
-    opts = instance._meta
     for source_name, target_name in copies.items():
-        source = opts.get_field(source_name)
-        target = opts.get_field(target_name)
-        setattr(instance, target.attname, getattr(instance, source.attname))
+        setattr(instance, _attname(instance, target_name), getattr(instance, _attname(instance, source_name)))
 
     if update_fields is None:
         return None
     requested = set(update_fields)
-    return requested | {
-        copies[name] for name in copies if name in requested or opts.get_field(name).attname in requested
-    }
+    return requested | {copies[name] for name in copies if name in requested or _attname(instance, name) in requested}

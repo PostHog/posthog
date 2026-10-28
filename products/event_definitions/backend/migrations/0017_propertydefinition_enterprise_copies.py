@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
-    # Nullable columns, or a constant default, so each ADD COLUMN only changes the catalog.
+    # Nullable columns, so each ADD COLUMN only changes the catalog.
     operations = [
         migrations.AddField(
             model_name="propertydefinition",
@@ -19,7 +19,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="propertydefinition",
             name="base_hidden",
-            field=models.BooleanField(blank=True, db_column="hidden", db_default=False, default=False, null=True),
+            field=models.BooleanField(blank=True, db_column="hidden", default=False, null=True),
         ),
         migrations.AddField(
             model_name="propertydefinition",
@@ -43,7 +43,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="propertydefinition",
             name="base_verified",
-            field=models.BooleanField(blank=True, db_column="verified", db_default=False, default=False),
+            field=models.BooleanField(blank=True, db_column="verified", default=False, null=True),
         ),
         migrations.AddField(
             model_name="propertydefinition",

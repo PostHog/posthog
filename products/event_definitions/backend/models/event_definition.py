@@ -51,6 +51,8 @@ class EventDefinition(Taggable, UUIDTModel):
 
     # Copies of the enterprise fields, written by EnterpriseEventDefinition.save(). See enterprise_copies.py.
     # The user foreign keys have no database constraint, because adding one locks posthog_user.
+    # No db_default: Django then defers the table's constraints through create_sql(), and the
+    # UniqueConstraintByExpression below would build its index CONCURRENTLY inside a transaction.
     base_description = models.TextField(null=True, blank=True, db_column="description")
     base_owner = models.ForeignKey(
         "posthog.User",
@@ -73,7 +75,7 @@ class EventDefinition(Taggable, UUIDTModel):
         db_index=False,
         db_column="updated_by_id",
     )
-    base_verified = models.BooleanField(default=False, db_default=False, blank=True, db_column="verified")
+    base_verified = models.BooleanField(null=True, blank=True, default=False, db_column="verified")
     base_verified_at = models.DateTimeField(null=True, blank=True, db_column="verified_at")
     base_verified_by = models.ForeignKey(
         "posthog.User",
@@ -85,7 +87,7 @@ class EventDefinition(Taggable, UUIDTModel):
         db_index=False,
         db_column="verified_by_id",
     )
-    base_hidden = models.BooleanField(null=True, blank=True, default=False, db_default=False, db_column="hidden")
+    base_hidden = models.BooleanField(null=True, blank=True, default=False, db_column="hidden")
     base_default_columns = ArrayField(models.TextField(), null=True, blank=True, db_column="default_columns")
 
     class Meta:

@@ -40,10 +40,8 @@ class TestEventDefinition(BaseTest):
 
         saved = EnterpriseEventDefinition.objects.get(pk=definition.pk)
         copies = EventDefinition.objects.get(pk=definition.pk)
-        opts = EnterpriseEventDefinition._meta
         assert saved.description == "second"
         assert saved.hidden is False
-        assert {
-            source: getattr(copies, opts.get_field(target).attname)
-            for source, target in EVENT_DEFINITION_COPIES.items()
-        } == {source: getattr(saved, opts.get_field(source).attname) for source in EVENT_DEFINITION_COPIES}
+        assert {source: copies.serializable_value(target) for source, target in EVENT_DEFINITION_COPIES.items()} == {
+            source: saved.serializable_value(source) for source in EVENT_DEFINITION_COPIES
+        }
