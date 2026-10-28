@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     EmitSignalsActivityInputs,
     PersonPropertySourceProjection,
     PersonPropertySyncActivityInputs,
-    PersonPropertySyncProgress,
     PersonPropertySyncRunRecord,
     PersonPropertySyncSource,
     WarehouseBinding,
@@ -37,7 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     schema_binding,
 )
 
-from .contracts import RevenueViewSyncInput
+from .contracts import PersonPropertySyncProgress, RevenueViewSyncInput
 
 __all__ = [
     "BINDING_KIND_SAVED_QUERY",

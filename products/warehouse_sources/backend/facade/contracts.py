@@ -66,6 +66,23 @@ class RevenueViewSyncInput:
 
 
 @dataclass(frozen=True)
+class PersonPropertySyncProgress:
+    """One produced chunk's counts for one person-property source."""
+
+    team_id: int
+    binding_kind: str
+    binding_id: str
+    source_id: str
+    job_id: str | None
+    trigger: str
+    rows_read: int
+    changed: int
+    existing: int
+    produced: int
+    skipped_missing_person: int
+
+
+@dataclass(frozen=True)
 class RevenueSourceTable:
     id: UUID
     name: str

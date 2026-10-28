@@ -14,7 +14,7 @@ import dataclasses
 from collections.abc import Callable, Collection
 from typing import TYPE_CHECKING, Any, Optional
 
-from products.warehouse_sources.backend.facade.contracts import RevenueViewSyncInput
+from products.warehouse_sources.backend.facade.contracts import PersonPropertySyncProgress, RevenueViewSyncInput
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -449,26 +449,6 @@ def record_person_property_sync_run(record: PersonPropertySyncRunRecord) -> None
     if _person_property_sync_recorder is None:
         return
     _person_property_sync_recorder(record)
-
-
-@dataclasses.dataclass(frozen=True)
-class PersonPropertySyncProgress:
-    """One produced chunk's counts for one source. The recorder adds ``existing`` and ``produced`` to the
-    run row that ``job_id`` and ``trigger`` reconcile to, the same row a ``PersonPropertySyncRunRecord``
-    lands on. ``rows_read``, ``changed`` and ``skipped_missing_person`` are the attempt's running totals;
-    the row keeps the highest seen, since a retry diffs again everything not yet delivered."""
-
-    team_id: int
-    binding_kind: str
-    binding_id: str
-    source_id: str
-    job_id: str | None
-    trigger: str
-    rows_read: int
-    changed: int
-    existing: int
-    produced: int
-    skipped_missing_person: int
 
 
 PersonPropertySyncProgressRecorder = Callable[[PersonPropertySyncProgress], None]
