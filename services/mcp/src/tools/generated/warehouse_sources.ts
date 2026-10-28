@@ -1055,6 +1055,9 @@ const warehouseMigrationItemApply = (): ToolBase<
         if (params.destination_ids !== undefined) {
             body['destination_ids'] = params.destination_ids
         }
+        if (params.table_overrides !== undefined) {
+            body['table_overrides'] = params.table_overrides
+        }
         body['created_via'] = 'mcp'
         const result = await context.api.request<Schemas.ApplyMigrationItemResponse>({
             method: 'POST',

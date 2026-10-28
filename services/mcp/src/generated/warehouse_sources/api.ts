@@ -2317,6 +2317,24 @@ export const ExternalDataSourcesApplyMigrationItemCreateBody = () => zod.object(
         .array(zod.string())
         .optional()
         .describe('Destinations to write the new source to. Omit to write to the PostHog warehouse.'),
+    table_overrides: zod
+        .array(
+            zod.object({
+                vendor_table: zod
+                    .string()
+                    .describe(
+                        "A Fivetran table from the item: a planned table's `vendor_table`, or one of `unmatched_tables`."
+                    ),
+                posthog_table: zod
+                    .string()
+                    .nullable()
+                    .describe('The PostHog table to sync it as. Null leaves the table out.'),
+            })
+        )
+        .optional()
+        .describe(
+            'Changes to the planned tables that the user confirmed: rename an inferred pair, map an unmatched table, or leave a table out.'
+        ),
 })
 
 /**

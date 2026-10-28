@@ -31,6 +31,9 @@ surprised halfway through.
 
 Never ask the user to paste a Fivetran key or any source secret into the chat. Every secret goes through a link.
 
+The connector notes (`references/connector-notes.md`, when this skill ships them) explain how PostHog matches Fivetran
+tables and hold a note for each connector that differs. Read them before the report when they are there.
+
 ## Workflow
 
 If `warehouse-migration-connect-link` is not among your tools, importing from Fivetran is not available for this
@@ -46,7 +49,15 @@ project yet. Tell the user that and stop.
      Fivetran table PostHog does not have, history mode, hashed columns, or a schedule PostHog rounds.
    - `unsupported`: PostHog has no source for it yet. Say so plainly and move on.
 
-   End the report with the credentials the user needs, one line per connection.
+   Then check the tables of each item's `proposal`:
+   - `inferred_tables`: a naming rule paired these Fivetran tables with PostHog tables. List the pairs and ask the user
+     to confirm each one.
+   - `unmatched_tables`: no PostHog table matched. Compare each one with `unused_posthog_tables` and propose a table
+     that holds the same records, marked as your guess. When nothing fits, say the table does not move.
+   - Read the connector note for any connector in the migration.
+
+   Pass what the user decides to apply as `table_overrides`: `{vendor_table, posthog_table}` maps a table, and a null
+   `posthog_table` leaves it out. End the report with the credentials the user needs, one line per connection.
 
 3. **Move one connection at a time.** Ask which to start with; databases are a good first pick because the user
    already knows the password. For each item:
@@ -54,7 +65,7 @@ project yet. Tell the user that and stop.
      shows the host, port, database, and user from Fivetran, so the user types only the secret or clicks the OAuth
      button.
    - When the user confirms, find the credential with `data-warehouse-stored-credentials-list` and call
-     `warehouse-migration-item-apply` with the item id and the credential id.
+     `warehouse-migration-item-apply` with the item id, the credential id, and the confirmed `table_overrides`.
    - Read back the caveats the response returns. Apply can add some, for example a table the credentials cannot read.
 4. **Wrap up.** Confirm the new sources with `external-data-sources-list`. Suggest the user pauses each Fivetran
    connection only after its PostHog source finished a first sync, so they are never without data.

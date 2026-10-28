@@ -19,6 +19,31 @@
         "prefix": {
             "description": "Table name prefix to use instead of the planned one, for example when the planned one is taken.",
             "type": "string"
+        },
+        "table_overrides": {
+            "description": "Changes to the planned tables that the user confirmed: rename an inferred pair, map an unmatched table, or leave a table out.",
+            "items": {
+                "properties": {
+                    "posthog_table": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "The PostHog table to sync it as. Null leaves the table out."
+                    },
+                    "vendor_table": {
+                        "description": "A Fivetran table from the item: a planned table's `vendor_table`, or one of `unmatched_tables`.",
+                        "type": "string"
+                    }
+                },
+                "required": ["vendor_table", "posthog_table"],
+                "type": "object"
+            },
+            "type": "array"
         }
     },
     "required": ["item_id", "credential_id"],

@@ -621,8 +621,10 @@ tools:
         description: >
             Create the planned PostHog source for one Fivetran migration item, with the planned tables, prefix,
             destination and sync schedule. 'credential_id' comes from 'data-warehouse-stored-credentials-list' after the
-            user filled the connect link for this item. Read the returned caveats to the user: they include any planned
-            table PostHog could not find or read. If it fails because the prefix is taken, retry with another 'prefix'.
+            user filled the connect link for this item. Pass the table mapping the user confirmed in 'table_overrides':
+            each entry maps a 'vendor_table' to a 'posthog_table', for an inferred pair or an unmatched table, and a null
+            'posthog_table' leaves the table out. Read the returned caveats to the user: they include any planned table
+            PostHog could not find or read. If it fails because the prefix is taken, retry with another 'prefix'.
         exclude_params:
             - created_via
         inject_body:
@@ -644,7 +646,9 @@ tools:
         title: List the connections in a Fivetran migration
         description: >
             One item per Fivetran connection, with its verdict (as_is, caveats, unsupported), the caveats to read to the
-            user, and the planned PostHog source type in 'proposal'. To move an item, get
+            user, and the planned PostHog source type in 'proposal'. 'proposal.inferred_tables' lists table pairs a
+            naming rule made, which the user must confirm. 'proposal.unmatched_tables' lists Fivetran tables with no
+            PostHog table; propose one from 'proposal.unused_posthog_tables' or leave it out. To move an item, get
             'data-warehouse-source-connect-link' with the proposal's source_type and the item's id as
             'migration_item_id', then call 'warehouse-migration-item-apply' with the stored credential.
         feature_flag: warehouse-migration-import
