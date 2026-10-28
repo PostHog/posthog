@@ -1340,7 +1340,11 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties={"email": FLAG_EVALUATIONS_EMAIL},
         )
         create_group_type_mapping(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+            created_at=FLAG_CALL_TIMESTAMP - timedelta(days=1),
         )
         create_group(
             team_id=self.team.pk,
