@@ -15,6 +15,7 @@ from posthog.schema import (
 )
 
 from products.mcp_analytics.backend.facade.constants import MAX_CUSTOM_HARNESSES
+from products.mcp_analytics.backend.mcp_harness import UNIDENTIFIED_HARNESS_LABEL
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness
 
 _PROPERTY_FILTERS_ADAPTER: pydantic.TypeAdapter[list[AnyPropertyFilterDiscriminated]] = pydantic.TypeAdapter(
@@ -877,6 +878,12 @@ class MCPCustomHarnessSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "match_pattern", "created_at", "updated_at"]
         read_only_fields = ["id", "created_at", "updated_at"]
         extra_kwargs = {"name": {"help_text": "Name to show for calls from this harness."}}
+
+    def validate_name(self, value: str) -> str:
+        # The dashboard gives these two labels their own meaning, so a team rule must not produce them.
+        if value.strip().lower() in {"other", UNIDENTIFIED_HARNESS_LABEL.lower()}:
+            raise serializers.ValidationError(f"{value.strip()} is a built-in label. Choose another name.")
+        return value
 
     def validate_match_pattern(self, value: str) -> str:
         pattern = value.strip().lower()

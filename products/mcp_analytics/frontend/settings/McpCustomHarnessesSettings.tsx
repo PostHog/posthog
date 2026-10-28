@@ -8,7 +8,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { mcpCustomHarnessesLogic } from './mcpCustomHarnessesLogic'
 
 export function McpCustomHarnessesSettings(): JSX.Element {
-    const { customHarnesses, customHarnessesLoading, isNewCustomHarnessSubmitting } = useValues(mcpCustomHarnessesLogic)
+    const { customHarnesses, customHarnessesLoading, isNewCustomHarnessSubmitting, deletingHarnessId } =
+        useValues(mcpCustomHarnessesLogic)
     const { deleteCustomHarness } = useActions(mcpCustomHarnessesLogic)
 
     return (
@@ -26,6 +27,7 @@ export function McpCustomHarnessesSettings(): JSX.Element {
                             <LemonButton
                                 size="small"
                                 status="danger"
+                                loading={deletingHarnessId === harness.id}
                                 onClick={() => deleteCustomHarness(harness.id)}
                                 data-attr="mcp-custom-harness-delete"
                             >

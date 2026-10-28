@@ -255,7 +255,7 @@ intentionally omitted, matching TS `instrument()`.
 - Take failures from `$mcp_is_error` (with `$mcp_error_type` / `$mcp_error_status` for the
   reason), never from `$exception`, which can be absent by design and so returns nothing
   rather than erroring.
-- Group clients by the resolved **harness** label, not raw `$mcp_client_name`.
+- Group clients by the resolved **harness** label, not raw `$mcp_client_name` In SQL, select `properties.$virt_mcp_harness`: it is that label, including the team's custom harness names.
 - Zombie tools = `arrayJoin($mcp_listed_tool_names)` from `$mcp_tools_list`, minus the distinct
   effective tool names seen on `$mcp_tool_call`. `$mcp_exec_inner_tool_names` is the intended
   single-exec equivalent but is unemitted today, so a query resting on it returns nothing.
