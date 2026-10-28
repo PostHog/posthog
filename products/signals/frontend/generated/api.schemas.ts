@@ -856,6 +856,15 @@ export interface InboxOnboardingJobsApi {
 }
 
 /**
+ * * `github_optional` - GitHub optional
+ */
+export type InboxActivationModeEnumApi = (typeof InboxActivationModeEnumApi)[keyof typeof InboxActivationModeEnumApi]
+
+export const InboxActivationModeEnumApi = {
+    GithubOptional: 'github_optional',
+} as const
+
+/**
  * * `signals` - Signals
  * * `scouts` - Scouts
  * * `github` - GitHub
@@ -1363,6 +1372,10 @@ export interface ScoutSuggestionItemApi {
 }
 
 export interface InboxOnboardingDraftApi {
+    /** Activate the GitHub-optional pilot. Requires project eligibility and leaves automatic implementation off.
+     *
+     * * `github_optional` - GitHub optional */
+    activation_mode?: InboxActivationModeEnumApi
     /** Step to resume after returning.
      *
      * * `signals` - Signals
@@ -1411,6 +1424,8 @@ export const InboxOnboardingVariantEnumApi = {
 } as const
 
 export interface InboxOnboardingStateApi {
+    /** Whether this project can activate Self-driving without connecting GitHub. */
+    github_optional_available?: boolean
     /** Whether the current user can receive an in-app notification when this investigation finishes. */
     first_report_completion_notification?: boolean
     /**
@@ -1858,6 +1873,51 @@ export const SignalReportSuppressionSourceEnumApi = {
 } as const
 
 /**
+ * * `code` - Code context
+ * * `data_only` - Project data
+ */
+export type ReportResearchModeEnumApi = (typeof ReportResearchModeEnumApi)[keyof typeof ReportResearchModeEnumApi]
+
+export const ReportResearchModeEnumApi = {
+    Code: 'code',
+    DataOnly: 'data_only',
+} as const
+
+/**
+ * * `available` - Available
+ * * `no_integration` - Not connected
+ * * `no_repositories` - No repositories
+ * * `selection_unresolved` - No repository selected
+ * * `github_unavailable` - GitHub unavailable
+ */
+export type ReportRepositoryStatusEnumApi =
+    (typeof ReportRepositoryStatusEnumApi)[keyof typeof ReportRepositoryStatusEnumApi]
+
+export const ReportRepositoryStatusEnumApi = {
+    Available: 'available',
+    NoIntegration: 'no_integration',
+    NoRepositories: 'no_repositories',
+    SelectionUnresolved: 'selection_unresolved',
+    GithubUnavailable: 'github_unavailable',
+} as const
+
+export interface ReportResearchContextApi {
+    /** Whether research had access to a repository.
+     *
+     * * `code` - Code context
+     * * `data_only` - Project data */
+    mode: ReportResearchModeEnumApi
+    /** Code availability when the report was researched; not a live integration health check.
+     *
+     * * `available` - Available
+     * * `no_integration` - Not connected
+     * * `no_repositories` - No repositories
+     * * `selection_unresolved` - No repository selected
+     * * `github_unavailable` - GitHub unavailable */
+    repository_status: ReportRepositoryStatusEnumApi
+}
+
+/**
  * * `unknown` - Unknown
  * * `draft` - Draft
  * * `open` - Open
@@ -2294,6 +2354,8 @@ export interface SignalReportListApi {
     readonly repo_slug: string | null
     /** Whether this is a scout self-improvement report. Most update a team-owned skill in the skills store, but reports with a selected repository can still produce a pull request. */
     readonly is_self_improvement_report: boolean
+    /** Evidence available to the latest research pass. Null for legacy reports. */
+    readonly research_context: ReportResearchContextApi | null
     readonly is_suggested_reviewer: boolean
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
@@ -2548,6 +2610,8 @@ export interface SignalReportApi {
     readonly repo_slug: string | null
     /** Whether this is a scout self-improvement report. Most update a team-owned skill in the skills store, but reports with a selected repository can still produce a pull request. */
     readonly is_self_improvement_report: boolean
+    /** Evidence available to the latest research pass. Null for legacy reports. */
+    readonly research_context: ReportResearchContextApi | null
     readonly is_suggested_reviewer: boolean
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]

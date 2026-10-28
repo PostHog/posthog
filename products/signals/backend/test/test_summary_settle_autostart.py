@@ -4,7 +4,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.conf import settings
 from django.utils import timezone
@@ -13,11 +13,13 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 from temporalio.contrib.pydantic import pydantic_data_converter
-from temporalio.testing import WorkflowEnvironment
+from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Organization, Team
 
+from products.signals.backend.github_optional import RepositoryAccessTemporarilyUnavailable
 from products.signals.backend.models import SignalTeamConfig
 from products.signals.backend.report_generation.research import ActionabilityChoice, Priority
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
@@ -38,6 +40,7 @@ from products.signals.backend.temporal.summary import (
     ReportIsCandidateInput,
     SignalReportSummaryWorkflow,
     implementation_buffer_seconds_activity,
+    maybe_autostart_implementation_activity,
 )
 from products.signals.backend.temporal.types import SignalData, SignalReportSummaryWorkflowInputs
 
@@ -46,6 +49,22 @@ SUMMARY_MODULE_PATH = "products.signals.backend.temporal.summary"
 # on that same queue so the stub child completes. Otherwise the child stays pending on an unpolled
 # queue and the test server's automatic time-skipping never advances past the buffer timer.
 TASK_QUEUE = settings.VIDEO_EXPORT_TASK_QUEUE
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("retry_after", [None, 300])
+async def test_autostart_preserves_repository_retry_delay(retry_after: int | None) -> None:
+    with (
+        patch(
+            f"{SUMMARY_MODULE_PATH}.maybe_autostart_from_report_artefacts",
+            new=AsyncMock(side_effect=RepositoryAccessTemporarilyUnavailable(wait=retry_after)),
+        ),
+        pytest.raises(ApplicationError) as raised,
+    ):
+        await ActivityEnvironment().run(
+            maybe_autostart_implementation_activity, MaybeAutostartImplementationInput(team_id=1, report_id="report")
+        )
+    assert raised.value.next_retry_delay == (timedelta(seconds=retry_after) if retry_after else None)
 
 
 @pytest_asyncio.fixture
@@ -189,6 +208,10 @@ async def _run_summary_workflow(
         recorder.work_owners.append(input.signal_id)
         return RepoSelectionResult(repository="owner/repo", reason="selected")
 
+    @activity.defn(name="github_optional_pilot_activity")
+    async def fake_research_access(team_id: int) -> bool:
+        return False
+
     @activity.defn(name="run_agentic_report_activity")
     async def fake_research(input: RunAgenticReportInput) -> RunAgenticReportOutput:
         recorder.work_owners.append(input.signal_id)
@@ -248,6 +271,7 @@ async def _run_summary_workflow(
                 fake_spend_owner,
                 fake_safety,
                 fake_select_repo,
+                fake_research_access,
                 fake_research,
                 fake_mark_ready,
                 fake_publish,

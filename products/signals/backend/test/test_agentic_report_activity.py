@@ -17,7 +17,8 @@ from parameterized import parameterized
 from pydantic import ValidationError
 from temporalio.exceptions import ApplicationError
 
-from posthog.models import Organization, Team, User
+from posthog.models import Integration, Organization, Team, User
+from posthog.models.integration import GitHubIntegrationError
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.user_integration import UserIntegration
@@ -87,8 +88,14 @@ from products.signals.backend.temporal.summary import (
     mark_report_ready_activity,
 )
 from products.signals.backend.temporal.types import SignalData
-from products.tasks.backend.facade.agents import AgentStartupFailed, CustomPromptSandboxContext, SandboxRunFailed
+from products.tasks.backend.facade.agents import (
+    AgentStartupFailed,
+    CustomPromptSandboxContext,
+    RepositoryContextUnavailable,
+    SandboxRunFailed,
+)
 from products.tasks.backend.facade.contracts import AgentStartupFailure
+from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
 from products.tasks.backend.models import Task  # tach-ignore
 
 
@@ -588,6 +595,49 @@ async def test_load_previous_research_ignores_artefacts_from_another_team(ateam,
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "connection,expected",
+    [
+        ("missing", "no_integration"),
+        ("empty", "no_repositories"),
+        ("broken", "github_unavailable"),
+        ("transport_failure", "github_unavailable"),
+    ],
+)
+async def test_pilot_repository_failure_keeps_research_available(monkeypatch, ateam, connection, expected):
+    if connection != "missing":
+        await Integration.objects.acreate(
+            team=ateam,
+            kind="github",
+            integration_id="123",
+            config={"installation_id": 123},
+            errors="TOKEN_REFRESH_FAILED" if connection == "broken" else "",
+            repository_cache=[] if connection == "empty" else [{"full_name": "example/app"}],
+            repository_cache_updated_at=timezone.now(),
+        )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._resolve_sandbox_user_id", lambda team_id: 1
+    )
+    with (
+        patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"),
+        patch(
+            "products.signals.backend.temporal.agentic.select_repository.select_repository_for_report",
+            side_effect=GitHubIntegrationError("Unavailable", status_code=503),
+        ),
+    ):
+        result = await select_repository_activity(
+            SelectRepositoryInput(
+                team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals(), github_optional=True
+            )
+        )
+    assert result.repository is None
+    assert result.research_context is not None
+    assert result.research_context.mode == "data_only"
+    assert result.research_context.repository_status == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
@@ -617,7 +667,8 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_select_repository_activity_reuses_previous_selection(monkeypatch, ateam):
+@pytest.mark.parametrize("github_optional", [False, True])
+async def test_select_repository_activity_reuses_previous_selection(monkeypatch, ateam, github_optional):
     previous = RepoSelectionResult(repository="posthog/posthog", reason="Previously selected")
 
     monkeypatch.setattr(
@@ -639,7 +690,9 @@ async def test_select_repository_activity_reuses_previous_selection(monkeypatch,
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
+            SelectRepositoryInput(
+                team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals(), github_optional=github_optional
+            )
         )
 
     assert result is previous
@@ -749,6 +802,7 @@ async def test_select_repository_activity_does_not_raise_with_only_user_integrat
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize("repository", ["posthog/posthog", None])
 @pytest.mark.parametrize(
     "sandbox_error_type,expected_transient",
     [
@@ -761,7 +815,7 @@ async def test_select_repository_activity_does_not_raise_with_only_user_integrat
     ],
 )
 async def test_run_agentic_report_activity_flags_transient_sandbox_failures(
-    monkeypatch, ateam, sandbox_error_type, expected_transient
+    monkeypatch, ateam, repository, sandbox_error_type, expected_transient
 ):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
@@ -770,6 +824,9 @@ async def test_run_agentic_report_activity_flags_transient_sandbox_failures(
         total_weight=1.3,
     )
     monkeypatch.setattr("products.signals.backend.temporal.agentic.report.resolve_user_id_for_team", lambda team_id: 1)
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.resolve_acting_user_id_for_team", lambda team_id: 1
+    )
 
     async def fake_run_multi_turn_research(*args, **kwargs):
         if sandbox_error_type.startswith("startup_"):
@@ -804,7 +861,8 @@ async def test_run_agentic_report_activity_flags_transient_sandbox_failures(
                     team_id=ateam.id,
                     report_id=str(report.id),
                     signals=_build_signals(),
-                    repo_selection=RepoSelectionResult(repository="posthog/posthog", reason="single repository"),
+                    repo_selection=RepoSelectionResult(repository=repository, reason="test research context"),
+                    github_optional=repository is None,
                 )
             )
 
@@ -820,6 +878,73 @@ async def test_run_agentic_report_activity_flags_transient_sandbox_failures(
         assert error.value.type == RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
     else:
         assert isinstance(error.value, SandboxRunFailed)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "repository,failure",
+    [
+        (None, None),
+        ("example/app", RepositoryContextUnavailable("RepositoryAccessError")),
+        ("example/app", RepositoryContextUnavailable("RepositoryCloneError")),
+    ],
+)
+async def test_pilot_research_persists_a_report_without_code(monkeypatch, ateam, repository, failure):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=SignalReport.Status.IN_PROGRESS
+    )
+    if repository:
+        await SignalReportArtefact.objects.acreate(
+            team=ateam,
+            report=report,
+            type="repo_selection",
+            content=RepoSelectionResult(repository=repository, reason="Reviewer pinned").model_dump_json(),
+        )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.resolve_acting_user_id_for_team", lambda team_id: 1
+    )
+    contexts = []
+
+    async def research(signals, context, **kwargs):
+        contexts.append(context)
+        if failure is not None and len(contexts) == 1:
+            raise failure
+        return _build_research_output()
+
+    with (
+        patch("products.signals.backend.temporal.agentic.report.Heartbeater"),
+        patch("products.signals.backend.temporal.agentic.report.run_multi_turn_research", side_effect=research),
+    ):
+        result = await run_agentic_report_activity(
+            RunAgenticReportInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                signals=_build_signals(),
+                github_optional=True,
+                repo_selection=RepoSelectionResult(
+                    repository=repository,
+                    reason="Pilot",
+                    research_context=ReportResearchContext(
+                        mode="code" if repository else "data_only",
+                        repository_status="available" if repository else "no_integration",
+                    ),
+                ),
+            )
+        )
+    assert result.repository is None
+    assert result.title == "Onboarding funnel completion tracking may be regressing"
+    assert contexts[-1].repository is None
+    assert contexts[-1].github_read_access is False
+    assert contexts[0].github_read_access is (repository is not None)
+    assert len(contexts) == (2 if failure else 1)
+    selections = SignalReportArtefact.objects.filter(report=report, type="repo_selection")
+    assert await selections.acount() == 1
+    selection = await selections.afirst()
+    assert selection is not None
+    assert json.loads(selection.content)["repository"] == repository
+    if not repository:
+        assert json.loads(selection.content)["research_context"]["mode"] == "data_only"
 
 
 @pytest.mark.asyncio
@@ -923,6 +1048,7 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
         assert repo_selection_content == {
             "repository": "posthog/posthog",
             "reason": "Single repository connected: posthog/posthog",
+            "research_context": None,
             "task_id": None,
             "autostart_eligible": True,
         }

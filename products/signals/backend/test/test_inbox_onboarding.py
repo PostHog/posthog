@@ -294,6 +294,65 @@ class TestInboxOnboarding(APIBaseTest):
             == 1
         )
 
+    @parameterized.expand(
+        [
+            (False, False, 400, False),
+            (True, True, 400, False),
+            (True, False, 200, False),
+            (True, False, 200, True),
+            (True, False, 403, True, False),
+        ]
+    )
+    def test_pilot_activation_requires_eligibility_and_keeps_implementation_off(
+        self, eligible: bool, automatic: bool, status: int, child_environment: bool, parent_task_editor: bool = True
+    ) -> None:
+        self.draft.update(
+            activation_mode="github_optional", automatic_implementation=automatic, suggestions=[self.suggestion]
+        )
+        SignalScoutConfig.objects.create(team=self.team, skill_name=self.scout_skill_name, enabled=True, emit=True)
+        activation_team = self.team
+        if child_environment:
+            activation_team = Team.objects.create(organization=self.organization, parent_team=self.team)
+            SignalSourceConfig.objects.create(
+                team=activation_team, source_product="error_tracking", source_type="issue_created", enabled=True
+            )
+        config, _ = SignalTeamConfig.objects.get_or_create(team=activation_team)
+        config.onboarding = {"variant": "control"}
+        config.save()
+        with (
+            patch("products.signals.backend.github_optional.ResearchAccessPolicy.enabled", return_value=eligible),
+            patch("products.signals.backend.facade.onboarding.UserAccessControl") as parent_access,
+            patch.object(
+                InboxOnboardingReconciler,
+                "has_repository",
+                side_effect=AssertionError("Pilot must not depend on GitHub"),
+            ),
+            patch("products.signals.backend.tasks.launch_inbox_onboarding_job.delay") as launch,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            parent_access.return_value.check_access_level_for_resource.return_value = parent_task_editor
+            response = self.client.post(
+                f"/api/projects/{activation_team.id}/signals/onboarding/complete/", self.draft, format="json"
+            )
+        assert response.status_code == status, response.json()
+        if child_environment and eligible and not automatic:
+            parent_access.assert_called_once_with(user=self.user, team=self.team)
+            parent_access.return_value.check_access_level_for_resource.assert_called_once_with("task", "editor")
+        config.refresh_from_db()
+        assert config.onboarding["variant"] == "control"
+        if status == 200:
+            assert config.autostart_enabled is False
+            assert SignalTeamConfig.objects.get(team=self.team).autostart_enabled is False
+            assert config.onboarding["completed_at"]
+            assert config.onboarding["jobs"] == {"scout": "pending", "recommendations": "pending"}
+            assert {call.args for call in launch.call_args_list} == {
+                (activation_team.id, "scout"),
+                (activation_team.id, "recommendations"),
+            }
+        else:
+            assert not config.onboarding.get("completed_at")
+            launch.assert_not_called()
+
     def test_completed_quick_activation_checks_scout_write_access_before_retrying_jobs(self) -> None:
         self.draft["suggestions"] = [self.suggestion]
         config = SignalTeamConfig.objects.get(team=self.team)
@@ -732,17 +791,20 @@ class TestInboxOnboardingActivation(BaseTest):
             ("scout", 5, "test-sol", "flag_missing"),
             ("recommendations", 0, "test-sol"),
             ("recommendations", 5, "test-sol"),
+            ("scout", 0, None, "workflow", True),
+            ("recommendations", 0, None, "workflow", True),
         ]
     )
     def test_dispatch_retries_use_one_workflow_and_preserve_completed_jobs(
-        self, job: str, retry_count: int, arm: str | None, failure_source: str = "workflow"
+        self, job: str, retry_count: int, arm: str | None, failure_source: str = "workflow", pilot: bool = False
     ) -> None:
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         config = SignalTeamConfig.objects.create(
             team=self.team,
             onboarding={
-                "variant": "test-github",
+                "variant": "control" if pilot else "test-github",
+                "draft": {"activation_mode": "github_optional"} if pilot else {},
                 "first_report_variant": arm,
                 "completed_at": timezone.now().isoformat(),
                 "activated_by": self.user.pk,

@@ -1,5 +1,5 @@
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from typing import Any, TypeVar
 from uuid import UUID
@@ -66,7 +66,7 @@ from products.signals.backend.report_generation.reviewer_telemetry import (
     capture_suggested_reviewers_resolved,
     capture_suggested_reviewers_unresolved,
 )
-from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_generation.select_repo import RepoSelectionResult, persisted_repo_selection
 from products.signals.backend.report_lifecycle import report_status_filter
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, ReportMetric, metric_batch_error
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
@@ -83,6 +83,7 @@ from products.signals.backend.supersession import research_implementation_contex
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
+    resolve_acting_user_id_for_team,
     resolve_user_id_for_team,
 )
 from products.signals.backend.temporal.types import SignalData
@@ -95,9 +96,11 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import (
     AgentStartupFailed,
     CustomPromptSandboxContext,
+    RepositoryContextUnavailable,
     SandboxRunFailed,
     turn_failure_error_type,
 )
+from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
 
 logger = structlog.get_logger(__name__)
 
@@ -114,6 +117,7 @@ class RunAgenticReportInput:
     # older workflow history that predates this field replays cleanly (guard off).
     repo_selection_as_of: datetime | None = None
     signal_id: str | None = None
+    github_optional: bool = False
 
 
 @frozen
@@ -124,7 +128,7 @@ class RunAgenticReportOutput:
     priority: Priority | None
     explanation: str
     already_addressed: bool
-    repository: str
+    repository: str | None
     # Resolved chart payload for `SignalReport.charts`: the JSON set to store, `[]` to clear, or
     # `None` to leave the column untouched. Applied by the transition activity that writes the
     # matching title/summary, so charts and their prose land in one transaction. Defaults to `None`
@@ -836,7 +840,11 @@ async def _persist_agentic_report_artefacts(
                 research_outcome = "research_candidates_rejected"
     elif reviewer_selection_enabled:
         research_outcome = "research_decision_missing"
-    if not reviewer_selection_enabled and (decision is None or research_outcome == "research_candidates_rejected"):
+    if (
+        repo_selection.repository is not None
+        and not reviewer_selection_enabled
+        and (decision is None or research_outcome == "research_candidates_rejected")
+    ):
         try:
             reviewer_resolution = await database_sync_to_async(_build_reviewers_content, thread_sensitive=False)(
                 team_id=team_id,
@@ -909,10 +917,16 @@ async def _persist_agentic_report_artefacts(
             repository=repo_selection.repository,
         )
 
+    # Losing code access must not erase the target a reviewer already selected.
+    previous = (
+        await database_sync_to_async(persisted_repo_selection, thread_sensitive=False)(report_id)
+        if repo_selection.research_context and repo_selection.research_context.mode == "data_only"
+        else None
+    )
     artefacts = [
         *(
             []
-            if superseded_mid_run
+            if superseded_mid_run or (previous is not None and previous.repository is not None)
             else [ArtefactDraft(content=repo_selection, attribution=repo_selection_attribution)]
         ),
         *(ArtefactDraft(content=content, attribution=research_attribution) for content in result.new_artefacts),
@@ -1126,14 +1140,12 @@ def _capture_research_steering_attached(*, team_id: int, report_id: str, steerin
         logger.exception("Failed to capture signals_research_steering_attached", report_id=report_id)
 
 
-@temporalio.activity.defn
-@scoped_temporal()
-@close_db_connections
-async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenticReportOutput:
+async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportOutput:
     """Run the sandbox-backed report research and persist its artefacts after full success."""
     try:
-        # The workflow only calls this activity when repo_selection.repository is not None.
-        assert input.repo_selection.repository is not None, "run_agentic_report_activity called without a repository"
+        assert input.github_optional or input.repo_selection.repository is not None, (
+            "run_agentic_report_activity called without a repository"
+        )
         repository = input.repo_selection.repository
 
         assignment = await database_sync_to_async(ReviewerRules, thread_sensitive=False)(
@@ -1150,7 +1162,12 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
 
         async with Heartbeater():
             # 1. Get context for the sandbox
-            user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(input.team_id)
+            user_id = await database_sync_to_async(
+                resolve_acting_user_id_for_team if input.github_optional else resolve_user_id_for_team,
+                thread_sensitive=False,
+            )(input.team_id)
+            if user_id is None:
+                raise ValueError("No active project member can run report research")
             sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
                 input.team_id, SIGNALS_REPORT_RESEARCH_ENV_NAME, tasks_facade.SandboxNetworkAccessLevel.TRUSTED
             )
@@ -1161,6 +1178,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 team_id=input.team_id,
                 user_id=user_id,
                 repository=repository,
+                github_read_access=input.github_optional and repository is not None,
                 sandbox_environment_id=sandbox_env_id,
                 # Reads, plus the scratchpad: the research agent queries data/insights and can
                 # list the report's artefacts, but never writes artefacts itself — the pipeline
@@ -1315,12 +1333,14 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 "failure": asdict(error.failure),
                 "task_id": error.task_id,
                 "run_id": error.run_id,
-                "repository": input.repo_selection.repository,
+                "repository": input.repo_selection.repository or "",
             },
             type=RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE if error.transient else RESEARCH_STARTUP_FAILURE,
             non_retryable=error.failure.retryability == "requires_action",
         ) from error
     except SandboxRunFailed as error:
+        if input.github_optional and isinstance(error, RepositoryContextUnavailable):
+            raise
         logger.exception(
             "signals agentic report failed",
             report_id=input.report_id,
@@ -1345,10 +1365,27 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             raise ApplicationError(str(error), type=error_type) from error
         raise
     finally:
-        if input.repo_selection.repository:
-            try:
-                await database_sync_to_async(reconcile_research_startups, thread_sensitive=False)(
-                    input.team_id, input.repo_selection.repository
-                )
-            except Exception:
-                logger.warning("signals_startup_recovery_failed", team_id=input.team_id, exc_info=True)
+        try:
+            await database_sync_to_async(reconcile_research_startups, thread_sensitive=False)(
+                input.team_id, input.repo_selection.repository or ""
+            )
+        except Exception:
+            logger.warning("signals_startup_recovery_failed", team_id=input.team_id, exc_info=True)
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenticReportOutput:
+    try:
+        return await _run_agentic_report(input)
+    except RepositoryContextUnavailable:
+        if not input.github_optional or input.repo_selection.repository is None:
+            raise
+        fallback = RepoSelectionResult(
+            repository=None,
+            reason="GitHub code access failed. Research used project data instead.",
+            autostart_eligible=False,
+            research_context=ReportResearchContext(mode="data_only", repository_status="github_unavailable"),
+        )
+        return await _run_agentic_report(replace(input, repo_selection=fallback))
