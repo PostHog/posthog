@@ -13,6 +13,7 @@ from django.db import OperationalError, transaction
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from pydantic import BaseModel, Field, JsonValue
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
@@ -2086,3 +2087,18 @@ class TestPollForTurnConnectionDrop:
                 await poll_for_turn(FakeTaskRun(), skip_lines=0)
 
         assert get_mock.call_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("origin", [Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT])
+@pytest.mark.parametrize("rpc_status", [None, RPCStatusCode.NOT_FOUND, RPCStatusCode.UNAVAILABLE])
+async def test_pipeline_session_releases_activity_slot_after_signalling(
+    origin: str, rpc_status: RPCStatusCode | None
+) -> None:
+    handle = AsyncMock()
+    if rpc_status is not None:
+        handle.signal.side_effect = RPCError("completion signal failed", rpc_status, b"")
+    session = MultiTurnSession(task=MagicMock(origin_product=origin), task_run=MagicMock(), _workflow_handle=handle)
+    await session.end()
+    handle.signal.assert_awaited_once()
+    handle.result.assert_not_awaited()

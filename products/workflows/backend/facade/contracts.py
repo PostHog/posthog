@@ -735,6 +735,7 @@ class WorkflowListQuery:
     suggestions_first: bool = False
     # A workflow matches when it carries at least one of these tags.
     tags: frozenset[str] = frozenset()
+    latest_send_first: bool = False
     field_filters: Mapping[str, str] = field(default_factory=dict)
 
 
