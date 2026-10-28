@@ -1,1 +1,1 @@
-0363_embedding_model_small_256
+0364_mcp_intent_assignments
