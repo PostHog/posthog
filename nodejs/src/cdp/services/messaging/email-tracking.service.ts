@@ -22,6 +22,7 @@ import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.se
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'
+import { hasClickTrackingOptOut, hasSesNoTrack } from './helpers/link-tags'
 import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 
@@ -29,12 +30,8 @@ export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAA
 const LINK_REGEX =
     /<a\b[^>]*\bhref\s*=\s*(?:"(?!javascript:)([^"]*)"|'(?!javascript:)([^']*)'|(?!javascript:)([^'">\s]+))[^>]*>([\s\S]*?)<\/a>/gi
 
-// Anchors carrying either opt-out marker are left unwrapped (no click-tracking redirect).
-const LINK_TRACKING_OPT_OUT_REGEX = /\bclicktracking\s*=\s*["']?off["']?|\bdata-ph-no-track\b/i
-
 // Matches an existing `ses:tags` attribute so our link tag can be merged into its value.
 const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+))/i
-const SES_NO_TRACK_ATTR_REGEX = /\bses:no-track\b/i
 
 /**
  * How anchors in the email body are prepared for click attribution.
@@ -178,11 +175,10 @@ export const addTrackingToEmail = (
         }
         // Per-link opt-out. Leaves the href on its own domain so mobile universal links /
         // app deeplinks resolve - routing through our cross-domain redirect breaks them.
-        // `clicktracking="off"` is the ESP de-facto standard; `data-ph-no-track` is our name.
         // Match only the opening <a> tag so a marker in the link's inner HTML (a child
         // element's attribute or literal link text) can't silently disable tracking.
         const openingTag = m.match(/^<a\b[^>]*>/i)?.[0] ?? ''
-        const optedOut = LINK_TRACKING_OPT_OUT_REGEX.test(openingTag)
+        const optedOut = hasClickTrackingOptOut(openingTag)
 
         if (mode === 'ses') {
             // SES rewrites every http(s) anchor once click tracking is on, and it honors only its
@@ -190,7 +186,7 @@ export const addTrackingToEmail = (
             // keeps a universal link or app deeplink off awstrack.me; leaving the href alone (the
             // `redirect` mode's opt-out) does nothing here.
             if (optedOut) {
-                return SES_NO_TRACK_ATTR_REGEX.test(openingTag)
+                return hasSesNoTrack(openingTag)
                     ? m
                     : addAttributeToOpeningTag(openingTag, 'ses:no-track') + m.slice(openingTag.length)
             }

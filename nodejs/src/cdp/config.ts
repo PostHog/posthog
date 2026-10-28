@@ -181,6 +181,7 @@ export type CdpConfig = ClickhouseConfig & {
     //               but nothing is delayed.
     //   "enforce" - a reached cap reschedules the send.
     EMAIL_TEAM_SENDING_CAP_MODE: string
+    CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: string
     // Comma-separated caps indexed by tier. Both lists must be the same length.
     EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: string
     EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: string
@@ -413,6 +414,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Ships dark: tiers are computed and stored first, then observed in shadow mode, and only
         // then enforced. Match the defaults in posthog/settings/web.py.
         EMAIL_TEAM_SENDING_CAP_MODE: 'off',
+        CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: '',
         EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: '50,200,600,2000,6000,20000,60000,200000',
         EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
 
