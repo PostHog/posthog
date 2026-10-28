@@ -287,6 +287,7 @@ def get_insight_series(
     short_id: str,
     dashboard: InsightDashboardContext | None = None,
     blocking: bool = False,
+    wait_until: float | None = None,
 ) -> InsightSeries | None:
     insight = Insight.objects.filter(team__project_id=team.project_id, short_id=short_id, deleted=False).first()
     if insight is None:
@@ -306,4 +307,5 @@ def get_insight_series(
         query=insight.query or {},
         dashboard=dashboard,
         blocking=blocking,
+        wait_until=wait_until,
     )

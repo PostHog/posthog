@@ -44,6 +44,7 @@ export function QuillModePicker({ selectedMode, onModeChange, modes }: QuillMode
     const options = modes.flatMap((mode) => MODE_OPTIONS.filter((option) => option.value === mode))
     const selectedLabel = getModeOption(selectedMode)?.label ?? 'Mode'
     const unsupervised = UNSUPERVISED_MODES.includes(selectedMode)
+    const riskFill = unsupervised ? 'bg-[color-mix(in_oklab,var(--destructive)_30%,transparent)]' : undefined
     const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
 
     if (todayRailEnabled && phoneLayout) {
@@ -53,6 +54,7 @@ export function QuillModePicker({ selectedMode, onModeChange, modes }: QuillMode
                     type="button"
                     variant={unsupervised ? 'destructive' : 'default'}
                     size="lg"
+                    className={riskFill}
                     aria-label="Mode"
                     title={selectedLabel}
                     onClick={() => setOpen(true)}
@@ -89,6 +91,7 @@ export function QuillModePicker({ selectedMode, onModeChange, modes }: QuillMode
                         type="button"
                         variant={unsupervised ? 'destructive' : 'default'}
                         size="sm"
+                        className={riskFill}
                         aria-label="Mode"
                         title={selectedLabel}
                     >

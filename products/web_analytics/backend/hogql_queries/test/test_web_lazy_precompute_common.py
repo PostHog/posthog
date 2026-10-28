@@ -41,6 +41,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationResult,
     TtlSchedule,
 )
+from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import can_use_lazy_precompute
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
@@ -82,6 +83,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     web_ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import ensure_web_overview_precomputed
 from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import (
     can_use_lazy_precompute as can_use_stats_lazy_precompute,
 )
@@ -712,6 +714,54 @@ class TestWebEnsurePrecomputed(BaseTest):
         assert kwargs.get("cache_key_context") == (
             {"traffic_classification": "cookieless-missing-ua-v1"} if enabled else None
         )
+
+    @parameterized.expand(
+        [
+            ("no_bot_filter", [], {"traffic_classification": "cookieless-missing-ua-v1"}),
+            (
+                "bot_filter",
+                [EventPropertyFilter(key="$virt_is_bot", operator=PropertyOperator.EXACT, value=["false"])],
+                {"traffic_classification": "cookieless-missing-ua-v1+sdk-missing-ua-v1"},
+            ),
+        ]
+    )
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_only_queries_that_classify_traffic_get_a_new_hash(
+        self, _name: str, properties: list, expected: dict, mock_ensure: mock.Mock
+    ) -> None:
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+        runner = WebOverviewQueryRunner(
+            team=self.team,
+            query=_overview(properties=properties),
+            modifiers=HogQLQueryModifiers(cookielessTrafficIsRegular=True),
+        )
+        ensure_web_overview_precomputed(runner, datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 8, tzinfo=UTC))
+        assert mock_ensure.call_args.kwargs["cache_key_context"] == expected
+
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_test_account_cohort_that_classifies_traffic_gets_a_new_hash(self, mock_ensure: mock.Mock) -> None:
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+        bot_leaf = {
+            "type": "behavioral",
+            "key": "$pageview",
+            "event_type": "events",
+            "value": "performed_event",
+            "event_filters": [{"key": "$virt_is_bot", "type": "event", "value": ["true"], "operator": "exact"}],
+        }
+        cohort = Cohort.objects.create(
+            team=self.team, name="bots", filters={"properties": {"type": "AND", "values": [bot_leaf]}}
+        )
+        self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "not_in"}]
+        self.team.save()
+        runner = WebOverviewQueryRunner(
+            team=self.team,
+            query=_overview().model_copy(update={"filterTestAccounts": True}),
+            modifiers=HogQLQueryModifiers(cookielessTrafficIsRegular=True),
+        )
+        ensure_web_overview_precomputed(runner, datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 8, tzinfo=UTC))
+        assert mock_ensure.call_args.kwargs["cache_key_context"] == {
+            "traffic_classification": "cookieless-missing-ua-v1+sdk-missing-ua-v1"
+        }
 
     def tearDown(self):
         redis.get_client().delete(_oom_pin_key(self.team.pk))
