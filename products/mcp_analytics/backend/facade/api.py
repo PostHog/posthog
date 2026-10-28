@@ -36,10 +36,13 @@ def refresh_custom_harness_rules(team: Team) -> None:
 
 
 def mcp_harness_virtual_field_expr(custom_rules: Sequence[contracts.CustomHarnessRule] = ()) -> ast.Expr:
+    # Team-supplied names and patterns make this expression team-specific, so it must not
+    # occupy the small, protected cache reserved for fixed in-code templates.
+    cache_origin = CacheOrigin.BUILTIN if not custom_rules else CacheOrigin.USER
     # nosemgrep: hogql-fstring-audit (the rule fields are escaped and character-restricted, the rest is fixed)
     return parse_expr(
         f"if(startsWith(event, '$mcp_'), arrayMap(h -> {harness_label_sql('h', custom_rules)}, [{HARNESS_TOKEN_SQL}])[1], NULL)",
-        cache_origin=CacheOrigin.BUILTIN,
+        cache_origin=cache_origin,
     )
 
 
