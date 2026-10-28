@@ -1,12 +1,6 @@
-import { initKeaTests } from '~/test/init'
+import { expandedSourceTypes } from './sourceConnectionGroupsLogic'
 
-import { sourceConnectionGroupsLogic } from './sourceConnectionGroupsLogic'
-
-describe('sourceConnectionGroupsLogic', () => {
-    beforeEach(() => {
-        initKeaTests()
-    })
-
+describe('expandedSourceTypes', () => {
     it.each([
         ['opens the first group before any toggle', null, ['GoogleAds', 'MetaAds'], [], ['GoogleAds']],
         [
@@ -44,12 +38,7 @@ describe('sourceConnectionGroupsLogic', () => {
             [],
             ['MetaAds'],
         ],
-    ])('%s', (_, persisted, sourceTypes, sourceTypesNeedingAction, expected) => {
-        const logic = sourceConnectionGroupsLogic({ expansionKey: 'test', sourceTypes, sourceTypesNeedingAction })
-        logic.mount()
-        if (persisted) {
-            logic.actions.setExpandedSourceTypes(persisted.expanded, persisted.seen)
-        }
-        expect(logic.values.expandedSourceTypes).toEqual(expected)
+    ])('%s', (_, expansion, sourceTypes, sourceTypesNeedingAction, expected) => {
+        expect(expandedSourceTypes(expansion, sourceTypes, sourceTypesNeedingAction)).toEqual(expected)
     })
 })

@@ -14,7 +14,7 @@ import { nativeSourceDisplayLabel } from 'scenes/web-analytics/tabs/marketing-an
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
-import { sourceConnectionGroupsLogic } from './sourceConnectionGroupsLogic'
+import { expandedSourceTypes, sourceConnectionGroupsLogic } from './sourceConnectionGroupsLogic'
 
 const HedgehogMoney = pngHoggie(moneyPng)
 
@@ -77,8 +77,9 @@ export function SourceSetupPanel({
                 .map((connection) => connection.sourceType)
         )
     )
-    const groupsLogic = sourceConnectionGroupsLogic({ expansionKey, sourceTypes, sourceTypesNeedingAction })
-    const { expandedSourceTypes } = useValues(groupsLogic)
+    const groupsLogic = sourceConnectionGroupsLogic({ expansionKey })
+    const { expansion } = useValues(groupsLogic)
+    const expandedGroups = expandedSourceTypes(expansion, sourceTypes, sourceTypesNeedingAction)
     const { setExpandedSourceTypes } = useActions(groupsLogic)
     const hasConnectionsToFix = connections.some((connection) => needsAction(connection.status))
     const busy = state === 'checking' || state === 'scanning'
@@ -176,7 +177,7 @@ export function SourceSetupPanel({
                     <LemonCollapse
                         embedded
                         multiple
-                        activeKeys={expandedSourceTypes}
+                        activeKeys={expandedGroups}
                         onChange={(expanded) => setExpandedSourceTypes(expanded, sourceTypes)}
                         panels={sourceTypes.map((sourceType) => {
                             const group = connections.filter((connection) => connection.sourceType === sourceType)
