@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { execHog } from 'lib/hog'
 
 import { conditionalFormattingColor } from '~/queries/nodes/DataVisualization/conditionalFormatting'
+import { ColumnScalar } from '~/queries/nodes/DataVisualization/types'
 import { BIConfig, BIField } from '~/queries/schema/schema-business-intelligence'
 import { ConditionalFormattingRule } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -28,14 +29,16 @@ describe('BIPivotTable', () => {
         jest.restoreAllMocks()
     })
 
-    it.each([
-        [false, false],
-        [true, false],
-        [false, true],
-        [true, true],
+    it.each<[boolean, string | number, string | number, ColumnScalar]>([
+        [false, 10, 20, 'INTEGER'],
+        [true, 10, 20, 'INTEGER'],
+        [false, '10', '20', 'INTEGER'],
+        [true, '10', '20', 'INTEGER'],
+        [false, '2026-01-10', '2026-01-20', 'DATE'],
+        [false, '2026-01-10T12:00:00Z', '2026-01-20T12:00:00Z', 'DATETIME'],
     ])(
-        'formats raw measure values across pivot columns and updates rules, dark=%s, numericStrings=%s',
-        (dark, numericStrings) => {
+        'formats raw measure values across pivot columns and updates rules, dark=%s, first=%s, second=%s, type=%s',
+        (dark, first, second, type) => {
             jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(400)
             jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800)
             const config: BIConfig = {
@@ -49,7 +52,7 @@ describe('BIPivotTable', () => {
                 id: 'equals',
                 templateId: 'equals',
                 columnName: 'sum_amount',
-                input: '10',
+                input: String(first),
                 color: '#FFADAD',
                 colorMode: 'light',
                 bytecode: ['_H', 1, 32, 'input', 1, 1, 32, 'value', 1, 1, 11, 38],
@@ -58,25 +61,27 @@ describe('BIPivotTable', () => {
                 config,
                 columns: ['bi_row_region', 'bi_column_channel', 'sum_amount'],
                 results: [
-                    ['East', 'Email', numericStrings ? '10' : 10],
-                    ['East', 'Search', numericStrings ? '20' : 20],
-                    ['West', 'Search', numericStrings ? '10' : 10],
+                    ['East', 'Email', first],
+                    ['East', 'Search', second],
+                    ['West', 'Search', first],
                 ],
             }
             const background = (record: Record<string, unknown>, column: string): string | undefined =>
-                conditionalFormattingColor([rule], execHog, column, 'INTEGER', record[column], dark)
+                conditionalFormattingColor([rule], execHog, column, type, record[column], dark)
             const { container, rerender } = render(<BIPivotTable {...props} cellBackground={background} />)
             const coloredCells = (): HTMLElement[] =>
                 Array.from(container.querySelectorAll<HTMLElement>('tbody td')).filter(
                     (cell) => !!cell.style.backgroundColor
                 )
             expect(coloredCells()).toHaveLength(2)
-            expect(coloredCells().every((cell) => cell.textContent === '$10')).toBe(true)
+            expect(
+                coloredCells().every((cell) => cell.textContent === `${type === 'INTEGER' ? '$' : ''}${first}`)
+            ).toBe(true)
             const firstColor = coloredCells()[0].style.backgroundColor
-            rule.input = '20'
+            rule.input = String(second)
             rerender(<BIPivotTable {...props} cellBackground={background} />)
             expect(coloredCells()).toHaveLength(1)
-            expect(coloredCells()[0]).toHaveTextContent('$20')
+            expect(coloredCells()[0]).toHaveTextContent(`${type === 'INTEGER' ? '$' : ''}${second}`)
             expect(coloredCells()[0].style.backgroundColor).toBe(firstColor)
             rerender(<BIPivotTable {...props} cellBackground={() => undefined} />)
             expect(coloredCells()).toHaveLength(0)
