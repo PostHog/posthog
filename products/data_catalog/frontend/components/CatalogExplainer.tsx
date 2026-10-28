@@ -66,7 +66,7 @@ export function CatalogExplainer(): JSX.Element | null {
                                         </li>
                                     ))}
                                 </ol>
-                                <div className="flex items-start gap-2 self-start rounded border border-primary bg-surface-primary px-2 py-1.5 text-secondary">
+                                <div className="mt-2 flex items-start gap-2 text-secondary">
                                     <IconInfo className="size-4 shrink-0 mt-0.5" />
                                     <span>
                                         Agents can also use proposed and drifted metrics. Their answers then include a
