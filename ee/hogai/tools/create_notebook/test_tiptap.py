@@ -1,3 +1,5 @@
+import time
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -223,12 +225,64 @@ class TestMarkdownToTiptapNodes(SimpleTestCase):
                     }
                 ],
             ),
+            (
+                "nested bullets stay inside the numbered step",
+                "1. step\n   - bullet\n2. next",
+                [
+                    {
+                        "type": "orderedList",
+                        "content": [
+                            {
+                                "type": "listItem",
+                                "content": [
+                                    {"type": "paragraph", "content": [{"type": "text", "text": "step"}]},
+                                    {
+                                        "type": "bulletList",
+                                        "content": [
+                                            {
+                                                "type": "listItem",
+                                                "content": [
+                                                    {
+                                                        "type": "paragraph",
+                                                        "content": [{"type": "text", "text": "bullet"}],
+                                                    }
+                                                ],
+                                            }
+                                        ],
+                                    },
+                                ],
+                            },
+                            {
+                                "type": "listItem",
+                                "content": [
+                                    {"type": "paragraph", "content": [{"type": "text", "text": "next"}]},
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            ),
+            (
+                "empty heading does not stall the next line",
+                "## \nAfter",
+                [
+                    {"type": "paragraph", "content": [{"type": "text", "text": "## "}]},
+                    {"type": "paragraph", "content": [{"type": "text", "text": "After"}]},
+                ],
+            ),
             ("empty string", "", []),
             ("whitespace only", "   \n  \n  ", []),
         ]
     )
     def test_markdown_to_tiptap_nodes(self, _name, markdown, expected):
         assert markdown_to_tiptap_nodes(markdown) == expected
+
+    def test_unclosed_brackets_stay_text(self):
+        text = "[" * 20000
+        started = time.monotonic()
+        nodes = _parse_inline(text)
+        assert time.monotonic() - started < 1
+        assert nodes == [{"type": "text", "text": text}]
 
     def test_multi_block_markdown(self):
         md = "# Title\n\nSome text.\n\n- a\n- b\n\n```\ncode\n```"
