@@ -1,6 +1,5 @@
 import json
 import hashlib
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Optional
@@ -8,6 +7,8 @@ from typing import Any, Optional
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     make_tracked_session,
@@ -54,7 +55,7 @@ class PendoRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class PendoResumeConfig:
     # Number of rows already yielded for a list endpoint schema; on resume we skip past them.
     offset: int = 0

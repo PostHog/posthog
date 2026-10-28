@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -20,7 +22,7 @@ DEFAULT_REGION = "us"
 EVENTS_DEFAULT_LOOKBACK_DAYS = 90
 
 
-@dataclass
+@frozen
 class PendoEndpointConfig:
     name: str
     primary_keys: list[str]
