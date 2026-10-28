@@ -41,8 +41,8 @@ const experimentWithStatus = (status: ExperimentStatus): Experiment =>
         },
     }) as unknown as Experiment
 
-const clickCopy = async (container: HTMLElement): Promise<void> => {
-    fireEvent.click(container.querySelector('[data-attr="copy-code-button"]')!)
+const clickCopy = async (container: HTMLElement, index = 0): Promise<void> => {
+    fireEvent.click(container.querySelectorAll('[data-attr="copy-code-button"]')[index])
     // copyToClipboard resolves before onCopy runs, so let the promise settle.
     await act(async () => {})
 }
@@ -51,10 +51,10 @@ describe('ExperimentImplementationDetails', () => {
     let captureSpy: jest.SpyInstance
 
     // Other code on the page captures too, so pick out this event's properties.
-    const snippetCopies = (): unknown[] =>
-        captureSpy.mock.calls
-            .filter(([event]) => event === 'experiment implementation snippet copied')
-            .map(([, properties]) => properties)
+    const capturedProperties = (eventName: string): unknown[] =>
+        captureSpy.mock.calls.filter(([event]) => event === eventName).map(([, properties]) => properties)
+    const snippetCopies = (): unknown[] => capturedProperties('experiment implementation snippet copied')
+    const agentPromptCopies = (): unknown[] => capturedProperties('experiment implementation agent prompt copied')
 
     beforeEach(() => {
         // The syntax highlighter reads the theme from kea.
@@ -125,22 +125,39 @@ describe('ExperimentImplementationDetails', () => {
         expect(snippetCopies()).toEqual([expect.objectContaining({ sdk: SDKKey.PYTHON, variant: 'control' })])
     })
 
-    it('captures a copy of the agent prompt for a prompt experiment', async () => {
+    // The override line tests the flag in the user's own browser. Counting it as an implementation
+    // copy would overstate how many people added the flag to their code.
+    it('captures a copy of the "Test that it works" snippet as a test override', async () => {
+        const { container } = render(
+            <ExperimentImplementationDetails
+                experiment={experimentWithStatus(ExperimentStatus.Draft)}
+                placement="draft_header"
+            />
+        )
+
+        await clickCopy(container, 1)
+
+        expect(snippetCopies()).toEqual([
+            expect.objectContaining({ sdk: SDKKey.JS_WEB, variant: 'one-page', snippet_kind: 'test_override' }),
+        ])
+    })
+
+    it('captures a copy of the agent prompt for a prompt experiment on its own event', async () => {
         const { container } = render(
             <ExperimentImplementationDetails experiment={PROMPT_EXPERIMENT} placement="draft_header" />
         )
 
         await clickCopy(container)
 
-        expect(snippetCopies()).toEqual([
+        expect(agentPromptCopies()).toEqual([
             {
                 experiment_id: 11,
                 experiment_status: ExperimentStatus.Draft,
                 placement: 'draft_header',
-                sdk: null,
-                variant: null,
-                snippet_kind: 'agent_prompt',
+                prompt_kind: 'prompt_experiment',
+                source: 'prompt_text',
             },
         ])
+        expect(snippetCopies()).toEqual([])
     })
 })

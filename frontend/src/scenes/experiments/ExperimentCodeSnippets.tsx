@@ -18,6 +18,8 @@ interface SnippetProps {
     variant: string
     /** Called when the implementation snippet reaches the clipboard. */
     onCopy?: () => void
+    /** Called when the "Test that it works" snippet reaches the clipboard. Only the JavaScript snippet has one. */
+    onTestCopy?: () => void
 }
 
 export function AndroidSnippet({ flagKey, variant, onCopy }: SnippetProps): JSX.Element {
@@ -68,7 +70,7 @@ if (experimentFlagValue === '${variant}') {
     )
 }
 
-export function JSSnippet({ flagKey, variant, onCopy }: SnippetProps): JSX.Element {
+export function JSSnippet({ flagKey, variant, onCopy, onTestCopy }: SnippetProps): JSX.Element {
     return (
         <div>
             <CodeSnippet language={Language.JavaScript} wrap compact onCopy={onCopy}>
@@ -80,7 +82,7 @@ export function JSSnippet({ flagKey, variant, onCopy }: SnippetProps): JSX.Eleme
 }`}
             </CodeSnippet>
             <h3 className="text-sm font-medium mt-4 mb-1">Test that it works</h3>
-            <CodeSnippet language={Language.JavaScript} wrap compact>
+            <CodeSnippet language={Language.JavaScript} wrap compact onCopy={onTestCopy}>
                 {`posthog.featureFlags.overrideFeatureFlags({ flags: {'${flagKey}': '${variant}'} })`}
             </CodeSnippet>
         </div>
