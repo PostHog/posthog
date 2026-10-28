@@ -73,7 +73,7 @@ describe('InternalLogsProducer', () => {
 
         const body = parseJSON(options!.body as string) as any
         expect(body.resourceLogs[0].resource.attributes).toEqual([
-            { key: 'service.name', value: { stringValue: 'posthog-workflows' } },
+            { key: 'service.name', value: { stringValue: 'posthog-internal-workflows' } },
         ])
         expect(body.resourceLogs[0].scopeLogs[0].logRecords).toEqual([
             {

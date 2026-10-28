@@ -13,7 +13,7 @@ import { INTERNAL_LOGS_HTTP_HEADER, INTERNAL_SOURCE_POLICIES, signInternalLogs }
 
 // A source needs a name here as well as a policy, because the name is what a team filters on in the logs product.
 const SERVICE_NAMES: Readonly<Record<string, string>> = {
-    hog_flow: 'posthog-workflows',
+    hog_flow: 'posthog-internal-workflows',
 }
 
 // OTLP SeverityNumber for the first value of each range.
