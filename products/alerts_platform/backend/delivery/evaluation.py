@@ -543,9 +543,12 @@ def _platform_destinations(request: AlertDeliveryRequest) -> _PlatformDestinatio
         destinations=enabled_alert_destinations(
             team_id=request.team_id, configuration_id=UUID(request.configuration_id)
         ),
+        # Recipients read messages only, so a delivery that only moves an incident skips the lookup.
         recipients=recipients.addresses(
             request.source, team_id=request.team_id, configuration_id=UUID(request.configuration_id)
-        ),
+        )
+        if request.sends_messages
+        else (),
         kind_by_event_id={
             **{event_id: AlertEventKind(kind) for kind, event_id in request.event_ids_by_kind.items()},
             **incident_kinds,

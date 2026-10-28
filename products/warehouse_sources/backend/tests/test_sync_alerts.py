@@ -440,6 +440,7 @@ class TestWarehouseAlerts(APIBaseTest):
         assert added.status_code == status.HTTP_201_CREATED, added.json()
         (listed,) = self.client.get(destinations_url).json()
         assert listed == added.json()
+        assert "pagerduty_severity" not in listed
         assert (listed["type"], listed["slack_channel_id"], listed["event_kinds"]) == (
             "slack",
             "C123",

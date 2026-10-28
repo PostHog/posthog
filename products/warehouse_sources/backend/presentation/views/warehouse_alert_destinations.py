@@ -5,7 +5,7 @@ destinations are `AlertDestination` rows the platform keeps, managed here so the
 checks apply to them.
 """
 
-from typing import Any, Literal, cast
+from typing import Any, Final, Literal, cast
 from uuid import UUID
 
 from django.db import models, transaction
@@ -80,10 +80,16 @@ _EVENT_KINDS_HELP = (
 )
 
 
+_PAGERDUTY_FIELDS: Final = frozenset({"pagerduty_severity", "pagerduty_region"})
+
+
 def _split(attrs: dict[str, Any]) -> tuple[AlertDestinationData, tuple[AlertEventKind, ...]]:
     """A create request's destination settings, apart from the kinds it asks to hear about."""
-    data = {key: value for key, value in attrs.items() if key != "event_kinds"}
-    data["type"] = DestinationType(attrs["type"])
+    destination_type = DestinationType(attrs["type"])
+    # The serializer fills the PagerDuty defaults for every type, and only a PagerDuty row keeps them.
+    dropped = {"event_kinds"} | (set() if destination_type == DestinationType.PAGERDUTY else _PAGERDUTY_FIELDS)
+    data = {key: value for key, value in attrs.items() if key not in dropped}
+    data["type"] = destination_type
     return cast(AlertDestinationData, data), tuple(AlertEventKind(kind) for kind in attrs["event_kinds"])
 
 

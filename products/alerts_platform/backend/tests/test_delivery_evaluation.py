@@ -657,6 +657,23 @@ class TestDeliverEvaluation(APIBaseTest):
             == []
         )
 
+    def test_a_second_recipient_lookup_for_a_source_is_refused(self) -> None:
+        def first(*, team_id: int, configuration_id: UUID) -> list[str]:
+            return []
+
+        def second(*, team_id: int, configuration_id: UUID) -> list[str]:
+            return ["someone@example.com"]
+
+        with patch.dict(recipients._recipients, clear=True):
+            recipients.register(SourceKind.LOGS, first)
+            # A second `ready()` registers the same lookup again, which is not a conflict.
+            recipients.register(SourceKind.LOGS, first)
+
+            with pytest.raises(RuntimeError, match="already registered"):
+                recipients.register(SourceKind.LOGS, second)
+
+            assert recipients._recipients == {SourceKind.LOGS: first}
+
 
 class TestDeliveryPath(APIBaseTest):
     def setUp(self) -> None:
