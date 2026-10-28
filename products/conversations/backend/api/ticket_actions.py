@@ -224,6 +224,11 @@ _MARKDOWN_ESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])")
 _INVISIBLE_PADDING = re.compile(r"[\u00ad\u034f\u200b\u2060\ufeff]")
 _PADDING_NON_JOINER = re.compile(r"(?:^|(?<=[\s\u200c]))\u200c|\u200c(?=[\s\u200c]|$)")
 
+# Email tracking links carry long base64 IDs, which AI screening reads as encoded instructions. They
+# become "…", so a cut link does not look like the "..." that marks a cut message.
+_URL = re.compile(r"(https?://[^/\s\"'<>]+)([^\s\"'<>]*)", re.IGNORECASE)
+_OPAQUE_TOKEN = re.compile(r"\b\w{24,}", re.ASCII)
+
 
 def _strip_severed_link(window: str) -> str:
     # A link whose long URL runs past the window starts before the tail strip reaches it.
@@ -234,7 +239,7 @@ def _strip_severed_link(window: str) -> str:
     return window[: start - 1 if window[start - 1 : start] == "!" else start]
 
 
-def _quotable_text(content: str, *, scan_chars: int, unescape_markdown: bool, strip_padding: bool = False) -> str:
+def _quotable_text(content: str, *, scan_chars: int, unescape_markdown: bool, strip_email_noise: bool) -> str:
     window = content[:scan_chars]
     # Only a window that actually cut the body can hold a severed construct. Applying this to a
     # whole short message would eat a trailing bracket the customer meant to type.
@@ -250,8 +255,9 @@ def _quotable_text(content: str, *, scan_chars: int, unescape_markdown: bool, st
     # typed, where a backslash is the customer's own and must survive into the preview.
     if unescape_markdown:
         text = _MARKDOWN_ESCAPE.sub(r"\1", text)
-    if strip_padding:
+    if strip_email_noise:
         text = _PADDING_NON_JOINER.sub("", _INVISIBLE_PADDING.sub("", text))
+        text = _URL.sub(lambda url: url[1] + _OPAQUE_TOKEN.sub("…", url[2]), text)
     return " ".join(text.split())
 
 
@@ -328,7 +334,7 @@ def _first_customer_message_text(
     for content in candidates:
         body = content or ""
         quotable = _quotable_text(
-            body, scan_chars=scan_chars, unescape_markdown=unescape_markdown, strip_padding=max_bytes is not None
+            body, scan_chars=scan_chars, unescape_markdown=unescape_markdown, strip_email_noise=max_bytes is not None
         )
         if quotable:
             if max_bytes is None:
