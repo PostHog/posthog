@@ -70,9 +70,12 @@ from posthog.schema import (
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsTableQuery,
     MCPHarnessBreakdownQuery,
+    MCPIntentMapQuery,
+    MCPIntentTopicsQuery,
     MCPMissingCapabilitiesQuery,
     MCPModelBreakdownQuery,
     MCPProtocolVersionBreakdownQuery,
+    MCPSimilarToolsQuery,
     MCPToolCallBreakdownQuery,
     MCPToolCallsAndErrorsQuery,
     MCPToolCategoriesQuery,
@@ -82,6 +85,7 @@ from posthog.schema import (
     MCPToolDescriptionsQuery,
     MCPToolFailureOccurrencesQuery,
     MCPToolFailuresQuery,
+    MCPToolIntentProfileQuery,
     MCPToolNeighborsQuery,
     MCPToolQualityDailyStatsQuery,
     MCPToolQualityRowsQuery,
@@ -688,6 +692,10 @@ RunnableQueryNode = Union[
     MCPToolSampleIntentsQuery,
     MCPToolNeighborsQuery,
     MCPMissingCapabilitiesQuery,
+    MCPIntentTopicsQuery,
+    MCPToolIntentProfileQuery,
+    MCPSimilarToolsQuery,
+    MCPIntentMapQuery,
 ]
 
 
@@ -1545,6 +1553,50 @@ def get_query_runner(
 
         return MCPToolSampleIntentsQueryRunner(
             query=cast(MCPToolSampleIntentsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPIntentTopicsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPIntentTopicsQueryRunner
+
+        return MCPIntentTopicsQueryRunner(
+            query=cast(MCPIntentTopicsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolIntentProfileQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolIntentProfileQueryRunner
+
+        return MCPToolIntentProfileQueryRunner(
+            query=cast(MCPToolIntentProfileQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPSimilarToolsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPSimilarToolsQueryRunner
+
+        return MCPSimilarToolsQueryRunner(
+            query=cast(MCPSimilarToolsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPIntentMapQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPIntentMapQueryRunner
+
+        return MCPIntentMapQueryRunner(
+            query=cast(MCPIntentMapQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -3226,7 +3278,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             payload["restricted_properties"] = restricted
             # A cache hit skips masking. Bump this when masking expands to new tables or mirror columns
             # so restricted results cached before that change are invalidated.
-            payload["property_access_control_version"] = 1
+            payload["property_access_control_version"] = 2
 
         # Vary the cache key by the events-retention floor: a cache hit returns before the printer applies the floor,
         # so without this a result cached pre-enforcement (or at a longer period) would keep surfacing events past

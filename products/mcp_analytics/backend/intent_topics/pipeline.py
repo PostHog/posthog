@@ -9,14 +9,17 @@
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from django.conf import settings
 
 import numpy as np
 import structlog
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
@@ -29,12 +32,13 @@ from products.mcp_analytics.backend.facade.contracts import (
     IntentGenerationUnavailable,
     IntentTopicsRunOutcome as RunOutcome,
 )
-from products.mcp_analytics.backend.intent_topics import clustering, corpus, embedding_sync, labeling, persist
+from products.mcp_analytics.backend.intent_topics import clustering, corpus, embedding_sync, labeling, persist, rollups
 from products.mcp_analytics.backend.intent_topics.assignment_sql import build_assignment_insert
 from products.mcp_analytics.backend.intent_topics.constants import (
     EMBEDDING_DOCUMENT_TYPE,
     EMBEDDING_MODEL,
     EMBEDDING_PRODUCT,
+    EMBEDDING_RETENTION_DAYS,
     FIT_LOOKBACK_DAYS,
     FIT_SAMPLE_SIZE,
     MAX_INTENTS_PER_SYNC,
@@ -129,6 +133,12 @@ def _run_sync(team: Team, *, window_start: datetime, window_end: datetime, budge
                 emitted += embedding_sync.emit_intent_embeddings(team, to_emit, now=window_end)
                 n_intents += len(fresh)
             drained_until = sync_slice.end
+        # The row version is the read time, not window_end, so a rerun of the same window replaces the
+        # counts it read before. It is taken before the read so that, of two runs, the later read wins.
+        # Only the hours read whole are rolled up; the next run resumes at the same boundary.
+        read_at = datetime.now(tz=UTC)
+        hourly = corpus.fetch_hourly_calls(team, since=window_start, until=drained_until)
+        rollups.insert_hourly_calls(team.pk, hourly, now=read_at)
     except Exception as e:
         persist.finish_run(run, status=Status.FAILED, error_message=str(e)[:500])
         raise
@@ -150,6 +160,25 @@ WHERE run_id = {run_id}
 """
 
 
+# Quorum is off on the single-node ClickHouse of tests and local dev, where it would wait for replicas that do
+# not exist; a quorum that cannot be met fails the run after the timeout, and the retry re-assigns the window.
+ASSIGNMENT_INSERT_SETTINGS: dict[str, Any] = {
+    "insert_distributed_sync": 1,
+    "insert_quorum": 0 if settings.TEST or settings.DEBUG else "auto",
+    "insert_quorum_timeout": 60_000,
+}
+
+
+def _rebuild_daily(team: Team, *, window_start: datetime, window_end: datetime) -> None:
+    rollups.rebuild_topic_daily(
+        team_id=team.pk,
+        window_start=window_start,
+        window_end=window_end,
+        now=datetime.now(tz=UTC),
+        timezone=team.timezone,
+    )
+
+
 def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> RunOutcome:
     run = persist.start_run(
         team,
@@ -162,13 +191,21 @@ def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> 
     pca = persist.latest_pca_basis(team)
     if not topics or pca is None:
         message = "No topics yet; run a refit first"
+        try:
+            # Calls still count as unassigned, so coverage is right before the first refit.
+            _rebuild_daily(team, window_start=window_start, window_end=window_end)
+        except Exception as e:
+            persist.finish_run(run, status=Status.FAILED, error_message=str(e)[:500])
+            raise
         persist.finish_run(run, status=Status.SKIPPED_TOO_FEW, error_message=message)
         return RunOutcome(run.run_id, Kind.ASSIGN, Status.SKIPPED_TOO_FEW, error_message=message)
     try:
         sql, params = build_assignment_insert(
             team_id=team.pk, run_id=run.run_id, window_start=window_start, window_end=window_end, topics=topics, pca=pca
         )
-        sync_execute(sql, params, team_id=team.pk, workload=Workload.OFFLINE)
+        # The daily rebuild reads the assignments straight after, so the insert returns only once they are
+        # on every shard and on a majority of each shard's replicas.
+        sync_execute(sql, params, settings=ASSIGNMENT_INSERT_SETTINGS, team_id=team.pk, workload=Workload.OFFLINE)
         response = execute_hogql_query(
             query=parse_select(_ASSIGNMENT_COUNTS_SQL, placeholders={"run_id": ast.Constant(value=run.run_id)}),
             team=team,
@@ -177,6 +214,7 @@ def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> 
         n_intents, n_outliers = (
             (int(response.results[0][0]), int(response.results[0][1])) if response.results else (0, 0)
         )
+        _rebuild_daily(team, window_start=window_start, window_end=window_end)
     except Exception as e:
         persist.finish_run(run, status=Status.FAILED, error_message=str(e)[:500])
         raise
@@ -186,18 +224,33 @@ def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> 
     )
 
 
+# The sample is drawn from intents *called* in the window (the hourly rollup), not from intents
+# *embedded* in the window: an intent embedded three weeks ago but called every day must still
+# shape the topics. Weights are the calls in the window for the same reason.
 _FIT_SAMPLE_SQL = """
-SELECT document_id, embedding, content, JSONExtractUInt(metadata, 'calls') AS calls
-FROM document_embeddings
-WHERE model_name = {model}
-  AND product = {product}
-  AND document_type = {document_type}
-  AND timestamp >= {since}
-  AND timestamp < {until}
-ORDER BY cityHash64(concat(document_id, {salt}))
-LIMIT 1 BY document_id
+SELECT e.document_id AS document_id, e.embedding AS embedding, e.content AS content, s.calls AS calls
+FROM {sample} AS s
+INNER JOIN (
+    SELECT document_id, argMax(embedding, inserted_at) AS embedding, argMax(content, inserted_at) AS content
+    FROM document_embeddings
+    WHERE {embedded} AND document_id IN (SELECT intent_hash FROM {sample_hashes})
+    GROUP BY document_id
+) AS e ON s.intent_hash = e.document_id
+ORDER BY cityHash64(concat(e.document_id, {salt}))
 LIMIT {limit}
 """
+
+# The sample is chosen from hashes alone; vectors are read only for the sampled hashes, so the query never
+# holds a vector for every intent embedded in the retention window.
+_FIT_SAMPLE_HASHES_SQL = """
+SELECT intent_hash, calls
+FROM (SELECT intent_hash, sum(calls) AS calls FROM {hourly} GROUP BY intent_hash)
+WHERE intent_hash IN (SELECT document_id FROM document_embeddings WHERE {embedded})
+ORDER BY cityHash64(concat(intent_hash, {salt}))
+LIMIT {limit}
+"""
+
+_EMBEDDED_FILTER = "model_name = {model} AND product = {product} AND document_type = {document_type} AND timestamp >= {retention_start}"
 
 
 @dataclass(frozen=True)
@@ -210,15 +263,37 @@ class FitSample:
 
 def fetch_fit_sample(team: Team, *, since: datetime, until: datetime, limit: int = FIT_SAMPLE_SIZE) -> FitSample:
     """A deterministic random sample of the window's embedded intents, with call counts as weights."""
+    salt = ast.Constant(value=until.strftime("%Y%m%d"))
+
+    def embedded() -> ast.Expr:
+        return parse_expr(
+            _EMBEDDED_FILTER,
+            placeholders={
+                "model": ast.Constant(value=EMBEDDING_MODEL),
+                "product": ast.Constant(value=EMBEDDING_PRODUCT),
+                "document_type": ast.Constant(value=EMBEDDING_DOCUMENT_TYPE),
+                "retention_start": ast.Constant(value=until - timedelta(days=EMBEDDING_RETENTION_DAYS)),
+            },
+        )
+
+    def sample() -> ast.SelectQuery | ast.SelectSetQuery:
+        return parse_select(
+            _FIT_SAMPLE_HASHES_SQL,
+            placeholders={
+                "hourly": rollups.hourly_calls_source(since=since, until=until),
+                "embedded": embedded(),
+                "salt": salt,
+                "limit": ast.Constant(value=limit),
+            },
+        )
+
     query = parse_select(
         _FIT_SAMPLE_SQL,
         placeholders={
-            "model": ast.Constant(value=EMBEDDING_MODEL),
-            "product": ast.Constant(value=EMBEDDING_PRODUCT),
-            "document_type": ast.Constant(value=EMBEDDING_DOCUMENT_TYPE),
-            "since": ast.Constant(value=since),
-            "until": ast.Constant(value=until),
-            "salt": ast.Constant(value=until.strftime("%Y%m%d")),
+            "sample": sample(),
+            "sample_hashes": sample(),
+            "embedded": embedded(),
+            "salt": salt,
             "limit": ast.Constant(value=limit),
         },
     )

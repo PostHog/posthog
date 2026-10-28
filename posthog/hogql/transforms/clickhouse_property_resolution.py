@@ -45,7 +45,7 @@ from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS
 from posthog.hogql.restricted_properties import (
     EmbeddedDocumentKind,
     mirrored_column_is_restricted,
-    mirrored_property_for_column,
+    mirrored_properties_for_column,
     native_property_path_overlaps_restriction,
     restricted_embedding_documents,
     restricted_feature_flag_names,
@@ -572,11 +572,11 @@ def _map_value_read(blob: ast.Expr, key: str) -> ast.Expr:
     )
 
 
-def _mirrored_source_property(field_type: ast.FieldType, context: HogQLContext) -> str | None:
+def _mirrored_source_properties(field_type: ast.FieldType, context: HogQLContext) -> tuple[str, ...]:
     resolved_field = field_type.resolve_database_field(context)
     if not isinstance(resolved_field, DatabaseField):
-        return None
-    return mirrored_property_for_column(field_type.table_type, resolved_field.name, context)
+        return ()
+    return mirrored_properties_for_column(field_type.table_type, resolved_field.name, context)
 
 
 def feature_flag_variant_read(value: ast.Expr) -> ast.Expr:
@@ -928,8 +928,8 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
     # JSONDropKeys strips the key, so extracting it always yields '' which scrubs to NULL — so return that constant
     # directly and skip the wasted drop-then-extract. (The column resolvers also decline, so comparisons over a
     # restricted property never read the backing column either; their operand falls through to this same NULL.)
-    source_property = _mirrored_source_property(field_type, context)
-    if (source_property or first_key) in restricted_property_keys_for_table_type(field_type.table_type, context):
+    source_properties = _mirrored_source_properties(field_type, context) or (first_key,)
+    if not restricted_property_keys_for_table_type(field_type.table_type, context).isdisjoint(source_properties):
         _record_property_usage(context, None)
         return ast.Constant(value=None, type=ast.StringType(nullable=True))
 
@@ -1374,17 +1374,21 @@ class ClickHousePropertyResolver(CloningVisitor):
         )
         return ast.Call(name="if", args=[is_restricted_row, masked, super().visit_field(node)])
 
-    def _masked_mirrored_column(self, field_type: ast.FieldType) -> ast.Constant | None:
+    def _masked_mirrored_column(self, field_type: ast.FieldType) -> ast.Expr | None:
         """The NULL constant a restricted mirror column reads as, or None if it is unrestricted.
 
         Must match what `_substitute_value_read` builds for the source property, so the mirror column and
         its source property become the same AST node and agree on nullability and comparison printing.
+        An array column of hashes copies no single value, so it reads as an empty array that array functions accept.
         """
         resolved_field = field_type.resolve_database_field(self.context)
         if not isinstance(resolved_field, DatabaseField):
             return None
         if not mirrored_column_is_restricted(field_type.table_type, resolved_field.name, self.context):
             return None
+        constant_type = resolved_field.get_constant_type()
+        if isinstance(constant_type, ast.ArrayType):
+            return ast.Array(exprs=[], type=replace(constant_type, nullable=False))
         return ast.Constant(value=None, type=ast.StringType(nullable=True))
 
     # --- comparison / call rewrites ---

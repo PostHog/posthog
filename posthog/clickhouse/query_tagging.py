@@ -314,6 +314,10 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.MCP_TOOL_SAMPLE_INTENTS_QUERY
             | NodeKind.MCP_TOOL_NEIGHBORS_QUERY
             | NodeKind.MCP_MISSING_CAPABILITIES_QUERY
+            | NodeKind.MCP_INTENT_TOPICS_QUERY
+            | NodeKind.MCP_TOOL_INTENT_PROFILE_QUERY
+            | NodeKind.MCP_SIMILAR_TOOLS_QUERY
+            | NodeKind.MCP_INTENT_MAP_QUERY
         ):
             return {"product": Product.MCP_ANALYTICS}
         case (

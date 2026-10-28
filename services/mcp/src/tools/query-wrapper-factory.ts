@@ -57,6 +57,11 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
      * `/ai-observability/traces/{traceId}`.
      */
     urlPrefix?: string
+    /**
+     * Top-level response fields to forward next to `results`, for query kinds whose answer is
+     * more than the result rows (for example a summary object).
+     */
+    responseFields?: readonly string[]
 }
 
 const TEST_ACCOUNT_FILTER_FIELD = 'filterTestAccounts'
@@ -254,6 +259,9 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 ...(typeof data.has_next === 'boolean'
                     ? { has_next: data.has_next, next_cursor: data.next_cursor ?? null }
                     : {}),
+                ...Object.fromEntries(
+                    (config.responseFields ?? []).filter((field) => field in data).map((field) => [field, data[field]])
+                ),
             }
             if (isTraceQuery) {
                 return compactTraceResponse(response, traceDetail, effectiveOutputFormat)

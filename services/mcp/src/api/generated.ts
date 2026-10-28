@@ -16393,6 +16393,15 @@ export namespace Schemas {
       window_end: string;
     }
 
+    export type Band = typeof Band[keyof typeof Band];
+
+
+    export const Band = {
+      Consolidated: 'consolidated',
+      Mixed: 'mixed',
+      Spread: 'spread',
+    } as const;
+
     /**
      * * `AED` - AED
      * * `AFN` - AFN
@@ -63483,6 +63492,255 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface MCPIntentCoverage {
+      /** Share of intent-carrying calls that are assigned to a topic, 0-100. */
+      assigned_pct: number;
+      calls_assigned: number;
+      calls_with_intent: number;
+    }
+
+    export interface MCPIntentTopicItem {
+      calls: number;
+      label: string;
+      outlier_calls: number;
+      /** Share in the previous window of the same length, 0-100; null when the topic had no calls then. */
+      previous_share_pct: number | null;
+      sessions: number;
+      /** Share of intent-carrying calls in the window, 0-100. */
+      share_pct: number;
+      /** Calls per day across the window, oldest first. Only filled for the top topics of a tool profile. */
+      sparkline?: number[] | null;
+      summary: string;
+      /** Tools most often called for this topic, most calls first. */
+      top_tools: string[];
+      topic_id: string;
+      /** Change in share, percentage points. Null without a previous value. */
+      trend_pp: number | null;
+    }
+
+    export interface MCPIntentTopicsQueryResponse {
+      coverage: MCPIntentCoverage;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: MCPIntentTopicItem[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface MCPIntentTopicsQuery {
+      dateRange?: DateRange | null;
+      kind?: 'MCPIntentTopicsQuery';
+      /** Maximum topics to return, by calls. Default 20. */
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      response?: MCPIntentTopicsQueryResponse | null;
+      tags?: QueryLogTags | null;
+      /** Optional effective tool name to scope to. */
+      toolName?: string | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface MCPIntentTopicRef {
+      calls: number;
+      label: string;
+      previous_share_pct?: number | null;
+      share_pct: number;
+      topic_id: string;
+    }
+
+    export interface MCPIntentDrift {
+      gone: MCPIntentTopicRef[];
+      growing: MCPIntentTopicRef[];
+      new: MCPIntentTopicRef[];
+      shrinking: MCPIntentTopicRef[];
+    }
+
+    export interface MCPIntentFocus {
+      band: Band;
+      /** 1 - normalised entropy of calls across topics: 1 is one topic, 0 is an even spread. */
+      score: number;
+    }
+
+    export interface MCPIntentOutlierItem {
+      calls: number;
+      distance: number;
+      intent_hash: string;
+      intent_text: string;
+      tool: string;
+    }
+
+    export interface MCPToolIntentProfileQueryResponse {
+      coverage: MCPIntentCoverage;
+      drift: MCPIntentDrift;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      focus: MCPIntentFocus;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      outliers: MCPIntentOutlierItem[];
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      /** Top topics for the tool, with sparklines. */
+      results: MCPIntentTopicItem[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface MCPToolIntentProfileQuery {
+      dateRange?: DateRange | null;
+      kind?: 'MCPToolIntentProfileQuery';
+      /** Top topics to return with sparklines. Default 5. */
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      response?: MCPToolIntentProfileQueryResponse | null;
+      tags?: QueryLogTags | null;
+      /** The effective tool name to profile. */
+      toolName: string;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface MCPSimilarToolItem {
+      calls: number;
+      /** Labels of the topics both tools serve, by the smaller share first. */
+      shared_topics: string[];
+      /** Cosine similarity of the two tools' topic share vectors, 0-1. */
+      similarity: number;
+      tool: string;
+    }
+
+    export interface MCPSimilarToolsQueryResponse {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: MCPSimilarToolItem[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface MCPSimilarToolsQuery {
+      dateRange?: DateRange | null;
+      kind?: 'MCPSimilarToolsQuery';
+      /** Default 10. */
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      response?: MCPSimilarToolsQueryResponse | null;
+      tags?: QueryLogTags | null;
+      toolName: string;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface MCPIntentMapBounds {
+      x_max: number;
+      x_min: number;
+      y_max: number;
+      y_min: number;
+    }
+
+    export interface MCPIntentMapPoint {
+      calls: number;
+      intent_hash: string;
+      intent_text: string;
+      is_outlier: boolean;
+      tool: string;
+      topic_id?: string | null;
+      x: number;
+      y: number;
+    }
+
+    export interface MCPIntentMapTopic {
+      calls: number;
+      label: string;
+      share_pct: number;
+      summary: string;
+      topic_id: string;
+      x: number;
+      y: number;
+    }
+
+    export interface MCPIntentMapQueryResponse {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: MCPIntentMapPoint[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      topics: MCPIntentMapTopic[];
+      /** Total points matching the filters before the limit. */
+      total_points: number;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface MCPIntentMapQuery {
+      bounds?: MCPIntentMapBounds | null;
+      dateRange?: DateRange | null;
+      kind?: 'MCPIntentMapQuery';
+      /** Default 2000. */
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      response?: MCPIntentMapQueryResponse | null;
+      tags?: QueryLogTags | null;
+      toolName?: string | null;
+      topicId?: string | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
     /**
      * Extra globals for the query
      */
@@ -63515,7 +63773,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLMetadataResponse | null;
       /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | MCPIntentTopicsQuery | MCPToolIntentProfileQuery | MCPSimilarToolsQuery | MCPIntentMapQuery | null;
       tags?: QueryLogTags | null;
       /** Variables to be subsituted into the query */
       variables?: HogQLMetadataVariables;
@@ -63541,7 +63799,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLAutocompleteResponse | null;
       /** Query in whose context to validate. */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | MCPIntentTopicsQuery | MCPToolIntentProfileQuery | MCPSimilarToolsQuery | MCPIntentMapQuery | null;
       /** Start position of the editor word */
       startPosition: number;
       tags?: QueryLogTags | null;
@@ -99462,7 +99720,7 @@ export namespace Schemas {
        * ```
        *
        * For more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access). */
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | MCPIntentTopicsQuery | MCPToolIntentProfileQuery | MCPSimilarToolsQuery | MCPIntentMapQuery | PropertyValuesQuery;
       /** Whether results should be calculated sync or async, and how much to rely on the cache:
        * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
        * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
@@ -102140,6 +102398,103 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative112 {
+      coverage: MCPIntentCoverage;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: MCPIntentTopicItem[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface QueryResponseAlternative113 {
+      coverage: MCPIntentCoverage;
+      drift: MCPIntentDrift;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      focus: MCPIntentFocus;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      outliers: MCPIntentOutlierItem[];
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      /** Top topics for the tool, with sparklines. */
+      results: MCPIntentTopicItem[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface QueryResponseAlternative114 {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: MCPSimilarToolItem[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface QueryResponseAlternative115 {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: MCPIntentMapPoint[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      topics: MCPIntentMapTopic[];
+      /** Total points matching the filters before the limit. */
+      total_points: number;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface QueryResponseAlternative116 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -102161,7 +102516,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative12 | QueryResponseAlternative13 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative61 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96 | QueryResponseAlternative97 | QueryResponseAlternative98 | QueryResponseAlternative99 | QueryResponseAlternative100 | QueryResponseAlternative101 | QueryResponseAlternative102 | QueryResponseAlternative103 | QueryResponseAlternative104 | QueryResponseAlternative105 | QueryResponseAlternative106 | QueryResponseAlternative107 | QueryResponseAlternative108 | QueryResponseAlternative109 | QueryResponseAlternative110 | QueryResponseAlternative111 | QueryResponseAlternative112;
+    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative12 | QueryResponseAlternative13 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative61 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96 | QueryResponseAlternative97 | QueryResponseAlternative98 | QueryResponseAlternative99 | QueryResponseAlternative100 | QueryResponseAlternative101 | QueryResponseAlternative102 | QueryResponseAlternative103 | QueryResponseAlternative104 | QueryResponseAlternative105 | QueryResponseAlternative106 | QueryResponseAlternative107 | QueryResponseAlternative108 | QueryResponseAlternative109 | QueryResponseAlternative110 | QueryResponseAlternative111 | QueryResponseAlternative112 | QueryResponseAlternative113 | QueryResponseAlternative114 | QueryResponseAlternative115 | QueryResponseAlternative116;
 
     export interface QueryScanResponse {
       analysis?: QueryScanAnalysis | null;
@@ -102172,11 +102527,11 @@ export namespace Schemas {
     }
 
     export interface QueryUpgradeRequest {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | MCPIntentTopicsQuery | MCPToolIntentProfileQuery | MCPSimilarToolsQuery | MCPIntentMapQuery | PropertyValuesQuery;
     }
 
     export interface QueryUpgradeResponse {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | MCPIntentTopicsQuery | MCPToolIntentProfileQuery | MCPSimilarToolsQuery | MCPIntentMapQuery | PropertyValuesQuery;
     }
 
     export interface QuotaResourceLimit {

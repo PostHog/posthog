@@ -692,6 +692,30 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.MCPIntentTopicsQuery]: {
+        name: 'MCP intent topics',
+        description: 'Intent topics agents pursue on an MCP server, with share and trend.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolIntentProfileQuery]: {
+        name: 'MCP tool intent profile',
+        description: 'How one MCP tool is used: focus, top topics, drift and outliers.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPSimilarToolsQuery]: {
+        name: 'MCP similar tools',
+        description: 'MCP tools with a similar intent topic mix to one tool.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPIntentMapQuery]: {
+        name: 'MCP intent map',
+        description: 'Topic bubbles and intent points for the MCP intent map.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
     [NodeKind.MCPToolStatsQuery]: {
         name: 'MCP tool stats',
         description: 'Summary stats for a single MCP tool.',

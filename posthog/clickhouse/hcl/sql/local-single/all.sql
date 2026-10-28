@@ -2280,6 +2280,26 @@ CREATE TABLE posthog.sharded_mcp_intent_assignments (
   calls_in_run UInt32,
   timestamp DateTime64(3, 'UTC')
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_mcp_intent_assignments', '{replica}', timestamp) ORDER BY (team_id, intent_hash) PARTITION BY toYYYYMM(timestamp) TTL toDateTime(timestamp) + toIntervalMonth(3) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.sharded_mcp_intent_calls_hourly (
+  team_id Int64,
+  hour DateTime('UTC'),
+  intent_hash String,
+  tool LowCardinality(String),
+  calls UInt32,
+  conversation_hashes Array(UInt64),
+  inserted_at DateTime64(3, 'UTC')
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_mcp_intent_calls_hourly', '{replica}', inserted_at) ORDER BY (team_id, hour, intent_hash, tool) PARTITION BY toYYYYMM(hour) TTL hour + toIntervalMonth(6) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.sharded_mcp_intent_topic_daily (
+  team_id Int64,
+  day Date,
+  tool LowCardinality(String),
+  topic_id String,
+  calls UInt64,
+  conversation_hashes Array(UInt64),
+  outlier_calls UInt64,
+  intents UInt64,
+  inserted_at DateTime64(6, 'UTC')
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_mcp_intent_topic_daily', '{replica}', inserted_at) ORDER BY (team_id, day, tool, topic_id) PARTITION BY toYYYYMM(day) TTL day + toIntervalMonth(12) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_performance_events (
   uuid UUID,
   session_id String,
@@ -3966,6 +3986,26 @@ CREATE TABLE posthog.writable_mcp_intent_assignments (
   calls_in_run UInt32,
   timestamp DateTime64(3, 'UTC')
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_mcp_intent_assignments', cityHash64(intent_hash));
+CREATE TABLE posthog.writable_mcp_intent_calls_hourly (
+  team_id Int64,
+  hour DateTime('UTC'),
+  intent_hash String,
+  tool LowCardinality(String),
+  calls UInt32,
+  conversation_hashes Array(UInt64),
+  inserted_at DateTime64(3, 'UTC')
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_mcp_intent_calls_hourly', cityHash64(intent_hash));
+CREATE TABLE posthog.writable_mcp_intent_topic_daily (
+  team_id Int64,
+  day Date,
+  tool LowCardinality(String),
+  topic_id String,
+  calls UInt64,
+  conversation_hashes Array(UInt64),
+  outlier_calls UInt64,
+  intents UInt64,
+  inserted_at DateTime64(6, 'UTC')
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_mcp_intent_topic_daily', cityHash64(team_id));
 CREATE TABLE posthog.writable_metrics4_attributes (
   team_id Int32,
   metric_name LowCardinality(String),
@@ -6429,6 +6469,26 @@ CREATE TABLE posthog.distributed_mcp_intent_assignments (
   calls_in_run UInt32,
   timestamp DateTime64(3, 'UTC')
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_mcp_intent_assignments', cityHash64(intent_hash));
+CREATE TABLE posthog.distributed_mcp_intent_calls_hourly (
+  team_id Int64,
+  hour DateTime('UTC'),
+  intent_hash String,
+  tool LowCardinality(String),
+  calls UInt32,
+  conversation_hashes Array(UInt64),
+  inserted_at DateTime64(3, 'UTC')
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_mcp_intent_calls_hourly', cityHash64(intent_hash));
+CREATE TABLE posthog.distributed_mcp_intent_topic_daily (
+  team_id Int64,
+  day Date,
+  tool LowCardinality(String),
+  topic_id String,
+  calls UInt64,
+  conversation_hashes Array(UInt64),
+  outlier_calls UInt64,
+  intents UInt64,
+  inserted_at DateTime64(6, 'UTC')
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_mcp_intent_topic_daily', cityHash64(team_id));
 CREATE TABLE posthog.distributed_person_group_membership_config (
   team_id Int64,
   group_type_index UInt8,

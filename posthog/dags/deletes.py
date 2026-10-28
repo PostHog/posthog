@@ -72,6 +72,10 @@ from products.error_tracking.backend.facade.api import (
 from products.mcp_analytics.backend.facade.clickhouse_schema import (
     MCP_INTENT_ASSIGNMENTS_DATA_TABLE,
     MCP_INTENT_ASSIGNMENTS_DISTRIBUTED_TABLE,
+    MCP_INTENT_CALLS_HOURLY_DATA_TABLE,
+    MCP_INTENT_CALLS_HOURLY_DISTRIBUTED_TABLE,
+    MCP_INTENT_TOPIC_DAILY_DATA_TABLE,
+    MCP_INTENT_TOPIC_DAILY_DISTRIBUTED_TABLE,
 )
 
 
@@ -237,11 +241,17 @@ class TeamOnlyTable:
     distributed_table: str
 
 
-# Sharded tables that hold text copied from events but carry neither a person id nor an event uuid,
+# Sharded tables that hold data derived from events but carry neither a person id nor an event uuid,
 # so only a team deletion can name their rows.
 TEAM_ONLY_TABLES: tuple[TeamOnlyTable, ...] = (
     TeamOnlyTable(
         sharded_table=MCP_INTENT_ASSIGNMENTS_DATA_TABLE, distributed_table=MCP_INTENT_ASSIGNMENTS_DISTRIBUTED_TABLE
+    ),
+    TeamOnlyTable(
+        sharded_table=MCP_INTENT_CALLS_HOURLY_DATA_TABLE, distributed_table=MCP_INTENT_CALLS_HOURLY_DISTRIBUTED_TABLE
+    ),
+    TeamOnlyTable(
+        sharded_table=MCP_INTENT_TOPIC_DAILY_DATA_TABLE, distributed_table=MCP_INTENT_TOPIC_DAILY_DISTRIBUTED_TABLE
     ),
 )
 

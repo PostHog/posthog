@@ -613,6 +613,11 @@ export const QueryWrapperToolConfigSchema = z
          */
         url_prefix: z.string().optional(),
         /**
+         * Top-level fields of the query response to forward next to `results`. Use it when the
+         * query kind returns its answer in more fields than `results` (summaries, totals).
+         */
+        response_fields: z.array(z.string()).optional(),
+        /**
          * PostHog feature flag key that controls whether this tool is exposed.
          * See ToolConfigSchema.feature_flag for full documentation.
          */

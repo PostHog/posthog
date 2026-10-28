@@ -227,6 +227,10 @@ export enum NodeKind {
     MCPToolSampleIntentsQuery = 'MCPToolSampleIntentsQuery',
     MCPToolNeighborsQuery = 'MCPToolNeighborsQuery',
     MCPMissingCapabilitiesQuery = 'MCPMissingCapabilitiesQuery',
+    MCPIntentTopicsQuery = 'MCPIntentTopicsQuery',
+    MCPToolIntentProfileQuery = 'MCPToolIntentProfileQuery',
+    MCPSimilarToolsQuery = 'MCPSimilarToolsQuery',
+    MCPIntentMapQuery = 'MCPIntentMapQuery',
 
     // Property values
     PropertyValuesQuery = 'PropertyValuesQuery',
@@ -317,6 +321,10 @@ export type AnyDataNode =
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
     | MCPMissingCapabilitiesQuery
+    | MCPIntentTopicsQuery
+    | MCPToolIntentProfileQuery
+    | MCPSimilarToolsQuery
+    | MCPIntentMapQuery
 
 /**
  * @discriminator kind
@@ -454,6 +462,10 @@ export type QuerySchema =
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
     | MCPMissingCapabilitiesQuery
+    | MCPIntentTopicsQuery
+    | MCPToolIntentProfileQuery
+    | MCPSimilarToolsQuery
+    | MCPIntentMapQuery
 
     // Property values
     | PropertyValuesQuery
@@ -4067,6 +4079,198 @@ export interface MCPToolNeighborsQuery extends DataNode<MCPToolNeighborsQueryRes
 }
 
 export type CachedMCPToolNeighborsQueryResponse = CachedQueryResponse<MCPToolNeighborsQueryResponse>
+
+/** How much of the window the intent topics cover: calls that carried an intent, and of those, calls whose intent has a topic. */
+export interface MCPIntentCoverage {
+    calls_with_intent: integer
+    calls_assigned: integer
+    /** Share of intent-carrying calls that are assigned to a topic, 0-100. */
+    assigned_pct: number
+}
+
+/** One intent topic with its share of calls in the window and the change versus the previous window of the same length. */
+export interface MCPIntentTopicItem {
+    topic_id: string
+    label: string
+    summary: string
+    calls: integer
+    sessions: integer
+    /** Share of intent-carrying calls in the window, 0-100. */
+    share_pct: number
+    /** Share in the previous window of the same length, 0-100; null when the topic had no calls then. */
+    previous_share_pct: number | null
+    /** Change in share, percentage points. Null without a previous value. */
+    trend_pp: number | null
+    outlier_calls: integer
+    /** Tools most often called for this topic, most calls first. */
+    top_tools: string[]
+    /** Calls per day across the window, oldest first. Only filled for the top topics of a tool profile. */
+    sparkline?: integer[] | null
+}
+
+export interface MCPIntentTopicsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPIntentTopicItem[]
+    coverage: MCPIntentCoverage
+}
+
+/** Intent topics for the whole server, or for one tool, ranked by calls, with trend versus the previous window. Reads the daily rollup, so filters other than tool and date range do not apply. */
+export interface MCPIntentTopicsQuery extends DataNode<MCPIntentTopicsQueryResponse> {
+    kind: NodeKind.MCPIntentTopicsQuery
+    /** Optional effective tool name to scope to. */
+    toolName?: string
+    dateRange?: DateRange
+    /**
+     * Maximum topics to return, by calls. Default 20.
+     * @asType integer
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+}
+
+export type CachedMCPIntentTopicsQueryResponse = CachedQueryResponse<MCPIntentTopicsQueryResponse>
+
+export interface MCPIntentFocus {
+    /** 1 - normalised entropy of calls across topics: 1 is one topic, 0 is an even spread. */
+    score: number
+    band: 'consolidated' | 'mixed' | 'spread'
+}
+
+export interface MCPIntentTopicRef {
+    topic_id: string
+    label: string
+    calls: integer
+    share_pct: number
+    previous_share_pct: number | null
+}
+
+/** Topics whose share moved between the previous window and this one. */
+export interface MCPIntentDrift {
+    new: MCPIntentTopicRef[]
+    growing: MCPIntentTopicRef[]
+    shrinking: MCPIntentTopicRef[]
+    gone: MCPIntentTopicRef[]
+}
+
+/** An intent text that sits outside every topic. */
+export interface MCPIntentOutlierItem {
+    intent_hash: string
+    intent_text: string
+    calls: integer
+    distance: number
+    tool: string
+}
+
+export interface MCPToolIntentProfileQueryResponse extends AnalyticsQueryResponseBase {
+    /** Top topics for the tool, with sparklines. */
+    results: MCPIntentTopicItem[]
+    focus: MCPIntentFocus
+    drift: MCPIntentDrift
+    outliers: MCPIntentOutlierItem[]
+    coverage: MCPIntentCoverage
+}
+
+/** How one tool is used: focus score, top topics with sparklines, drift versus the previous window, and outlier intents. */
+export interface MCPToolIntentProfileQuery extends DataNode<MCPToolIntentProfileQueryResponse> {
+    kind: NodeKind.MCPToolIntentProfileQuery
+    /** The effective tool name to profile. */
+    toolName: string
+    dateRange?: DateRange
+    /**
+     * Top topics to return with sparklines. Default 5.
+     * @asType integer
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number
+}
+
+export type CachedMCPToolIntentProfileQueryResponse = CachedQueryResponse<MCPToolIntentProfileQueryResponse>
+
+/** A tool whose intent topic mix resembles the target tool's. */
+export interface MCPSimilarToolItem {
+    tool: string
+    /** Cosine similarity of the two tools' topic share vectors, 0-1. */
+    similarity: number
+    calls: integer
+    /** Labels of the topics both tools serve, by the smaller share first. */
+    shared_topics: string[]
+}
+
+export interface MCPSimilarToolsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPSimilarToolItem[]
+}
+
+/** Tools with a similar intended use as one tool, by cosine similarity of their topic share vectors over the window. */
+export interface MCPSimilarToolsQuery extends DataNode<MCPSimilarToolsQueryResponse> {
+    kind: NodeKind.MCPSimilarToolsQuery
+    toolName: string
+    dateRange?: DateRange
+    /**
+     * Default 10.
+     * @asType integer
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
+
+export type CachedMCPSimilarToolsQueryResponse = CachedQueryResponse<MCPSimilarToolsQueryResponse>
+
+export interface MCPIntentMapBounds {
+    x_min: number
+    x_max: number
+    y_min: number
+    y_max: number
+}
+
+/** One intent text on the map. */
+export interface MCPIntentMapPoint {
+    intent_hash: string
+    intent_text: string
+    x: number
+    y: number
+    topic_id: string | null
+    is_outlier: boolean
+    calls: integer
+    tool: string
+}
+
+/** One topic bubble on the map, placed at the mean position of its members. */
+export interface MCPIntentMapTopic {
+    topic_id: string
+    label: string
+    summary: string
+    x: number
+    y: number
+    calls: integer
+    share_pct: number
+}
+
+export interface MCPIntentMapQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPIntentMapPoint[]
+    topics: MCPIntentMapTopic[]
+    /** Total points matching the filters before the limit. */
+    total_points: integer
+}
+
+/** Points and topic bubbles for the 2D intent map. Points are the most called intents inside the optional bounds, up to the limit. */
+export interface MCPIntentMapQuery extends DataNode<MCPIntentMapQueryResponse> {
+    kind: NodeKind.MCPIntentMapQuery
+    toolName?: string
+    topicId?: string
+    dateRange?: DateRange
+    bounds?: MCPIntentMapBounds
+    /**
+     * Default 2000.
+     * @asType integer
+     * @minimum 1
+     * @maximum 5000
+     */
+    limit?: number
+}
+
+export type CachedMCPIntentMapQueryResponse = CachedQueryResponse<MCPIntentMapQueryResponse>
 
 /** One missing-capability report: a capability an agent asked for and could not get. */
 export interface MCPMissingCapabilitiesItem {

@@ -11,7 +11,12 @@ from posthog.hogql.database.schema.document_embeddings import ModelSpecificEmbed
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
-from posthog.hogql.database.schema.mcp_intent_assignments import MCPIntentAssignmentsTable, RawMCPIntentAssignmentsTable
+from posthog.hogql.database.schema.mcp_intent_assignments import (
+    MCPIntentAssignmentsTable,
+    MCPIntentCallsHourlyTable,
+    MCPIntentTopicDailyTable,
+    RawMCPIntentAssignmentsTable,
+)
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN, UNPARSEABLE_PROPERTIES_KEY
@@ -53,7 +58,16 @@ _AI_EVENTS_MIRRORED_COLUMNS = {column: property_name for property_name, column i
 
 # The intent clustering pipeline stores a truncated copy of each `$mcp_intent` value, keyed by its unsalted
 # sha256. Anyone can hash a guessed text and compare, so the hash reveals the text as much as the copy does.
-_MCP_INTENT_ASSIGNMENTS_MIRRORED_COLUMNS = {"intent_text": "$mcp_intent", "intent_hash": "$mcp_intent"}
+# The rollups also keep the unsalted cityHash64 of each conversation id, which the pipeline reads from
+# `$mcp_session_id` and falls back to `$session_id`. The hash reveals the id, so restricting either masks it.
+# Their `tool` column copies the tool name, so restricting any property it is read from masks it.
+_MCP_INTENT_MIRRORED_COLUMNS: dict[str, tuple[str, ...]] = {
+    "intent_text": ("$mcp_intent",),
+    "intent_hash": ("$mcp_intent",),
+    "conversation_hashes": ("$mcp_session_id", "$session_id"),
+    # The rollups' effective tool name reads the exec wrapper's target before `$mcp_tool_name`.
+    "tool": ("$mcp_tool_name", "$mcp_exec_tool_call_name", "$mcp_exec_target_tool"),
+}
 
 
 # The same pipeline embeds each `$mcp_intent` value into the shared embedding tables, with the text in `content`,
@@ -71,15 +85,15 @@ _EMBEDDED_PROPERTY_DOCUMENTS: dict[str, EmbeddedDocumentKind] = {
 _EMBEDDING_MIRRORED_COLUMNS = frozenset({"content", "document_id", "embedding"})
 
 
-def mirrored_property_for_column(table_type: ast.Type, column_name: str, context: HogQLContext) -> str | None:
-    """The event property a typed column copies verbatim, or None when the column copies nothing.
+def mirrored_properties_for_column(table_type: ast.Type, column_name: str, context: HogQLContext) -> tuple[str, ...]:
+    """The event properties a typed column copies, or an empty tuple when the column copies nothing.
 
     A caller that prints one of these columns must mask the read when the property is restricted, in a predicate
     as much as in a SELECT: an unmasked column lets a filter narrow down a value the same user cannot read.
     `events` exposes mirror columns of its own that nothing consults this for; see ACCESS_CONTROL.md.
     """
     if not isinstance(table_type, ast.BaseTableType):
-        return None
+        return ()
 
     try:
         table = table_type.resolve_database_table(context)
@@ -87,22 +101,26 @@ def mirrored_property_for_column(table_type: ast.Type, column_name: str, context
         # Fail-open to match restricted_property_keys_for_table_type, whose docstring explains why this is
         # unreachable today; log so a future table type that can raise does not silently unmask a column.
         logger.warning("mirrored_property_table_resolution_failed", table_type=type(table_type).__name__)
-        return None
+        return ()
 
+    source_property: str | None = None
     if isinstance(table, AiEventsTable):
-        return _AI_EVENTS_MIRRORED_COLUMNS.get(column_name)
-    if isinstance(table, FlagEvaluationsTable):
-        return _FLAG_EVALUATIONS_MIRRORED_COLUMNS.get(column_name)
-    if isinstance(table, MCPIntentAssignmentsTable | RawMCPIntentAssignmentsTable):
-        return _MCP_INTENT_ASSIGNMENTS_MIRRORED_COLUMNS.get(column_name)
-    return None
+        source_property = _AI_EVENTS_MIRRORED_COLUMNS.get(column_name)
+    elif isinstance(table, FlagEvaluationsTable):
+        source_property = _FLAG_EVALUATIONS_MIRRORED_COLUMNS.get(column_name)
+    elif isinstance(
+        table,
+        MCPIntentAssignmentsTable | RawMCPIntentAssignmentsTable | MCPIntentCallsHourlyTable | MCPIntentTopicDailyTable,
+    ):
+        return _MCP_INTENT_MIRRORED_COLUMNS.get(column_name, ())
+    return (source_property,) if source_property is not None else ()
 
 
 def mirrored_column_is_restricted(table_type: ast.Type, column_name: str, context: HogQLContext) -> bool:
-    """Whether a read of this stored column masks to NULL because the property it copies is restricted."""
-    source_property = mirrored_property_for_column(table_type, column_name, context)
-    return source_property is not None and source_property in restricted_property_keys_for_table_type(
-        table_type, context
+    """Whether a read of this stored column is masked because a property it copies is restricted."""
+    source_properties = mirrored_properties_for_column(table_type, column_name, context)
+    return bool(source_properties) and not restricted_property_keys_for_table_type(table_type, context).isdisjoint(
+        source_properties
     )
 
 
@@ -175,6 +193,8 @@ def restricted_property_keys_for_table_type(
         | AiEventsTable
         | MCPIntentAssignmentsTable
         | RawMCPIntentAssignmentsTable
+        | MCPIntentCallsHourlyTable
+        | MCPIntentTopicDailyTable
         | ModelSpecificEmbeddingTable
         | RawDocumentEmbeddingsTable,
     ):

@@ -2048,6 +2048,9 @@ function generateCategoryFile(
                 if (wrapperConfig.url_prefix) {
                     configParts.push(`urlPrefix: '${wrapperConfig.url_prefix}'`)
                 }
+                if (wrapperConfig.response_fields?.length) {
+                    configParts.push(`responseFields: ${JSON.stringify(wrapperConfig.response_fields)}`)
+                }
                 return `    '${name}': createQueryWrapper({ ${configParts.join(', ')} }),`
             })
             .join('\n')

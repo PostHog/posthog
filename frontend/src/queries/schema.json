@@ -1915,6 +1915,18 @@
                 },
                 {
                     "$ref": "#/definitions/MCPMissingCapabilitiesQuery"
+                },
+                {
+                    "$ref": "#/definitions/MCPIntentTopicsQuery"
+                },
+                {
+                    "$ref": "#/definitions/MCPToolIntentProfileQuery"
+                },
+                {
+                    "$ref": "#/definitions/MCPSimilarToolsQuery"
+                },
+                {
+                    "$ref": "#/definitions/MCPIntentMapQuery"
                 }
             ],
             "required": ["kind"],
@@ -10523,6 +10535,230 @@
             ],
             "type": "object"
         },
+        "CachedMCPIntentMapQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MCPIntentMapPoint"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "topics": {
+                    "items": {
+                        "$ref": "#/definitions/MCPIntentMapTopic"
+                    },
+                    "type": "array"
+                },
+                "total_points": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Total points matching the filters before the limit."
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone",
+                "topics",
+                "total_points"
+            ],
+            "type": "object"
+        },
+        "CachedMCPIntentTopicsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "coverage": {
+                    "$ref": "#/definitions/MCPIntentCoverage"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MCPIntentTopicItem"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "coverage",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedMCPMissingCapabilitiesQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -10799,6 +11035,110 @@
                 "results": {
                     "items": {
                         "$ref": "#/definitions/MCPProtocolVersionBreakdownItem"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedMCPSimilarToolsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MCPSimilarToolItem"
                     },
                     "type": "array"
                 },
@@ -11775,6 +12115,130 @@
                 "is_cached",
                 "last_refresh",
                 "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedMCPToolIntentProfileQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "coverage": {
+                    "$ref": "#/definitions/MCPIntentCoverage"
+                },
+                "drift": {
+                    "$ref": "#/definitions/MCPIntentDrift"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "focus": {
+                    "$ref": "#/definitions/MCPIntentFocus"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "outliers": {
+                    "items": {
+                        "$ref": "#/definitions/MCPIntentOutlierItem"
+                    },
+                    "type": "array"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "description": "Top topics for the tool, with sparklines.",
+                    "items": {
+                        "$ref": "#/definitions/MCPIntentTopicItem"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "coverage",
+                "drift",
+                "focus",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "outliers",
                 "results",
                 "timezone"
             ],
@@ -32423,6 +32887,492 @@
             "required": ["results"],
             "type": "object"
         },
+        "MCPIntentCoverage": {
+            "additionalProperties": false,
+            "description": "How much of the window the intent topics cover: calls that carried an intent, and of those, calls whose intent has a topic.",
+            "properties": {
+                "assigned_pct": {
+                    "description": "Share of intent-carrying calls that are assigned to a topic, 0-100.",
+                    "type": "number"
+                },
+                "calls_assigned": {
+                    "$ref": "#/definitions/integer"
+                },
+                "calls_with_intent": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["calls_with_intent", "calls_assigned", "assigned_pct"],
+            "type": "object"
+        },
+        "MCPIntentDrift": {
+            "additionalProperties": false,
+            "description": "Topics whose share moved between the previous window and this one.",
+            "properties": {
+                "gone": {
+                    "items": {
+                        "$ref": "#/definitions/MCPIntentTopicRef"
+                    },
+                    "type": "array"
+                },
+                "growing": {
+                    "items": {
+                        "$ref": "#/definitions/MCPIntentTopicRef"
+                    },
+                    "type": "array"
+                },
+                "new": {
+                    "items": {
+                        "$ref": "#/definitions/MCPIntentTopicRef"
+                    },
+                    "type": "array"
+                },
+                "shrinking": {
+                    "items": {
+                        "$ref": "#/definitions/MCPIntentTopicRef"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["new", "growing", "shrinking", "gone"],
+            "type": "object"
+        },
+        "MCPIntentFocus": {
+            "additionalProperties": false,
+            "properties": {
+                "band": {
+                    "enum": ["consolidated", "mixed", "spread"],
+                    "type": "string"
+                },
+                "score": {
+                    "description": "1 - normalised entropy of calls across topics: 1 is one topic, 0 is an even spread.",
+                    "type": "number"
+                }
+            },
+            "required": ["score", "band"],
+            "type": "object"
+        },
+        "MCPIntentMapBounds": {
+            "additionalProperties": false,
+            "properties": {
+                "x_max": {
+                    "type": "number"
+                },
+                "x_min": {
+                    "type": "number"
+                },
+                "y_max": {
+                    "type": "number"
+                },
+                "y_min": {
+                    "type": "number"
+                }
+            },
+            "required": ["x_min", "x_max", "y_min", "y_max"],
+            "type": "object"
+        },
+        "MCPIntentMapPoint": {
+            "additionalProperties": false,
+            "description": "One intent text on the map.",
+            "properties": {
+                "calls": {
+                    "$ref": "#/definitions/integer"
+                },
+                "intent_hash": {
+                    "type": "string"
+                },
+                "intent_text": {
+                    "type": "string"
+                },
+                "is_outlier": {
+                    "type": "boolean"
+                },
+                "tool": {
+                    "type": "string"
+                },
+                "topic_id": {
+                    "type": ["string", "null"]
+                },
+                "x": {
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": ["intent_hash", "intent_text", "x", "y", "topic_id", "is_outlier", "calls", "tool"],
+            "type": "object"
+        },
+        "MCPIntentMapQuery": {
+            "additionalProperties": false,
+            "description": "Points and topic bubbles for the 2D intent map. Points are the most called intents inside the optional bounds, up to the limit.",
+            "properties": {
+                "bounds": {
+                    "$ref": "#/definitions/MCPIntentMapBounds"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "const": "MCPIntentMapQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "description": "Default 2000.",
+                    "maximum": 5000,
+                    "minimum": 1,
+                    "type": "integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/MCPIntentMapQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "toolName": {
+                    "type": "string"
+                },
+                "topicId": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "MCPIntentMapQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MCPIntentMapPoint"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "topics": {
+                    "items": {
+                        "$ref": "#/definitions/MCPIntentMapTopic"
+                    },
+                    "type": "array"
+                },
+                "total_points": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Total points matching the filters before the limit."
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results", "topics", "total_points"],
+            "type": "object"
+        },
+        "MCPIntentMapTopic": {
+            "additionalProperties": false,
+            "description": "One topic bubble on the map, placed at the mean position of its members.",
+            "properties": {
+                "calls": {
+                    "$ref": "#/definitions/integer"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "share_pct": {
+                    "type": "number"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "topic_id": {
+                    "type": "string"
+                },
+                "x": {
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": ["topic_id", "label", "summary", "x", "y", "calls", "share_pct"],
+            "type": "object"
+        },
+        "MCPIntentOutlierItem": {
+            "additionalProperties": false,
+            "description": "An intent text that sits outside every topic.",
+            "properties": {
+                "calls": {
+                    "$ref": "#/definitions/integer"
+                },
+                "distance": {
+                    "type": "number"
+                },
+                "intent_hash": {
+                    "type": "string"
+                },
+                "intent_text": {
+                    "type": "string"
+                },
+                "tool": {
+                    "type": "string"
+                }
+            },
+            "required": ["intent_hash", "intent_text", "calls", "distance", "tool"],
+            "type": "object"
+        },
+        "MCPIntentTopicItem": {
+            "additionalProperties": false,
+            "description": "One intent topic with its share of calls in the window and the change versus the previous window of the same length.",
+            "properties": {
+                "calls": {
+                    "$ref": "#/definitions/integer"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "outlier_calls": {
+                    "$ref": "#/definitions/integer"
+                },
+                "previous_share_pct": {
+                    "description": "Share in the previous window of the same length, 0-100; null when the topic had no calls then.",
+                    "type": ["number", "null"]
+                },
+                "sessions": {
+                    "$ref": "#/definitions/integer"
+                },
+                "share_pct": {
+                    "description": "Share of intent-carrying calls in the window, 0-100.",
+                    "type": "number"
+                },
+                "sparkline": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/integer"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Calls per day across the window, oldest first. Only filled for the top topics of a tool profile."
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "top_tools": {
+                    "description": "Tools most often called for this topic, most calls first.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "topic_id": {
+                    "type": "string"
+                },
+                "trend_pp": {
+                    "description": "Change in share, percentage points. Null without a previous value.",
+                    "type": ["number", "null"]
+                }
+            },
+            "required": [
+                "topic_id",
+                "label",
+                "summary",
+                "calls",
+                "sessions",
+                "share_pct",
+                "previous_share_pct",
+                "trend_pp",
+                "outlier_calls",
+                "top_tools"
+            ],
+            "type": "object"
+        },
+        "MCPIntentTopicRef": {
+            "additionalProperties": false,
+            "properties": {
+                "calls": {
+                    "$ref": "#/definitions/integer"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "previous_share_pct": {
+                    "type": ["number", "null"]
+                },
+                "share_pct": {
+                    "type": "number"
+                },
+                "topic_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["topic_id", "label", "calls", "share_pct", "previous_share_pct"],
+            "type": "object"
+        },
+        "MCPIntentTopicsQuery": {
+            "additionalProperties": false,
+            "description": "Intent topics for the whole server, or for one tool, ranked by calls, with trend versus the previous window. Reads the daily rollup, so filters other than tool and date range do not apply.",
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "const": "MCPIntentTopicsQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "description": "Maximum topics to return, by calls. Default 20.",
+                    "maximum": 200,
+                    "minimum": 1,
+                    "type": "integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/MCPIntentTopicsQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "toolName": {
+                    "description": "Optional effective tool name to scope to.",
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "MCPIntentTopicsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "coverage": {
+                    "$ref": "#/definitions/MCPIntentCoverage"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MCPIntentTopicItem"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["coverage", "results"],
+            "type": "object"
+        },
         "MCPMissingCapabilitiesItem": {
             "additionalProperties": false,
             "description": "One missing-capability report: a capability an agent asked for and could not get.",
@@ -32785,6 +33735,134 @@
                 "results": {
                     "items": {
                         "$ref": "#/definitions/MCPProtocolVersionBreakdownItem"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "MCPSimilarToolItem": {
+            "additionalProperties": false,
+            "description": "A tool whose intent topic mix resembles the target tool's.",
+            "properties": {
+                "calls": {
+                    "$ref": "#/definitions/integer"
+                },
+                "shared_topics": {
+                    "description": "Labels of the topics both tools serve, by the smaller share first.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "similarity": {
+                    "description": "Cosine similarity of the two tools' topic share vectors, 0-1.",
+                    "type": "number"
+                },
+                "tool": {
+                    "type": "string"
+                }
+            },
+            "required": ["tool", "similarity", "calls", "shared_topics"],
+            "type": "object"
+        },
+        "MCPSimilarToolsQuery": {
+            "additionalProperties": false,
+            "description": "Tools with a similar intended use as one tool, by cosine similarity of their topic share vectors over the window.",
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "const": "MCPSimilarToolsQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "description": "Default 10.",
+                    "maximum": 100,
+                    "minimum": 1,
+                    "type": "integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/MCPSimilarToolsQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "toolName": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "toolName"],
+            "type": "object"
+        },
+        "MCPSimilarToolsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MCPSimilarToolItem"
                     },
                     "type": "array"
                 },
@@ -33965,6 +35043,126 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "MCPToolIntentProfileQuery": {
+            "additionalProperties": false,
+            "description": "How one tool is used: focus score, top topics with sparklines, drift versus the previous window, and outlier intents.",
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "const": "MCPToolIntentProfileQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "description": "Top topics to return with sparklines. Default 5.",
+                    "maximum": 20,
+                    "minimum": 1,
+                    "type": "integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/MCPToolIntentProfileQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "toolName": {
+                    "description": "The effective tool name to profile.",
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "toolName"],
+            "type": "object"
+        },
+        "MCPToolIntentProfileQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "coverage": {
+                    "$ref": "#/definitions/MCPIntentCoverage"
+                },
+                "drift": {
+                    "$ref": "#/definitions/MCPIntentDrift"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "focus": {
+                    "$ref": "#/definitions/MCPIntentFocus"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "outliers": {
+                    "items": {
+                        "$ref": "#/definitions/MCPIntentOutlierItem"
+                    },
+                    "type": "array"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "description": "Top topics for the tool, with sparklines.",
+                    "items": {
+                        "$ref": "#/definitions/MCPIntentTopicItem"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["coverage", "drift", "focus", "outliers", "results"],
             "type": "object"
         },
         "MCPToolNeighborItem": {
@@ -40063,6 +41261,10 @@
                 "MCPToolSampleIntentsQuery",
                 "MCPToolNeighborsQuery",
                 "MCPMissingCapabilitiesQuery",
+                "MCPIntentTopicsQuery",
+                "MCPToolIntentProfileQuery",
+                "MCPSimilarToolsQuery",
+                "MCPIntentMapQuery",
                 "PropertyValuesQuery"
             ],
             "type": "string"
@@ -50259,6 +51461,295 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "coverage": {
+                            "$ref": "#/definitions/MCPIntentCoverage"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/MCPIntentTopicItem"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["coverage", "results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "coverage": {
+                            "$ref": "#/definitions/MCPIntentCoverage"
+                        },
+                        "drift": {
+                            "$ref": "#/definitions/MCPIntentDrift"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "focus": {
+                            "$ref": "#/definitions/MCPIntentFocus"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "outliers": {
+                            "items": {
+                                "$ref": "#/definitions/MCPIntentOutlierItem"
+                            },
+                            "type": "array"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "description": "Top topics for the tool, with sparklines.",
+                            "items": {
+                                "$ref": "#/definitions/MCPIntentTopicItem"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["coverage", "drift", "focus", "outliers", "results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/MCPSimilarToolItem"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/MCPIntentMapPoint"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "topics": {
+                            "items": {
+                                "$ref": "#/definitions/MCPIntentMapTopic"
+                            },
+                            "type": "array"
+                        },
+                        "total_points": {
+                            "$ref": "#/definitions/integer",
+                            "description": "Total points matching the filters before the limit."
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results", "topics", "total_points"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -50750,6 +52241,18 @@
                 },
                 {
                     "$ref": "#/definitions/MCPMissingCapabilitiesQuery"
+                },
+                {
+                    "$ref": "#/definitions/MCPIntentTopicsQuery"
+                },
+                {
+                    "$ref": "#/definitions/MCPToolIntentProfileQuery"
+                },
+                {
+                    "$ref": "#/definitions/MCPSimilarToolsQuery"
+                },
+                {
+                    "$ref": "#/definitions/MCPIntentMapQuery"
                 },
                 {
                     "$ref": "#/definitions/PropertyValuesQuery"

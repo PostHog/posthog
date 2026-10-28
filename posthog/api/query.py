@@ -220,10 +220,14 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     # Both scopes listed: this result replaces the view's default query:read
     # rather than adding to it, and a token must hold every listed scope.
     "MCPHarnessBreakdownQuery": ["query:read", "mcp_analytics:read"],
+    "MCPIntentMapQuery": ["query:read", "mcp_analytics:read"],
+    "MCPIntentTopicsQuery": ["query:read", "mcp_analytics:read"],
     "MCPMissingCapabilitiesQuery": ["query:read", "mcp_analytics:read"],
     "MCPModelBreakdownQuery": ["query:read", "mcp_analytics:read"],
     "MCPProtocolVersionBreakdownQuery": ["query:read", "mcp_analytics:read"],
+    "MCPSimilarToolsQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolFailureOccurrencesQuery": ["query:read", "mcp_analytics:read"],
+    "MCPToolIntentProfileQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolCallsAndErrorsQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolCallBreakdownQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolCategoryMapQuery": ["query:read", "mcp_analytics:read"],

@@ -60,6 +60,10 @@ from posthog.models.team import Team
 from products.mcp_analytics.backend.facade.clickhouse_schema import (
     MCP_INTENT_ASSIGNMENTS_DISTRIBUTED_TABLE,
     MCP_INTENT_ASSIGNMENTS_WRITABLE_TABLE,
+    MCP_INTENT_CALLS_HOURLY_DISTRIBUTED_TABLE,
+    MCP_INTENT_CALLS_HOURLY_WRITABLE_TABLE,
+    MCP_INTENT_TOPIC_DAILY_DISTRIBUTED_TABLE,
+    MCP_INTENT_TOPIC_DAILY_WRITABLE_TABLE,
 )
 
 
@@ -344,6 +348,20 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
 
     cluster.any_host(insert_intent_assignments).result()
 
+    def insert_intent_rollups(client: Client) -> None:
+        client.execute(
+            f"""INSERT INTO {MCP_INTENT_CALLS_HOURLY_WRITABLE_TABLE}
+               (team_id, hour, intent_hash, tool, calls, conversation_hashes, inserted_at) VALUES""",
+            [(team_id, timestamp, f"{team_id:064x}", "tool", 1, [1], timestamp) for team_id in (0, delete_count)],
+        )
+        client.execute(
+            f"""INSERT INTO {MCP_INTENT_TOPIC_DAILY_WRITABLE_TABLE}
+               (team_id, day, tool, topic_id, calls, conversation_hashes, outlier_calls, intents, inserted_at) VALUES""",
+            [(team_id, timestamp.date(), "tool", "topic", 1, [1], 0, 1, timestamp) for team_id in (0, delete_count)],
+        )
+
+    cluster.any_host(insert_intent_rollups).result()
+
     def get_by_team(table: str, client: Client) -> dict[int, int]:
         result = client.execute(f"SELECT team_id, count(1) FROM {table} GROUP BY team_id")
         if not isinstance(result, list):
@@ -418,6 +436,11 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
     assert {team for team in final_intent_assignments if team in (0, delete_count)} == {delete_count}, (
         "the deleted team's MCP intent assignments survived"
     )
+    for rollup_table in (MCP_INTENT_CALLS_HOURLY_DISTRIBUTED_TABLE, MCP_INTENT_TOPIC_DAILY_DISTRIBUTED_TABLE):
+        final_rollup = cluster.any_host(partial(get_by_team, rollup_table)).result()
+        assert {team for team in final_rollup if team in (0, delete_count)} == {delete_count}, (
+            f"the deleted team's rows in {rollup_table} survived, or the kept team's rows went with them"
+        )
 
     final_persons = cluster.any_host(partial(get_by_team, "person")).result()
     assert len(final_persons) == event_count - delete_count, f"expected person data was not deleted"

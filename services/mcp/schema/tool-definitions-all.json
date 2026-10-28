@@ -12583,6 +12583,42 @@
         "reads_ingested_data": "events",
         "system_prompt_hint": "MCP client/harness breakdown — calls, error rate, sessions per harness"
     },
+    "query-mcp-intent-map": {
+        "description": "Return the 2D intent map: topic bubbles (label, summary, position, calls, share) and the most called intent texts as points (position, topic, outlier flag, calls, tool), up to the limit, with the total number of matching points. The limit defaults to 50 here; each point carries up to 500 characters of intent text, so raise it only as far as you need and narrow with toolName, topicId or bounds first. Positions come from a PCA projection of the intent embeddings; close points mean similar intents. Use to read individual intents inside a topic or to list what sits far from every topic.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Intent map points and topic bubbles",
+        "title": "Intent map points and topic bubbles",
+        "required_scopes": ["query:read", "mcp_analytics:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics-intent-topics",
+        "reads_ingested_data": "events",
+        "system_prompt_hint": "Topic bubbles and intent points for the 2D intent map"
+    },
+    "query-mcp-intent-topics": {
+        "description": "Return the intent topics agents pursue on this MCP server, ranked by calls, each with its share of intent-carrying calls, the change versus the previous window of the same length, sessions, outlier calls and the tools most used for it, plus coverage (how many calls carried an intent and how many have a topic). Pass an optional toolName to scope to one effective tool and a dateRange (defaults to the last 7 days). Reads the nightly rollup, so it is fast for any window; property filters do not apply. Use to answer \"what do agents use this server for?\", \"how has use of tool X changed over the past 3 months?\" (compare two date ranges or read trend_pp). For a tool's total or average calls, use query-mcp-tool-daily-stats: this tool counts only calls that carry an intent.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Intent topics for the server or one MCP tool",
+        "title": "Intent topics for the server or one MCP tool",
+        "required_scopes": ["query:read", "mcp_analytics:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics-intent-topics",
+        "reads_ingested_data": "events",
+        "system_prompt_hint": "Intent topics with share, trend and tools, for the server or one tool"
+    },
     "query-mcp-missing-capabilities": {
         "description": "Return capabilities that agents asked this MCP server for but could not access. Each row contains one $mcp_missing_capability report from the SDK's get_more_tools tool, including the report text, timestamp, client label, conversation id, and person. Results are chronological because exact-text grouping would split similar free-form requests. The query accepts a dateRange, case-insensitive text search, limit, and offset. The response's has_next field indicates whether more results remain. Use this tool to identify capabilities that agents need or to prioritize new MCP tools.",
         "category": "MCP analytics",
@@ -12599,6 +12635,24 @@
         },
         "reads_ingested_data": "events",
         "system_prompt_hint": "MCP missing capabilities that agents reported, newest first"
+    },
+    "query-mcp-similar-tools": {
+        "description": "Rank the other tools on this server by how closely their intent topic mix matches one tool's, as the cosine similarity of the two tools' topic share vectors over the window, with the topics both serve. Pass toolName and an optional dateRange. Use to answer \"what tools have a similar intended use as tool X?\" and to spot overlapping or redundant tools.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Tools with a similar intended use",
+        "title": "Tools with a similar intended use",
+        "required_scopes": ["query:read", "mcp_analytics:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics-intent-topics",
+        "reads_ingested_data": "events",
+        "system_prompt_hint": "Other tools ranked by similarity of intent topic mix to one tool"
     },
     "query-mcp-tool-daily-stats": {
         "description": "Return a day-by-day time series for a single MCP tool: calls, errors, p50/p95 latency, unique users, and unique sessions per day. Pass toolName (effective tool name, resolved server-side) and a dateRange. Use to answer \"how has tool X trended?\" — spotting error spikes, latency regressions, or adoption changes over time.",
@@ -12667,6 +12721,24 @@
         },
         "reads_ingested_data": "events",
         "system_prompt_hint": "One MCP tool's top failure buckets, by harness (error type + HTTP status)"
+    },
+    "query-mcp-tool-intent-profile": {
+        "description": "Profile one effective tool: focus score and band (consolidated, mixed or spread: 1 means every call serves one topic, 0 an even spread), its top intent topics with a calls-per-day sparkline over the window, drift versus the previous window (new, growing, shrinking and gone topics by share) and the outlier intents that sit outside every topic. Pass toolName and an optional dateRange. Use to answer \"is the intent for tool X consolidated or all over the place?\", \"what are the outlier uses of tool X?\" and \"where is tool X's use drifting?\".",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "How one MCP tool is used (focus, top topics, drift, outliers)",
+        "title": "How one MCP tool is used (focus, top topics, drift, outliers)",
+        "required_scopes": ["query:read", "mcp_analytics:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics-intent-topics",
+        "reads_ingested_data": "events",
+        "system_prompt_hint": "One tool's intent focus, top topics with sparklines, drift and outliers"
     },
     "query-mcp-tool-neighbors": {
         "description": "Return the tools most often called immediately before or after a single MCP tool within the same conversation. Pass toolName (effective tool name, resolved server-side), a dateRange, and neighborDirection ('before' or 'after'). Use to answer \"what does an agent call around tool X?\" — revealing common tool sequences and which tools pair up.",

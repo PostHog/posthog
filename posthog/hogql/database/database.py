@@ -116,7 +116,12 @@ from posthog.hogql.database.schema.marketing_conversions_preaggregated import Ma
 from posthog.hogql.database.schema.marketing_costs_preaggregated import MarketingCostsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_costs_precomputed import MarketingCostsPrecomputedTable
 from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
-from posthog.hogql.database.schema.mcp_intent_assignments import MCPIntentAssignmentsTable, RawMCPIntentAssignmentsTable
+from posthog.hogql.database.schema.mcp_intent_assignments import (
+    MCPIntentAssignmentsTable,
+    MCPIntentCallsHourlyTable,
+    MCPIntentTopicDailyTable,
+    RawMCPIntentAssignmentsTable,
+)
 from posthog.hogql.database.schema.metrics import (
     MetricAttributesTable,
     MetricNamesTable,
@@ -589,6 +594,12 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     # Latest assignment per intent over raw_mcp_intent_assignments.
                     "mcp_intent_assignments": TableNode(
                         name="mcp_intent_assignments", table=MCPIntentAssignmentsTable()
+                    ),
+                    "mcp_intent_calls_hourly": TableNode(
+                        name="mcp_intent_calls_hourly", table=MCPIntentCallsHourlyTable()
+                    ),
+                    "mcp_intent_topic_daily": TableNode(
+                        name="mcp_intent_topic_daily", table=MCPIntentTopicDailyTable()
                     ),
                     **{name: TableNode(name=name, table=table) for name, table in HOGQL_POSTHOG_MODEL_TABLES.items()},
                     "logs_volume_buckets": TableNode(name="logs_volume_buckets", table=LogsVolumeBucketsTable()),

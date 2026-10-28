@@ -805,6 +805,72 @@ database "posthog" {
     }
   }
 
+  table "distributed_mcp_intent_calls_hourly" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "hour" {
+      type = "DateTime('UTC')"
+    }
+    column "intent_hash" {
+      type = "String"
+    }
+    column "tool" {
+      type = "LowCardinality(String)"
+    }
+    column "calls" {
+      type = "UInt32"
+    }
+    column "conversation_hashes" {
+      type = "Array(UInt64)"
+    }
+    column "inserted_at" {
+      type = "DateTime64(3, 'UTC')"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_mcp_intent_calls_hourly"
+      sharding_key    = "cityHash64(intent_hash)"
+    }
+  }
+
+  table "distributed_mcp_intent_topic_daily" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "day" {
+      type = "Date"
+    }
+    column "tool" {
+      type = "LowCardinality(String)"
+    }
+    column "topic_id" {
+      type = "String"
+    }
+    column "calls" {
+      type = "UInt64"
+    }
+    column "conversation_hashes" {
+      type = "Array(UInt64)"
+    }
+    column "outlier_calls" {
+      type = "UInt64"
+    }
+    column "intents" {
+      type = "UInt64"
+    }
+    column "inserted_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_mcp_intent_topic_daily"
+      sharding_key    = "cityHash64(team_id)"
+    }
+  }
+
   table "distributed_person_group_membership_config" {
     column "team_id" {
       type = "Int64"
@@ -6114,6 +6180,84 @@ database "posthog" {
     }
   }
 
+  table "sharded_mcp_intent_calls_hourly" {
+    order_by     = ["team_id", "hour", "intent_hash", "tool"]
+    partition_by = "toYYYYMM(hour)"
+    ttl          = "hour + toIntervalMonth(6)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "hour" {
+      type = "DateTime('UTC')"
+    }
+    column "intent_hash" {
+      type = "String"
+    }
+    column "tool" {
+      type = "LowCardinality(String)"
+    }
+    column "calls" {
+      type = "UInt32"
+    }
+    column "conversation_hashes" {
+      type = "Array(UInt64)"
+    }
+    column "inserted_at" {
+      type = "DateTime64(3, 'UTC')"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_mcp_intent_calls_hourly"
+      replica_name   = "{replica}"
+      version_column = "inserted_at"
+    }
+  }
+
+  table "sharded_mcp_intent_topic_daily" {
+    order_by     = ["team_id", "day", "tool", "topic_id"]
+    partition_by = "toYYYYMM(day)"
+    ttl          = "day + toIntervalMonth(12)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "day" {
+      type = "Date"
+    }
+    column "tool" {
+      type = "LowCardinality(String)"
+    }
+    column "topic_id" {
+      type = "String"
+    }
+    column "calls" {
+      type = "UInt64"
+    }
+    column "conversation_hashes" {
+      type = "Array(UInt64)"
+    }
+    column "outlier_calls" {
+      type = "UInt64"
+    }
+    column "intents" {
+      type = "UInt64"
+    }
+    column "inserted_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_mcp_intent_topic_daily"
+      replica_name   = "{replica}"
+      version_column = "inserted_at"
+    }
+  }
+
   table "sharded_performance_events" {
     order_by     = ["team_id", "toDate(timestamp)", "session_id", "pageview_id", "timestamp"]
     partition_by = "toYYYYMM(timestamp)"
@@ -8708,6 +8852,72 @@ database "posthog" {
       remote_database = "posthog"
       remote_table    = "sharded_mcp_intent_assignments"
       sharding_key    = "cityHash64(intent_hash)"
+    }
+  }
+
+  table "writable_mcp_intent_calls_hourly" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "hour" {
+      type = "DateTime('UTC')"
+    }
+    column "intent_hash" {
+      type = "String"
+    }
+    column "tool" {
+      type = "LowCardinality(String)"
+    }
+    column "calls" {
+      type = "UInt32"
+    }
+    column "conversation_hashes" {
+      type = "Array(UInt64)"
+    }
+    column "inserted_at" {
+      type = "DateTime64(3, 'UTC')"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_mcp_intent_calls_hourly"
+      sharding_key    = "cityHash64(intent_hash)"
+    }
+  }
+
+  table "writable_mcp_intent_topic_daily" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "day" {
+      type = "Date"
+    }
+    column "tool" {
+      type = "LowCardinality(String)"
+    }
+    column "topic_id" {
+      type = "String"
+    }
+    column "calls" {
+      type = "UInt64"
+    }
+    column "conversation_hashes" {
+      type = "Array(UInt64)"
+    }
+    column "outlier_calls" {
+      type = "UInt64"
+    }
+    column "intents" {
+      type = "UInt64"
+    }
+    column "inserted_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_mcp_intent_topic_daily"
+      sharding_key    = "cityHash64(team_id)"
     }
   }
 
