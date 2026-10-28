@@ -144,7 +144,7 @@ When the floor has crept, the lever is the same as it ever was — find the heav
 
 Set `POSTHOG_COMMAND_DIAGNOSTICS=1` for `migrate --check` or `migrate_clickhouse --check`; other management commands ignore it.
 `manage.py` arms `faulthandler.dump_traceback_later` before Django imports and writes every thread's stack to stderr every 60 seconds.
-`POSTHOG_COMMAND_DIAGNOSTICS_INTERVAL_SECONDS` changes the interval, with a one-second minimum; invalid, nonpositive or oversized values fall back to 60 seconds.
+`POSTHOG_COMMAND_DIAGNOSTICS_INTERVAL_SECONDS` changes the interval; invalid, nonpositive or oversized values fall back to 60 seconds.
 faulthandler writes from its own C thread, so a dump still arrives while the main thread is blocked in native code or holds the GIL.
 The top frames tell a Django import or `django.setup()` wait apart from a database connection or query wait.
 Diagnostics impose no timeout and preserve the command's exit status. With the variable unset, they produce no output.
