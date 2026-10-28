@@ -8,12 +8,18 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 import numpy as np
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_anchor_similarity import ReplayObservationAnchorSimilarity
-from products.replay_vision.backend.models.replay_scanner import PromptValence, ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner import (
+    PromptValence,
+    ReplayScanner,
+    ScannerModel,
+    ScannerOrigin,
+    ScannerType,
+)
 from products.replay_vision.backend.models.replay_scanner_semantics import (
     ReplayScannerFeedGroup,
     ReplayScannerSearchTheme,
@@ -77,10 +83,15 @@ class TestAssignSemantics(BaseTest):
         feed_group_cache.clear()
         self.scanner = self._scanner(ScannerType.SUMMARIZER)
 
-    def _scanner(self, scanner_type: str, valence: str = "", name: str = "checkout") -> ReplayScanner:
-        return ReplayScanner.objects.create(
+    def _scanner(
+        self, scanner_type: str, valence: str = "", name: str = "checkout", origin: str = ScannerOrigin.CONFIGURED
+    ) -> ReplayScanner:
+        inline = origin == ScannerOrigin.INLINE
+        return ReplayScanner.all_origins.create(
             team=self.team,
-            name=name,
+            name="" if inline else name,
+            origin=origin,
+            inline_key=name if inline else "",
             scanner_type=scanner_type,
             prompt_valence=valence,
             scanner_config={"prompt": "What happened at checkout?"},
@@ -113,7 +124,9 @@ class TestAssignSemantics(BaseTest):
     def _counts(self, model: type[ReplayScannerFeedGroup] | type[ReplayScannerSearchTheme]) -> list[int]:
         return sorted(model.objects.for_team(self.team.id).values_list("member_count", flat=True))
 
-    def test_close_observations_share_a_group_and_a_theme_and_a_redelivery_counts_once(self) -> None:
+    @parameterized.expand([(ScannerOrigin.CONFIGURED,), (ScannerOrigin.INLINE,)])
+    def test_close_observations_share_a_group_and_a_theme_and_a_redelivery_counts_once(self, origin: str) -> None:
+        self.scanner = self._scanner(ScannerType.SUMMARIZER, name="refunds", origin=origin)
         first, close, far = self._observation(), self._observation(), self._observation()
         routine = self._observation(category="routine")
 
@@ -244,7 +257,7 @@ class TestAssignSemantics(BaseTest):
         due = [self._assign(self._observation(), _vector(1.0)).theme.name_due for _ in range(5)]
         assert due == [False, False, False, False, True]
 
-    def test_naming_writes_the_label_once_per_doubling(self) -> None:
+    def test_naming_writes_the_label_once_per_doubling_and_retries_a_failed_call(self) -> None:
         for _ in range(5):
             assignment = self._assign(
                 self._observation(output={"scanner_type": "summarizer", "summary": "The card form rejected a card."}),
@@ -253,15 +266,40 @@ class TestAssignSemantics(BaseTest):
         theme_id = assignment.theme.theme_id
         response = MagicMock(text='{"query": "Valid Card Rejected At Checkout."}')
         client = MagicMock(aclose=AsyncMock())
-        client.models.generate_content = AsyncMock(return_value=response)
+        client.models.generate_content = AsyncMock(side_effect=[RuntimeError("model unavailable"), response])
         with (
             patch(f"{_THEMES}.replay_gemini_client", AsyncMock(return_value=client)),
             patch(f"{_THEMES}.is_ai_data_processing_approved", return_value=True),
         ):
+            with self.assertRaises(RuntimeError):
+                async_to_sync(name_theme)(self.team.id, theme_id, timezone.now())
             first = async_to_sync(name_theme)(self.team.id, theme_id, timezone.now())
             again = async_to_sync(name_theme)(self.team.id, theme_id, timezone.now())
 
         assert (first, again) == ("valid card rejected at checkout", None)
-        assert client.models.generate_content.await_count == 1
+        assert client.models.generate_content.await_count == 2
         theme = ReplayScannerSearchTheme.objects.for_team(self.team.id).get(id=theme_id)
         assert (theme.name, theme.rename_at_member_count) == ("valid card rejected at checkout", 10)
+
+    def test_a_failed_naming_leaves_a_newer_claim_in_place(self) -> None:
+        for _ in range(5):
+            assignment = self._assign(
+                self._observation(output={"scanner_type": "summarizer", "summary": "The card form rejected a card."}),
+                _vector(1.0),
+            )
+        themes = ReplayScannerSearchTheme.objects.for_team(self.team.id).filter(id=assignment.theme.theme_id)
+
+        async def doubled_then_failed(*_args: Any, **_kwargs: Any) -> None:
+            await sync_to_async(themes.update)(member_count=10, rename_at_member_count=20)
+            raise RuntimeError("model unavailable")
+
+        client = MagicMock(aclose=AsyncMock())
+        client.models.generate_content = AsyncMock(side_effect=doubled_then_failed)
+        with (
+            patch(f"{_THEMES}.replay_gemini_client", AsyncMock(return_value=client)),
+            patch(f"{_THEMES}.is_ai_data_processing_approved", return_value=True),
+            self.assertRaises(RuntimeError),
+        ):
+            async_to_sync(name_theme)(self.team.id, assignment.theme.theme_id, timezone.now())
+
+        assert themes.get().rename_at_member_count == 20

@@ -20,12 +20,13 @@ import numpy as np
 from posthog.dataclasses import frozen
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import PromptValence, ReplayScanner, ScannerType
+from products.replay_vision.backend.models.replay_scanner import PromptValence, ScannerType
 from products.replay_vision.backend.models.replay_scanner_semantics import (
     ReplayScannerFeedGroup,
     ReplayScannerSearchTheme,
     ReplayScannerSemanticCenter,
 )
+from products.replay_vision.backend.scanner_access import scanners_for_reading_observations
 from products.replay_vision.backend.semantic_space import (
     SEMANTIC_DIMENSIONS,
     pack,
@@ -54,7 +55,9 @@ def assign_semantics(
 ) -> SemanticAssignment | None:
     """None when the observation has no current rank, already has its clusters, or is gone."""
     scanner = (
-        ReplayScanner.objects.filter(team_id=team_id, id=scanner_id)
+        # Inline scans group and theme like configured scanners, so a question asked often enough becomes a theme.
+        scanners_for_reading_observations(team_id)
+        .filter(id=scanner_id)
         .values("scanner_type", "prompt_valence", "scanner_config")
         .first()
     )
