@@ -213,6 +213,13 @@ pub struct Config {
     #[envconfig(default = "4000")]
     pub seeder_max_inflight_tiles: usize,
 
+    /// Entries all newest-day indexes may hold together. A run sends a person's tile only for the
+    /// newest day it scans, on conditions where every leaf keeps only that day, and its index holds
+    /// one entry per (person, condition) pair, about 30-55 bytes. Past the cap new pairs are not
+    /// recorded, so their tiles are sent for every day.
+    #[envconfig(default = "10000000")]
+    pub seeder_newest_day_index_max_entries: usize,
+
     #[envconfig(default = "400")]
     pub seeder_max_lookback_days: u32,
 

@@ -236,8 +236,9 @@ impl ClaimedChunk {
     }
 }
 
-/// A person chunk whose seeds were interleaved scan→enqueue — never buffered — awaiting the
-/// `scanning`→`produced` CAS.
+/// A chunk whose seeds are all enqueued, awaiting the `scanning`→`produced` CAS. Only the count and
+/// the scan volume remain: a person chunk streams its seeds as it scans, and a behavioral chunk
+/// frees its tiles once they are enqueued.
 #[derive(Debug)]
 pub struct StreamedChunk {
     spec: ChunkSpec,
@@ -286,6 +287,17 @@ impl ScannedChunk {
     pub const fn volume(&self) -> ScanVolume {
         self.volume
     }
+
+    /// Pure transition once every tile is enqueued or skipped, with `seeds_produced` counting the
+    /// enqueued ones. Dropping the vector here frees it before the mark and the ack wait. No DB
+    /// effect.
+    pub fn into_streamed(self, seeds_produced: u64) -> StreamedChunk {
+        StreamedChunk {
+            spec: self.spec,
+            seeds_produced,
+            volume: self.volume,
+        }
+    }
 }
 
 impl std::fmt::Debug for ScannedChunk {
@@ -299,7 +311,7 @@ impl std::fmt::Debug for ScannedChunk {
     }
 }
 
-/// The `scanning`→`produced` CAS has committed; minted only by `store.mark_produced`.
+/// The `scanning`→`produced` CAS has committed; minted only by `store.mark_produced_streamed`.
 #[derive(Debug)]
 pub struct EnqueuedChunk {
     spec: ChunkSpec,

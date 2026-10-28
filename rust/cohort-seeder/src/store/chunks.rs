@@ -25,7 +25,7 @@ use crate::domain::{
     bands_for_day, person_chunk_sentinel_day, AttemptCount, Band, BandSpec, BandSpecError, ChunkId,
     ChunkLease, ChunkSpec, ChunkStatus, ClaimEpoch, ClaimKind, ClaimedChunk, DaySchedule,
     EnqueuedChunk, Halted, PersonRange, PersonRangeError, PlannedDay, ProduceHwms, ProducedChunk,
-    RunId, SChunkMs, ScanVolume, ScannedChunk, StreamedChunk, UtcMillis,
+    RunId, SChunkMs, ScanVolume, StreamedChunk, UtcMillis,
 };
 
 use super::lease::LeaseHandle;
@@ -258,6 +258,8 @@ impl PgChunkStore {
                   -- A trailing day is scanned only once it has ended and its run is `trailing`.
                   -- Claimed while the run still seeds, it would lose its lease when the
                   -- reconciling CAS fires, because the heartbeat joins the same run statuses.
+                  -- The newest-day index depends on this too: readiness does not wait for a
+                  -- trailing day, so it must not be recorded while a readiness day still sends.
                   AND (c.claimable_after IS NULL
                        OR (c.claimable_after <= now() AND r.status = 'trailing'))
                   AND ((c.status = $7 AND c.attempts < $4)
@@ -385,8 +387,8 @@ impl PgChunkStore {
         Ok(rows.into_iter().map(ExhaustedRun::from).collect())
     }
 
-    /// The person path's mark: seeds were already streamed to Kafka during the scan, so only the
-    /// count crosses the `scanning`→`produced` CAS.
+    /// The mark for both paths: every seed is already enqueued, so only the count sent crosses the
+    /// `scanning`→`produced` CAS.
     pub async fn mark_produced_streamed(
         &self,
         chunk: StreamedChunk,
@@ -401,30 +403,6 @@ impl PgChunkStore {
             return Err(Halted::failed(chunk, error));
         }
         Ok(EnqueuedChunk::new(spec, seeds_produced))
-    }
-
-    pub async fn mark_produced(
-        &self,
-        chunk: ScannedChunk,
-    ) -> Result<EnqueuedChunk, Halted<ScannedChunk, ChunkStoreError>> {
-        let spec = chunk.spec();
-        let tiles_produced = match u64::try_from(chunk.tiles().len()) {
-            Ok(count) => count,
-            Err(_) => {
-                return Err(Halted::failed(
-                    chunk,
-                    ChunkStoreError::TilesProducedOutOfRange(u64::MAX),
-                ));
-            }
-        };
-        let volume = chunk.volume();
-        if let Err(error) = self
-            .mark_produced_raw(spec.lease, tiles_produced, volume)
-            .await
-        {
-            return Err(Halted::failed(chunk, error));
-        }
-        Ok(EnqueuedChunk::new(spec, tiles_produced))
     }
 
     pub async fn confirm(

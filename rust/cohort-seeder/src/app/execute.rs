@@ -1,10 +1,11 @@
-//! App layer: one chunk's `scan → enqueue → mark → await → confirm` pipeline and the single recovery
-//! resolver. Depends on `clickhouse`, `kafka`, `store`, `domain`, and its `app` siblings.
+//! App layer: one chunk's `scan → record → enqueue → mark → await → confirm` pipeline and the single
+//! recovery resolver. Depends on `clickhouse`, `kafka`, `store`, `domain`, and its `app` siblings.
 //!
-//! The store's `mark_produced` sits between the two deliver phases: deliver owns Kafka, execute owns
-//! the store gating. Every halt funnels through [`resolve_halt`], which applies the exact recovery
-//! matrix — a pre-mark halt during shutdown unclaims (no attempt spent); everything else fails for
-//! retry — encoded once in [`FailureDisposition::resolve`] and pinned by its unit test.
+//! The store's `mark_produced_streamed` sits between the two deliver phases: deliver owns Kafka,
+//! execute owns the store gating. Every halt funnels through [`resolve_halt`], which applies the
+//! exact recovery matrix — a pre-mark halt during shutdown unclaims (no attempt spent); everything
+//! else fails for retry — encoded once in [`FailureDisposition::resolve`] and pinned by its unit
+//! test.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -30,6 +31,7 @@ use crate::store::runs::RunKind;
 use crate::store::RenderedError;
 
 use super::deliver::{self, ProduceError};
+use super::newest_day::NewestDayIndex;
 use super::person_execute::PersonChunkStats;
 use super::prepare::PreparedBehavioral;
 use super::settings::ProducerSettings;
@@ -39,6 +41,8 @@ pub(super) struct ChunkTaskContext {
     pub(super) chunk: ClaimedChunk,
     pub(super) lease: LeaseHandle,
     pub(super) prepared: Arc<PreparedBehavioral>,
+    /// `None` when no condition of the run qualifies.
+    pub(super) newest_day: Option<Arc<NewestDayIndex>>,
     pub(super) store: PgChunkStore,
     pub(super) scanner: ChunkScanner,
     pub(super) producer: SeedTileProducer,
@@ -55,6 +59,7 @@ pub(super) async fn execute_chunk(
         chunk,
         lease,
         prepared,
+        newest_day,
         store,
         scanner,
         producer,
@@ -78,10 +83,16 @@ pub(super) async fn execute_chunk(
         Ok(scanned) => scanned,
         Err(halt) => return resolve_halt(&store, halt, &shutdown, retry_backoff).await,
     };
-    // PreMark: pace and enqueue every tile, holding the in-flight deliveries.
-    let (scanned, inflight) = match deliver::enqueue_tiles(
+    // PreMark: record this scan's days before enqueuing, so an older day's chunk skips its tiles.
+    if let Some(index) = &newest_day {
+        index.record(scanned.tiles());
+    }
+    // PreMark: pace and enqueue every tile not superseded by a newer day, holding the in-flight
+    // deliveries.
+    let (streamed, inflight) = match deliver::enqueue_tiles(
         &producer,
         scanned,
+        newest_day.as_deref(),
         &pacer,
         producer_settings,
         &lease_cancel,
@@ -93,7 +104,7 @@ pub(super) async fn execute_chunk(
         Err(halt) => return resolve_halt(&store, halt, &shutdown, retry_backoff).await,
     };
     // PreMark: CAS `scanning`→`produced` — the row is still `scanning` on failure.
-    let enqueued = match store.mark_produced(scanned).await {
+    let enqueued = match store.mark_produced_streamed(streamed).await {
         Ok(enqueued) => enqueued,
         Err(halt) => {
             return resolve_halt(&store, mark_produced_halt(halt), &shutdown, retry_backoff).await
