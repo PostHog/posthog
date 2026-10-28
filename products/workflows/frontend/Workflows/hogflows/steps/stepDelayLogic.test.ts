@@ -16,8 +16,8 @@ import {
     parseDelayExpression,
     parseDelayOffset,
     shouldAutoUpdateDescription,
-    stepDelayLogic,
-} from './stepDelayLogic'
+} from './delayConfig'
+import { stepDelayLogic } from './stepDelayLogic'
 
 describe('stepDelayLogic', () => {
     let sdLogic: ReturnType<typeof stepDelayLogic.build>

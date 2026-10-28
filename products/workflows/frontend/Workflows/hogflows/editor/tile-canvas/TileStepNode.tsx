@@ -1,20 +1,20 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { workflowLogic } from '../../../workflowLogic'
 import type { HogFlow, HogFlowAction } from '../../types'
+import { TileAttentionMarker } from './TileAttentionMarker'
 import { tileCanvasLogic } from './tileCanvasLogic'
 import { hasStepMenu } from './tileCanvasModel'
 import { TileCaption } from './TileCaption'
 import { TileFace } from './TileFace'
-import { HOVER_CARD_CLOSE_MS, TileHoverCard } from './TileHoverCard'
+import { HOVER_CARD_CLOSE_MS, HOVER_CARD_OPEN_DELAY_MS, TileHoverCard } from './TileHoverCard'
 import { TileStepMenu } from './TileStepMenu'
 import { useHoverIntent } from './useHoverIntent'
 import { useRaisedNode } from './useRaisedNode'
 import { useTileStep } from './useTileStep'
-
-const HOVER_OPEN_DELAY_MS = 260
 
 export function TileStepNode({
     action,
@@ -33,9 +33,11 @@ export function TileStepNode({
 }): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)
     const tile = useTileStep(action, workflow)
-    const hover = useHoverIntent(interactive && !selected && !menuOpen, HOVER_OPEN_DELAY_MS, HOVER_CARD_CLOSE_MS)
+    const hover = useHoverIntent(interactive && !selected && !menuOpen, HOVER_CARD_OPEN_DELAY_MS, HOVER_CARD_CLOSE_MS)
     const { openStepMenu } = useActions(tileCanvasLogic)
+    const { actionValidationErrorsById } = useValues(workflowLogic)
     useRaisedNode(ref, hover.mounted)
+    const marker = actionValidationErrorsById[action.id]?.valid === false ? <TileAttentionMarker /> : undefined
     const face = (
         <div
             className={cn(
@@ -43,8 +45,17 @@ export function TileStepNode({
                 (selected || menuOpen) && 'ring-2 ring-[var(--color-accent)] ring-offset-4'
             )}
         >
-            <TileFace tile={tile} count={count} />
-            {hover.mounted && <TileHoverCard open={hover.open} action={action} tile={tile} count={count} />}
+            <TileFace tile={tile} count={count} marker={marker} />
+            {hover.mounted && (
+                <TileHoverCard
+                    open={hover.open}
+                    action={action}
+                    tile={tile}
+                    count={count}
+                    marker={marker}
+                    hint="Click to open the step"
+                />
+            )}
         </div>
     )
 

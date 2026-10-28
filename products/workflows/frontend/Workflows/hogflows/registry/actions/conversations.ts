@@ -1,26 +1,4 @@
+import { SUPPORT_TICKET_NODES } from 'products/workflows/frontend/Workflows/hogflows/builtInSteps'
 import { registerActionNodeCategory } from 'products/workflows/frontend/Workflows/hogflows/registry/actions/actionNodeRegistry'
 
-registerActionNodeCategory({
-    label: 'Support',
-    nodes: [
-        {
-            type: 'function',
-            name: 'Get ticket',
-            description: 'Fetch current ticket data into a workflow variable.',
-            config: { template_id: 'template-posthog-get-ticket', inputs: {} },
-            output_variable: { key: 'ticket', result_path: null, spread: true },
-        },
-        {
-            type: 'function',
-            name: 'Update ticket',
-            description: 'Update a conversation ticket status or priority.',
-            config: { template_id: 'template-posthog-update-ticket', inputs: {} },
-        },
-        {
-            type: 'function',
-            name: 'Send message',
-            description: 'Post a reply on a ticket, or save it as a private note.',
-            config: { template_id: 'template-posthog-send-ticket-message', inputs: {} },
-        },
-    ],
-})
+registerActionNodeCategory({ label: 'Support', nodes: SUPPORT_TICKET_NODES })

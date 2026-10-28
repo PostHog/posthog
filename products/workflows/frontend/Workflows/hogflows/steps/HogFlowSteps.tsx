@@ -2,25 +2,8 @@ import { Node } from '@xyflow/react'
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import {
-    IconBolt,
-    IconButton,
-    IconClock,
-    IconDay,
-    IconDecisionTree,
-    IconEye,
-    IconFilter,
-    IconHourglass,
-    IconLeave,
-    IconLetter,
-    IconNotification,
-    IconPeople,
-    IconPercentage,
-    IconTarget,
-    IconWebhooks,
-} from '@posthog/icons'
+import { IconBolt, IconButton, IconClock, IconFilter, IconPeople, IconTarget, IconWebhooks } from '@posthog/icons'
 
-import { IconTwilio } from 'lib/lemon-ui/icons'
 import { getNotificationDescription } from 'scenes/hog-functions/list/notificationDescription'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -28,11 +11,12 @@ import { HogFunctionTemplateType } from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
+import { getDelayDescription } from './delayConfig'
 import { StepConditionalBranchConfiguration } from './StepConditionalBranch'
 import { StepDelayConfiguration } from './StepDelay'
-import { getDelayDescription } from './stepDelayLogic'
 import { StepExitConfiguration } from './StepExit'
 import { StepFunctionConfiguration } from './StepFunction'
+import { stepLook } from './stepLook'
 import { StepRandomCohortBranchConfiguration } from './StepRandomCohortBranch'
 import { StepTriggerConfiguration } from './StepTrigger'
 import { StepWaitUntilConditionConfiguration } from './StepWaitUntilCondition'
@@ -46,11 +30,6 @@ type HogFlowStepPreview = {
 
 type HogFlowStepBuilder<T extends HogFlowAction['type']> = {
     type: T
-    icon: (
-        action: Extract<HogFlowAction, { type: T }>,
-        hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
-    ) => JSX.Element
-    color: (action: Extract<HogFlowAction, { type: T }>, isDarkModeOn: boolean) => string
     getPreviews: (
         action: Extract<HogFlowAction, { type: T }>,
         hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
@@ -125,8 +104,6 @@ const HogFlowStepConfigs: Partial<{
 }> = {
     conditional_branch: {
         type: 'conditional_branch',
-        icon: () => <IconDecisionTree />,
-        color: (_, isDarkModeOn) => (isDarkModeOn ? '#35C46F' : '#005841'),
         getPreviews: (action) => {
             const count = action.config.conditions?.length ?? 0
             return [{ label: `${count} ${count === 1 ? 'condition' : 'conditions'}` }]
@@ -135,23 +112,17 @@ const HogFlowStepConfigs: Partial<{
     },
     delay: {
         type: 'delay',
-        icon: () => <IconClock />,
-        color: () => '#a20031',
         getPreviews: (action) => [{ label: getDelayDescription(action.config).replace(/\.$/, '') }],
         renderConfiguration: (node) => <StepDelayConfiguration key={node.id} node={node} />,
     },
     exit: {
         type: 'exit',
-        icon: () => <IconLeave />,
-        color: () => '#4b4b4b',
         getPreviews: (action) => [{ label: action.config.reason || 'End workflow' }],
         renderConfiguration: (node) => <StepExitConfiguration key={node.id} node={node} />,
     },
 
     random_cohort_branch: {
         type: 'random_cohort_branch',
-        icon: () => <IconPercentage />,
-        color: (_, isDarkModeOn) => (isDarkModeOn ? '#D6247B' : '#9a004d'),
         getPreviews: (action) => {
             const count = action.config.cohorts?.length ?? 0
             return [{ label: `${count} ${count === 1 ? 'cohort' : 'cohorts'}` }]
@@ -160,22 +131,16 @@ const HogFlowStepConfigs: Partial<{
     },
     trigger: {
         type: 'trigger',
-        icon: () => <IconBolt />,
-        color: (_, isDarkModeOn) => (isDarkModeOn ? '#35C46F' : '#005841'),
         getPreviews: getTriggerPreviews,
         renderConfiguration: (node) => <StepTriggerConfiguration key={node.id} node={node} />,
     },
     wait_until_condition: {
         type: 'wait_until_condition',
-        icon: () => <IconHourglass />,
-        color: () => '#ffaa00',
         getPreviews: (action) => [{ label: `Up to ${action.config.max_wait_duration}` }],
         renderConfiguration: (node) => <StepWaitUntilConditionConfiguration key={node.id} node={node} />,
     },
     wait_until_time_window: {
         type: 'wait_until_time_window',
-        icon: () => <IconDay />,
-        color: () => '#FF653F',
         getPreviews: (action) => [
             {
                 label: getWaitUntilTimeWindowDescription(
@@ -193,8 +158,6 @@ const HogFlowStepConfigs: Partial<{
     // We can remove these later
     function_email: {
         type: 'function_email',
-        icon: () => <IconLetter />,
-        color: (_, isDarkModeOn) => (isDarkModeOn ? '#2F80FA' : '#2F80FA'),
         getPreviews: (action) => [
             {
                 label: action.config.inputs?.email?.value?.to?.email
@@ -206,8 +169,6 @@ const HogFlowStepConfigs: Partial<{
     },
     function_sms: {
         type: 'function_sms',
-        icon: () => <IconTwilio />,
-        color: () => '#f22f46',
         getPreviews: (action) => [
             {
                 label: action.config.inputs?.phoneNumber?.value
@@ -219,8 +180,6 @@ const HogFlowStepConfigs: Partial<{
     },
     function_push: {
         type: 'function_push',
-        icon: () => <IconNotification />,
-        color: (_, isDarkModeOn) => (isDarkModeOn ? '#F8BE2A' : '#F44D01'),
         getPreviews: (action) => [
             {
                 label: action.config.inputs?.title?.value
@@ -232,41 +191,6 @@ const HogFlowStepConfigs: Partial<{
     },
     function: {
         type: 'function',
-        icon: (action, hogFunctionTemplatesById) => {
-            if (action.config.template_id === 'template-email') {
-                return <IconLetter />
-            }
-
-            if (action.config.template_id === 'template-webhook') {
-                return <IconWebhooks />
-            }
-
-            if (action.config.template_id === 'template-native-push') {
-                return <IconNotification />
-            }
-
-            if (action.config.template_id === 'template-posthog-replay-vision') {
-                return <IconEye />
-            }
-
-            const template = hogFunctionTemplatesById[action.config.template_id]
-            return template?.icon_url ? (
-                <img className="LemonIcon !object-contain" src={template.icon_url} alt={template.name} />
-            ) : (
-                <IconBolt />
-            )
-        },
-        color: (action, isDarkModeOn) => {
-            if (action.config.template_id === 'template-email') {
-                return isDarkModeOn ? '#2F80FA' : '#2F80FA'
-            }
-
-            if (action.config.template_id === 'template-webhook') {
-                return isDarkModeOn ? '#B52AD9' : '#6500ae'
-            }
-
-            return isDarkModeOn ? '#F8BE2A' : '#F44D01'
-        },
         getPreviews: getFunctionPreviews,
         renderConfiguration: (node) => <StepFunctionConfiguration key={node.id} node={node} />,
     },
@@ -280,7 +204,8 @@ export function getHogFlowStep<T extends HogFlowAction['type']>(
 ): HogFlowStep<T> | undefined {
     const type = action.type
     const builder = HogFlowStepConfigs[type] as HogFlowStepBuilder<T> | undefined
-    if (!builder) {
+    const look = stepLook(action, hogFunctionTemplatesById, isDarkModeOn)
+    if (!builder || !look) {
         return undefined
     }
     const conditionCount =
@@ -294,8 +219,8 @@ export function getHogFlowStep<T extends HogFlowAction['type']>(
 
     return {
         type,
-        icon: builder.icon(action, hogFunctionTemplatesById),
-        color: builder.color(action, isDarkModeOn),
+        icon: look.icon,
+        color: look.color,
         previews,
         renderConfiguration: builder.renderConfiguration,
     }
