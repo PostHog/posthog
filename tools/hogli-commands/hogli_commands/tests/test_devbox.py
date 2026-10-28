@@ -1361,6 +1361,34 @@ class TestCapacityFallback:
         assert starts == expected_starts
 
     @pytest.mark.parametrize(
+        "transient",
+        [coder.requests.ConnectionError("reset"), MagicMock(ok=False, status_code=503)],
+        ids=["connection-error", "http-503"],
+    )
+    def test_build_wait_polls_again_after_a_transient_failure(
+        self, monkeypatch: pytest.MonkeyPatch, transient: object
+    ) -> None:
+        polls = iter(
+            [transient, MagicMock(ok=True, status_code=200, json=lambda: {"id": "b-1", "job": {"status": "succeeded"}})]
+        )
+
+        def fake_request(method: str, url: str, **kwargs: Any) -> object:
+            if method == "POST":
+                return MagicMock(ok=True, json=lambda: {"id": "b-1", "job": {"status": "running"}})
+            reply = next(polls)
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+
+        monkeypatch.setattr(coder.requests, "request", fake_request)
+        monkeypatch.setattr(coder, "BUILD_POLL_INTERVAL", 0)
+        monkeypatch.setattr(coder._CoderApi, "__init__", lambda self: None)
+        api = coder._CoderApi()
+        api._base_url, api._headers = "https://coder.example.com/api/v2", {}
+
+        assert api.start_on_instance_type("ws-1", "m7g.4xlarge").job_status == "succeeded"
+
+    @pytest.mark.parametrize(
         "env_token, expected", [("env-token", "env-token"), (None, "stored-token")], ids=["env", "stored-login"]
     )
     def test_api_authenticates_with_the_token_the_cli_uses(

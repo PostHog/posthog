@@ -1652,6 +1652,18 @@ class _CoderApi:
             _fail(f"Coder rejected {method} {path}: {response.text}", cause="coder_api_rejected")
         return response.json()
 
+    def poll(self, path: str) -> Any | None:
+        """GET ``path``, returning None on a network error or a 5xx so the caller polls again."""
+        try:
+            response = requests.request("GET", f"{self._base_url}{path}", headers=self._headers, json=None, timeout=30)
+        except requests.RequestException:
+            return None
+        if response.status_code >= 500:
+            return None
+        if not response.ok:
+            _fail(f"Coder rejected GET {path}: {response.text}", cause="coder_api_rejected")
+        return response.json()
+
     def instance_type(self, build_id: str) -> str | None:
         parameters = self.request("GET", f"/workspacebuilds/{build_id}/parameters")
         return next((p["value"] for p in parameters if p["name"] == INSTANCE_TYPE_PARAMETER), None)
@@ -1677,7 +1689,7 @@ class _CoderApi:
             if time.monotonic() >= deadline:
                 _fail(f"The devbox build did not finish within {BUILD_WAIT_TIMEOUT}s.", cause="build_wait_timeout")
             time.sleep(BUILD_POLL_INTERVAL)
-            build = self.request("GET", f"/workspacebuilds/{build['id']}")
+            build = self.poll(f"/workspacebuilds/{build['id']}") or build
         if status == "succeeded":
             return _FinishedBuild(job_status=status, log_output="")
         logs = self.request("GET", f"/workspacebuilds/{build['id']}/logs")
