@@ -14,8 +14,11 @@ import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import type { BulkSelectionConfig } from 'lib/lemon-ui/LemonTable/useBulkSelection'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
+
+import { InsightShortId } from '~/types'
 
 import { METRIC_BULK_MAX, compareText, humanizeDefinitionKind, metricCount, reportCatalogTableSorted } from '../common'
 import { CatalogExplainer } from '../components/CatalogExplainer'
@@ -204,7 +207,22 @@ export function MetricsTab(): JSX.Element {
         {
             title: 'Definition',
             key: 'definition_kind',
-            render: (_, metric) => <LemonTag type="option">{humanizeDefinitionKind(metric.definition_kind)}</LemonTag>,
+            render: (_, metric) => (
+                <div className="flex items-center gap-1.5 whitespace-nowrap">
+                    <LemonTag type="option">{humanizeDefinitionKind(metric.definition_kind)}</LemonTag>
+                    {/* An insight-linked metric copies its definition from the insight, which is what Refresh pulls from. */}
+                    {metric.source_insight_short_id && (
+                        <Link
+                            to={urls.insightView(metric.source_insight_short_id as InsightShortId)}
+                            target="_blank"
+                            className="text-xs"
+                            data-attr="data-catalog-metric-source-insight"
+                        >
+                            Insight
+                        </Link>
+                    )}
+                </div>
+            ),
             sorter: (a, b) =>
                 compareText(humanizeDefinitionKind(a.definition_kind), humanizeDefinitionKind(b.definition_kind)),
         },
