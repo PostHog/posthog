@@ -58689,6 +58689,98 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `failure` - Failure
+     * * `struggle` - Struggle
+     * * `revenue` - Revenue
+     */
+    export type HighlightFeedCategoryEnum = typeof HighlightFeedCategoryEnum[keyof typeof HighlightFeedCategoryEnum];
+
+
+    export const HighlightFeedCategoryEnum = {
+      Failure: 'failure',
+      Struggle: 'struggle',
+      Revenue: 'revenue',
+    } as const;
+
+    /**
+     * Body of POST /vision/scanners/highlight_feed_impressions/.
+     */
+    export interface HighlightFeedImpressions {
+      /** The client's id for the feed load that showed these cards. One load counts each card once. */
+      feed_load_id: string;
+      /**
+         * Observations the calling user saw in the Highlights feed, at most 100. Ids the user cannot read are ignored.
+         * @minItems 1
+         * @maxItems 100
+         */
+      observation_ids: string[];
+    }
+
+    /**
+     * * `embedding_pick` - Embedding Pick
+     * * `unviewed_recent` - Unviewed Recent
+     * * `recent` - Recent
+     */
+    export type HighlightFeedReasonEnum = typeof HighlightFeedReasonEnum[keyof typeof HighlightFeedReasonEnum];
+
+
+    export const HighlightFeedReasonEnum = {
+      EmbeddingPick: 'embedding_pick',
+      UnviewedRecent: 'unviewed_recent',
+      Recent: 'recent',
+    } as const;
+
+    /**
+     * Machine-readable reason an observation made the feed; the frontend renders the copy.
+     */
+    export interface HighlightFeedReason {
+      /** Why the observation is in the feed: `embedding_pick` (the session reads like a failure, struggle, or revenue moment and ranks in its scanner's top fifth), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+       *
+       * * `embedding_pick` - Embedding Pick
+       * * `unviewed_recent` - Unviewed Recent
+       * * `recent` - Recent */
+      kind: HighlightFeedReasonEnum;
+      /** What the session reads like, for `embedding_pick`.
+       *
+       * * `failure` - Failure
+       * * `struggle` - Struggle
+       * * `revenue` - Revenue */
+      watch_category?: HighlightFeedCategoryEnum;
+      /**
+         * Other sessions from the same scanner in the window that describe nearly the same thing, for `embedding_pick`. The feed shows one session per group.
+         * @nullable
+         */
+      similar_count?: number | null;
+      /**
+         * Distinct people across the session's feed group in the window, for `embedding_pick`. A finding that reached more people ranks higher.
+         * @nullable
+         */
+      affected_people?: number | null;
+    }
+
+    /**
+     * One feed entry: the observation plus why it ranked.
+     */
+    export interface HighlightFeedItem {
+      /** The observation, in the standard shape. */
+      observation: ReplayObservation;
+      /** Why this observation made the feed. */
+      reason: HighlightFeedReason;
+    }
+
+    /**
+     * Response of GET /vision/scanners/highlight_feed/.
+     */
+    export interface HighlightFeedResponse {
+      /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
+      results: HighlightFeedItem[];
+      /** Whether a later page holds more ranked items. Request it with `offset` set past this page. */
+      has_more: boolean;
+      /** The time this feed ranks as of. Send it back with later pages. */
+      as_of: string;
+    }
+
+    /**
      * * `risk` - Risk
      * * `opportunity` - Opportunity
      */
@@ -122933,98 +123025,6 @@ export namespace Schemas {
       task_id: string;
       /** ID of the idling successor run that submit will activate. */
       run_id: string;
-    }
-
-    /**
-     * * `failure` - Failure
-     * * `struggle` - Struggle
-     * * `revenue` - Revenue
-     */
-    export type HighlightFeedCategoryEnum = typeof HighlightFeedCategoryEnum[keyof typeof HighlightFeedCategoryEnum];
-
-
-    export const HighlightFeedCategoryEnum = {
-      Failure: 'failure',
-      Struggle: 'struggle',
-      Revenue: 'revenue',
-    } as const;
-
-    /**
-     * Body of POST /vision/scanners/highlight_feed_impressions/.
-     */
-    export interface HighlightFeedImpressions {
-      /** The client's id for the feed load that showed these cards. One load counts each card once. */
-      feed_load_id: string;
-      /**
-         * Observations the calling user saw in the Highlights feed, at most 100. Ids the user cannot read are ignored.
-         * @minItems 1
-         * @maxItems 100
-         */
-      observation_ids: string[];
-    }
-
-    /**
-     * * `embedding_pick` - Embedding Pick
-     * * `unviewed_recent` - Unviewed Recent
-     * * `recent` - Recent
-     */
-    export type HighlightFeedReasonEnum = typeof HighlightFeedReasonEnum[keyof typeof HighlightFeedReasonEnum];
-
-
-    export const HighlightFeedReasonEnum = {
-      EmbeddingPick: 'embedding_pick',
-      UnviewedRecent: 'unviewed_recent',
-      Recent: 'recent',
-    } as const;
-
-    /**
-     * Machine-readable reason an observation made the feed; the frontend renders the copy.
-     */
-    export interface HighlightFeedReason {
-      /** Why the observation is in the feed: `embedding_pick` (the session reads like a failure, struggle, or revenue moment and ranks in its scanner's top fifth), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
-       *
-       * * `embedding_pick` - Embedding Pick
-       * * `unviewed_recent` - Unviewed Recent
-       * * `recent` - Recent */
-      kind: HighlightFeedReasonEnum;
-      /** What the session reads like, for `embedding_pick`.
-       *
-       * * `failure` - Failure
-       * * `struggle` - Struggle
-       * * `revenue` - Revenue */
-      watch_category?: HighlightFeedCategoryEnum;
-      /**
-         * Other sessions from the same scanner in the window that describe nearly the same thing, for `embedding_pick`. The feed shows one session per group.
-         * @nullable
-         */
-      similar_count?: number | null;
-      /**
-         * Distinct people across the session's feed group in the window, for `embedding_pick`. A finding that reached more people ranks higher.
-         * @nullable
-         */
-      affected_people?: number | null;
-    }
-
-    /**
-     * One feed entry: the observation plus why it ranked.
-     */
-    export interface HighlightFeedItem {
-      /** The observation, in the standard shape. */
-      observation: ReplayObservation;
-      /** Why this observation made the feed. */
-      reason: HighlightFeedReason;
-    }
-
-    /**
-     * Response of GET /vision/scanners/highlight_feed/.
-     */
-    export interface HighlightFeedResponse {
-      /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
-      results: HighlightFeedItem[];
-      /** Whether a later page holds more ranked items. Request it with `offset` set past this page. */
-      has_more: boolean;
-      /** The time this feed ranks as of. Send it back with later pages. */
-      as_of: string;
     }
 
     export interface WebAnalyticsBotCondition {

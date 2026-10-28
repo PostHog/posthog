@@ -1474,6 +1474,26 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
     .describe('Body of POST \/vision\/scanners\/estimate\/ — a proposed, unsaved scanner config.')
 
 /**
+ * Record that the calling user saw these cards in the Highlights feed, so the feed ranks them lower next time.
+ */
+export const visionScannersHighlightFeedImpressionsCreateBodyObservationIdsMax = 100
+
+export const VisionScannersHighlightFeedImpressionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        feed_load_id: zod
+            .uuid()
+            .describe("The client's id for the feed load that showed these cards. One load counts each card once."),
+        observation_ids: zod
+            .array(zod.uuid())
+            .min(1)
+            .max(visionScannersHighlightFeedImpressionsCreateBodyObservationIdsMax)
+            .describe(
+                'Observations the calling user saw in the Highlights feed, at most 100. Ids the user cannot read are ignored.'
+            ),
+    })
+    .describe('Body of POST \/vision\/scanners\/highlight_feed_impressions\/.')
+
+/**
  * Scan named sessions against a prompt without saving a scanner first, for one-off questions.
  *
  * The config resolves to a scanner minted on first use, so asking the same question twice reuses
@@ -1540,23 +1560,3 @@ export const VisionScannersInlineScanCreateBody = /* @__PURE__ */ zod
     .describe(
         'Body of POST \/vision\/scanners\/inline_scan\/ - a prompt or built-in scan plus the sessions to point it at.'
     )
-
-/**
- * Record that the calling user saw these cards in the Highlights feed, so the feed ranks them lower next time.
- */
-export const visionScannersHighlightFeedImpressionsCreateBodyObservationIdsMax = 100
-
-export const VisionScannersHighlightFeedImpressionsCreateBody = /* @__PURE__ */ zod
-    .object({
-        feed_load_id: zod
-            .uuid()
-            .describe("The client's id for the feed load that showed these cards. One load counts each card once."),
-        observation_ids: zod
-            .array(zod.uuid())
-            .min(1)
-            .max(visionScannersHighlightFeedImpressionsCreateBodyObservationIdsMax)
-            .describe(
-                'Observations the calling user saw in the Highlights feed, at most 100. Ids the user cannot read are ignored.'
-            ),
-    })
-    .describe('Body of POST \/vision\/scanners\/highlight_feed_impressions\/.')

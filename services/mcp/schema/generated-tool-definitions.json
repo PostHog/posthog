@@ -15730,6 +15730,21 @@
             "readOnlyHint": true
         }
     },
+    "vision-scanners-highlight-feed": {
+        "description": "Rank succeeded replay vision observations in a window by how worth watching their recordings are, across every scanner you can read. Each item pairs the `observation` (with its `session_id`) and the `reason` it made the feed. `date_from` defaults to `-7d` (ISO 8601 or relative); the window spans at most 90 days. Narrow with `scanner_ids`, `scanner_type`, or scanner `tags`. `limit` is at most 50. Use it to answer \"which recordings should I watch this week?\".",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get ranked recordings to watch",
+        "title": "Get ranked recordings to watch",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "api_operations": ["GET /api/projects/{project_id}/vision/scanners/highlight_feed/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "vision-scanners-impact-get": {
         "description": "Affected sessions and users for a scanner over a trailing window, counted from its observations. Monitors count verdict-yes observations and take no qualifiers; classifiers require `tag`; scorers require `min_score` and/or `max_score`. `sessions_without_user` reports affected sessions that carried no distinct ID, so the user count reads honestly against the session count.",
         "category": "Replay vision",
@@ -15938,21 +15953,6 @@
         "title": "Compare an experiment scanner's variants",
         "required_scopes": ["replay_scanner:read", "session_recording:read"],
         "api_operations": ["GET /api/projects/{project_id}/vision/scanners/{scanner_id}/variants/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "vision-scanners-highlight-feed": {
-        "description": "Rank succeeded replay vision observations in a window by how worth watching their recordings are, across every scanner you can read. Each item pairs the `observation` (with its `session_id`) and the `reason` it made the feed. `date_from` defaults to `-7d` (ISO 8601 or relative); the window spans at most 90 days. Narrow with `scanner_ids`, `scanner_type`, or scanner `tags`. `limit` is at most 50. Use it to answer \"which recordings should I watch this week?\".",
-        "category": "Replay vision",
-        "feature": "replay_vision",
-        "summary": "Get ranked recordings to watch",
-        "title": "Get ranked recordings to watch",
-        "required_scopes": ["replay_scanner:read", "session_recording:read"],
-        "api_operations": ["GET /api/projects/{project_id}/vision/scanners/highlight_feed/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

@@ -2827,91 +2827,6 @@ export interface EstimateResponseApi {
 }
 
 /**
- * Body of POST /vision/scanners/inline_scan/ - a prompt or built-in scan plus the sessions to point it at.
- */
-export interface InlineScanRequestApi {
-    /** Run a scan PostHog defines instead of your own prompt. `summarize_recording` is the AI summary the Summarize button in the replay player runs, so its results are shared with that button. Leave out `prompt`, `scanner_type` and `scanner_config` when this is set.
-     *
-     * * `summarize_recording` - Summarize recording */
-    built_in?: BuiltInScanKeyEnumApi
-    /**
-     * What to look for in these sessions, in plain language. The same instruction a saved scanner carries. Required unless `built_in` is set.
-     * @maxLength 20000
-     */
-    prompt?: string
-    /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` for a summary in your own words; use `built_in: summarize_recording` for the Summarize button's summary. An inline scan is keyed by its whole config, so asking the same question again reuses its answers.
-     *
-     * * `monitor` - Monitor
-     * * `classifier` - Classifier
-     * * `scorer` - Scorer
-     * * `summarizer` - Summarizer
-     * * `experiment` - Experiment */
-    scanner_type?: ScannerTypeEnumApi
-    /** Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here. */
-    scanner_config?: unknown
-    /** Model to scan with. Determines what each observation costs in credits.
-     *
-     * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-     * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
-    model?: ScannerModelEnumApi
-    /**
-     * Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.
-     * @maxItems 200
-     * @items.maxLength 128
-     */
-    session_ids: string[]
-}
-
-/**
- * `bulk_observe`'s partial-success shape plus the id to read the results back through.
- */
-export interface InlineScanResponseApi {
-    /** How many new scans were started. */
-    started: number
-    /** Per-session outcomes, in request order (deduplicated). */
-    results: BulkObserveResultApi[]
-    /**
-     * Read results from `/vision/scanners/{scan_id}/observations/`. Stable for a given prompt and model, so asking the same question again returns the same id. Null when nothing was started and nothing existed to read, which happens when the quota is already used up.
-     * @nullable
-     */
-    scan_id: string | null
-}
-
-/**
- * Per-scanner-type count of enabled vs total scanners.
- */
-export interface ScannerTypeStatsApi {
-    /** Number of enabled scanners of this type. */
-    enabled: number
-    /** Number of scanners of this type (enabled + disabled). */
-    total: number
-}
-
-/**
- * One `ScannerTypeStats` per scanner type — explicit fields give callers a typed shape, not `Record<string, …>`.
- */
-export interface ScannerStatsByTypeApi {
-    monitor: ScannerTypeStatsApi
-    classifier: ScannerTypeStatsApi
-    scorer: ScannerTypeStatsApi
-    summarizer: ScannerTypeStatsApi
-    experiment: ScannerTypeStatsApi
-}
-
-/**
- * Team-wide scanner counts independent of any list-filter state.
- */
-export interface ScannerStatsResponseApi {
-    /** Total scanners on the team. */
-    total: number
-    /** Number of enabled scanners on the team. */
-    enabled: number
-    /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer / experiment). */
-    by_type: ScannerStatsByTypeApi
-}
-
-/**
  * * `embedding_pick` - Embedding Pick
  * * `unviewed_recent` - Unviewed Recent
  * * `recent` - Recent
@@ -3000,6 +2915,91 @@ export interface HighlightFeedImpressionsApi {
      * @maxItems 100
      */
     observation_ids: string[]
+}
+
+/**
+ * Body of POST /vision/scanners/inline_scan/ - a prompt or built-in scan plus the sessions to point it at.
+ */
+export interface InlineScanRequestApi {
+    /** Run a scan PostHog defines instead of your own prompt. `summarize_recording` is the AI summary the Summarize button in the replay player runs, so its results are shared with that button. Leave out `prompt`, `scanner_type` and `scanner_config` when this is set.
+     *
+     * * `summarize_recording` - Summarize recording */
+    built_in?: BuiltInScanKeyEnumApi
+    /**
+     * What to look for in these sessions, in plain language. The same instruction a saved scanner carries. Required unless `built_in` is set.
+     * @maxLength 20000
+     */
+    prompt?: string
+    /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` for a summary in your own words; use `built_in: summarize_recording` for the Summarize button's summary. An inline scan is keyed by its whole config, so asking the same question again reuses its answers.
+     *
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment */
+    scanner_type?: ScannerTypeEnumApi
+    /** Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here. */
+    scanner_config?: unknown
+    /** Model to scan with. Determines what each observation costs in credits.
+     *
+     * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
+    model?: ScannerModelEnumApi
+    /**
+     * Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.
+     * @maxItems 200
+     * @items.maxLength 128
+     */
+    session_ids: string[]
+}
+
+/**
+ * `bulk_observe`'s partial-success shape plus the id to read the results back through.
+ */
+export interface InlineScanResponseApi {
+    /** How many new scans were started. */
+    started: number
+    /** Per-session outcomes, in request order (deduplicated). */
+    results: BulkObserveResultApi[]
+    /**
+     * Read results from `/vision/scanners/{scan_id}/observations/`. Stable for a given prompt and model, so asking the same question again returns the same id. Null when nothing was started and nothing existed to read, which happens when the quota is already used up.
+     * @nullable
+     */
+    scan_id: string | null
+}
+
+/**
+ * Per-scanner-type count of enabled vs total scanners.
+ */
+export interface ScannerTypeStatsApi {
+    /** Number of enabled scanners of this type. */
+    enabled: number
+    /** Number of scanners of this type (enabled + disabled). */
+    total: number
+}
+
+/**
+ * One `ScannerTypeStats` per scanner type — explicit fields give callers a typed shape, not `Record<string, …>`.
+ */
+export interface ScannerStatsByTypeApi {
+    monitor: ScannerTypeStatsApi
+    classifier: ScannerTypeStatsApi
+    scorer: ScannerTypeStatsApi
+    summarizer: ScannerTypeStatsApi
+    experiment: ScannerTypeStatsApi
+}
+
+/**
+ * Team-wide scanner counts independent of any list-filter state.
+ */
+export interface ScannerStatsResponseApi {
+    /** Total scanners on the team. */
+    total: number
+    /** Number of enabled scanners on the team. */
+    enabled: number
+    /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer / experiment). */
+    by_type: ScannerStatsByTypeApi
 }
 
 export type VisionAlertsListParams = {

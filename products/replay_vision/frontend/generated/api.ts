@@ -23,6 +23,8 @@ import type {
     EstimateRequestApi,
     EstimateResponseApi,
     ExperimentVariantsReadoutApi,
+    HighlightFeedImpressionsApi,
+    HighlightFeedResponseApi,
     InlineScanRequestApi,
     InlineScanResponseApi,
     ObservationFeedDismissalApi,
@@ -69,6 +71,7 @@ import type {
     VisionObservationsThumbnailRetrieveParams,
     VisionQuotaApi,
     VisionScannersBackfillsListParams,
+    VisionScannersHighlightFeedRetrieveParams,
     VisionScannersImpactRetrieveParams,
     VisionScannersListParams,
     VisionScannersObservationsListParams,
@@ -76,10 +79,7 @@ import type {
     VisionScannersObservationsSignalReportsListParams,
     VisionScannersObservationsStatsRetrieveParams,
     VisionScannersObservationsThumbnailRetrieveParams,
-    VisionScannersHighlightFeedRetrieveParams,
     VisionSpendSeriesApi,
-    HighlightFeedImpressionsApi,
-    HighlightFeedResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -1596,50 +1596,6 @@ export const visionScannersEstimateCreate = async (
     })
 }
 
-export const getVisionScannersInlineScanCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/vision/scanners/inline_scan/`
-}
-
-/**
- * Scan named sessions against a prompt without saving a scanner first, for one-off questions.
- *
- * The config resolves to a scanner minted on first use, so asking the same question twice reuses
- * the observations it already has, while a different question about the same session gets its own.
- *
- * With `scanner_type` set to `summarizer`, this is how you get PostHog's own AI summary for a
- * recording ID. It resolves to the Summarize button's own scanner only when the prompt and
- * `scanner_config` match what the button sends, since the config is what the key fingerprints.
- */
-export const visionScannersInlineScanCreate = async (
-    projectId: string,
-    inlineScanRequestApi: InlineScanRequestApi,
-    options?: RequestInit
-): Promise<InlineScanResponseApi> => {
-    return apiMutator<InlineScanResponseApi>(getVisionScannersInlineScanCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(inlineScanRequestApi),
-    })
-}
-
-export const getVisionScannersStatsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/vision/scanners/stats/`
-}
-
-/**
- * Team-wide scanner counts — independent of list filters, so the overview stays stable.
- */
-export const visionScannersStatsRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<ScannerStatsResponseApi> => {
-    return apiMutator<ScannerStatsResponseApi>(getVisionScannersStatsRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getVisionScannersHighlightFeedRetrieveUrl = (
     projectId: string,
     params?: VisionScannersHighlightFeedRetrieveParams
@@ -1690,5 +1646,49 @@ export const visionScannersHighlightFeedImpressionsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(highlightFeedImpressionsApi),
+    })
+}
+
+export const getVisionScannersInlineScanCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/inline_scan/`
+}
+
+/**
+ * Scan named sessions against a prompt without saving a scanner first, for one-off questions.
+ *
+ * The config resolves to a scanner minted on first use, so asking the same question twice reuses
+ * the observations it already has, while a different question about the same session gets its own.
+ *
+ * With `scanner_type` set to `summarizer`, this is how you get PostHog's own AI summary for a
+ * recording ID. It resolves to the Summarize button's own scanner only when the prompt and
+ * `scanner_config` match what the button sends, since the config is what the key fingerprints.
+ */
+export const visionScannersInlineScanCreate = async (
+    projectId: string,
+    inlineScanRequestApi: InlineScanRequestApi,
+    options?: RequestInit
+): Promise<InlineScanResponseApi> => {
+    return apiMutator<InlineScanResponseApi>(getVisionScannersInlineScanCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(inlineScanRequestApi),
+    })
+}
+
+export const getVisionScannersStatsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/stats/`
+}
+
+/**
+ * Team-wide scanner counts — independent of list filters, so the overview stays stable.
+ */
+export const visionScannersStatsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ScannerStatsResponseApi> => {
+    return apiMutator<ScannerStatsResponseApi>(getVisionScannersStatsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
