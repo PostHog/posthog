@@ -42676,7 +42676,52 @@ export namespace Schemas {
       readonly id: string;
       /** @maxLength 400 */
       name: string;
+      /** The user responsible for the event, or null when it has no owner. */
+      readonly owner?: UserBasic | null;
       /** @nullable */
+      description?: string | null;
+      tags?: unknown[];
+      /** @nullable */
+      readonly created_at: string | null;
+      readonly updated_at: string;
+      readonly updated_by: UserBasic;
+      /** @nullable */
+      readonly last_seen_at: string | null;
+      readonly last_updated_at: string;
+      verified?: boolean;
+      /** @nullable */
+      readonly verified_at: string | null;
+      readonly verified_by: UserBasic;
+      /** @nullable */
+      hidden?: boolean | null;
+      enforcement_mode?: SchemaEnforcementModeEnum;
+      /**
+         * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+         * @maxLength 400
+         * @nullable
+         */
+      primary_property?: string | null;
+      readonly is_action: boolean;
+      readonly action_id: number;
+      readonly is_calculating: boolean;
+      readonly last_calculated_at: string;
+      readonly created_by: UserBasic;
+      post_to_slack?: boolean;
+      default_columns?: string[];
+      readonly media_preview_urls: readonly string[];
+    }
+
+    /**
+     * Serializer mixin that handles tags for objects.
+     */
+    export interface EnterpriseEventDefinitionRequest {
+      readonly id: string;
+      /** @maxLength 400 */
+      name: string;
+      /**
+         * ID of the user responsible for the event. Null removes the owner.
+         * @nullable
+         */
       owner?: number | null;
       /** @nullable */
       description?: string | null;
@@ -86366,7 +86411,10 @@ export namespace Schemas {
       readonly id?: string;
       /** @maxLength 400 */
       name?: string;
-      /** @nullable */
+      /**
+         * ID of the user responsible for the event. Null removes the owner.
+         * @nullable
+         */
       owner?: number | null;
       /** @nullable */
       description?: string | null;
