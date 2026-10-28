@@ -1,3 +1,5 @@
+import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
+
 import { PostHogApi } from '@/posthog/api'
 import { resolveCredentials, type ResolvedCredentials } from '@/posthog/credentials'
 
@@ -39,6 +41,7 @@ export class Context {
     private api?: PostHogApi
     private resolved?: ResolvedCredentials
     private loaded?: Promise<LoadedConfig | undefined>
+    private tools?: Promise<ApiToolLibrary>
 
     constructor(
         readonly runtime: Runtime,
@@ -66,6 +69,11 @@ export class Context {
     config(): Promise<LoadedConfig | undefined> {
         this.loaded ??= loadConfig(this.runtime)
         return this.loaded
+    }
+
+    apiTools(): Promise<ApiToolLibrary> {
+        this.tools ??= this.runtime.loadApiTools()
+        return this.tools
     }
 
     // Throws `not_authenticated` when there are none.

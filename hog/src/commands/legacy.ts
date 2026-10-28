@@ -1,7 +1,6 @@
 import { defineLegacy, type CommandTree } from '@/core/command'
 
 export const LEGACY_COMMANDS: CommandTree = {
-    api: defineLegacy({ description: 'Agent-first PostHog API tools', use: 'posthog-cli api' }),
     endpoints: defineLegacy({ description: 'Manage PostHog endpoints', use: 'posthog-cli exp endpoints' }),
     logs: defineLegacy({
         description: 'Import historical logs from another log store into PostHog',

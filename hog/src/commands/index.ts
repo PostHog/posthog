@@ -1,5 +1,6 @@
 import type { CommandTree } from '@/core/command'
 
+import api from './api'
 import auth from './auth'
 import commands from './commands'
 import config from './config'
@@ -10,6 +11,7 @@ import query from './query'
 export const COMMANDS: CommandTree = {
     auth,
     query,
+    api,
     'error-tracking': errorTracking,
     config,
     commands,

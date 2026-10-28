@@ -3,6 +3,8 @@ import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises
 import { homedir } from 'node:os'
 import { dirname } from 'node:path'
 
+import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
+
 import { clackPrompts, type Prompts } from './prompts'
 
 export type Env = Readonly<Record<string, string | undefined>>
@@ -30,6 +32,8 @@ export interface Runtime {
     // Resolves to false when no browser could be started, for example on a server without one.
     openUrl: (url: string) => Promise<boolean>
     prompts: Prompts
+    // The MCP server's tool catalog, which `hog api` browses and calls. Loaded on first use: it is large.
+    loadApiTools: () => Promise<ApiToolLibrary>
 }
 
 const BROWSER_LAUNCH_MS = 1000
@@ -107,5 +111,9 @@ export function processRuntime(): Runtime {
             }
         },
         prompts: clackPrompts(),
+        loadApiTools: async () => {
+            const { createApiToolLibrary } = await import('@posthog/mcp/dist/cli-library.mjs')
+            return createApiToolLibrary()
+        },
     }
 }
