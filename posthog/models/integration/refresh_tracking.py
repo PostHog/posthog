@@ -56,6 +56,10 @@ REFRESH_FAILURE_REASON_RATE_LIMITED = "rate_limited"
 
 REFRESH_FAILURE_REASON_OTHER = "other"
 
+# Another refresh of the same grant was in flight, so the provider refused this duplicate. That
+# refresh decides the outcome, so this one must not mark the connection as failed.
+REFRESH_FAILURE_REASON_CONCURRENT = "concurrent_refresh"
+
 # Not a provider response: the stored refresh token itself can't be decrypted, so no request was
 # made. Terminal on the first occurrence, since no later attempt can make the secret readable.
 REFRESH_FAILURE_REASON_UNREADABLE_SECRET = "unreadable_secret"
@@ -96,6 +100,10 @@ def oauth_refresh_failure_reason(status_code: int, body: dict, kind: str | None 
     # classifies as `other`. Meta rate limits use codes 4, 17, and 32, which do not match.
     if kind in ("meta-ads", "instagram") and status_code < 500 and isinstance(error, dict) and error.get("code") == 190:
         return REFRESH_FAILURE_REASON_INVALID_GRANT
+    # Stripe treats two identical refresh requests as one idempotent request and refuses the second
+    # with `{"error": {"code": "idempotency_key_in_use", ...}}` while the first is still running.
+    if kind == "stripe" and isinstance(error, dict) and error.get("code") == "idempotency_key_in_use":
+        return REFRESH_FAILURE_REASON_CONCURRENT
     # Transient throttling, not a credential problem: the backoff cap synchronises failed
     # integrations into retry herds that can trip a provider's per-second limit and take
     # healthy refreshes in the same second down with them.

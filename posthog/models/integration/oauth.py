@@ -1761,12 +1761,18 @@ class OauthIntegration:
             logger.warning(
                 f"Failed to refresh token for {self}", response=res.text if res is not None else "network error"
             )
-            self.integration.errors = common.ERROR_TOKEN_REFRESH_FAILED
             reason = (
                 refresh_tracking.oauth_refresh_failure_reason(res.status_code, config, kind=self.integration.kind)
                 if res is not None
                 else refresh_tracking.REFRESH_FAILURE_REASON_NETWORK
             )
+            if reason == refresh_tracking.REFRESH_FAILURE_REASON_CONCURRENT:
+                # Saving here could overwrite the token the in-flight refresh just stored with a stale config.
+                refresh_tracking.oauth_refresh_counter.labels(
+                    kind=self.integration.kind, result="failed", reason=reason, attempt=""
+                ).inc()
+                return
+            self.integration.errors = common.ERROR_TOKEN_REFRESH_FAILED
             attempt = refresh_tracking.record_refresh_failure(self.integration, reason=reason)
             refresh_tracking.oauth_refresh_counter.labels(
                 kind=self.integration.kind, result="failed", reason=reason, attempt=attempt

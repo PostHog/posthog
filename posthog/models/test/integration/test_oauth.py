@@ -58,6 +58,9 @@ def test_slack_oauth_requests_the_recently_approved_scopes_on_every_instance():
     assert {"assistant:write", "im:history", "canvases:write", "files:write", "channels:manage"} <= requested
 
 
+STRIPE_IDEMPOTENCY_KEY_IN_USE = {"error": {"code": "idempotency_key_in_use", "type": "invalid_request_error"}}
+
+
 class TestOauthIntegrationModel(BaseTest):
     mock_settings = {
         "SALESFORCE_CONSUMER_KEY": "salesforce-client-id",
@@ -717,6 +720,21 @@ class TestOauthIntegrationModel(BaseTest):
 
     @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
     @patch("posthog.models.integration.oauth.requests.post")
+    def test_refresh_refused_as_concurrent_leaves_the_integration_untouched(self, mock_post, mock_reload):
+        mock_post.return_value.status_code = 409
+        mock_post.return_value.json.return_value = STRIPE_IDEMPOTENCY_KEY_IN_USE
+        integration = self.create_integration(kind="stripe", config={"expires_in": 1000})
+
+        with self.settings(STRIPE_APP_CLIENT_ID="ca_test_clientid", STRIPE_APP_SECRET_KEY="sk_test_secret"):
+            OauthIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert integration.errors == ""
+        assert "refresh_failure_count" not in integration.config
+        assert "refresh_next_attempt_at" not in integration.config
+
+    @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
+    @patch("posthog.models.integration.oauth.requests.post")
     def test_refresh_primary_network_error_still_tries_fallback(self, mock_post, mock_reload):
         # A network error on the primary credentials must not skip the fallback attempt.
         mock_post.side_effect = [requests.Timeout("timed out"), self._mock_token_response(200, "fallback-token")]
@@ -966,6 +984,8 @@ class TestOauthIntegrationModel(BaseTest):
             ("meta_shape_on_other_kind", 400, {"error": {"code": 190}}, "hubspot", "other"),
             ("meta_non_grant_error_code", 400, {"error": {"type": "OAuthException", "code": 10}}, "meta-ads", "other"),
             ("meta_190_5xx_is_outage", 502, {"error": {"code": 190}}, "meta-ads", "http_5xx"),
+            ("stripe_concurrent_refresh", 409, STRIPE_IDEMPOTENCY_KEY_IN_USE, "stripe", "concurrent_refresh"),
+            ("stripe_shape_on_other_kind", 409, STRIPE_IDEMPOTENCY_KEY_IN_USE, "hubspot", "other"),
         ]
     )
     def test_oauth_refresh_failure_reason(self, _name, status_code, body, kind, expected):
