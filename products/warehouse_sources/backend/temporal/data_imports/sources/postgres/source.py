@@ -1505,6 +1505,14 @@ class PostgresSource(
             # so stop and ask the user to reset.
             "invalid input syntax for type integer": "PostHog tried to resume this table's incremental sync from a non-integer cursor value against an integer incremental field, which your database rejects. This usually means the incremental field's type doesn't match its data. Please reset and fully re-sync this table, or pick a different incremental field.",
             "invalid input syntax for type bigint": "PostHog tried to resume this table's incremental sync from a non-integer cursor value against a bigint incremental field, which your database rejects. This usually means the incremental field's type doesn't match its data. Please reset and fully re-sync this table, or pick a different incremental field.",
+            # Same mechanism as the integer/bigint keys above, but for a column whose declared type
+            # changed to boolean at the source after it was picked as the incremental field (e.g. an
+            # integer status column altered to `boolean`). `IncrementalFieldType` has no boolean
+            # variant, so this never happens for a freshly configured field — only when the source
+            # column's type drifted out from under an already-stored cursor. The stored watermark no
+            # longer parses against the column's new type, and every retry re-runs the identical
+            # failing query, so stop and ask the user to reset.
+            "invalid input syntax for type boolean": "PostHog tried to resume this table's incremental sync from a cursor value that your database can no longer parse as a boolean. This usually means the incremental field's column type changed at the source after this sync started. Please reset and fully re-sync this table, or pick a different incremental field.",
             # Raised (ObjectNotInPrerequisiteState, SQLSTATE 55000) when a selected materialized view
             # was created `WITH NO DATA` and never refreshed — every SELECT against it fails until the
             # customer runs `REFRESH MATERIALIZED VIEW`. Deterministic and outside our control, so
