@@ -12,7 +12,7 @@ from typing import Any
 
 from django.db import transaction
 from django.db.models import BooleanField, ExpressionWrapper, QuerySet
-from django.db.models.signals import post_delete, post_save, pre_delete
+from django.db.models.signals import post_delete, post_save
 
 import structlog
 
@@ -108,25 +108,80 @@ def refresh_implementation_pr_cache(*, team_id: int, report_ids: Iterable[Any]) 
         return sum(len(changed_ids) for changed_ids in changed.values())
 
 
-def schedule_implementation_pr_cache_refresh(*, team_id: int, report_ids: Iterable[Any]) -> None:
-    """Refresh after the current transaction commits, so the refresh reads the committed links."""
-    ids = sorted({str(report_id) for report_id in report_ids if report_id is not None})
-    if not ids:
+def refresh_implementation_pr_cache_for_links(
+    *,
+    team_id: int,
+    report_ids: Iterable[Any] = (),
+    pull_request_ids: Iterable[Any] = (),
+    task_ids: Iterable[Any] = (),
+) -> int:
+    """Refresh the reports these links reach: the reports themselves, the reports a pull request
+    links to, and the reports a task links to."""
+    ids = {str(report_id) for report_id in report_ids}
+    pull_request_ids = list(pull_request_ids)
+    task_ids = list(task_ids)
+    if pull_request_ids:
+        ids.update(
+            str(report_id)
+            for report_id in SignalReportArtefact.objects.filter(
+                team_id=team_id,
+                type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
+                pull_request_id__in=pull_request_ids,
+            ).values_list("report_id", flat=True)
+        )
+    if task_ids:
+        ids.update(
+            str(report_id)
+            for report_id in SignalReportArtefact.objects.filter(
+                team_id=team_id, type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id__in=task_ids
+            ).values_list("report_id", flat=True)
+        )
+        ids.update(
+            str(report_id)
+            for report_id in SignalReportTask.objects.filter(team_id=team_id, task_id__in=task_ids).values_list(
+                "report_id", flat=True
+            )
+        )
+        ids.update(
+            str(report_id)
+            for report_id in SignalReportAssignment.all_teams.filter(
+                team_id=team_id, actor_task_id__in=task_ids
+            ).values_list("report_id", flat=True)
+        )
+    return refresh_implementation_pr_cache(team_id=team_id, report_ids=ids)
+
+
+def schedule_implementation_pr_cache_refresh(
+    *,
+    team_id: int,
+    report_ids: Iterable[Any] = (),
+    pull_request_ids: Iterable[Any] = (),
+    task_ids: Iterable[Any] = (),
+) -> None:
+    """Refresh after the current transaction commits, so the refresh reads the committed links.
+
+    The caller passes only the ids it already holds. Resolving them to reports runs after the
+    commit, inside the guard, so a failed lookup cannot fail the caller's write.
+    """
+    links = {
+        "report_ids": sorted({str(value) for value in report_ids if value is not None}),
+        "pull_request_ids": sorted({str(value) for value in pull_request_ids if value is not None}),
+        "task_ids": sorted({str(value) for value in task_ids if value is not None}),
+    }
+    if not any(links.values()):
         return
 
     def refresh_after_commit() -> None:
         try:
-            refresh_implementation_pr_cache(team_id=team_id, report_ids=ids)
+            refresh_implementation_pr_cache_for_links(team_id=team_id, **links)
         except Exception:
             # The link write has committed, so its caller must not fail. The task retries the refresh.
-            logger.warning(
-                "signals.implementation_pr_cache.refresh_failed", team_id=team_id, report_count=len(ids), exc_info=True
-            )
+            logger.warning("signals.implementation_pr_cache.refresh_failed", team_id=team_id, exc_info=True)
             from products.signals.backend.tasks import (  # noqa: PLC0415 — tasks imports this module
                 refresh_report_implementation_pr_cache,
             )
 
-            refresh_report_implementation_pr_cache.delay(team_id, ids)
+            refresh_report_implementation_pr_cache.delay(team_id, **links)
 
     transaction.on_commit(refresh_after_commit, robust=True)
 
@@ -139,9 +194,10 @@ def connect_implementation_pr_cache_receivers() -> None:
     post_delete.connect(_refresh_for_report_link, sender=SignalReportTask, dispatch_uid="pr_cache_delete_report_task")
     post_save.connect(_refresh_for_artefact, sender=SignalReportArtefact, dispatch_uid="pr_cache_save_artefact")
     post_delete.connect(_refresh_for_artefact, sender=SignalReportArtefact, dispatch_uid="pr_cache_delete_artefact")
+    # Save only on SignalReportPullRequest and TaskRun: nothing deletes a pull request row outside a
+    # team delete, and a delete receiver on the hot TaskRun table would stop cascades from
+    # fast-deleting its rows. The daily reconcile repairs a report a manual delete leaves stale.
     post_save.connect(_refresh_for_pull_request, sender=SignalReportPullRequest, dispatch_uid="pr_cache_save_pr")
-    # Before the delete: the artefacts' SET_NULL clears the link this receiver reads.
-    pre_delete.connect(_refresh_for_pull_request, sender=SignalReportPullRequest, dispatch_uid="pr_cache_delete_pr")
     connect_task_run_post_save(_refresh_for_task_run, dispatch_uid="signals_pr_cache_task_run")
 
 
@@ -167,18 +223,13 @@ def _refresh_for_artefact(sender: type, instance: SignalReportArtefact, **kwargs
 
 
 def _refresh_for_pull_request(sender: type, instance: SignalReportPullRequest, **kwargs: Any) -> None:
-    if _removes_the_report(kwargs.get("origin")):
-        return
-    report_ids = SignalReportArtefact.objects.filter(
-        team_id=instance.team_id, type=SignalReportArtefact.ArtefactType.PULL_REQUEST, pull_request_id=instance.id
-    ).values_list("report_id", flat=True)
-    schedule_implementation_pr_cache_refresh(team_id=instance.team_id, report_ids=list(report_ids))
+    schedule_implementation_pr_cache_refresh(team_id=instance.team_id, pull_request_ids=[instance.id])
 
 
 def _refresh_for_task_run(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
-    # TaskRun is a hot model, so the in-memory checks run before the first query. The filter reads
-    # the run's output and its `state.ai_stage`. An output write can also remove a PR, so it always
-    # refreshes; a full save is checked only when the run carries a PR, and the reconcile covers the rest.
+    # TaskRun is a hot model, so this reads no rows. The filter reads the run's output and its
+    # `state.ai_stage`. An output write can also remove a PR, so it always refreshes; a full save
+    # is checked only when the run carries a PR, and the reconcile covers the rest.
     output = instance.output if isinstance(instance.output, dict) else {}
     carries_pr = bool(output.get("pr_url") or output.get("pr_urls"))
     update_fields = kwargs.get("update_fields")
@@ -187,17 +238,7 @@ def _refresh_for_task_run(sender: type, instance: Any, created: bool, **kwargs: 
             return
     elif "output" not in update_fields and not ("state" in update_fields and carries_pr):
         return
-    team_id, task_id = instance.team_id, instance.task_id
-    report_ids = {
-        *SignalReportArtefact.objects.filter(
-            team_id=team_id, type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id=task_id
-        ).values_list("report_id", flat=True),
-        *SignalReportTask.objects.filter(team_id=team_id, task_id=task_id).values_list("report_id", flat=True),
-        *SignalReportAssignment.all_teams.filter(team_id=team_id, actor_task_id=task_id).values_list(
-            "report_id", flat=True
-        ),
-    }
-    schedule_implementation_pr_cache_refresh(team_id=team_id, report_ids=report_ids)
+    schedule_implementation_pr_cache_refresh(team_id=instance.team_id, task_ids=[instance.task_id])
 
 
 def repair_implementation_pr_cache(

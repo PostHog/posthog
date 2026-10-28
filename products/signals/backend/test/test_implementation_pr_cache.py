@@ -158,4 +158,4 @@ class TestImplementationPrCache(BaseTest):
         ):
             self._link_assignment()
 
-        retry.assert_called_once_with(self.team.id, [str(self.report.id)])
+        retry.assert_called_once_with(self.team.id, report_ids=[str(self.report.id)], pull_request_ids=[], task_ids=[])
