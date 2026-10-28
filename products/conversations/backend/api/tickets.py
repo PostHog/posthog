@@ -1048,7 +1048,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 )
             )
 
-        return Response({"deleted": len(tickets), "ids": [str(t.id) for t in tickets]})
+        return Response(
+            BulkDeleteTicketsResponseSerializer({"deleted": len(tickets), "ids": [t.id for t in tickets]}).data
+        )
 
     @extend_schema(exclude=True)
     def create(self, *args, **kwargs):
