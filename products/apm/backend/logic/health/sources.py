@@ -1,7 +1,7 @@
 """Reads the health row for every service in a window from the spans table.
 
-A service's request rate comes from its server spans. A service that emits no server spans, which
-is every consumer and worker in practice, falls back to its root spans so it still gets a row.
+A service's request rate comes from its entry spans: server spans and consumer spans. A service
+that emits neither, such as a scheduled job, falls back to its root spans so it still gets a row.
 The environment is the first non-empty resource attribute in the resolution order below, with the
 cluster name as the last fallback and `default` when nothing is set.
 """
@@ -17,10 +17,17 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
-from products.apm.backend.logic.health.contract import HealthRow, ServiceHealth, rank_services
+from products.apm.backend.logic.health.contract import (
+    EndpointHealth,
+    HealthRow,
+    ServiceHealth,
+    rank_endpoints,
+    rank_services,
+)
 
 SPARKLINE_POINTS = 24
 SERVICES_LIMIT = 500
+ENDPOINTS_LIMIT = 500
 DEFAULT_ENVIRONMENT = "default"
 
 ENVIRONMENT_ATTRIBUTES = (
@@ -61,8 +68,8 @@ def _window_where(date_from: datetime, date_to: datetime) -> ast.Expr:
 
 
 def _services_query(date_from: datetime, date_to: datetime, environment: str) -> ast.SelectQuery:
-    # Server spans are the request count. Root spans are the fallback for services with none, so a
-    # consumer's client spans count once each rather than once per downstream call.
+    # Server and consumer spans are the request count. Root spans are the fallback for services with
+    # neither, so a job's client spans count once each rather than once per downstream call.
     #
     # A team with more services than SERVICES_LIMIT needs the worst ones to survive the cutoff, so
     # the ranking (error rate, then error count, then name — the same order rank_services applies)
@@ -72,11 +79,11 @@ def _services_query(date_from: datetime, date_to: datetime, environment: str) ->
         """
         SELECT
             service_name,
-            countIf(kind = 2) AS server_spans,
-            if(countIf(kind = 2) > 0, countIf(kind = 2), countIf(is_root_span)) AS span_count,
-            if(countIf(kind = 2) > 0, countIf(kind = 2 AND status_code = 2), countIf(is_root_span AND status_code = 2)) AS error_count,
-            if(countIf(kind = 2) > 0,
-               quantileIf(0.95)(duration_nano, kind = 2),
+            countIf(kind IN (2, 5)) AS entry_spans,
+            if(countIf(kind IN (2, 5)) > 0, countIf(kind IN (2, 5)), countIf(is_root_span)) AS span_count,
+            if(countIf(kind IN (2, 5)) > 0, countIf(kind IN (2, 5) AND status_code = 2), countIf(is_root_span AND status_code = 2)) AS error_count,
+            if(countIf(kind IN (2, 5)) > 0,
+               quantileIf(0.95)(duration_nano, kind IN (2, 5)),
                quantileIf(0.95)(duration_nano, is_root_span)) / 1e6 AS p95_ms
         FROM posthog.trace_spans
         WHERE {where} AND {env_expr} = {environment}
@@ -96,6 +103,40 @@ def _services_query(date_from: datetime, date_to: datetime, environment: str) ->
     return query
 
 
+def _endpoints_query(date_from: datetime, date_to: datetime, environment: str, service: str | None) -> ast.SelectQuery:
+    # An endpoint is an entry span name: what a server or consumer span handles, or what a root span
+    # starts (a job with no server spans). This is the entry definition the Tracing service health
+    # view uses, so a worker's job shows up here the same way it gets a row on the services tab.
+    query = parse_select(
+        """
+        SELECT
+            service_name,
+            name,
+            count() AS span_count,
+            countIf(status_code = 2) AS error_count,
+            quantile(0.95)(duration_nano) / 1e6 AS p95_ms
+        FROM posthog.trace_spans
+        WHERE {where} AND {env_expr} = {environment} AND {service_where} AND (is_root_span OR kind IN (2, 5))
+        GROUP BY service_name, name
+        ORDER BY error_count / span_count DESC, error_count DESC, service_name, name
+        LIMIT {limit}
+        """,
+        placeholders={
+            "where": _window_where(date_from, date_to),
+            "env_expr": environment_expr(),
+            "environment": ast.Constant(value=environment),
+            "service_where": (
+                parse_expr("service_name = {service}", placeholders={"service": ast.Constant(value=service)})
+                if service
+                else ast.Constant(value=True)
+            ),
+            "limit": ast.Constant(value=ENDPOINTS_LIMIT),
+        },
+    )
+    assert isinstance(query, ast.SelectQuery)
+    return query
+
+
 def _sparkline_query(date_from: datetime, date_to: datetime, environment: str) -> ast.SelectQuery:
     # One bucket per point across the window; the client draws the counts in order.
     query = parse_select(
@@ -103,7 +144,7 @@ def _sparkline_query(date_from: datetime, date_to: datetime, environment: str) -
         SELECT
             service_name,
             toInt(floor(dateDiff('second', {date_from}, timestamp) / {bucket_seconds})) AS bucket,
-            countIf(kind = 2) AS server_spans,
+            countIf(kind IN (2, 5)) AS entry_spans,
             countIf(is_root_span) AS root_spans
         FROM posthog.trace_spans
         WHERE {where} AND {env_expr} = {environment}
@@ -150,13 +191,13 @@ def list_services_health(
     seconds = max(1.0, (date_to - date_from).total_seconds())
     rows = _run(team, _services_query(date_from, date_to, environment))
     sparklines: dict[str, list[int]] = {}
-    has_server: dict[str, bool] = {row[0]: row[1] > 0 for row in rows}  # row[1] is server_spans
-    for service_name, bucket, server_spans, root_spans in _run(team, _sparkline_query(date_from, date_to, environment)):
+    has_entry: dict[str, bool] = {row[0]: row[1] > 0 for row in rows}  # row[1] is entry_spans
+    for service_name, bucket, entry_spans, root_spans in _run(team, _sparkline_query(date_from, date_to, environment)):
         points = sparklines.setdefault(service_name, [0] * SPARKLINE_POINTS)
         if 0 <= bucket < SPARKLINE_POINTS:
-            points[bucket] += server_spans if has_server.get(service_name) else root_spans
+            points[bucket] += entry_spans if has_entry.get(service_name) else root_spans
     services = []
-    for service_name, _server_spans, span_count, error_count, p95_ms in rows:
+    for service_name, _entry_spans, span_count, error_count, p95_ms in rows:
         if not span_count:
             continue
         health = HealthRow(
@@ -176,3 +217,27 @@ def list_services_health(
         )
     environments = [row[0] for row in _run(team, _environments_query(date_from, date_to))]
     return ServicesHealthResult(services=rank_services(services), environments=environments)
+
+
+def list_endpoints_health(
+    *, team: Team, date_from: datetime, date_to: datetime, environment: str, service: str | None = None
+) -> list[EndpointHealth]:
+    seconds = max(1.0, (date_to - date_from).total_seconds())
+    endpoints = [
+        EndpointHealth(
+            service_name=service_name,
+            endpoint=name,
+            environment=environment,
+            health=HealthRow(
+                request_rate=span_count / seconds,
+                error_rate=error_count / span_count,
+                p95_ms=float(p95_ms) if p95_ms is not None else None,
+                span_count=int(span_count),
+                error_count=int(error_count),
+            ),
+        )
+        for service_name, name, span_count, error_count, p95_ms in _run(
+            team, _endpoints_query(date_from, date_to, environment, service)
+        )
+    ]
+    return rank_endpoints(endpoints)

@@ -11,7 +11,7 @@ import {
     applicationObservabilityLogic,
     drillDownParams,
 } from './applicationObservabilityLogic'
-import type { ServicesHealthResponseApi } from './generated/api.schemas'
+import type { EndpointsHealthResponseApi, ServicesHealthResponseApi } from './generated/api.schemas'
 
 const row = (service_name: string, status: 'good' | 'warning' | 'serious' | 'critical'): any => ({
     service_name,
@@ -29,17 +29,39 @@ const RESPONSE: ServicesHealthResponseApi = {
     date_to: '2026-06-02T08:00:00Z',
 }
 
+const ENDPOINTS_RESPONSE: EndpointsHealthResponseApi = {
+    results: [
+        {
+            service_name: 'queue',
+            endpoint: 'orders process',
+            environment: 'prod',
+            status: 'serious',
+            health: { request_rate: 1, error_rate: 0.5, p95_ms: 10, span_count: 2, error_count: 1 },
+        },
+    ],
+    environment: 'prod',
+    service: null,
+    date_from: '2026-06-02T07:00:00Z',
+    date_to: '2026-06-02T08:00:00Z',
+}
+
 describe('applicationObservabilityLogic', () => {
     let logic: ReturnType<typeof applicationObservabilityLogic.build>
     let requests: string[]
+    let endpointRequests: string[]
 
     beforeEach(async () => {
         requests = []
+        endpointRequests = []
         useMocks({
             get: {
                 '/api/projects/:team_id/apm/services/': ({ request }) => {
                     requests.push(new URL(request.url).search)
                     return [200, RESPONSE]
+                },
+                '/api/projects/:team_id/apm/endpoints/': ({ request }) => {
+                    endpointRequests.push(new URL(request.url).search)
+                    return [200, ENDPOINTS_RESPONSE]
                 },
             },
         })
@@ -123,5 +145,57 @@ describe('applicationObservabilityLogic', () => {
     it('keeps a service name with a comma as one service in drill-down links', () => {
         const params = new URLSearchParams(drillDownParams('checkout,v2', '-1h'))
         expect(parseTagsFilter(params.get('serviceNames'))).toEqual(['checkout,v2'])
+    })
+
+    describe('tabs', () => {
+        it('opens on the services tab and does not load endpoints until that tab is open', async () => {
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            expect(logic.values.tab).toBe('services')
+            expect(endpointRequests).toHaveLength(0)
+        })
+
+        it('ignores an unknown tab in the URL', async () => {
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'toString' })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.tab).toBe('services')
+        })
+
+        it('loads endpoints for the environment and window when the endpoints tab opens from the URL', async () => {
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'endpoints', environment: 'staging' })
+            await expectLogic(logic).toDispatchActions(['loadEndpointsHealthSuccess'])
+            expect(logic.values.tab).toBe('endpoints')
+            expect(logic.values.endpoints).toHaveLength(1)
+            expect(endpointRequests).toHaveLength(1)
+            expect(endpointRequests[0]).toContain('environment=staging')
+            expect(endpointRequests[0]).toContain('date_from=')
+            expect(endpointRequests[0]).not.toContain('service=')
+        })
+
+        it('writes the tab to the URL and loads endpoints once', async () => {
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            logic.actions.setTab('endpoints')
+            await expectLogic(logic).toDispatchActions(['loadEndpointsHealthSuccess'])
+            expect(router.values.searchParams).toMatchObject({ tab: 'endpoints' })
+            expect(endpointRequests).toHaveLength(1)
+
+            logic.actions.setTab('services')
+            expect(router.values.searchParams.tab).toBeUndefined()
+        })
+
+        it('shows the endpoints of one service from a services row', async () => {
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            const servicesRequestsBefore = requests.length
+            logic.actions.showServiceEndpoints('web')
+            await expectLogic(logic).toDispatchActions(['loadEndpointsHealthSuccess'])
+            expect(router.values.searchParams).toMatchObject({ tab: 'endpoints', service: 'web' })
+            expect(endpointRequests[endpointRequests.length - 1]).toContain('service=web')
+
+            logic.actions.setEndpointsService(null)
+            await expectLogic(logic).toDispatchActions(['loadEndpointsHealthSuccess'])
+            expect(router.values.searchParams.service).toBeUndefined()
+            expect(endpointRequests[endpointRequests.length - 1]).not.toContain('service=')
+            // The service filter only narrows endpoints, so service health must not reload with it.
+            expect(requests.length).toBe(servicesRequestsBefore)
+        })
     })
 })

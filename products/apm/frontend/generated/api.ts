@@ -8,7 +8,42 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type { ApmServicesListParams, ServicesHealthResponseApi } from './api.schemas'
+import type {
+    ApmEndpointsListParams,
+    ApmServicesListParams,
+    EndpointsHealthResponseApi,
+    ServicesHealthResponseApi,
+} from './api.schemas'
+
+export const getApmEndpointsListUrl = (projectId: string, params?: ApmEndpointsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/apm/endpoints/?${stringifiedParams}`
+        : `/api/projects/${projectId}/apm/endpoints/`
+}
+
+/**
+ * One health row per service and entry span name, worst first. Same gate and window as services.
+ */
+export const apmEndpointsList = async (
+    projectId: string,
+    params?: ApmEndpointsListParams,
+    options?: RequestInit
+): Promise<EndpointsHealthResponseApi> => {
+    return apiMutator<EndpointsHealthResponseApi>(getApmEndpointsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getApmServicesListUrl = (projectId: string, params?: ApmServicesListParams) => {
     const normalizedParams = new URLSearchParams()
