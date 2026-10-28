@@ -1678,8 +1678,12 @@ class _CoderApi:
                 _fail(f"The devbox build did not finish within {BUILD_WAIT_TIMEOUT}s.", cause="build_wait_timeout")
             time.sleep(BUILD_POLL_INTERVAL)
             build = self.request("GET", f"/workspacebuilds/{build['id']}")
+        if status == "succeeded":
+            return _FinishedBuild(job_status=status, log_output="")
         logs = self.request("GET", f"/workspacebuilds/{build['id']}/logs")
-        return _FinishedBuild(job_status=status, log_output="".join(f"{log['output']}\n" for log in logs))
+        # A job that fails outside Terraform, such as a lost provisioner, has its cause only in job.error.
+        output = "".join(f"{log['output']}\n" for log in logs) + (build["job"].get("error") or "")
+        return _FinishedBuild(job_status=status, log_output=output)
 
 
 def run_with_capacity_fallback(name: str, build: Callable[[], None]) -> None:

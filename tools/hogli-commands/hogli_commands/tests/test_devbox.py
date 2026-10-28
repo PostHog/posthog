@@ -1273,33 +1273,46 @@ class TestCapacityFallback:
         "first_build_shortage, fallback_results, expected_starts, exits",
         [
             (False, {}, [], False),
-            (True, {"m7g.4xlarge": ("succeeded", "")}, ["m7g.4xlarge"], False),
+            (True, {"m7g.4xlarge": ("succeeded", "", "")}, ["m7g.4xlarge"], False),
             (
                 True,
-                {"m7g.4xlarge": ("failed", _CAPACITY_LOG), "m6g.4xlarge": ("succeeded", "")},
+                {"m7g.4xlarge": ("failed", _CAPACITY_LOG, ""), "m6g.4xlarge": ("succeeded", "", "")},
                 ["m7g.4xlarge", "m6g.4xlarge"],
                 False,
             ),
             (
                 True,
-                {"m7g.4xlarge": ("failed", _CAPACITY_LOG), "m6g.4xlarge": ("failed", _CAPACITY_LOG)},
+                {"m7g.4xlarge": ("failed", "", _CAPACITY_LOG), "m6g.4xlarge": ("succeeded", "", "")},
+                ["m7g.4xlarge", "m6g.4xlarge"],
+                False,
+            ),
+            (
+                True,
+                {"m7g.4xlarge": ("failed", _CAPACITY_LOG, ""), "m6g.4xlarge": ("failed", _CAPACITY_LOG, "")},
                 ["m7g.4xlarge", "m6g.4xlarge"],
                 True,
             ),
-            (True, {"m7g.4xlarge": ("failed", "Error: Missing required provider")}, ["m7g.4xlarge"], True),
+            (True, {"m7g.4xlarge": ("failed", "Error: Missing required provider", "")}, ["m7g.4xlarge"], True),
         ],
-        ids=["no-shortage", "next-type-starts", "last-type-starts", "every-type-short", "other-error-stops"],
+        ids=[
+            "no-shortage",
+            "next-type-starts",
+            "last-type-starts",
+            "shortage-only-in-job-error",
+            "every-type-short",
+            "other-error-stops",
+        ],
     )
     def test_shortage_starts_the_box_on_the_template_s_other_instance_types(
         self,
         monkeypatch: pytest.MonkeyPatch,
         first_build_shortage: bool,
-        fallback_results: dict[str, tuple[str, str]],
+        fallback_results: dict[str, tuple[str, str, str]],
         expected_starts: list[str],
         exits: bool,
     ) -> None:
         starts: list[str] = []
-        build_results: dict[str, tuple[str, str]] = {}
+        build_results: dict[str, tuple[str, str, str]] = {}
 
         def fake_request(method: str, url: str, **kwargs: Any) -> MagicMock:
             path = url.removeprefix("https://coder.example.com/api/v2")
@@ -1311,10 +1324,12 @@ class TestCapacityFallback:
             elif method == "POST" and path == "/workspaces/ws-1/builds":
                 instance_type = kwargs["json"]["rich_parameter_values"][0]["value"]
                 starts.append(instance_type)
-                build_results[f"b-{instance_type}"] = fallback_results[instance_type]
-                body = {"id": f"b-{instance_type}", "job": {"status": fallback_results[instance_type][0]}}
+                status, _, job_error = build_results[f"b-{instance_type}"] = fallback_results[instance_type]
+                body = {"id": f"b-{instance_type}", "job": {"status": status, "error": job_error}}
             elif path.endswith("/logs"):
-                body = [{"output": build_results[path.split("/")[2]][1]}]
+                status, log_output, _ = build_results[path.split("/")[2]]
+                assert status != "succeeded", "a successful build must not need its logs"
+                body = [{"output": log_output}]
             else:
                 raise AssertionError(f"unexpected {method} {path}")
             return MagicMock(ok=True, json=MagicMock(return_value=body))
