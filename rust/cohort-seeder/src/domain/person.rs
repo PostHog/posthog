@@ -36,8 +36,9 @@ use super::projection::ProjectedKeys;
 /// The wire cap a single seed's `evaluated` list admits; validation enforces it run-wide.
 pub use cohort_core::seed::MAX_PERSON_SEED_HASHES;
 
-/// The fixed far-future `day` every person chunk is planned under. `claim_next` orders by
-/// `(day, band)`, so behavioral chunks (readiness-gating, fence-sensitive) always claim first.
+/// The fixed far-future `day` every person chunk is planned under. `day` is non-null and part of
+/// the `(run, day, band)` unique key that makes person planning all-or-nothing. `claim_next` takes
+/// its priority between kinds from the run kind, not from this date.
 pub fn person_chunk_sentinel_day() -> NaiveDate {
     NaiveDate::from_ymd_opt(9999, 1, 1).expect("9999-01-01 is a valid date")
 }
