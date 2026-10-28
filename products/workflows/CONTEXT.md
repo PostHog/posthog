@@ -1,6 +1,6 @@
 # Workflows
 
-Workflows is the product where a team builds automated workflows and sends messages to people through workflows, broadcasts and transactional emails.
+Workflows is the product where a team builds automated workflows and sends messages to people through broadcasts, transactional emails and messaging workflows.
 It also holds the channels, recipients and deliverability setup behind those messages.
 This glossary sets the words for the Messaging home in the new sidebar.
 A term marked "(Messaging home)" becomes true when that home ships behind `today-rail-nav`.
@@ -38,7 +38,7 @@ Its steps decide whether it shows as a messaging workflow or an automation.
 The product that created it decides whether it is a loop.
 These views are not separate object types.
 A broadcast and a transactional email each have their own noun.
-Neither is a workflow, even though each runs on one in the code.
+Neither is a workflow, even though the code runs each of them as a workflow.
 _Avoid_: Journey, Campaign, Flow
 
 **Messaging workflow**:
