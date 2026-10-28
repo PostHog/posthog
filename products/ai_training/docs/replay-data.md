@@ -583,22 +583,24 @@ Each file holds one object:
 | `written_at_ms`             | When the sink wrote the file.                                                                                                                                                                                                                                                            |
 
 The capture time of a row is the Kafka timestamp of the replay record that it came from, which the recorder sends in the `capture-timestamp-ms` header.
-The sink writes the files only after a flush wrote its index files and stored its offsets, and only for the partitions that it still owns.
+The sink writes a file only for a partition that it still owns, and only after a flush wrote the partition's rows and stored its offset.
 A row that the sink holds but has not written keeps the value at or below its capture time.
-The sink rewrites each file at most once every `WATERMARK_FILE_INTERVAL_MS` (`index-watermark-files.ts`), with a plain PUT that replaces the file.
-A failed write does not fail the flush. The sink counts it in `ai_research_v4_parquet_sink_watermark_writes_total`, logs it, and tries again on the next flush.
-When a failed write or the rewrite interval keeps the latest value out of a file, the sink flushes again after the flush interval even if no rows arrive, so the file gets that value while the topic is idle.
+The sink rewrites its files once every `WATERMARK_FILE_INTERVAL_MS` (`index-watermark-files.ts`), on the first flush or poll after the interval, also when no rows arrive.
+A value can rise without new rows, because the watermark also counts the rows that it finished in the last `FINISHED_WINDOW_MS` (`capture-watermark.ts`).
+Each write is a plain PUT that replaces the file.
+A failed write does not fail the flush. The sink counts it in `ai_research_v4_parquet_sink_watermark_writes_total`, logs it, and writes the file again after the next interval.
 S3 expires a file 30 days after its last write, as it does every object in the bucket.
 
 To learn how far an index is complete, a reader:
 
 1. Reads every file under that index's `_watermarks/`.
 2. Takes the minimum `complete_up_to_capture_ms` across the partitions.
-3. Treats a file whose `written_at_ms` is more than about 15 minutes old as a partition that is not progressing. While the sink makes progress, a file is at most the rewrite interval plus one flush interval old.
+3. Treats a file whose `written_at_ms` is more than about 15 minutes old as a partition that is not progressing: no sink writes it. Its value is still true, but it does not move. A running sink keeps each file it owns at most the rewrite interval plus one poll old.
 
 Some limits apply:
 
-- A partition that delivers no records keeps its last value, as the gauge does. So a stalled partition holds the minimum down.
+- A partition that delivers no records keeps its last value, as the gauge does, and the sink keeps rewriting its file. So a quiet partition holds the minimum down.
+- During a rebalance, the former owner's last write can land after the new owner's first write. The file then holds an older value until the new owner writes again. That value is still true. The sink cannot prevent this, because the bucket does not let it read the file that it replaces.
 - A partition that the sink has not flushed since it started to write these files has no file. A reader that needs every partition compares the number of files with the partition count of the topic.
 - The value covers only the rows that reached the sink. The recorder sends a row only after its own flush stores the block or image, so a row with an earlier capture time can still be in the recorder. A sink that has read all of its topic does not make the index complete.
 - A reader that lists `index/blocks/` or `index/images/` for Parquet files must skip `_watermarks/`. Hive-style readers such as Spark, Athena and pyarrow datasets ignore paths that start with `_`, and a `*.parquet` glob does not match the JSON files.

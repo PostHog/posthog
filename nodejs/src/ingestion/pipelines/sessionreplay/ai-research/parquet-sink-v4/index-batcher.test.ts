@@ -382,26 +382,26 @@ describe('IndexBatcher', () => {
         expect(watermarkPuts().map((put) => put.IfNoneMatch)).toEqual([undefined, undefined])
     })
 
-    it('rewrites a watermark file at most once per interval, also while idle, and only for partitions it owns', async () => {
+    it('rewrites the watermark files once per interval, also on idle polls, and only for partitions it owns', async () => {
         const clock = jest.spyOn(Date, 'now')
-        const batcher = makeBatcher({ flushIntervalMs: 1_000 })
-        const flushAt = async (wallClockMs: number, messages: Message[]): Promise<void> => {
-            clock.mockReturnValue(wallClockMs)
-            await deliver(batcher, messages, 1)
-            await batcher.flush(1)
+        const batcher = makeBatcher()
+        const flushAt = async (atMs: number, messages: Message[]): Promise<void> => {
+            clock.mockReturnValue(WALL_CLOCK_MS + atMs)
+            await deliver(batcher, messages, atMs)
+            await batcher.flush(atMs)
         }
 
-        await flushAt(WALL_CLOCK_MS, [
+        await flushAt(0, [
             captured(1_000, message(1, 'blocks', '2026-10-15', blockRow('s1'))),
             captured(2_000, message(1, 'blocks', '2026-10-15', blockRow('s2'), 1)),
         ])
         batcher.release([{ topic: TOPIC, partition: 1 }])
-        await flushAt(WALL_CLOCK_MS + WATERMARK_FILE_INTERVAL_MS - 1, [
+        await flushAt(WATERMARK_FILE_INTERVAL_MS - 1, [
             captured(3_000, message(2, 'blocks', '2026-10-15', blockRow('s1'))),
         ])
         expect(watermarkPuts()).toHaveLength(2)
         clock.mockReturnValue(WALL_CLOCK_MS + WATERMARK_FILE_INTERVAL_MS)
-        await batcher.handleBatch([], 1 + 1_000)
+        await batcher.handleBatch([], WATERMARK_FILE_INTERVAL_MS)
 
         expect(watermarkPuts().map((put) => put.Key)).toEqual([
             'index/blocks/_watermarks/partition=0000.json',
@@ -416,7 +416,7 @@ describe('IndexBatcher', () => {
         })
     })
 
-    it('keeps a flush successful when a watermark write fails, and writes the file on the next idle flush', async () => {
+    it('keeps a flush successful when a watermark write fails, and writes the file on a poll after the interval', async () => {
         const clock = jest.spyOn(Date, 'now').mockReturnValue(WALL_CLOCK_MS)
         const failedBefore = await failedWatermarkWrites()
         send.mockImplementation((command: { input: PutObjectCommandInput }) => {
@@ -426,7 +426,7 @@ describe('IndexBatcher', () => {
             puts.push(command.input)
             return Promise.resolve({})
         })
-        const batcher = makeBatcher({ flushIntervalMs: 1_000 })
+        const batcher = makeBatcher()
         await deliver(batcher, [captured(1_000, message(1, 'blocks', '2026-10-15', blockRow('s1')))], 1)
 
         await expect(batcher.flush(2)).resolves.toBeUndefined()
@@ -437,19 +437,18 @@ describe('IndexBatcher', () => {
             puts.push(command.input)
             return Promise.resolve({})
         })
-        clock.mockReturnValue(WALL_CLOCK_MS + 1)
-        await batcher.handleBatch([], 2 + 1_000)
-        clock.mockReturnValue(WALL_CLOCK_MS + 1 + WATERMARK_FILE_INTERVAL_MS)
-        await batcher.handleBatch([], 2 + 2_000)
+        clock.mockReturnValue(WALL_CLOCK_MS + WATERMARK_FILE_INTERVAL_MS)
+        await batcher.handleBatch([], 2 + WATERMARK_FILE_INTERVAL_MS - 1)
+        expect(watermarkPuts()).toHaveLength(0)
+        await batcher.handleBatch([], 2 + WATERMARK_FILE_INTERVAL_MS)
 
         expect(watermarkFiles()).toEqual({
             'index/blocks/_watermarks/partition=0000.json': {
                 partition: 0,
                 complete_up_to_capture_ms: 1_000,
                 committed_offset: 2,
-                written_at_ms: WALL_CLOCK_MS + 1,
+                written_at_ms: WALL_CLOCK_MS + WATERMARK_FILE_INTERVAL_MS,
             },
         })
-        expect(watermarkPuts()).toHaveLength(1)
     })
 })

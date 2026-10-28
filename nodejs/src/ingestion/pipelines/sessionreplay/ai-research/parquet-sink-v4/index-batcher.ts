@@ -11,6 +11,7 @@ import { OffsetStore } from '~/ingestion/pipelines/sessionreplay/shared/capture-
 
 import { V4Index, V4IndexRow } from './index-columns'
 import { parseIndexMessage } from './index-message'
+import { WATERMARK_FILE_INTERVAL_MS } from './index-watermark-files'
 import { V4ParquetSinkMetrics } from './metrics'
 
 export type IndexFileStore = {
@@ -19,7 +20,7 @@ export type IndexFileStore = {
 }
 
 export type IndexWatermarkWriter = {
-    write(ownedOffsets: readonly TopicPartitionOffset[], nowMs: number): Promise<{ filesBehind: boolean }>
+    write(ownedOffsets: readonly TopicPartitionOffset[], nowMs: number): Promise<void>
 }
 
 export interface IndexBatcherOptions {
@@ -53,7 +54,7 @@ export class IndexBatcher {
     private bufferedBytes = 0
     private pendingOffsets = new Map<string, TopicPartitionOffset>()
     private readonly storedOffsets = new Map<string, TopicPartitionOffset>()
-    private watermarkFilesBehind = false
+    private lastWatermarkWriteMs: number | undefined
     /** Partitions revoked since their last message. A flush that started before the revocation must not store their offsets. */
     private readonly revoked = new Set<string>()
     private lastFlushMs: number
@@ -88,6 +89,9 @@ export class IndexBatcher {
         }
         if (this.shouldFlush(nowMs)) {
             await this.flush(nowMs)
+        } else if (this.watermarkFilesDue(nowMs)) {
+            // A watermark can rise with no new rows, for example when its finished records expire, so idle polls rewrite the files too.
+            await this.enqueue(() => this.writeWatermarkFilesIfDue(nowMs))
         }
     }
 
@@ -134,17 +138,35 @@ export class IndexBatcher {
         if (this.rowCount >= this.options.maxRows || this.bufferedBytes >= this.options.maxBytes) {
             return true
         }
-        // Offsets of messages that gave no rows also flush on the interval, so they do not replay forever. Watermark files
-        // that the last flush left behind do too, so that the latest value reaches them while the topic is idle.
-        const hasPending = this.rowCount > 0 || this.pendingOffsets.size > 0 || this.watermarkFilesBehind
+        // Offsets of messages that gave no rows also flush on the interval, so they do not replay forever.
+        const hasPending = this.rowCount > 0 || this.pendingOffsets.size > 0
         return hasPending && nowMs - this.lastFlushMs >= this.options.flushIntervalMs
     }
 
     public flush(nowMs: number): Promise<void> {
+        return this.enqueue(() => this.flushNow(nowMs))
+    }
+
+    private enqueue(task: () => Promise<void>): Promise<void> {
         // A later flush's offsets also cover rows that an earlier flush is still writing, so flushes run one at a time and in order.
-        const flushed = this.flushQueue.then(() => this.flushNow(nowMs))
-        this.flushQueue = flushed.catch(() => undefined)
-        return flushed
+        const done = this.flushQueue.then(task)
+        this.flushQueue = done.catch(() => undefined)
+        return done
+    }
+
+    private watermarkFilesDue(nowMs: number): boolean {
+        return (
+            this.storedOffsets.size > 0 &&
+            (this.lastWatermarkWriteMs === undefined || nowMs - this.lastWatermarkWriteMs >= WATERMARK_FILE_INTERVAL_MS)
+        )
+    }
+
+    private async writeWatermarkFilesIfDue(nowMs: number): Promise<void> {
+        if (!this.watermarkFilesDue(nowMs)) {
+            return
+        }
+        this.lastWatermarkWriteMs = nowMs
+        await this.watermarkFiles.write([...this.storedOffsets.values()], Date.now())
     }
 
     private async flushNow(nowMs: number): Promise<void> {
@@ -156,8 +178,7 @@ export class IndexBatcher {
         heartbeats?.unref()
         try {
             await this.writeTaken(nowMs)
-            const { filesBehind } = await this.watermarkFiles.write([...this.storedOffsets.values()], Date.now())
-            this.watermarkFilesBehind = filesBehind
+            await this.writeWatermarkFilesIfDue(nowMs)
         } finally {
             if (heartbeats) {
                 clearInterval(heartbeats)
