@@ -270,6 +270,10 @@ export class HogInputsService {
             if (integration.kind === 'posthog') {
                 return null
             }
+            // A row with this marker holds data warehouse source credentials. They are never Hog function inputs.
+            if (integration.config?.warehouse_source_type != null) {
+                return null
+            }
             return {
                 $integration_id: integration.id,
                 ...integration.config,
