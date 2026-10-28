@@ -494,7 +494,7 @@ class TestSpendPublicationVersions(_SignalEmbeddingsTestBase):
         driver = str(uuid.uuid4())
         signal = SignalSpendUpdate(team_id=self.team.id, signal_id=driver)
         now = timezone.now().replace(microsecond=0)
-        for model in EmbeddingModelName:
+        for model in (EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536, EmbeddingModelName.TEXT_EMBEDDING_3_LARGE_3072):
             self._emit_version(
                 document_id=driver,
                 report_id="example-report",

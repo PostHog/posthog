@@ -22384,7 +22384,7 @@
             "type": "object"
         },
         "EmbeddingModelName": {
-            "enum": ["text-embedding-3-small-1536", "text-embedding-3-large-3072"],
+            "enum": ["text-embedding-3-small-1536", "text-embedding-3-large-3072", "text-embedding-3-small-256"],
             "type": "string"
         },
         "EmbeddingRecord": {

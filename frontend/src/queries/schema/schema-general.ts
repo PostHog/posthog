@@ -4770,7 +4770,10 @@ export interface ErrorTrackingBreakdownsQueryResponse extends AnalyticsQueryResp
 }
 export type CachedErrorTrackingBreakdownsQueryResponse = CachedQueryResponse<ErrorTrackingBreakdownsQueryResponse>
 
-export type EmbeddingModelName = 'text-embedding-3-small-1536' | 'text-embedding-3-large-3072'
+export type EmbeddingModelName =
+    | 'text-embedding-3-small-1536'
+    | 'text-embedding-3-large-3072'
+    | 'text-embedding-3-small-256'
 
 export interface DocumentSimilarityQuery extends DataNode<DocumentSimilarityQueryResponse> {
     // Query metadata

@@ -2406,6 +2406,23 @@ CREATE TABLE posthog.sharded_posthog_document_embeddings_text_embedding_3_small_
   INDEX embedding_idx_l2 embedding TYPE vector_similarity('hnsw', 'L2Distance', 1536) GRANULARITY 100000000,
   INDEX embedding_idx_cosine embedding TYPE vector_similarity('hnsw', 'cosineDistance', 1536) GRANULARITY 100000000
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_posthog_document_embeddings_text_embedding_3_small_1536', '{replica}', inserted_at) ORDER BY (team_id, toDate(timestamp), product, document_type, rendering, cityHash64(document_id)) PARTITION BY toMonday(timestamp) TTL timestamp + toIntervalMonth(3) SETTINGS index_granularity = 512, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.sharded_posthog_document_embeddings_text_embedding_3_small_256 (
+  team_id Int64,
+  product LowCardinality(String),
+  document_type LowCardinality(String),
+  rendering LowCardinality(String),
+  document_id String,
+  timestamp DateTime64(3, 'UTC'),
+  inserted_at DateTime64(3, 'UTC'),
+  content String DEFAULT '',
+  metadata String DEFAULT '{}',
+  embedding Array(Float64),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64,
+  CONSTRAINT embedding_dimension_check CHECK length(embedding) = 256,
+  INDEX kafka_timestamp_minmax_sharded_posthog_document_embeddings_text_embedding_3_small_256 _timestamp TYPE minmax GRANULARITY 3
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_posthog_document_embeddings_text_embedding_3_small_256', '{replica}', inserted_at) ORDER BY (team_id, toDate(timestamp), product, document_type, rendering, cityHash64(document_id)) PARTITION BY toMonday(timestamp) TTL timestamp + toIntervalMonth(1) SETTINGS index_granularity = 512, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_preaggregation_results (
   team_id Int64,
   job_id UUID,
@@ -4100,6 +4117,21 @@ CREATE TABLE posthog.writable_posthog_document_embeddings_text_embedding_3_small
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_posthog_document_embeddings_text_embedding_3_small_1536', cityHash64(document_id));
+CREATE TABLE posthog.writable_posthog_document_embeddings_text_embedding_3_small_256 (
+  team_id Int64,
+  product LowCardinality(String),
+  document_type LowCardinality(String),
+  rendering LowCardinality(String),
+  document_id String,
+  timestamp DateTime64(3, 'UTC'),
+  inserted_at DateTime64(3, 'UTC'),
+  content String DEFAULT '',
+  metadata String DEFAULT '{}',
+  embedding Array(Float64),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_posthog_document_embeddings_text_embedding_3_small_256', cityHash64(document_id));
 CREATE TABLE posthog.writable_precalculated_events (
   team_id Int64,
   date Date,
@@ -5508,6 +5540,22 @@ CREATE MATERIALIZED VIEW posthog.posthog_document_embeddings_text_embedding_3_sm
   _partition
 FROM posthog.sharded_posthog_document_embeddings_buffer
 WHERE model_name = 'text-embedding-3-small-1536';
+CREATE MATERIALIZED VIEW posthog.posthog_document_embeddings_text_embedding_3_small_256_mv TO posthog.writable_posthog_document_embeddings_text_embedding_3_small_256 (team_id Int64, product LowCardinality(String), document_type LowCardinality(String), rendering LowCardinality(String), document_id String, timestamp DateTime64(3, 'UTC'), inserted_at DateTime64(3, 'UTC'), content String, metadata String, embedding Array(Float64), _timestamp DateTime, _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  product,
+  document_type,
+  rendering,
+  document_id,
+  timestamp,
+  inserted_at,
+  content,
+  metadata,
+  embedding,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.sharded_posthog_document_embeddings_buffer
+WHERE model_name = 'text-embedding-3-small-256';
 CREATE MATERIALIZED VIEW posthog.precalculated_events_mv TO posthog.writable_precalculated_events (team_id Int64, date Nullable(Date), distinct_id String, person_id UUID, condition String, uuid UUID, source String, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   team_id,
   ifNull(date, toDate(_timestamp)) AS date,
@@ -6394,6 +6442,21 @@ CREATE TABLE posthog.distributed_posthog_document_embeddings_text_embedding_3_sm
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_posthog_document_embeddings_text_embedding_3_small_1536', cityHash64(document_id));
+CREATE TABLE posthog.distributed_posthog_document_embeddings_text_embedding_3_small_256 (
+  team_id Int64,
+  product LowCardinality(String),
+  document_type LowCardinality(String),
+  rendering LowCardinality(String),
+  document_id String,
+  timestamp DateTime64(3, 'UTC'),
+  inserted_at DateTime64(3, 'UTC'),
+  content String DEFAULT '',
+  metadata String DEFAULT '{}',
+  embedding Array(Float64),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_posthog_document_embeddings_text_embedding_3_small_256', cityHash64(document_id));
 CREATE TABLE posthog.error_tracking_fingerprint_issue_state (
   team_id Int64,
   fingerprint String,
@@ -7986,7 +8049,24 @@ SELECT
   _offset,
   _partition,
   'text-embedding-3-large-3072' AS model_name
-FROM posthog.distributed_posthog_document_embeddings_text_embedding_3_large_3072;
+FROM posthog.distributed_posthog_document_embeddings_text_embedding_3_large_3072
+UNION ALL
+SELECT
+  team_id,
+  product,
+  document_type,
+  rendering,
+  document_id,
+  timestamp,
+  inserted_at,
+  content,
+  metadata,
+  embedding,
+  _timestamp,
+  _offset,
+  _partition,
+  'text-embedding-3-small-256' AS model_name
+FROM posthog.distributed_posthog_document_embeddings_text_embedding_3_small_256;
 CREATE VIEW posthog.raw_sessions_v AS SELECT
   session_id_v7,
   fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)) AS session_timestamp,

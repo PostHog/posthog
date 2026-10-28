@@ -1301,6 +1301,23 @@ CREATE TABLE posthog.sharded_posthog_document_embeddings_text_embedding_3_small_
   INDEX embedding_idx_l2 embedding TYPE vector_similarity('hnsw', 'L2Distance', 1536) GRANULARITY 100000000,
   INDEX embedding_idx_cosine embedding TYPE vector_similarity('hnsw', 'cosineDistance', 1536) GRANULARITY 100000000
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_posthog_document_embeddings_text_embedding_3_small_1536', '{replica}', inserted_at) ORDER BY (team_id, toDate(timestamp), product, document_type, rendering, cityHash64(document_id)) PARTITION BY toMonday(timestamp) TTL timestamp + toIntervalMonth(3) SETTINGS index_granularity = 512, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.sharded_posthog_document_embeddings_text_embedding_3_small_256 (
+  team_id Int64,
+  product LowCardinality(String),
+  document_type LowCardinality(String),
+  rendering LowCardinality(String),
+  document_id String,
+  timestamp DateTime64(3, 'UTC'),
+  inserted_at DateTime64(3, 'UTC'),
+  content String DEFAULT '',
+  metadata String DEFAULT '{}',
+  embedding Array(Float64),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64,
+  CONSTRAINT embedding_dimension_check CHECK length(embedding) = 256,
+  INDEX kafka_timestamp_minmax_sharded_posthog_document_embeddings_text_embedding_3_small_256 _timestamp TYPE minmax GRANULARITY 3
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_posthog_document_embeddings_text_embedding_3_small_256', '{replica}', inserted_at) ORDER BY (team_id, toDate(timestamp), product, document_type, rendering, cityHash64(document_id)) PARTITION BY toMonday(timestamp) TTL timestamp + toIntervalMonth(1) SETTINGS index_granularity = 512, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_preaggregation_results (
   team_id Int64,
   job_id UUID,
@@ -2025,6 +2042,21 @@ CREATE TABLE posthog.writable_posthog_document_embeddings_text_embedding_3_small
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_posthog_document_embeddings_text_embedding_3_small_1536', cityHash64(document_id));
+CREATE TABLE posthog.writable_posthog_document_embeddings_text_embedding_3_small_256 (
+  team_id Int64,
+  product LowCardinality(String),
+  document_type LowCardinality(String),
+  rendering LowCardinality(String),
+  document_id String,
+  timestamp DateTime64(3, 'UTC'),
+  inserted_at DateTime64(3, 'UTC'),
+  content String DEFAULT '',
+  metadata String DEFAULT '{}',
+  embedding Array(Float64),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_posthog_document_embeddings_text_embedding_3_small_256', cityHash64(document_id));
 CREATE TABLE posthog.writable_query_log_archive_v3 (
   initial_query_start_time DateTime64(6, 'UTC'),
   team_id Int64,
@@ -2671,6 +2703,22 @@ CREATE MATERIALIZED VIEW posthog.posthog_document_embeddings_text_embedding_3_sm
   _partition
 FROM posthog.sharded_posthog_document_embeddings_buffer
 WHERE model_name = 'text-embedding-3-small-1536';
+CREATE MATERIALIZED VIEW posthog.posthog_document_embeddings_text_embedding_3_small_256_mv TO posthog.writable_posthog_document_embeddings_text_embedding_3_small_256 (team_id Int64, product LowCardinality(String), document_type LowCardinality(String), rendering LowCardinality(String), document_id String, timestamp DateTime64(3, 'UTC'), inserted_at DateTime64(3, 'UTC'), content String, metadata String, embedding Array(Float64), _timestamp DateTime, _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  product,
+  document_type,
+  rendering,
+  document_id,
+  timestamp,
+  inserted_at,
+  content,
+  metadata,
+  embedding,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.sharded_posthog_document_embeddings_buffer
+WHERE model_name = 'text-embedding-3-small-256';
 CREATE MATERIALIZED VIEW posthog.raw_sessions_mv TO posthog.writable_raw_sessions (team_id Int64, session_id_v7 UInt128, distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')), min_timestamp DateTime64(6, 'UTC'), max_timestamp DateTime64(6, 'UTC'), max_inserted_at DateTime64(6, 'UTC'), urls Array(String), entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')), end_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')), last_external_click_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')), initial_browser AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_browser_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_os AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_os_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_device_type AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_viewport_width AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')), initial_viewport_height AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')), initial_geoip_country_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_geoip_subdivision_1_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_geoip_subdivision_1_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_geoip_subdivision_city_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_geoip_time_zone AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_dclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_gbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_wbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_fbclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_msclkid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_twclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_li_fat_id AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), pageview_count UInt64, pageview_uniq AggregateFunction(uniq, Nullable(UUID)), autocapture_count UInt64, autocapture_uniq AggregateFunction(uniq, Nullable(UUID)), screen_count UInt64, screen_uniq AggregateFunction(uniq, Nullable(UUID)), maybe_has_session_replay Bool, page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)), vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))) AS SELECT
   team_id,
   toUInt128(toUUID(`$session_id`)) AS session_id_v7,
@@ -3061,6 +3109,21 @@ CREATE TABLE posthog.distributed_posthog_document_embeddings_text_embedding_3_sm
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_posthog_document_embeddings_text_embedding_3_small_1536', cityHash64(document_id));
+CREATE TABLE posthog.distributed_posthog_document_embeddings_text_embedding_3_small_256 (
+  team_id Int64,
+  product LowCardinality(String),
+  document_type LowCardinality(String),
+  rendering LowCardinality(String),
+  document_id String,
+  timestamp DateTime64(3, 'UTC'),
+  inserted_at DateTime64(3, 'UTC'),
+  content String DEFAULT '',
+  metadata String DEFAULT '{}',
+  embedding Array(Float64),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_posthog_document_embeddings_text_embedding_3_small_256', cityHash64(document_id));
 CREATE TABLE posthog.events (
   uuid UUID,
   event String,
@@ -3680,7 +3743,24 @@ SELECT
   _offset,
   _partition,
   'text-embedding-3-large-3072' AS model_name
-FROM posthog.distributed_posthog_document_embeddings_text_embedding_3_large_3072;
+FROM posthog.distributed_posthog_document_embeddings_text_embedding_3_large_3072
+UNION ALL
+SELECT
+  team_id,
+  product,
+  document_type,
+  rendering,
+  document_id,
+  timestamp,
+  inserted_at,
+  content,
+  metadata,
+  embedding,
+  _timestamp,
+  _offset,
+  _partition,
+  'text-embedding-3-small-256' AS model_name
+FROM posthog.distributed_posthog_document_embeddings_text_embedding_3_small_256;
 CREATE VIEW posthog.raw_sessions_v AS SELECT
   session_id_v7,
   fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)) AS session_timestamp,

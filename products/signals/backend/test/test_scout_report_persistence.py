@@ -226,6 +226,7 @@ class TestScoutReportPersistence(BaseTest):
         assert first["metadata"]["source_id"] == "obs-1"
         assert first["metadata"]["weight"] == 1.0
         assert "match_metadata" not in first["metadata"]  # never went through the matcher
+        assert first["models"] == ["text-embedding-3-small-1536", "text-embedding-3-large-3072"]
         # Each backing row gets a distinct ClickHouse document_id.
         doc_ids = [call.kwargs["document_id"] for call in self.emit_mock.call_args_list]
         assert len(set(doc_ids)) == 2

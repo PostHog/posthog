@@ -20,8 +20,6 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.workflow import ParentClosePolicy
 
-from posthog.schema import EmbeddingModelName
-
 from posthog.api.embedding_worker import async_generate_embedding, emit_embedding_request
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
@@ -33,6 +31,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import MAX_REPORT_LINK_REASON_LENGTH, ReportLink
 from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
+from products.signals.backend.constants import SIGNALS_EMBEDDING_MODELS
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, SignalSourceProduct
 from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact
@@ -897,7 +896,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         document_type=SIGNAL_DOCUMENT_TYPE,
                         rendering=SIGNAL_DOCUMENT_RENDERING,
                         document_id=input.signal_id,
-                        models=[m.value for m in EmbeddingModelName],
+                        models=[m.value for m in SIGNALS_EMBEDDING_MODELS],
                         timestamp=ts,
                         metadata=metadata,
                     )
@@ -1077,7 +1076,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 document_type=SIGNAL_DOCUMENT_TYPE,
                 rendering=SIGNAL_DOCUMENT_RENDERING,
                 document_id=input.signal_id,
-                models=[m.value for m in EmbeddingModelName],
+                models=[m.value for m in SIGNALS_EMBEDDING_MODELS],
                 timestamp=ts,
                 metadata=metadata,
             )

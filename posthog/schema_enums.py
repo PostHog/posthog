@@ -1255,6 +1255,7 @@ class Key10(StrEnum):
 class EmbeddingModelName(StrEnum):
     TEXT_EMBEDDING_3_SMALL_1536 = "text-embedding-3-small-1536"
     TEXT_EMBEDDING_3_LARGE_3072 = "text-embedding-3-large-3072"
+    TEXT_EMBEDDING_3_SMALL_256 = "text-embedding-3-small-256"
 
 
 class EndpointRefreshMode(StrEnum):

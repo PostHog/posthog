@@ -14,7 +14,7 @@ already exists: `capture_status_change_analytics` in `receivers.py` emits
 from collections.abc import Mapping
 from datetime import datetime
 
-from posthog.schema_enums import EmbeddingModelName
+from products.signals.backend.constants import SIGNALS_EMBEDDING_MODELS
 
 EMBEDDING_PRODUCT = "signals"
 EMBEDDING_DOCUMENT_TYPE = "report"
@@ -94,7 +94,7 @@ def _emit(*, team_id: int, report_id: str, rendering: str, content: str, created
         document_type=EMBEDDING_DOCUMENT_TYPE,
         rendering=rendering,
         document_id=report_id,
-        models=[model.value for model in EmbeddingModelName],
+        models=[model.value for model in SIGNALS_EMBEDDING_MODELS],
         timestamp=created_at,
         # Deliberately minimal. Metadata is only refreshed when the report's text changes or the row is
         # retracted, so mutable state (status, priority, signal_count) would go stale here with nothing

@@ -1073,6 +1073,7 @@ async def test_signal_between_buckets_is_still_assigned(ateam, patch_side_effect
     assert refreshed.total_weight == pytest.approx(2.5)
     emit_kwargs = patch_side_effects["emit"].call_args.kwargs
     assert emit_kwargs["metadata"].get("deleted") is not True
+    assert emit_kwargs["models"] == ["text-embedding-3-small-1536", "text-embedding-3-large-3072"]
 
 
 @pytest.mark.asyncio
@@ -1377,6 +1378,7 @@ async def test_deleted_report_skips_counter_updates_and_marks_signal_deleted(ate
     patch_side_effects["soft_delete"].assert_called_once()
     emit_kwargs = patch_side_effects["emit"].call_args.kwargs
     assert emit_kwargs["metadata"]["deleted"] is True
+    assert emit_kwargs["models"] == ["text-embedding-3-small-1536", "text-embedding-3-large-3072"]
 
 
 @pytest.mark.asyncio
