@@ -3231,7 +3231,7 @@ class TestIntegrationAPIKeyAccess:
 
     def test_list_and_retrieve_show_every_auth_type(self, client: HttpClient):
         client.force_login(self.user)
-        token_row = Integration.objects.with_auth(Integration.AuthType.TOKEN).create(
+        token_row = Integration.objects._with_auth(Integration.AuthType.TOKEN).create(
             team=self.team, kind="github", integration_id="typed-in", sensitive_config={"token": "secret"}
         )
         base_url = f"/api/environments/{self.team.pk}/integrations"
@@ -3241,8 +3241,8 @@ class TestIntegrationAPIKeyAccess:
         repos = client.get(f"{base_url}/{token_row.id}/github_repos/")
 
         assert {(row["id"], row["auth_type"]) for row in listed} == {
-            (self.github_integration.id, "app"),
-            (self.twilio_integration.id, "auth_token"),
+            (self.github_integration.id, "oauth"),
+            (self.twilio_integration.id, "token"),
             (token_row.id, "token"),
         }
         assert retrieved.status_code == status.HTTP_200_OK

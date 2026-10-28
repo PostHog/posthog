@@ -19,8 +19,9 @@ from requests.exceptions import (
 )
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, MetaAdsIntegration
 
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
@@ -145,7 +146,7 @@ def _backoff_sleep(attempt: int) -> None:
 _MAX_INTEGRATION_FETCH_ATTEMPTS = 4
 
 
-def _fetch_integration_row(integration_id: int, team_id: int) -> Integration:
+def _fetch_integration_row(integration_id: int, team_id: int) -> IntegrationRecord:
     """Fetch the OAuth ``Integration`` row, retrying a transient DB failure with backoff.
 
     Temporal activities run in a long-lived worker outside Django's request cycle, so a pooled
@@ -156,13 +157,13 @@ def _fetch_integration_row(integration_id: int, team_id: int) -> Integration:
     to be stale (and, after a failed query marks one unusable, drops it), so each attempt runs on a
     fresh connection; the short backoff also gives a saturated pool time to drain rather than
     retrying straight back into the same wait timeout. This read is idempotent, so it is safe to
-    repeat. ``Integration.DoesNotExist`` is left to propagate.
+    repeat. ``IntegrationNotFound`` is left to propagate.
     """
     attempt = 0
     while True:
         close_old_connections()
         try:
-            return Integration.objects.get(id=integration_id, team_id=team_id)
+            return IntegrationManager.meta_ads.oauth.get(team_id, integration_id)
         except OperationalError:
             attempt += 1
             if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:
@@ -179,7 +180,7 @@ class MetaAdsTokenRefreshError(Exception):
     """Meta refused to refresh the integration's access token — only re-authorization fixes it."""
 
 
-def get_integration_by_id(integration_id: int, team_id: int) -> Integration:
+def get_integration_by_id(integration_id: int, team_id: int) -> IntegrationRecord:
     """Get a Meta Ads integration by row id, with a freshly refreshed access token."""
     integration = _fetch_integration_row(integration_id, team_id)
     meta_ads_integration = MetaAdsIntegration(integration)
@@ -191,7 +192,7 @@ def get_integration_by_id(integration_id: int, team_id: int) -> Integration:
     return meta_ads_integration.integration
 
 
-def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
+def get_integration(config: MetaAdsSourceConfig, team_id: int) -> IntegrationRecord:
     return get_integration_by_id(config.meta_ads_integration_id, team_id)
 
 
@@ -733,7 +734,7 @@ def _get_ad_account_page(session: Session, url: str, access_token: str, params: 
         raise IntegrationAccountListingError(META_AD_ACCOUNT_LISTING_UNAVAILABLE_MESSAGE) from e
 
 
-def list_ad_accounts(integration: Integration) -> list[dict]:
+def list_ad_accounts(integration: IntegrationRecord) -> list[dict]:
     """Every ad account the connected Meta user can access."""
     access_token = integration.sensitive_config["access_token"]
     # `redact_values` masks the access token wherever it lands in telemetry — Meta takes it as a query

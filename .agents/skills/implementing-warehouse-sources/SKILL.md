@@ -393,7 +393,7 @@ Each top-level key in a source's `job_inputs` has one kind. The kind decides whe
 - **Reference**: a pointer to an existing `Integration` row, such as `bing_ads_integration_id`. Every `SourceFieldOauthConfig` field is a reference, so you set no flag. The value stays in `job_inputs`.
 - **Selector**: an account chosen after the user authenticates, such as `account_id`, `customer_id`, `property_id` or `site_url`. Several sources can share one OAuth row, so the choice belongs to the source and stays in `job_inputs`. Every `SourceFieldOauthAccountSelectConfig` field is a selector. For a plain input, select or switch group, set `account_selector=True`. The flag does not appear in the API payload or the generated types. A field in `connection_host_fields` must stay a connection field.
 - **Sync setting**: a value that only chooses what or how to sync. Examples are table or schema selection, a table prefix, start dates, file patterns and formats, delimiters, `repositories` and filters. Set `sync_setting=True` on the field. The flag exists on `SourceFieldInputConfig`, `SourceFieldSelectConfig`, `SourceFieldSwitchGroupConfig` and `SourceFieldOauthAccountSelectConfig`. It is valid only on top-level fields. It does not appear in the API payload or the generated types.
-- **Select with a reference option**: for a select such as `auth_method`, the stored value decides. If the chosen option holds only OAuth fields (`oauth`), the whole value is a reference. If the chosen option holds typed-in fields (`api_key`, `pat`), the whole value is a connection field. An option that mixes an OAuth field and a typed-in field is always a connection field.
+- **Select with a reference option**: for a select such as `auth_method`, the stored value decides. If the chosen option holds only OAuth fields (`oauth`), the whole value is a reference. If the chosen option holds typed-in fields (`api_key`, `pat`), the whole value is a connection field. An option that mixes an OAuth field and a typed-in field is always a connection field. Keys of other options that are stored empty (`None` or `""`, as `serialize_config` leaves them) do not count; a populated one makes the whole value a connection field.
 - **Runtime**: state the server writes, not the user. Keys that start with `cdc_` are runtime for every source. For other server-written keys, set `runtime_job_input_keys` on the source class (see `FileUploadSource`).
 
 Rules:
@@ -401,7 +401,7 @@ Rules:
 - When you are not sure, keep the default (connection). A setting stored as a connection field still works. A credential marked as a sync setting stays in plain source config.
 - A field in `connection_host_fields` must stay a connection field. The invariant test fails otherwise.
 - Never set `sync_setting=True` on a field that is `secret=True`, a password or a file upload. The invariant test fails otherwise.
-- Every new source and every field change needs the audit CSV regenerated (step 6 of the workflow). The command also rewrites `facade/credential_kinds.py`.
+- Every new source and every field change needs the audit CSV regenerated (step 6 of the workflow). The command also rewrites `facade/credential_kinds.py` and `facade/credential_auth_types.py`.
 - A source that has an OAuth field and an account id field must mark the account id field `account_selector=True`. A test flags the unmarked ones by name.
 
 #### Credential kind
@@ -414,6 +414,14 @@ Each source has a credential kind: the `Integration` kind that holds its typed-i
 4. The kebab-case source type (`AwsCloudTrail` is `aws-cloud-trail`).
 
 The result is frozen in the generated file `facade/credential_kinds.py` (`CREDENTIAL_KINDS`), because a kind is stored data. A test fails when the file is out of date, when a kind is longer than 32 characters, or when two source types share a kind. Add an override when a new source needs one of the cases above. The Custom source has no credential kind.
+
+Each credential kind also has a default auth type, which `sources/common/credential_auth_type.py` derives from the connection fields:
+
+- `oauth`: the source has an OAuth field and no typed-in connection field.
+- `token`: the source has exactly one typed-in field, and it is a secret.
+- `credentials`: every other source.
+
+The result is frozen in `facade/credential_auth_types.py` (`CREDENTIAL_AUTH_TYPES`), because a row stores its auth type only when it is not the default. The product registers these kinds with the integrations SDK at startup. Read and write their rows with `IntegrationManager.source(kind)` from `products/integrations/backend/facade/api.py`. A kind that is also in the integrations catalogue (`stripe`, `postgresql`) keeps the default of the catalogue.
 
 #### Reading and writing `job_inputs`
 
@@ -822,8 +830,9 @@ If new:
 
 2. **Integration kind**.
    - Add to the `IntegrationKind` enum in `posthog/models/integration/model.py`.
-   - Add the kind to `_KIND_AUTH_TYPES` in `posthog/models/integration/auth_types.py`, with `default=IntegrationAuthType.OAUTH`.
-     Query its rows with `Integration.objects.with_auth(Integration.AuthType.OAUTH)`.
+   - Add the kind to `KINDS` in `products/integrations/backend/facade/catalogue.py`, with `default=_OAUTH`, then run `hogli build:projections --only integration-kinds`.
+     Read and write its rows through the integrations SDK, for example `IntegrationManager.your_source.oauth.get(team_id, integration_id)`.
+     See `products/integrations/backend/README.md`.
    - Add to `OauthIntegration.supported_kinds` in `posthog/models/integration/oauth.py`.
    - Add an `elif kind == "your-source": return OauthConfig(...)` branch in `oauth_config_for_kind()`, also in `oauth.py`.
      Raise `NotImplementedError("<Source> app not configured")` when the env vars are empty — that's the
@@ -902,7 +911,7 @@ client where the driver allows it (see `pinned_host_kwargs` in `common/mixins.py
 From `products/warehouse_sources/backend/temporal/data_imports/sources/common/mixins.py`:
 
 - `SSHTunnelMixin` — `with_ssh_tunnel()` context plus `make_ssh_tunnel_func()` for deferred tunnel opening. Both re-check the SSH host and the database host on every open.
-- `OAuthMixin` — `get_oauth_integration()` to pull `Integration` from the DB.
+- `OAuthMixin` — `get_oauth_integration()` to pull the `Integration` row from the DB. It raises `ValueError("Integration not found: <id>")` when the row is gone. Code that reads a row directly uses `IntegrationManager` from `products.integrations.backend.facade.api`, for example `IntegrationManager.google_ads.oauth.get(team_id, integration_id)`, and catches `IntegrationNotFound`. Never use `Integration.objects`.
 - `ValidateDatabaseHostMixin` — `is_database_host_valid()` to block internal VPC IPs (unless SSH tunnel is used).
 
 ## Icons

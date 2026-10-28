@@ -151,49 +151,122 @@ export interface RoleLookupResponseApi {
 }
 
 /**
+ * * `anthropic` - Anthropic
+ * * `apple-ads` - Apple Ads
+ * * `apns` - Apple Push
+ * * `aws-redshift` - Aws Redshift
+ * * `aws-s3` - Aws S3
+ * * `azure-blob` - Azure Blob
+ * * `bing-ads` - Bing Ads
+ * * `clickup` - Clickup
+ * * `customerio-app` - Customerio App
+ * * `customerio-track` - Customerio Track
+ * * `customerio-webhook` - Customerio Webhook
+ * * `databricks` - Databricks
+ * * `email` - Email
+ * * `firebase` - Firebase
+ * * `github` - Github
+ * * `gitlab` - Gitlab
+ * * `google-ads` - Google Ads
+ * * `google-analytics` - Google Analytics
+ * * `google-calendar` - Google Calendar
+ * * `google-cloud-service-account` - Google Cloud Service Account
+ * * `google-cloud-storage` - Google Cloud Storage
+ * * `google-pubsub` - Google Pubsub
+ * * `google-search-console` - Google Search Console
+ * * `google-sheets` - Google Sheets
+ * * `helpscout` - Helpscout
+ * * `hubspot` - Hubspot
+ * * `instagram` - Instagram
+ * * `intercom` - Intercom
+ * * `jira` - Jira
+ * * `linear` - Linear
+ * * `linkedin-ads` - Linkedin Ads
+ * * `meta-ads` - Meta Ads
+ * * `pardot` - Pardot
+ * * `pinterest-ads` - Pinterest Ads
+ * * `postgresql` - Postgresql
+ * * `posthog` - Posthog
+ * * `reddit-ads` - Reddit Ads
+ * * `twitter-ads` - Twitter Ads
+ * * `resend` - Resend
+ * * `s3-compatible` - S3 Compatible
+ * * `salesforce` - Salesforce
+ * * `slack` - Slack
+ * * `slack-posthog-code` - Slack Posthog Code
+ * * `snapchat` - Snapchat
+ * * `snowflake` - Snowflake
+ * * `stripe` - Stripe
+ * * `tiktok-ads` - Tiktok Ads
+ * * `twilio` - Twilio
+ * * `vercel` - Vercel
+ * * `youtube-analytics` - Youtube Analytics
+ */
+export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
+
+export const IntegrationKindEnumApi = {
+    Anthropic: 'anthropic',
+    AppleAds: 'apple-ads',
+    Apns: 'apns',
+    AwsRedshift: 'aws-redshift',
+    AwsS3: 'aws-s3',
+    AzureBlob: 'azure-blob',
+    BingAds: 'bing-ads',
+    Clickup: 'clickup',
+    CustomerioApp: 'customerio-app',
+    CustomerioTrack: 'customerio-track',
+    CustomerioWebhook: 'customerio-webhook',
+    Databricks: 'databricks',
+    Email: 'email',
+    Firebase: 'firebase',
+    Github: 'github',
+    Gitlab: 'gitlab',
+    GoogleAds: 'google-ads',
+    GoogleAnalytics: 'google-analytics',
+    GoogleCalendar: 'google-calendar',
+    GoogleCloudServiceAccount: 'google-cloud-service-account',
+    GoogleCloudStorage: 'google-cloud-storage',
+    GooglePubsub: 'google-pubsub',
+    GoogleSearchConsole: 'google-search-console',
+    GoogleSheets: 'google-sheets',
+    Helpscout: 'helpscout',
+    Hubspot: 'hubspot',
+    Instagram: 'instagram',
+    Intercom: 'intercom',
+    Jira: 'jira',
+    Linear: 'linear',
+    LinkedinAds: 'linkedin-ads',
+    MetaAds: 'meta-ads',
+    Pardot: 'pardot',
+    PinterestAds: 'pinterest-ads',
+    Postgresql: 'postgresql',
+    Posthog: 'posthog',
+    RedditAds: 'reddit-ads',
+    TwitterAds: 'twitter-ads',
+    Resend: 'resend',
+    S3Compatible: 's3-compatible',
+    Salesforce: 'salesforce',
+    Slack: 'slack',
+    SlackPosthogCode: 'slack-posthog-code',
+    Snapchat: 'snapchat',
+    Snowflake: 'snowflake',
+    Stripe: 'stripe',
+    TiktokAds: 'tiktok-ads',
+    Twilio: 'twilio',
+    Vercel: 'vercel',
+    YoutubeAnalytics: 'youtube-analytics',
+} as const
+
+/**
  * * `oauth` - OAuth
- * * `app` - App installation
- * * `api_key` - API key
- * * `api_token` - API token
- * * `access_token` - Access token
- * * `auth_token` - Auth token
  * * `token` - Token
- * * `access_key` - Access key
- * * `account_key` - Account key
- * * `hmac_key` - HMAC key
- * * `key_pair` - Key pair
- * * `signing_key` - Signing key
- * * `connection_string` - Connection string
- * * `password` - Password
- * * `service_account` - Service account
- * * `service_principal` - Service principal
- * * `database_credentials` - Database credentials
- * * `verified_domain` - Verified domain
- * * `webhook_secret` - Webhook secret
  * * `credentials` - Credentials
  */
 export type IntegrationAuthTypeEnumApi = (typeof IntegrationAuthTypeEnumApi)[keyof typeof IntegrationAuthTypeEnumApi]
 
 export const IntegrationAuthTypeEnumApi = {
     Oauth: 'oauth',
-    App: 'app',
-    ApiKey: 'api_key',
-    ApiToken: 'api_token',
-    AccessToken: 'access_token',
-    AuthToken: 'auth_token',
     Token: 'token',
-    AccessKey: 'access_key',
-    AccountKey: 'account_key',
-    HmacKey: 'hmac_key',
-    KeyPair: 'key_pair',
-    SigningKey: 'signing_key',
-    ConnectionString: 'connection_string',
-    Password: 'password',
-    ServiceAccount: 'service_account',
-    ServicePrincipal: 'service_principal',
-    DatabaseCredentials: 'database_credentials',
-    VerifiedDomain: 'verified_domain',
-    WebhookSecret: 'webhook_secret',
     Credentials: 'credentials',
 } as const
 
@@ -213,32 +286,11 @@ export const InstallationStatusEnumApi = {
  */
 export interface IntegrationConfigApi {
     readonly id: number
-    /**
-     * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
-     * @maxLength 32
-     */
-    kind: string
-    /** How this integration authenticates with the provider, for example an App installation, an OAuth grant or a typed-in API key. A kind can have several auth types.
+    kind: IntegrationKindEnumApi
+    /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
      *
      * * `oauth` - OAuth
-     * * `app` - App installation
-     * * `api_key` - API key
-     * * `api_token` - API token
-     * * `access_token` - Access token
-     * * `auth_token` - Auth token
      * * `token` - Token
-     * * `access_key` - Access key
-     * * `account_key` - Account key
-     * * `hmac_key` - HMAC key
-     * * `key_pair` - Key pair
-     * * `signing_key` - Signing key
-     * * `connection_string` - Connection string
-     * * `password` - Password
-     * * `service_account` - Service account
-     * * `service_principal` - Service principal
-     * * `database_credentials` - Database credentials
-     * * `verified_domain` - Verified domain
-     * * `webhook_secret` - Webhook secret
      * * `credentials` - Credentials */
     readonly auth_type: IntegrationAuthTypeEnumApi
     config?: unknown
@@ -298,32 +350,11 @@ export interface SlackChannelsResponseApi {
  */
 export interface PatchedIntegrationConfigApi {
     readonly id?: number
-    /**
-     * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
-     * @maxLength 32
-     */
-    kind?: string
-    /** How this integration authenticates with the provider, for example an App installation, an OAuth grant or a typed-in API key. A kind can have several auth types.
+    kind?: IntegrationKindEnumApi
+    /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
      *
      * * `oauth` - OAuth
-     * * `app` - App installation
-     * * `api_key` - API key
-     * * `api_token` - API token
-     * * `access_token` - Access token
-     * * `auth_token` - Auth token
      * * `token` - Token
-     * * `access_key` - Access key
-     * * `account_key` - Account key
-     * * `hmac_key` - HMAC key
-     * * `key_pair` - Key pair
-     * * `signing_key` - Signing key
-     * * `connection_string` - Connection string
-     * * `password` - Password
-     * * `service_account` - Service account
-     * * `service_principal` - Service principal
-     * * `database_credentials` - Database credentials
-     * * `verified_domain` - Verified domain
-     * * `webhook_secret` - Webhook secret
      * * `credentials` - Credentials */
     readonly auth_type?: IntegrationAuthTypeEnumApi
     config?: unknown
@@ -844,113 +875,6 @@ export interface GitHubPrepareCallbackRequestApi {
     /** GitHub installation ID being managed; binds the seeded update state so a callback can't swap in a different installation. */
     installation_id?: string
 }
-
-/**
- * * `anthropic` - Anthropic
- * * `apple-ads` - Apple Ads
- * * `apns` - Apple Push
- * * `aws-redshift` - Aws Redshift
- * * `aws-s3` - Aws S3
- * * `azure-blob` - Azure Blob
- * * `bing-ads` - Bing Ads
- * * `clickup` - Clickup
- * * `customerio-app` - Customerio App
- * * `customerio-track` - Customerio Track
- * * `customerio-webhook` - Customerio Webhook
- * * `databricks` - Databricks
- * * `email` - Email
- * * `firebase` - Firebase
- * * `github` - Github
- * * `gitlab` - Gitlab
- * * `google-ads` - Google Ads
- * * `google-analytics` - Google Analytics
- * * `google-calendar` - Google Calendar
- * * `google-cloud-service-account` - Google Cloud Service Account
- * * `google-cloud-storage` - Google Cloud Storage
- * * `google-pubsub` - Google Pubsub
- * * `google-search-console` - Google Search Console
- * * `google-sheets` - Google Sheets
- * * `helpscout` - Helpscout
- * * `hubspot` - Hubspot
- * * `instagram` - Instagram
- * * `intercom` - Intercom
- * * `jira` - Jira
- * * `linear` - Linear
- * * `linkedin-ads` - Linkedin Ads
- * * `meta-ads` - Meta Ads
- * * `pardot` - Pardot
- * * `pinterest-ads` - Pinterest Ads
- * * `postgresql` - Postgresql
- * * `posthog` - Posthog
- * * `reddit-ads` - Reddit Ads
- * * `twitter-ads` - Twitter Ads
- * * `resend` - Resend
- * * `s3-compatible` - S3 Compatible
- * * `salesforce` - Salesforce
- * * `slack` - Slack
- * * `slack-posthog-code` - Slack Posthog Code
- * * `snapchat` - Snapchat
- * * `snowflake` - Snowflake
- * * `stripe` - Stripe
- * * `tiktok-ads` - Tiktok Ads
- * * `twilio` - Twilio
- * * `vercel` - Vercel
- * * `youtube-analytics` - Youtube Analytics
- */
-export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
-
-export const IntegrationKindEnumApi = {
-    Anthropic: 'anthropic',
-    AppleAds: 'apple-ads',
-    Apns: 'apns',
-    AwsRedshift: 'aws-redshift',
-    AwsS3: 'aws-s3',
-    AzureBlob: 'azure-blob',
-    BingAds: 'bing-ads',
-    Clickup: 'clickup',
-    CustomerioApp: 'customerio-app',
-    CustomerioTrack: 'customerio-track',
-    CustomerioWebhook: 'customerio-webhook',
-    Databricks: 'databricks',
-    Email: 'email',
-    Firebase: 'firebase',
-    Github: 'github',
-    Gitlab: 'gitlab',
-    GoogleAds: 'google-ads',
-    GoogleAnalytics: 'google-analytics',
-    GoogleCalendar: 'google-calendar',
-    GoogleCloudServiceAccount: 'google-cloud-service-account',
-    GoogleCloudStorage: 'google-cloud-storage',
-    GooglePubsub: 'google-pubsub',
-    GoogleSearchConsole: 'google-search-console',
-    GoogleSheets: 'google-sheets',
-    Helpscout: 'helpscout',
-    Hubspot: 'hubspot',
-    Instagram: 'instagram',
-    Intercom: 'intercom',
-    Jira: 'jira',
-    Linear: 'linear',
-    LinkedinAds: 'linkedin-ads',
-    MetaAds: 'meta-ads',
-    Pardot: 'pardot',
-    PinterestAds: 'pinterest-ads',
-    Postgresql: 'postgresql',
-    Posthog: 'posthog',
-    RedditAds: 'reddit-ads',
-    TwitterAds: 'twitter-ads',
-    Resend: 'resend',
-    S3Compatible: 's3-compatible',
-    Salesforce: 'salesforce',
-    Slack: 'slack',
-    SlackPosthogCode: 'slack-posthog-code',
-    Snapchat: 'snapchat',
-    Snowflake: 'snowflake',
-    Stripe: 'stripe',
-    TiktokAds: 'tiktok-ads',
-    Twilio: 'twilio',
-    Vercel: 'vercel',
-    YoutubeAnalytics: 'youtube-analytics',
-} as const
 
 export interface IntegrationAccessRequestApi {
     /** The kind of integration the member is requesting be connected (e.g. 'slack', 'github').

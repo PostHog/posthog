@@ -180,6 +180,7 @@ TRIGGERED_BY_WORKFLOW = "workflow"
 # nothing about it, so it must not stamp `last_run_at` and its failures must not size a breaker
 # threshold derived from that cadence.
 TRIGGERED_BY_CHECK = "check"
+TRIGGERED_BY_MONITORING = "monitoring"
 
 # Minimum gap between two workflow-triggered runs of the same (team, skill), enforced scout-side.
 # The workflow layer has its own first line of defence (trigger masking), but that lives in

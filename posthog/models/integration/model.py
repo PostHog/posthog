@@ -107,33 +107,33 @@ WAREHOUSE_SOURCE_TYPE_CONFIG_KEY = "warehouse_source_type"
 
 
 class IntegrationQuerySet(models.QuerySet["Integration"]):
-    # Set by `with_auth`. None means the query did not state its auth types.
+    # Set by `_with_auth`. None means the query did not state its auth types.
     _auth_requirement: AuthRequirement | None = None
-    # True on the queryset that `Integration.objects` returns without `with_auth`. It holds only
+    # True on the queryset that `Integration.objects` returns without `_with_auth`. It holds only
     # rows with the default auth type of their kind, so code that does not state its auth types
     # never gets a row it cannot handle.
     _implicit_default_auth: bool = False
 
     def _clone(self) -> Self:
-        clone = super()._clone()
+        clone = super()._clone()  # type: ignore[misc]
         clone._auth_requirement = self._auth_requirement
         clone._implicit_default_auth = self._implicit_default_auth
         return clone
 
-    def with_auth(self, *auth_types: IntegrationAuthType | AuthTypeSelector | str) -> Self:
-        """Keep only the rows whose auth type is in `auth_types`.
+    def _with_auth(self, *auth_types: IntegrationAuthType | AuthTypeSelector | str) -> Self:
+        """Keep only the rows whose auth type is in `auth_types`. Internal to the integrations SDK.
 
         Pass `DEFAULT` for the default auth type of each row's kind, or `ANY` for every row. A row
         without `config["auth_type"]` has the default auth type of its kind. A create through a
-        `with_auth` with one non-default auth type writes it into `config["auth_type"]`.
+        `_with_auth` with one non-default auth type writes it into `config["auth_type"]`.
         """
         if self._implicit_default_auth:
             raise ValueError(
-                "Call with_auth() directly on Integration.objects. The queryset without it holds only rows "
+                "Call _with_auth() directly on Integration.objects. The queryset without it holds only rows "
                 "with the default auth type of their kind."
             )
         requirement = AuthRequirement.of(*auth_types)
-        queryset = self._chain() if requirement.any else self.filter(requirement.q())
+        queryset = self._chain() if requirement.any else self.filter(requirement.q())  # type: ignore[attr-defined]
         queryset._auth_requirement = requirement
         return queryset
 
@@ -191,19 +191,20 @@ class IntegrationQuerySet(models.QuerySet["Integration"]):
         )
 
 
-class IntegrationManager(models.Manager["Integration"]):
+class IntegrationModelManager(models.Manager["Integration"]):
     _queryset_class = IntegrationQuerySet
 
     def get_queryset(self) -> IntegrationQuerySet:
-        queryset = IntegrationQuerySet(self.model, using=self._db, hints=self._hints)
+        queryset = IntegrationQuerySet(self.model, using=self._db, hints=self._hints)  # type: ignore[attr-defined]
         if self._is_related_manager():
             return queryset
         return queryset._with_implicit_default_auth()
 
-    def with_auth(self, *auth_types: IntegrationAuthType | AuthTypeSelector | str) -> IntegrationQuerySet:
+    def _with_auth(self, *auth_types: IntegrationAuthType | AuthTypeSelector | str) -> IntegrationQuerySet:
         if self._is_related_manager():
-            return self.get_queryset().with_auth(*auth_types)
-        return IntegrationQuerySet(self.model, using=self._db, hints=self._hints).with_auth(*auth_types)
+            return self.get_queryset()._with_auth(*auth_types)
+        queryset = IntegrationQuerySet(self.model, using=self._db, hints=self._hints)  # type: ignore[attr-defined]
+        return queryset._with_auth(*auth_types)
 
     def filter(self, *args: Any, **kwargs: Any) -> IntegrationQuerySet:
         return self.get_queryset().filter(*args, **kwargs)
@@ -216,7 +217,7 @@ class IntegrationManager(models.Manager["Integration"]):
 
     def first_github_for_team_installation(self, team_id: int, installation_id: str) -> "Integration | None":
         return (
-            self.with_auth(IntegrationAuthType.APP)
+            self._with_auth(IntegrationAuthType.OAUTH)
             .filter(team_id=team_id, kind=Integration.IntegrationKind.GITHUB)
             .for_github_installation_id(installation_id)
             .first()
@@ -225,7 +226,7 @@ class IntegrationManager(models.Manager["Integration"]):
     def first_github_for_user_installation(self, user: User, installation_id: str) -> "Integration | None":
         user_team_ids = user.teams.values_list("id", flat=True)
         return (
-            self.with_auth(IntegrationAuthType.APP)
+            self._with_auth(IntegrationAuthType.OAUTH)
             .filter(team_id__in=user_team_ids, kind=Integration.IntegrationKind.GITHUB)
             .for_github_installation_id(installation_id)
             .first()
@@ -324,7 +325,7 @@ class Integration(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
 
-    objects: IntegrationManager = IntegrationManager()
+    objects: IntegrationModelManager = IntegrationModelManager()
 
     class Meta:
         constraints = [

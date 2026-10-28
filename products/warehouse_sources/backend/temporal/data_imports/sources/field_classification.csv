@@ -1165,6 +1165,7 @@ SolarwindsServiceDesk,region api_token,,,,,solarwinds-service-desk
 SonarCloud,token organization region,,,,,sonar-cloud
 Sonarqube,host token,,,,,sonarqube
 SonatypeNexus,host username password,,,,,sonatype-nexus
+Soniox,,,,,,soniox
 Sourcegraph,host access_token,,,,,sourcegraph
 Spacelift,account_name api_key_id api_key_secret,,,,,spacelift
 SparkPost,region api_key,,,,,spark-post

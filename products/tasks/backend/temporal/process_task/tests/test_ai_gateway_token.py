@@ -858,23 +858,6 @@ class TestProvisioningBoundaries:
         env.assert_called_once_with(ctx, task)
         assert out["AI_GATEWAY_TOKEN"] == "phe"
 
-    def test_repository_builder_uses_the_shared_derivation(self, mint_settings):
-        import importlib
-
-        mod = importlib.import_module(
-            "products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository"
-        )
-
-        ctx, task = self._ctx(), self._task()
-        with (
-            patch.object(mod, "run_gateway_env_vars", return_value={"AI_GATEWAY_TOKEN": "phe"}) as env,
-            patch.object(mod, "get_sandbox_jwt_public_key", return_value="jwt"),
-            patch.object(mod, "get_sandbox_api_url", return_value="url"),
-        ):
-            out = mod._build_environment_variables(ctx, task, "", "tok")
-        env.assert_called_once_with(ctx, task)
-        assert out["AI_GATEWAY_TOKEN"] == "phe"
-
     def test_pinned_mint_is_stamped_on_the_run(self, mint_settings):
         env = {"AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "slack_app"}
         with (

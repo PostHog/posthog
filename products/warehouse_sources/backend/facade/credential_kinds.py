@@ -1173,6 +1173,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "SonarCloud": "sonar-cloud",
     "Sonarqube": "sonarqube",
     "SonatypeNexus": "sonatype-nexus",
+    "Soniox": "soniox",
     "Sourcegraph": "sourcegraph",
     "Spacelift": "spacelift",
     "SparkPost": "spark-post",

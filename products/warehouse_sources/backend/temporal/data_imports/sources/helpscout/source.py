@@ -1,7 +1,8 @@
 from typing import Optional, cast
 
-from posthog.models.integration import Integration, OauthIntegration
+from posthog.models.integration import OauthIntegration
 
+from products.integrations.backend.facade.api import IntegrationRecord
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
@@ -108,7 +109,7 @@ class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpSco
         # The lookup only scopes to the team, so a config pointing at some other provider's
         # integration in the same team would otherwise send that provider's access token to the
         # Help Scout API. Reject it before the token is read or refreshed.
-        if integration.kind != Integration.IntegrationKind.HELPSCOUT:
+        if integration.kind != IntegrationRecord.IntegrationKind.HELPSCOUT:
             raise ValueError(f"Integration not found: {config.helpscout_integration_id}")
 
         oauth_integration = OauthIntegration(integration)

@@ -61,7 +61,7 @@ class RecruiteeSource(ResumableSource[RecruiteeSourceConfig, RecruiteeResumeConf
             releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Recruitee company ID and API token to pull your recruiting data into the PostHog Data warehouse.
 
-Find your company ID and create a personal API token under **Settings → Apps and plugins → Personal API tokens** in [Recruitee](https://app.recruitee.com/). The token grants read access to your candidates, offers, departments, and placements. All tables sync via full refresh.
+Find your company ID and create a personal API token under **Settings → Apps and plugins → Personal API tokens** in [Recruitee](https://app.recruitee.com/). The token grants read access to your candidates, candidate notes, offers, departments, locations, and placements. All tables sync via full refresh.
 """,
             iconPath="/static/services/recruitee.png",
             docsUrl="https://posthog.com/docs/cdp/sources/recruitee",

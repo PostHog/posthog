@@ -112,6 +112,7 @@ PRODUCTS_APPS = [
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
     "products.web_analytics.backend.apps.WebAnalyticsConfig",
+    "products.integrations.backend.apps.IntegrationsConfig",
     "products.warehouse_sources.backend.apps.WarehouseSourcesConfig",
     "products.data_tools.backend.apps.DataToolsConfig",
     "products.alerts.backend.apps.AlertsConfig",
@@ -575,6 +576,8 @@ REST_FRAMEWORK = {
     ],
     # The default STRICT_JSON fails the whole request if the data can't be strictly JSON-serialized
     "STRICT_JSON": False,
+    # Keep the pre-3.18 list shape for `many=True` errors that API clients parse. DRF drops this setting in 3.20.
+    "LIST_SERIALIZER_ERRORS_AS_DICT": False,
 }
 
 if DEBUG:

@@ -88,6 +88,28 @@ CASES: list[tuple[str, ExternalDataSourceType, dict[str, Any], SplitJobInputs]] 
         ),
     ),
     (
+        "serialized_oauth_option_with_empty_inactive_keys_is_a_reference",
+        ExternalDataSourceType.STRIPE,
+        {"auth_method": {"selection": "oauth", "stripe_integration_id": 12, "stripe_secret_key": None}},
+        SplitJobInputs(
+            connection={},
+            references={"auth_method": {"selection": "oauth", "stripe_integration_id": 12, "stripe_secret_key": None}},
+            settings={},
+            runtime={},
+        ),
+    ),
+    (
+        "oauth_option_with_an_empty_string_inactive_key_is_a_reference",
+        ExternalDataSourceType.STRIPE,
+        {"auth_method": {"selection": "oauth", "stripe_integration_id": 12, "stripe_secret_key": ""}},
+        SplitJobInputs(
+            connection={},
+            references={"auth_method": {"selection": "oauth", "stripe_integration_id": 12, "stripe_secret_key": ""}},
+            settings={},
+            runtime={},
+        ),
+    ),
+    (
         "auth_method_without_a_selection_is_a_connection_field",
         ExternalDataSourceType.STRIPE,
         {"auth_method": {"stripe_integration_id": 12}},

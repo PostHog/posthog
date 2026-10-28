@@ -38,6 +38,7 @@ const PRODUCT_ICONS: Record<string, TodayRowIcon> = {
     replay: REPLAY,
     surveys: { color: 'var(--color-product-surveys-light)', glyph: <IconMessage /> },
     warehouse_sources: { color: 'var(--color-product-data-warehouse-light)', glyph: <IconDatabase /> },
+    warehouse_suggestions: { color: 'var(--color-product-data-warehouse-light)', glyph: <IconDatabase /> },
     workflows: { color: 'var(--color-product-workflows-light)', glyph: <IconDecisionTree /> },
 }
 

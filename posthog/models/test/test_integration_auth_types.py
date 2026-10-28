@@ -10,15 +10,16 @@ from parameterized import parameterized
 
 from posthog.models import Team, User
 from posthog.models.integration import ANY, DEFAULT, AuthRequirement, Integration, IntegrationAuthType
-from posthog.models.integration.auth_types import catalogued_kinds, config_for_write
+from posthog.models.integration.auth_types import config_for_write
+
+from products.integrations.backend.facade.catalogue import KINDS
 
 AuthType = IntegrationAuthType
 
 
 class TestIntegrationAuthTypeCatalogue(SimpleTestCase):
     def test_every_integration_kind_has_a_catalogue_entry(self) -> None:
-        # Products register more kinds at startup, such as the warehouse source credential kinds.
-        assert set(Integration.IntegrationKind.values) <= set(catalogued_kinds())
+        assert set(KINDS) == set(Integration.IntegrationKind.values)
 
     @parameterized.expand(
         [
@@ -37,14 +38,14 @@ class TestIntegrationAuthTypeCatalogue(SimpleTestCase):
             ("non_default_type_is_written", "github", {}, (AuthType.TOKEN,), {"auth_type": "token"}),
             ("plain_string_type_is_written", "github", {"a": 1}, ("token",), {"a": 1, "auth_type": "token"}),
             ("missing_config_gets_the_type", "slack", None, (AuthType.TOKEN,), {"auth_type": "token"}),
-            ("default_type_is_not_written", "github", {}, (AuthType.APP,), {}),
+            ("token_on_a_credentials_kind_is_written", "databricks", {}, (AuthType.TOKEN,), {"auth_type": "token"}),
+            ("default_type_is_not_written", "github", {}, (AuthType.OAUTH,), {}),
             ("stored_type_in_requirement_is_kept", "github", {"auth_type": "token"}, (AuthType.TOKEN,), None),
-            ("several_types_with_the_default", "github", {}, (AuthType.APP, AuthType.TOKEN), {}),
+            ("several_types_with_the_default", "github", {}, (AuthType.OAUTH, AuthType.TOKEN), {}),
             ("default_selector", "github", {}, (DEFAULT,), {}),
             ("any_keeps_config", "github", {"a": 1}, (ANY,), {"a": 1}),
             ("any_keeps_stored_type", "github", {"auth_type": "token"}, (ANY,), None),
             ("unknown_kind_default", "acme-crm", {}, (AuthType.CREDENTIALS,), {}),
-            ("no_kind_and_type_is_no_kind_default", None, {}, (AuthType.TOKEN,), {"auth_type": "token"}),
         ]
     )
     def test_config_for_write(
@@ -63,10 +64,12 @@ class TestIntegrationAuthTypeCatalogue(SimpleTestCase):
         [
             ("type_the_kind_does_not_support", "postgresql", {}, (AuthType.TOKEN,)),
             ("stored_type_the_kind_does_not_support", "postgresql", {"auth_type": "token"}, (ANY,)),
-            ("stored_type_outside_requirement", "github", {"auth_type": "token"}, (AuthType.APP,)),
-            ("several_types_without_the_default", "github", {}, (AuthType.TOKEN, AuthType.OAUTH)),
+            ("stored_type_outside_requirement", "github", {"auth_type": "token"}, (AuthType.OAUTH,)),
+            ("several_types_without_the_default", "github", {}, (AuthType.TOKEN, AuthType.CREDENTIALS)),
             ("unknown_kind_with_a_specific_type", "acme-crm", {}, (AuthType.TOKEN,)),
-            ("no_kind_and_type_is_a_kind_default", None, {}, (AuthType.OAUTH,)),
+            # Every auth type is the default of some kind, so a write without the kind cannot tell.
+            ("no_kind_with_oauth", None, {}, (AuthType.OAUTH,)),
+            ("no_kind_with_token", None, {}, (AuthType.TOKEN,)),
         ]
     )
     def test_config_for_write_rejects(
@@ -78,7 +81,7 @@ class TestIntegrationAuthTypeCatalogue(SimpleTestCase):
     @parameterized.expand(
         [
             ("missing_key", {}, None),
-            ("stored_default", {"auth_type": "app"}, None),
+            ("stored_default", {"auth_type": "oauth"}, None),
             ("stored_non_default", {"auth_type": "token"}, ValueError),
         ]
     )
@@ -95,8 +98,8 @@ class TestIntegrationAuthTypeCatalogue(SimpleTestCase):
 
 
 ROWS: dict[str, tuple[str, dict]] = {
-    "github_app": ("github", {}),
-    "github_app_explicit": ("github", {"auth_type": "app"}),
+    "github_oauth": ("github", {}),
+    "github_oauth_explicit": ("github", {"auth_type": "oauth"}),
     "github_null": ("github", {"auth_type": None}),
     "github_token": ("github", {"auth_type": "token"}),
     "slack_oauth": ("slack", {}),
@@ -104,14 +107,15 @@ ROWS: dict[str, tuple[str, dict]] = {
     "postgres": ("postgresql", {}),
     "unknown_kind": ("acme-crm", {}),
 }
-DEFAULT_ROWS = {"github_app", "github_app_explicit", "github_null", "slack_oauth", "postgres", "unknown_kind"}
+DEFAULT_ROWS = {"github_oauth", "github_oauth_explicit", "github_null", "slack_oauth", "postgres", "unknown_kind"}
+GITHUB_OAUTH_ROWS = {"github_oauth", "github_oauth_explicit", "github_null"}
 
 
 class TestIntegrationWithAuth(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.rows = {
-            name: Integration.objects.with_auth(ANY).create(
+            name: Integration.objects._with_auth(ANY).create(
                 team=self.team, kind=kind, integration_id=name, config=config
             )
             for name, (kind, config) in ROWS.items()
@@ -122,43 +126,35 @@ class TestIntegrationWithAuth(BaseTest):
 
     @parameterized.expand(
         [
-            (
-                "app",
-                lambda: Integration.objects.with_auth(AuthType.APP),
-                {"github_app", "github_app_explicit", "github_null"},
-            ),
+            ("oauth", lambda: Integration.objects._with_auth(AuthType.OAUTH), GITHUB_OAUTH_ROWS | {"slack_oauth"}),
             (
                 "token_across_kinds",
-                lambda: Integration.objects.with_auth(AuthType.TOKEN),
+                lambda: Integration.objects._with_auth(AuthType.TOKEN),
                 {"github_token", "slack_token"},
             ),
             (
                 "token_with_kind_in",
-                lambda: Integration.objects.with_auth(AuthType.TOKEN).filter(kind__in=["slack", "postgresql"]),
+                lambda: Integration.objects._with_auth(AuthType.TOKEN).filter(kind__in=["slack", "postgresql"]),
                 {"slack_token"},
             ),
-            ("oauth", lambda: Integration.objects.with_auth(AuthType.OAUTH), {"slack_oauth"}),
-            ("password", lambda: Integration.objects.with_auth(AuthType.PASSWORD), {"postgres"}),
-            ("unknown_kind_default", lambda: Integration.objects.with_auth(AuthType.CREDENTIALS), {"unknown_kind"}),
             (
-                "two_defaults_with_kind_in",
-                lambda: Integration.objects.with_auth(AuthType.APP, AuthType.OAUTH).filter(
-                    kind__in=["github", "slack"]
-                ),
-                {"github_app", "github_app_explicit", "github_null", "slack_oauth"},
+                "credentials_with_the_unknown_kind_default",
+                lambda: Integration.objects._with_auth(AuthType.CREDENTIALS),
+                {"postgres", "unknown_kind"},
             ),
-            ("default_selector", lambda: Integration.objects.with_auth(DEFAULT), DEFAULT_ROWS),
-            ("default_and_token", lambda: Integration.objects.with_auth(DEFAULT, AuthType.TOKEN), set(ROWS)),
-            ("any", lambda: Integration.objects.with_auth(ANY), set(ROWS)),
+            (
+                "oauth_with_kind",
+                lambda: Integration.objects._with_auth(AuthType.OAUTH).filter(kind="github"),
+                GITHUB_OAUTH_ROWS,
+            ),
+            ("default_selector", lambda: Integration.objects._with_auth(DEFAULT), DEFAULT_ROWS),
+            ("default_and_token", lambda: Integration.objects._with_auth(DEFAULT, AuthType.TOKEN), set(ROWS)),
+            ("any", lambda: Integration.objects._with_auth(ANY), set(ROWS)),
             ("unqualified_query", lambda: Integration.objects.all(), DEFAULT_ROWS),
-            (
-                "unqualified_filter",
-                lambda: Integration.objects.filter(kind="github"),
-                {"github_app", "github_app_explicit", "github_null"},
-            ),
+            ("unqualified_filter", lambda: Integration.objects.filter(kind="github"), GITHUB_OAUTH_ROWS),
             (
                 "narrowed_twice",
-                lambda: Integration.objects.with_auth(ANY).with_auth(AuthType.TOKEN),
+                lambda: Integration.objects._with_auth(ANY)._with_auth(AuthType.TOKEN),
                 {"github_token", "slack_token"},
             ),
         ]
@@ -170,31 +166,32 @@ class TestIntegrationWithAuth(BaseTest):
 
     def test_auth_type_property_reads_config_or_kind_default(self) -> None:
         assert {
-            row.integration_id: row.auth_type for row in Integration.objects.with_auth(ANY).filter(team=self.team)
+            row.integration_id: row.auth_type for row in Integration.objects._with_auth(ANY).filter(team=self.team)
         } == {
-            "github_app": "app",
-            "github_app_explicit": "app",
-            "github_null": "app",
+            "github_oauth": "oauth",
+            "github_oauth_explicit": "oauth",
+            "github_null": "oauth",
             "github_token": "token",
             "slack_oauth": "oauth",
             "slack_token": "token",
-            "postgres": "password",
+            "postgres": "credentials",
             "unknown_kind": "credentials",
         }
 
     def test_save_drops_a_stored_auth_type_that_is_null_or_the_kind_default(self) -> None:
         token_row = self.rows["github_token"]
-        token_row.config = {"auth_type": "app", "a": 1}
+        token_row.config = {"auth_type": "oauth", "a": 1}
         token_row.save()
 
         stored = {
             row.integration_id: row.config
             for row in Integration._base_manager.filter(
-                team=self.team, integration_id__in=["github_app_explicit", "github_null", "github_token", "slack_token"]
+                team=self.team,
+                integration_id__in=["github_oauth_explicit", "github_null", "github_token", "slack_token"],
             )
         }
         assert stored == {
-            "github_app_explicit": {},
+            "github_oauth_explicit": {},
             "github_null": {},
             "github_token": {"a": 1},
             "slack_token": {"auth_type": "token"},
@@ -205,7 +202,7 @@ class TestIntegrationWithAuth(BaseTest):
         deleted, _ = Integration.objects.filter(team=self.team, kind="slack").delete()
 
         assert (updated, deleted) == (3, 1)
-        assert Integration.objects.with_auth(AuthType.TOKEN).filter(team=self.team).count() == 2
+        assert Integration.objects._with_auth(AuthType.TOKEN).filter(team=self.team).count() == 2
 
     @parameterized.expand(
         [
@@ -216,7 +213,7 @@ class TestIntegrationWithAuth(BaseTest):
         ]
     )
     def test_writes_through_one_non_default_type_store_it(self, _name: str, write: Callable[..., Integration]) -> None:
-        row = write(Integration.objects.with_auth(AuthType.TOKEN), team=self.team, kind="github", integration_id="new")
+        row = write(Integration.objects._with_auth(AuthType.TOKEN), team=self.team, kind="github", integration_id="new")
 
         assert Integration._base_manager.get(team=self.team, integration_id="new").config == {"auth_type": "token"}
         assert row.auth_type == "token"
@@ -224,15 +221,15 @@ class TestIntegrationWithAuth(BaseTest):
 
     @parameterized.expand([("create",), ("get_or_create",), ("update_or_create",)])
     def test_writes_through_the_default_type_store_nothing(self, method: str) -> None:
-        getattr(Integration.objects.with_auth(AuthType.APP), method)(
+        getattr(Integration.objects._with_auth(AuthType.OAUTH), method)(
             team=self.team, kind="github", integration_id="new"
         )
 
         row = Integration.objects.get(team=self.team, integration_id="new")
-        assert (row.config, row.auth_type) == ({}, "app")
+        assert (row.config, row.auth_type) == ({}, "oauth")
 
     def test_update_or_create_keeps_the_auth_type_of_an_existing_row(self) -> None:
-        row, created = Integration.objects.with_auth(AuthType.TOKEN).update_or_create(
+        row, created = Integration.objects._with_auth(AuthType.TOKEN).update_or_create(
             team=self.team, kind="github", integration_id="github_token", defaults={"config": {"account": "a"}}
         )
 
@@ -247,8 +244,8 @@ class TestIntegrationWithAuth(BaseTest):
 
     @parameterized.expand(
         [
-            ("all", lambda: Integration.objects.all().with_auth(ANY)),
-            ("filter", lambda: Integration.objects.filter(kind="github").with_auth(AuthType.TOKEN)),
+            ("all", lambda: Integration.objects.all()._with_auth(ANY)),  # type: ignore[attr-defined]
+            ("filter", lambda: Integration.objects.filter(kind="github")._with_auth(AuthType.TOKEN)),
         ]
     )
     def test_with_auth_after_an_unqualified_query_raises(self, _name: str, build: Callable[[], Any]) -> None:
@@ -263,7 +260,7 @@ class TestIntegrationWithAuth(BaseTest):
         assert {row.integration_id for row in self.team.integration_set.all()} == set(ROWS)
         assert {row.integration_id for row in prefetched_team.integration_set.all()} == set(ROWS)
         assert self._names(Integration._base_manager.all()) == set(ROWS)
-        assert self._names(self.team.integration_set.with_auth(AuthType.TOKEN)) == {"github_token", "slack_token"}
+        assert self._names(self.team.integration_set._with_auth(AuthType.TOKEN)) == {"github_token", "slack_token"}
 
     def test_deleting_the_creator_reaches_non_default_rows(self) -> None:
         creator = User.objects.create_and_join(self.organization, "creator@example.com", None)

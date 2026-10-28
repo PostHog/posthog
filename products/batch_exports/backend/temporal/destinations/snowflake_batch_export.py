@@ -25,7 +25,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.models.integration import Integration, SnowflakeIntegration
+from posthog.models.integration import SnowflakeIntegration
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -62,6 +62,8 @@ from products.batch_exports.backend.temporal.utils import (
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
 )
+from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
@@ -197,10 +199,8 @@ async def _get_snowflake_integration(integration_id: int, team_id: int) -> Snowf
     `SnowflakeIntegration` raises `SnowflakeIntegrationError` if the config is malformed.
     """
     try:
-        integration = await Integration.objects.aget(
-            id=integration_id, team_id=team_id, kind=Integration.IntegrationKind.SNOWFLAKE
-        )
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.snowflake.credentials.aget(team_id, integration_id)
+    except IntegrationNotFound:
         raise SnowflakeIntegrationNotFoundError(integration_id, team_id)
 
     return SnowflakeIntegration(integration)

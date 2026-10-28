@@ -53,6 +53,11 @@ class TracePerson(Contract):
     label: str
 
 
+class TraceGit(Contract):
+    branch: str = Field(description="The git branch checked out when the trace ran.")
+    repo: str | None = Field(description="The repository as owner/name, or null when the branch's event has none.")
+
+
 class Trace(Contract):
     id: str
     name: str | None
@@ -68,6 +73,10 @@ class Trace(Contract):
     thread_node_ids: list[str]
     default_node_id: str
     node_ids_by_alias: dict[str, str]
+    git: TraceGit | None = Field(
+        description="The branch the trace's work ran on: the latest stamped branch other than main or master, else "
+        "the first stamp. Null when no event carries a branch."
+    )
 
 
 class TraceNodeIOKeys(Contract):
@@ -118,6 +127,7 @@ EVALUATION_PASSED_MARKER = "aiEvaluationPassed()"
 
 
 EvaluationOutcome = Literal["pass", "fail", "inconclusive", "unrated"]
+EvaluationRollupOutcome = Literal["pass", "fail", "unrated"]
 
 
 class TraceEvaluationResult(Contract):
@@ -129,13 +139,32 @@ class TraceEvaluationResult(Contract):
     )
     outcome: EvaluationOutcome
     label: str = Field(description='What the result says, such as "True", "0.82", "Positive" or "Skipped".')
+    score: float | None = Field(description="The numeric result of a numeric evaluation, null for every other type.")
     reasoning: str | None
     timestamp: datetime
     is_backfill: bool
 
 
+class TraceNodeEvaluationRollup(Contract):
+    node_id: str = Field(description="The tree node the results grade.")
+    outcome: EvaluationRollupOutcome = Field(
+        description="Fail if any evaluation fails on the node, else pass if any passes, else unrated."
+    )
+
+
+class TraceEvaluationSummary(Contract):
+    """Counts the latest run of each evaluation on each node, by when the run started, so re-runs and backfills
+    count once. Inconclusive results count as unrated. Computed over the results returned, at most 250."""
+
+    passed: int
+    failed: int
+    unrated: int
+    nodes: list[TraceNodeEvaluationRollup] = Field(description="One entry per node with results, sorted by node id.")
+
+
 class TraceEvaluationResults(Contract):
     results: list[TraceEvaluationResult]
+    summary: TraceEvaluationSummary
 
 
 AttentionReason = Literal["errored", "silent", "worse"]

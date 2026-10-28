@@ -9866,6 +9866,7 @@ export namespace Schemas {
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
@@ -9887,6 +9888,7 @@ export namespace Schemas {
         | "no_metric"
         | "metric_event_not_ingested"
         | "metric_cannot_compile"
+        | "metric_calculation_failed"
         | "exposure_criteria_cannot_match"
         | "srm"
         | "zero_exposures"
@@ -9938,6 +9940,7 @@ export namespace Schemas {
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
          * * `metric_cannot_compile` - Metric Cannot Compile
+         * * `metric_calculation_failed` - Metric Calculation Failed
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
@@ -9995,6 +9998,7 @@ export namespace Schemas {
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
@@ -10014,6 +10018,7 @@ export namespace Schemas {
         | "no_metric"
         | "metric_event_not_ingested"
         | "metric_cannot_compile"
+        | "metric_calculation_failed"
         | "exposure_criteria_cannot_match"
         | "early_significance"
         | "zero_exposures"
@@ -10046,6 +10051,7 @@ export namespace Schemas {
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
          * * `metric_cannot_compile` - Metric Cannot Compile
+         * * `metric_calculation_failed` - Metric Calculation Failed
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
          * * `early_significance` - Early Significance
          * * `zero_exposures` - Zero Exposures
@@ -12406,6 +12412,7 @@ export namespace Schemas {
      * * `AwsS3Tables` - AwsS3Tables
      * * `Beacons` - Beacons
      * * `WooPayments` - WooPayments
+     * * `Soniox` - Soniox
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13818,7 +13825,8 @@ export namespace Schemas {
         | "Dripify"
         | "AwsS3Tables"
         | "Beacons"
-        | "WooPayments";
+        | "WooPayments"
+        | "Soniox";
     /**
      * * `web` - web
      * * `api` - api
@@ -15240,6 +15248,7 @@ export namespace Schemas {
          * * `AwsS3Tables` - AwsS3Tables
          * * `Beacons` - Beacons
          * * `WooPayments` - WooPayments
+         * * `Soniox` - Soniox
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -16360,6 +16369,49 @@ export namespace Schemas {
      */
     export type InstallationStatusEnum = "connected" | "unavailable";
     /**
+     * * `oauth` - OAuth
+     * * `app` - App installation
+     * * `api_key` - API key
+     * * `api_token` - API token
+     * * `access_token` - Access token
+     * * `auth_token` - Auth token
+     * * `token` - Token
+     * * `access_key` - Access key
+     * * `account_key` - Account key
+     * * `hmac_key` - HMAC key
+     * * `key_pair` - Key pair
+     * * `signing_key` - Signing key
+     * * `connection_string` - Connection string
+     * * `password` - Password
+     * * `service_account` - Service account
+     * * `service_principal` - Service principal
+     * * `database_credentials` - Database credentials
+     * * `verified_domain` - Verified domain
+     * * `webhook_secret` - Webhook secret
+     * * `credentials` - Credentials
+     */
+    export type IntegrationAuthTypeEnum =
+        | "oauth"
+        | "app"
+        | "api_key"
+        | "api_token"
+        | "access_token"
+        | "auth_token"
+        | "token"
+        | "access_key"
+        | "account_key"
+        | "hmac_key"
+        | "key_pair"
+        | "signing_key"
+        | "connection_string"
+        | "password"
+        | "service_account"
+        | "service_principal"
+        | "database_credentials"
+        | "verified_domain"
+        | "webhook_secret"
+        | "credentials";
+    /**
      * * `anthropic` - Anthropic
      * * `apple-ads` - Apple Ads
      * * `apns` - Apple Push
@@ -16468,6 +16520,31 @@ export namespace Schemas {
     export type IntegrationConfig = {
         id: number;
         kind: IntegrationKindEnum;
+        /**
+         * How this integration authenticates with the provider, for example an App installation, an OAuth grant or a typed-in API key. A kind can have several auth types.
+         *
+         * * `oauth` - OAuth
+         * * `app` - App installation
+         * * `api_key` - API key
+         * * `api_token` - API token
+         * * `access_token` - Access token
+         * * `auth_token` - Auth token
+         * * `token` - Token
+         * * `access_key` - Access key
+         * * `account_key` - Account key
+         * * `hmac_key` - HMAC key
+         * * `key_pair` - Key pair
+         * * `signing_key` - Signing key
+         * * `connection_string` - Connection string
+         * * `password` - Password
+         * * `service_account` - Service account
+         * * `service_principal` - Service principal
+         * * `database_credentials` - Database credentials
+         * * `verified_domain` - Verified domain
+         * * `webhook_secret` - Webhook secret
+         * * `credentials` - Credentials
+         */
+        auth_type: IntegrationAuthTypeEnum & unknown;
         /**
          * Standard Integration serializer.
          */
@@ -19459,6 +19536,7 @@ export namespace Schemas {
         ensure_experience_continuity: boolean | null;
         evaluation_runtime: EvaluationRuntimeEnum | NullEnum;
         bucketing_identifier: BucketingIdentifierEnum | NullEnum;
+        version: number;
     }>;
     export type PatchedHogFlowSchedule = Partial<{
         id: string;

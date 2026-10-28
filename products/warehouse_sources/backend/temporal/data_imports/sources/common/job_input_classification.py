@@ -161,14 +161,20 @@ def stored_field_kinds(source_type: ExternalDataSourceType) -> Mapping[str, JobI
     return kinds
 
 
+@frozen
+class ReferenceOptions:
+    """The reference option values of a select, and the OAuth keys those options may hold."""
+
+    values: frozenset[str]
+    oauth_keys: frozenset[str]
+
+
 @functools.cache
-def stored_reference_options(
-    source_type: ExternalDataSourceType,
-) -> Mapping[str, tuple[frozenset[str], frozenset[str]]]:
+def stored_reference_options(source_type: ExternalDataSourceType) -> Mapping[str, ReferenceOptions]:
     """For each stored select key with reference options: the option values and the OAuth keys they may hold."""
     source = SourceRegistry.get_source(source_type)
     fields_by_name = {field.name: field for field in source.get_source_config.fields}
-    result: dict[str, tuple[frozenset[str], frozenset[str]]] = {}
+    result: dict[str, ReferenceOptions] = {}
     for stored_name, name in [(name, name) for name in fields_by_name] + list(_stored_aliases(source_type).items()):
         field = fields_by_name.get(name)
         values = reference_option_values(field) if field is not None else frozenset()
@@ -177,7 +183,7 @@ def stored_reference_options(
         oauth_keys = frozenset(
             nested.name for option in field.options if option.value in values for nested in option.fields or []
         )
-        result.setdefault(stored_name, (values, oauth_keys))
+        result.setdefault(stored_name, ReferenceOptions(values=values, oauth_keys=oauth_keys))
     return result
 
 
@@ -185,8 +191,12 @@ def _is_reference_value(source_type: ExternalDataSourceType, key: str, value: An
     options = stored_reference_options(source_type).get(key)
     if options is None or not isinstance(value, Mapping):
         return False
-    values, oauth_keys = options
-    return value.get(SELECT_OPTION_KEY) in values and value.keys() <= oauth_keys | {SELECT_OPTION_KEY}
+    if value.get(SELECT_OPTION_KEY) not in options.values:
+        return False
+    # `serialize_config` keeps the inactive options' fields as empty values, so an empty stray key is
+    # fine. A populated one may be a credential, so the whole value stays a connection field.
+    stray_keys = value.keys() - options.oauth_keys - {SELECT_OPTION_KEY}
+    return all(value[key] in (None, "") for key in stray_keys)
 
 
 def classify_job_input_key(source_type: ExternalDataSourceType, key: str, value: Any = None) -> JobInputKind:

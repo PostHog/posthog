@@ -38,7 +38,7 @@ class IntegrationAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request: HttpRequest) -> QuerySet[Integration]:
         # The default manager holds only rows with the default auth type of their kind.
-        queryset = Integration.objects.with_auth(ANY)
+        queryset = Integration.objects._with_auth(ANY)
         ordering = self.get_ordering(request)
         return queryset.order_by(*ordering) if ordering else queryset
 
