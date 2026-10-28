@@ -672,11 +672,9 @@ async fn the_seal_covers_versions_emitted_without_an_outcome() {
     );
 }
 
-/// The release-side counterpart: a post-seal write that slipped through an
-/// unfenced window (leader amnesia after a handoff) with an indeterminate
-/// outcome raises the floor without touching the cache. The death version
-/// must clear that floor, or the death document lands at the same version
-/// as a record that may already be in the changelog.
+/// A committed release carries the saga's tombstone version: one at or
+/// below the seal is refused without producing anything, and one above it
+/// floors the death document.
 #[tokio::test]
 async fn a_committed_release_honors_the_sagas_tombstone_version() {
     let pool = common::create_persons_pool().await;
@@ -737,7 +735,9 @@ async fn a_committed_release_honors_the_sagas_tombstone_version() {
         tombstone_version,
     };
 
-    // A tombstone at or below the seal is a caller bug: refused, fence kept.
+    // A tombstone at or below the seal is a caller bug: refused, fence kept,
+    // nothing produced.
+    let produced_before_refusal = changelog_records(&harness).len();
     let status = harness
         .client
         .release_fence(with_partition(release(Some(sealed.version)), partition))
@@ -751,6 +751,11 @@ async fn a_committed_release_honors_the_sagas_tombstone_version() {
             .is_some(),
         "a refused release leaves the fence"
     );
+    assert_eq!(
+        changelog_records(&harness).len(),
+        produced_before_refusal,
+        "a refused release produces nothing"
+    );
 
     // The saga tombstoned three versions past the seal because a direct
     // Postgres write slipped in; the death document must not sit below it.
@@ -761,11 +766,13 @@ async fn a_committed_release_honors_the_sagas_tombstone_version() {
         .await
         .expect("committed release succeeds");
 
-    let records = changelog_records(&harness);
-    let death = records.last().expect("death document produced");
-    assert!(death.is_deleted);
+    let deaths: Vec<_> = changelog_records(&harness)
+        .into_iter()
+        .filter(|record| record.is_deleted)
+        .collect();
+    assert_eq!(deaths.len(), 1, "exactly one death document is produced");
     assert_eq!(
-        death.version, tombstone_version,
+        deaths[0].version, tombstone_version,
         "the death version must match the saga's tombstone, not sealed + 1"
     );
 
@@ -776,6 +783,11 @@ async fn a_committed_release_honors_the_sagas_tombstone_version() {
         .expect("cleanup op");
 }
 
+/// The release-side counterpart: a post-seal write that slipped through an
+/// unfenced window (leader amnesia after a handoff) with an indeterminate
+/// outcome raises the floor without touching the cache. The death version
+/// must clear that floor, or the death document lands at the same version
+/// as a record that may already be in the changelog.
 #[tokio::test]
 async fn a_committed_release_derives_the_death_version_above_the_emitted_floor() {
     let pool = common::create_persons_pool().await;
@@ -833,6 +845,8 @@ async fn a_committed_release_derives_the_death_version_above_the_emitted_floor()
         spent,
     );
 
+    // The saga's tombstone sits below the spent version: the floor, not
+    // the tombstone, decides the death version.
     harness
         .client
         .release_fence(with_partition(
@@ -844,7 +858,7 @@ async fn a_committed_release_derives_the_death_version_above_the_emitted_floor()
                 outcome: ReleaseOutcome::Committed.into(),
                 sealed_version: Some(sealed.version),
                 created_at: sealed.created_at,
-                tombstone_version: None,
+                tombstone_version: Some(sealed.version + 1),
             },
             partition,
         ))
@@ -857,7 +871,7 @@ async fn a_committed_release_derives_the_death_version_above_the_emitted_floor()
     assert_eq!(
         death.version,
         spent + 1,
-        "the death version must clear the emitted floor, not just the seal"
+        "the death version must clear the emitted floor, not just the seal or the tombstone"
     );
 
     sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
@@ -3024,7 +3038,7 @@ async fn a_batch_for_a_released_partition_is_a_routing_bounce() {
 
 /// One `ReleaseFences` call closes every fence of an op on the routed
 /// partition, producing each death document exactly as a single release
-/// would.
+/// would, including the per-item tombstone floor.
 #[tokio::test]
 async fn a_batched_release_closes_every_fence_of_the_routed_partition() {
     let pool = common::create_persons_pool().await;
@@ -3071,12 +3085,14 @@ async fn a_batched_release_closes_every_fence_of_the_routed_partition() {
             .into_inner()
             .sealed
             .expect("sealed state returned");
+        // Only the second victim took a direct write after its seal.
+        let tombstone_version = (person_id == second_id).then(|| sealed.version + 4);
         persons.push(ReleaseFenceItem {
             person_id,
             person_uuid: uuid,
             sealed_version: Some(sealed.version),
             created_at: sealed.created_at,
-            tombstone_version: None,
+            tombstone_version,
         });
     }
 
@@ -3100,7 +3116,13 @@ async fn a_batched_release_closes_every_fence_of_the_routed_partition() {
             .iter()
             .find(|r| r.id == person.person_id && r.is_deleted)
             .expect("a death document per released person");
-        assert_eq!(death.version, person.sealed_version.unwrap() + 1);
+        let expected = person
+            .tombstone_version
+            .unwrap_or(person.sealed_version.unwrap() + 1);
+        assert_eq!(
+            death.version, expected,
+            "each item's death version honors its own tombstone"
+        );
         // The fence is gone: a new op finds a destroyed person, not a fence.
         let status = harness
             .client

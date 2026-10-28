@@ -882,6 +882,114 @@ async fn a_direct_postgres_write_between_seal_and_unmap_cannot_outrank_the_tombs
 }
 
 #[tokio::test]
+async fn each_victim_of_a_batch_carries_its_own_tombstone_version() {
+    let h = FencedHarness::new().await;
+    let raced_id = h
+        .ctx
+        .create_person_via_stub(&format!("fenced-raced-{}", Uuid::now_v7()))
+        .await;
+    let quiet_id = h
+        .ctx
+        .create_person_via_stub(&format!("fenced-quiet-{}", Uuid::now_v7()))
+        .await;
+
+    let op_id = Uuid::now_v7();
+    h.engine
+        .create_or_attach(
+            &h.driver,
+            op_id,
+            h.ctx.team_id,
+            &FencedHarness::request(&[raced_id, quiet_id]),
+        )
+        .await
+        .expect("create op");
+    h.step(op_id).await.expect("started -> marked");
+    h.step(op_id).await.expect("marked -> sealed");
+
+    // Only one of the two victims takes a direct write after the seal.
+    sqlx::query("UPDATE posthog_person SET version = version + 3 WHERE team_id = $1 AND id = $2")
+        .bind(h.ctx.team_id as i32)
+        .bind(raced_id)
+        .execute(&h.ctx.pool)
+        .await
+        .expect("direct write");
+
+    h.step(op_id).await.expect("sealed -> unmapped");
+    let row = h.step(op_id).await.expect("unmapped -> completed");
+    assert!(row.completed_at.is_some());
+
+    // The tombstone, the death document and the outcome of each victim
+    // carry that victim's version, not its neighbour's.
+    let (_, raced_version, _) = h.ctx.person_state(raced_id).await;
+    let (_, quiet_version, _) = h.ctx.person_state(quiet_id).await;
+    assert_eq!(raced_version, 4);
+    assert_eq!(quiet_version, 1);
+    let docs = h.leader.death_documents();
+    assert_eq!(docs.len(), 2);
+    let death_version = |person_id: i64| {
+        docs.iter()
+            .find(|doc| doc.person_id == person_id)
+            .expect("a death document per victim")
+            .version
+    };
+    assert_eq!(death_version(raced_id), 4);
+    assert_eq!(death_version(quiet_id), 1);
+    let outcome = FencedHarness::outcome(&row);
+    assert_eq!(outcome.results[0].person_version, Some(4));
+    assert_eq!(outcome.results[1].person_version, Some(1));
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn an_op_unmapped_by_a_pre_tombstone_version_build_completes_at_the_seal() {
+    let h = FencedHarness::new().await;
+    let distinct_id = format!("pre-tombstone-upgrade-{}", Uuid::now_v7());
+    let person_id = h.ctx.create_person_via_stub(&distinct_id).await;
+
+    let op_id = Uuid::now_v7();
+    h.engine
+        .create_or_attach(
+            &h.driver,
+            op_id,
+            h.ctx.team_id,
+            &FencedHarness::request(&[person_id]),
+        )
+        .await
+        .expect("create op");
+    h.step(op_id).await.expect("started -> marked");
+    h.step(op_id).await.expect("marked -> sealed");
+    let row = h.step(op_id).await.expect("sealed -> unmapped");
+    assert_eq!(row.step, "unmapped");
+
+    // Recreate the state a build without tombstone versions leaves behind
+    // at a deploy boundary: the seal carries no tombstone_version key. The
+    // new build must complete the op and let the leader fall back to the
+    // seal.
+    sqlx::query(
+        "UPDATE lifecycle_op_person SET sealed = sealed - 'tombstone_version' WHERE op_id = $1",
+    )
+    .bind(op_id)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("strip like a pre-tombstone-version build");
+
+    let row = h.step(op_id).await.expect("unmapped -> completed");
+    assert!(row.completed_at.is_some());
+    let outcome = FencedHarness::outcome(&row);
+    assert_eq!(outcome.results[0].outcome, "deleted");
+    assert_eq!(
+        outcome.results[0].person_version, None,
+        "an old unmap recorded no version to report"
+    );
+    let docs = h.leader.death_documents();
+    assert_eq!(docs.len(), 1);
+    assert_eq!(docs[0].version, 1, "the leader falls back to sealed + 1");
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
 async fn a_transient_fence_failure_leaves_the_op_retryable() {
     let h = FencedHarness::new().await;
     let distinct_id = format!("fenced-retry-{}", Uuid::now_v7());
