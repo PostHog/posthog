@@ -47,10 +47,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.health.context import ConditionSetTraffic
-from products.experiments.backend.hogql_queries.exposure_query_logic import (
-    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
-    EXPERIMENT_EXPOSURE_EVENT_FLAG,
-)
+from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
 from products.experiments.backend.metric_calculation.config import (
     build_primary_calculation_configs,
     get_metric_calculation_config,
@@ -69,6 +66,7 @@ from products.experiments.backend.models.web_experiment import WebExperiment
 from products.experiments.backend.presentation.serializers import ExperimentSerializer
 from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
 from products.experiments.backend.setup_context import EXPERIMENT_SETUP_CONTEXT_FLAG
+from products.experiments.backend.test.utils import patch_exposure_event_flag
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -734,10 +732,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days),
         )
 
-        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_enabled if flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG else False
-
-        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+        with patch_exposure_event_flag(enabled=flag_enabled):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -7402,10 +7397,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         )
         flush_persons_and_events()
 
-        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG
-
-        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+        with patch_exposure_event_flag(enabled=True):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/experiments/{created_experiment}/create_exposure_cohort_for_experiment/",
                 {},
