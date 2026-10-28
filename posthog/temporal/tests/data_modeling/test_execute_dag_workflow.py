@@ -12,6 +12,7 @@ from temporalio import (
     activity as temporal_activity,
     workflow as temporal_workflow,
 )
+from temporalio.api.enums.v1 import EventType
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.workflow import ParentClosePolicy
@@ -575,6 +576,22 @@ class MockMaterializeViewWorkflow:
         )
 
 
+_child_concurrency = {"running": 0, "peak": 0, "sleep_seconds": 10}
+
+
+@temporal_workflow.defn(name="data-modeling-materialize-view")
+class SlowMockMaterializeViewWorkflow:
+    @temporal_workflow.run
+    async def run(self, inputs: MaterializeViewWorkflowInputs) -> MaterializeViewWorkflowResult:
+        _child_concurrency["running"] += 1
+        _child_concurrency["peak"] = max(_child_concurrency["peak"], _child_concurrency["running"])
+        await temporal_workflow.sleep(dt.timedelta(seconds=_child_concurrency["sleep_seconds"]))
+        _child_concurrency["running"] -= 1
+        return MaterializeViewWorkflowResult(
+            job_id="test-job", node_id=inputs.node_id, rows_materialized=1, duration_seconds=10.0
+        )
+
+
 class TestExecuteDAGWorkflowWithMocks:
     """Tests that use module-level mock workflows to test orchestration behavior."""
 
@@ -923,6 +940,97 @@ class TestExecuteDAGWorkflowWithMocks:
         assert len(result.node_results) == 3
         assert all(r.success for r in result.node_results)
         assert _notified_dag_failures == []
+
+    @pytest.mark.parametrize(
+        "kill_switch_level,expected_peak",
+        [
+            ("off", 4),
+            ("light", 3),
+            ("full", 1),
+            (None, 4),
+        ],
+    )
+    async def test_kill_switch_narrows_the_child_window(self, kill_switch_level, expected_peak):
+        node_ids = [str(uuid.uuid4()) for _ in range(4)]
+        _child_concurrency.update(running=0, peak=0, sleep_seconds=10)
+
+        @temporal_activity.defn(name="get_dag_structure_activity")
+        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAGPlan:
+            return DAGPlan(nodes=node_ids, executable_nodes=node_ids, edges=[])
+
+        @temporal_activity.defn(name="get_clickhouse_kill_switch_level_activity")
+        async def stub_kill_switch_level(_: int) -> str:
+            if kill_switch_level is None:
+                raise temporalio.exceptions.ApplicationError("instance settings unavailable")
+            return kill_switch_level
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with temporalio.worker.Worker(
+                env.client,
+                task_queue="test-queue",
+                workflows=[ExecuteDAGWorkflow, SlowMockMaterializeViewWorkflow],
+                activities=[
+                    stub_preempt_dag_run,
+                    stub_check_team_shadow_eligibility,
+                    stub_get_dag_structure,
+                    stub_kill_switch_level,
+                    stub_notify_dag_materialization_failures,
+                ],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ):
+                result: ExecuteDAGResult = await env.client.execute_workflow(
+                    ExecuteDAGWorkflow.run,
+                    ExecuteDAGInputs(team_id=1, dag_id="test-dag"),
+                    id=f"test-kill-switch-window-{uuid.uuid4()}",
+                    task_queue="test-queue",
+                    execution_timeout=dt.timedelta(minutes=10),
+                )
+
+        assert result.successful_nodes == 4
+        assert _child_concurrency["peak"] == expected_peak
+
+    async def test_kill_switch_is_reread_while_children_keep_finishing(self):
+        node_ids = [str(uuid.uuid4()) for _ in range(12)]
+        _child_concurrency.update(running=0, peak=0, sleep_seconds=30)
+        level_reads: list[str] = []
+        workflow_id = f"test-kill-switch-reread-{uuid.uuid4()}"
+
+        @temporal_activity.defn(name="get_dag_structure_activity")
+        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAGPlan:
+            return DAGPlan(nodes=node_ids, executable_nodes=node_ids, edges=[])
+
+        @temporal_activity.defn(name="get_clickhouse_kill_switch_level_activity")
+        async def stub_kill_switch_level(_: int) -> str:
+            level_reads.append("read")
+            return "full" if len(level_reads) == 1 else "off"
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with temporalio.worker.Worker(
+                env.client,
+                task_queue="test-queue",
+                workflows=[ExecuteDAGWorkflow, SlowMockMaterializeViewWorkflow],
+                activities=[
+                    stub_preempt_dag_run,
+                    stub_check_team_shadow_eligibility,
+                    stub_get_dag_structure,
+                    stub_kill_switch_level,
+                    stub_notify_dag_materialization_failures,
+                ],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ):
+                result: ExecuteDAGResult = await env.client.execute_workflow(
+                    ExecuteDAGWorkflow.run,
+                    ExecuteDAGInputs(team_id=1, dag_id="test-dag"),
+                    id=workflow_id,
+                    task_queue="test-queue",
+                    execution_timeout=dt.timedelta(minutes=30),
+                )
+                history = await env.client.get_workflow_handle(workflow_id).fetch_history()
+
+        timers_started = sum(1 for event in history.events if event.event_type == EventType.EVENT_TYPE_TIMER_STARTED)
+        assert result.successful_nodes == 12
+        assert _child_concurrency["peak"] > 1
+        assert timers_started <= 2
 
     async def test_ephemeral_nodes_are_skipped(self):
         """Test that ephemeral nodes are recorded as successful no-ops without starting child workflows."""
