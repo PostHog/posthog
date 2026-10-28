@@ -30,10 +30,9 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.notebooks.backend.facade import api as notebooks_facade
 from products.notebooks.backend.facade.widgets import reusable_widget_catalog_context
-from products.product_analytics.backend.facade.models import Insight
+from products.product_analytics.backend.facade.api import viewable_saved_queries
 
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
@@ -187,15 +186,9 @@ class AssistantContextManager(AssistantContextMixin):
         )
 
     @database_sync_to_async
-    def _get_viewable_saved_queries(self, short_ids: list[str]) -> dict[str, Any]:
+    def _get_viewable_saved_queries(self, short_ids: list[str]) -> dict[str, dict[str, Any]]:
         # The ids come from the client, so apply the same viewer check as reading an insight.
-        user_access_control = UserAccessControl(
-            user=self._user, team=self._team, organization_id=str(self._team.organization_id)
-        )
-        insights = user_access_control.filter_queryset_by_access_level(
-            Insight.objects.filter(team=self._team, short_id__in=short_ids, deleted=False)
-        )
-        return dict(insights.values_list("short_id", "query"))
+        return viewable_saved_queries(team=self._team, user=self._user, short_ids=short_ids)
 
     @database_sync_to_async
     def check_has_audit_logs_access(self) -> bool:
