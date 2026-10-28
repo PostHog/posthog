@@ -3,18 +3,20 @@ import { IconLogomark } from '@posthog/icons'
 import { AnthropicLogo } from 'scenes/onboarding/shared/logos/AnthropicLogo'
 import { OpenAILogo } from 'scenes/onboarding/shared/logos/OpenAILogo'
 
+import { normalizeModelId } from 'products/tasks/frontend/modelCatalog'
+
 export interface ComposerModelIconProps {
     model: string
     ownPlan: boolean
 }
 
-/** Shows who pays for the run: the provider's logo for the user's own plan, the PostHog logo for PostHog credits. */
 export function ComposerModelIcon({ model, ownPlan }: ComposerModelIconProps): JSX.Element {
+    const modelId = normalizeModelId(model)
     const PlanLogo = !ownPlan
         ? null
-        : model.startsWith('gpt-')
+        : modelId.startsWith('gpt-')
           ? OpenAILogo
-          : model.startsWith('claude-')
+          : modelId.startsWith('claude-')
             ? AnthropicLogo
             : null
     return (
