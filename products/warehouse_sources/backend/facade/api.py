@@ -20,7 +20,7 @@ exception is ``soft_delete_tables``: consumers may not iterate the model to call
 
 from collections import defaultdict
 from collections.abc import Collection
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
@@ -79,6 +79,7 @@ __all__ = [
     # capability functions
     "get_source",
     "list_sources",
+    "get_sources_using_integration",
     "list_source_health",
     "list_revenue_sources",
     "list_revenue_source_settings",
@@ -276,6 +277,56 @@ def list_sources(
     if not include_deleted:
         qs = qs.exclude(deleted=True)
     return [_to_source(s) for s in qs]
+
+
+def _matches_integration_id(val: Any, integration_id: int) -> bool:
+    if val == integration_id:
+        return True
+    if isinstance(val, str):
+        try:
+            return int(val.strip()) == integration_id
+        except (ValueError, TypeError):
+            return False
+    return False
+
+
+def _node_references_integration(node: Any, integration_id: int, depth: int = 0) -> bool:
+    if depth > 10 or node is None:
+        return False
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if isinstance(k, str):
+                normalized_key = k.lower().replace("-", "_")
+                if (
+                    normalized_key in ("integration", "integration_id", "integrationid")
+                    or normalized_key.endswith("_integration_id")
+                    or normalized_key.endswith("_integrationid")
+                ) and _matches_integration_id(v, integration_id):
+                    return True
+            if _node_references_integration(v, integration_id, depth + 1):
+                return True
+    elif isinstance(node, (list, tuple, set)):
+        for item in node:
+            if _node_references_integration(item, integration_id, depth + 1):
+                return True
+    return False
+
+
+def get_sources_using_integration(*, team_id: int, integration_id: int) -> list[contracts.ExternalDataSourceSummary]:
+    sources = _ExternalDataSource.objects.filter(team_id=team_id).exclude(deleted=True)
+    result = []
+    for source in sources:
+        try:
+            job_inputs = source.job_inputs
+        except Exception:
+            job_inputs = None
+
+        if _node_references_integration(job_inputs, integration_id) or _node_references_integration(
+            source.connection_metadata, integration_id
+        ):
+            source_name = source.prefix or source.source_type or str(source.id)
+            result.append(contracts.ExternalDataSourceSummary(id=str(source.id), name=source_name))
+    return result
 
 
 def list_source_health(team_id: int) -> list[contracts.ExternalDataSourceHealth]:

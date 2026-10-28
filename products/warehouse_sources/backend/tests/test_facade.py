@@ -473,3 +473,73 @@ class TestGitHubSourceCredential(BaseTest):
         self._source(_PAT_INPUTS)
 
         assert api.github_source_credential(team_id=self.team.pk, source_id=source_id) is None
+
+
+class TestGetSourcesUsingIntegration(BaseTest):
+    def _source(
+        self,
+        job_inputs: dict | None = None,
+        connection_metadata: dict | None = None,
+        **overrides,
+    ) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=overrides.pop("team_id", self.team.pk),
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type=overrides.pop("source_type", ExternalDataSourceType.STRIPE),
+            job_inputs=job_inputs or {},
+            connection_metadata=connection_metadata or {},
+            **overrides,
+        )
+
+    def test_finds_source_with_top_level_integration_id(self) -> None:
+        source = self._source({"stripe_integration_id": 42}, prefix="stripe_main")
+        assert api.get_sources_using_integration(team_id=self.team.pk, integration_id=42) == [
+            contracts.ExternalDataSourceSummary(id=str(source.id), name="stripe_main")
+        ]
+
+    def test_finds_source_with_nested_integration_id(self) -> None:
+        source = self._source(
+            {"auth_method": {"selection": "oauth", "hubspot_integration_id": 42}},
+            source_type="Hubspot",
+            prefix="hubspot_crm",
+        )
+        assert api.get_sources_using_integration(team_id=self.team.pk, integration_id=42) == [
+            contracts.ExternalDataSourceSummary(id=str(source.id), name="hubspot_crm")
+        ]
+
+    def test_finds_source_with_string_integration_id(self) -> None:
+        source = self._source({"stripe_integration_id": "42"}, prefix="stripe_str")
+        assert api.get_sources_using_integration(team_id=self.team.pk, integration_id=42) == [
+            contracts.ExternalDataSourceSummary(id=str(source.id), name="stripe_str")
+        ]
+
+    def test_finds_source_in_connection_metadata(self) -> None:
+        source = self._source(connection_metadata={"integration_id": 42}, prefix="meta_src")
+        assert api.get_sources_using_integration(team_id=self.team.pk, integration_id=42) == [
+            contracts.ExternalDataSourceSummary(id=str(source.id), name="meta_src")
+        ]
+
+    def test_ignores_deleted_source(self) -> None:
+        self._source({"stripe_integration_id": 42}, deleted=True)
+        assert api.get_sources_using_integration(team_id=self.team.pk, integration_id=42) == []
+
+    def test_ignores_other_team_source(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        self._source({"stripe_integration_id": 42}, team_id=other_team.pk)
+        assert api.get_sources_using_integration(team_id=self.team.pk, integration_id=42) == []
+
+    def test_ignores_different_integration_id(self) -> None:
+        self._source({"stripe_integration_id": 999})
+        assert api.get_sources_using_integration(team_id=self.team.pk, integration_id=42) == []
+
+    def test_ignores_matching_number_in_non_integration_key(self) -> None:
+        self._source({"port": 42, "integration_key": "42"})
+        assert api.get_sources_using_integration(team_id=self.team.pk, integration_id=42) == []
+
+    def test_falls_back_to_source_type_when_prefix_is_empty(self) -> None:
+        source = self._source({"stripe_integration_id": 42}, prefix=None, source_type="Stripe")
+        assert api.get_sources_using_integration(team_id=self.team.pk, integration_id=42) == [
+            contracts.ExternalDataSourceSummary(id=str(source.id), name="Stripe")
+        ]

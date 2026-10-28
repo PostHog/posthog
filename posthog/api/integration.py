@@ -1549,6 +1549,8 @@ class IntegrationViewSet(
         return super().get_throttles()
 
     def perform_destroy(self, instance: Integration) -> None:
+        from products.warehouse_sources.backend.facade.api import get_sources_using_integration  # noqa: PLC0415
+
         flows_using_integration = get_active_workflows_using_integration(
             team_id=instance.team_id, integration_id=instance.id
         )
@@ -1558,6 +1560,7 @@ class IntegrationViewSet(
         batch_exports_using_integration = list_batch_exports_using_integration(
             team_id=instance.team_id, integration_id=instance.id
         )
+        sources_using_integration = get_sources_using_integration(team_id=instance.team_id, integration_id=instance.id)
 
         used_by = []
 
@@ -1572,6 +1575,10 @@ class IntegrationViewSet(
         if batch_exports_using_integration:
             batch_export_names = _concat_names_or_ids(batch_exports_using_integration)
             used_by.append(f"batch exports: {batch_export_names}")
+
+        if sources_using_integration:
+            source_names = _concat_names_or_ids(sources_using_integration)
+            used_by.append(f"data warehouse sources: {source_names}")
 
         if used_by:
             raise ValidationError(

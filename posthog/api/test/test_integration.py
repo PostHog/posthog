@@ -98,6 +98,7 @@ from products.batch_exports.backend.facade.enums import BatchExportDestinationTy
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.workflows.backend.facade.contracts import EmailDomainVerification, WorkflowSummary
 from products.workflows.backend.facade.testing import create_workflow_for_test
 
@@ -7447,6 +7448,65 @@ class TestIntegrationDeletionHogFunctionGuard:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         content = response.content.decode()
         assert "Test batch export" in content
+        assert Integration.objects.filter(id=self.integration.id).exists()
+
+    def test_destroy_blocked_when_warehouse_source_references_integration(self, client: HttpClient):
+        ExternalDataSource.objects.create(
+            team=self.team,
+            source_type="Stripe",
+            prefix="stripe_test",
+            job_inputs={"auth_method": {"selection": "oauth", "stripe_integration_id": self.integration.id}},
+        )
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        content = response.content.decode()
+        assert "data warehouse sources: stripe_test" in content
+        assert Integration.objects.filter(id=self.integration.id).exists()
+
+    def test_destroy_allowed_when_warehouse_source_deleted(self, client: HttpClient):
+        ExternalDataSource.objects.create(
+            team=self.team,
+            source_type="Stripe",
+            prefix="deleted_source",
+            deleted=True,
+            job_inputs={"stripe_integration_id": self.integration.id},
+        )
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=self.integration.id).exists()
+
+    def test_destroy_allowed_when_warehouse_source_references_other_integration(self, client: HttpClient):
+        ExternalDataSource.objects.create(
+            team=self.team,
+            source_type="Stripe",
+            prefix="other_source",
+            job_inputs={"stripe_integration_id": self.integration.id + 9999},
+        )
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=self.integration.id).exists()
+
+    def test_destroy_blocked_message_includes_warehouse_sources_and_workflows(self, client: HttpClient):
+        ExternalDataSource.objects.create(
+            team=self.team,
+            source_type="Stripe",
+            prefix="stripe_billing",
+            job_inputs={"stripe_integration_id": str(self.integration.id)},
+        )
+        self._create_flow()
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        content = response.content.decode()
+        assert "active workflows: Welcome Email Sequence" in content
+        assert "data warehouse sources: stripe_billing" in content
         assert Integration.objects.filter(id=self.integration.id).exists()
 
 
