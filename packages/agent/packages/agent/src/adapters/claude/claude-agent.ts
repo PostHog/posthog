@@ -3313,6 +3313,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       getCurrentModelId: () => this.session?.modelId,
       gatewayEnv: this.options?.gatewayEnv,
       traceparentHookNonce,
+      disableRepoHooks: meta?.disableRepoHooks === true,
       machineAuth: this.options?.machineAuth,
       bedrockGatewayVariant,
       contextWiki: this.options?.contextWiki,

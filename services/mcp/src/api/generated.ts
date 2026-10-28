@@ -7423,6 +7423,19 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ExperimentWarehouseNativeExposureConfigResponse = { [key: string]: unknown } | null;
+
+    export interface ExperimentWarehouseNativeExposureConfig {
+      /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
+      connection_id: string;
+      kind?: 'ExperimentWarehouseNativeExposureConfig';
+      /** Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies the experiment's date range and multiple-variant handling. */
+      query: string;
+      response?: ExperimentWarehouseNativeExposureConfigResponse;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
     export type MultipleVariantHandling = typeof MultipleVariantHandling[keyof typeof MultipleVariantHandling];
 
 
@@ -7473,6 +7486,32 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ExperimentWarehouseNativeMathType = typeof ExperimentWarehouseNativeMathType[keyof typeof ExperimentWarehouseNativeMathType];
+
+
+    export const ExperimentWarehouseNativeMathType = {
+      Total: 'total',
+      Sum: 'sum',
+    } as const;
+
+    export type ExperimentWarehouseNativeNodeResponse = { [key: string]: unknown } | null;
+
+    export interface ExperimentWarehouseNativeNode {
+      /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
+      connection_id: string;
+      custom_name?: string | null;
+      kind?: 'ExperimentWarehouseNativeNode';
+      /** How to aggregate the rows per entity. Defaults to `total` (row count). */
+      math?: ExperimentWarehouseNativeMathType | null;
+      /** The numeric column `math` reads. Required when `math` is `sum`. One SQL relation can serve several metrics, each reading a different column. */
+      math_property?: string | null;
+      /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure. */
+      query: string;
+      response?: ExperimentWarehouseNativeNodeResponse;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
     export type ExperimentMeanMetricResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentMeanMetric {
@@ -7490,7 +7529,7 @@ export namespace Schemas {
       name?: string | null;
       response?: ExperimentMeanMetricResponse;
       sharedMetricId?: number | null;
-      source: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      source: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode;
       /** When set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types. */
       threshold?: number | null;
       /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
@@ -7553,7 +7592,7 @@ export namespace Schemas {
       breakdownFilter?: BreakdownFilter | null;
       conversion_window?: number | null;
       conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
-      denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode;
       denominator_outlier_handling?: ExperimentMetricOutlierHandling | null;
       fingerprint?: string | null;
       goal?: ExperimentMetricGoal | null;
@@ -7561,7 +7600,7 @@ export namespace Schemas {
       kind?: 'ExperimentMetric';
       metric_type: ExperimentRatioMetricMetricType;
       name?: string | null;
-      numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode;
       numerator_outlier_handling?: ExperimentMetricOutlierHandling | null;
       response?: ExperimentRatioMetricResponse;
       sharedMetricId?: number | null;
@@ -7738,7 +7777,7 @@ export namespace Schemas {
 
     export interface ExperimentActorsQuery {
       /** Exposure configuration for filtering events. Defines when users were first exposed to the experiment. */
-      exposureConfig?: ExperimentEventExposureConfig | ActionsNode | null;
+      exposureConfig?: ExperimentEventExposureConfig | ActionsNode | ExperimentWarehouseNativeExposureConfig | null;
       /** Feature flag key for breakdown filtering. */
       featureFlagKey?: string | null;
       /** Index of the step for which we want to get actors for, per experiment variant. Positive for converted persons, negative for dropped off persons. */
@@ -13667,7 +13706,7 @@ export namespace Schemas {
     export interface AnomalySearchResponse {
       /** Whether anomaly scoring covers this project. */
       scoring_enabled: boolean;
-      /** Insights that scoring watches: saved trends insights on a dashboard or viewed in the last 30 days. */
+      /** Active insights that scoring checks: saved trends insights that a person viewed, that sit on a dashboard someone opened, or that were edited in the active window (90 days by default), or that have an enabled alert or subscription. */
       watched_insights: number;
       /** Insights with at least one scored bucket in the range. Results cover only these insights. */
       insights_scored_in_range: number;
@@ -14310,6 +14349,83 @@ export namespace Schemas {
       TimeDecay: 'time_decay',
       PositionBased: 'position_based',
     } as const;
+
+    /**
+     * * `not_yet` - Not Yet
+     * * `regulars` - Regulars
+     * * `lapsed` - Lapsed
+     */
+    export type AudienceSuggestionKindEnum = typeof AudienceSuggestionKindEnum[keyof typeof AudienceSuggestionKindEnum];
+
+
+    export const AudienceSuggestionKindEnum = {
+      NotYet: 'not_yet',
+      Regulars: 'regulars',
+      Lapsed: 'lapsed',
+    } as const;
+
+    export interface AudienceSuggestion {
+      /** Opaque id of this suggestion, valid while the suggestions stay cached. */
+      id: string;
+      /** Suggested audience name, written by AI from the project's events. */
+      name: string;
+      /** Who the people are and what to tell them. Used as the cohort description and the email brief. */
+      description: string;
+      /** One sentence on why the audience is worth a broadcast. */
+      reason: string;
+      /** not_yet: did event in the window but not missing_event. regulars: did event at least min_count times in the window. lapsed: did event in the last 90 days but not in the window.
+       *
+       * * `not_yet` - Not Yet
+       * * `regulars` - Regulars
+       * * `lapsed` - Lapsed */
+      kind: AudienceSuggestionKindEnum;
+      /** The project event the audience is built on. */
+      event: string;
+      /**
+         * For not_yet: the event the audience has not done yet. Null otherwise.
+         * @nullable
+         */
+      missing_event: string | null;
+      /** The time window in days. */
+      window_days: number;
+      /**
+         * For regulars: how many times the event must happen in the window.
+         * @nullable
+         */
+      min_count: number | null;
+      /** People in the audience with an email address, counted when the suggestion was made. */
+      reachable_count: number;
+      /** The audience's cohort filters, in the cohorts endpoint's `filters` format. Saved as a static cohort. */
+      cohort_filters: unknown;
+    }
+
+    /**
+     * * `ready` - Ready
+     * * `generating` - Generating
+     * * `ai_not_approved` - Ai Not Approved
+     * * `unavailable` - Unavailable
+     */
+    export type DataSuggestionsStatusEnum = typeof DataSuggestionsStatusEnum[keyof typeof DataSuggestionsStatusEnum];
+
+
+    export const DataSuggestionsStatusEnum = {
+      Ready: 'ready',
+      Generating: 'generating',
+      AiNotApproved: 'ai_not_approved',
+      Unavailable: 'unavailable',
+    } as const;
+
+    export interface AudienceSuggestionsResponse {
+      /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
+       *
+       * * `ready` - Ready
+       * * `generating` - Generating
+       * * `ai_not_approved` - Ai Not Approved
+       * * `unavailable` - Unavailable */
+      status: DataSuggestionsStatusEnum;
+      /** Up to 3 suggested broadcast audiences. */
+      suggestions: AudienceSuggestion[];
+    }
 
     export interface AuditActorServiceAccount {
       /** Service account id. */
@@ -20183,6 +20299,18 @@ export namespace Schemas {
       Building: 'building',
       Ready: 'ready',
       Failed: 'failed',
+    } as const;
+
+    /**
+     * * `client` - Client
+     * * `server` - Server
+     */
+    export type BuiltInFilterEvaluationEnum = typeof BuiltInFilterEvaluationEnum[keyof typeof BuiltInFilterEvaluationEnum];
+
+
+    export const BuiltInFilterEvaluationEnum = {
+      Client: 'client',
+      Server: 'server',
     } as const;
 
     /**
@@ -27172,6 +27300,16 @@ export namespace Schemas {
       Number2: 2,
     } as const;
 
+    export interface CopyDashboardGroupRequest {
+      /** Dashboard id the group currently belongs to. */
+      fromDashboardId: number;
+      /**
+         * Key of the tile group to copy.
+         * @maxLength 100
+         */
+      groupKey: string;
+    }
+
     export interface CopyDashboardTemplate {
       /** UUID of a team-scoped template in the same organization. Global and feature-flag templates cannot be copied with this endpoint. */
       source_template_id: string;
@@ -28924,6 +29062,54 @@ export namespace Schemas {
       readonly results: readonly CustomerTaskActivity[];
     }
 
+    export interface CustomerTaskBulkPatch {
+      /**
+         * UUID of a visible account, or null to remove the account link.
+         * @nullable
+         */
+      account_id?: string | null;
+      /**
+         * Replacement assignee ID, or null to unassign.
+         * @nullable
+         */
+      assigned_to_id?: number | null;
+      /**
+         * Replacement ISO 8601 deadline, or null to clear it.
+         * @nullable
+         */
+      due_at?: string | null;
+      /** Replacement task status.
+       *
+       * * `open` - Open
+       * * `in_progress` - In progress
+       * * `completed` - Completed
+       * * `canceled` - Canceled */
+      status?: CustomerTaskStatusEnum;
+      /** Archive tasks when true, or restore them when false. */
+      archived?: boolean;
+    }
+
+    export interface CustomerTaskBulkUpdate {
+      /**
+         * UUIDs of up to 100 tasks to update together.
+         * @minItems 1
+         * @maxItems 100
+         */
+      task_ids: string[];
+      /** Changes to apply to every selected task. */
+      updates: CustomerTaskBulkPatch;
+    }
+
+    export interface CustomerTaskBulkUpdateError {
+      /** Reason the batch could not be updated. */
+      readonly detail: string;
+    }
+
+    export interface CustomerTaskBulkUpdateResult {
+      /** Number of tasks changed by this batch. */
+      readonly updated_count: number;
+    }
+
     export interface CustomerTaskCreate {
       /**
          * UUID of a visible account, or null for an accountless task.
@@ -28983,16 +29169,6 @@ export namespace Schemas {
          */
       account_id?: string | null;
       /**
-         * Replacement task name.
-         * @maxLength 400
-         */
-      name: string;
-      /**
-         * Replacement description, or null to clear it.
-         * @nullable
-         */
-      description?: string | null;
-      /**
          * Replacement assignee ID, or null to unassign.
          * @nullable
          */
@@ -29009,6 +29185,16 @@ export namespace Schemas {
        * * `completed` - Completed
        * * `canceled` - Canceled */
       status?: CustomerTaskStatusEnum;
+      /**
+         * Replacement task name.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Replacement description, or null to clear it.
+         * @nullable
+         */
+      description?: string | null;
     }
 
     export type DashboardFilters = { [key: string]: unknown };
@@ -31499,22 +31685,6 @@ export namespace Schemas {
       /** Make new suggestions even when the cached ones are still valid. */
       refresh?: boolean;
     }
-
-    /**
-     * * `ready` - Ready
-     * * `generating` - Generating
-     * * `ai_not_approved` - Ai Not Approved
-     * * `unavailable` - Unavailable
-     */
-    export type DataSuggestionsStatusEnum = typeof DataSuggestionsStatusEnum[keyof typeof DataSuggestionsStatusEnum];
-
-
-    export const DataSuggestionsStatusEnum = {
-      Ready: 'ready',
-      Generating: 'generating',
-      AiNotApproved: 'ai_not_approved',
-      Unavailable: 'unavailable',
-    } as const;
 
     export interface DataSuggestionsResponse {
       /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
@@ -41884,6 +42054,62 @@ export namespace Schemas {
       error_message: string;
     }
 
+    /**
+     * * `good` - Good
+     * * `warning` - Warning
+     * * `serious` - Serious
+     * * `critical` - Critical
+     */
+    export type HealthStatusEnum = typeof HealthStatusEnum[keyof typeof HealthStatusEnum];
+
+
+    export const HealthStatusEnum = {
+      Good: 'good',
+      Warning: 'warning',
+      Serious: 'serious',
+      Critical: 'critical',
+    } as const;
+
+    export interface HealthRow {
+      /**
+         * Requests per second over the window.
+         * @nullable
+         */
+      request_rate: number | null;
+      /**
+         * Share of requests with an error status, 0 to 1.
+         * @nullable
+         */
+      error_rate: number | null;
+      /**
+         * 95th percentile request duration in milliseconds.
+         * @nullable
+         */
+      p95_ms: number | null;
+      /** Requests counted in the window. */
+      span_count: number;
+      /** Requests with an error status in the window. */
+      error_count: number;
+    }
+
+    export interface EndpointHealth {
+      /** The service.name resource attribute. */
+      service_name: string;
+      /** The entry span name, for example the HTTP route or the job name. */
+      endpoint: string;
+      /** The environment the row was computed for. */
+      environment: string;
+      /** Health band from the error rate.
+       *
+       * * `good` - Good
+       * * `warning` - Warning
+       * * `serious` - Serious
+       * * `critical` - Critical */
+      status: HealthStatusEnum;
+      /** The health row every surface renders. */
+      health: HealthRow;
+    }
+
     export interface EndpointLastExecutionTimesRequest {
       names: string[];
     }
@@ -42226,6 +42452,22 @@ export namespace Schemas {
       version_updated_at: string | null;
       /** User who created this version. */
       readonly version_created_by: UserBasic | null;
+    }
+
+    export interface EndpointsHealthResponse {
+      /** One row per service and endpoint, worst status first. */
+      results: EndpointHealth[];
+      /** The environment the rows were computed for. */
+      environment: string;
+      /**
+         * The service filter applied, if any.
+         * @nullable
+         */
+      service: string | null;
+      /** Start of the window used. */
+      date_from: string;
+      /** End of the window used. */
+      date_to: string;
     }
 
     export type EndpointsUsageOverviewItemKey = typeof EndpointsUsageOverviewItemKey[keyof typeof EndpointsUsageOverviewItemKey];
@@ -42815,6 +43057,27 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+    }
+
+    export interface ErrorTrackingBuiltInFilter {
+      /** Stable identifier of the built-in filter, for example `web_crawlers`. */
+      readonly key: string;
+      /** Display name of the built-in filter. */
+      readonly name: string;
+      /** One sentence on which exceptions the filter drops. */
+      readonly description: string;
+      /** Where the filter runs. `client` filters also run in the web SDK, which drops matching exceptions before it sends them. `server` filters run only during ingestion.
+       *
+       * * `client` - Client
+       * * `server` - Server */
+      readonly evaluation: BuiltInFilterEvaluationEnum;
+      /** Whether the filter drops exceptions for this project. */
+      readonly enabled: boolean;
+      /**
+         * Set when ingestion turned the filter off because it failed on an event. Turning the filter on again resets it.
+         * @nullable
+         */
+      readonly disabled_reason: string | null;
     }
 
     export interface ErrorTrackingBypassRule {
@@ -47536,9 +47799,9 @@ export namespace Schemas {
     }
 
     export interface ExperimentExposureCriteria {
-      /** Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. */
+      /** Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. Warehouse-native activation has no defined semantics yet, so only events and actions apply here. */
       activation_config?: ExperimentEventExposureConfig | ActionsNode | null;
-      exposure_config?: ExperimentEventExposureConfig | ActionsNode | null;
+      exposure_config?: ExperimentEventExposureConfig | ActionsNode | ExperimentWarehouseNativeExposureConfig | null;
       filterTestAccounts?: boolean | null;
       multiple_variant_handling?: MultipleVariantHandling | null;
     }
@@ -57809,44 +58072,6 @@ export namespace Schemas {
       snoozed: HealthIssueCounts;
     }
 
-    export interface HealthRow {
-      /**
-         * Requests per second over the window.
-         * @nullable
-         */
-      request_rate: number | null;
-      /**
-         * Share of requests with an error status, 0 to 1.
-         * @nullable
-         */
-      error_rate: number | null;
-      /**
-         * 95th percentile request duration in milliseconds.
-         * @nullable
-         */
-      p95_ms: number | null;
-      /** Requests counted in the window. */
-      span_count: number;
-      /** Requests with an error status in the window. */
-      error_count: number;
-    }
-
-    /**
-     * * `good` - Good
-     * * `warning` - Warning
-     * * `serious` - Serious
-     * * `critical` - Critical
-     */
-    export type HealthStatusEnum = typeof HealthStatusEnum[keyof typeof HealthStatusEnum];
-
-
-    export const HealthStatusEnum = {
-      Good: 'good',
-      Warning: 'warning',
-      Serious: 'serious',
-      Critical: 'critical',
-    } as const;
-
     export interface HeatmapCapturePage {
       /** A page URL that currently sends heatmap data. */
       url: string;
@@ -58314,6 +58539,11 @@ export namespace Schemas {
       score: number;
       /** Name of the highlight source that found the item, for example alerts. */
       source: string;
+      /**
+         * Product that declares the source, for example feature_flags. Null for items stored before this field existed and for sources that no product declares any more.
+         * @nullable
+         */
+      product?: string | null;
     }
 
     /**
@@ -65231,11 +65461,82 @@ export namespace Schemas {
     }
 
     /**
+     * * `oauth` - OAuth
+     * * `app` - App installation
+     * * `api_key` - API key
+     * * `api_token` - API token
+     * * `access_token` - Access token
+     * * `auth_token` - Auth token
+     * * `token` - Token
+     * * `access_key` - Access key
+     * * `account_key` - Account key
+     * * `hmac_key` - HMAC key
+     * * `key_pair` - Key pair
+     * * `signing_key` - Signing key
+     * * `connection_string` - Connection string
+     * * `password` - Password
+     * * `service_account` - Service account
+     * * `service_principal` - Service principal
+     * * `database_credentials` - Database credentials
+     * * `verified_domain` - Verified domain
+     * * `webhook_secret` - Webhook secret
+     * * `credentials` - Credentials
+     */
+    export type IntegrationAuthTypeEnum = typeof IntegrationAuthTypeEnum[keyof typeof IntegrationAuthTypeEnum];
+
+
+    export const IntegrationAuthTypeEnum = {
+      Oauth: 'oauth',
+      App: 'app',
+      ApiKey: 'api_key',
+      ApiToken: 'api_token',
+      AccessToken: 'access_token',
+      AuthToken: 'auth_token',
+      Token: 'token',
+      AccessKey: 'access_key',
+      AccountKey: 'account_key',
+      HmacKey: 'hmac_key',
+      KeyPair: 'key_pair',
+      SigningKey: 'signing_key',
+      ConnectionString: 'connection_string',
+      Password: 'password',
+      ServiceAccount: 'service_account',
+      ServicePrincipal: 'service_principal',
+      DatabaseCredentials: 'database_credentials',
+      VerifiedDomain: 'verified_domain',
+      WebhookSecret: 'webhook_secret',
+      Credentials: 'credentials',
+    } as const;
+
+    /**
      * Standard Integration serializer.
      */
     export interface IntegrationConfig {
       readonly id: number;
       kind: IntegrationKindEnum;
+      /** How this integration authenticates with the provider, for example an App installation, an OAuth grant or a typed-in API key. A kind can have several auth types.
+       *
+       * * `oauth` - OAuth
+       * * `app` - App installation
+       * * `api_key` - API key
+       * * `api_token` - API token
+       * * `access_token` - Access token
+       * * `auth_token` - Auth token
+       * * `token` - Token
+       * * `access_key` - Access key
+       * * `account_key` - Account key
+       * * `hmac_key` - HMAC key
+       * * `key_pair` - Key pair
+       * * `signing_key` - Signing key
+       * * `connection_string` - Connection string
+       * * `password` - Password
+       * * `service_account` - Service account
+       * * `service_principal` - Service principal
+       * * `database_credentials` - Database credentials
+       * * `verified_domain` - Verified domain
+       * * `webhook_secret` - Webhook secret
+       * * `credentials` - Credentials */
+      readonly auth_type: IntegrationAuthTypeEnum;
       config?: unknown;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -73487,6 +73788,7 @@ export namespace Schemas {
      * * `error_tracking` - ERROR_TRACKING
      * * `customer_analytics` - CUSTOMER_ANALYTICS
      * * `ticket` - TICKET
+     * * `replay_observation` - REPLAY_OBSERVATION
      */
     export type NotificationEventSourceTypeEnum = typeof NotificationEventSourceTypeEnum[keyof typeof NotificationEventSourceTypeEnum];
 
@@ -73502,6 +73804,7 @@ export namespace Schemas {
       ErrorTracking: 'error_tracking',
       CustomerAnalytics: 'customer_analytics',
       Ticket: 'ticket',
+      ReplayObservation: 'replay_observation',
     } as const;
 
     export interface NotificationEvent {
@@ -79661,6 +79964,8 @@ export namespace Schemas {
       agent: string | null;
       /** @nullable */
       claimed_at: string | null;
+      /** The person who answers for the claim: the user for a user claim, the user an MCP agent acts for, or the user who started an internal task. Null when no person stands behind the claim. */
+      responsible_user: _User | null;
     }
 
     /**
@@ -85227,16 +85532,6 @@ export namespace Schemas {
          */
       account_id?: string | null;
       /**
-         * Replacement task name.
-         * @maxLength 400
-         */
-      name?: string;
-      /**
-         * Replacement description, or null to clear it.
-         * @nullable
-         */
-      description?: string | null;
-      /**
          * Replacement assignee ID, or null to unassign.
          * @nullable
          */
@@ -85253,6 +85548,16 @@ export namespace Schemas {
        * * `completed` - Completed
        * * `canceled` - Canceled */
       status?: CustomerTaskStatusEnum;
+      /**
+         * Replacement task name.
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * Replacement description, or null to clear it.
+         * @nullable
+         */
+      description?: string | null;
     }
 
     export interface PatchedDashboardTemplate {
@@ -86096,6 +86401,11 @@ export namespace Schemas {
       filters?: PropertyGroupFilterValue | null;
       /** User or role to assign matching issues to. */
       assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
+    }
+
+    export interface PatchedErrorTrackingBuiltInFilterUpdateRequest {
+      /** `true` drops matching exceptions for this project. `false` stops dropping them. */
+      enabled?: boolean;
     }
 
     /**
@@ -88144,6 +88454,29 @@ export namespace Schemas {
     export interface PatchedIntegrationConfig {
       readonly id?: number;
       kind?: IntegrationKindEnum;
+      /** How this integration authenticates with the provider, for example an App installation, an OAuth grant or a typed-in API key. A kind can have several auth types.
+       *
+       * * `oauth` - OAuth
+       * * `app` - App installation
+       * * `api_key` - API key
+       * * `api_token` - API token
+       * * `access_token` - Access token
+       * * `auth_token` - Auth token
+       * * `token` - Token
+       * * `access_key` - Access key
+       * * `account_key` - Account key
+       * * `hmac_key` - HMAC key
+       * * `key_pair` - Key pair
+       * * `signing_key` - Signing key
+       * * `connection_string` - Connection string
+       * * `password` - Password
+       * * `service_account` - Service account
+       * * `service_principal` - Service principal
+       * * `database_credentials` - Database credentials
+       * * `verified_domain` - Verified domain
+       * * `webhook_secret` - Webhook secret
+       * * `credentials` - Credentials */
+      readonly auth_type?: IntegrationAuthTypeEnum;
       config?: unknown;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -97199,6 +97532,13 @@ export namespace Schemas {
       /** GitHub logins on the report after the human edit (lowercased). */
       after: string[];
       /**
+         * Why the editor removed reviewers: wrong_area, already_covered, unavailable, or other.
+         * @nullable
+         */
+      removal_reason?: string | null;
+      /** The removed identities that `removal_reason` applies to. */
+      removal_reason_reviewers?: string[];
+      /**
          * ISO-8601 timestamp of the edit.
          * @nullable
          */
@@ -105652,6 +105992,22 @@ export namespace Schemas {
       detail: string;
     }
 
+    /**
+     * * `wrong_area` - Not their area
+     * * `already_covered` - Someone else is on it
+     * * `unavailable` - No bandwidth
+     * * `other` - Other
+     */
+    export type ReviewerRemovalReasonEnum = typeof ReviewerRemovalReasonEnum[keyof typeof ReviewerRemovalReasonEnum];
+
+
+    export const ReviewerRemovalReasonEnum = {
+      WrongArea: 'wrong_area',
+      AlreadyCovered: 'already_covered',
+      Unavailable: 'unavailable',
+      Other: 'other',
+    } as const;
+
     export interface RevokeOtherSessionsResponse {
       /** Number of other login sessions that were revoked. */
       revoked_count: number;
@@ -108773,7 +109129,7 @@ export namespace Schemas {
     /**
      * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
      */
-    export type SendTransactionalEmailMessageData = {[key: string]: unknown};
+    export type SendEmailMessageData = {[key: string]: unknown};
 
     export interface TransactionalEmailIdentifiers {
       /**
@@ -108783,6 +109139,27 @@ export namespace Schemas {
          */
       distinct_id?: string | null;
     }
+
+    export interface SendEmailTemplate {
+      /** ID of the email template to send. The template must be made transactional first. */
+      id: string;
+    }
+
+    export interface SendEmail {
+      /** Email address of the recipient. */
+      to: string;
+      /** Who the email is for, used to attribute engagement events. */
+      identifiers?: TransactionalEmailIdentifiers;
+      /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
+      message_data?: SendEmailMessageData;
+      /** The transactional email template to send. */
+      template: SendEmailTemplate;
+    }
+
+    /**
+     * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
+     */
+    export type SendTransactionalEmailMessageData = {[key: string]: unknown};
 
     export interface SendTransactionalEmail {
       /** Email address of the recipient. */
@@ -108817,6 +109194,22 @@ export namespace Schemas {
          * @maxItems 1000
          */
       policies?: ToolPolicyEntry[];
+    }
+
+    export interface ServiceEdge {
+      /** The calling service. */
+      caller: string;
+      /** The called service. */
+      callee: string;
+      /** Calls from the caller into the callee in the sampled traces. */
+      calls: number;
+      /** Calls with an error status on the callee span. */
+      error_count: number;
+      /**
+         * 95th percentile duration of the callee span, in ms.
+         * @nullable
+         */
+      p95_ms: number | null;
     }
 
     export interface ServiceHealth {
@@ -109093,6 +109486,19 @@ export namespace Schemas {
       truncated: boolean;
       /** Caveats about this result. */
       notes: string[];
+    }
+
+    export interface ServiceMapResponse {
+      /** One edge per calling and called service, most calls first. */
+      edges: ServiceEdge[];
+      /** Traces sampled to build the map. */
+      trace_count: number;
+      /** The environment the map was built for. */
+      environment: string;
+      /** Start of the window used. */
+      date_from: string;
+      /** End of the window used. */
+      date_to: string;
     }
 
     export interface ServicesHealthResponse {
@@ -109400,6 +109806,18 @@ export namespace Schemas {
          * @maxItems 10
          */
       targets?: SuggestedReviewerEntryWrite[];
+      /** Why the people in `targets` are removed. Remove action only. 'wrong_area': the work should not be on them, because it is outside their area, they moved off it, or someone else owns it. 'already_covered': another reviewer already covers the report. 'unavailable': they do not have bandwidth right now. The last two say nothing about ownership. 'other': explain in removal_note. Research and scouts read the reason when they pick reviewers for later reports.
+       *
+       * * `wrong_area` - Not their area
+       * * `already_covered` - Someone else is on it
+       * * `unavailable` - No bandwidth
+       * * `other` - Other */
+      removal_reason?: ReviewerRemovalReasonEnum;
+      /**
+         * Optional context for the removal, such as the area the person does not work on. Remove action only.
+         * @maxLength 500
+         */
+      removal_note?: string;
     }
 
     /**
@@ -109457,7 +109875,7 @@ export namespace Schemas {
        * * `resolved` - resolved
        * * `monitoring` - monitoring */
       state: SignalReportStateEnum;
-      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. 'wrong_assignee' is accepted from older clients, but a report sent to the wrong person still holds work: remove the person from the report's reviewers with a removal_reason instead of suppressing it. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
        * * `already_fixed` - Already fixed
        * * `report_unclear` - Report is unclear to me
@@ -109623,6 +110041,21 @@ export namespace Schemas {
       sentiment: SignalReportFeedbackSentimentEnum | null;
       /** The current user's saved note, or an empty string. */
       note: string;
+    }
+
+    export interface SignalReportLeaveReviewers {
+      /** Why the user steps off. 'wrong_area': the work should not be on them, for example they moved off the area or left the team. 'already_covered': someone else is on it. 'unavailable': they do not have bandwidth right now. 'other': explain in removal_note. Research reads the reason when it picks reviewers for later reports.
+       *
+       * * `wrong_area` - Not their area
+       * * `already_covered` - Someone else is on it
+       * * `unavailable` - No bandwidth
+       * * `other` - Other */
+      removal_reason?: ReviewerRemovalReasonEnum;
+      /**
+         * The user's own words for why, such as "I'm not on the payments team any more". Scouts read it when they route later reports.
+         * @maxLength 500
+         */
+      removal_note?: string;
     }
 
     export interface SignalReportMergeRequest {
@@ -109810,7 +110243,7 @@ export namespace Schemas {
        * * `resolved` - resolved
        * * `monitoring` - monitoring */
       state: SignalReportStateEnum;
-      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. 'wrong_assignee' is accepted from older clients, but a report sent to the wrong person still holds work: remove the person from the report's reviewers with a removal_reason instead of suppressing it. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
        * * `already_fixed` - Already fixed
        * * `report_unclear` - Report is unclear to me
@@ -119482,7 +119915,7 @@ export namespace Schemas {
       readonly email_sending_suspended_at: string | null;
       /** Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended. */
       readonly email_sending_suspension_reason: string;
-      /** The project's sending tier, what it allows, and how much of it has been used; null when the caller lacks project-wide workflow access. */
+      /** The project's sending tier, what it allows, and how much of it has been used; null when the caller lacks project-wide workflow access. Tiers grow on their own as the project builds a clean sending record. */
       readonly sending_allowance: EmailSendingAllowance | null;
     }
 
@@ -127929,6 +128362,7 @@ export namespace Schemas {
      * * `EarlyAccessFeature` - EarlyAccessFeature
      * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
      * * `ReplayScanner` - ReplayScanner
+     * * `ReplayObservation` - ReplayObservation
      * * `VisionAlertConfiguration` - VisionAlertConfiguration
      * * `Comment` - Comment
      * * `Team` - Team
@@ -128046,6 +128480,7 @@ export namespace Schemas {
       EarlyAccessFeature: 'EarlyAccessFeature',
       SessionRecordingPlaylist: 'SessionRecordingPlaylist',
       ReplayScanner: 'ReplayScanner',
+      ReplayObservation: 'ReplayObservation',
       VisionAlertConfiguration: 'VisionAlertConfiguration',
       Comment: 'Comment',
       Team: 'Team',
@@ -128149,6 +128584,7 @@ export namespace Schemas {
      * * `EarlyAccessFeature` - EarlyAccessFeature
      * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
      * * `ReplayScanner` - ReplayScanner
+     * * `ReplayObservation` - ReplayObservation
      * * `VisionAlertConfiguration` - VisionAlertConfiguration
      * * `Comment` - Comment
      * * `Team` - Team
@@ -128254,6 +128690,7 @@ export namespace Schemas {
       EarlyAccessFeature: 'EarlyAccessFeature',
       SessionRecordingPlaylist: 'SessionRecordingPlaylist',
       ReplayScanner: 'ReplayScanner',
+      ReplayObservation: 'ReplayObservation',
       VisionAlertConfiguration: 'VisionAlertConfiguration',
       Comment: 'Comment',
       Team: 'Team',
@@ -128920,6 +129357,46 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ApmEndpointsListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string;
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
+     * @minLength 1
+     * @maxLength 200
+     */
+    environment?: string;
+    /**
+     * Only list the endpoints of this service.
+     * @minLength 1
+     * @maxLength 400
+     */
+    service?: string;
+    };
+
+    export type ApmServiceMapListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string;
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
+     * @minLength 1
+     * @maxLength 200
+     */
+    environment?: string;
     };
 
     export type ApmServicesListParams = {
@@ -130463,6 +130940,18 @@ export namespace Schemas {
 
 
     export const DashboardsDestroyFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsCopyGroupCreateParams = {
+    format?: DashboardsCopyGroupCreateFormat;
+    };
+
+    export type DashboardsCopyGroupCreateFormat = typeof DashboardsCopyGroupCreateFormat[keyof typeof DashboardsCopyGroupCreateFormat];
+
+
+    export const DashboardsCopyGroupCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -134600,6 +135089,10 @@ export namespace Schemas {
      */
     created_by?: string;
     id?: string;
+    /**
+     * Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last.
+     */
+    latest_send_first?: boolean;
     /**
      * Number of results to return per page.
      */
@@ -139013,7 +139506,7 @@ export namespace Schemas {
      */
     already_addressed?: boolean;
     /**
-     * Use 'me' to return reports claimed by the current user, task, or MCP agent.
+     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, claims by MCP agents acting for them, and claims by internal tasks they started.
      */
     assignee?: SignalsReportsListAssignee;
     /**
@@ -139140,6 +139633,7 @@ export namespace Schemas {
 
     export const SignalsReportsListAssignee = {
       Me: 'me',
+      Mine: 'mine',
     } as const;
 
     export type SignalsReportPrChecksParams = {
@@ -139215,7 +139709,7 @@ export namespace Schemas {
 
     export type SignalsReportsAvailableReviewersRetrieveParams = {
     /**
-     * Case-insensitive filter on name or email.
+     * Case-insensitive filter on name or email. Use search to find members outside the first 100 results.
      */
     query?: string;
     };

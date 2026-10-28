@@ -486,6 +486,25 @@ jobs:
                       --timeout 300 \
                       bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
 
+            # Per-file ratchet: the INFO rule integration-queries-use-with-auth has a backlog, and its
+            # baseline file lists the allowed count per file. More findings than the baseline fails, and
+            # so do fewer, so each migration lowers the baseline. See .semgrep/rules/devex/README.md.
+            - name: Integration auth-type ratchet (blocking)
+              run: |
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config ".semgrep/rules/devex/integration-queries-use-with-auth.yaml" \
+                      --json \
+                      --output semgrep-integration-auth.json \
+                      --metrics=off \
+                      --timeout 300 \
+                      common/ ee/ posthog/ products/
+                  python3 bin/semgrep_ratchet.py \
+                    --findings semgrep-integration-auth.json \
+                    --baseline posthog/models/integration/with_auth_baseline.txt
+
             # Pass 3 (PRs only): fail on newly-introduced WARNING findings.
             # --baseline-commit diffs against the PR base (first parent of the
             # merge commit), so the pass-1 backlog is grandfathered while new

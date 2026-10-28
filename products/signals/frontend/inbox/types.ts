@@ -7,6 +7,7 @@ import {
     type ReportPlanApi,
     type ReportRankingApi,
     type ReportSourceSuggestionApi,
+    type ReviewerRemovalReasonEnumApi,
     type SignalReportPullRequestApi,
     type SignalReportAssigneeApi,
     type SignalReportAssignmentPrStateEnumApi,
@@ -23,6 +24,12 @@ import {
 // The canonical signal taxonomy, generated from the backend enums via OpenAPI/Orval.
 // Re-exported under the domain names so consumers don't carry the `Api` suffix around.
 export { SignalSourceProduct, SignalSourceType }
+
+/** Why a person removed a reviewer, sent with the remove edit. The web app sends a reason only. */
+export interface ReviewerRemoval {
+    reason: ReviewerRemovalReasonEnumApi | null
+    note?: string
+}
 
 // Suggested-reviewer shapes, read from `suggested_reviewers` artefact content (a polymorphic JSON
 // field with no per-type OpenAPI schema). Mirrors EnrichedReviewer/RelevantCommit in
@@ -344,10 +351,14 @@ export const INBOX_REPORT_SECTION_TAG: Partial<Record<InboxReportSectionKey, 'St
  */
 export const INBOX_CONFIG_TAB_KEY: InboxTabKey = 'config'
 
-/** `for-you` (suggested-reviewer reports), `entire-project` (all), or `teammate:<uuid>`. */
-export type InboxScope = 'for-you' | 'entire-project' | `teammate:${string}`
+/**
+ * `for-you` (suggested-reviewer reports), `claimed-by-you` (reports the user claimed), `entire-project`
+ * (all), or `teammate:<uuid>`.
+ */
+export type InboxScope = 'for-you' | 'claimed-by-you' | 'entire-project' | `teammate:${string}`
 
 export const INBOX_SCOPE_FOR_YOU: InboxScope = 'for-you'
+export const INBOX_SCOPE_CLAIMED_BY_YOU: InboxScope = 'claimed-by-you'
 export const INBOX_SCOPE_ENTIRE_PROJECT: InboxScope = 'entire-project'
 
 // ── SignalReport ↔ Task linkage ─────────────────────────────────────────────

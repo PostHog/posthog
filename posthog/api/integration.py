@@ -78,6 +78,8 @@ from posthog.models.integration import (
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
     ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT,
     ANTHROPIC_WORKSPACE_LABEL_MAX_LENGTH,
+    ANY,
+    DEFAULT,
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
     POSTHOG_CONNECT_ALLOWED_REGIONS,
@@ -109,7 +111,9 @@ from posthog.models.integration import (
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
     Integration,
+    IntegrationAuthType,
     IntegrationError,
+    IntegrationQuerySet,
     JiraIntegration,
     LinearIntegration,
     LinkedInAdsIntegration,
@@ -759,6 +763,14 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
 
     kind = serializers.ChoiceField(choices=PUBLIC_INTEGRATION_KIND_CHOICES)
     created_by = UserBasicSerializer(read_only=True)
+    auth_type = serializers.ChoiceField(
+        choices=IntegrationAuthType.choices,
+        read_only=True,
+        help_text=(
+            "How this integration authenticates with the provider, for example an App installation, an OAuth "
+            "grant or a typed-in API key. A kind can have several auth types."
+        ),
+    )
     files_write_requestable = serializers.SerializerMethodField(
         help_text="Slack only: whether reconnecting can request the files:write scope."
     )
@@ -781,6 +793,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         fields = [
             "id",
             "kind",
+            "auth_type",
             "config",
             "created_at",
             "created_by",
@@ -792,6 +805,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         ]
         read_only_fields = [
             "id",
+            "auth_type",
             "created_at",
             "created_by",
             "errors",
@@ -803,11 +817,15 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
 
     @extend_schema_field(serializers.BooleanField())
     def get_files_write_requestable(self, obj: Integration) -> bool:
-        return obj.kind == "slack" and "files:write" in POSTHOG_SLACK_SCOPE.split(",")
+        return (
+            obj.kind == "slack"
+            and obj.auth_type == IntegrationAuthType.OAUTH
+            and "files:write" in POSTHOG_SLACK_SCOPE.split(",")
+        )
 
     @extend_schema_field(serializers.BooleanField(allow_null=True))
     def get_installation_shared(self, obj: Integration) -> bool | None:
-        if obj.kind != "github" or not obj.integration_id:
+        if obj.kind != "github" or obj.auth_type != IntegrationAuthType.APP or not obj.integration_id:
             return None
         # Mirrors the check in IntegrationViewSet.perform_destroy: only other *team* rows keep the App
         # installed on GitHub. Personal rows don't count because destroy deletes them along with it.
@@ -819,7 +837,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
 
     @extend_schema_field(serializers.ChoiceField(choices=GITHUB_INSTALLATION_STATUS_CHOICES, allow_null=True))
     def get_installation_status(self, obj: Integration) -> str | None:
-        if obj.kind != "github":
+        if obj.kind != "github" or obj.auth_type != IntegrationAuthType.APP:
             return None
         return (
             "unavailable"
@@ -1556,7 +1574,8 @@ class IntegrationViewSet(
     # page boundary. Clients page this list to find one kind, so a dropped row reads as
     # "not configured". Order oldest-first: several clients take the first row of a kind as their
     # default connection.
-    queryset = defer_repository_cache_fields(Integration.objects.all()).order_by("created_at", "id")
+    # Lists every auth type, so typed-in credentials show next to installations and OAuth grants.
+    queryset = defer_repository_cache_fields(Integration.objects.with_auth(ANY)).order_by("created_at", "id")
     serializer_class = IntegrationSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_class = IntegrationFilterSet
@@ -1567,9 +1586,15 @@ class IntegrationViewSet(
         # creator. Unlike team-shared integrations, don't expose other members' connections in
         # list/retrieve — scope `posthog` rows to the requesting user. Other kinds stay team-visible.
         user_id = getattr(self.request.user, "id", None)
-        return queryset.exclude(kind=Integration.IntegrationKind.WAREHOUSE_SOURCE).exclude(
+        queryset = queryset.exclude(kind=Integration.IntegrationKind.WAREHOUSE_SOURCE).exclude(
             Q(kind=POSTHOG_CONNECT_KIND) & ~Q(created_by_id=user_id)
         )
+        # The other actions (destroy, channels, github_repos, ...) call provider code that reads the
+        # row in the default shape of its kind, so they keep to rows with the default auth type.
+        if self.action not in ("list", "retrieve"):
+            assert isinstance(queryset, IntegrationQuerySet)
+            queryset = queryset.with_auth(DEFAULT)
+        return queryset
 
     def handle_exception(self, exc: Exception) -> Response:
         # GitHub rate limits surface from any GitHub-backed action (teams, repos, branches, refresh);

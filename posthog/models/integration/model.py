@@ -1,5 +1,6 @@
 """The Integration Django model, its manager, and generic secret-decryption helpers."""
 
+from collections.abc import Iterable, Mapping
 from typing import Any, Self, cast
 
 from django.db import models
@@ -15,6 +16,16 @@ from posthog.rbac.decorators import field_access_control
 from posthog.sync import database_sync_to_async
 
 from . import common
+from .auth_types import (
+    AuthRequirement,
+    AuthTypeSelector,
+    IntegrationAuthType,
+    config_for_write,
+    default_auth_type,
+    effective_auth_type,
+    normalized_config,
+    rows_with_default_auth_type_q,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -88,6 +99,78 @@ def _decrypted_sensitive_value(integration: "Integration", field_name: str) -> s
 
 
 class IntegrationQuerySet(models.QuerySet["Integration"]):
+    # Set by `with_auth`. None means the query did not state its auth types.
+    _auth_requirement: AuthRequirement | None = None
+    # True on the queryset that `Integration.objects` returns without `with_auth`. It holds only
+    # rows with the default auth type of their kind, so code that does not state its auth types
+    # never gets a row it cannot handle.
+    _implicit_default_auth: bool = False
+
+    def _clone(self) -> Self:
+        clone = super()._clone()
+        clone._auth_requirement = self._auth_requirement
+        clone._implicit_default_auth = self._implicit_default_auth
+        return clone
+
+    def with_auth(self, *auth_types: IntegrationAuthType | AuthTypeSelector | str) -> Self:
+        """Keep only the rows whose auth type is in `auth_types`.
+
+        Pass `DEFAULT` for the default auth type of each row's kind, or `ANY` for every row. A row
+        without `config["auth_type"]` has the default auth type of its kind. A create through a
+        `with_auth` with one non-default auth type writes it into `config["auth_type"]`.
+        """
+        if self._implicit_default_auth:
+            raise ValueError(
+                "Call with_auth() directly on Integration.objects. The queryset without it holds only rows "
+                "with the default auth type of their kind."
+            )
+        requirement = AuthRequirement.of(*auth_types)
+        queryset = self._chain() if requirement.any else self.filter(requirement.q())
+        queryset._auth_requirement = requirement
+        return queryset
+
+    def _with_implicit_default_auth(self) -> Self:
+        queryset = self.filter(rows_with_default_auth_type_q())
+        queryset._implicit_default_auth = True
+        return queryset
+
+    def _write_requirement(self) -> AuthRequirement | None:
+        if self._auth_requirement is not None:
+            return self._auth_requirement
+        return AuthRequirement.kind_default_only() if self._implicit_default_auth else None
+
+    def _with_config_for_write(self, values: dict[str, Any], kind: Any) -> dict[str, Any]:
+        requirement = self._write_requirement()
+        if requirement is None:
+            return values
+        return {**values, "config": config_for_write(kind, values.get("config"), requirement)}
+
+    def create(self, **kwargs: Any) -> "Integration":
+        return super().create(**self._with_config_for_write(kwargs, kwargs.get("kind")))
+
+    def bulk_create(self, objs: Iterable["Integration"], *args: Any, **kwargs: Any) -> list["Integration"]:
+        objs = list(objs)
+        requirement = self._write_requirement()
+        for obj in objs:
+            if requirement is not None:
+                obj.config = config_for_write(obj.kind, obj.config, requirement)
+            # bulk_create does not call save(), so normalize here too.
+            obj.config = normalized_config(obj.kind, obj.config)
+        return super().bulk_create(objs, *args, **kwargs)
+
+    def update_or_create(
+        self,
+        defaults: Mapping[str, Any] | None = None,
+        create_defaults: Mapping[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> tuple["Integration", bool]:
+        # The update path sets `config` from `defaults` on the row it found. Without this, a new
+        # config without the key would turn a typed-in row back into a default row.
+        kind = kwargs.get("kind") or (defaults or {}).get("kind") or (create_defaults or {}).get("kind")
+        if defaults is not None and "config" in defaults:
+            defaults = self._with_config_for_write(dict(defaults), kind)
+        return super().update_or_create(defaults=defaults, create_defaults=create_defaults, **kwargs)
+
     def for_github_installation_id(self, installation_id: str | int) -> Self:
         return self.filter(
             Q(config__installation_id=str(installation_id)) | Q(config__installation_id=int(installation_id))
@@ -98,14 +181,29 @@ class IntegrationManager(models.Manager["Integration"]):
     _queryset_class = IntegrationQuerySet
 
     def get_queryset(self) -> IntegrationQuerySet:
-        return IntegrationQuerySet(self.model, using=self._db)
+        queryset = IntegrationQuerySet(self.model, using=self._db, hints=self._hints)
+        if self._is_related_manager():
+            return queryset
+        return queryset._with_implicit_default_auth()
+
+    def with_auth(self, *auth_types: IntegrationAuthType | AuthTypeSelector | str) -> IntegrationQuerySet:
+        if self._is_related_manager():
+            return self.get_queryset().with_auth(*auth_types)
+        return IntegrationQuerySet(self.model, using=self._db, hints=self._hints).with_auth(*auth_types)
 
     def filter(self, *args: Any, **kwargs: Any) -> IntegrationQuerySet:
         return self.get_queryset().filter(*args, **kwargs)
 
+    def _is_related_manager(self) -> bool:
+        # Django builds related managers such as `team.integration_set` as subclasses of this class,
+        # and only they have `core_filters`. They stay unfiltered, the same as the base manager that
+        # cascades, `save()` and `refresh_from_db()` use.
+        return hasattr(self, "core_filters")
+
     def first_github_for_team_installation(self, team_id: int, installation_id: str) -> "Integration | None":
         return (
-            self.filter(team_id=team_id, kind=Integration.IntegrationKind.GITHUB)
+            self.with_auth(IntegrationAuthType.APP)
+            .filter(team_id=team_id, kind=Integration.IntegrationKind.GITHUB)
             .for_github_installation_id(installation_id)
             .first()
         )
@@ -113,7 +211,8 @@ class IntegrationManager(models.Manager["Integration"]):
     def first_github_for_user_installation(self, user: User, installation_id: str) -> "Integration | None":
         user_team_ids = user.teams.values_list("id", flat=True)
         return (
-            self.filter(team_id__in=user_team_ids, kind=Integration.IntegrationKind.GITHUB)
+            self.with_auth(IntegrationAuthType.APP)
+            .filter(team_id__in=user_team_ids, kind=Integration.IntegrationKind.GITHUB)
             .for_github_installation_id(installation_id)
             .first()
         )
@@ -125,6 +224,8 @@ def integration_kind_choices() -> list[tuple[str, str | Promise]]:
 
 
 class Integration(models.Model):
+    AuthType = IntegrationAuthType
+
     class IntegrationKind(models.TextChoices):
         ANTHROPIC = "anthropic"
         APPLE_ADS = "apple-ads"
@@ -217,8 +318,20 @@ class Integration(models.Model):
         ]
         indexes = [models.Index(fields=["kind", "integration_id"], name="posthog_integration_kind_ext")]
 
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        self.config = normalized_config(self.kind, self.config)
+        super().save(*args, **kwargs)
+
+    @property
+    def auth_type(self) -> str:
+        """The stored `config["auth_type"]`, or the default auth type of the kind when the key is missing."""
+        return effective_auth_type(self.kind, self.config)
+
     @property
     def display_name(self) -> str:
+        if self.auth_type != default_auth_type(self.kind):
+            # The branches below read the config shape of the default auth type.
+            return self.config.get("display_name") or f"ID: {self.integration_id}"
         if self.kind == "twitter-ads":
             return self.config.get("screen_name") or self.integration_id
         if self.kind == "pinterest-ads":

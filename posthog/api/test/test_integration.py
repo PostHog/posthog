@@ -3227,6 +3227,26 @@ class TestIntegrationAPIKeyAccess:
         assert "github" in kinds
         assert "twilio" in kinds
 
+    def test_list_and_retrieve_show_every_auth_type(self, client: HttpClient):
+        client.force_login(self.user)
+        token_row = Integration.objects.with_auth(Integration.AuthType.TOKEN).create(
+            team=self.team, kind="github", integration_id="typed-in", sensitive_config={"token": "secret"}
+        )
+        base_url = f"/api/environments/{self.team.pk}/integrations"
+
+        listed = client.get(f"{base_url}/").json()["results"]
+        retrieved = client.get(f"{base_url}/{token_row.id}/")
+        repos = client.get(f"{base_url}/{token_row.id}/github_repos/")
+
+        assert {(row["id"], row["auth_type"]) for row in listed} == {
+            (self.github_integration.id, "app"),
+            (self.twilio_integration.id, "auth_token"),
+            (token_row.id, "token"),
+        }
+        assert retrieved.status_code == status.HTTP_200_OK
+        assert (retrieved.json()["auth_type"], retrieved.json()["installation_status"]) == ("token", None)
+        assert repos.status_code == status.HTTP_404_NOT_FOUND
+
     def test_list_integrations_filtered_by_kind(self, client: HttpClient):
         client.force_login(self.user)
 
