@@ -71663,6 +71663,18 @@ export namespace Schemas {
       Value: 'value',
     } as const;
 
+    /**
+     * * `clickhouse` - ClickHouse
+     * * `trino` - Trino
+     */
+    export type MaterializationEngineEnum = typeof MaterializationEngineEnum[keyof typeof MaterializationEngineEnum];
+
+
+    export const MaterializationEngineEnum = {
+      Clickhouse: 'clickhouse',
+      Trino: 'trino',
+    } as const;
+
     export interface MaterializationPreviewAggregate {
       /** Aggregate expression in the transformed query. */
       expression: string;
@@ -106908,6 +106920,11 @@ export namespace Schemas {
        * * `upstream` - Upstream
        * * `downstream` - Downstream */
       direction?: MaterializationRunDirectionEnum;
+      /** Where to build the views. 'clickhouse' (the default) refreshes the tables that queries read. 'trino' builds the same views on the organization's managed warehouse only, and leaves the ClickHouse tables as they are. 'trino' returns 403 when the organization has no managed warehouse, and 409 while another managed warehouse run of these views is in progress.
+       *
+       * * `clickhouse` - ClickHouse
+       * * `trino` - Trino */
+      engine?: MaterializationEngineEnum;
     }
 
     export interface SavedQueryRunResponse {
