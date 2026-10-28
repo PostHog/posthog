@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING, Any, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
@@ -45,6 +45,7 @@ from django.db.models import (
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Coalesce
 from django.utils import timezone as django_timezone
+from django.utils.dateparse import parse_datetime
 from django.utils.http import content_disposition_header
 
 import posthoganalytics
@@ -101,6 +102,7 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
+from products.tasks.backend.facade.profiles import TaskProfile, resolve_task_origin
 from products.tasks.backend.feature_flags import (
     get_model_access_error,
     own_subscription_cloud_enabled as own_subscription_cloud_enabled,
@@ -1132,6 +1134,30 @@ def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.Ta
     return _task_run_to_dto(run)
 
 
+def latest_agent_startup_success(*, team_id: int, repository: str, provider: str, runtime: str) -> datetime | None:
+    started = (
+        TaskRun.objects.filter(
+            team_id=team_id,
+            state__has_key="agent_startup_success",
+            state__agent_startup_success__repository=repository.lower(),
+            state__agent_startup_success__provider=provider,
+            state__agent_startup_success__runtime=runtime,
+        )
+        .order_by("-state__agent_startup_success__started_at")
+        .values_list("state__agent_startup_success__started_at", flat=True)
+        .first()
+    )
+    if not isinstance(started, str):
+        return None
+    try:
+        started_at = parse_datetime(started)
+    except ValueError:
+        return None
+    if started_at is None or django_timezone.is_naive(started_at):
+        return None
+    return started_at
+
+
 def find_signal_implementation_run(
     *, team_id: int, repository: str, head_branch: str | None
 ) -> contracts.SignalImplementationRunDTO | None:
@@ -1988,8 +2014,9 @@ def create_and_run_task(
     team,
     title: str,
     description: str,
-    origin_product: "Task.OriginProduct",
     user_id: int,
+    origin_product: "Task.OriginProduct | None" = None,
+    profile: TaskProfile | None = None,
     repository: str | None = None,
     create_pr: bool = True,
     mode: str = "background",
@@ -1998,7 +2025,7 @@ def create_and_run_task(
     branch: str | None = None,
     signal_report_id: str | None = None,
     free_trial_enabled: bool | None = None,
-    internal: bool = False,
+    internal: bool | None = None,
     sandbox_environment_id: str | None = None,
     channel_id: str | UUID | None = None,
     **extra,
@@ -2021,6 +2048,9 @@ def create_and_run_task(
     materializes it at or after that time. The run still stores its complete execution settings.
 
     """
+    origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=internal)
+    origin_product = cast("Task.OriginProduct", origin.origin_product)
+    internal = origin.internal
     # create_pr=False sessions (research, repo selection, custom agents) can never open the
     # billable PR, so the quota gate must not block them.
     if origin_product == Task.OriginProduct.SIGNAL_REPORT and create_pr:
@@ -2039,6 +2069,7 @@ def create_and_run_task(
         title=title,
         description=description,
         origin_product=origin_product,
+        profile=profile,
         user_id=user_id,
         repository=repository,
         channel=channel,
@@ -2225,7 +2256,8 @@ def create_task_without_run(
     *,
     team,
     user_id: int,
-    origin_product: "Task.OriginProduct",
+    origin_product: "Task.OriginProduct | None" = None,
+    profile: TaskProfile | None = None,
     title: str = "",
     description: str = "",
     repository: str | None = None,
@@ -2237,15 +2269,19 @@ def create_task_without_run(
     For callers that own run creation themselves — e.g. the sandbox warm path, which boots the first
     run via the warming facade. ``team`` is a core ``posthog.Team`` (not a tasks model).
     """
+    origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=None)
     if channel is None:
         channel = (
-            None if origin_product in TEAM_READABLE_ORIGIN_PRODUCTS else _ensure_personal_channel(team.id, user_id)[0]
+            None
+            if origin.origin_product in TEAM_READABLE_ORIGIN_PRODUCTS
+            else _ensure_personal_channel(team.id, user_id)[0]
         )
     task = Task.create_without_run(
         team=team,
         title=title,
         description=description,
-        origin_product=origin_product,
+        origin_product=cast("Task.OriginProduct", origin.origin_product),
+        profile=profile,
         user_id=user_id,
         repository=repository,
         channel=channel,
@@ -2919,8 +2955,6 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 #   - sandbox_cpu_cores / sandbox_memory_gb / sandbox_ttl_seconds / inactivity_timeout_seconds set
 #     the run's compute and lifetime at creation; a caller could otherwise PATCH a queued run to
 #     provision an oversized or long-lived sandbox beyond what they're entitled to.
-#   - use_modal_directory_resume_snapshots is the server-side directory snapshot rollout decision;
-#     a caller could otherwise force directory snapshot creation while the feature flag is off.
 #   - use_modal_vm_sandbox is reserved for trusted server-created runs such as image builders;
 #     a caller could otherwise force the VM runtime while the feature flag or custom-image gate is off.
 #   - snapshot_external_id / snapshot_kind / snapshot_mount_path control which Modal image is
@@ -2962,6 +2996,13 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "token_cost_incomplete",
         "compute_cost",
         "failure_error_type",
+        "startup_failure",
+        "startup_started_at",
+        "startup_completed_at",
+        "startup_provider",
+        "startup_runtime",
+        "agent_startup_attempt",
+        "agent_startup_success",
         "unprocessed_request_ids",
         TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",
@@ -2995,7 +3036,6 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "wizard_config",
         "reconciled_pr_merge_url",
         "wizard_head_branch",
-        "use_modal_directory_resume_snapshots",
         "use_modal_vm_sandbox",
         # The image a run boots from; a PATCHed value would pick an image the task never asked for.
         "sandbox_template",

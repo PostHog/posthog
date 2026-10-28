@@ -25,7 +25,6 @@ function sections(
         monitoring: [],
         'needs-decision': [],
         resolved: [],
-        closed: [],
         dismissed: [],
         'held-back': [],
         'not-actionable': [],

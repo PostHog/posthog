@@ -17,6 +17,7 @@ export interface BootContext {
     scene?: string
     logged_in?: boolean
     deferred_app_context?: boolean
+    deferred_app_context_variant?: string
 }
 
 const phaseTimes: Partial<Record<BootPhase, number>> = {}
@@ -62,8 +63,10 @@ async function sendBootTiming(): Promise<void> {
     // Not `$device_id`: posthog-js gives it a new value on each page load of a user bootstrapped with
     // `identity_distinct_id`. The distinct ID changes only at login, so a user stays in or out across page loads.
     const distinctId = posthog.get_distinct_id()
+    // An experiment on boot time needs every page load of its users, not the 5% sample.
+    const sampleRate = context.deferred_app_context_variant ? 1 : SAMPLE_RATE
     // hashCodeForString returns 0 for an empty string, which would put every such page load in the sample.
-    if (!distinctId?.trim() || hashCodeForString(distinctId) % 100 >= SAMPLE_RATE * 100) {
+    if (!distinctId?.trim() || hashCodeForString(distinctId) % 100 >= sampleRate * 100) {
         return
     }
     const durations = Object.fromEntries(
@@ -74,7 +77,7 @@ async function sendBootTiming(): Promise<void> {
         ...context,
         ...getNavigationProperties(),
         page_was_hidden: pageWasHidden,
-        sample_rate: SAMPLE_RATE,
+        sample_rate: sampleRate,
     })
 }
 

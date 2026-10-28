@@ -61,6 +61,7 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, ReportMetric
+from products.signals.backend.startup_failure import RESEARCH_STARTUP_FAILURE, research_startup_failure
 from products.signals.backend.supersession import ImplementationResearchContext
 from products.signals.backend.temporal.agentic.report import (
     RESEARCH_MCP_SCOPES,
@@ -86,7 +87,8 @@ from products.signals.backend.temporal.summary import (
     mark_report_ready_activity,
 )
 from products.signals.backend.temporal.types import SignalData
-from products.tasks.backend.facade.agents import CustomPromptSandboxContext, SandboxRunFailed
+from products.tasks.backend.facade.agents import AgentStartupFailed, CustomPromptSandboxContext, SandboxRunFailed
+from products.tasks.backend.facade.contracts import AgentStartupFailure
 from products.tasks.backend.models import Task  # tach-ignore
 
 
@@ -302,6 +304,7 @@ def _build_signals() -> list[SignalData]:
         (SignalReport.Status.CLOSED, None, None, True),
         (SignalReport.Status.SUPPRESSED, SignalReport.Status.CLOSED, None, True),
         (SignalReport.Status.SUPPRESSED, None, "already_fixed", True),
+        (SignalReport.Status.SUPPRESSED, None, "wrong_repo", False),
         # Archived because nobody wants to see it, not because it was fixed: there is no prior fix
         # to reason about, so the research agent is told nothing.
         (SignalReport.Status.SUPPRESSED, None, "wontfix_intentional", False),
@@ -768,7 +771,14 @@ async def test_select_repository_activity_does_not_raise_with_only_user_integrat
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "sandbox_error_type,expected_transient",
-    [("RepositoryCloneError", True), ("RepositoryAccessError", False)],
+    [
+        ("RepositoryCloneError", True),
+        ("RepositoryAccessError", False),
+        ("startup_requires_action", False),
+        ("startup_unknown", False),
+        ("startup_transient", True),
+        ("startup_unknown_transient_sandbox", True),
+    ],
 )
 async def test_run_agentic_report_activity_flags_transient_sandbox_failures(
     monkeypatch, ateam, sandbox_error_type, expected_transient
@@ -782,6 +792,25 @@ async def test_run_agentic_report_activity_flags_transient_sandbox_failures(
     monkeypatch.setattr("products.signals.backend.temporal.agentic.report.resolve_user_id_for_team", lambda team_id: 1)
 
     async def fake_run_multi_turn_research(*args, **kwargs):
+        if sandbox_error_type.startswith("startup_"):
+            requires_action = sandbox_error_type == "startup_requires_action"
+            raise AgentStartupFailed(
+                failure=AgentStartupFailure(
+                    provider="claude",
+                    phase="sdk_initialization",
+                    reason="proxy_invalid" if requires_action else None,
+                    retryability="requires_action"
+                    if requires_action
+                    else "transient"
+                    if sandbox_error_type == "startup_transient"
+                    else "unknown",
+                ),
+                task_id=str(uuid4()),
+                run_id=str(uuid4()),
+                error_type="SandboxExecutionError"
+                if sandbox_error_type == "startup_unknown_transient_sandbox"
+                else None,
+            )
         raise SandboxRunFailed("TaskRun reached terminal status=failed", error_type=sandbox_error_type)
 
     monkeypatch.setattr(
@@ -799,7 +828,14 @@ async def test_run_agentic_report_activity_flags_transient_sandbox_failures(
                 )
             )
 
-    if expected_transient:
+    if sandbox_error_type.startswith("startup_"):
+        assert isinstance(error.value, ApplicationError)
+        assert error.value.type == (
+            RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE if expected_transient else RESEARCH_STARTUP_FAILURE
+        )
+        assert error.value.non_retryable is (sandbox_error_type == "startup_requires_action")
+        assert research_startup_failure(error.value) is not None
+    elif expected_transient:
         assert isinstance(error.value, ApplicationError)
         assert error.value.type == RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
     else:

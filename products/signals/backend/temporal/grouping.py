@@ -38,7 +38,7 @@ from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, 
 from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.receivers import _is_safety_suppressed
-from products.signals.backend.recurrence import fixed_dismissal_at
+from products.signals.backend.recurrence import recurrence_dismissal_at
 from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.spend import begin_report_spend, complete_signal_pipeline, signal_spend_summaries
@@ -913,18 +913,15 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         promotion_suppressed=False,
                         next_research_bucket=None,
                     )
-                # A report dismissed as fixed claims the issue is gone, exactly as a resolved report
-                # does, so this signal contradicts it and must not be absorbed. The other dismissal
-                # codes state a preference about the report, and a sink is the right answer for
-                # them (see recurrence.py).
+                # Wrong-repo feedback rejects the repository choice rather than the issue, so new
+                # evidence needs fresh research, just as it does after a fixed verdict.
                 report = signal_target_report(report, lock=True)
-                dismissed_as_fixed_at = (
-                    fixed_dismissal_at(report) if report.status == SignalReport.Status.SUPPRESSED else None
+                dismissed_for_recurrence_at = (
+                    recurrence_dismissal_at(report) if report.status == SignalReport.Status.SUPPRESSED else None
                 )
-                # A terminal implementation attempt must not absorb signals that still need research.
                 if (
                     report.effective_status in {SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED}
-                    or dismissed_as_fixed_at is not None
+                    or dismissed_for_recurrence_at is not None
                 ):
                     parent_report = report
                     inherit_content = not _is_safety_suppressed(str(parent_report.id), input.team_id)
@@ -978,8 +975,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 )
 
             # Promotion rules by status:
-            # - SUPPRESSED: never promoted. A report dismissed as fixed never receives new signals
-            #   either (a recurrence spawns a fresh report above).
+            # - SUPPRESSED: never promoted. Fixed and wrong-repo dismissals spawn a fresh report above.
             # - RESOLVED: terminal — never receives new signals (a recurrence spawns a fresh report above).
             # - POTENTIAL: promote once total_weight >= WEIGHT_THRESHOLD and signal_count >= signals_at_run
             #   (snooze gate, defaults to 0). Uncapped — a report's first research always runs.

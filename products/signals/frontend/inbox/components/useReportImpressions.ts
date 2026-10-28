@@ -55,7 +55,6 @@ export function useReportImpressions(rows: MergedReportRow[], selectedSections: 
         monitoring: useSectionImpressionState('monitoring'),
         'needs-decision': useSectionImpressionState('needs-decision'),
         resolved: useSectionImpressionState('resolved'),
-        closed: useSectionImpressionState('closed'),
         dismissed: useSectionImpressionState('dismissed'),
         'held-back': useSectionImpressionState('held-back'),
         'not-actionable': useSectionImpressionState('not-actionable'),

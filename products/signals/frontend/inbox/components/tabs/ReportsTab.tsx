@@ -88,7 +88,7 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
 }
 
 /**
- * Every state's count and loaded rows, keyed by state. All state logics are mounted regardless of
+ * Every state's count and loaded rows, keyed by state. All six logics are mounted regardless of
  * who is looking or which states the filter selects, so the hooks never change shape when the
  * staff flag resolves or a checkbox toggles; callers decide which states matter to them.
  */
@@ -97,7 +97,6 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
         monitoring: useSectionState('monitoring'),
         'needs-decision': useSectionState('needs-decision'),
         resolved: useSectionState('resolved'),
-        closed: useSectionState('closed'),
         dismissed: useSectionState('dismissed'),
         'held-back': useSectionState('held-back'),
         'not-actionable': useSectionState('not-actionable'),
@@ -362,7 +361,7 @@ export function ReportsTab(): JSX.Element {
             <InboxBulkSelectionBar reports={rows.map(({ report }) => report)} />
             <InboxMcpBanner />
             {showActivation && <InboxActivationPanel hasReports={!inboxIsEmpty && rows.length > 0} />}
-            {showActivation && firstReportProgress && (
+            {showActivation && firstReportProgress && !firstLoadPending && rows.length === 0 && (
                 <div className="min-w-0" data-attr="inbox-first-report-progress">
                     <FirstReportProgress
                         result={firstReportProgress}
