@@ -20,6 +20,7 @@ import type {
     SupabaseAuthEmailSettingsApi,
     SupabaseEmailTypeApi,
 } from 'products/messaging/frontend/generated/api.schemas'
+import { hogFlowsMetricsTotalsRetrieve } from 'products/workflows/frontend/generated/api'
 
 export type SupabaseAuthEmailsStatus = 'connected' | 'incomplete' | 'not-set-up'
 
@@ -34,6 +35,7 @@ export interface supabaseAuthEmailsLogicValues {
     hookSecret: string
     isSetupOpen: boolean
     missingStarterTypes: SupabaseEmailTypeApi[] | null
+    sendCounts: Record<string, number>
     settings: SupabaseAuthEmailSettingsApi | null
     settingsLoadFailed: boolean
     settingsLoading: boolean
@@ -79,6 +81,9 @@ export interface supabaseAuthEmailsLogicActions {
     ) => {
         settings: SupabaseAuthEmailSettingsApi
         payload?: any
+    }
+    loadSendCounts: (refresh: boolean) => {
+        refresh: boolean
     }
     loadSettings: () => any
     loadSettingsFailure: (
@@ -134,6 +139,13 @@ export interface supabaseAuthEmailsLogicActions {
     setHookSecret: (hookSecret: string) => {
         hookSecret: string
     }
+    setSendCount: (
+        templateId: string,
+        sent: number
+    ) => {
+        sent: number
+        templateId: string
+    }
     setSupabaseUrl: (supabaseUrl: string) => {
         supabaseUrl: string
     }
@@ -183,6 +195,8 @@ export const supabaseAuthEmailsLogic = kea<supabaseAuthEmailsLogicType>([
         setTemplate: (emailType: string, templateId: string | null) => ({ emailType, templateId }),
         openSetup: true,
         closeSetup: true,
+        loadSendCounts: (refresh: boolean) => ({ refresh }),
+        setSendCount: (templateId: string, sent: number) => ({ templateId, sent }),
     }),
     loaders(({ values, cache }) => ({
         // null until the first load answers, so the form never renders from settings nobody asked for.
@@ -212,6 +226,14 @@ export const supabaseAuthEmailsLogic = kea<supabaseAuthEmailsLogicType>([
         ],
     })),
     reducers({
+        // Template id to emails sent in the last 30 days. A count that fails to load is left out, and the row shows
+        // no count, so one slow or failed metrics query can't hide the others.
+        sendCounts: [
+            {} as Record<string, number>,
+            {
+                setSendCount: (state, { templateId, sent }) => ({ ...state, [templateId]: sent }),
+            },
+        ],
         isSetupOpen: [
             false,
             {
@@ -334,6 +356,32 @@ export const supabaseAuthEmailsLogic = kea<supabaseAuthEmailsLogicType>([
             lemonToast.success(created === 1 ? 'Created 1 starter template' : `Created ${created} starter templates`)
             actions.loadTemplates()
         },
+        // Opening the setup refreshes every count, and a remap only fetches the template it adds.
+        loadSendCounts: ({ refresh }) => {
+            const mapped = new Set(Object.values(values.settings?.templates ?? {}))
+            for (const template of values.transactionalTemplates ?? []) {
+                if (!mapped.has(template.id) || (!refresh && template.id in values.sendCounts)) {
+                    continue
+                }
+                void hogFlowsMetricsTotalsRetrieve(
+                    String(values.currentTeamIdStrict),
+                    template.transactional_hog_flow_id as string,
+                    { after: '-30d', breakdown_by: 'name', name: 'email_sent' }
+                )
+                    .then((response) => actions.setSendCount(template.id, response.totals.email_sent ?? 0))
+                    .catch(() => null)
+            }
+        },
+        loadTemplatesSuccess: () => {
+            if (values.isSetupOpen) {
+                actions.loadSendCounts(false)
+            }
+        },
+        saveSettingsSuccess: ({ payload }) => {
+            if (values.isSetupOpen && payload && 'templates' in payload) {
+                actions.loadSendCounts(false)
+            }
+        },
         saveSettingsFailure: ({ errorObject }) => {
             lemonToast.error(errorMessage(errorObject, "Couldn't save the Supabase settings. Try again."))
         },
@@ -354,6 +402,8 @@ export const supabaseAuthEmailsLogic = kea<supabaseAuthEmailsLogicType>([
             actions.setHookSecret('')
             if (values.templates === null && !values.templatesLoading) {
                 actions.loadTemplates()
+            } else if (values.templates !== null) {
+                actions.loadSendCounts(true)
             }
         },
     })),

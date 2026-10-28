@@ -1,15 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPencil } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonDialog,
-    LemonInput,
-    LemonModal,
-    LemonSelect,
-    LemonTable,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -19,6 +10,7 @@ import { urls } from 'scenes/urls'
 import type { SupabaseEmailTypeApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { supabaseAuthEmailsLogic } from './supabaseAuthEmailsLogic'
+import { SupabaseAuthEmailTemplateCell } from './SupabaseAuthEmailTemplateCell'
 
 /** Connects a Supabase project's Send Email Hook and maps each auth email to a transactional template. */
 export function SupabaseAuthEmailsModal(): JSX.Element | null {
@@ -30,7 +22,6 @@ export function SupabaseAuthEmailsModal(): JSX.Element | null {
         supabaseUrl,
         hookSecret,
         connectionChanged,
-        transactionalTemplates,
         templatesLoadFailed,
         missingStarterTypes,
     } = useValues(supabaseAuthEmailsLogic)
@@ -39,7 +30,6 @@ export function SupabaseAuthEmailsModal(): JSX.Element | null {
         setSupabaseUrl,
         setHookSecret,
         saveConnection,
-        setTemplate,
         createStarterTemplates,
         loadTemplates,
         disconnect,
@@ -48,11 +38,6 @@ export function SupabaseAuthEmailsModal(): JSX.Element | null {
     if (!settings) {
         return null
     }
-
-    const templateOptions = [
-        { value: null, label: 'No template' },
-        ...(transactionalTemplates ?? []).map((template) => ({ value: template.id, label: template.name })),
-    ]
 
     return (
         <LemonModal
@@ -216,40 +201,7 @@ export function SupabaseAuthEmailsModal(): JSX.Element | null {
                                 title: 'Template',
                                 key: 'template',
                                 width: '50%',
-                                render: (_, emailType) => (
-                                    <div className="flex items-center gap-1">
-                                        <div className="min-w-0 flex-1">
-                                            <LemonSelect
-                                                size="small"
-                                                fullWidth
-                                                value={settings.templates[emailType.value] ?? null}
-                                                options={templateOptions}
-                                                onChange={(templateId) => setTemplate(emailType.value, templateId)}
-                                                disabledReason={
-                                                    templatesLoadFailed
-                                                        ? "Couldn't load templates"
-                                                        : transactionalTemplates === null
-                                                          ? 'Loading templates'
-                                                          : settingsLoading
-                                                            ? 'Saving'
-                                                            : undefined
-                                                }
-                                                data-attr="workflows-supabase-auth-emails-template"
-                                            />
-                                        </div>
-                                        {settings.templates[emailType.value] && (
-                                            <LemonButton
-                                                size="small"
-                                                icon={<IconPencil />}
-                                                to={urls.workflowsLibraryTemplate(settings.templates[emailType.value])}
-                                                targetBlank
-                                                hideExternalLinkIcon
-                                                tooltip="Edit template"
-                                                data-attr="workflows-supabase-auth-emails-edit-template"
-                                            />
-                                        )}
-                                    </div>
-                                ),
+                                render: (_, emailType) => <SupabaseAuthEmailTemplateCell emailType={emailType} />,
                             },
                         ]}
                     />
