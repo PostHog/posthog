@@ -1,7 +1,7 @@
 import re
 import copy
-import gzip
 import time
+import zlib
 import logging
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
@@ -16,10 +16,12 @@ from requests.exceptions import (
     ConnectionError as RequestsConnectionError,
     HTTPError,
     JSONDecodeError as RequestsJSONDecodeError,
+    RequestException,
     Timeout as RequestsTimeout,
     TooManyRedirects,
 )
 from tenacity import RetryCallState, retry, retry_if_exception_type
+from urllib3.exceptions import HTTPError as Urllib3HTTPError
 
 from posthog.temporal.common.errors import NonReportableError
 
@@ -171,11 +173,12 @@ def _safe_url(url: str) -> str:
     ``api_key`` auth with ``location: "query"`` carries the secret in the query
     string, so keep only the parts that are safe to surface."""
     parts = urlsplit(url)
-    if not parts.scheme:
-        return url
     host = parts.hostname or ""
     if parts.port:
         host = f"{host}:{parts.port}"
+    if not parts.scheme:
+        # A redirect `Location` can be relative or scheme-relative and still carry a signed query.
+        return f"//{host}{parts.path}" if parts.netloc else parts.path
     return f"{parts.scheme}://{host}{parts.path}"
 
 
@@ -192,6 +195,10 @@ DEFAULT_RETRY_ATTEMPTS = 5
 # delay. A source whose rate-limit window is longer than this can raise it per client so the retry
 # budget outlasts the window.
 DEFAULT_RETRY_BACKOFF_MAX_SECONDS = 60.0
+
+# Ceiling on an offloaded response body, compressed or not, so a hostile redirect target can't
+# exhaust worker memory with an oversized object or a gzip bomb.
+MAX_PRESIGNED_RESPONSE_BYTES = 512 * 1024 * 1024
 
 # Default network ports per scheme, used to compare a request URL's effective port against the
 # base origin's when host-pinning is enabled.
@@ -396,7 +403,7 @@ class RESTClient:
         retry_backoff_max_seconds: float = DEFAULT_RETRY_BACKOFF_MAX_SECONDS,
         allowed_hosts: Optional[list[str]] = None,
         allow_redirects: bool = True,
-        presigned_redirect_host_suffixes: Optional[list[str]] = None,
+        presigned_redirect_host_pattern: Optional[str] = None,
         request_timeout: Optional[RequestTimeout] = None,
         capture: bool = True,
         retry_budget_seconds: Optional[float] = None,
@@ -420,8 +427,8 @@ class RESTClient:
         # a tighter value. ``NO_REQUEST_TIMEOUT`` is the only way to send a request with no deadline.
         self._request_timeout = request_timeout
         self._allow_redirects = allow_redirects
-        self._presigned_redirect_host_suffixes = tuple(
-            suffix.lower() for suffix in presigned_redirect_host_suffixes or () if suffix
+        self._presigned_redirect_host = (
+            re.compile(presigned_redirect_host_pattern, re.IGNORECASE) if presigned_redirect_host_pattern else None
         )
         # When set (even to an empty list), every outgoing request URL — including
         # paginator next-page links and seeded resume URLs — must resolve to one of
@@ -510,18 +517,18 @@ class RESTClient:
                 )
 
     def _presigned_redirect_url(self, response: Response) -> Optional[str]:
-        if not self._presigned_redirect_host_suffixes or response.status_code not in (302, 303):
+        if self._presigned_redirect_host is None or response.status_code not in (302, 303):
             return None
         location = response.headers.get("Location")
         if not location:
             return None
         split = urlsplit(location)
-        host = (split.hostname or "").lower()
         if (
             split.scheme.lower() != "https"
             or split.username is not None
             or split.password is not None
-            or not host.endswith(self._presigned_redirect_host_suffixes)
+            or split.port not in (None, 443)
+            or not self._presigned_redirect_host.fullmatch(split.hostname or "")
         ):
             return None
         return location
@@ -529,20 +536,40 @@ class RESTClient:
     def _fetch_presigned_redirect(self, url: str) -> Response:
         # The signed URL is its own credential, so the request is built outside the session to keep
         # the API auth and session headers off it, and its URL stays out of logs and samples.
+        # Errors name only `_safe_url(url)` and drop their cause, which embeds the signed URL.
+        safe_url = _safe_url(url)
         prepared = PreparedRequest()
         prepared.prepare(method="GET", url=url)
-        with redact_request_urls():
-            response = self._send(prepared)
-        if not response.ok:
-            # An expired or missing object is fixed by asking the API again for a fresh URL.
+        try:
+            with redact_request_urls():
+                response = self._send(prepared, stream=True)
+                try:
+                    if not response.ok:
+                        # An expired or missing object is fixed by asking the API again for a fresh URL.
+                        raise RESTClientRetryableError(
+                            f"HTTP {response.status_code} fetching an offloaded response from {safe_url}"
+                        )
+                    # Raw bytes, so urllib3 can't inflate a `Content-Encoding: gzip` body past the cap.
+                    body = response.raw.read(MAX_PRESIGNED_RESPONSE_BYTES + 1, decode_content=False)
+                finally:
+                    response.close()
+        except (RequestException, Urllib3HTTPError) as e:
             raise RESTClientRetryableError(
-                f"HTTP {response.status_code} fetching an offloaded response from {_safe_url(url)}"
-            )
-        if response.content[:2] == b"\x1f\x8b":
+                f"Connection error ({type(e).__name__}) fetching an offloaded response from {safe_url}"
+            ) from None
+        if body[:2] == b"\x1f\x8b":
+            decompressor = zlib.decompressobj(wbits=zlib.MAX_WBITS | 16)
             try:
-                response._content = gzip.decompress(response.content)
-            except (OSError, EOFError) as e:
-                raise RESTClientRetryableError(f"Truncated offloaded response from {_safe_url(url)}") from e
+                body = decompressor.decompress(body, MAX_PRESIGNED_RESPONSE_BYTES + 1)
+            except zlib.error:
+                raise RESTClientRetryableError(f"Corrupt offloaded response from {safe_url}") from None
+            if len(body) <= MAX_PRESIGNED_RESPONSE_BYTES and not decompressor.eof:
+                raise RESTClientRetryableError(f"Truncated offloaded response from {safe_url}")
+        if len(body) > MAX_PRESIGNED_RESPONSE_BYTES:
+            raise RESTClientNonRetryableError(
+                f"Offloaded response from {safe_url} exceeds {MAX_PRESIGNED_RESPONSE_BYTES} bytes"
+            )
+        response._content = body
         return response
 
     def paginate(
@@ -643,14 +670,17 @@ class RESTClient:
         outer = current_request_deadline()
         return deadline if outer is None else min(deadline, outer)
 
-    def _send(self, prepared: PreparedRequest) -> Response:
+    def _send(self, prepared: PreparedRequest, stream: bool = False) -> Response:
+        kwargs: dict[str, Any] = {"allow_redirects": self._allow_redirects, "timeout": self._request_timeout}
+        if stream:
+            kwargs["stream"] = True
         if self._max_retry_attempts <= 1:
             # This client does not retry, so the adapter keeps its own retries.
-            return self.session.send(prepared, allow_redirects=self._allow_redirects, timeout=self._request_timeout)
+            return self.session.send(prepared, **kwargs)
         # This client owns the retries. With the adapter's retries on too, the tries and the waits
         # of the two layers multiply, and the adapter's waits have no safe point.
         with suspend_adapter_retries():
-            return self.session.send(prepared, allow_redirects=self._allow_redirects, timeout=self._request_timeout)
+            return self.session.send(prepared, **kwargs)
 
     @retry(
         retry=retry_if_exception_type(RESTClientRetryableError),
