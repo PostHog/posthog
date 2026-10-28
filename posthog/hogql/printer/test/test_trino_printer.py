@@ -516,12 +516,44 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("L2Norm([3, 4])", "sqrt(dot_product(ARRAY[3, 4], ARRAY[3, 4]))"),
         ("toModifiedJulianDay(created_at)", "date_diff('day', DATE '1858-11-17'"),
         ("fromModifiedJulianDay(60000)", "date_add('day', CAST(60000 AS BIGINT), DATE '1858-11-17')"),
+        ("arrayFilter(x -> 0, [1, 2])", 'filter(ARRAY[1, 2], "x" -> CAST(0 AS BOOLEAN))'),
+        (
+            "arrayFilter((v, d) -> d >= 2, [10, 20], [1, 2])",
+            'transform(filter(zip_with(ARRAY[10, 20], ARRAY[1, 2], ("v", "d") -> ROW("v", ("d" >= 2)))',
+        ),
+        (
+            "arrayExists((v, d) -> d, [10, 20], [0, 1])",
+            'any_match(zip_with(ARRAY[10, 20], ARRAY[0, 1], ("v", "d") -> CAST("d" AS BOOLEAN))',
+        ),
     ],
 )
 def test_prints_core_trino_expression_mappings(expression: str, expected: str) -> None:
     context = _context_with_trino_table()
 
     sql, _ = prepare_and_print_ast(parse_select(f"SELECT {expression} FROM users"), context, "trino")
+
+    assert expected in sql
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "WITH a AS (SELECT arraySort([3, 1, 2]) AS xs) SELECT intDiv(length(xs) + 1, 2) FROM a",
+            '(CAST((cardinality("a"."xs") + 1) AS BIGINT) / CAST(2 AS BIGINT))',
+        ),
+        (
+            "WITH a AS (SELECT [toDate('2024-01-01')] AS days) SELECT days[1] + 1 FROM a",
+            'date_add(\'day\', CAST(1 AS BIGINT), element_at("a"."days", 1))',
+        ),
+        (
+            "WITH a AS (SELECT [toDate('2024-01-01')] AS days) SELECT arrayJoin(days) + 1 FROM a",
+            'date_add(\'day\', CAST(1 AS BIGINT), "__trino_array_function_0"."value_0")',
+        ),
+    ],
+)
+def test_derived_column_types_reach_type_dependent_lowerings(query: str, expected: str) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
 
     assert expected in sql
 
@@ -2780,6 +2812,16 @@ def test_lowers_unaliased_left_any_join(people_column: str, error: str | None) -
             "SELECT p.tiers != '[]' FROM prices LEFT ANY JOIN prices AS p ON prices.id = p.id",
             '("p"."tiers" != %(hogql_val_0)s)',
         ),
+        (
+            "`id` String, `tiers` Nullable(String)",
+            "SELECT length(t) FROM (SELECT tiers AS t FROM prices UNION ALL SELECT tiers AS t FROM prices)",
+            'SELECT length("t")',
+        ),
+        (
+            "`id` String, `tiers` Nullable(String)",
+            "WITH p AS (SELECT tiers FROM prices UNION ALL SELECT tiers FROM prices) SELECT length(tiers) FROM p",
+            'SELECT length("p"."tiers")',
+        ),
     ],
 )
 def test_curated_array_field_over_a_text_column_compares_as_text(structure: str, query: str, expected: str) -> None:
@@ -2855,6 +2897,26 @@ def test_lowers_left_any_join_against_a_cte() -> None:
     assert "LEFT ANY JOIN" not in sql
     assert 'row_number() OVER (PARTITION BY "__hogql_any_source_0"."user_id")' in sql
     assert '"right_rows" AS "__hogql_any_source_0"' in sql
+
+
+def test_left_any_join_against_an_unaliased_cte_keeps_one_match() -> None:
+    context = _context_with_trino_table()
+    sql, _ = prepare_and_print_ast(
+        parse_select(
+            "WITH r AS (SELECT 1 AS k, 10 AS v UNION ALL SELECT 1, 20 UNION ALL SELECT 2, 30), "
+            "l AS (SELECT 1 AS k UNION ALL SELECT 3) "
+            "SELECT l.k, r.v FROM l LEFT ANY JOIN r ON l.k = r.k ORDER BY l.k"
+        ),
+        context,
+        "trino",
+    )
+
+    sql, values = convert_pyformat_placeholders(sql, context.values)
+    with duckdb.connect(":memory:", config={"threads": 1}) as connection:
+        rows = connection.execute(sql, values).fetchall()
+    assert len(rows) == 2
+    assert rows[0][0] == 1 and rows[0][1] in (10, 20)
+    assert rows[1] == (3, None)
 
 
 @pytest.mark.parametrize(
