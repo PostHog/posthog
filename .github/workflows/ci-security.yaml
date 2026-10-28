@@ -486,24 +486,29 @@ jobs:
                       --timeout 300 \
                       bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
 
-            # Per-file ratchet: the INFO rule integration-queries-use-with-auth has a backlog, and its
+            # Per-file ratchet: the INFO rule integration-model-through-sdk has a backlog, and its
             # baseline file lists the allowed count per file. More findings than the baseline fails, and
             # so do fewer, so each migration lowers the baseline. See .semgrep/rules/devex/README.md.
-            - name: Integration auth-type ratchet (blocking)
+            # Skip on unrebased branches: the rule may not exist there yet.
+            - name: Integration model ratchet (blocking)
               run: |
+                  if [ ! -f .semgrep/rules/devex/integration-model-through-sdk.yaml ]; then
+                      echo "integration-model-through-sdk not present on this branch yet, skipping (rebase to pick it up)"
+                      exit 0
+                  fi
                   docker run --rm -v "${{ github.workspace }}:/src" -w /src \
                     -e SEMGREP_ENABLE_VERSION_CHECK=false \
                     ${{ env.SEMGREP_IMAGE }} \
                     semgrep \
-                      --config ".semgrep/rules/devex/integration-queries-use-with-auth.yaml" \
+                      --config ".semgrep/rules/devex/integration-model-through-sdk.yaml" \
                       --json \
-                      --output semgrep-integration-auth.json \
+                      --output semgrep-integration-model.json \
                       --metrics=off \
                       --timeout 300 \
                       common/ ee/ posthog/ products/
                   python3 bin/semgrep_ratchet.py \
-                    --findings semgrep-integration-auth.json \
-                    --baseline posthog/models/integration/with_auth_baseline.txt
+                    --findings semgrep-integration-model.json \
+                    --baseline products/integrations/backend/model_access_baseline.txt
 
             # Pass 3 (PRs only): fail on newly-introduced WARNING findings.
             # --baseline-commit diffs against the PR base (first parent of the
