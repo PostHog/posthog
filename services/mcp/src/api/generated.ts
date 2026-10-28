@@ -19853,6 +19853,7 @@ export namespace Schemas {
     export const Breakdown1 = {
       Keyword: 'keyword',
       Page: 'page',
+      SearchTerm: 'search_term',
     } as const;
 
     /**
@@ -60703,9 +60704,14 @@ export namespace Schemas {
 
     export interface MarketingAnalyticsSearchSource {
       keywordTable?: string | null;
+      /** Google Ads search terms from Performance Max campaigns. */
+      performanceMaxSearchTermTable?: string | null;
       placementTable?: string | null;
       queryPageTable?: boolean | null;
+      /** Google Ads search terms from Search campaigns. */
+      searchTermTable?: string | null;
       sourceType: SourceType;
+      /** For the Google Ads search term breakdown, the campaign table, which carries the account currency. */
       statsTable: string;
     }
 
