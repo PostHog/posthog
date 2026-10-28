@@ -71,11 +71,6 @@ ERROR_TRACKING_SEVERITY_INFERENCE_OUTCOMES = Counter(
     "Issue-created severity inference attempts by outcome and by the severity stored afterwards",
     labelnames=("outcome", "severity"),
 )
-ERROR_TRACKING_ISSUE_CREATED_SUMMARY_OUTCOMES = Counter(
-    "error_tracking_issue_created_summary_total",
-    "Issue-created summary attempts by outcome",
-    labelnames=("outcome",),
-)
 ERROR_TRACKING_EMBEDDING_UNAVAILABLE = Counter(
     "error_tracking_issue_created_embedding_unavailable_total",
     "Issue-created embedding attempts that failed because the embedding service was unavailable",
@@ -296,15 +291,12 @@ def _generate_issue_created_summary(inputs: IssueCreatedWorkflowInputs) -> "Issu
         issue_summaries_on_write_enabled,
     )
 
-    # The write path's own flag is checked first, so a team without it pays no event fetch.
-    # The read flag, AI data processing approval and the write budget are checked by the generator.
+    # Checked outside the generator, which reports every attempt as an event, so a team without the flag sends none.
     if not issue_summaries_on_write_enabled(inputs.team_id):
         return IssueSummaryOutcome.DISABLED
-    team = Team.objects.filter(id=inputs.team_id).first()
-    if team is None:
-        return IssueSummaryOutcome.ISSUE_MISSING
-    event_properties = fetch_event_properties(team, inputs)
-    return generate_issue_summary_from_event(inputs.team_id, inputs.issue_id, event_properties).outcome
+    return generate_issue_summary_from_event(
+        inputs.team_id, inputs.issue_id, lambda team: fetch_event_properties(team, inputs)
+    ).outcome
 
 
 @activity.defn
@@ -312,14 +304,7 @@ def _generate_issue_created_summary(inputs: IssueCreatedWorkflowInputs) -> "Issu
 @close_db_connections
 def generate_issue_created_summary_activity(inputs: IssueCreatedWorkflowInputs) -> str:
     # Model and output failures return an outcome, so an exception here is an infrastructure failure worth a retry.
-    # The shared activity interceptor reports it.
-    try:
-        outcome = _generate_issue_created_summary(inputs)
-    except Exception:
-        ERROR_TRACKING_ISSUE_CREATED_SUMMARY_OUTCOMES.labels(outcome="unexpected_error").inc()
-        raise
-    ERROR_TRACKING_ISSUE_CREATED_SUMMARY_OUTCOMES.labels(outcome=outcome.value).inc()
-    return outcome.value
+    return _generate_issue_created_summary(inputs).value
 
 
 # The three activities below add no properties of their own, so the shared activity interceptor

@@ -2,6 +2,7 @@ import json
 import uuid
 import asyncio
 import dataclasses
+from collections import defaultdict
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -407,8 +408,8 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     signal_attempts: dict[str, int] = {}
     inferred_issue_ids: list[str] = []
     summary_issue_ids: list[str] = []
-    alerted: dict[str, asyncio.Event] = {}
-    summary_saw_alert: dict[str, bool] = {}
+    alerted: defaultdict[str, asyncio.Event] = defaultdict(asyncio.Event)
+    summary_saw_alert: set[str] = set()
     reopened_alerts: list[IssueReopenedWorkflowInputs] = []
     reopened_events: list[IssueReopenedWorkflowInputs] = []
     reopened_signals: list[IssueReopenedWorkflowInputs] = []
@@ -472,7 +473,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     @activity.defn(name="dispatch_issue_created_alert_activity")
     async def dispatch_alert(inputs: IssueCreatedWorkflowInputs) -> None:
         alert_issue_ids.append(inputs.issue_id)
-        alerted.setdefault(inputs.issue_id, asyncio.Event()).set()
+        alerted[inputs.issue_id].set()
 
     @activity.defn(name="generate_issue_created_summary_activity")
     async def generate_summary(inputs: IssueCreatedWorkflowInputs) -> str:
@@ -480,12 +481,8 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
         if inputs.fingerprint == "summary-fails":
             raise ApplicationError("summary failed", non_retryable=True)
         if inputs.fingerprint == "summary-waits-for-alert":
-            try:
-                await asyncio.wait_for(alerted.setdefault(inputs.issue_id, asyncio.Event()).wait(), timeout=10)
-            except TimeoutError:
-                summary_saw_alert[inputs.issue_id] = False
-                raise
-            summary_saw_alert[inputs.issue_id] = True
+            await asyncio.wait_for(alerted[inputs.issue_id].wait(), timeout=10)
+            summary_saw_alert.add(inputs.issue_id)
         return "generated"
 
     @activity.defn(name="emit_issue_created_internal_event_activity")
@@ -615,7 +612,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     ]
     # A failed or slow summary neither fails the workflow nor holds the alert, and a merged issue gets no summary.
     assert summary_results == [IssueCreatedWorkflowResult(notified=True)] * 2
-    assert summary_saw_alert == {summary_waits_inputs.issue_id: True}
+    assert summary_saw_alert == {summary_waits_inputs.issue_id}
     assert summary_issue_ids == notified_issue_ids
     assert alert_issue_ids == notified_issue_ids
     assert event_issue_ids == notified_issue_ids
@@ -685,8 +682,8 @@ async def test_replays_a_history_recorded_before_the_summary_activity(monkeypatc
             activities=[generate, dispatch_alert, emit_event, emit_signal, generate_summary],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            monkeypatch.setattr(issue_created_workflow.workflow, "patched", before_summary_patch)
-            try:
+            with monkeypatch.context() as patched:
+                patched.setattr(issue_created_workflow.workflow, "patched", before_summary_patch)
                 handle = await environment.client.start_workflow(
                     ErrorTrackingIssueCreatedWorkflow.run,
                     _inputs("unmerged"),
@@ -698,8 +695,6 @@ async def test_replays_a_history_recorded_before_the_summary_activity(monkeypatc
                     notified=True, embedding_skipped_reason="manual_fingerprint"
                 )
                 history = await handle.fetch_history()
-            finally:
-                monkeypatch.setattr(issue_created_workflow.workflow, "patched", original_patched)
 
     scheduled = [
         event.activity_task_scheduled_event_attributes.activity_type.name

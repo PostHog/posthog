@@ -36,6 +36,7 @@ from products.error_tracking.backend.logic.issue_summaries import (
     get_or_generate_issue_summary,
     parse_summary_response,
 )
+from products.error_tracking.backend.logic.issue_summary_config import ISSUE_SUMMARY_FLAG, ISSUE_SUMMARY_ON_WRITE_FLAG
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
@@ -365,7 +366,7 @@ class TestIssueSummaryGeneration(BaseTest):
         assert (shown.generated_at, shown.checked_at) == (result.summary.generated_at, result.summary.checked_at)
 
     def _generate_on_creation(self) -> IssueSummaryOutcome:
-        return generate_issue_summary_from_event(self.team.id, self.issue.id, {}).outcome
+        return generate_issue_summary_from_event(self.team.id, self.issue.id, lambda _team: {}).outcome
 
     def test_generation_on_creation_runs_once_and_keeps_a_stored_summary(self) -> None:
         with time_machine.travel(NOW, tick=False):
@@ -400,9 +401,7 @@ class TestIssueSummaryGeneration(BaseTest):
     def test_write_budget_is_per_team_and_never_holds_a_read(
         self, _name: str, drained_team_offset: int, expected: IssueSummaryOutcome
     ) -> None:
-        tiny = Budget(burst=1, per_hour=1)
-        self.enterContext(patch.object(issue_summaries, "ISSUE_SUMMARY_WRITE_BUDGET", tiny))
-        consume(f"{issue_summaries.ISSUE_SUMMARY_WRITE_BUDGET_KEY_PREFIX}:{self.team.id + drained_team_offset}", tiny)
+        self._drain_write_budget(self.team.id + drained_team_offset)
 
         assert self._generate_on_creation() == expected
         read = get_or_generate_issue_summary(self.team.id, self.issue.id)
@@ -412,13 +411,13 @@ class TestIssueSummaryGeneration(BaseTest):
 
     @parameterized.expand(
         [
-            ("on_write_flag_off", {"error-tracking-issue-summaries-on-write"}, None, IssueSummaryOutcome.DISABLED),
-            ("read_flag_off", {"error-tracking-issue-summaries"}, None, IssueSummaryOutcome.DISABLED),
+            ("on_write_flag_off", {ISSUE_SUMMARY_ON_WRITE_FLAG}, None, IssueSummaryOutcome.DISABLED),
+            ("read_flag_off", {ISSUE_SUMMARY_FLAG}, None, IssueSummaryOutcome.DISABLED),
             ("ai_not_approved", set(), lambda test: test._disapprove_ai(), IssueSummaryOutcome.AI_NOT_APPROVED),
             (
                 "write_budget_drained",
                 set(),
-                lambda test: test._drain_write_budget(),
+                lambda test: test._drain_write_budget(test.team.id),
                 IssueSummaryOutcome.RATE_LIMITED,
             ),
             ("all_checks_pass", set(), None, IssueSummaryOutcome.GENERATED),
@@ -442,12 +441,12 @@ class TestIssueSummaryGeneration(BaseTest):
 
         assert outcome == expected.value
         assert self.llm_calls == (1 if expected == IssueSummaryOutcome.GENERATED else 0)
-        assert fetch.called is (issue_summaries.ISSUE_SUMMARY_ON_WRITE_FLAG not in flags_off)
+        assert fetch.called is (expected == IssueSummaryOutcome.GENERATED)
 
-    def _drain_write_budget(self) -> None:
+    def _drain_write_budget(self, team_id: int) -> None:
         tiny = Budget(burst=1, per_hour=1)
         self.enterContext(patch.object(issue_summaries, "ISSUE_SUMMARY_WRITE_BUDGET", tiny))
-        consume(f"{issue_summaries.ISSUE_SUMMARY_WRITE_BUDGET_KEY_PREFIX}:{self.team.id}", tiny)
+        consume(f"{issue_summaries.ISSUE_SUMMARY_WRITE_BUDGET_KEY_PREFIX}:{team_id}", tiny)
 
     def _issue_created_inputs(self) -> IssueCreatedWorkflowInputs:
         return IssueCreatedWorkflowInputs(

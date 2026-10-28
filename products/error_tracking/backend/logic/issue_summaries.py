@@ -187,8 +187,8 @@ SETTLED_OUTCOMES = frozenset({IssueSummaryOutcome.GENERATED, IssueSummaryOutcome
 
 ISSUE_SUMMARY_OUTCOMES = Counter(
     "error_tracking_issue_summary_total",
-    "Issue summary requests by outcome",
-    labelnames=("outcome",),
+    "Issue summary requests by outcome and trigger",
+    labelnames=("outcome", "trigger"),
 )
 
 ISSUE_SUMMARY_STAGE_SECONDS = Histogram(
@@ -388,25 +388,27 @@ def run_issue_summary_task(team_id: int, issue_id: UUID | str, queued_at: float 
 
 
 def generate_issue_summary_from_event(
-    team_id: int, issue_id: UUID | str, event_properties: dict[str, object]
+    team_id: int, issue_id: UUID | str, load_event_properties: Callable[[Team], dict[str, object]]
 ) -> IssueSummaryResult:
     """Generate the first summary of a new issue from its first event, with no ClickHouse query.
 
     Does nothing when a summary is already stored. A stored summary refreshes through the read path.
-    Spends the team's write budget, and a failure leaves the issue free for a read to generate at once.
+    `load_event_properties` runs only after every check passes, so a blocked attempt reads no event.
     """
     generation = _SummaryGeneration(
+        trigger=IssueSummaryTrigger.WRITE,
         due=first_summary_due,
         budget_key=f"{ISSUE_SUMMARY_WRITE_BUDGET_KEY_PREFIX}:{team_id}",
         budget=ISSUE_SUMMARY_WRITE_BUDGET,
-        build_inputs=lambda team, _timings: build_issue_summary_inputs_from_event(team, issue_id, event_properties),
-        blocks_reads=False,
+        build_inputs=lambda team, _timings: build_issue_summary_inputs_from_event(
+            team, issue_id, load_event_properties(team)
+        ),
     )
     timings = IssueSummaryTimings()
     return _generate_and_report(
         team_id,
         issue_id,
-        IssueSummaryTrigger.WRITE,
+        generation.trigger,
         timings,
         lambda: _get_or_generate_counted(team_id, issue_id, generation, timings),
     )
@@ -467,11 +469,11 @@ def get_or_generate_issue_summary(
     Generation runs at most once at a time per issue. A failure keeps the stored summary.
     """
     generation = _SummaryGeneration(
+        trigger=IssueSummaryTrigger.READ,
         due=regeneration_due,
         budget_key=f"{ISSUE_SUMMARY_BUDGET_KEY_PREFIX}:{team_id}",
         budget=ISSUE_SUMMARY_BUDGET,
         build_inputs=lambda team, inputs_timings: build_issue_summary_inputs(team, issue_id, inputs_timings),
-        blocks_reads=True,
     )
     return _get_or_generate_counted(team_id, issue_id, generation, timings or IssueSummaryTimings())
 
@@ -480,12 +482,11 @@ def get_or_generate_issue_summary(
 class _SummaryGeneration:
     """What differs between a generation on read and one on issue creation."""
 
+    trigger: IssueSummaryTrigger
     due: DueCheck
     budget_key: str
     budget: Budget
     build_inputs: Callable[[Team, IssueSummaryTimings], IssueSummaryInputs | IssueSummaryOutcome]
-    # False releases the lock when no summary came of the attempt, so its own budget or its failure never holds a read.
-    blocks_reads: bool
 
 
 def _get_or_generate_counted(
@@ -495,9 +496,11 @@ def _get_or_generate_counted(
         with timings.stage("total"):
             result = _get_or_generate(team_id, issue_id, generation, timings)
     except Exception:
-        ISSUE_SUMMARY_OUTCOMES.labels(outcome=IssueSummaryOutcome.UNEXPECTED_ERROR.value).inc()
+        ISSUE_SUMMARY_OUTCOMES.labels(
+            outcome=IssueSummaryOutcome.UNEXPECTED_ERROR.value, trigger=generation.trigger.value
+        ).inc()
         raise
-    ISSUE_SUMMARY_OUTCOMES.labels(outcome=result.outcome.value).inc()
+    ISSUE_SUMMARY_OUTCOMES.labels(outcome=result.outcome.value, trigger=generation.trigger.value).inc()
     logger.info(
         "error_tracking_issue_summary",
         team_id=team_id,
@@ -519,14 +522,14 @@ def _get_or_generate(
     if (held := _claim_generation(team_id, issue_id, claim)) is not None:
         return IssueSummaryResult(outcome=held, summary=stored)
 
+    # A write attempt that leaves no summary deletes its claim, so the write budget or a write failure never holds a read.
+    release = generation.trigger == IssueSummaryTrigger.WRITE
     try:
         result = _generate_claimed(team_id, issue_id, generation, timings)
     except Exception:
-        _settle_claim(
-            team_id, issue_id, claim, IssueSummaryOutcome.UNEXPECTED_ERROR, release=not generation.blocks_reads
-        )
+        _settle_claim(team_id, issue_id, claim, IssueSummaryOutcome.UNEXPECTED_ERROR, release=release)
         raise
-    _settle_claim(team_id, issue_id, claim, result.outcome, release=not generation.blocks_reads)
+    _settle_claim(team_id, issue_id, claim, result.outcome, release=release)
     return result
 
 
@@ -643,7 +646,7 @@ def _settle_claim(
     """Replace this worker's claim with `outcome` when no summary came of it, so reads stop waiting for one.
 
     A hold outcome extends the lock. Any other failure keeps the lock TTL, so the retry spacing does not change.
-    `release` deletes the claim instead, so the next read can claim the issue at once.
+    `release` deletes the claim instead.
     Nothing is written when the key no longer holds `claim`: the lock expired, or another read took the issue.
     """
     if outcome in SETTLED_OUTCOMES:

@@ -150,7 +150,7 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
             if workflow.patched(ALERT_DISPATCH_PATCH)
             else None
         )
-        # Patched for the same reason. Nothing waits for the summary, and a failure only logs.
+        # Patched for the same reason. Nothing waits for the summary.
         summary = (
             asyncio.create_task(self._generate_summary(inputs)) if workflow.patched(SUMMARY_ON_WRITE_PATCH) else None
         )
@@ -215,7 +215,6 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
                 retry_policy=SUMMARY_RETRY_POLICY,
             )
         except ActivityError:
-            # A read generates the summary later, so a failure here costs only the head start.
             workflow.logger.warning("Issue summary generation failed; a read generates it instead")
             (
                 workflow.metric_meter()

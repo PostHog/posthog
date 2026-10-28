@@ -23,7 +23,7 @@ ISSUE_SUMMARY_LLM_TIMEOUT_SECONDS = 30.0
 ISSUE_SUMMARY_BUDGET = Budget(burst=100, per_hour=5)
 # Summaries generated when an issue is created spend this budget, so a burst of new issues never drains the read budget.
 # The refill sits well above a busy project's hourly rate of new issues, and the burst absorbs a release that creates
-# many issues at once. A deploy that creates thousands of issues gets its first 200 summarised, then 60 an hour.
+# many issues at once.
 ISSUE_SUMMARY_WRITE_BUDGET = Budget(burst=200, per_hour=60)
 
 # A changed input hash regenerates a summary at most this often.
