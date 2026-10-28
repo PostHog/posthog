@@ -312,6 +312,7 @@ class TestEmail(BaseTest):
         self.assertEqual(after - before, 2.0)  # b failed + c never attempted; a succeeded
 
     @parameterized.expand([("attempts_left", True), ("last_attempt", False)])
+    @override_settings(CLOUD_DEPLOYMENT="US")
     @patch("posthog.email.posthoganalytics.capture")
     @patch("posthog.email.requests.post")
     def test_send_via_http_reraises_a_lost_database_connection_so_celery_retries(
@@ -342,6 +343,7 @@ class TestEmail(BaseTest):
             [("OperationalError", will_retry)],
         )
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     @patch("posthog.email.posthoganalytics.capture")
     @patch("posthog.email.requests.post")
     def test_send_via_http_success(self, mock_post, mock_capture) -> None:
@@ -384,6 +386,45 @@ class TestEmail(BaseTest):
                     "queued_at": 1604977406,
                 },
             )
+
+    @parameterized.expand(
+        [
+            ("request_on_cloud", None, "US", False, 1),
+            ("request_self_hosted", None, None, False, 0),
+            ("eager_task_on_cloud", True, "US", False, 1),
+            ("worker_task", False, "US", True, 0),
+        ]
+    )
+    @patch("posthog.email.ph_scoped_capture")
+    @patch("posthog.email.posthoganalytics.capture")
+    @patch("posthog.email.requests.post")
+    def test_send_via_http_flushes_events_only_in_a_worker(
+        self,
+        _name: str,
+        task_is_eager: bool | None,
+        cloud_deployment: str | None,
+        expect_scoped_client: bool,
+        expected_global_captures: int,
+        mock_post: MagicMock,
+        mock_global_capture: MagicMock,
+        mock_scoped_capture: MagicMock,
+    ) -> None:
+        mock_post.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"delivery_id": "d-1"}))
+        task = None if task_is_eager is None else MagicMock(request=MagicMock(is_eager=task_is_eager))
+
+        with (
+            self.settings(CUSTOMER_IO_API_KEY="test-key", CLOUD_DEPLOYMENT=cloud_deployment),
+            patch("posthog.email.current_task", task),
+        ):
+            _send_via_http(
+                to=[{"raw_email": "a@posthog.com"}],
+                campaign_key="flush_path",
+                template_name="2fa_enabled",
+                properties={},
+            )
+
+        self.assertEqual(mock_scoped_capture.called, expect_scoped_client)
+        self.assertEqual(mock_global_capture.call_count, expected_global_captures)
 
     @patch("posthog.email.requests.post")
     def test_send_via_http_handles_decimal_values(self, mock_post) -> None:
@@ -541,6 +582,7 @@ class TestEmail(BaseTest):
             ),
         ]
     )
+    @override_settings(CLOUD_DEPLOYMENT="US")
     @patch("posthog.email.posthoganalytics.capture")
     @patch("posthog.email.posthoganalytics.feature_enabled")
     @patch("posthog.email.requests.post")
@@ -603,7 +645,11 @@ class TestEmail(BaseTest):
         mock_feature_enabled.assert_called_once_with(
             "transactional-emails-via-workflows",
             "user-1",
-            person_properties={"email": "test@posthog.com", "transactional_email_template": "2fa_enabled"},
+            person_properties={
+                "email": "test@posthog.com",
+                "transactional_email_template": "2fa_enabled",
+                "region": "US",
+            },
             send_feature_flag_events=False,
         )
 
