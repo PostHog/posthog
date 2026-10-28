@@ -16,6 +16,8 @@ from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team import Team
 
+from products.integrations.backend.facade.api import IntegrationManager
+
 from ee.api.vercel.crypto import encrypt_payload
 from ee.api.vercel.vercel_connect import (
     CONNECT_NONCE_COOKIE_PREFIX,
@@ -935,14 +937,8 @@ class TestVercelConnectComplete(VercelConnectTestBase):
 
     def test_rollback_on_integration_create_failure(self):
         session_token = self._seed_session()
-        original_create = Integration.objects.create
 
-        def failing_create(**kwargs):
-            if kwargs.get("kind") == Integration.IntegrationKind.VERCEL:
-                raise Exception("db error")
-            return original_create(**kwargs)
-
-        with patch.object(Integration.objects, "create", side_effect=failing_create):
+        with patch.object(IntegrationManager.vercel.oauth, "create", side_effect=Exception("db error")):
             response = self.client.post(
                 self.url,
                 {

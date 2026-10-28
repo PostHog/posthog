@@ -38,6 +38,7 @@ from posthog.utils import absolute_uri
 
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 from products.security.backend.facade.api import REFUSAL_CODE as SECURITY_REFUSAL_CODE
 
 from ee.api.authentication import VercelAuthentication
@@ -140,6 +141,24 @@ class VercelSetupResult:
 class SSOExperimentationConfig:
     model: Union[type[FeatureFlag], type[Experiment]]
     url_template: str
+
+
+def get_or_create_connectable_resource(team: Team) -> tuple[IntegrationRecord, bool]:
+    """The team's Vercel resource, created as a connectable resource when the team has none."""
+    resources = IntegrationManager.vercel.oauth
+    existing = resources.find(team.pk, external_id=str(team.pk))
+    if existing is not None:
+        return existing, False
+    try:
+        with transaction.atomic():
+            created = resources.create(team.pk, external_id=str(team.pk), config={"type": "connectable"})
+        return created, True
+    except IntegrityError:
+        # A concurrent request created the row between the read and the insert.
+        existing = resources.find(team.pk, external_id=str(team.pk))
+        if existing is None:
+            raise
+        return existing, False
 
 
 class VercelIntegration:
@@ -568,12 +587,11 @@ class VercelIntegration:
                 user=installation.created_by,
             )
 
-        resource = Integration.objects.create(
-            team=team,
-            kind=Integration.IntegrationKind.VERCEL,
-            integration_id=str(team.pk),
+        resource = IntegrationManager.vercel.oauth.create(
+            team.pk,
+            external_id=str(team.pk),
             config=asdict(config),
-            created_by=installation.created_by,
+            created_by_id=installation.created_by_id,
         )
 
         logger.info(
@@ -642,11 +660,8 @@ class VercelIntegration:
         ]
 
     @staticmethod
-    def _get_vercel_resource_for_team(team: Team) -> Integration | None:
-        try:
-            return Integration.objects.get(team=team, kind=Integration.IntegrationKind.VERCEL)
-        except Integration.DoesNotExist:
-            return None
+    def _get_vercel_resource_for_team(team: Team) -> IntegrationRecord | None:
+        return IntegrationManager.vercel.oauth.find(team.pk)
 
     @staticmethod
     def _get_installation_for_organization(organization: Organization) -> OrganizationIntegration | None:
@@ -1432,12 +1447,7 @@ def _safe_vercel_sync(
         if not installation:
             return
         try:
-            resource, created = Integration.objects.get_or_create(
-                team=team,
-                kind=Integration.IntegrationKind.VERCEL,
-                integration_id=str(team.pk),
-                defaults={"config": {"type": "connectable"}},
-            )
+            resource, created = get_or_create_connectable_resource(team)
             if created:
                 logger.info(
                     "Auto-created Vercel resource for connectable installation",

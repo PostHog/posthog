@@ -25,9 +25,12 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.models.integration import Integration, invalidate_github_repository_caches_for_installation
+from posthog.models.integration import invalidate_github_repository_caches_for_installation
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user_integration import GitHubInstallRequest, UserIntegration
+
+from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationPatch
 
 logger = structlog.get_logger(__name__)
 
@@ -54,16 +57,14 @@ def handle_installation_event(payload: dict) -> HttpResponse:
 
     installation_id = str(installation_id)
 
-    integrations = list(Integration.objects.filter(kind="github", integration_id=installation_id))
+    integrations = IntegrationManager.github.oauth.list_by_external_id(installation_id)
 
     project_audits = [GitHubAudit.project(row) for row in integrations]
     personal_rows = list(UserIntegration.objects.filter(kind="github", integration_id=installation_id))
     personal_audits = [GitHubAudit.personal(row) for row in personal_rows]
     try:
-        # nosemgrep: idor-lookup-without-team (a verified installation webhook removes this installation across projects)
-        team_deleted, _ = Integration.objects.filter(
-            kind="github", integration_id=installation_id, pk__in=[row.pk for row in integrations]
-        ).delete()
+        # A verified installation webhook removes this installation across projects.
+        team_deleted = IntegrationManager.github.oauth.delete_by_external_id(installation_id)
     except Exception as exc:
         for audit in project_audits:
             audit.record("webhook_cleanup_failed", stage="project_deletion", failure_type=type(exc).__name__)
@@ -141,29 +142,23 @@ def handle_installation_repositories_event(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
 
     installation_id = str(installation_id)
+    team_updated = IntegrationManager.github.oauth.update_by_external_id(
+        installation_id, IntegrationPatch(config_patch={"repository_selection": repository_selection})
+    )
     # Load only the columns we touch. The unbounded repository_cache blob and the encrypted
     # sensitive_config (decrypted eagerly on load) are skipped so a widely shared installation
-    # can't spike a web worker's memory here. Writes go out as one bulk_update per model instead
-    # of a save per row — which also skips the (no-op for github) push-config post_save signal,
-    # avoiding a per-row lazy load of the deferred `kind`.
-    team_changed = [
-        row
-        for row in Integration.objects.filter(kind="github", integration_id=installation_id).only("id", "config")
-        if row.config.get("repository_selection") != repository_selection
-    ]
+    # can't spike a web worker's memory here. The write goes out as one bulk_update instead
+    # of a save per row.
     user_changed = [
         row
         for row in UserIntegration.objects.filter(kind="github", integration_id=installation_id).only("id", "config")
         if row.config.get("repository_selection") != repository_selection
     ]
-    changed: list[Integration | UserIntegration] = [*team_changed, *user_changed]
-    for row in changed:
+    for row in user_changed:
         row.config = {**row.config, "repository_selection": repository_selection}
-    if team_changed:
-        Integration.objects.bulk_update(team_changed, ["config"])
     if user_changed:
         UserIntegration.objects.bulk_update(user_changed, ["config"])
-    updated = len(changed)
+    updated = team_updated + len(user_changed)
 
     invalidate_github_repository_caches_for_installation(installation_id)
 

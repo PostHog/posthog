@@ -15,6 +15,8 @@ from posthog.models.integration import Integration
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.permissions import OrganizationAdminWritePermissions
 
+from products.integrations.backend.facade.api import IntegrationRecord
+
 logger = structlog.get_logger(__name__)
 
 
@@ -159,20 +161,14 @@ class OrganizationIntegrationViewSet(
             if not Team.objects.filter(pk=tid, organization=org).exists():
                 return Response({"detail": f"Project {tid} does not belong to this organization."}, status=400)
 
-        from posthog.models.integration import Integration as TeamIntegration
-
         from ee.vercel.client import VercelAPIClient
+        from ee.vercel.integration import get_or_create_connectable_resource
 
         teams_by_id: dict[int, Team] = {}
-        resources: dict[int, TeamIntegration] = {}
+        resources: dict[int, IntegrationRecord] = {}
         for tid in {production_id, preview_id, development_id}:
             teams_by_id[tid] = Team.objects.get(pk=tid, organization=org)
-            resources[tid], _ = TeamIntegration.objects.get_or_create(
-                team=teams_by_id[tid],
-                kind=TeamIntegration.IntegrationKind.VERCEL,
-                integration_id=str(tid),
-                defaults={"config": {"type": "connectable"}},
-            )
+            resources[tid], _ = get_or_create_connectable_resource(teams_by_id[tid])
 
         integration.config["environment_mapping"] = {
             "production": production_id,

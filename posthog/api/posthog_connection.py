@@ -39,10 +39,13 @@ from posthog.auth import (
     is_mcp_request,
 )
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration, OauthIntegration, posthog_connect_base_url
+from posthog.models.integration import OauthIntegration, posthog_connect_base_url
 from posthog.oauth_provenance import SANDBOX_ORIGIN_HEADER, is_sandbox_origin_request
 from posthog.permissions import get_authenticator_scopes
 from posthog.rate_limit import PostHogConnectionForwardThrottle
+
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 logger = structlog.get_logger(__name__)
 
@@ -82,7 +85,7 @@ class ForwardResult:
     gateway_error: bool = False
 
 
-def _connection_access_token(integration: Integration) -> str:
+def _connection_access_token(integration: IntegrationRecord) -> str:
     oauth = OauthIntegration(integration)
     if oauth.access_token_expired():
         oauth.refresh_access_token()
@@ -93,7 +96,7 @@ def _connection_access_token(integration: Integration) -> str:
     return token
 
 
-def _enforce_caller_covers_connection_scopes(request: Request, integration: Integration) -> None:
+def _enforce_caller_covers_connection_scopes(request: Request, integration: IntegrationRecord) -> None:
     """A connection acts with the creator's stored grant, which may be broader than the API key making
     this call. Require that key to itself carry the scopes the connection was granted, so a narrowly
     scoped (or leaked) key can't wield the connection to exceed its own authority. Session auth and
@@ -154,7 +157,7 @@ def _inflight_slot(integration_id: int) -> Iterator[bool]:
 
 
 def _forward_through_connection(
-    integration: Integration,
+    integration: IntegrationRecord,
     method: str,
     path: str,
     *,
@@ -297,7 +300,7 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return [PostHogConnectionForwardThrottle(), *super().get_throttles()]
         return super().get_throttles()
 
-    def _authorized_connection(self, request: Request, pk: str | None) -> Integration:
+    def _authorized_connection(self, request: Request, pk: str | None) -> IntegrationRecord:
         # Refuse to forward a request that itself arrived through a connection, so a same-region (or
         # cross-region) connection can't be chained into itself and tie up workers one hop at a time.
         if request.headers.get(CONNECTION_MARKER_HEADER):
@@ -306,12 +309,12 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         _enforce_caller_covers_connection_scopes(request, integration)
         return integration
 
-    def _get_connection(self, pk: str | None) -> Integration:
+    def _get_connection(self, pk: str | None) -> IntegrationRecord:
         if pk is None:
             raise NotFound("No PostHog connection with that id in this project.")
         try:
-            integration = Integration.objects.get(team_id=self.team_id, id=pk, kind=POSTHOG_CONNECT_KIND)
-        except (Integration.DoesNotExist, ValueError, ValidationError):
+            integration = IntegrationManager.posthog.oauth.get(self.team_id, int(pk))
+        except (IntegrationNotFound, ValueError):
             raise NotFound("No PostHog connection with that id in this project.")
         # A connection acts as the user who consented to it. Restrict use to that user so a broad,
         # any-scope grant can't become a team-wide confused deputy in the target project.

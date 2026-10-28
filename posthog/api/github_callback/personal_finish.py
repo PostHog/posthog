@@ -22,12 +22,14 @@ from posthog.api.github_callback.types import (
 from posthog.egress.github.transport import github_request
 from posthog.egress.limiter.policies import Priority
 from posthog.models import User
-from posthog.models.integration import GitHubInstallationAccessFetchError, GitHubIntegration, Integration
+from posthog.models.integration import GitHubInstallationAccessFetchError, GitHubIntegration
 from posthog.models.user_integration import (
     UserIntegration,
     refresh_user_github_installation_access,
     user_github_integration_from_installation,
 )
+
+from products.integrations.backend.facade.api import IntegrationManager
 
 logger = structlog.get_logger(__name__)
 
@@ -96,9 +98,9 @@ def finish_personal(request: HttpRequest) -> FinishResult:
             installation_id = authorize_state.installation_id
             if not installation_id:
                 return _error("missing_params")
-            if not Integration.objects.filter(
-                kind="github", integration_id=installation_id, team__in=user.teams.all()
-            ).exists():
+            if not IntegrationManager.github.oauth.list_by_external_id(
+                str(installation_id), team_ids=user.teams.values_list("id", flat=True)
+            ):
                 return _error("invalid_installation")
             installation_ids = [installation_id]
         case FlowKind.TEAM_OAUTH:
@@ -223,8 +225,11 @@ def finish_personal(request: HttpRequest) -> FinishResult:
             )
             return _error("integration_create_failed")
 
-        team_integration.config["connecting_user_github_login"] = authorization.gh_login
-        team_integration.save(update_fields=["config"])
+        team_integration = IntegrationManager.github.oauth.update(
+            team_integration.team_id,
+            team_integration.id,
+            config_patch={"connecting_user_github_login": authorization.gh_login},
+        )
 
         return FinishResult(
             redirect_kind="team_oauth_success",

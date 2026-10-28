@@ -14,7 +14,7 @@ logger = structlog.get_logger(__name__)
 def backfill_vercel_connectable_resources() -> None:
     """One-shot task to create missing Integration resources for connectable Vercel installations."""
     from ee.vercel.client import VercelAPIClient
-    from ee.vercel.integration import VercelIntegration
+    from ee.vercel.integration import VercelIntegration, get_or_create_connectable_resource
 
     installations = OrganizationIntegration.objects.filter(
         kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
@@ -33,12 +33,7 @@ def backfill_vercel_connectable_resources() -> None:
 
         for team in teams_without_resources:
             try:
-                resource, created = Integration.objects.get_or_create(
-                    team=team,
-                    kind=Integration.IntegrationKind.VERCEL,
-                    integration_id=str(team.pk),
-                    defaults={"config": {"type": "connectable"}},
-                )
+                resource, created = get_or_create_connectable_resource(team)
                 if not created:
                     continue
 

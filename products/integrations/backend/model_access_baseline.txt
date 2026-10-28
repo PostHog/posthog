@@ -2,23 +2,15 @@
 # file has. Rule: .semgrep/rules/devex/integration-model-through-sdk.yaml. The count only goes down:
 # after you move a file to the SDK, lower its count or remove its line.
 ee/api/integration.py 2
-ee/api/vercel/tasks.py 3
-ee/api/vercel/vercel_connect.py 5
+ee/api/vercel/tasks.py 2
+ee/api/vercel/vercel_connect.py 3
 ee/api/vercel/vercel_sso.py 2
 ee/management/commands/backfill_vercel_secrets.py 2
-ee/tasks/slack.py 2
-ee/vercel/integration.py 6
-posthog/api/comments.py 2
-posthog/api/github_callback/installation_events.py 5
-posthog/api/github_callback/personal_finish.py 3
-posthog/api/github_callback/team_services.py 11
+ee/vercel/integration.py 3
+posthog/api/github_callback/team_services.py 4
 posthog/api/integration.py 7
-posthog/api/integration_push_tokens.py 1
-posthog/api/organization_integration.py 5
-posthog/api/posthog_connection.py 2
-posthog/api/team/team_config.py 2
-posthog/api/user_integration.py 5
-posthog/domain_connect.py 3
+posthog/api/organization_integration.py 3
+posthog/api/user_integration.py 2
 posthog/github/attribution.py 1
 posthog/github/installations.py 2
 posthog/management/commands/flag_legacy_oauth_integrations.py 3
@@ -28,14 +20,11 @@ posthog/models/comment/slack_thread.py 1
 posthog/models/integration_repository_cache.py 2
 posthog/models/user.py 1
 posthog/models/user_integration.py 1
-posthog/ownership/github_files.py 2
 posthog/session_recordings/models/session_recording_external_reference.py 2
 posthog/session_recordings/session_recording_api.py 1
-posthog/session_recordings/session_recording_external_reference_api.py 2
-posthog/slack/channels.py 1
+posthog/session_recordings/session_recording_external_reference_api.py 1
 posthog/tasks/comment_slack_sync.py 3
 posthog/tasks/integrations.py 11
-posthog/temporal/ai_observability/eval_reports/delivery.py 2
 products/ai_observability/backend/api/evaluation_reports.py 2
 products/alerts/backend/presentation/views/alert.py 2
 products/alerts_platform/backend/delivery/slack.py 2

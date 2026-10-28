@@ -46,13 +46,15 @@ from posthog.models.comment.utils import (
     produce_discussion_mention_events,
     send_mention_notifications,
 )
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_request
 from posthog.permissions import is_scout_sandbox_request
 from posthog.tasks.comment_slack_sync import backfill_comment_slack_thread
 from posthog.tasks.email import send_discussions_mentioned
 
 from products.conversations.backend import reply_dedupe
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.replay_vision.backend.facade.api import (
     can_view_observation,
     observation_note_write_rejection,
@@ -1191,7 +1193,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         serializer = CommentSerializer(comment, context=self.get_serializer_context())
         return Response(serializer.data)
 
-    def _resolve_slack_channel_name(self, integration: Integration, channel_id: str, user: User) -> str:
+    def _resolve_slack_channel_name(self, integration: IntegrationRecord, channel_id: str, user: User) -> str:
         """Resolve the target channel server-side — the caller-supplied id is never paired with a
         caller-supplied label. Private channels are restricted to the workspace connector (matching
         the channel picker, which hides them from everyone else) and their names are never persisted,
@@ -1247,8 +1249,9 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         integration_id = params.validated_data["integration_id"]
         channel_id = params.validated_data["channel_id"]
 
-        integration = Integration.objects.filter(team=team, id=integration_id, kind="slack").first()
-        if integration is None:
+        try:
+            integration = IntegrationManager.slack.oauth.get(team.id, integration_id)
+        except IntegrationNotFound:
             raise exceptions.ValidationError("Slack integration not found")
 
         channel_name = self._resolve_slack_channel_name(integration, channel_id, cast(User, request.user))

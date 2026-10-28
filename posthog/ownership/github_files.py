@@ -24,7 +24,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.egress.observability.observability import scope_fingerprint
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.models.github_integration_base import GitHubIntegrationBase
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration
 from posthog.models.integration.github import _is_safe_github_repo_path, _is_safe_github_sha
 from posthog.ownership.repo_files import (
     _ABSENT,
@@ -40,6 +40,9 @@ from posthog.ownership.repo_files import (
     pooled_session,
 )
 from posthog.utils import get_safe_cache, safe_cache_set
+
+from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 logger = structlog.get_logger(__name__)
 
@@ -542,9 +545,12 @@ def _covering_integration(team_id: int, repository: str, *, priority: Priority) 
     if isinstance(cached, int):
         if cached == _NO_COVERING_INTEGRATION:
             return None
-        integration = Integration.objects.filter(team_id=team_id, id=cached, kind="github").first()
         # A disconnected integration falls through to a fresh lookup rather than to no reader.
-        if integration is not None:
+        try:
+            integration = IntegrationManager.github.oauth.get(team_id, cached)
+        except IntegrationNotFound:
+            pass
+        else:
             return GitHubIntegration(integration, source=EGRESS_SOURCE, priority=priority)
     covering = GitHubIntegration.first_for_team_repository(team_id, repository, source=EGRESS_SOURCE, priority=priority)
     decision = covering.integration.pk if covering is not None else _NO_COVERING_INTEGRATION

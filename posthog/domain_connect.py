@@ -30,7 +30,7 @@ from posthog.schema import DomainConnectProviderName
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
-    from posthog.models.integration import Integration
+    from products.integrations.backend.facade.api import IntegrationRecord
 
 logger = logging.getLogger(__name__)
 
@@ -253,16 +253,22 @@ def resolve_email_context(
     integration_id: int,
     team_id: int,
     *,
-    on_domain_verified: Callable[["Integration"], None] | None = None,
+    on_domain_verified: Callable[["IntegrationRecord"], None] | None = None,
 ) -> DomainConnectContext:
     """Resolve Domain Connect parameters for an email integration.
 
     Triggers SES verification to get current tokens, then extracts the
     template variables needed for the email-verification template.
     """
-    from posthog.models.integration import EmailIntegration, Integration
+    from posthog.models.integration import EmailIntegration
 
-    instance = Integration.objects.get(id=integration_id, team_id=team_id)
+    from products.integrations.backend.facade.api import IntegrationManager
+    from products.integrations.backend.facade.contracts import IntegrationNotFound
+
+    try:
+        instance = IntegrationManager.any.get(team_id, integration_id)
+    except IntegrationNotFound as error:
+        raise ValueError("Integration not found") from error
     if instance.kind != "email":
         raise ValueError("Integration must be of kind 'email'")
 

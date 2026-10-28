@@ -352,8 +352,9 @@ def deliver_slack_report(
     Main message = agent title (Block Kit header) + metrics context + first section.
     Thread replies = sections[1:]. If there's only one section, no thread replies.
     """
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.integration import SlackIntegration
 
+    from products.integrations.backend.facade.api import IntegrationManager
     from products.slack_app.backend.facade.api import slack_followup_invite
 
     content = EvalReportContent.from_dict(report_run.content)
@@ -386,11 +387,7 @@ def deliver_slack_report(
             continue
 
         try:
-            # The organization comes along because the follow-up invite below reads its AI consent
-            # flag, and this query already runs once per target.
-            integration = Integration.objects.select_related("team__organization").get(
-                id=integration_id, team_id=team_id, kind="slack"
-            )
+            integration = IntegrationManager.slack.oauth.get(team_id, integration_id)
             client = SlackIntegration(integration, source="eval_reports").client
 
             # Main message: header + context + metrics grid + first section (if any)

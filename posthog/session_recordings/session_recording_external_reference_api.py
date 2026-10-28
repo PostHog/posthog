@@ -10,7 +10,6 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.models.integration import (
@@ -22,6 +21,8 @@ from posthog.models.integration import (
 )
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_external_reference import SessionRecordingExternalReference
+
+from products.integrations.backend.presentation.fields import IntegrationReferenceField
 
 logger = structlog.get_logger(__name__)
 
@@ -45,8 +46,15 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
     config = serializers.JSONField(write_only=True)
     session_recording_id = serializers.CharField(write_only=True)
     integration = SessionRecordingExternalReferenceIntegrationSerializer(read_only=True)
-    integration_id = TeamScopedPrimaryKeyRelatedField(
-        write_only=True, queryset=Integration.objects.all(), source="integration"
+    integration_id = IntegrationReferenceField(
+        kinds=[
+            Integration.IntegrationKind.LINEAR,
+            Integration.IntegrationKind.GITHUB,
+            Integration.IntegrationKind.GITLAB,
+            Integration.IntegrationKind.JIRA,
+        ],
+        write_only=True,
+        source="integration",
     )
     external_url = serializers.SerializerMethodField()
     title = serializers.SerializerMethodField()

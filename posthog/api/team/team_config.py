@@ -7,7 +7,6 @@ from rest_framework import serializers
 
 from posthog.models import Team, TeamRevenueAnalyticsConfig
 from posthog.models.filters.utils import validate_group_type_index
-from posthog.models.integration.model import Integration
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.customer_analytics.backend.facade.account_property_pins import (
@@ -28,6 +27,8 @@ from products.feature_flags.backend.facade.request_blocklist import (
     normalize_blocked_ips,
 )
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
+from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.replay_vision.backend.facade.workflow_scan_limits import (
     MAX_SELF_SERVE_WORKFLOW_SCAN_RATE_CAP_PER_DAY,
     MAX_SELF_SERVE_WORKFLOW_SCAN_TEAM_RATE_CAP_PER_DAY,
@@ -420,11 +421,12 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
     def validate_default_email_integration_id(self, value: int | None) -> int | None:
         if self.parent or value is None:
             return value
-        sender = (
-            Integration.objects.filter(team_id=self.instance.team_id, kind="email", id=value).only("config").first()
-            if self.instance is not None
-            else None
-        )
+        sender = None
+        if self.instance is not None:
+            try:
+                sender = IntegrationManager.email.credentials.get(self.instance.team_id, value)
+            except IntegrationNotFound:
+                pass
         if sender is None:
             raise serializers.ValidationError("Choose an email sender from this project.")
         if not sender.config.get("verified"):
