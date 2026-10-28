@@ -7,10 +7,10 @@ competes with the sync workers themselves; ``start_temporal_worker`` registers i
 ``PERSON_PROPERTY_SYNC_WORKFLOWS``/``PERSON_PROPERTY_SYNC_ACTIVITIES``.
 
 Failure semantics: the activity retries up to 3 times, then the (abandoned) child workflow fails
-without affecting the sync. Nothing is lost — staged files are only cleared on success and the
-dedup snapshot only advances per produced person, so the next sync's run re-reads and re-diffs.
-Each failed attempt is captured to error tracking. The workflow then records the run as failed and
-counts it once in the metrics below, also when the activity was timed out, cancelled or killed.
+without affecting the sync. The dedup snapshot only advances per produced person, so a Backfill can
+recover rows left by an interrupted incremental run without resending confirmed updates. Each failed
+attempt is captured to error tracking. The workflow then records the run as failed and counts it once
+in the metrics below, also when the activity was timed out, cancelled or killed.
 """
 
 import json
@@ -45,7 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.per
 
 logger = structlog.get_logger(__name__)
 
-INTERRUPTED_RUN_NEXT_STEP = "The next sync will continue from where this one stopped."
+INTERRUPTED_RUN_NEXT_STEP = "Run a Backfill to deliver any rows left by the interrupted sync."
 # Three recorder attempts of up to 5 minutes each.
 RECORD_FAILED_RUN_RESERVE = timedelta(minutes=15)
 RECORD_FAILED_RUN_PATCH = "person-property-sync-record-failed-run-2026-10"

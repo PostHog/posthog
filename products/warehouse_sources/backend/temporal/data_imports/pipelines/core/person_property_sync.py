@@ -115,6 +115,12 @@ class PropertyUpdatesNotDeliveredError(Exception):
     it. The snapshot holds only confirmed intents, so the retry sends only the undelivered ones."""
 
 
+@frozen
+class _SnapshotMerge:
+    hashes: dict[str, str]
+    complete: bool
+
+
 @dataclasses.dataclass
 class SyncResult:
     sources: int = 0
@@ -264,10 +270,11 @@ async def _list_snapshot_files(s3_client, prefix: str) -> list[str]:
     return [f["Key"] for f in files]
 
 
-async def _merge_snapshot_files(s3_client, file_keys: list[str]) -> dict[str, str]:
+async def _merge_snapshot_files(s3_client, file_keys: list[str]) -> _SnapshotMerge:
     """Union the given snapshot files into {distinct_id: sent_hash}, later files winning (callers pass
     them oldest-first). Decodes off the event loop so a large parquet can't starve the heartbeater."""
     hashes: dict[str, str] = {}
+    complete = True
     for key in file_keys:
         try:
             data = await s3_client._cat_file(_s3_uri(key))
@@ -275,10 +282,11 @@ async def _merge_snapshot_files(s3_client, file_keys: list[str]) -> dict[str, st
             # A concurrent _write_snapshot_hashes compacted this file into a new one and deleted it
             # after we listed the folder but before we read it. Its rows survive in that new file (or
             # whichever one replaces it next run) — skip rather than fail the whole read.
+            complete = False
             continue
         for record in await asyncio.to_thread(_decode_parquet_rows, data):
             hashes[record["distinct_id"]] = record["sent_hash"]
-    return hashes
+    return _SnapshotMerge(hashes=hashes, complete=complete)
 
 
 async def _read_snapshot_hashes(team_id: int, binding: WarehouseBinding, source_id: str) -> dict[str, str]:
@@ -287,7 +295,8 @@ async def _read_snapshot_hashes(team_id: int, binding: WarehouseBinding, source_
     cost an idempotent re-send, but newest-wins avoids even that). Ordering never affects correctness."""
     prefix = _snapshot_prefix(team_id, binding, source_id)
     async with aget_s3_client() as s3_client:
-        return await _merge_snapshot_files(s3_client, await _list_snapshot_files(s3_client, prefix))
+        merge = await _merge_snapshot_files(s3_client, await _list_snapshot_files(s3_client, prefix))
+        return merge.hashes if merge.complete else {}
 
 
 async def _put_snapshot_file(s3_client, path: str, hashes: dict[str, str]) -> None:
@@ -327,9 +336,15 @@ async def _write_snapshot_hashes(
     write_path = f"{prefix}/{run_token}.parquet"
     async with aget_s3_client() as s3_client:
         existing_keys = await _list_snapshot_files(s3_client, prefix)
-        merged = await _merge_snapshot_files(s3_client, existing_keys)
-        merged.update(hashes)
+        if not hashes and len(existing_keys) <= 1:
+            return
+        merge = await _merge_snapshot_files(s3_client, existing_keys)
+        if not hashes and not merge.complete:
+            return
+        merged = {**merge.hashes, **hashes} if merge.complete else hashes
         await _put_snapshot_file(s3_client, write_path, merged)
+        if not merge.complete:
+            return
 
         # Delete the files we merged, except the one we just wrote (the backfill token reuses its name).
         stale = [key for key in existing_keys if _s3_key(key) != _s3_key(write_path)]
@@ -502,6 +517,7 @@ async def _process_source_bundles(
     changed, new_hashes = await asyncio.to_thread(select_changed, bundles, prior)
     ps.changed = len(changed)
     if not changed:
+        await _write_snapshot_hashes(team_id, binding, str(source.source_id), run_token, {})
         return ps
 
     group_type_name = None
@@ -526,6 +542,7 @@ async def _process_source_bundles(
     # overwrite the files that hold the previous attempt's delivered hashes.
     attempt = uuid.uuid4().hex[:12]
     chunks_written = 0
+    confirmed_hashes: dict[str, str] = {}
     for start in range(0, len(changed), _PRODUCE_CHUNK_SIZE):
         chunk = changed[start : start + _PRODUCE_CHUNK_SIZE]
         existing = await database_sync_to_async(_filter_existing_ids, thread_sensitive=False)(
@@ -557,12 +574,13 @@ async def _process_source_bundles(
             await _write_snapshot_chunk(
                 team_id, binding, str(source.source_id), f"{run_token}-{attempt}-{chunks_written:05d}", delivered_hashes
             )
+            confirmed_hashes.update(delivered_hashes)
             chunks_written += 1
 
     if chunks_written:
         # Fold this run's chunk files, and any left by an earlier run that was stopped part way, into
         # one ``{run_token}.parquet`` so the folder stays at about one file per source.
-        await _write_snapshot_hashes(team_id, binding, str(source.source_id), run_token, {})
+        await _write_snapshot_hashes(team_id, binding, str(source.source_id), run_token, confirmed_hashes)
 
     if not ps.existing:
         logger.info(

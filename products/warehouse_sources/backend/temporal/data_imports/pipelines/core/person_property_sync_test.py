@@ -197,7 +197,8 @@ class TestRunOrchestration:
         assert write_chunk.await_args.args[3].startswith("job-1-")
         assert set(write_chunk.await_args.args[4]) == {"a", "b"}
         assert compact.await_args is not None
-        assert compact.await_args.args[3:] == ("job-1", {})
+        assert compact.await_args.args[3] == "job-1"
+        assert set(compact.await_args.args[4]) == {"a", "b"}
 
         existing.assert_called_once()
         reconcile.assert_called_once()
@@ -228,9 +229,12 @@ class TestRunOrchestration:
         clear.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_a_killed_run_keeps_its_delivered_chunks_and_the_next_run_resumes(self):
+    async def test_a_killed_run_keeps_confirmed_chunks_but_a_later_job_cannot_resume_undelivered_rows(self):
         team = MagicMock(api_token="tok", project_id=7)
-        rows = [{"distinct_id": f"p{n}", "plan": "pro"} for n in range(6)]
+        rows_by_job = {
+            "job-1": [{"distinct_id": f"p{n}", "plan": "pro"} for n in range(6)],
+            "job-2": [{"distinct_id": "p6", "plan": "pro"}],
+        }
         fake = _FakeS3()
         sent_per_run: dict[str, list[str]] = {"job-1": [], "job-2": []}
         current_job = "job-1"
@@ -249,7 +253,10 @@ class TestRunOrchestration:
             patch(f"{_MODULE}._PRODUCE_CHUNK_SIZE", 2),
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[self._source()]),
             patch(f"{_MODULE}.Team") as team_cls,
-            patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=rows)),
+            patch(
+                f"{_MODULE}._read_staged_rows",
+                new=AsyncMock(side_effect=lambda _team_id, _binding, job_id: rows_by_job[job_id]),
+            ),
             patch(f"{_MODULE}._filter_existing_ids", side_effect=lambda _team_id, _source, ids: set(ids)),
             patch(f"{_MODULE}._produce_intents", side_effect=_produce),
             patch(f"{_MODULE}._reconcile_property_definitions"),
@@ -266,11 +273,11 @@ class TestRunOrchestration:
             hashes = await pps._read_snapshot_hashes(1, _SCHEMA, "source-1")
 
         assert sent_per_run["job-1"] == ["p0", "p1"]
-        assert sorted(sent_per_run["job-2"]) == ["p2", "p3", "p4", "p5"]
-        assert result.produced == 4
+        assert sent_per_run["job-2"] == ["p6"]
+        assert result.produced == 1
         # The completed run folds the killed run's leftover file and its own chunk files into one.
         assert [pps._s3_key(key) for key in snapshot_files] == [f"{prefix}/job-2.parquet"]
-        assert set(hashes) == {f"p{n}" for n in range(6)}
+        assert set(hashes) == {"p0", "p1", "p6"}
 
     @pytest.mark.asyncio
     async def test_no_sources_is_a_noop(self):
@@ -294,6 +301,7 @@ class TestRunOrchestration:
             patch(f"{_MODULE}._reconcile_property_definitions") as reconcile,
             patch(f"{_MODULE}._filter_existing_ids") as existing,
             patch(f"{_MODULE}._produce_intents") as produce,
+            patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()) as compact,
         ):
             result = await pps._process_source_bundles(
                 team_id=1,
@@ -310,6 +318,7 @@ class TestRunOrchestration:
         reconcile.assert_called_once_with(1, 7, _SCHEMA, source, ["plan_tier"])
         existing.assert_not_called()
         produce.assert_not_called()
+        compact.assert_awaited_once_with(1, _SCHEMA, "source-1", "job-1", {})
         assert result.changed == 0 and result.produced == 0
 
 
@@ -518,6 +527,7 @@ class TestBackfillOrchestration:
                 ),
             ) as read_delta,
             patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
+            patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()),
             patch(f"{_MODULE}._reconcile_property_definitions"),
         ):
             team_cls.objects.get.return_value = team
@@ -619,9 +629,49 @@ class TestSnapshotCompaction:
             keys = await pps._list_snapshot_files(fake, pps._snapshot_prefix(1, _SCHEMA, "src"))
             await fake._rm(keys)
 
-            hashes = await pps._merge_snapshot_files(fake, keys)
+            merge = await pps._merge_snapshot_files(fake, keys)
 
-        assert hashes == {}
+        assert merge.hashes == {}
+        assert not merge.complete
+
+    @pytest.mark.asyncio
+    async def test_current_deliveries_win_when_snapshot_timestamps_tie(self):
+        fake = _FakeS3()
+        prefix = pps._snapshot_prefix(1, _SCHEMA, "src")
+        with _fake_s3_patch(fake):
+            await pps._write_snapshot_chunk(1, _SCHEMA, "src", "aaa-chunk", {"a": "new"})
+            await pps._write_snapshot_chunk(1, _SCHEMA, "src", pps.BACKFILL_RUN_TOKEN, {"a": "old"})
+            fake.times = dict.fromkeys(fake.times, 1)
+
+            await pps._write_snapshot_hashes(1, _SCHEMA, "src", "job-1", {"a": "new"})
+            hashes = await pps._read_snapshot_hashes(1, _SCHEMA, "src")
+
+        assert hashes == {"a": "new"}
+        assert list(fake.store) == [f"{prefix}/job-1.parquet"]
+
+    @pytest.mark.asyncio
+    async def test_incomplete_merge_does_not_publish_or_delete_partial_snapshot(self):
+        fake = _FakeS3()
+        prefix = pps._snapshot_prefix(1, _SCHEMA, "src")
+        with _fake_s3_patch(fake):
+            await pps._write_snapshot_chunk(1, _SCHEMA, "src", "job-1", {"a": "old"})
+            await pps._write_snapshot_chunk(1, _SCHEMA, "src", "job-2", {"a": "new"})
+            original_cat_file = fake._cat_file
+
+            async def _cat_after_concurrent_compaction(path):
+                data = await original_cat_file(path)
+                if path.endswith("/job-1.parquet"):
+                    await pps._put_snapshot_file(fake, f"{prefix}/concurrent.parquet", {"a": "new"})
+                    await fake._rm([f"{prefix}/job-1.parquet", f"{prefix}/job-2.parquet"])
+                return data
+
+            with patch.object(fake, "_cat_file", _cat_after_concurrent_compaction):
+                await pps._write_snapshot_hashes(1, _SCHEMA, "src", "job-3", {})
+
+            hashes = await pps._read_snapshot_hashes(1, _SCHEMA, "src")
+
+        assert hashes == {"a": "new"}
+        assert list(fake.store) == [f"{prefix}/concurrent.parquet"]
 
 
 class TestGroupTarget:
