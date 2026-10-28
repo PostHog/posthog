@@ -91,13 +91,19 @@ class TestClassifyCDCError:
                 CDCTransactionTooLargeError("500001 events"),
                 CDCErrorCategory.TRANSACTION_TOO_LARGE,
             ),
-            ("masked_key", CDCMaskedKeyError("orders masks id"), CDCErrorCategory.MASKED_KEY_CONFLICT),
+            ("masked_key", CDCMaskedKeyError("public.orders", ["id"]), CDCErrorCategory.MASKED_KEY_CONFLICT),
         ]
     )
     def test_config_errors_are_classified_without_adapter(self, _name, exc, category):
         info = classify_cdc_error(exc, None)
         assert info.category is category
         assert info.retryable is False
+
+    def test_masked_key_error_names_the_table_and_columns(self):
+        # Capture fails every table on the source, so the message must say which one to fix.
+        info = classify_cdc_error(CDCMaskedKeyError("public.orders", ["id", "tenant_id"]), None)
+        assert "public.orders" in info.friendly_message
+        assert "id, tenant_id" in info.friendly_message
 
     def test_slot_not_configured_is_classified_without_adapter(self):
         # A CDC-enabled source with no slot name is a config dead end, not a psycopg failure, so it

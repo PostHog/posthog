@@ -5143,18 +5143,17 @@ class TestMaskedColumnsError(SimpleTestCase):
         else:
             assert error is not None and expected in error
 
-    def test_columns_are_not_checked_when_discovery_recorded_none(self) -> None:
-        assert (
-            masked_columns_error(
-                ["anything"],
-                source_type=ExternalDataSourceType.POSTGRES,
-                is_direct_query=False,
-                source_columns=[],
-                primary_key_columns=None,
-                incremental_fields=[],
-            )
-            is None
+    def test_a_mask_is_refused_while_no_columns_are_known(self) -> None:
+        # A mask that matches no column hashes nothing, so the column it meant would sync in plaintext.
+        error = masked_columns_error(
+            ["anything"],
+            source_type=ExternalDataSourceType.POSTGRES,
+            is_direct_query=False,
+            source_columns=[],
+            primary_key_columns=None,
+            incremental_fields=[],
         )
+        assert error is not None and "columns are known" in error
 
 
 class TestExternalDataSchemaMaskedColumns(APIBaseTest):
@@ -5218,7 +5217,8 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         schema.refresh_from_db()
-        assert schema.masked_columns == requested
+        # Stored under the source column's own name, which the UI compares exactly.
+        assert schema.masked_columns == [column.lower() for column in requested]
         assert schema.sync_type_config.get("reset_pipeline") is (True if resyncs else None)
         assert mock_trigger.call_args_list == ([mock.call(mock.ANY, buffer_one=True)] if resyncs else [])
         assert mock_cancel.call_args_list == ([mock.call("running-workflow-id")] if resyncs else [])

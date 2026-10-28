@@ -638,7 +638,7 @@ class CDCExtractActivity:
         # its key from the catalog above. Fail before any change of the table is read.
         masked_keys = protected_masked_columns(schema.masked_columns, self.pk_columns_by_table.get(schema.name, []))
         if masked_keys:
-            raise CDCMaskedKeyError(f"Table {schema.name} masks its primary-key columns {masked_keys}")
+            raise CDCMaskedKeyError(schema.name, masked_keys)
         self.masked_columns_by_table[schema.name] = {fold_column_name(column) for column in schema.masked_columns}
 
     def _query_pk_columns(self, table_names: list[str]) -> dict[str, list[str]]:

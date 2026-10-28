@@ -93,6 +93,11 @@ class CDCMaskedKeyError(Exception):
     cannot hash a merge key, and it must not write the masked column to the buffer in plaintext.
     """
 
+    def __init__(self, table_name: str, columns: list[str]) -> None:
+        super().__init__(f"Table {table_name} masks its primary-key columns {columns}")
+        self.table_name = table_name
+        self.columns = columns
+
 
 # (friendly_message, retryable) per category. Messages are STATIC templates — they never
 # interpolate host/user/password or raw exception text, so stored copy can't leak credentials.
@@ -231,7 +236,15 @@ def classify_cdc_error(exc: BaseException, adapter: CDCSourceAdapter | None) -> 
         if isinstance(err, CDCReservedColumnError):
             return cdc_error_info(CDCErrorCategory.RESERVED_COLUMN_CONFLICT)
         if isinstance(err, CDCMaskedKeyError):
-            return cdc_error_info(CDCErrorCategory.MASKED_KEY_CONFLICT)
+            # Every table on the source shows this error, so it names the one to fix. Names are not secrets.
+            return dataclasses.replace(
+                cdc_error_info(CDCErrorCategory.MASKED_KEY_CONFLICT),
+                friendly_message=(
+                    f"Table {err.table_name} masks its primary-key columns {', '.join(err.columns)}, and a primary "
+                    "key can't be masked. Remove them from the table's masked columns, then re-enable change "
+                    "data capture."
+                ),
+            )
         if adapter is not None:
             info = adapter.classify_error(err)
             if info is not None:

@@ -488,7 +488,7 @@ def masked_columns_error(
     incremental_fields: Iterable[str | None],
     partition_keys: Iterable[str] = (),
 ) -> str | None:
-    """Why this mask cannot be saved, or None. `source_columns` is empty when discovery recorded none."""
+    """Why this mask cannot be saved, or None. `source_columns` is empty when no columns are known yet."""
     # A direct query source never syncs, so a saved mask would protect nothing.
     if is_direct_query:
         return "Column masking is not supported for direct query sources."
@@ -498,20 +498,22 @@ def masked_columns_error(
     if masking_key_is_public():
         return MASKING_KEY_IS_PUBLIC_ERROR
     known = [name for name in source_columns if isinstance(name, str)]
-    if known:
-        known_folded = {fold_column_name(name) for name in known}
-        unknown = [column for column in masked_columns if fold_column_name(column) not in known_folded]
-        if unknown:
-            return (
-                f"Unknown columns in masked_columns: {sorted(unknown)}. "
-                "Run `Pull new schemas` to refresh available columns."
-            )
-        ambiguous = ambiguous_masked_columns(masked_columns, known)
-        if ambiguous:
-            return (
-                f"Can't mask columns whose names collide after normalization: {sorted(ambiguous)}. "
-                "Rename the source columns so they differ by more than case."
-            )
+    # A mask that names no real column hashes nothing, so the intended column would sync in plaintext.
+    if not known:
+        return "Can't mask columns before the table's columns are known. Sync the table once, then try again."
+    known_folded = {fold_column_name(name) for name in known}
+    unknown = [column for column in masked_columns if fold_column_name(column) not in known_folded]
+    if unknown:
+        return (
+            f"Unknown columns in masked_columns: {sorted(unknown)}. "
+            "Run `Pull new schemas` to refresh available columns."
+        )
+    ambiguous = ambiguous_masked_columns(masked_columns, known)
+    if ambiguous:
+        return (
+            f"Can't mask columns whose names collide after normalization: {sorted(ambiguous)}. "
+            "Rename the source columns so they differ by more than case."
+        )
     # A partition column is read as a date or a number to pick the partition, which a digest is not.
     protected = {
         fold_column_name(column)
@@ -522,6 +524,14 @@ def masked_columns_error(
     if conflicting:
         return f"Primary-key, incremental-field and partition columns can't be masked: {sorted(conflicting)}."
     return None
+
+
+def canonical_masked_columns(masked_columns: list[str], source_columns: Iterable[str]) -> list[str]:
+    """Each mask under its column's own name, once. The UI compares names exactly."""
+    by_folded: dict[str, str] = {}
+    for name in source_columns:
+        by_folded.setdefault(fold_column_name(name), name)
+    return list(dict.fromkeys(by_folded.get(fold_column_name(column), column) for column in masked_columns))
 
 
 def _clear_masked_column_bounds(schema: ExternalDataSchema) -> None:
@@ -558,23 +568,34 @@ def _validate_masked_columns(
     # Also checked when only the key or the cursor moves, so neither can land on a masked column.
     if masked_columns and (mask_in_request or "primary_key_columns" in data or "incremental_field" in data):
         metadata_columns = (instance.schema_metadata or {}).get("columns")
+        source_columns: list[str] = [
+            name
+            for column in (metadata_columns if isinstance(metadata_columns, list) else [])
+            if isinstance(column, dict) and isinstance(name := column.get("name"), str)
+        ]
+        # Non-SQL sources record no column metadata, so their synced columns are the known ones.
+        if not source_columns and instance.table is not None:
+            source_columns = [column["name"] for column in instance.table.get_user_facing_columns()]
+        primary_key_columns = [*(data.get("primary_key_columns") or []), *(instance.primary_key_columns or [])]
+        # Without a stored key, a sync merges and partitions on `id` when the table has one.
+        if not primary_key_columns:
+            primary_key_columns = [name for name in source_columns if name.lower() == "id"][:1]
         error = masked_columns_error(
             masked_columns,
             source_type=instance.source.source_type,
             is_direct_query=instance.source.is_direct_query,
-            source_columns=[
-                column.get("name")
-                for column in (metadata_columns if isinstance(metadata_columns, list) else [])
-                if isinstance(column, dict)
-            ],
+            source_columns=source_columns,
             # The stored key and cursor count too: an update can leave them in place, for example when a
             # CDC table ignores the incremental field in the request.
-            primary_key_columns=[*(data.get("primary_key_columns") or []), *(instance.primary_key_columns or [])],
+            primary_key_columns=primary_key_columns,
             incremental_fields=[data.get("incremental_field"), instance.incremental_field],
             partition_keys=[*(instance.partitioning_keys or []), *(instance.partitioning_keys_override or [])],
         )
         if error:
             raise ValidationError(error)
+        if mask_in_request:
+            masked_columns = canonical_masked_columns(masked_columns, source_columns)
+            validated_data["masked_columns"] = masked_columns
 
     # An omitted field is unchanged. Without this, any other edit to a masked table would read as
     # "remove every mask" and start a full resync.

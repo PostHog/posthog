@@ -85,6 +85,7 @@ from products.warehouse_sources.backend.presentation.views.destination_links imp
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     ExternalDataSchemaListSerializer,
     ExternalDataSchemaSerializer,
+    canonical_masked_columns,
     masked_columns_error,
     source_supports_column_selection,
     unsupported_row_filter_reason,
@@ -1741,8 +1742,10 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     source_type=source_type,
                     is_direct_query=is_direct_query,
                     source_columns=[column[0] for column in introspected_columns],
+                    # A sync merges and partitions on `id` when no key is stored or detected.
                     primary_key_columns=sync_type_config.get("primary_key_columns")
-                    or (source_schema.detected_primary_keys if source_schema else None),
+                    or (source_schema.detected_primary_keys if source_schema else None)
+                    or [column[0] for column in introspected_columns if column[0].lower() == "id"][:1],
                     incremental_fields=[incremental_field],
                 )
                 if masking_error:
@@ -1751,6 +1754,9 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                         status=status.HTTP_400_BAD_REQUEST,
                         data={"message": f"Column masking not allowed for schema '{schema_name}': {masking_error}"},
                     )
+                masked_columns = canonical_masked_columns(
+                    masked_columns, [column[0] for column in introspected_columns]
+                )
 
             # CDC schemas benefit from a tighter poll cadence — the extraction workflow is cheap
             # and the value prop is near-real-time. Other sync types use the 6h default.
