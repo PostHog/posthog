@@ -714,8 +714,8 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
             typeof metricContext.status !== 'string' ||
             typeof metricContext.isDrifted !== 'boolean' ||
             typeof metricContext.unit !== 'string' ||
-            (metricContext.owner !== null && typeof metricContext.owner !== 'string') ||
-            (metricContext.updatedAt !== null && typeof metricContext.updatedAt !== 'string'))
+            (metricContext.owner != null && typeof metricContext.owner !== 'string') ||
+            (metricContext.updatedAt != null && typeof metricContext.updatedAt !== 'string'))
     ) {
         return null
     }
@@ -864,7 +864,15 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
         ...(candidate.colorBy === null || typeof candidate.colorBy === 'string' ? { colorBy: candidate.colorBy } : {}),
         ...(candidate.querySnapshot ? { querySnapshot: candidate.querySnapshot } : {}),
         ...(candidate.catalogMetric ? { catalogMetric: candidate.catalogMetric } : {}),
-        ...(metricContext ? { catalogMetricContext: metricContext } : {}),
+        ...(metricContext
+            ? {
+                  catalogMetricContext: {
+                      ...metricContext,
+                      owner: metricContext.owner ?? null,
+                      updatedAt: metricContext.updatedAt ?? null,
+                  },
+              }
+            : {}),
         ...(candidate.localFields ? { localFields: candidate.localFields } : {}),
         ...(candidate.hierarchies ? { hierarchies: candidate.hierarchies } : {}),
         ...(candidate.memberAliases ? { memberAliases: candidate.memberAliases } : {}),

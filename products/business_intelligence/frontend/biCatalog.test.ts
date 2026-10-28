@@ -71,6 +71,30 @@ it('attaches draft and metric content as untrusted data and omits oversized draf
     ).toBe(true)
 })
 
+it('restores catalog-copy drafts when nullable metadata was omitted by the API serializer', () => {
+    const config = {
+        ...DEFAULT_BI_CONFIG,
+        querySnapshot: { kind: NodeKind.HogQLQuery, query: 'SELECT 43 AS edited_revenue' },
+        catalogMetric: 'revenue',
+        catalogMetricContext: { id: 'metric-revenue', status: 'approved', isDrifted: false, unit: 'usd' },
+    }
+    const parsed = parseBIEditorState(BIEditorView.BI, JSON.stringify(config))
+    expect(parsed?.config.querySnapshot).toEqual(config.querySnapshot)
+    expect(parsed?.config.catalogMetricContext).toEqual({
+        ...config.catalogMetricContext,
+        owner: null,
+        updatedAt: null,
+    })
+    for (const field of ['owner', 'updatedAt']) {
+        expect(
+            parseBIEditorState(BIEditorView.BI, {
+                ...config,
+                catalogMetricContext: { ...config.catalogMetricContext, [field]: 42 },
+            })
+        ).toBeNull()
+    }
+})
+
 it('only proposes the successfully executed current query, retaining resolved dates and its row cap', () => {
     const node = catalogMetricWorksheet({
         name: 'revenue',
