@@ -104,6 +104,7 @@ class _Side:
     conditions: ReleaseConditions
     aggregation: int | None
     early_exit: bool
+    buckets_on_device_id: bool
 
 
 class _ChangeBuilder:
@@ -177,12 +178,31 @@ def _gives_another_value(old_condition: ReleaseCondition, new: _Side, served_aft
     return bool(served_after - {_value(old_condition, new)})
 
 
-def _draws_by_hash(side: _Side, *, persons_only: bool = False) -> bool:
-    # A condition gives people a value from the hash when its rollout is between 0% and 100%, or when it serves from
-    # a split with more than one served variant.
-    split_draws = len(served_slots(side.split)) > 1
+def _needs_bucketing_hash(condition: ReleaseCondition, side: _Side) -> bool:
+    # The same rule as `condition_needs_bucketing_hash` in rust/feature-flags/src/flags/flag_operations.rs. The hash
+    # decides the result of a condition below 100%. It also decides the result of a condition that serves from a
+    # split whose first served variant is below 100%, because a hash past that variant gets another variant, or true
+    # when the split covers less than 100%. Under device ID bucketing, the flag service skips a person condition that
+    # needs the hash for a request without a device ID, a condition at 0% included.
+    if condition.rollout < 100:
+        return True
+    slots = served_slots(side.split)
+    if not slots or condition.variant is not None:
+        return False
+    first = slots[0].rollout_percentage
+    return first is None or first < 100
+
+
+def _skipped_without_device_id(condition: ReleaseCondition, side: _Side) -> bool:
+    return side.buckets_on_device_id and condition.aggregation is None and _needs_bucketing_hash(condition, side)
+
+
+def _reads_bucketing(side: _Side, *, persons_only: bool = False) -> bool:
+    # A condition that ends the evaluation for nobody gives the same result whatever the hash is. A condition at 0%
+    # with early exit counts, which errs toward a raise for a new key: the hash does not change its result, but a
+    # change to device ID bucketing makes the flag service skip it.
     return any(
-        0 < condition.rollout < 100 or (split_draws and condition.rollout > 0 and condition.variant is None)
+        _ends_evaluation(condition, side) and _needs_bucketing_hash(condition, side)
         for condition in side.conditions
         if not persons_only or condition.aggregation is None
     )
@@ -202,9 +222,9 @@ def _changes_bucketing(before: FlagExposureConfig, after: FlagExposureConfig, ne
     # rust/feature-flags/src/flags/flag_matching.rs. Turning continuity on also moves people, because the request's
     # anonymous ID and the override rows from an earlier period of continuity then replace the distinct ID.
     # A deleted flag does not get here, so the tombstone suffix of a deleted flag's key is not a new key.
-    if before.key != after.key and _draws_by_hash(new):
+    if before.key != after.key and _reads_bucketing(new):
         return True
-    return _person_hash_inputs(before) != _person_hash_inputs(after) and _draws_by_hash(new, persons_only=True)
+    return _person_hash_inputs(before) != _person_hash_inputs(after) and _reads_bucketing(new, persons_only=True)
 
 
 def _reordered(pairs: Mapping[int, int]) -> bool:
@@ -212,8 +232,8 @@ def _reordered(pairs: Mapping[int, int]) -> bool:
     return any(earlier > later for earlier, later in zip(order, order[1:]))
 
 
-def _side(filters: Mapping[str, Any] | None) -> _Side:
-    filters = filters or {}
+def _side(config: FlagExposureConfig) -> _Side:
+    filters = config.filters or {}
     multivariate = filters.get("multivariate")
     split = parse_variants(multivariate.get("variants") if isinstance(multivariate, Mapping) else None)
     aggregation = group_type_index(filters.get("aggregation_group_type_index"))
@@ -224,6 +244,7 @@ def _side(filters: Mapping[str, Any] | None) -> _Side:
         ),
         aggregation=aggregation,
         early_exit=filters.get("early_exit") is True,
+        buckets_on_device_id=normalized_bucketing_identifier(config.bucketing_identifier) == "device_id",
     )
 
 
@@ -243,10 +264,12 @@ def _compare_pair(
     if condition.rollout > previous.rollout:
         builder.add(ExposureChangeKind.ROLLOUT_INCREASED)
     elif condition.rollout < previous.rollout:
-        # With early exit, the people outside the new rollout get false, not the value of a later condition.
+        # With early exit, the people outside the new rollout get false, not the value of a later condition. A request
+        # that skips the condition for a missing device ID can still get that value.
         builder.add(
             ExposureChangeKind.ROLLOUT_DECREASED,
-            gives_another_value=not new.early_exit and _gives_another_value(previous, new, served_after),
+            gives_another_value=(not new.early_exit or _skipped_without_device_id(condition, new))
+            and _gives_another_value(previous, new, served_after),
         )
     if condition.rollout > 0 and moves_people(previous, condition):
         builder.add(ExposureChangeKind.VARIANT_CHANGED)
@@ -294,8 +317,8 @@ def classify_exposure_change(*, before: FlagExposureConfig, after: FlagExposureC
     """Raises `ConfigFormatError` for a config that is not version 1."""
     require_v1_config(before.filters)
     require_v1_config(after.filters)
-    old = _side(before.filters)
-    new = _side(after.filters)
+    old = _side(before)
+    new = _side(after)
     # A disabled or deleted flag serves nobody, so an edit of one changes nothing until the flag is enabled or
     # restored. See the `deleted = false` filter in rust/feature-flags/src/flags/feature_flag_list.rs.
     was_on = before.active and not before.deleted

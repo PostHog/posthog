@@ -16,6 +16,7 @@ EMAIL = [{"key": "email", "type": "person", "operator": "icontains", "value": "@
 OTHER_EMAIL = [{"key": "email", "type": "person", "operator": "icontains", "value": "@example.org"}]
 SPLIT_50_50 = [{"key": "a", "rollout_percentage": 50}, {"key": "b", "rollout_percentage": 50}]
 SPLIT_ALL_A = [{"key": "a", "rollout_percentage": 100}, {"key": "b", "rollout_percentage": 0}]
+SPLIT_40_A = [{"key": "a", "rollout_percentage": 40}, {"key": "b", "rollout_percentage": 0}]
 
 ENABLED = ExposureChangeKind.ENABLED
 DISABLED = ExposureChangeKind.DISABLED
@@ -233,6 +234,25 @@ class TestClassifyExposureChange(TestCase):
                 LOWERS,
             ),
             (
+                "lowered_override_condition_with_early_exit_under_device_id_bucketing",
+                _flag(
+                    _condition(100, EMAIL, variant="b"),
+                    _condition(100),
+                    variants=SPLIT_50_50,
+                    early_exit=True,
+                    bucketing_identifier="device_id",
+                ),
+                _flag(
+                    _condition(10, EMAIL, variant="b"),
+                    _condition(100),
+                    variants=SPLIT_50_50,
+                    early_exit=True,
+                    bucketing_identifier="device_id",
+                ),
+                {ROLLOUT_DECREASED},
+                RAISES,
+            ),
+            (
                 "removed_override_condition_falls_through_to_another_variant",
                 _flag(_condition(100, EMAIL, variant="b"), _condition(100), variants=SPLIT_50_50),
                 _flag(_condition(100), variants=SPLIT_50_50),
@@ -377,6 +397,27 @@ class TestClassifyExposureChange(TestCase):
                 "experience_continuity_turned_off",
                 _flag(_condition(50), ensure_experience_continuity=True),
                 _flag(_condition(50), ensure_experience_continuity=None),
+                {BUCKETING_CHANGED},
+                RAISES,
+            ),
+            (
+                "key_changed_on_a_partially_allocated_split",
+                _flag(_condition(100), variants=SPLIT_40_A),
+                _flag(_condition(100), variants=SPLIT_40_A, key="renamed"),
+                {BUCKETING_CHANGED},
+                RAISES,
+            ),
+            (
+                "key_changed_with_a_condition_at_zero_rollout",
+                _flag(_condition(0, EMAIL), _condition(100)),
+                _flag(_condition(0, EMAIL), _condition(100), key="renamed"),
+                set(),
+                KEEPS,
+            ),
+            (
+                "bucketing_identifier_changed_with_a_blocker_at_zero_rollout",
+                _flag(_condition(0, EMAIL), _condition(100), early_exit=True),
+                _flag(_condition(0, EMAIL), _condition(100), early_exit=True, bucketing_identifier="device_id"),
                 {BUCKETING_CHANGED},
                 RAISES,
             ),
