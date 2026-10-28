@@ -1535,8 +1535,6 @@ mod tests {
 
     const PAGEVIEW_HASH: &str = "pageview00000000";
     const FLAG_CALL_HASH: &str = "flagcall00000000";
-    /// This instant falls on day 2, so a day-1 chunk sits inside a window of a week or more.
-    const NOW_MS: i64 = 200_000_000;
     /// This instant falls on day 101, so a day-1 chunk sits past the `flag_evaluations` TTL.
     const PAST_TTL_MS: i64 = 101 * 86_400_000;
 
@@ -1596,21 +1594,6 @@ mod tests {
                 &never,
             )
             .await
-    }
-
-    fn scanned_of(result: Result<ScannedChunk, Halted<ClaimedChunk, ScanError>>) -> ScannedChunk {
-        match result {
-            Ok(scanned) => scanned,
-            failed => panic!("{:?}", failure_of(failed)),
-        }
-    }
-
-    fn tile_counts(scanned: &ScannedChunk) -> Vec<(Uuid, ConditionHash, u32)> {
-        scanned
-            .tiles()
-            .iter()
-            .map(|tile| (tile.person_id(), tile.condition_hash(), tile.count()))
-            .collect()
     }
 
     fn failure_of(result: Result<ScannedChunk, Halted<ClaimedChunk, ScanError>>) -> ScanError {
@@ -1676,8 +1659,28 @@ mod tests {
             build_client(&config).expect("the default ClickHouse client builds")
         }
 
+        /// This instant falls on day 2, so a day-1 chunk sits inside a window of a week or more.
+        const NOW_MS: i64 = 200_000_000;
+
         fn person(id: u128) -> Uuid {
             Uuid::from_u128(id)
+        }
+
+        fn scanned_of(
+            result: Result<ScannedChunk, Halted<ClaimedChunk, ScanError>>,
+        ) -> ScannedChunk {
+            match result {
+                Ok(scanned) => scanned,
+                failed => panic!("{:?}", failure_of(failed)),
+            }
+        }
+
+        fn tile_counts(scanned: &ScannedChunk) -> Vec<(Uuid, ConditionHash, u32)> {
+            scanned
+                .tiles()
+                .iter()
+                .map(|tile| (tile.person_id(), tile.condition_hash(), tile.count()))
+                .collect()
         }
 
         /// The flag call by person 4 in `events` must not count in a run pinned to
@@ -1837,9 +1840,7 @@ mod tests {
             let client = mixed_chunk_database("seeder_scanner_mixed_compare").await;
             let run = mixed_run(7);
 
-            if let failed @ Err(_) = scan_day_one(&scanner(client, true), &run, || NOW_MS).await {
-                panic!("{:?}", failure_of(failed));
-            }
+            scanned_of(scan_day_one(&scanner(client, true), &run, || NOW_MS).await);
             let rendered = handle.render();
 
             assert!(
