@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.db.models import Q
 
 import structlog
+import posthoganalytics
 from requests import RequestException
 from rest_framework.exceptions import APIException
 
@@ -59,7 +60,7 @@ class ResearchAccessPolicy:
         return ResearchAccessPolicy.repository_integration_id(team_id, repository, priority=priority) is not None
 
     @staticmethod
-    def enabled_for_project(project: Team) -> bool:
+    def enabled_for_project(project: Team, *, only_evaluate_locally: bool = False) -> bool:
         try:
             return (
                 feature_enabled_or_false(
@@ -68,6 +69,7 @@ class ResearchAccessPolicy:
                     groups={"project": str(project.uuid)},
                     group_properties={"project": {"id": project.id, "uuid": str(project.uuid)}},
                     send_feature_flag_events=False,
+                    only_evaluate_locally=only_evaluate_locally,
                 )
                 is True
             )
@@ -90,6 +92,10 @@ class ResearchAccessPolicy:
 
     @staticmethod
     def enrolled_team_ids(*, exclude_team_ids: set[int] | None = None) -> set[int]:
+        # Even local-only evaluation loads definitions synchronously when the SDK is cold.
+        client = posthoganalytics.default_client
+        if client is None or client.feature_flags is None:
+            return set()
         projects = {
             parent_id or team_id
             for team_id, parent_id in SignalTeamConfig.objects.filter(
@@ -103,5 +109,5 @@ class ResearchAccessPolicy:
         return {
             project.id
             for project in Team.objects.filter(id__in=projects).only("id", "uuid")
-            if ResearchAccessPolicy.enabled_for_project(project)
+            if ResearchAccessPolicy.enabled_for_project(project, only_evaluate_locally=True)
         }

@@ -128,6 +128,13 @@ export const signalsOnboardingCreateBodyActivationScoutsItemMax = 200
 export const signalsOnboardingCreateBodyActivationScoutsMax = 50
 
 export const SignalsOnboardingCreateBody = /* @__PURE__ */ zod.object({
+    activation_mode: zod
+        .enum(['github_optional'])
+        .describe('\* `github_optional` - GitHub optional')
+        .optional()
+        .describe(
+            'Activate the GitHub-optional pilot. Requires project eligibility and leaves automatic implementation off.\n\n\* `github_optional` - GitHub optional'
+        ),
     step: zod
         .enum(['signals', 'scouts', 'github'])
         .describe('\* `signals` - Signals\n\* `scouts` - Scouts\n\* `github` - GitHub')
@@ -367,6 +374,13 @@ export const signalsOnboardingCompleteCreateBodyActivationScoutsItemMax = 200
 export const signalsOnboardingCompleteCreateBodyActivationScoutsMax = 50
 
 export const SignalsOnboardingCompleteCreateBody = /* @__PURE__ */ zod.object({
+    activation_mode: zod
+        .enum(['github_optional'])
+        .describe('\* `github_optional` - GitHub optional')
+        .optional()
+        .describe(
+            'Activate the GitHub-optional pilot. Requires project eligibility and leaves automatic implementation off.\n\n\* `github_optional` - GitHub optional'
+        ),
     step: zod
         .enum(['signals', 'scouts', 'github'])
         .describe('\* `signals` - Signals\n\* `scouts` - Scouts\n\* `github` - GitHub')

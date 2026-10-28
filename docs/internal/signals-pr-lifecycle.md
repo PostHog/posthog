@@ -209,9 +209,15 @@ For information from a private repository or another explicitly private source, 
 Each candidate carries a private, public, or unknown label from the cached GitHub repository list, so the agent does not query GitHub for visibility.
 These broader context checks remain prompt guidance; the source-repository restriction does not validate selections made outside the shared selector.
 
-### GitHub-optional research
+### GitHub-optional pilot
 
 The boolean `self-driving-github-optional` flag targets the canonical project group (project UUID, with its numeric `id` as a group property). It defaults to off, including in development.
+
+Pilot activation stores `activation_mode: github_optional` in the existing onboarding draft and completes through the existing activation API. It leaves `autostart_enabled` false regardless of pricing flags. Completed pilot activation also admits the project to scout discovery and dispatch while the flag is enabled, respecting fleet exclusions, withheld skills, permissions, and budgets. Fleet admission uses loaded local flag definitions and retries admission on later ticks when definitions are unavailable. Enabling the flag alone never creates scouts or enables sources. Already-active projects keep their settings.
+
+An explicit `guaranteed_team_ids: []` in the `signals-scout` payload drains pilot teams too, blocking both scheduled and manual scout runs.
+
+Activation in a child environment requires task editor access on the parent project and disables automatic implementation there. Scout-authored reports record code availability from the run's saved repository, GitHub posture, and pilot eligibility at dispatch. Repository checks distinguish missing access from temporary GitHub failures: automatic work can retry temporary failures, and manual requests return a retryable 503.
 
 Flagged research continues without code when no repository is selected or GitHub is unavailable. Its `repo_selection` artefact records `research_context.mode` (`code` or `data_only`) and `repository_status`. Recognized repository authentication and clone failures can retry once without a checkout or GitHub credentials. Other failures keep their normal handling. Findings remain code-focused; missing code access alone is not a product decision requiring human input.
 
@@ -219,7 +225,9 @@ Research without a repository preserves structured agent startup failures and cl
 
 A saved repository is reused before checking GitHub availability. A data-only fallback leaves that selection and its recorded context unchanged, so a transient failure cannot replace a reviewer's pinned target.
 
-Disable the flag to restore legacy behavior on subsequent research passes. Running passes finish with their recorded decision. Previous blocked reports are not automatically rerun.
+The report remains readable and supports discussion, assignment, resolution, and eligible monitoring. Pull request creation requires usable repository access. The access check probes GitHub directly, preserving temporary failures for retry instead of treating a stale repository list as a permission decision. Any installation that confirms access enables the action without waiting for other installations. Connecting or repairing GitHub does not enable automatic implementation; the user must opt in separately. Previous blocked reports are not automatically rerun.
+
+Disable the flag to remove pilot activation and restore legacy behavior on subsequent research passes. Running passes finish with their recorded decision. Reports and saved source/scout settings remain intact; fleet dispatch still applies its ordinary enrollment and exclusion gates.
 
 Without a repository, legacy ownership lookup is skipped. Existing human assignments remain intact.
 
