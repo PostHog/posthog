@@ -4,6 +4,7 @@ from datetime import timedelta
 from uuid import UUID, uuid4
 
 from django.conf import settings
+from django.db import connection, transaction
 
 import structlog
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
@@ -196,19 +197,6 @@ def run_trino_node_materializations(
 
     dag_id = str(node.dag_id)
     temporal = sync_connect()
-    # The scheduled shadow guards overlap only per tier, by its fixed id, so ask Temporal about every tier.
-    running = asyncio.run(temporal.count_workflows(query=trino_runs_of_dag_query(dag_id)))
-    if running.count > 0:
-        raise MaterializationAlreadyRunningError(TRINO_RUN_ALREADY_RUNNING_REFUSAL)
-
-    if full_refresh and node.saved_query is not None:
-        clear_incremental_state(node.saved_query, scope=TRINO_INCREMENTAL_SCOPE)
-    unsuspend_nodes(
-        Node.objects.filter(team_id=node.team_id, id__in=node_ids),
-        by="manual_run",
-        engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
-    )
-
     inputs = ExecuteDAGInputs(
         team_id=node.team_id,
         dag_id=dag_id,
@@ -217,22 +205,41 @@ def run_trino_node_materializations(
         shadow=True,
         manually_triggered_by_id=user.pk,
     )
-    try:
-        asyncio.run(
-            temporal.start_workflow(
-                "data-modeling-execute-dag",
-                asdict(inputs),
-                # A fixed id makes Temporal refuse a second manual run that slipped past the count above.
-                id=manual_trino_workflow_id(dag_id),
-                task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
-                id_conflict_policy=WorkflowIDConflictPolicy.FAIL,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                execution_timeout=TRINO_SHADOW_RUN_TIMEOUT,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
+    # The state changes and the workflow start share one transaction, so a run that loses the race for the
+    # slot rolls its changes back instead of resetting the watermark and suspensions for a run it never started.
+    # The lock makes concurrent manual requests of one DAG take turns.
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"manual-trino-run:{dag_id}"])
+        # The scheduled shadow guards overlap only per tier, by its fixed id, so ask Temporal about every tier.
+        running = asyncio.run(temporal.count_workflows(query=trino_runs_of_dag_query(dag_id)))
+        if running.count > 0:
+            raise MaterializationAlreadyRunningError(TRINO_RUN_ALREADY_RUNNING_REFUSAL)
+
+        if full_refresh and node.saved_query is not None:
+            clear_incremental_state(node.saved_query, scope=TRINO_INCREMENTAL_SCOPE)
+        unsuspend_nodes(
+            Node.objects.filter(team_id=node.team_id, id__in=node_ids),
+            by="manual_run",
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
         )
-    except WorkflowAlreadyStartedError:
-        raise MaterializationAlreadyRunningError(TRINO_RUN_ALREADY_RUNNING_REFUSAL)
+
+        try:
+            asyncio.run(
+                temporal.start_workflow(
+                    "data-modeling-execute-dag",
+                    asdict(inputs),
+                    # A fixed id makes Temporal refuse a second manual run that slipped past the count above.
+                    id=manual_trino_workflow_id(dag_id),
+                    task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
+                    id_conflict_policy=WorkflowIDConflictPolicy.FAIL,
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                    execution_timeout=TRINO_SHADOW_RUN_TIMEOUT,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            )
+        except WorkflowAlreadyStartedError:
+            raise MaterializationAlreadyRunningError(TRINO_RUN_ALREADY_RUNNING_REFUSAL)
     return sorted(node_ids)
 
 

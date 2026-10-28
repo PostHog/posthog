@@ -2962,7 +2962,9 @@ class TestSavedQueryRun(APIBaseTest):
     def test_run_on_trino_while_a_trino_run_is_in_progress_conflicts(
         self, _name, running_count, start_conflicts, mock_sync_connect, mock_eligible
     ):
-        saved_query, _dag, _node = self._make_saved_query_with_node("busy_view")
+        saved_query, _dag, node = self._make_saved_query_with_node("busy_view")
+        mark_node_suspended(node, engine=DataModelingJobEngine.MANAGED_WAREHOUSE, reason="boom", job_id="job-1")
+        node.save()
         mock_eligible.return_value = True
         mock_client = AsyncMock()
         mock_client.count_workflows.return_value = mock.Mock(count=running_count)
@@ -2972,11 +2974,14 @@ class TestSavedQueryRun(APIBaseTest):
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
-            {"engine": "trino"},
+            {"engine": "trino", "full_refresh": True},
         )
 
         self.assertEqual(response.status_code, 409, response.content)
         self.assertEqual(mock_client.start_workflow.call_count, 1 if start_conflicts else 0)
+        # A refused run must leave the model as it found it, even when the refusal came after the changes.
+        node.refresh_from_db()
+        self.assertIn(DataModelingJobEngine.MANAGED_WAREHOUSE, suspension_state(node))
 
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_with_dependencies_requires_edit_access_to_every_view(self, mock_sync_connect):
