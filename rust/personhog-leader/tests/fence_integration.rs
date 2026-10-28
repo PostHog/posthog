@@ -735,8 +735,7 @@ async fn a_committed_release_honors_the_sagas_tombstone_version() {
         tombstone_version,
     };
 
-    // A tombstone at or below the seal is a caller bug: refused, fence kept,
-    // nothing produced.
+    // A tombstone at or below the seal is a caller bug: refused, fence kept.
     let produced_before_refusal = changelog_records(&harness).len();
     let status = harness
         .client
@@ -845,8 +844,6 @@ async fn a_committed_release_derives_the_death_version_above_the_emitted_floor()
         spent,
     );
 
-    // The saga's tombstone sits below the spent version: the floor, not
-    // the tombstone, decides the death version.
     harness
         .client
         .release_fence(with_partition(
@@ -3085,7 +3082,6 @@ async fn a_batched_release_closes_every_fence_of_the_routed_partition() {
             .into_inner()
             .sealed
             .expect("sealed state returned");
-        // Only the second victim took a direct write after its seal.
         let tombstone_version = (person_id == second_id).then(|| sealed.version + 4);
         persons.push(ReleaseFenceItem {
             person_id,

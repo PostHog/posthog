@@ -906,7 +906,6 @@ async fn each_victim_of_a_batch_carries_its_own_tombstone_version() {
     h.step(op_id).await.expect("started -> marked");
     h.step(op_id).await.expect("marked -> sealed");
 
-    // Only one of the two victims takes a direct write after the seal.
     sqlx::query("UPDATE posthog_person SET version = version + 3 WHERE team_id = $1 AND id = $2")
         .bind(h.ctx.team_id as i32)
         .bind(raced_id)
@@ -918,8 +917,6 @@ async fn each_victim_of_a_batch_carries_its_own_tombstone_version() {
     let row = h.step(op_id).await.expect("unmapped -> completed");
     assert!(row.completed_at.is_some());
 
-    // The tombstone, the death document and the outcome of each victim
-    // carry that victim's version, not its neighbour's.
     let (_, raced_version, _) = h.ctx.person_state(raced_id).await;
     let (_, quiet_version, _) = h.ctx.person_state(quiet_id).await;
     assert_eq!(raced_version, 4);
@@ -962,10 +959,6 @@ async fn an_op_unmapped_by_a_pre_tombstone_version_build_completes_at_the_seal()
     let row = h.step(op_id).await.expect("sealed -> unmapped");
     assert_eq!(row.step, "unmapped");
 
-    // Recreate the state a build without tombstone versions leaves behind
-    // at a deploy boundary: the seal carries no tombstone_version key. The
-    // new build must complete the op and let the leader fall back to the
-    // seal.
     sqlx::query(
         "UPDATE lifecycle_op_person SET sealed = sealed - 'tombstone_version' WHERE op_id = $1",
     )
