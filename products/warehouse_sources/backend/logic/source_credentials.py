@@ -46,23 +46,6 @@ CREDENTIALS_ORPHANED_COUNTER = Counter(
     "Credentials rows that no object uses any more after a warehouse source released them",
 )
 
-# Fields that say where the credentials connect, and as which account. Each source adds its
-# `connection_host_fields`. A change to one of them on a shared row makes a new row.
-IDENTIFYING_FIELDS: frozenset[str] = frozenset(
-    {
-        "host",
-        "port",
-        "instance_url",
-        "connection_string",
-        "ssh_tunnel",
-        "user",
-        "username",
-        "account",
-        "account_id",
-        "account_sid",
-    }
-)
-
 # Decrypts leaves with the same keys as `Integration.sensitive_config`. The keys come from the settings.
 _SENSITIVE_CONFIG_FIELD = EncryptedJSONField(default=dict, ignore_decrypt_errors=True)
 
@@ -265,8 +248,9 @@ def _identity(source_type: str, fields: Mapping[str, Any]) -> str:
     )
 
     source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
-    keys = IDENTIFYING_FIELDS | set(source.connection_host_fields)
-    return json.dumps({key: _normalized(fields.get(key)) for key in sorted(keys)}, sort_keys=True)
+    return json.dumps(
+        {key: _normalized(fields.get(key)) for key in sorted(source.credential_identity_fields)}, sort_keys=True
+    )
 
 
 def _normalized(value: Any) -> Any:

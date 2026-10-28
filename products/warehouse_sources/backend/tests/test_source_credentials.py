@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.job
     JobInputKind,
     classify_job_input_key,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 from products.workflows.backend.facade.contracts import WorkflowSummary
 
@@ -527,3 +528,31 @@ class TestCredentialAuthTypes(SimpleTestCase):
     )
     def test_credentials_reference_key_is_a_reference(self, _name: str, source_type: ExternalDataSourceType) -> None:
         assert classify_job_input_key(source_type, CREDENTIALS_REFERENCE_KEY, "12") == JobInputKind.REFERENCE
+
+
+class TestCredentialIdentityFields(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("postgres", ExternalDataSourceType.POSTGRES, {"connection_string", "host", "port", "ssh_tunnel", "user"}),
+            (
+                "supabase_inherits",
+                ExternalDataSourceType.SUPABASE,
+                {"connection_string", "host", "port", "ssh_tunnel", "user"},
+            ),
+            ("mysql", ExternalDataSourceType.MYSQL, {"host", "port", "ssh_tunnel", "user"}),
+            ("snowflake_nested_user", ExternalDataSourceType.SNOWFLAKE, {"account_id", "connection_string", "user"}),
+            ("trino_nested_user", ExternalDataSourceType.TRINO, {"host", "port", "user"}),
+            ("mongodb", ExternalDataSourceType.MONGODB, {"connection_string"}),
+            ("twilio_account", ExternalDataSourceType.TWILIO, {"account_sid"}),
+            ("okta_host_field", ExternalDataSourceType.OKTA, {"okta_domain"}),
+            ("freshservice_host_field", ExternalDataSourceType.FRESHSERVICE, {"domain"}),
+            ("hatchet_host_field", ExternalDataSourceType.HATCHET, {"host"}),
+            ("stripe_none", ExternalDataSourceType.STRIPE, set()),
+            ("zendesk_none", ExternalDataSourceType.ZENDESK, set()),
+            ("custom_none", ExternalDataSourceType.CUSTOM, set()),
+        ]
+    )
+    def test_identity_fields_match_the_old_rule(
+        self, _name: str, source_type: ExternalDataSourceType, expected: set[str]
+    ) -> None:
+        assert SourceRegistry.get_source(source_type).credential_identity_fields == expected
