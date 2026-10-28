@@ -30,9 +30,6 @@ from products.analytics_platform.backend.lazy_computation.computation_notificati
     set_ch_query_started,
 )
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
-    _READ_TABLES,
-    _REPLICAS_PER_SHARD_CACHE,
-    _SPREAD_READ_TABLE_CLUSTERS,
     DEFAULT_POLL_INTERVAL_SECONDS,
     DEFAULT_RETRIES,
     DEFAULT_TTL_SCHEDULE,
@@ -3550,32 +3547,17 @@ class TestInsertSettings(BaseTest):
         assert settings["max_execution_time"] == HOGQL_INCREASED_MAX_EXECUTION_TIME
         assert "readonly" not in settings
 
-    @parameterized.expand(
-        [
-            ("in_order_table", LazyComputationTable.PREAGGREGATION_RESULTS, [(3,)], "auto"),
-            ("spread_table_two_replicas", LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED, [(2,)], 2),
-            ("spread_table_three_replicas", LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED, [(3,)], 3),
-            (
-                "spread_table_lookup_fails",
-                LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
-                ServerException(message="boom", code=999),
-                "auto",
-            ),
-        ]
-    )
-    def test_insert_quorum_covers_every_replica_a_read_can_reach(self, _name, table, replica_rows, expected_quorum):
+    def test_background_builder_skips_replica_quorum(self):
         # TEST/DEBUG already force the quorum constant to 0, so pin the production
-        # value to make the branch observable. Background builders skip quorum: without
-        # that a downed or stale-registered replica fails every background build with
+        # value to make the branch observable: without it a downed or
+        # stale-registered replica fails every background build with
         # TOO_FEW_LIVE_REPLICAS until the cluster is repaired.
-        _REPLICAS_PER_SHARD_CACHE.clear()
-        self.addCleanup(_REPLICAS_PER_SHARD_CACHE.clear)
-        module = "products.analytics_platform.backend.lazy_computation.lazy_computation_executor"
-        with (
-            patch(f"{module}.PREAGGREGATION_INSERT_QUORUM", "auto"),
-            patch(f"{module}.sync_execute", side_effect=[replica_rows]),
+        with patch(
+            f"products.analytics_platform.backend.lazy_computation.lazy_computation_executor.PREAGGREGATION_INSERT_QUORUM",
+            "auto",
         ):
-            assert _get_insert_settings(self.team.pk, table)["insert_quorum"] == expected_quorum
+            table = LazyComputationTable.PREAGGREGATION_RESULTS
+            assert _get_insert_settings(self.team.pk, table)["insert_quorum"] == "auto"
             assert _get_insert_settings(self.team.pk, table, read_after_write=False)["insert_quorum"] == 0
 
     @parameterized.expand(_INSERT_LOAD_BALANCING_CASES)
@@ -3584,14 +3566,6 @@ class TestInsertSettings(BaseTest):
 
     def test_insert_load_balancing_cases_cover_every_table(self):
         assert {table for table, _ in _INSERT_LOAD_BALANCING_CASES} == set(LazyComputationTable)
-
-    def test_every_spread_read_table_has_a_replica_cluster(self):
-        spread_read_tables = {
-            table
-            for table, read_table in _READ_TABLES.items()
-            if read_table.top_level_settings is None or read_table.top_level_settings.load_balancing is None
-        }
-        assert spread_read_tables == set(_SPREAD_READ_TABLE_CLUSTERS)
 
 
 class TestInsertSettingsAppliedToInserts(BaseTest):
