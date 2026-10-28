@@ -376,8 +376,8 @@ def _wait_condition_already_stored(action: dict, context: dict) -> bool:
     True when this wait's condition matches the one already persisted for the same action.
 
     The gate exists to stop *new* clock-based waits, not to make an existing workflow un-editable.
-    Every strict save re-validates the whole actions array, so without this an unrelated edit (or
-    simply resuming a paused flow) would be refused over a condition that was already accepted.
+    Every strict save re-validates the whole actions array, so without this an unrelated edit to an
+    active flow would be refused over a condition that was already accepted.
     """
     stored = context.get("stored_wait_conditions")
     if not stored:
@@ -3183,9 +3183,11 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # Wait conditions the live flow already carries, so per-action validation can tell a newly
         # introduced clock condition from one we have been storing all along. Seeded here because
         # nested action validation runs during field processing, before validate() is reached.
+        # Only an active flow's conditions count: a draft's actions come from lenient builder saves,
+        # so exempting them would let enabling a draft skip the check.
         self.context["stored_wait_conditions"] = {
             action["id"]: (action.get("config") or {}).get("condition")
-            for action in ((instance.actions if instance else None) or [])
+            for action in ((instance.actions if instance and instance.status == HogFlowState.ACTIVE else None) or [])
             if isinstance(action, dict) and action.get("id") and action.get("type") == "wait_until_condition"
         }
 

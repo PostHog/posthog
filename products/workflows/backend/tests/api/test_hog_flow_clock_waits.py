@@ -168,13 +168,15 @@ class TestGrandfatheredClockWaits(APIBaseTest):
 
         assert response.status_code == 200, response.json()
 
-    def test_a_paused_flow_can_be_resumed(self):
-        # Activation re-runs the stored actions with full checks and submits no actions of its own.
+    def test_enabling_a_draft_still_checks_its_stored_condition(self):
+        # Builder saves of a draft are lenient, so a draft's stored condition was never checked.
+        # Exempting it would let any wait through by saving it as a draft and enabling it after.
         flow = self._legacy_flow(status="draft")
 
         response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow.id}", {"status": "active"})
 
-        assert response.status_code == 200, response.json()
+        assert response.status_code == 400, response.json()
+        assert "depends on the current time" in str(response.json())
 
     def test_editing_the_clock_condition_itself_is_still_refused(self):
         # The grandfathering is per-condition, not per-workflow: change the condition and it has to
