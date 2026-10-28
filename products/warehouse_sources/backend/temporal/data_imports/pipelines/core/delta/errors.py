@@ -22,6 +22,11 @@ from posthog.temporal.common.errors import NonReportableError
 #   onto the same generic PermissionError (s3fs/errors.py::translate_boto_error), so this message - not
 #   a permission denial - is the only way to tell the two apart. The worker's own clock resyncs and the
 #   identical request succeeds moments later.
+# - "Connection timed out" is the bare OS-level message a dropped TCP handshake/response leaves behind
+#   when our own bucket is a non-AWS S3-compatible store reached through delta-rs's generic S3 client
+#   with a custom `endpoint_url` (e.g. Alibaba Cloud OSS's S3-compatible API, addressed virtual-hosted
+#   per products/data_warehouse/backend/s3_proxy.py) rather than AWS's own endpoints - that path never
+#   goes through s3fs/aiobotocore, so it can't surface as one of the typed botocore exceptions below.
 # A retry (of the same idempotent operation) clears these, so they shouldn't be treated the same as a
 # bug in our logic.
 TRANSIENT_OBJECT_STORE_ERRORS = (
@@ -31,6 +36,7 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
     "Please reduce your request rate",
     "We encountered an internal error. Please try again.",
     "The difference between the request time and the current time is too large.",
+    "Connection timed out",
 )
 
 # pyarrow's S3FileSystem (the AWS SDK for C++) reports a response it can't classify as the fixed

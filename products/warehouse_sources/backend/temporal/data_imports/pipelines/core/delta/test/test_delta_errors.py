@@ -165,6 +165,19 @@ class TestIsTransientObjectStoreError:
                 ),
                 True,
             ),
+            (
+                # delta-rs's generic S3 client reaching a non-AWS S3-compatible bucket (e.g. Alibaba
+                # OSS, addressed virtual-hosted per s3_proxy.py) never goes through s3fs/botocore, so a
+                # dropped connection surfaces as a bare OSError with this fixed OS-level message instead
+                # of one of the typed botocore exceptions above.
+                "non_aws_endpoint_connection_timed_out",
+                OSError(
+                    "Generic error: Unexpected (temporary) at stat, context: ... => send http request, "
+                    "source: error sending request: client error (SendRequest): connection error: "
+                    "Connection timed out (os error 110)"
+                ),
+                True,
+            ),
             # `get_delta_table` re-raises a recognized transient blip as this wrapper (see
             # `_capture_unless_transient`) instead of the original OSError/DeltaError. A caller
             # further up the stack that catches broadly and re-runs this classifier on the caught
