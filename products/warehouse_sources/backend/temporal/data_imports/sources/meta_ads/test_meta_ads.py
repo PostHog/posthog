@@ -53,6 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     SHRINK_EXHAUSTED_ERROR_MESSAGE,
     SMALLEST_PAGE_LIMIT_MAX_RETRIES,
     MetaAdsAuthError,
+    MetaAdsRateLimitError,
     MetaAdsResumeConfig,
     _earliest_supported_since,
     _fetch_integration_row,
@@ -1895,6 +1896,21 @@ class TestRetryableErrors:
             _raise_meta_api_error(response)
         assert any(pattern in str(exc_info.value) for pattern in patterns)
 
+    def test_html_429_matches_rate_limit_pattern(self) -> None:
+        # A fronting proxy has been observed answering throttling with a bare HTTP 429 and an
+        # HTML error page instead of Meta's own JSON error body. With no error code to parse,
+        # this must still be tagged as rate-limiting rather than falling through to the generic,
+        # unclassified message on every attempt.
+        response = mock.MagicMock()
+        response.status_code = 429
+        response.json.side_effect = RequestsJSONDecodeError("Expecting value", "", 0)
+        response.text = "<!DOCTYPE html><html><body><h1>4xx Client Error</h1></body></html>"
+
+        patterns = MetaAdsSource().get_retryable_errors()
+        with pytest.raises(Exception) as exc_info:
+            _raise_meta_api_error(response)
+        assert any(pattern in str(exc_info.value) for pattern in patterns)
+
     @pytest.mark.parametrize(
         "error_message,expected_fragment",
         [
@@ -2186,6 +2202,17 @@ class TestListAdAccounts:
             with pytest.raises(IntegrationAccountListingError, match=META_AD_ACCOUNT_LISTING_UNAVAILABLE_MESSAGE):
                 list_ad_accounts(self._integration())
 
+    def test_html_429_raises_meta_ads_rate_limit_error(self) -> None:
+        # Before the HTTP-429 fallback in `_is_rate_limit_error`, this fell through to the
+        # generic, unclassified error instead of `MetaAdsRateLimitError` (which
+        # `get_oauth_accounts` turns into the actionable message the picker shows). A 429 is in
+        # the adapter's retry status_forcelist, so `always()` answers every retried attempt.
+        with scripted_network(
+            always(ScriptedResponse(status=429, body=b"<!DOCTYPE html><html><body>4xx Client Error</body></html>"))
+        ):
+            with pytest.raises(MetaAdsRateLimitError, match=META_RATE_LIMIT_ERROR_MESSAGE):
+                list_ad_accounts(self._integration())
+
     def test_page_limit_exceeded_fails_closed_instead_of_returning_partial(self) -> None:
         # Meta keeps handing back a fresh, non-empty `next` cursor past the cap. Returning the
         # accumulated (truncated) accounts would present them to the picker as the complete set.
@@ -2414,25 +2441,45 @@ class TestBreakdownStatsRequests:
         assert result.requests[0].param("time_range") is None
         assert result.requests[0].path.endswith("/act_123/adcreatives")
 
-    def test_attribution_settings_omitted_when_unset(self, monkeypatch) -> None:
+    @pytest.mark.parametrize("action_attribution_windows", [None, "", "first_touch, 30d_click"])
+    def test_attribution_settings_omitted_when_unset(self, monkeypatch, action_attribution_windows: str | None) -> None:
         # Backward compatibility: an existing connection that never set attribution config must
         # produce the same Insights request as before — Meta then applies its own default window.
-        result = self._capture_request(monkeypatch, MetaAdsResource.CampaignStats)
+        # A setting with no value Meta accepts falls back the same way, because Meta rejects the
+        # whole request for one unknown window.
+        result = self._capture_request(
+            monkeypatch, MetaAdsResource.CampaignStats, action_attribution_windows=action_attribution_windows
+        )
 
         assert result.requests[0].param("action_attribution_windows") is None
         assert result.requests[0].param("use_unified_attribution_setting") is None
 
-    def test_attribution_settings_threaded_into_stats_request(self, monkeypatch) -> None:
+    @pytest.mark.parametrize(
+        "action_attribution_windows, expected",
+        [
+            ("7d_click, 1d_view", ["7d_click", "1d_view"]),
+            ("7D_Click;1d_VIEW", ["7d_click", "1d_view"]),
+            ("7d_click 1d_view", ["7d_click", "1d_view"]),
+            ('["7d_click", "28d_view"]', ["7d_click", "28d_view"]),
+            ("7 day click, 1-day view, 28 days clicks", ["7d_click", "1d_view", "28d_click"]),
+            ("7d_click, 7d_click", ["7d_click"]),
+            ("dda, 7d_view_first_conversion, skan_click", ["dda", "7d_view_first_conversion", "skan_click"]),
+            ("7d_click, last_touch, 2d_click", ["7d_click"]),
+        ],
+    )
+    def test_attribution_settings_threaded_into_stats_request(
+        self, monkeypatch, action_attribution_windows: str, expected: list[str]
+    ) -> None:
         result = self._capture_request(
             monkeypatch,
             MetaAdsResource.CampaignStats,
-            action_attribution_windows="7d_click, 1d_view",
+            action_attribution_windows=action_attribution_windows,
             use_unified_attribution_setting="true",
         )
 
-        # Windows are sent JSON-encoded (Meta's list-parameter shape) with surrounding whitespace
-        # trimmed; the unified-setting flag is passed through verbatim.
-        assert json.loads(result.requests[0].param("action_attribution_windows") or "null") == ["7d_click", "1d_view"]
+        # Windows are sent JSON-encoded (Meta's list-parameter shape), normalized to the values Meta
+        # accepts, with unknown ones dropped; the unified-setting flag is passed through verbatim.
+        assert json.loads(result.requests[0].param("action_attribution_windows") or "null") == expected
         assert result.requests[0].param("use_unified_attribution_setting") == "true"
 
     def test_attribution_default_sentinel_leaves_unified_setting_unset(self, monkeypatch) -> None:

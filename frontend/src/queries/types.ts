@@ -77,6 +77,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataTableStickyHeader?: boolean
     /** Override the nouns used by Data Table counts and pagination. */
     dataTableNouns?: [string, string]
+    /** Expected total row count from another source. The footer shows "X of Y" when all rows are loaded and the counts differ. */
+    dataTableExpectedTotalRows?: number
     compactDataTableToolbar?: boolean
     hideRecordingButton?: boolean
     /** Custom expandable config for DataTable rows */

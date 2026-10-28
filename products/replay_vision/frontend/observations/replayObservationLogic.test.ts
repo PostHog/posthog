@@ -382,6 +382,18 @@ describe('replayObservationLogic', () => {
         }
     })
 
+    it('leaves the scene alone when a response arrives for an observation the user has left', async () => {
+        router.actions.push(urls.replayVisionObservation('obs-2'))
+        const logic = replayObservationLogic({ id: 'obs-1' })
+        logic.mount()
+        try {
+            await expectLogic(logic).toDispatchActions(['loadObservationSuccess'])
+            expect(sceneLogic.values.observationStatus).toBeNull()
+        } finally {
+            logic.unmount()
+        }
+    })
+
     it('does not seed from a page once the scene has been left', async () => {
         lastObservationsPage.current = page(['a', 'obs-1', 'c'])
         sceneLogic.unmount()

@@ -132,6 +132,30 @@ describe('recording cleanup (integration)', () => {
             [randomUUID(), targetObservationId, thumbnail.rows[0].id, teamId],
             'fixtureMedia'
         )
+        await postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `INSERT INTO replay_vision_replayobservationanchorsimilarity
+                 (observation_id, team_id, anchor_version, similarities)
+             VALUES ($1, $2, 1, '{}'::jsonb)`,
+            [targetObservationId, teamId],
+            'fixtureAnchorSimilarity'
+        )
+        await postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `INSERT INTO replay_vision_replayobservationfeeddismissal
+                 (id, observation_id, team_id, user_id, created_at)
+             VALUES ($1, $2, $3, $4, now())`,
+            [randomUUID(), targetObservationId, teamId, userId],
+            'fixtureDismissal'
+        )
+        await postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `INSERT INTO replay_vision_replayobservationfeedimpression
+                 (id, observation_id, team_id, user_id, shown_count, last_shown_at)
+             VALUES ($1, $2, $3, $4, 1, now())`,
+            [randomUUID(), targetObservationId, teamId, userId],
+            'fixtureImpression'
+        )
         // Of the deleted recording: a system render, a person's own gif export, and an event screenshot frame.
         // Of a kept recording: one export, which must stay.
         for (const [format, isSystem, sessionId] of [
@@ -166,26 +190,19 @@ describe('recording cleanup (integration)', () => {
         expect(
             await count(`SELECT count(*) FROM replay_vision_replayobservation WHERE id = $1`, [targetObservationId])
         ).toBe(0)
-        expect(
-            await count(`SELECT count(*) FROM replay_vision_replayobservationlabel WHERE observation_id = $1`, [
-                targetObservationId,
-            ])
-        ).toBe(0)
-        expect(
-            await count(`SELECT count(*) FROM replay_vision_replayobservationview WHERE observation_id = $1`, [
-                targetObservationId,
-            ])
-        ).toBe(0)
-        expect(
-            await count(`SELECT count(*) FROM replay_vision_visionalertmatch WHERE observation_id = $1`, [
-                targetObservationId,
-            ])
-        ).toBe(0)
-        expect(
-            await count(`SELECT count(*) FROM replay_vision_replayobservationmedia WHERE observation_id = $1`, [
-                targetObservationId,
-            ])
-        ).toBe(0)
+        for (const table of [
+            'replay_vision_replayobservationlabel',
+            'replay_vision_replayobservationview',
+            'replay_vision_visionalertmatch',
+            'replay_vision_replayobservationmedia',
+            'replay_vision_replayobservationfeeddismissal',
+            'replay_vision_replayobservationfeedimpression',
+            'replay_vision_replayobservationanchorsimilarity',
+        ]) {
+            expect(await count(`SELECT count(*) FROM ${table} WHERE observation_id = $1`, [targetObservationId])).toBe(
+                0
+            )
+        }
 
         // An observation of a different recording is untouched.
         expect(

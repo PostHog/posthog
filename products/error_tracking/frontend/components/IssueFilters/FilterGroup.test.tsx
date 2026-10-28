@@ -24,6 +24,11 @@ jest.mock('lib/components/PropertyFilters/components/PropertyFilterIcon', () => 
     PropertyFilterIcon: (): JSX.Element => <span />,
 }))
 
+jest.mock('lib/components/AutoSizer', () => ({
+    AutoSizer: ({ renderProp }: { renderProp: (size: { height: number; width: number }) => React.ReactNode }) =>
+        renderProp({ height: 400, width: 400 }),
+}))
+
 const LOGIC_KEY = 'test'
 
 const firefoxFilter: EventPropertyFilter = {
@@ -155,7 +160,7 @@ describe('FilterGroup', () => {
         logic.unmount()
     })
 
-    it('opens the filter picker directly to the main category', async () => {
+    it('opens the classic filter picker', async () => {
         const logic = issueFiltersLogic({ logicKey: LOGIC_KEY })
         logic.mount()
 
@@ -169,8 +174,35 @@ describe('FilterGroup', () => {
 
         await userEvent.click(screen.getByText('Add filter'))
 
-        expect(await screen.findByText('Choose filter')).toBeInTheDocument()
-        expect(screen.queryByText('New filter…')).not.toBeInTheDocument()
+        expect(await screen.findByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
+
+        logic.unmount()
+    })
+
+    it('opens a menu with the extra rows and an entry into the classic filter picker', async () => {
+        const logic = issueFiltersLogic({ logicKey: LOGIC_KEY })
+        logic.mount()
+
+        render(
+            <Provider>
+                <BindLogic logic={issueFiltersLogic} props={{ logicKey: LOGIC_KEY }}>
+                    <FilterGroup
+                        menuItems={<span>Extra menu row</span>}
+                        renderControls={({ filterPicker }) => filterPicker}
+                    />
+                </BindLogic>
+            </Provider>
+        )
+
+        await userEvent.click(screen.getByText('Add filter'))
+
+        expect(await screen.findByText('Extra menu row')).toBeInTheDocument()
+        expect(screen.queryByTestId('taxonomic-filter-searchfield')).not.toBeInTheDocument()
+
+        const addFilterEntries = screen.getAllByText('Add filter')
+        await userEvent.click(addFilterEntries[addFilterEntries.length - 1])
+
+        expect(await screen.findByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
 
         logic.unmount()
     })
@@ -200,6 +232,7 @@ describe('FilterGroup', () => {
         const valueEditor = (await screen.findByText('Enter value...')).closest('.Popover')
         await waitFor(() => expect(valueEditor).toHaveClass('Popover--enter-active'))
         expect(screen.getByTestId('error-tracking-active-filters')).toHaveTextContent('Issue severity')
+        await waitFor(() => expect(screen.queryByTestId('taxonomic-filter-searchfield')).not.toBeInTheDocument())
 
         const inner = logic.values.filterGroup.values[0] as UniversalFiltersGroup
         expect(inner.values).toContainEqual(
@@ -239,11 +272,9 @@ describe('FilterGroup', () => {
         )
 
         await userEvent.click(screen.getByText('Add filter'))
-        const recentIssueRow = Array.from(
-            document.querySelectorAll<HTMLElement>('[data-slot="taxonomic-filter-menu-row"]')
-        ).find((row) => row.textContent?.includes('Issue severity') && row.textContent.includes('Recent'))
-        expect(recentIssueRow).toBeInTheDocument()
-        await userEvent.click(recentIssueRow as HTMLElement)
+        const recentIssueRow = await screen.findByTestId('prop-filter-recent_filters-0')
+        expect(recentIssueRow).toHaveTextContent('Issue severity')
+        await userEvent.click(recentIssueRow)
 
         const valueEditor = (await screen.findByText('Enter value...')).closest('.Popover')
         await waitFor(() => expect(valueEditor).toHaveClass('Popover--enter-active'))

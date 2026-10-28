@@ -17,10 +17,10 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Dismissal, RelatedTo, ReportLink
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.enums import ReportLinkKind
-from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact, SignalSpend
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
-from products.signals.backend.spend import record_llm_spend
+from products.signals.backend.spend import complete_signal_pipeline, finish_report_spend, record_llm_spend
 from products.signals.backend.temporal.grouping import (
     WEIGHT_THRESHOLD,
     AssignAndEmitSignalInput,
@@ -32,6 +32,7 @@ from products.signals.backend.temporal.grouping import (
     verify_match_specificity_activity,
 )
 from products.signals.backend.temporal.signal_queries import SourceSignalMatch
+from products.signals.backend.temporal.summary import MarkReportInProgressInput, mark_report_in_progress_activity
 from products.signals.backend.temporal.types import (
     ExistingReportMatch,
     MatchedMetadata,
@@ -132,7 +133,6 @@ async def test_new_match_creates_potential_report_below_threshold(ateam, patch_s
     input_ = _build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD * 0.5)
 
     await database_sync_to_async(record_llm_spend)(
-        "example-generation",
         token_cost_microusd=123_456,
         team_id=ateam.id,
         signal_id=input_.signal_id,
@@ -285,7 +285,8 @@ async def test_potential_does_not_promote_when_signals_at_run_gate_holds(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_candidate_returns_promoted_true_without_changing_status(ateam):
+@pytest.mark.parametrize("previous_pass", ["active", "completed", "accounting_failed"])
+async def test_candidate_returns_promoted_true_without_changing_status(ateam, previous_pass):
     """A new signal arriving at an already-CANDIDATE report must:
     - return promoted=True so the caller spawns a recovery workflow
     - leave status at CANDIDATE
@@ -299,9 +300,31 @@ async def test_candidate_returns_promoted_true_without_changing_status(ateam):
         total_weight=2.0,
         signal_count=3,
     )
+    await database_sync_to_async(record_llm_spend)(
+        team_id=ateam.id,
+        signal_id=str(original_driver),
+        stage="grouping",
+        token_cost_microusd=None if previous_pass == "accounting_failed" else 10000,
+    )
+    if previous_pass != "active":
+        await database_sync_to_async(finish_report_spend)(
+            team_id=ateam.id, report_id=str(report.id), signal_id=str(original_driver)
+        )
+    old_spend = await database_sync_to_async(
+        lambda: SignalSpend.objects.for_team(ateam.id).filter(signal_id=original_driver).values().get()
+    )()
     input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
+    await database_sync_to_async(record_llm_spend)(
+        team_id=ateam.id, signal_id=input_.signal_id, stage="grouping", token_cost_microusd=10_000
+    )
 
     result = await assign_and_emit_signal_activity(input_)
+    assert (
+        await database_sync_to_async(lambda: SignalSpend.objects.for_team(ateam.id).get(signal_id=input_.signal_id))()
+    ).finalized_at is None
+    await database_sync_to_async(complete_signal_pipeline)(
+        team_id=ateam.id, signal_id=input_.signal_id, report_id=result.report_id
+    )
 
     assert result.promoted is True
     refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
@@ -309,7 +332,18 @@ async def test_candidate_returns_promoted_true_without_changing_status(ateam):
     assert refreshed.total_weight == pytest.approx(2.5)
     assert refreshed.signal_count == 4
 
-    assert refreshed.triggering_signal_id == original_driver
+    expected_owner = str(original_driver) if previous_pass == "active" else input_.signal_id
+    assert str(refreshed.triggering_signal_id) == result.triggering_signal_id == expected_owner
+    assert (
+        await database_sync_to_async(
+            lambda: SignalSpend.objects.for_team(ateam.id).filter(signal_id=original_driver).values().get()
+        )()
+        == old_spend
+    )
+    incoming = await database_sync_to_async(
+        lambda: SignalSpend.objects.for_team(ateam.id).get(signal_id=input_.signal_id)
+    )()
+    assert (incoming.finalized_at is None) is (previous_pass != "active")
 
 
 @pytest.mark.asyncio
@@ -1254,7 +1288,6 @@ async def test_deleted_report_skips_counter_updates_and_marks_signal_deleted(ate
     input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
 
     await database_sync_to_async(record_llm_spend)(
-        "example-generation",
         token_cost_microusd=123_456,
         team_id=ateam.id,
         signal_id=input_.signal_id,
@@ -1431,18 +1464,26 @@ async def test_daily_limit_gate_emits_no_event_when_signal_would_not_promote(ate
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_signal_crossing_next_bucket_owns_next_research_pass(ateam):
+@pytest.mark.parametrize(
+    "source_product,exempt", [("health_checks", True), ("engineering_analytics", True), ("error_tracking", False)]
+)
+async def test_signal_crossing_next_bucket_owns_next_research_pass(ateam, source_product, exempt):
     original_driver = uuid.uuid4()
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
-        status=SignalReport.Status.IN_PROGRESS,
+        status=SignalReport.Status.CANDIDATE,
         signal_count=2,
         total_weight=2,
-        researching_signal_count=2,
         triggering_signal_id=original_driver,
     )
+    await mark_report_in_progress_activity(
+        MarkReportInProgressInput(team_id=ateam.id, report_id=str(report.id), signal_id=str(original_driver))
+    )
     for _ in range(3):
-        signal = _build_input(ateam.id, _existing_match(str(report.id)))
+        signal = _build_input(ateam.id, _existing_match(str(report.id)), source_product=source_product)
+        await database_sync_to_async(record_llm_spend)(
+            team_id=ateam.id, signal_id=signal.signal_id, stage="grouping", token_cost_microusd=100
+        )
         await assign_and_emit_signal_activity(signal)
         await database_sync_to_async(report.refresh_from_db)()
         assert report.triggering_signal_id == original_driver
@@ -1453,3 +1494,17 @@ async def test_signal_crossing_next_bucket_owns_next_research_pass(ateam):
             assert str(report.pending_triggering_signal_id) == next_driver
         else:
             assert str(report.pending_triggering_signal_id) == next_driver
+
+    await database_sync_to_async(finish_report_spend)(
+        team_id=ateam.id, report_id=str(report.id), signal_id=str(original_driver)
+    )
+    pending = await database_sync_to_async(lambda: SignalSpend.objects.for_team(ateam.id).get(signal_id=next_driver))()
+    finalized_at = pending.finalized_at
+    assert finalized_at is not None
+    assert pending.billing_exempt is exempt
+    await database_sync_to_async(complete_signal_pipeline)(
+        team_id=ateam.id, report_id=str(report.id), signal_id=next_driver, billing_exempt=exempt
+    )
+    await database_sync_to_async(pending.refresh_from_db)()
+    assert pending.finalized_at == finalized_at
+    assert pending.billing_exempt is exempt

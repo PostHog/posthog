@@ -36,6 +36,7 @@ from products.signals.backend.contracts import (
 from products.signals.backend.enums import (
     ReportTaskActionKind,
     ReviewerEditAction,
+    ReviewerRemovalReason,
     ReviewerSelectionOutcome,
     SignalSourceProduct,
     SignalSourceType,
@@ -737,6 +738,13 @@ class SignalReportAssigneeSerializer(serializers.Serializer):
     task_id = serializers.UUIDField(allow_null=True)
     agent = serializers.CharField(allow_null=True)
     claimed_at = serializers.DateTimeField(allow_null=True)
+    responsible_user = _UserSerializer(
+        allow_null=True,
+        help_text=(
+            "The person who answers for the claim: the user for a user claim, the user an MCP agent acts for, or "
+            "the user who started an internal task. Null when no person stands behind the claim."
+        ),
+    )
 
 
 class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
@@ -2100,6 +2108,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
         assignment = self._get_assignment(obj)
         if assignment is None or not assignment.actor_kind:
             return None
+        responsible = self._get_responsible_user(assignment)
         return {
             "claim_id": str(assignment.claim_id) if assignment.claim_id else None,
             "kind": assignment.actor_kind,
@@ -2107,7 +2116,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "task_id": str(assignment.actor_task_id) if assignment.actor_task_id else None,
             "agent": assignment.actor_agent,
             "claimed_at": assignment.claimed_at,
+            "responsible_user": _UserSerializer(responsible).data if responsible else None,
         }
+
+    def _get_responsible_user(self, claim: "ReportClaim") -> User | None:
+        from products.signals.backend.report_claims import responsible_user
+
+        users = self.context.get("claim_responsible_users_map")
+        return users.get(claim.claim_id) if users is not None else responsible_user(claim)
 
     def _get_assignment(self, obj: SignalReport) -> "ReportClaim | None":
         from products.signals.backend.report_claims import get_active_claim
@@ -3040,6 +3056,7 @@ class SignalReportSuggestedReviewersArtefactSerializer(SignalReportArtefactSeria
 
 class SignalReportArtefactWriteSerializer(serializers.Serializer):
     MAX_ENTRIES = 10
+    REMOVAL_NOTE_MAX_LENGTH = 500
 
     action = serializers.ChoiceField(
         choices=ReviewerEditAction.choices,
@@ -3064,11 +3081,56 @@ class SignalReportArtefactWriteSerializer(serializers.Serializer):
         max_length=MAX_ENTRIES,
         help_text="Explicit add or remove targets. When supplied, content is only a fallback for older servers.",
     )
+    removal_reason = serializers.ChoiceField(
+        choices=ReviewerRemovalReason.choices,
+        required=False,
+        help_text=(
+            "Why the people in `targets` are removed. Remove action only. 'wrong_area': the work should not be on "
+            "them, because it is outside their area, they moved off it, or someone else owns it. 'already_covered': "
+            "another reviewer already covers the report. 'unavailable': they do not have bandwidth right now. The "
+            "last two say nothing about ownership. 'other': explain in removal_note. Research and scouts read the "
+            "reason when they pick reviewers for later reports."
+        ),
+    )
+    removal_note = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=REMOVAL_NOTE_MAX_LENGTH,
+        help_text="Optional context for the removal, such as the area the person does not work on. Remove action only.",
+    )
 
     def validate(self, attrs: dict) -> dict:
         if "targets" in attrs and attrs["action"] not in {"add", "remove"}:
             raise serializers.ValidationError({"targets": "Targets require an add or remove action."})
+        attrs["removal_note"] = (attrs.get("removal_note") or "").strip() or None
+        if (attrs.get("removal_reason") or attrs["removal_note"]) and attrs["action"] != "remove":
+            raise serializers.ValidationError({"removal_reason": "A removal reason requires the remove action."})
         return attrs
+
+
+class SignalReportLeaveReviewersSerializer(serializers.Serializer):
+    removal_reason = serializers.ChoiceField(
+        choices=ReviewerRemovalReason.choices,
+        required=False,
+        help_text=(
+            "Why the user steps off. 'wrong_area': the work should not be on them, for example they moved off the "
+            "area or left the team. 'already_covered': someone else is on it. 'unavailable': they do not have "
+            "bandwidth right now. 'other': explain in removal_note. Research reads the reason when it picks "
+            "reviewers for later reports."
+        ),
+    )
+    removal_note = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=SignalReportArtefactWriteSerializer.REMOVAL_NOTE_MAX_LENGTH,
+        help_text=(
+            "The user's own words for why, such as \"I'm not on the payments team any more\". Scouts read it when "
+            "they route later reports."
+        ),
+    )
+
+    def validate_removal_note(self, value: str) -> str | None:
+        return value.strip() or None
 
 
 # Writable types only — `video_segment` (and any other NON_WRITABLE type) is read-only and rejected

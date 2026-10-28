@@ -27,20 +27,24 @@ const ANALYTICS: TodayRowIcon = {
     glyph: <IconTrends />,
 }
 
-const WORKFLOWS: TodayRowIcon = { color: 'var(--color-product-workflows-light)', glyph: <IconDecisionTree /> }
+const REPLAY: TodayRowIcon = { color: 'var(--color-product-session-replay-light)', glyph: <IconRewindPlay /> }
 
-const HIGHLIGHT_ICONS: Record<string, TodayRowIcon> = {
+const PRODUCT_ICONS: Record<string, TodayRowIcon> = {
     alerts: { color: 'var(--color-product-alerts-light)', glyph: <IconBell /> },
-    errors: { color: 'var(--color-product-error-tracking-light)', glyph: <IconWarning /> },
+    conversations: { color: 'var(--color-product-support-light)', glyph: <IconSupport /> },
+    error_tracking: { color: 'var(--color-product-error-tracking-light)', glyph: <IconWarning /> },
     experiments: { color: 'var(--color-product-experiments-light)', glyph: <IconFlask /> },
-    flags: { color: 'var(--color-product-feature-flags-light)', glyph: <IconToggle /> },
-    rage: { color: 'var(--color-product-session-replay-light)', glyph: <IconRewindPlay /> },
+    feature_flags: { color: 'var(--color-product-feature-flags-light)', glyph: <IconToggle /> },
+    replay: REPLAY,
     surveys: { color: 'var(--color-product-surveys-light)', glyph: <IconMessage /> },
-    ticket_sla: { color: 'var(--color-product-support-light)', glyph: <IconSupport /> },
-    warehouse_model_suggestions: { color: 'var(--color-product-data-warehouse-light)', glyph: <IconDatabase /> },
-    warehouse_syncs: { color: 'var(--color-product-data-warehouse-light)', glyph: <IconDatabase /> },
-    workflow_ideas: WORKFLOWS,
-    workflows: WORKFLOWS,
+    warehouse_sources: { color: 'var(--color-product-data-warehouse-light)', glyph: <IconDatabase /> },
+    warehouse_suggestions: { color: 'var(--color-product-data-warehouse-light)', glyph: <IconDatabase /> },
+    workflows: { color: 'var(--color-product-workflows-light)', glyph: <IconDecisionTree /> },
+}
+
+// Rage clicks come from web analytics, but the row opens the recordings.
+const SOURCE_ICONS: Record<string, TodayRowIcon> = {
+    rage: REPLAY,
 }
 
 function sourceIcon(source: string | null | undefined): TodayRowIcon {
@@ -53,6 +57,6 @@ export function reportIcon(report: Pick<SignalReport, 'source_products'>): Today
     return sourceIcon(report.source_products?.[0])
 }
 
-export function highlightIcon(item: Pick<HighlightItemApi, 'source'>): TodayRowIcon {
-    return HIGHLIGHT_ICONS[item.source] ?? ANALYTICS
+export function highlightIcon(item: Pick<HighlightItemApi, 'source' | 'product'>): TodayRowIcon {
+    return SOURCE_ICONS[item.source] ?? (item.product ? PRODUCT_ICONS[item.product] : undefined) ?? ANALYTICS
 }
