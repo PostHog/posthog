@@ -95,7 +95,7 @@ def merge_queue_push_would_eject(github_integration: GitHubIntegration | UserGit
 
 
 def get_github_integration(github_integration_id: int) -> GitHubIntegration:
-    integration = Integration.objects.get(id=github_integration_id)
+    integration = Integration.objects.with_auth(Integration.AuthType.APP).get(id=github_integration_id)
     github_integration = GitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
 
     if github_integration.access_token_expired():

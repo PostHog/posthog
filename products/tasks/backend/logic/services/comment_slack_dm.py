@@ -85,7 +85,8 @@ def send_comment_slack_dms(
         return _skip(comment_id, "no_enabled_recipient")
 
     integrations = list(
-        Integration.objects.filter(team_id=team_id, kind=Integration.IntegrationKind.SLACK)
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .filter(team_id=team_id, kind=Integration.IntegrationKind.SLACK)
         .exclude(integration_id__isnull=True)
         .exclude(integration_id="")
         .order_by("id")

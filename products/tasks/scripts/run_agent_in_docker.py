@@ -60,7 +60,7 @@ def create_test_task(repository=None):
             feature_flag.active = True
             feature_flag.save()
 
-        github_integration, _ = Integration.objects.get_or_create(
+        github_integration, _ = Integration.objects.with_auth(Integration.AuthType.APP).get_or_create(
             team=team, kind="github", defaults={"config": {"organization": org, "repositories": [repo]}}
         )
 

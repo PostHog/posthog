@@ -199,7 +199,7 @@ def _resolve_build_github_token(team_id: int) -> str | None:
 
     from products.tasks.backend.temporal.create_snapshot.utils import get_github_token  # noqa: PLC0415
 
-    integration = Integration.objects.filter(team_id=team_id, kind="github").first()
+    integration = Integration.objects.with_auth(Integration.AuthType.APP).filter(team_id=team_id, kind="github").first()
     if integration is None:
         return None
     try:

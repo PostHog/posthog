@@ -102,7 +102,9 @@ async def resolve_multiple_repositories(issue) -> list[RepositoryContext]:
             continue
 
         try:
-            integration = await Integration.objects.aget(id=integration_id, kind="github")
+            integration = await Integration.objects.with_auth(Integration.AuthType.APP).aget(
+                id=integration_id, kind="github"
+            )
             resolved_repos.append(
                 RepositoryContext(integration=integration, repository=repo, organization=org, is_primary=is_primary)
             )
@@ -206,7 +208,11 @@ async def get_primary_repository(issue) -> Optional[RepositoryContext]:
 async def _get_team_github_integration(team_id: int) -> Optional[Integration]:
     """Get the team's first GitHub integration"""
     try:
-        return await Integration.objects.filter(team_id=team_id, kind="github").afirst()
+        return (
+            await Integration.objects.with_auth(Integration.AuthType.APP)
+            .filter(team_id=team_id, kind="github")
+            .afirst()
+        )
     except Integration.DoesNotExist:
         return None
 
@@ -216,7 +222,9 @@ async def _get_allowed_integrations_for_smart_select(issue, constraints: dict) -
     allowed_orgs = constraints.get("organizations", [])
 
     integrations = []
-    async for integration in Integration.objects.filter(team_id=issue.team_id, kind="github"):
+    async for integration in Integration.objects.with_auth(Integration.AuthType.APP).filter(
+        team_id=issue.team_id, kind="github"
+    ):
         github = GitHubIntegration(integration, source="tasks", priority=Priority.CRITICAL)
         org = github.organization()
 

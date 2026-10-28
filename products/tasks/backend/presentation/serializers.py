@@ -799,7 +799,7 @@ class TaskWriteSerializer(serializers.Serializer):
         help_text="GitHub repositories available to this task, each in `organization/repo` format.",
     )
     github_integration = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.filter(kind="github"),
+        queryset=Integration.objects.with_auth(Integration.AuthType.APP).filter(kind="github"),
         required=False,
         allow_null=True,
         help_text="GitHub integration for this task.",
@@ -815,7 +815,7 @@ class TaskWriteSerializer(serializers.Serializer):
     # (team scope is enforced by validate_signal_report below). Bound lazily in __init__ so
     # importing this module never touches the signals model.
     signal_report = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.none(),
+        queryset=Integration.objects.with_auth(Integration.AuthType.APP).none(),
         required=False,
         allow_null=True,
         help_text="Signal report this task implements, when created from a report.",
@@ -940,7 +940,7 @@ class TaskWriteSerializer(serializers.Serializer):
         ),
     )
     channel = TeamScopedPrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.none(),
+        queryset=Integration.objects.with_auth(Integration.AuthType.APP).none(),
         required=False,
         allow_null=True,
         help_text="Channel this task is owned by (the channel it was kicked off in).",
@@ -2636,7 +2636,7 @@ class ChannelUpdateSerializer(serializers.Serializer):
         help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed.",
     )
     github_integration = TeamScopedPrimaryKeyRelatedField(
-        queryset=Integration.objects.filter(kind="github"),
+        queryset=Integration.objects.with_auth(Integration.AuthType.APP).filter(kind="github"),
         required=False,
         allow_null=True,
         help_text="Team GitHub integration used for repositories linked to this channel.",
@@ -4146,7 +4146,7 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         ),
     )
     signal_report = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.none(),
+        queryset=Integration.objects.with_auth(Integration.AuthType.APP).none(),
         required=False,
         default=None,
         allow_null=True,

@@ -31,7 +31,11 @@ def is_slack_app_agent_design_enabled_for_task_activity(
     from products.tasks.backend.models import TaskRun
 
     try:
-        integration = Integration.objects.select_related("team", "team__organization").get(id=input.integration_id)
+        integration = (
+            Integration.objects.with_auth(Integration.AuthType.OAUTH)
+            .select_related("team", "team__organization")
+            .get(id=input.integration_id)
+        )
     except Integration.DoesNotExist:
         logger.warning("slack_app_agent_design_integration_missing", integration_id=input.integration_id)
         enabled = False

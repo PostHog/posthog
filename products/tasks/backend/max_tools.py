@@ -79,7 +79,9 @@ By default, the task will be created and immediately executed. Set run=false to 
         @sync_to_async
         @transaction.atomic
         def create_task_and_maybe_run():
-            github_integration = Integration.objects.filter(team=self._team, kind="github").first()
+            github_integration = (
+                Integration.objects.with_auth(Integration.AuthType.APP).filter(team=self._team, kind="github").first()
+            )
 
             task = Task.objects.create(
                 team=self._team,
@@ -555,7 +557,9 @@ Use this tool when the user wants to:
 
         @sync_to_async
         def get_repositories():
-            integrations = Integration.objects.filter(team=self._team, kind="github")
+            integrations = Integration.objects.with_auth(Integration.AuthType.APP).filter(
+                team=self._team, kind="github"
+            )
 
             all_repos: list[dict[str, str]] = []
 

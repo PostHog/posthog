@@ -1308,7 +1308,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         github_integration = None
         if github_resolution_allowed:
             github_integration = (
-                Integration.objects.filter(team=team, kind="github")
+                Integration.objects.with_auth(Integration.AuthType.APP)
+                .filter(team=team, kind="github")
                 .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
                 .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
                 .first()

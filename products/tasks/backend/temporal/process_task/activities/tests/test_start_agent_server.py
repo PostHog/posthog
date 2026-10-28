@@ -618,8 +618,8 @@ def _mock_github_integration(mocker, pr_base: str | None):
     integration.access_token_expired.return_value = False
     integration.get_open_pr_base_for_head.return_value = pr_base
     mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.get",
-        return_value=mocker.Mock(),
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.with_auth",
+        return_value=mocker.Mock(get=mocker.Mock(return_value=mocker.Mock())),
     )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.GitHubIntegration",
@@ -721,12 +721,12 @@ def test_resolve_protected_base_branch_for_stacked_run(mocker, stack_base_branch
 
 
 def test_resolve_protected_base_skips_lookup_without_repository(mocker) -> None:
-    get = mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.get",
+    with_auth = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.with_auth",
     )
     context = _context(github_integration_id=42, repository=None, branch="some-branch")
     assert _resolve_protected_base_branch(context) is None
-    get.assert_not_called()
+    with_auth.assert_not_called()
 
 
 def _mock_prepare_launch_dependencies(mocker) -> None:
@@ -779,7 +779,10 @@ def test_prepare_launch_resolves_protected_base_branch_alongside_preparation(
     prefix = "products.tasks.backend.temporal.process_task.activities.start_agent_server"
     _mock_prepare_launch_dependencies(mocker)
     if lookup_error is not None:
-        mocker.patch(f"{prefix}.Integration.objects.get", side_effect=lookup_error)
+        mocker.patch(
+            f"{prefix}.Integration.objects.with_auth",
+            return_value=mocker.Mock(get=mocker.Mock(side_effect=lookup_error)),
+        )
     else:
         integration = _mock_github_integration(mocker, pr_base=pr_base)
     if lookup_hangs:
@@ -799,8 +802,8 @@ def test_prepare_launch_resolves_protected_base_branch_alongside_preparation(
 
 def test_resolve_protected_base_falls_back_to_branch_on_error(mocker) -> None:
     mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.get",
-        side_effect=RuntimeError("boom"),
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.with_auth",
+        return_value=mocker.Mock(get=mocker.Mock(side_effect=RuntimeError("boom"))),
     )
     context = _context(github_integration_id=42, repository="PostHog/posthog", branch="posthog-code/fix")
     assert _resolve_protected_base_branch(context) == "posthog-code/fix"

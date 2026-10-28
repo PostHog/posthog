@@ -11,7 +11,11 @@ def inaccessible_repositories_via_integration(
     team_id: int, integration_id: int, full_names: Iterable[str]
 ) -> list[str]:
     names = list(full_names)
-    integration = Integration.objects.filter(team_id=team_id, kind="github", id=integration_id).first()
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.APP)
+        .filter(team_id=team_id, kind="github", id=integration_id)
+        .first()
+    )
     if integration is None:
         return names
     try:

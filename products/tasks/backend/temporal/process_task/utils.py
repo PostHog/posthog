@@ -1065,7 +1065,9 @@ def installation_confirms_repository_denied(github_integration: GitHubIntegratio
 
 
 def resolve_installation_github_integration(github_integration_id: int) -> GitHubIntegration | None:
-    integration = Integration.objects.filter(id=github_integration_id, kind="github").first()
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.APP).filter(id=github_integration_id, kind="github").first()
+    )
     if integration is None:
         return None
     return GitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
@@ -1095,7 +1097,7 @@ def _mint_repository_scoped_token(github_integration: GitHubIntegrationBase, rep
 
 
 def get_github_token(github_integration_id: int, repositories: Sequence[str] = ()) -> Optional[str]:
-    integration = Integration.objects.get(id=github_integration_id)
+    integration = Integration.objects.with_auth(Integration.AuthType.APP).get(id=github_integration_id)
     github_integration = GitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
 
     if github_integration.installation_unavailable():

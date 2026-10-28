@@ -6298,7 +6298,9 @@ def user_has_usable_personal_github(user_id: int) -> bool:
 def _ensure_task_team_github_integration(task: Task) -> bool:
     if task.github_integration_id is not None:
         return True
-    github_integration = Integration.objects.filter(team_id=task.team_id, kind="github").first()
+    github_integration = (
+        Integration.objects.with_auth(Integration.AuthType.APP).filter(team_id=task.team_id, kind="github").first()
+    )
     if github_integration is None:
         return False
     task.github_integration = github_integration
@@ -7894,7 +7896,9 @@ def create_task(
         validated_data["created_by"] = User.objects.get(id=user_id)
 
     if validated_data.get("repository") and not validated_data.get("github_integration"):
-        default_integration = Integration.objects.filter(team=team, kind="github").first()
+        default_integration = (
+            Integration.objects.with_auth(Integration.AuthType.APP).filter(team=team, kind="github").first()
+        )
         if default_integration:
             validated_data["github_integration"] = default_integration
 
@@ -8107,7 +8111,9 @@ def create_task(
         and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
     )
     if (validated_data.get("repository") or entitled_report_task) and not validated_data.get("github_integration"):
-        default_integration = Integration.objects.filter(team=team, kind="github").first()
+        default_integration = (
+            Integration.objects.with_auth(Integration.AuthType.APP).filter(team=team, kind="github").first()
+        )
         if default_integration:
             validated_data["github_integration"] = default_integration
 
@@ -8575,7 +8581,11 @@ def resolve_team_github_integration_id(team_id: int, github_integration_id: int)
     no serializer team context. Returns ``None`` for any id that doesn't belong to the team —
     the caller treats that as "skip warming" (the submit later falls through to a cold create+run).
     """
-    exists = Integration.objects.filter(id=github_integration_id, team_id=team_id, kind="github").exists()
+    exists = (
+        Integration.objects.with_auth(Integration.AuthType.APP)
+        .filter(id=github_integration_id, team_id=team_id, kind="github")
+        .exists()
+    )
     return github_integration_id if exists else None
 
 
@@ -8974,7 +8984,7 @@ def _activate_warm_run(
 def _report_task_github_integration_id(team: Team, *, code_access_allowed: bool) -> int | None:
     if not code_access_allowed:
         return None
-    integration = Integration.objects.filter(team=team, kind="github").first()
+    integration = Integration.objects.with_auth(Integration.AuthType.APP).filter(team=team, kind="github").first()
     return integration.id if integration is not None else None
 
 
@@ -9092,9 +9102,11 @@ def warm_task_sandbox(
         github_integration_id = _report_task_github_integration_id(team, code_access_allowed=code_access_allowed)
     github_integration = None
     if github_integration_id is not None:
-        github_integration = Integration.objects.filter(
-            id=github_integration_id, team_id=team_id, kind="github"
-        ).first()
+        github_integration = (
+            Integration.objects.with_auth(Integration.AuthType.APP)
+            .filter(id=github_integration_id, team_id=team_id, kind="github")
+            .first()
+        )
     # An integration id that does not resolve to this team's GitHub integration is never warmed on, and
     # a repository cannot be cloned without one. An integration without a repository is fine: the
     # create path stores that pair too, and reuse matches on the integration id.
@@ -10157,7 +10169,8 @@ def resolve_slack_thread_context(
         # when the team maps to a single Slack workspace — with several, the guess
         # could point at another workspace's workflow.
         workspace_ids = list(
-            Integration.objects.filter(team_id=team_id, kind="slack")
+            Integration.objects.with_auth(Integration.AuthType.OAUTH)
+            .filter(team_id=team_id, kind="slack")
             .values_list("integration_id", flat=True)
             .distinct()[:2]
         )

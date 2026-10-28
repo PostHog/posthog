@@ -142,7 +142,8 @@ def resolve_team_github_integration(
     team installation's bot identity — a personal connection is a cross-account leak there.
     """
     integration = (
-        Integration.objects.filter(team_id=team_id, kind="github")
+        Integration.objects.with_auth(Integration.AuthType.APP)
+        .filter(team_id=team_id, kind="github")
         # Skip integrations whose installation has been synced and confirmed empty (0 repos)
         .exclude(repository_cache=[], repository_cache_updated_at__isnull=False)
         # Skip installs whose token refresh is permanently failing (uninstalled/suspended on
@@ -182,7 +183,8 @@ def resolve_team_github_integration(
 
 async def _github_reconnect_required(team_id: int) -> bool:
     if (
-        await Integration.objects.filter(team_id=team_id, kind="github")
+        await Integration.objects.with_auth(Integration.AuthType.APP)
+        .filter(team_id=team_id, kind="github")
         .filter(Q(errors=ERROR_TOKEN_REFRESH_FAILED) | Q(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY))
         .aexists()
     ):

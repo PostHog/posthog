@@ -35,7 +35,11 @@ def create_sandbox(input: CreateSandboxInput) -> CreateSandboxOutput:
     ):
         github_token = get_github_token(ctx.github_integration_id) or ""
 
-        integration = Integration.objects.select_related("created_by").get(id=ctx.github_integration_id)
+        integration = (
+            Integration.objects.with_auth(Integration.AuthType.APP)
+            .select_related("created_by")
+            .get(id=ctx.github_integration_id)
+        )
         access_token = create_oauth_access_token_for_user(integration.created_by, ctx.team_id)
 
         environment_variables = {

@@ -151,7 +151,7 @@ def _resolve_protected_base_branch(ctx: TaskProcessingContext) -> str | None:
         integration: GitHubIntegration | UserGitHubIntegration
         if ctx.github_integration_id:
             integration = GitHubIntegration(
-                Integration.objects.get(id=ctx.github_integration_id),
+                Integration.objects.with_auth(Integration.AuthType.APP).get(id=ctx.github_integration_id),
                 source="tasks_sandbox",
                 priority=Priority.CRITICAL,
             )

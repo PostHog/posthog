@@ -374,7 +374,7 @@ def compute_repository_readiness(
     repository = _normalize_repo_key(repository)
     window_days = min(max(window_days, 1), MAX_WINDOW_DAYS)
 
-    integration = Integration.objects.filter(team=team, kind="github").first()
+    integration = Integration.objects.with_auth(Integration.AuthType.APP).filter(team=team, kind="github").first()
     if not integration:
         not_ready = _capability_state("GitHub integration is not connected.", "needs_setup")
         return {

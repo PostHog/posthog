@@ -20,7 +20,7 @@ def resolve_sandbox_context_for_local_dev(repository: str) -> CustomPromptSandbo
         raise RuntimeError(f"No users in organization '{team.organization.name}' (team {team.id})")
     user = membership.user
     # Validate the integration exists upfront so we fail early with a clear message.
-    gh = Integration.objects.filter(team=team, kind="github").first()
+    gh = Integration.objects.with_auth(Integration.AuthType.APP).filter(team=team, kind="github").first()
     if not gh:
         raise RuntimeError(
             f"No GitHub integration found for team {team.id}. "

@@ -5,7 +5,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 
 
 def get_github_token(github_integration_id: int) -> Optional[str]:
-    integration = Integration.objects.get(id=github_integration_id)
+    integration = Integration.objects.with_auth(Integration.AuthType.APP).get(id=github_integration_id)
     github_integration = GitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
 
     if github_integration.access_token_expired():

@@ -213,7 +213,7 @@ class TestComputeRepositoryReadiness(TestCase):
         integration = MagicMock()
         integration.id = 1
         integration.sensitive_config = {}
-        mock_integration_cls.objects.filter.return_value.first.return_value = integration
+        mock_integration_cls.objects.with_auth.return_value.filter.return_value.first.return_value = integration
 
         result = compute_repository_readiness(team=self.team, repository="org/repo")
         assert result["overall"] == "unknown"
@@ -223,7 +223,7 @@ class TestComputeRepositoryReadiness(TestCase):
         integration.id = 1
         integration.kind = "github"
         integration.sensitive_config = {"access_token": "ghp_test"}
-        mock_integration_cls.objects.filter.return_value.first.return_value = integration
+        mock_integration_cls.objects.with_auth.return_value.filter.return_value.first.return_value = integration
         return integration
 
     @patch("products.tasks.backend.repository_readiness._scan_repository")

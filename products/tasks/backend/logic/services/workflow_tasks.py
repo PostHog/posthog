@@ -610,11 +610,17 @@ def _resolve_slack_binding(team_id: int, ctx: contracts.WorkflowTaskSlackContext
     """Team-scoped on purpose: the team filter is what stops a token binding another team's threads."""
     if ctx is None:
         return None
-    integration = Integration.objects.filter(id=ctx.integration_id, team_id=team_id, kind="slack").first()
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .filter(id=ctx.integration_id, team_id=team_id, kind="slack")
+        .first()
+    )
     if integration is None and ctx.slack_team_id:
-        integration = Integration.objects.filter(
-            team_id=team_id, kind="slack", integration_id=ctx.slack_team_id
-        ).first()
+        integration = (
+            Integration.objects.with_auth(Integration.AuthType.OAUTH)
+            .filter(team_id=team_id, kind="slack", integration_id=ctx.slack_team_id)
+            .first()
+        )
     if integration is None:
         logger.warning(
             "workflow_task_slack_bind_no_integration",

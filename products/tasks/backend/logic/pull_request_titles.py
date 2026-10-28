@@ -61,7 +61,11 @@ def _github_for_task(task: Task, team_id: int, user_id: int) -> GitHubIntegratio
         return UserGitHubIntegration(user_integration, source="tasks", priority=Priority.NORMAL)
     if not task.github_integration_id:
         return None
-    integration = Integration.objects.filter(team_id=team_id, kind="github", id=task.github_integration_id).first()
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.APP)
+        .filter(team_id=team_id, kind="github", id=task.github_integration_id)
+        .first()
+    )
     if integration is None:
         return None
     github = GitHubIntegration(integration, source="tasks", priority=Priority.NORMAL)
