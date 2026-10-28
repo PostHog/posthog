@@ -6,6 +6,7 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 
 from products.access_control.backend.models.role import Role
+from products.approvals.backend.actions.registry import get_action
 from products.approvals.backend.experiment_policy_sync import SYNCED_ACTION_KEYS
 from products.approvals.backend.models import Approval, ApprovalPolicy, ChangeRequest, ChangeRequestState
 from products.approvals.backend.ownership import scope_by_owner_enabled
@@ -252,6 +253,12 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
     def validate_action_key(self, value: str) -> str:
         if value in SYNCED_ACTION_KEYS and not scope_by_owner_enabled(self.context["view"].organization):
             raise serializers.ValidationError("This approval action isn't available yet.")
+        action = get_action(value)
+        if action is not None and not action.accepts_own_policy:
+            raise serializers.ValidationError(
+                "This action has no policy of its own. "
+                f"Edit the policy for {', '.join(action.fallback_policy_action_keys)} instead."
+            )
         return value
 
     def validate_approver_config(self, value):

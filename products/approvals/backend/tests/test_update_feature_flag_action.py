@@ -1055,6 +1055,28 @@ class TestReleaseConditionGating(APIBaseTest):
         landed = flag.filters["groups"][0]["properties"][0]["value"] == ["b@example.com"]
         assert landed is (expected_status == 200)
 
+    def test_enabling_and_retargeting_an_experiment_flag_in_one_save_conflicts(self, _mock_enabled: MagicMock):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="experiment-flag",
+            active=False,
+            filters={"groups": [{"properties": [self.EMAIL_FILTER], "rollout_percentage": 100}]},
+            created_by=self.user,
+        )
+        Experiment.objects.create(team=self.team, name="exp", feature_flag=flag, start_date=timezone.now())
+        self._create_policies([("experiment.launch", {}), ("experiment.update", {})])
+        edited_filter = {**self.EMAIL_FILTER, "value": ["b@example.com"]}
+        body = {"active": True, "filters": {"groups": [{"properties": [edited_filter], "rollout_percentage": 100}]}}
+
+        with patch("products.approvals.backend.ownership.scope_by_owner_state", return_value=True):
+            response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", body, format="json")
+
+        assert response.status_code == 400, response.json()
+        assert response.json()["code"] == "policy_conflict"
+        assert self._change_request_keys() == []
+        flag.refresh_from_db()
+        assert (flag.active, flag.filters["groups"][0]["properties"][0]["value"]) == (False, ["a@example.com"])
+
     @parameterized.expand(
         [
             ("unchanged", False, 200, []),

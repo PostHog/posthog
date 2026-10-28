@@ -523,12 +523,27 @@ class EnterpriseExperimentsViewSet(
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if is_scout_sandbox_request(request) and isinstance(request.data, Mapping):
             self._check_scout_update(request)
+        if self._is_reset_through_update(request):
+            return self.reset(request, *args, **kwargs)
         # Structured 409 body ({detail, current_version, conflicting_*}) so clients can refetch
         # and retry precisely; the default exception handler would flatten it to a plain string.
         try:
             return super().update(request, *args, **kwargs)
         except ExperimentVersionConflict as err:
             return Response(err.response_data(), status=err.status_code)
+
+    def _is_reset_through_update(self, request: Request) -> bool:
+        """Whether this update only clears the start date of a launched experiment.
+
+        An update that also changes anything else is left to the service, which refuses it.
+        """
+        data = request.data
+        if not isinstance(data, Mapping) or "start_date" not in data or data["start_date"] is not None:
+            return False
+        if set(data) - {"start_date", "end_date"} or data.get("end_date") is not None:
+            return False
+        experiment: Experiment = self.get_object()
+        return not experiment.is_draft
 
     def _check_scout_update(self, request: Request) -> None:
         # The API has no hard delete, so `deleted: true` on an update is the delete a scout must not make.

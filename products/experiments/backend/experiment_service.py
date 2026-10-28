@@ -2351,7 +2351,9 @@ class ExperimentService:
         if blocker is not None:
             raise ValidationError(_FREEZE_EXPOSURE_BLOCKER_MESSAGES[blocker])
 
-    def _fetch_exposed_person_uuids(self, experiment: Experiment) -> list[str]:
+    def _fetch_exposed_person_uuids(
+        self, experiment: Experiment, *, limit: int = FREEZE_EXPOSURE_MAX_EXPOSED_USERS + 1
+    ) -> list[str]:
         """Return the UUIDs of persons already exposed to the experiment, bounded by time and count.
 
         Runs a synchronous scan of the experiment's exposure events, honoring
@@ -2405,7 +2407,7 @@ class ExperimentService:
             distinct=True,
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(exprs=conditions),
-            limit=ast.Constant(value=FREEZE_EXPOSURE_MAX_EXPOSED_USERS + 1),
+            limit=ast.Constant(value=limit),
         )
         try:
             with tags_context(
@@ -2444,6 +2446,10 @@ class ExperimentService:
             )
 
         return [str(row[0]) for row in response.results]
+
+    def has_exposed_users(self, experiment: Experiment) -> bool:
+        """Whether anyone has been exposed to the running experiment, by the same rules a freeze snapshots with."""
+        return bool(self._fetch_exposed_person_uuids(experiment, limit=1))
 
     def _resolve_exposed_persons(self, person_uuids: list[str]) -> list[tuple[int, str]]:
         """Resolve exposed person UUIDs to (person_id, uuid) pairs, failing closed when a
@@ -3970,6 +3976,13 @@ class ExperimentService:
         feature_flag_config: dict | None = None,
     ) -> None:
         """Validate update payload before any database mutations occur."""
+        # A reset clears the start date with the end date, conclusion and freeze, behind its own approval.
+        if not experiment.is_draft and "start_date" in update_data and update_data["start_date"] is None:
+            raise ValidationError(
+                "To return a launched experiment to draft, reset it on its own: "
+                f"POST /api/projects/{experiment.team_id}/experiments/{experiment.id}/reset/"
+            )
+
         # Prevent restoring a deleted experiment if the linked feature flag is also deleted
         if experiment.deleted and update_data.get("deleted") is False and feature_flag.deleted:
             raise ValidationError(

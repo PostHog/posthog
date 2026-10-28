@@ -7,11 +7,12 @@ from typing import Any, Literal, Optional, Union
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
+from django.http import Http404
 from django.utils import timezone
 
 from prometheus_client import Counter
 from rest_framework import status
-from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from posthog.constants import AvailableFeature
@@ -246,7 +247,8 @@ def _build_context(view_or_serializer, team, organization, request) -> dict[str,
 
 def _extract_resource_id(request, args: tuple, kwargs: dict) -> Optional[str]:
     """Extract resource ID from request context."""
-    if request.method == "POST":
+    # A POST to a detail route still targets the resource its URL names.
+    if request.method == "POST" and not kwargs.get("pk"):
         return None
     if args and hasattr(args[0], "id"):
         return str(args[0].id)
@@ -586,6 +588,9 @@ def approval_gate(action_refs: Union[type, str, list]):
                         policy = _check_policy_for_action(action_class, team, organization)
                         if policy and _policy_conditions_match(action_class, policy, request, self, args, kwargs):
                             matches.append((action_class, policy))
+                except (Http404, NotFound, PermissionDenied, NotAuthenticated):
+                    # The view's own lookup refused the request, which is the answer, not a detection failure.
+                    raise
                 except Exception as e:
                     logger.error(
                         "Error in action detect()",

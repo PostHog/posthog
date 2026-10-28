@@ -227,6 +227,19 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
         # paused). The group stamps survive, so resuming lands back in the frozen state.
         if not self.feature_flag.active:
             return False
+        return self.flag_carries_exposure_freeze
+
+    @property
+    def flag_carries_exposure_freeze(self) -> bool:
+        """Whether the linked flag is narrowed to an exposure snapshot, whether or not it is active.
+
+        A paused experiment keeps the narrowing, and resuming it lands back in the frozen state, so
+        the question "is the exposure still frozen" must not read a pause as an unfreeze.
+        """
+        # django-stubs types the id as int, but an unsaved instance can carry None.
+        feature_flag_id: int | None = self.feature_flag_id
+        if feature_flag_id is None:
+            return False
         # Enrollment is closed only when EVERY release group is stamped, so that add/edit groups
         # surfaces as the experiment reverting to "running".
         return groups_carry_restriction_marker(self.feature_flag.filters or {}, marker_key=EXPOSURE_FROZEN_GROUP_KEY)
