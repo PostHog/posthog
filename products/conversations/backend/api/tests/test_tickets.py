@@ -43,12 +43,10 @@ from posthog.test.persons import create_person
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role
 from products.conversations.backend import reply_dedupe
-from products.conversations.backend.api.ticket_brief import TicketBriefSerializer
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
 from products.conversations.backend.api.tickets import (
     ComposeTicketSerializer,
     TicketReplyRequestSerializer,
-    TicketUpdateRequestSerializer,
     TicketViewSet,
 )
 from products.conversations.backend.models import (
@@ -68,7 +66,8 @@ from products.conversations.backend.reply_dedupe import (
     ReplyFingerprint,
     reserve,
 )
-from products.conversations.backend.temporal.ai_reply.schemas import WriteBriefOutput
+from products.conversations.backend.ticket_brief.schema import TicketBriefSerializer
+from products.conversations.backend.ticket_brief.writer import BriefOutcome
 
 from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
 
@@ -160,26 +159,15 @@ class TestTicketBriefSerializer(SimpleTestCase):
             ("empty_object", {}, ["area", "ask", "questions"]),
         ]
     )
-    def test_patch_rejects_a_brief_missing_a_required_field(
+    def test_rejects_a_brief_missing_a_required_field(
         self, _name: str, brief: dict[str, Any], expected_missing: list[str]
     ) -> None:
-        # A PATCH makes the parent serializer partial, and DRF propagates that into the nested
-        # brief, so `required` alone stops being enforced. A brief with no ask then reaches the
-        # sidebar, where rendering it throws and takes the whole ticket scene down.
-        serializer = TicketUpdateRequestSerializer(data={"ticket_brief": brief}, partial=True)
+        # The writer validates what the model produced, so an incomplete brief has to be
+        # rejected before it is stored. A brief with no ask reaches the sidebar otherwise,
+        # where rendering it throws and takes the whole ticket scene down.
+        serializer = TicketBriefSerializer(data=brief)
         assert not serializer.is_valid()
-        assert sorted(serializer.errors["ticket_brief"]) == expected_missing
-
-    @parameterized.expand([("no_url", {"kind": "insight", "label": "Conversion"}), ("only_kind", {"kind": "insight"})])
-    def test_patch_rejects_an_affected_item_missing_a_required_field(self, _name: str, item: dict[str, Any]) -> None:
-        # The partial flag reaches the item through the ListField as well, so an item needs the
-        # same check as the brief around it. Without one, a PATCH stores an item with no url and
-        # the panel renders it as a link that goes nowhere.
-        serializer = TicketUpdateRequestSerializer(
-            data={"ticket_brief": self._brief(affected_items=[item])}, partial=True
-        )
-        assert not serializer.is_valid()
-        assert "affected_items" in serializer.errors["ticket_brief"]
+        assert sorted(serializer.errors) == expected_missing
 
     def test_accepts_a_brief_with_no_purpose(self) -> None:
         # The common shape: the customer said what they want, not why. Requiring purpose
@@ -187,12 +175,6 @@ class TestTicketBriefSerializer(SimpleTestCase):
         serializer = TicketBriefSerializer(data=self._brief())
         assert serializer.is_valid(), serializer.errors
         assert "purpose" not in serializer.validated_data
-
-    def test_patch_clears_the_brief_with_an_explicit_null(self) -> None:
-        # Rejecting an incomplete brief would otherwise leave no way to remove a wrong one.
-        serializer = TicketUpdateRequestSerializer(data={"ticket_brief": None}, partial=True)
-        assert serializer.is_valid(), serializer.errors
-        assert serializer.validated_data["ticket_brief"] == {}
 
     def test_accepts_a_full_brief(self) -> None:
         serializer = TicketBriefSerializer(
@@ -528,13 +510,6 @@ class TestTicketAPI(APIBaseTest):
         [
             ("status", Status.RESOLVED, Status.RESOLVED),
             ("priority", Priority.HIGH, Priority.HIGH),
-            # The brief's own validation is covered without a database in TestTicketBriefSerializer.
-            # This case is the wiring guard: the viewset reaches that serializer and stores the result.
-            (
-                "ticket_brief",
-                {"ask": "Raise the ingestion limit.", "area": "Billing", "questions": []},
-                {"ask": "Raise the ingestion limit.", "area": "Billing", "questions": []},
-            ),
         ]
     )
     def test_update_ticket_field(self, mock_on_commit, field_name, update_value, expected_response_value):
@@ -547,6 +522,23 @@ class TestTicketAPI(APIBaseTest):
 
         self.ticket.refresh_from_db()
         self.assertEqual(getattr(self.ticket, field_name), expected_response_value)
+
+    def test_a_patch_cannot_write_the_ticket_brief(self, mock_on_commit):
+        # The brief is written by the reply pipeline and the staff endpoint, never by the
+        # customer-facing PATCH. Accepting it there reopened a defect twice: DRF makes a nested
+        # serializer partial along with its parent, so an incomplete brief passed validation and
+        # reached the sidebar, where rendering it threw and took the ticket scene down.
+        self.ticket.ticket_brief = {"ask": "Written by the pipeline.", "area": "Billing", "questions": []}
+        self.ticket.save(update_fields=["ticket_brief"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"ticket_brief": {"ask": "Injected by a client.", "area": "Billing", "questions": []}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.ticket_brief["ask"], "Written by the pipeline.")
 
     @parameterized.expand(
         [
@@ -1137,23 +1129,24 @@ class TestWriteBriefEndpoint(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(helper.call_count, 0)
 
-    def test_a_staff_user_writes_a_brief_even_when_the_team_has_not_opted_in(self):
+    def test_a_staff_user_writes_a_brief_even_when_the_flag_is_off(self):
         # Reading a brief on a real ticket is the whole point of the button, so it must not
-        # wait on the setting that governs automatic writes.
+        # wait on the flag that governs automatic writes.
         self.user.is_staff = True
         self.user.save()
         with patch(
             "products.conversations.backend.api.tickets.write_brief_for_ticket",
-            return_value=WriteBriefOutput(written=True),
+            return_value=BriefOutcome(written=True),
         ) as helper:
             response = self.client.post(self.url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"written": True, "reason": ""})
-        # The whole call, because passing respect_opt_in=True here would reinstate the wait the
+        # The whole call, because passing respect_gate=True here would reinstate the wait the
         # button exists to skip, and a wrong team_id would brief someone else's ticket.
         self.assertEqual(helper.call_args.kwargs, {"team_id": self.team.id, "ticket_id": str(self.ticket.id)})
 
 
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
 class TestBulkUpdateStatus(APIBaseTest):
     def setUp(self):
         super().setUp()
