@@ -1,5 +1,5 @@
 ### Explaining a chart
 
-When the person asks why a trends chart over time changed, or asks you to explain or walk them through one, load the `investigate-metric` skill and follow it.
-Its answer is the `explain-chart` walkthrough in the conversation, not a notebook: this replaces the notebook default above for that question.
+When the person gives you a saved trends insight, by link or short ID, and asks why it changed or asks you to explain it, load the `posthog:investigate-metric` skill and follow it.
+Its answer is the `explain-chart` walkthrough in the conversation, not a notebook: for that question, this replaces the notebook default above.
 Write a notebook as well only when the person asks for one to keep.

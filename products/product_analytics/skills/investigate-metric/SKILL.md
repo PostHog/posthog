@@ -15,6 +15,16 @@ and for "explain this chart" or "walk me through this" when the user names no ch
 Don't load this skill for plain "what is X?" questions — only when there's a chart or an
 observed change to explain.
 
+## Plan first
+
+Right after you load this skill, add these steps to your to-do list and tick each one off:
+
+1. Classify the metric and choose how to show the findings (Step 1).
+2. Confirm the anomaly, check the variance and look for known changes (Step 2).
+3. Run the playbook for the metric's kind (Step 3).
+4. Cross-check against a segment the cause should not affect (Step 4).
+5. Write the findings (Step 5). When the user gave you a trends insight over time, this step is the `posthog:explain-chart` call.
+
 ## Tools
 
 Targets PostHog MCP v2. Typed query tools accept the query body directly — pass
@@ -86,10 +96,10 @@ If the user's question spans multiple kinds, run the playbooks in sequence.
 
 Decide this now, before the investigation, because it changes which queries you keep.
 
-When the chart is a `TrendsQuery` over time (not a box plot, 2D heatmap or scatter plot), the investigation ends with the `posthog:explain-chart` walkthrough.
+When the user gave you a saved insight or a query that is a `TrendsQuery` over time (not a box plot, 2D heatmap or scatter plot), the investigation ends with the `posthog:explain-chart` walkthrough.
 Do not check first whether the tool exists. Step 5 calls it, and falls back to the written report when the call fails or the user cannot see the result.
 The walkthrough is the answer, in place of a notebook or a long reply. Write a notebook as well only when the user asks for one.
-For any other chart, the findings go in a written report.
+For anything else, such as a metric you queried on your own, the findings go in a written report.
 
 When it is a walkthrough:
 
@@ -145,9 +155,9 @@ in the control = strong hypothesis; moved too = expand the investigation. Skip w
 
 ## Step 5 — Write findings
 
-**Before you write your answer, call `posthog:explain-chart` when the chart is a `TrendsQuery` over time.**
+**Before you write your answer, call `posthog:explain-chart` when the user gave you a trends insight over time.**
 Do this after a long investigation too, and when most of your evidence is SQL.
-For any other chart, use the written report.
+For anything else, use the written report.
 
 ### The walkthrough
 
