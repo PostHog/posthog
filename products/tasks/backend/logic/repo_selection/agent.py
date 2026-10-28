@@ -627,6 +627,7 @@ async def select_repository(
     candidate_repos: list[str] | None = None,
     step_name: str = "repo_selection",
     signal_report_id: str | None = None,
+    spend_signal_id: str | None = None,
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
@@ -766,6 +767,7 @@ async def select_repository(
             output_fn=output_fn,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            spend_signal_id=spend_signal_id,
             ai_stage="repo_selection",
             internal=True,
             # An unreadable end turn used to fail the whole selection, and the caller then dropped the

@@ -14,10 +14,14 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     ActionsNode,
     ExperimentEventExposureConfig,
+    ExperimentExposureCriteria,
     ExperimentExposureHealthFindingCode,
     ExperimentExposureQuery,
+    ExperimentWarehouseNativeExposureConfig,
     MultipleVariantHandling,
 )
+
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import AvailableFeature
@@ -85,6 +89,20 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             ExperimentExposuresQueryRunner(team=self.team, query=self._null_multivariate_query())
 
         self.assertIn("has no variants", str(ctx.exception))
+
+    def test_refuses_warehouse_native_exposure_criteria_as_a_query_error(self):
+        # The request carries its own criteria, so a warehouse-native exposure reaches the runner
+        # without a save. It must fail as a query error (a 400), not as a server error.
+        query = self._null_multivariate_query()
+        query.exposure_criteria = ExperimentExposureCriteria(
+            exposure_config=ExperimentWarehouseNativeExposureConfig(
+                connection_id="00000000-0000-0000-0000-000000000000",
+                query="SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+            )
+        )
+
+        with self.assertRaisesMessage(ExposedHogQLError, "Warehouse-native sources cannot be calculated yet."):
+            ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
 
     def test_missing_experiment_raises_validation_error(self):
         # Cached exposure queries can outlive their experiment; a stale id must

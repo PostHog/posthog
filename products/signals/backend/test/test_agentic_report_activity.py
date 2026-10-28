@@ -300,6 +300,7 @@ def _build_signals() -> list[SignalData]:
     [
         (SignalReport.Status.RESOLVED, None, True),
         (SignalReport.Status.SUPPRESSED, "already_fixed", True),
+        (SignalReport.Status.SUPPRESSED, "wrong_repo", False),
         # Archived because nobody wants to see it, not because it was fixed: there is no prior fix
         # to reason about, so the research agent is told nothing.
         (SignalReport.Status.SUPPRESSED, "wontfix_intentional", False),
@@ -1289,6 +1290,54 @@ async def test_mark_report_ready_activity_applies_charts(ateam, name, charts, ex
         assert stored == [_EXISTING_CHART]
     else:
         assert stored == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("pending", [False, True])
+@pytest.mark.parametrize(
+    "tags,expected",
+    [
+        (["Session Replay", "!!!"], ["session-replay"]),
+        ([], []),
+        (None, ["billing", "api"]),
+    ],
+)
+async def test_report_transition_replaces_tags_with_the_prose(ateam, pending, tags, expected):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+        tags=["billing", "api"],
+    )
+
+    if pending:
+        await mark_report_pending_input_activity(
+            MarkReportPendingInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                title="Title",
+                summary="Summary",
+                reason="Requires human input",
+                tags=tags,
+            )
+        )
+    else:
+        await mark_report_ready_activity(
+            MarkReportReadyInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                title="Title",
+                summary="Summary",
+                processed_signal_count=2,
+                tags=tags,
+            )
+        )
+
+    stored = await database_sync_to_async(lambda: SignalReport.objects.get(id=report.id))()
+    assert stored.title == "Title"
+    assert stored.tags == expected
 
 
 @pytest.mark.asyncio

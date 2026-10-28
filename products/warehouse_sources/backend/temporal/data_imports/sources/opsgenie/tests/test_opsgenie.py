@@ -140,6 +140,51 @@ class TestFanout:
         assert [(row["incident_id"], row["id"]) for row in result.rows] == [("inc-1", "e1"), ("inc-1", "e2")]
         assert result.saved_states == []
 
+    def test_alert_logs_follow_each_alerts_next_link(self) -> None:
+        next_url = "https://api.opsgenie.com/v2/alerts/a1/logs?offset=o1&direction=next&limit=100&order=asc"
+        result = _driver().run(
+            "alert_logs",
+            [
+                _page([{"id": "a1"}]),
+                ScriptedResponse(json={"data": [{"offset": "o1", "log": "created"}], "paging": {"next": next_url}}),
+                ScriptedResponse(json={"data": [{"offset": "o2", "log": "closed"}], "paging": {"first": next_url}}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v2/alerts", "/v2/alerts/a1/logs", "/v2/alerts/a1/logs"]
+        assert result.requests[0].param("sort") == "createdAt"
+        assert result.requests[1].param("order") == "asc"
+        assert result.params("offset") == ["0", None, "o1"]
+        assert [(row["alert_id"], row["offset"]) for row in result.rows] == [("a1", "o1"), ("a1", "o2")]
+
+    def test_alert_logs_skip_alert_deleted_after_listing(self) -> None:
+        result = _driver().run(
+            "alert_logs",
+            [
+                _page([{"id": "gone"}, {"id": "a2"}]),
+                ScriptedResponse(status=404, json={"message": "Alert does not exist"}),
+                ScriptedResponse(json={"data": [{"offset": "o1", "log": "created"}]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row["alert_id"], row["offset"]) for row in result.rows] == [("a2", "o1")]
+
+    def test_alert_logs_refuse_next_link_to_another_host(self) -> None:
+        result = _driver().run(
+            "alert_logs",
+            [
+                _page([{"id": "a1"}]),
+                ScriptedResponse(
+                    json={"data": [{"offset": "o1"}], "paging": {"next": "https://evil.example.com/logs?offset=o1"}}
+                ),
+            ],
+        )
+
+        assert result.raised is not None
+        assert [request.origin for request in result.requests] == ["https://api.opsgenie.com"] * 2
+
     @pytest.mark.parametrize(
         "endpoint,parent_path,child_body,expected",
         [

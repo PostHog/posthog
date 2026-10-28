@@ -6,7 +6,11 @@ import api from 'lib/api'
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { signalsReportsReviewersMeDestroy } from 'products/signals/frontend/generated/api'
+import {
+    signalsReportsReviewersMeCreate,
+    signalsReportsReviewersMeDestroy,
+} from 'products/signals/frontend/generated/api'
+import type { ReviewerRemovalReasonEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { SignalReportAssigneeApi } from '../../generated/api.schemas'
 import { captureInboxReportAction } from '../inboxAnalytics'
@@ -73,7 +77,11 @@ export interface inboxBulkActionsLogicActions {
     bulkResolveSuccess: () => {
         value: true
     }
-    bulkUnassignMe: (reportIds: string[]) => {
+    bulkUnassignMe: (
+        reportIds: string[],
+        reason?: ReviewerRemovalReasonEnumApi
+    ) => {
+        reason: ReviewerRemovalReasonEnumApi | undefined
         reportIds: string[]
     }
     bulkUnassignMeFailure: () => {
@@ -168,7 +176,7 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
         bulkResolve: (reason: ResolveReasonValue, note: string) => ({ reason, note }),
         bulkResolveSuccess: true,
         bulkResolveFailure: true,
-        bulkUnassignMe: (reportIds: string[]) => ({ reportIds }),
+        bulkUnassignMe: (reportIds: string[], reason?: ReviewerRemovalReasonEnumApi) => ({ reportIds, reason }),
         bulkUnassignMeSuccess: true,
         bulkUnassignMeFailure: true,
         /** Broadcast that the signed-in user is no longer a suggested reviewer on these reports, so a
@@ -378,7 +386,7 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
             }
             actions.bulkResolveSuccess()
         },
-        bulkUnassignMe: async ({ reportIds }) => {
+        bulkUnassignMe: async ({ reportIds, reason }) => {
             if (reportIds.length === 0) {
                 actions.bulkUnassignMeFailure()
                 return
@@ -388,10 +396,16 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
                 surface: 'bulk_bar',
                 isBulk: true,
                 bulkSize: reportIds.length,
+                // pinned: analytics property names — renaming breaks dashboards
+                extra: reason ? { removal_reason: reason } : undefined,
             })
             const projectId = String(values.currentTeamId)
             const results = await Promise.allSettled(
-                reportIds.map((id) => signalsReportsReviewersMeDestroy(projectId, id))
+                reportIds.map((id) =>
+                    reason
+                        ? signalsReportsReviewersMeCreate(projectId, id, { removal_reason: reason })
+                        : signalsReportsReviewersMeDestroy(projectId, id)
+                )
             )
             const unassignedIds = reportIds.filter((_, index) => results[index].status === 'fulfilled')
             const result: BulkActionResult = {
