@@ -1,0 +1,7 @@
+{
+  "exitCode": 0,
+  "requests": [],
+  "files": {
+    "out/mapping.txt.bin.txt": "utf8:# compiler: R8\n# compiler_version: 8.2.47\ncom.example.app.MainActivity -> com.example.app.MainActivity:\n    1:1:void <init>():12:12 -> <init>\n    1:4:void onCreate(android.os.Bundle):16:19 -> onCreate\ncom.example.app.Model -> a.a:\n    java.lang.String name -> a\n    1:1:java.lang.String getName():8:8 -> a\n"
+  }
+}

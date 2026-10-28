@@ -20,6 +20,8 @@ export interface FakeServer {
     url: string
     requests: RecordedRequest[]
     seed(entries: { chunkId: string; contentHash: string; releaseId?: string | null }[]): void
+    // Stored symbol sets that the download endpoints serve.
+    store(objects: StoredObject[]): void
     stop(): void
 }
 
@@ -31,6 +33,12 @@ function uuid5(name: string): string {
     hash[8] = (hash[8]! & 0x3f) | 0x80
     const hex = hash.subarray(0, 16).toString('hex')
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
+export interface StoredObject {
+    id: string
+    ref: string
+    data: Uint8Array
 }
 
 interface StoredSymbolSet {
@@ -45,6 +53,7 @@ export function startFakeServer(scenario: Scenario): FakeServer {
     const requests: RecordedRequest[] = []
     const symbolSets = new Map<string, StoredSymbolSet>()
     const releases = new Map<string, unknown>()
+    const objects: StoredObject[] = []
     let startCalls = 0
 
     const json = (status: number, body: unknown): Response =>
@@ -55,7 +64,7 @@ export function startFakeServer(scenario: Scenario): FakeServer {
     const server = Bun.serve({
         port: 0,
         hostname: '127.0.0.1',
-        async fetch(request) {
+        async fetch(request): Promise<Response> {
             const url = new URL(request.url)
             const headers: Record<string, string> = {}
             for (const name of RECORDED_HEADERS) {
@@ -76,6 +85,14 @@ export function startFakeServer(scenario: Scenario): FakeServer {
                 return response
             }
 
+            if (url.pathname.startsWith('/s3/get/')) {
+                const object = objects.find((candidate) => url.pathname === `/s3/get/${candidate.id}`)
+                return respond(
+                    object
+                        ? new Response(Buffer.from(object.data))
+                        : new Response('<Error>NoSuchKey</Error>', { status: 404 })
+                )
+            }
             if (url.pathname.startsWith('/s3/')) {
                 return respond(await storeObject(request, url, entry))
             }
@@ -110,6 +127,19 @@ export function startFakeServer(scenario: Scenario): FakeServer {
                 }
                 releases.set(parsed.hash_id, release)
                 return respond(json(201, release))
+            }
+            if (/^\/api\/projects\/\d+\/error_tracking\/symbol_sets$/.test(path) && request.method === 'GET') {
+                const found = objects.filter((object) => object.ref === url.searchParams.get('ref'))
+                return respond(
+                    json(200, { results: found.slice(0, 1).map((object) => ({ id: object.id, ref: object.ref })) })
+                )
+            }
+            if ((match = path.match(/^\/api\/projects\/\d+\/error_tracking\/symbol_sets\/([^/]+)\/download$/))) {
+                const id = match[1]
+                const object = objects.find((candidate) => candidate.id === id)
+                return respond(
+                    object ? json(200, { url: `${base}/s3/get/${object.id}` }) : json(404, { detail: 'Not found.' })
+                )
             }
             if (path.endsWith('/symbol_sets/bulk_check_upload')) {
                 if (scenario === 'check-403') {
@@ -209,6 +239,9 @@ export function startFakeServer(scenario: Scenario): FakeServer {
                     releaseId: entry.releaseId ?? null,
                 })
             }
+        },
+        store(stored) {
+            objects.push(...stored)
         },
         stop: () => server.stop(true),
     }

@@ -1,0 +1,15 @@
+{
+  "exitCode": 1,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/projects/1/error_tracking/symbol_sets/?ref=missing.js.map&limit=1",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "status": 200
+    }
+  ],
+  "files": {}
+}

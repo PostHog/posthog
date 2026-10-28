@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
@@ -13,8 +14,8 @@ import type { ParityScenario } from './scenarios'
 export interface ParityResult {
     exitCode: number
     requests: NormalizedRequest[]
-    // Every file in the folder after the run, for scenarios that rewrite files.
-    files?: Record<string, string>
+    // The files the run created or changed, and null for the ones it deleted.
+    files?: Record<string, string | null>
 }
 
 function environment(serverUrl: string, home: string): Record<string, string> {
@@ -30,7 +31,16 @@ function environment(serverUrl: string, home: string): Record<string, string> {
 
 const strictUtf8 = new TextDecoder('utf-8', { fatal: true })
 
-// Text files stay readable in the golden, so a diff shows what changed. Other bytes are base64.
+// Files over this size are compared by hash, so goldens stay small. Smaller text files stay
+// readable, so a golden diff shows what changed.
+const INLINE_LIMIT = 2048
+
+function digestFile(bytes: Uint8Array, full: boolean): string {
+    return full || bytes.length <= INLINE_LIMIT
+        ? encodeFile(bytes)
+        : `sha512:${createHash('sha512').update(bytes).digest('hex')}`
+}
+
 export function encodeFile(bytes: Uint8Array): string {
     try {
         return `utf8:${strictUtf8.decode(bytes)}`
@@ -40,18 +50,41 @@ export function encodeFile(bytes: Uint8Array): string {
 }
 
 export function decodeFile(text: string): Uint8Array {
+    if (text.startsWith('sha512:')) {
+        throw new Error('This golden stores the file as a hash. Record the scenario with `fullSnapshot`.')
+    }
     return text.startsWith('utf8:') ? Buffer.from(text.slice(5), 'utf8') : Buffer.from(text.slice(7), 'base64')
 }
 
-function snapshot(folder: string): Record<string, string> {
+// Only what differs from the inputs, so goldens don't repeat fixture files the run left alone.
+function changedFiles(
+    folder: string,
+    inputs: Record<string, string | Uint8Array>,
+    full: boolean
+): Record<string, string | null> {
+    const before: Record<string, string> = {}
+    for (const [path, contents] of Object.entries(inputs)) {
+        before[path] = digestFile(typeof contents === 'string' ? Buffer.from(contents) : contents, full)
+    }
+    const after = snapshot(folder, full)
+    const changed: Record<string, string | null> = {}
+    for (const path of [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()) {
+        if (before[path] !== after[path]) {
+            changed[path] = after[path] ?? null
+        }
+    }
+    return changed
+}
+
+function snapshot(folder: string, full: boolean): Record<string, string> {
     const files: Record<string, string> = {}
     const visit = (path: string): void => {
         for (const entry of readdirSync(path, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
-            const full = join(path, entry.name)
+            const entryPath = join(path, entry.name)
             if (entry.isDirectory() && entry.name !== '.git') {
-                visit(full)
+                visit(entryPath)
             } else if (entry.isFile()) {
-                files[relative(folder, full)] = encodeFile(readFileSync(full))
+                files[relative(folder, entryPath)] = digestFile(readFileSync(entryPath), full)
             }
         }
     }
@@ -92,9 +125,11 @@ async function invoke(
 export async function runScenario(scenario: ParityScenario, cli: { rust: string } | 'hog'): Promise<ParityResult> {
     const folder = mkdtempSync(join(tmpdir(), 'hog-parity-'))
     const home = mkdtempSync(join(tmpdir(), 'hog-parity-home-'))
-    write(folder, scenario.files())
+    const inputs = scenario.files()
+    write(folder, inputs)
     scenario.setup?.()
     const server = startFakeServer(scenario.server)
+    server.store(scenario.objects?.() ?? [])
     try {
         const env = environment(server.url, home)
         for (const step of scenario.before ?? []) {
@@ -108,7 +143,7 @@ export async function runScenario(scenario: ParityScenario, cli: { rust: string 
         return {
             exitCode,
             requests: normalize(server.requests),
-            ...(scenario.snapshot ? { files: snapshot(folder) } : {}),
+            ...(scenario.snapshot ? { files: changedFiles(folder, inputs, scenario.fullSnapshot === true) } : {}),
         }
     } finally {
         server.stop()
@@ -134,6 +169,8 @@ export function withoutRandomIds(result: ParityResult): ParityResult {
         ...result,
         files:
             result.files &&
-            Object.fromEntries(Object.entries(result.files).map(([path, text]) => [path, rename(text)])),
+            Object.fromEntries(
+                Object.entries(result.files).map(([path, text]) => [path, text === null ? null : rename(text)])
+            ),
     }
 }

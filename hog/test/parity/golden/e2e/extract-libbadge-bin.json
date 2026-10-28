@@ -1,0 +1,10 @@
+{
+  "exitCode": 0,
+  "requests": [],
+  "files": {
+    "out/libbadge.bin/__source/badge.c": "utf8:int badge;\n",
+    "out/libbadge.bin/__source/escape.c": "utf8:nope",
+    "out/libbadge.bin/__source/manifest.json": "utf8:{}",
+    "out/libbadge.bin/dwarf": "utf8:elf bytes"
+  }
+}

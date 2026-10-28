@@ -217,6 +217,14 @@ const RENAMED: Record<string, { to: string; hint: string }> = {
         to: 'error-tracking upload',
         hint: 'Pass the folder as an argument instead of --directory, as in `hog error-tracking upload build/Release-iphoneos`.',
     },
+    'symbol-sets': {
+        to: 'error-tracking upload|download|extract',
+        hint: 'Pass paths and the symbol set as arguments: `hog error-tracking download <id or ref>` replaces --id and --ref.',
+    },
+    release: {
+        to: 'error-tracking release',
+        hint: '`hog error-tracking release -o text` prints just the release ID, like `posthog-cli release resolve`.',
+    },
     proguard: {
         to: 'error-tracking upload',
         hint: 'Pass the mapping as an argument instead of --path, as in `hog error-tracking upload mapping.txt --map-id <id>`.',

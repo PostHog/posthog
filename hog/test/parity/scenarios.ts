@@ -1,11 +1,12 @@
 import { readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 
-import type { Scenario } from './fake-server'
+import type { Scenario, StoredObject } from './fake-server'
 import { GIT_REPO, mappingOfSize, readTree, SMALL_MAPPING, write } from './fixtures'
 import { EXPO_BUILD, HERMES_BUILD, HERMES_BUNDLES } from './hermes-fixtures'
 import { bundles, EDGE_CASES, MALFORMED_MAP_DEBUG_ID, PUBLIC_PATH, STYLESHEETS } from './js-fixtures'
 import { decodeFile, type ParityResult } from './run'
+import { SYMBOL_SETS } from './symbol-set-fixtures'
 
 type Files = Record<string, string | Uint8Array>
 
@@ -19,21 +20,34 @@ export interface ParityScenario {
     before?: { rust: string[]; hog: string[] }[]
     // Run this many times against the same server and compare only the last run, to cover re-uploads.
     runs?: number
-    // Also compare every file in the folder after the run.
+    // Also compare the files the run changed.
     snapshot?: boolean
+    // Keep whole files in the golden, even large ones, because another scenario starts from them.
+    fullSnapshot?: boolean
     // The run mints random UUIDv7 chunk ids, so compare their positions and not their values.
     randomIds?: boolean
     // Runs before the commands, for state outside the folder.
     setup?: () => void
+    // Symbol sets the fake server stores for download.
+    objects?: () => StoredObject[]
 }
 
-// The files posthog-cli left behind in another scenario, so a step can start from its real output.
+// The files posthog-cli left behind in another scenario: its inputs with the golden's changes.
 function filesFrom(name: string): () => Files {
     return () => {
+        const scenario = SCENARIOS.find((candidate) => candidate.name === name)!
         const golden = JSON.parse(
             readFileSync(join(import.meta.dir, 'golden', 'e2e', `${name}.json`), 'utf8')
         ) as ParityResult
-        return Object.fromEntries(Object.entries(golden.files ?? {}).map(([path, text]) => [path, decodeFile(text)]))
+        const files: Files = { ...scenario.files() }
+        for (const [path, text] of Object.entries(golden.files ?? {})) {
+            if (text === null) {
+                delete files[path]
+            } else {
+                files[path] = decodeFile(text)
+            }
+        }
+        return files
     }
 }
 
@@ -103,6 +117,7 @@ const js = (
     before: options.before?.map(([step, args]) => jsArgs(step, options.path ?? '.', args)),
     runs: options.runs,
     snapshot: options.snapshot ?? true,
+    fullSnapshot: options.fullSnapshot,
     randomIds: options.randomIds,
 })
 
@@ -138,7 +153,11 @@ SCENARIOS.push(
     js('upload-native-debug-ids', 'upload', bundles),
     js('upload-after-inject', 'upload', bundles, { before: [['inject', jsRelease]] }),
     js('upload-not-injected', 'upload', () => EDGE_CASES),
-    js('inject-symbol-set', 'inject', bundles, { args: [...jsRelease, ...symbolSet], randomIds: true }),
+    js('inject-symbol-set', 'inject', bundles, {
+        args: [...jsRelease, ...symbolSet],
+        randomIds: true,
+        fullSnapshot: true,
+    }),
     js('upload-symbol-set', 'upload', filesFrom('js-inject-symbol-set'), { args: [...jsRelease, ...symbolSet] }),
     js('upload-symbol-set-new-release', 'upload', filesFrom('js-inject-symbol-set'), {
         args: ['--release-name', 'web', '--release-version', '3.0.0', ...symbolSet],
@@ -301,4 +320,53 @@ SCENARIOS.push(
         setup: placeSources,
     }),
     native('sources-missing', '.', () => ({ ...linux(), ...apple() }), { args: withSources, setup: removeSources })
+)
+
+// `posthog-cli release resolve --json` and `hog error-tracking release` send the same requests.
+const releaseScenario = (name: string, args: string[], files: () => Files = () => ({})): ParityScenario => ({
+    name: `release-${name}`,
+    server: 'fresh',
+    files,
+    rust: ['release', 'resolve', '--json', ...args],
+    hog: ['error-tracking', 'release', ...args],
+})
+
+// `posthog-cli symbol-sets extract|download` and the hog commands write the same files.
+const extract = (file: string): ParityScenario => ({
+    name: `extract-${file.replaceAll('.', '-')}`,
+    server: 'fresh',
+    files: () => SYMBOL_SETS,
+    rust: ['symbol-sets', 'extract', file, '-o', 'out'],
+    hog: ['error-tracking', 'extract', file, '--output-dir', 'out'],
+    snapshot: true,
+})
+
+const STORED = (): StoredObject[] => [
+    {
+        id: '0192f0a0-0000-7000-8000-00000000000a',
+        ref: 'static/chunks/app.js.map',
+        data: SYMBOL_SETS['app.js.map.bin']!,
+    },
+    { id: '0192f0a0-0000-7000-8000-00000000000b', ref: 'Shop.dSYM', data: SYMBOL_SETS['Shop.dSYM']! },
+]
+
+const download = (name: string, rust: string[], hog: string[]): ParityScenario => ({
+    name: `download-${name}`,
+    server: 'fresh',
+    files: () => ({}),
+    rust: ['symbol-sets', 'download', ...rust, '-o', 'out'],
+    hog: ['error-tracking', 'download', ...hog, '--output-dir', 'out'],
+    snapshot: true,
+    objects: STORED,
+})
+
+SCENARIOS.push(
+    releaseScenario('flags', ['--release-name', 'web', '--release-version', '2.1.0', '--build', '9']),
+    releaseScenario('from-git', [], () => GIT_REPO),
+    releaseScenario('none', []),
+    ...Object.keys(SYMBOL_SETS).map(extract),
+    download('by-ref', ['--ref', 'static/chunks/app.js.map'], ['static/chunks/app.js.map']),
+    download('by-id', ['--id', '0192f0a0-0000-7000-8000-00000000000b'], ['0192f0a0-0000-7000-8000-00000000000b']),
+    download('dsym-by-ref', ['--ref', 'Shop.dSYM'], ['Shop.dSYM']),
+    download('unknown-ref', ['--ref', 'missing.js.map'], ['missing.js.map'])
 )

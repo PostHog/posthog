@@ -12,10 +12,5 @@ export const LEGACY_COMMANDS: CommandTree = {
         description: 'Download event definitions and generate a typed SDK',
         use: 'posthog-cli exp schema',
     }),
-    'symbol-sets': defineLegacy({
-        description: 'Upload, download, and manage symbol sets',
-        use: 'posthog-cli symbol-sets',
-    }),
-    release: defineLegacy({ description: 'Look up the release a build belongs to', use: 'posthog-cli release' }),
     update: defineLegacy({ description: 'Update hog to the latest version', use: 'posthog-cli update' }),
 }

@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "requests": [],
+  "files": {
+    "out/Shop/__source/main.c": "utf8:int main;\n",
+    "out/Shop/dwarf": "utf8:mach-o bytes"
+  }
+}
