@@ -90,6 +90,14 @@ class TestIsTransientObjectStoreError:
                 True,
             ),
             (
+                # A non-AWS S3-compatible provider's own wording for the same InternalError/500
+                # response s3fs always maps to this errno (see s3fs/errors.py::translate_boto_error) -
+                # the message needle above only catches AWS's fixed text, so this must match by errno.
+                "s3_compatible_internal_error_non_aws_wording_eremoteio",
+                OSError(errno.EREMOTEIO, "Please contact the server administrator, oss@service.aliyun.com"),
+                True,
+            ),
+            (
                 # A different errno must not be swept up by the fd-exhaustion check.
                 "unrelated_os_error_with_errno",
                 OSError(errno.ENOENT, "No such file or directory"),
