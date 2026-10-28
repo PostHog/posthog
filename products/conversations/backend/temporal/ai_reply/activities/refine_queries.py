@@ -9,8 +9,8 @@ from temporalio import activity
 from posthog.llm.gateway_client import get_async_anthropic_gateway_client
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.conversations.backend.temporal.ai_reply.constants import TICKET_TYPE_HINTS, UTILITY_MODEL
-from products.conversations.backend.temporal.ai_reply.llms import (
+from products.conversations.backend.ai.llms import (
+    UTILITY_MODEL,
     anthropic_output_config,
     anthropic_text,
     create_message,
@@ -18,6 +18,7 @@ from products.conversations.backend.temporal.ai_reply.llms import (
     strip_json_fence,
     tracing_kwargs,
 )
+from products.conversations.backend.temporal.ai_reply.constants import TICKET_TYPE_HINTS
 from products.conversations.backend.temporal.ai_reply.schemas import RefineQueriesInput, RefineQueriesOutput
 
 
