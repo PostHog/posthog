@@ -28,8 +28,8 @@ from products.product_analytics.backend.facade.contracts import (
     InsightSeries,
     InsightVariableDefinition,
     SavedInsightDefinition,
+    SavedTrendsInsight,
     ViewableInsight,
-    WatchedTrendsInsight,
 )
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -132,20 +132,33 @@ def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Colle
     return logic.insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
 
 
-def watched_trends_insights(
+def saved_trends_insights(
     *,
     team_ids: Collection[int],
+    insight_ids: Collection[int],
     intervals: Collection[str],
     excluded_displays: Collection[str],
-    viewed_since: datetime,
-) -> list[WatchedTrendsInsight]:
-    """Saved trends insights that are on a live dashboard or that someone viewed since ``viewed_since``.
+) -> list[SavedTrendsInsight]:
+    """The saved trends insights among ``insight_ids``, in one query.
 
-    Only insights with an interval in ``intervals`` and a display outside ``excluded_displays`` are kept.
+    Only insights of ``team_ids`` with an interval in ``intervals`` and a display outside ``excluded_displays`` are kept.
     """
-    return logic.watched_trends_insights(
-        team_ids=team_ids, intervals=intervals, excluded_displays=excluded_displays, viewed_since=viewed_since
+    return logic.saved_trends_insights(
+        team_ids=team_ids, insight_ids=insight_ids, intervals=intervals, excluded_displays=excluded_displays
     )
+
+
+def insight_ids_viewed_since(*, team_ids: Collection[int], since: datetime) -> set[int]:
+    """Insights of these teams that a signed-in person viewed since the given time, in one query.
+
+    Shared and embedded views have no viewer, so they do not count.
+    """
+    return logic.insight_ids_viewed_since(team_ids=team_ids, since=since)
+
+
+def insight_ids_modified_since(*, team_ids: Collection[int], since: datetime) -> set[int]:
+    """Saved insights of these teams created or edited since the given time, in one query."""
+    return logic.insight_ids_modified_since(team_ids=team_ids, since=since)
 
 
 def recent_viewers_by_insight(
@@ -274,6 +287,7 @@ def get_insight_series(
     short_id: str,
     dashboard: InsightDashboardContext | None = None,
     blocking: bool = False,
+    wait_until: float | None = None,
 ) -> InsightSeries | None:
     insight = Insight.objects.filter(team__project_id=team.project_id, short_id=short_id, deleted=False).first()
     if insight is None:
@@ -293,4 +307,5 @@ def get_insight_series(
         query=insight.query or {},
         dashboard=dashboard,
         blocking=blocking,
+        wait_until=wait_until,
     )

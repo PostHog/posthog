@@ -84,6 +84,9 @@ class ReviewerCorrection:
     removed_reviewers: tuple[str, ...]
     actor_user_id: int
     scoped_team_ids: tuple[int, ...] | None
+    # Why the editor removed reviewers, when they said. Both apply to the removals only.
+    removal_reason: str | None = None
+    removal_note: str | None = None
 
 
 @frozen
@@ -182,6 +185,8 @@ def _forward(*, team: Team, correction: ReviewerCorrection) -> ForwardedCorrecti
             # only the teammate half of a removal, or only the editor's own login.
             self_removed=tuple(login for login in removed if login in actor_identities),
             teammate_removed=tuple(login for login in removed if login not in actor_identities),
+            removal_reason=correction.removal_reason,
+            removal_note=correction.removal_note,
         )
         try:
             created = leave_note(
@@ -332,6 +337,8 @@ def _build_note_content(
     added_reviewers: Sequence[str],
     self_removed: Sequence[str],
     teammate_removed: Sequence[str],
+    removal_reason: str | None = None,
+    removal_note: str | None = None,
 ) -> str:
     sections = [f"Inbox routing correction: {editor} changed the suggested reviewers on {_subject(report)}"]
     if added_reviewers:
@@ -342,12 +349,22 @@ def _build_note_content(
     if teammate_removed:
         sections.append(f"{_REMOVED_SECTION_PREFIX}{_listed(teammate_removed)}.")
     if self_removed:
-        sections.append(
-            f"{_REMOVED_SECTION_PREFIX}{_listed(self_removed)}. That is the editor's own identity, which is weaker "
-            "evidence than a teammate removing someone."
+        # The weak-evidence caveat makes a model demote the person rather than drop them, which is right
+        # for an unexplained self-removal and wrong when the editor said why.
+        caveat = (
+            "That is the editor's own identity, removed for the reason stated below."
+            if removal_reason in _REASON_GUIDANCE or removal_note
+            else "That is the editor's own identity, which is weaker evidence than a teammate removing someone."
         )
+        sections.append(f"{_REMOVED_SECTION_PREFIX}{_listed(self_removed)}. {caveat}")
     if teammate_removed or self_removed:
-        sections.append(_removal_guidance(by_a_teammate=bool(teammate_removed)))
+        if removal_reason:
+            sections.append(f"Reason the editor gave for the removal: `{removal_reason}`.")
+        if removal_note:
+            # Quoted line by line, so the editor's text cannot pose as a section of this note.
+            quoted_note = "\n".join(f"> {line}" for line in removal_note.splitlines())
+            sections.append(f"The editor's note on the removal:\n\n{quoted_note}")
+        sections.append(_removal_guidance(by_a_teammate=bool(teammate_removed), reason=removal_reason))
     sections.append(
         "Reviewers are identified by GitHub login or PostHog user UUID. Check current project membership "
         "with `scout-members-list`; a GitHub account is not required for Inbox assignment. "
@@ -358,13 +375,37 @@ def _build_note_content(
     return "\n\n".join(sections)
 
 
-def _removal_guidance(*, by_a_teammate: bool) -> str:
+# A stated reason replaces the generic caution: it tells the scout which of the meanings a removal
+# can have applies, and each leads to a different memory update.
+_REASON_GUIDANCE = {
+    "wrong_area": (
+        "The removed identity is not the right reviewer for this work, because it is outside their area, they moved "
+        "off it, or someone else owns it. Responsibility for it and similar work moves away from them, and their "
+        "older commits and ownership entries here are stale evidence. Do not select them for that work on the "
+        "strength of that history. Look for the current owner, and keep routing unrelated areas to them."
+    ),
+    "already_covered": (
+        "Another reviewer already covers this report. This is not ownership evidence against the removed identity, "
+        "so do not record an exclusion. Avoid adding them as an extra reviewer when others already cover the work."
+    ),
+    "unavailable": (
+        "The removed identity does not have bandwidth right now, for example because they are away or have too "
+        "many reports. This is not ownership evidence, so do not record an exclusion or an ownership change."
+    ),
+}
+_GENERIC_GUIDANCE = (
+    "A removal can mean absence, duplicate coverage, or an unsuitable assignment. Self-removal alone "
+    "does not establish an ownership change or a standing exclusion."
+)
+
+
+def _removal_guidance(*, by_a_teammate: bool, reason: str | None = None) -> str:
     # What the scout should record has to match the removal it was just told about: an editor taking
     # their own login off is not a teammate's verdict on who owns the surface.
     recorded = "a teammate removed the reviewer" if by_a_teammate else "the reviewer took themselves off"
+    meaning = _REASON_GUIDANCE.get(reason or "", _GENERIC_GUIDANCE)
     return (
-        "A removal can mean absence, duplicate coverage, or an unsuitable assignment. Self-removal alone "
-        "does not establish an ownership change or a standing exclusion. Search your `reviewer:` memory "
+        f"{meaning} Search your `reviewer:` memory "
         f"for this identity and area. Record that {recorded}, with the source report and date, "
         "and retain ownership evidence that still applies. Check repeated mistakes on related reports, "
         "but do not extend this correction to unrelated areas."

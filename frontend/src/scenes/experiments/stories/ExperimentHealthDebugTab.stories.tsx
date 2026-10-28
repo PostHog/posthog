@@ -85,6 +85,10 @@ const HEALTH_INPUTS: ExperimentHealthInputsApi = {
         exposure_query_fails: false,
         failures: [],
     },
+    latest_calculation: {
+        finished_at: '2025-01-27T09:30:00Z',
+        failures: [],
+    },
     flag_history: {
         checked: true,
         not_checked_reason: null,

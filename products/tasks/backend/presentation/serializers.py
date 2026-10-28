@@ -950,10 +950,10 @@ class TaskWriteSerializer(serializers.Serializer):
         super().__init__(*args, **kwargs)
         # SignalReport is scoped to the request team by the field; bind its queryset lazily so
         # importing this module never touches the signals model at import time.
-        cast(
-            serializers.PrimaryKeyRelatedField, self.fields["signal_report"]
-        ).queryset = tasks_facade.signal_report_queryset()
-        cast(serializers.PrimaryKeyRelatedField, self.fields["channel"]).queryset = tasks_facade.channel_queryset()
+        signal_report_field = cast(serializers.PrimaryKeyRelatedField, self.fields["signal_report"])
+        signal_report_field.queryset = tasks_facade.signal_report_queryset()  # type: ignore[arg-type]  # DRF stubs type queryset as a Manager, which django-stubs treats as a descriptor
+        channel_field = cast(serializers.PrimaryKeyRelatedField, self.fields["channel"])
+        channel_field.queryset = tasks_facade.channel_queryset()  # type: ignore[arg-type]  # DRF stubs type queryset as a Manager, which django-stubs treats as a descriptor
 
     def validate_channel(self, value):
         request = self.context.get("request")
@@ -4160,9 +4160,8 @@ class WarmTaskRequestSerializer(serializers.Serializer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        cast(
-            serializers.PrimaryKeyRelatedField, self.fields["signal_report"]
-        ).queryset = tasks_facade.signal_report_queryset()
+        signal_report_field = cast(serializers.PrimaryKeyRelatedField, self.fields["signal_report"])
+        signal_report_field.queryset = tasks_facade.signal_report_queryset()  # type: ignore[arg-type]  # DRF stubs type queryset as a Manager, which django-stubs treats as a descriptor
 
     def validate_repository(self, value: str | None) -> str | None:
         if value is None:

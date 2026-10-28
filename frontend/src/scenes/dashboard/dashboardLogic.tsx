@@ -25,6 +25,7 @@ import { ResponsiveLayouts } from 'react-grid-layout'
 import type { Layout } from 'react-grid-layout'
 
 import { LemonButton, LemonDialog, lemonToast } from '@posthog/lemon-ui'
+import { dashboardsCopyGroupCreate } from '@posthog/products-dashboards/frontend/generated/api'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 import { isWidgetConfigValidationError, updateDashboardWidgetTile } from '@posthog/products-dashboards/frontend/utils'
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
@@ -697,6 +698,7 @@ export interface dashboardLogicValues {
     collapsedTileIds: Set<number>
     columns: number | null
     containerWidth: number | null
+    copyGroupToDashboardLoading: boolean
     currentDashboardSettings: DashboardSettings
     currentDashboardVariables: Record<string, HogQLVariable>
     currentLayoutSize: 'sm' | 'xs'
@@ -706,6 +708,7 @@ export interface dashboardLogicValues {
     dashboardEditing: DashboardEditing | null
     dashboardFailedToLoad: boolean
     dashboardFiltersSaving: boolean
+    dashboardGridCompactionSaving: boolean
     dashboardLoadData: {
         action: DashboardLoadAction | undefined
         dashboardQueryId: string
@@ -769,6 +772,7 @@ export interface dashboardLogicValues {
     placement: DashboardPlacement
     previewedDashboardSettings: DashboardSettings | null
     projectTreeRef: ProjectTreeRef
+    queryLoadQueue: TaskQueue
     readOnly: boolean
     refreshEligibilityTick: number
     refreshMetrics: {
@@ -903,6 +907,18 @@ export interface dashboardLogicActions {
         tileIds: number[]
     }
     closeTileModal: () => {
+        value: true
+    }
+    copyGroupToDashboard: (
+        groupKey: string,
+        toDashboard: number,
+        toDashboardName: string
+    ) => {
+        groupKey: string
+        toDashboard: number
+        toDashboardName: string
+    }
+    copyGroupToDashboardFinished: () => {
         value: true
     }
     copyToDashboard: (
@@ -1305,6 +1321,9 @@ export interface dashboardLogicActions {
     }
     setDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
         layoutCompaction: DashboardGridCompaction
+    }
+    setDashboardGridCompactionSaving: (saving: boolean) => {
+        saving: boolean
     }
     setDashboardMode: (
         mode: DashboardMode | null,
@@ -2185,6 +2204,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             toDashboard,
             toDashboardName,
         }),
+        copyGroupToDashboard: (groupKey: string, toDashboard: number, toDashboardName: string) => ({
+            groupKey,
+            toDashboard,
+            toDashboardName,
+        }),
+        copyGroupToDashboardFinished: true,
         setTextTileId: (textTileId: DashboardTileIdOrNew) => ({ textTileId }),
         setButtonTileId: (buttonTileId: DashboardTileIdOrNew) => ({ buttonTileId }),
         openAddInsightModal: true,
@@ -2213,6 +2238,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setDataColorThemeId: (dataColorThemeId: number | null) => ({ dataColorThemeId }),
         setDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => ({ tileSpacing }),
         setDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => ({ layoutCompaction }),
+        setDashboardGridCompactionSaving: (saving: boolean) => ({ saving }),
         setDashboardTileSpacingSaving: (saving: boolean) => ({ saving }),
         restoreTemporaryColorState: (colors: BreakdownColorConfig[], themeId: { themeId: number | null } | null) => ({
             colors,
@@ -2659,6 +2685,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
     })),
     reducers(({ props }) => ({
+        copyGroupToDashboardLoading: [
+            false,
+            {
+                copyGroupToDashboard: () => true,
+                copyGroupToDashboardFinished: () => false,
+            },
+        ],
         dashboardLoading: [
             false,
             {
@@ -2681,6 +2714,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardStreaming: () => true,
                 tileStreamingComplete: () => false,
                 tileStreamingFailure: () => false,
+            },
+        ],
+        dashboardGridCompactionSaving: [
+            false,
+            {
+                setDashboardGridCompactionSaving: (_, { saving }) => saving,
             },
         ],
         dashboardTileSpacingSaving: [
@@ -3436,7 +3475,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
     })),
-    selectors(() => ({
+    selectors(({ cache }) => ({
+        queryLoadQueue: [() => [], (): TaskQueue => tileLoadQueue(cache)],
         filterEditModeActive: [
             (s) => [s.dashboardEditing],
             (dashboardEditing: DashboardEditing | null): boolean => dashboardEditing?.filters === true,
@@ -3647,8 +3687,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const draftByTile = draftLayouts ? layoutsByTile(draftLayouts) : null
                 return (dashboard.tiles || []).some((tile: DashboardTile) => {
                     const saved = savedTilePlacements[tile.id]
+                    const savedSm = saved?.layouts?.sm
                     const currentSm = draftByTile?.[tile.id]?.sm ?? tile.layouts?.sm
-                    return !equal(saved?.layouts?.sm || {}, currentSm || {}) || tileGroupChanged(tile, saved)
+                    // The grid adds its own fields (moved, static, min sizes) when it re-lays out, so compare the cell only.
+                    const cellChanged =
+                        savedSm && currentSm
+                            ? !sameGridCell(savedSm, currentSm)
+                            : Boolean(savedSm) !== Boolean(currentSm)
+                    return cellChanged || tileGroupChanged(tile, saved)
                 })
             },
         ],
@@ -4485,6 +4531,28 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
+        copyGroupToDashboard: async ({ groupKey, toDashboard, toDashboardName }) => {
+            try {
+                await dashboardsCopyGroupCreate(String(teamLogic.values.currentTeamId), toDashboard, {
+                    fromDashboardId: props.id,
+                    groupKey,
+                })
+                posthog.capture('dashboard tile group copied to other dashboard', {
+                    from_dashboard_id: props.id,
+                    to_dashboard_id: toDashboard,
+                    tile_count: values.tiles.filter((tile) => tile.group_key === groupKey).length,
+                })
+                lemonToast.success(
+                    <>
+                        Group copied to <Link to={urls.dashboard(toDashboard)}>{toDashboardName}</Link>
+                    </>
+                )
+            } catch (error) {
+                lemonToast.error(`Could not copy group to dashboard: ${String(error)}`)
+            } finally {
+                actions.copyGroupToDashboardFinished()
+            }
+        },
         revealHighlightedInsight: () => {
             const insightId = values.highlightedInsightId
             const tile = values.tiles.find((tile) => insightId && tile.insight?.short_id === insightId)
@@ -5146,20 +5214,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             }
         },
-        saveDashboardGridCompaction: async ({ layoutCompaction }, breakpoint) => {
-            await breakpoint(750)
-
-            if (cache.dashboardGridCompactionSaveInFlight) {
-                cache.pendingDashboardGridCompaction = layoutCompaction
-                return
-            }
-
+        saveDashboardGridCompaction: async ({ layoutCompaction }) => {
             const persistedDashboard = dashboardsModel.values.rawDashboards[props.id]
             const persistedLayoutCompaction =
                 persistedDashboard && 'customization' in persistedDashboard
                     ? (persistedDashboard.customization?.layout_compaction ?? DashboardGridCompaction.Vertical)
                     : DashboardGridCompaction.Vertical
-            cache.dashboardGridCompactionSaveInFlight = true
+            actions.setDashboardGridCompactionSaving(true)
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
                 const dashboard = await api.update<DashboardType>(
@@ -5174,21 +5235,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             } catch (error) {
                 posthog.captureException(error)
-                if (!cache.pendingDashboardGridCompaction) {
-                    actions.setDashboardGridCompaction(persistedLayoutCompaction)
-                    actions.loadDashboard({ action: DashboardLoadAction.Update })
-                }
+                actions.setDashboardGridCompaction(persistedLayoutCompaction)
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
                 lemonToast.error("Couldn't update tile movement. Try again.")
             } finally {
-                cache.dashboardGridCompactionSaveInFlight = false
-                const pendingLayoutCompaction = cache.pendingDashboardGridCompaction as
-                    | DashboardGridCompaction
-                    | undefined
-                cache.pendingDashboardGridCompaction = undefined
-                if (pendingLayoutCompaction) {
-                    actions.setDashboardGridCompaction(pendingLayoutCompaction)
-                    actions.saveDashboardGridCompaction(pendingLayoutCompaction)
-                }
+                actions.setDashboardGridCompactionSaving(false)
             }
         },
         forceRefreshIfStale: () => {
@@ -5954,9 +6005,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.saveDashboardTileSpacing(tileSpacing)
         },
         changeDashboardGridCompaction: ({ layoutCompaction }) => {
+            // The options are disabled while a save is in flight, so a save response never carries an older choice.
             if (
+                values.dashboardGridCompactionSaving ||
                 layoutCompaction ===
-                (values.dashboard?.customization?.layout_compaction ?? DashboardGridCompaction.Vertical)
+                    (values.dashboard?.customization?.layout_compaction ?? DashboardGridCompaction.Vertical)
             ) {
                 return
             }

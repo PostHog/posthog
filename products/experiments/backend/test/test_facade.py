@@ -3,6 +3,7 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import pytest
 import time_machine
 from posthog.test.base import (
     APIBaseTest,
@@ -27,8 +28,10 @@ from products.experiments.backend.facade.contracts import (
     CreateExperimentInput,
     EndedExperiment,
     ExperimentValidationError,
+    StoredPrimaryResult,
 )
-from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout
+from products.experiments.backend.metric_calculation.config import build_primary_calculation_configs
+from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricResult
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
@@ -339,3 +342,66 @@ class TestCountEnrolledPeople(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         assert api.count_enrolled_people(team=self.team, user=self.user, flag_keys=["checkout"]) == {"checkout": 2}
+
+
+_CHECKOUT = {"kind": "EventsNode", "event": "checkout"}
+
+
+class TestGetStoredPrimaryResult(BaseTest):
+    def _stored(self, metric: dict, stats_config: dict, baseline_sum: int) -> StoredPrimaryResult | None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="stored-result")
+        experiment = Experiment.objects.create(
+            team=self.team,
+            feature_flag=flag,
+            name="stored result",
+            start_date=datetime(2026, 8, 1, tzinfo=UTC),
+            stats_config=stats_config,
+            metrics=[{"uuid": "m1", "kind": "ExperimentMetric", "name": "Checkout", "goal": "decrease", **metric}],
+        )
+        ExperimentMetricResult.objects.create(
+            experiment=experiment,
+            metric_uuid="m1",
+            fingerprint=build_primary_calculation_configs(experiment)[0].calculation_key(),
+            query_from=datetime(2026, 8, 1, tzinfo=UTC),
+            query_to=datetime(2026, 8, 5, tzinfo=UTC),
+            status=ExperimentMetricResult.Status.COMPLETED,
+            completed_at=datetime(2026, 8, 5, tzinfo=UTC),
+            result={
+                "baseline": {"key": "control", "number_of_samples": 100, "sum": baseline_sum, "sum_squares": 20},
+                "variant_results": [
+                    {
+                        "key": "test",
+                        "method": "frequentist",
+                        "number_of_samples": 50,
+                        "sum": 15,
+                        "sum_squares": 15,
+                        "confidence_interval": [0.1, 0.4],
+                        "significant": True,
+                    }
+                ],
+            },
+        )
+        return api.get_stored_primary_result(team_id=self.team.pk, experiment_id=experiment.pk)
+
+    @parameterized.expand(
+        [
+            ("funnel", {"metric_type": "funnel", "series": [_CHECKOUT]}, 20, 0.25, True),
+            ("thresholded_mean", {"metric_type": "mean", "threshold": 5, "source": _CHECKOUT}, 20, 0.25, True),
+            ("negative_baseline_mean", {"metric_type": "mean", "source": _CHECKOUT}, -20, None, False),
+        ]
+    )
+    def test_returns_the_current_stored_result_of_the_primary_metric(
+        self, _name: str, metric: dict, baseline_sum: int, change: float | None, proportion: bool
+    ) -> None:
+        result = self._stored(metric, {"method": "frequentist"}, baseline_sum)
+
+        assert result is not None
+        assert (result.metric_name, result.proportion, result.goal) == ("Checkout", proportion, "decrease")
+        assert result.baseline.mean == pytest.approx(baseline_sum / 100)
+        assert (result.variants[0].mean, result.variants[0].significant) == (0.3, True)
+        assert result.variants[0].change == (None if change is None else pytest.approx(change))
+
+    def test_returns_nothing_for_absolute_differences(self) -> None:
+        stats_config = {"method": "frequentist", "frequentist": {"difference_type": "ABSOLUTE"}}
+
+        assert self._stored({"metric_type": "funnel", "series": [_CHECKOUT]}, stats_config, 20) is None

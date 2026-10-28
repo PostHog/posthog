@@ -16,7 +16,7 @@ from posthog.temporal.common.utils import close_db_connections
 from ...merge_check.check import run_merge_check
 from ...merge_check.judge import judge_client
 from ...merge_check.sources import POSTHOG_REPOSITORY
-from ..adapters import REGISTRY
+from ..adapters.registry import REGISTRY
 from ..facade.contracts import AdapterVerdict
 from ..facade.enums import DocsRequestSource
 from ..logic import intake

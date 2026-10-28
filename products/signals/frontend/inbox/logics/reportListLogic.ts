@@ -15,10 +15,14 @@ import type { UserType } from '~/types'
 
 import {
     signalsReportsRefreshMetricsCreate,
+    signalsReportsReviewersMeCreate,
     signalsReportsReviewersMeDestroy,
     signalsReportsSourceMetadataCreate,
 } from 'products/signals/frontend/generated/api'
-import type { SignalReportMetricSnapshotsApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    ReviewerRemovalReasonEnumApi,
+    SignalReportMetricSnapshotsApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import type { SignalReportAssigneeApi } from '../../generated/api.schemas'
 import { createdAfterForWindow } from '../filterOptions'
@@ -354,8 +358,10 @@ export interface reportListLogicActions {
     }
     unassignMe: (
         reportId: string,
-        surface: InboxReportActionSurface
+        surface: InboxReportActionSurface,
+        reason?: ReviewerRemovalReasonEnumApi
     ) => {
+        reason: ReviewerRemovalReasonEnumApi | undefined
         reportId: string
         surface: InboxReportActionSurface
     }
@@ -470,7 +476,11 @@ export const reportListLogic = kea<reportListLogicType>([
         dismissReport: (reportId: string, dismissal: DismissalFeedback) => ({ reportId, dismissal }),
         resolveReport: (reportId: string, reason: ResolveReasonValue, note: string) => ({ reportId, reason, note }),
         restoreReport: (reportId: string, surface: InboxReportActionSurface) => ({ reportId, surface }),
-        unassignMe: (reportId: string, surface: InboxReportActionSurface) => ({ reportId, surface }),
+        unassignMe: (reportId: string, surface: InboxReportActionSurface, reason?: ReviewerRemovalReasonEnumApi) => ({
+            reportId,
+            surface,
+            reason,
+        }),
         unassignMeFinished: (reportId: string) => ({ reportId }),
         setSuggestedToMe: (reportIds: string[], isSuggested: boolean) => ({ reportIds, isSuggested }),
         setReportAssignee: (reportId: string, assignee: SignalReport['assignee']) => ({ reportId, assignee }),
@@ -999,11 +1009,20 @@ export const reportListLogic = kea<reportListLogicType>([
                 actions.setSuggestedToMe(reportIds, false)
             }
         },
-        unassignMe: async ({ reportId, surface }) => {
+        unassignMe: async ({ reportId, surface, reason }) => {
             const report = values.reports.find((r) => r.id === reportId)
-            captureInboxReportAction({ report, actionType: 'remove_suggested_reviewer', surface })
+            captureInboxReportAction({
+                report,
+                actionType: 'remove_suggested_reviewer',
+                surface,
+                // pinned: analytics property names — renaming breaks dashboards
+                extra: reason ? { removal_reason: reason } : undefined,
+            })
+            const teamId = String(values.currentTeamId)
             try {
-                await signalsReportsReviewersMeDestroy(String(values.currentTeamId), reportId)
+                await (reason
+                    ? signalsReportsReviewersMeCreate(teamId, reportId, { removal_reason: reason })
+                    : signalsReportsReviewersMeDestroy(teamId, reportId))
             } catch (error: any) {
                 lemonToast.error(error?.detail || "Couldn't unassign you from the report. Try again.")
                 return

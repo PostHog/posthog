@@ -39,3 +39,7 @@ cohort for the affected period (`posthog:cohorts-create` / `-list`), then run
 
 Run `posthog:query-lifecycle` scoped to the affected cohort to separate "never retained"
 (new users who didn't return) from "lost later" (returning users who churned).
+
+## Next
+
+Return to SKILL.md for Step 4 (cross-check) and Step 5 (write findings), in the format you chose in Step 1.

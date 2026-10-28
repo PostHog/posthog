@@ -11,8 +11,10 @@ from products.tasks.backend.facade import api as tasks_facade
 
 from ..facade.contracts import DocsRequest
 from ..settings import WriterSettings, writer_settings
+from .launch import replace_entry_with
 from .records import (
     JOIN_STATE_KEY,
+    PULL_REQUEST_FAILURE_STATE_KEY,
     PULL_REQUEST_STATE_KEY,
     REQUEST_STATE_KEY,
     SECTION_STATE_KEY,
@@ -128,6 +130,7 @@ def open_or_join_pull_request(task_run_id: UUID, *, team_id: int) -> str | None:
     github = docs_github(team_id, docs_owner)
     if github is None:
         logger.warning("knowledge_writer_no_docs_github_integration", team_id=team_id, task_run_id=str(task_run_id))
+        record_pull_request_failure(run.task_id, team_id, "no_github_integration")
         return None
     joined = tasks_facade.read_task_state_entry(run.task_id, team_id, JOIN_STATE_KEY)
     pull_request = (
@@ -140,10 +143,16 @@ def open_or_join_pull_request(task_run_id: UUID, *, team_id: int) -> str | None:
             WriterPullRequestFailed("knowledge writer docs pull request failed"),
             {"team_id": team_id, "task_run_id": str(task_run_id)},
         )
+        record_pull_request_failure(run.task_id, team_id, "github_request_failed")
         return None
     stored = pull_request_json.dump_python(pull_request, mode="json")
-    tasks_facade.update_task_state_entry(run.task_id, team_id, PULL_REQUEST_STATE_KEY, lambda _current: (stored, None))
+    tasks_facade.update_task_state_entry(run.task_id, team_id, PULL_REQUEST_STATE_KEY, replace_entry_with(stored))
+    tasks_facade.update_task_state_entry(run.task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY, replace_entry_with(None))
     return pull_request.url
+
+
+def record_pull_request_failure(task_id: UUID, team_id: int, reason: str) -> None:
+    tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY, replace_entry_with(reason))
 
 
 def read_section(task_id: UUID, team_id: int) -> str | None:
