@@ -7,6 +7,7 @@ from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
 
 from posthog.dataclasses import frozen
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_modeling.backend.facade.api import allowed_saved_query_ids, backing_table_ids_by_saved_query
 from products.warehouse_sources.backend.facade.api import allowed_table_ids
 
@@ -16,7 +17,9 @@ from ..models import WarehouseSuggestion
 from .rules import RULES
 
 if TYPE_CHECKING:
-    from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+    from posthog.models import Team, User
+
+    from products.access_control.backend.facade.user_access_control import AccessControlLevel
 
 
 class AllowedSubjectIds(Protocol):
@@ -34,6 +37,23 @@ ALLOWED_SUBJECT_IDS: Mapping[WarehouseSuggestionSubjectKind, AllowedSubjectIds] 
     WarehouseSuggestionSubjectKind.SAVED_QUERY: allowed_saved_query_ids,
     WarehouseSuggestionSubjectKind.TABLE: allowed_table_ids,
 }
+CATALOG_KINDS = frozenset({WarehouseSuggestionKind.CERTIFY, WarehouseSuggestionKind.DEPRECATE})
+EDITOR_LEVEL: "AccessControlLevel" = "editor"
+
+
+def can_take(team: "Team", user: "User", suggestion: WarehouseSuggestion) -> bool:
+    """Whether `user` has access to the project and every edit access accepting `suggestion` needs."""
+    if not team.all_users_with_access().filter(id=user.id).exists():
+        return False
+    user_access_control = UserAccessControl(user, team)
+    if suggestion.kind in CATALOG_KINDS and not user_access_control.check_access_level_for_resource(
+        "data_catalog", required_level=EDITOR_LEVEL
+    ):
+        return False
+    allowed_ids = ALLOWED_SUBJECT_IDS[WarehouseSuggestionSubjectKind(suggestion.subject_kind)]
+    return suggestion.subject_id in allowed_ids(
+        team.pk, user_access_control, required_level=EDITOR_LEVEL, ids=[suggestion.subject_id]
+    )
 
 
 @frozen
@@ -61,6 +81,7 @@ def visible_suggestions(
     kind: WarehouseSuggestionKind | None = None,
     status: WarehouseSuggestionStatus | None = None,
     subject_id: UUID | None = None,
+    assignee_id: int | None = None,
     subject_kinds: SubjectKinds,
 ) -> tuple[QuerySet[WarehouseSuggestion], SubjectAccess]:
     suggestions = (
@@ -76,10 +97,12 @@ def visible_suggestions(
         suggestions = suggestions.filter(status=status)
     if subject_id is not None:
         suggestions = suggestions.filter(subject_id=subject_id)
+    if assignee_id is not None:
+        suggestions = suggestions.filter(assignee_id=assignee_id)
     access = subject_access(team_id, user_access_control, suggestions, actionable_kinds=subject_kinds.actionable)
     visible = (
         suggestions.filter(access.readable_q())
-        .select_related("reviewed_by")
+        .select_related("reviewed_by", "assignee")
         .annotate(kind_position=_kind_position(RULES.lifecycle.kind_order))
         .order_by("kind_position", "-score", "id")
     )

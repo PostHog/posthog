@@ -2059,7 +2059,7 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
     assert captured[0]["max_poll_seconds"] == 30 * 60
     sandbox_context = captured[0]["context"]
     assert isinstance(sandbox_context, CustomPromptSandboxContext)
-    assert sandbox_context.sandbox_timeout_seconds == 37 * 60
+    assert sandbox_context.sandbox_timeout_seconds == 52 * 60
     assert sandbox_context.model == "gpt-5.6-sol"
     assert sandbox_context.reasoning_effort == "high"
     assert sandbox_context.posthog_mcp_scopes == "signals_scout_experiment"
@@ -2826,6 +2826,76 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "variant,runtime,adapter,model,tier",
+    [
+        ("test-sol", "acp", "codex", "gpt-6.1-sol", "priority"),
+        ("test-deepseek", "pi", None, "deepseek-ai/deepseek-v4.1-flash-1017-fast", None),
+        ("control", None, None, None, None),
+        (False, None, None, None, None),
+    ],
+)
+async def test_first_report_experiment_routes_and_records_assignment(ateam, variant, runtime, adapter, model, tier):
+    await database_sync_to_async(LLMSkill.objects.create)(
+        team=ateam, name="signals-scout-first-report", description="First report", body="Investigate"
+    )
+    session, _ = await database_sync_to_async(_make_fake_session)(ateam)
+    result = scout_prompt.FirstReportScoutRunSummary(
+        summary="No actionable finding", first_report_result={"outcome": "no_actionable_finding"}
+    )
+    captured = {}
+
+    async def start(*args, before_task_dispatch=None, **kwargs):
+        captured.update(kwargs)
+        await database_sync_to_async(before_task_dispatch)(session.task_run.id)
+        return session, result
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=start),
+        patch(
+            "products.signals.backend.first_report_experiment.posthoganalytics.get_feature_flag",
+            side_effect=lambda key, *args, **kwargs: variant if key == "self-driving-banger-scout" else None,
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env", return_value="env-id"
+        ) as sandbox,
+        patch("products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team", return_value=42),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+    ):
+        outcome = await arun_signals_scout(
+            team_id=ateam.id, skill_name="signals-scout-first-report", triggered_by="onboarding"
+        )
+
+    if runtime is None:
+        assert outcome.skip_reason == (
+            "first-report control arm" if variant == "control" else "first-report experiment disabled"
+        )
+        sandbox.assert_not_called()
+        assert not captured
+        return
+    assert outcome.status == "completed"
+    context = captured["context"]
+    assert captured["internal"] is True
+    assert captured["origin_product"] == "signals_scout"
+    assert (context.runtime, context.runtime_adapter, context.model, context.service_tier) == (
+        runtime,
+        adapter,
+        model,
+        tier,
+    )
+    run = await database_sync_to_async(SignalScoutRun.objects.get)(team=ateam)
+    assert run.metadata is not None
+    assert run.metadata["experiment_variant"] == variant
+    assert run.metadata["runtime"] == runtime
+    events = {call.kwargs["event"]: call.kwargs["properties"] for call in capture.call_args_list}
+    assert events["signals_scout_run_started"]["experiment_variant"] == variant
+    assert events["signals_scout_run_finished"]["experiment_variant"] == variant
+    assert events["signals_scout_run_finished"]["first_report_outcome"] == "no_actionable_finding"
+    assert events["signals_scout_run_finished"]["report_delivered"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_failed_run_returns_failed_outcome_and_skips_bridge_insert(ateam, aerrors_skill):
     TaskRun = apps.get_model("tasks", "TaskRun")
     # Failure inside MultiTurnSession.start means we never get a session.task_run
@@ -3304,6 +3374,7 @@ async def test_stale_in_progress_run_is_reaped_and_unblocks_dispatch(ateam, aerr
     with (
         patch("products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team", return_value=42),
         patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
+        patch("products.signals.backend.tasks.settle_scout_spend.delay"),
     ):
         result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
@@ -3396,6 +3467,7 @@ async def test_stale_run_reap_captures_run_reaped_event(ateam, aerrors_skill, st
     with (
         patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+        patch("products.signals.backend.tasks.settle_scout_spend.delay"),
     ):
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
         # A second dispatch must not report the same run again.
@@ -3779,6 +3851,21 @@ _ROUTED_MODEL_KEYS = ("model", "runtime_adapter", "reasoning_effort", "service_t
 
 
 class TestRunRowProvenanceStamps(BaseTest):
+    def test_accounting_failure_rolls_back_scout_registration(self) -> None:
+        config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name="signals-scout-general")
+        run_id = uuid7()
+        task_run = _make_task_run(self.team)
+        with patch("products.signals.backend.scout_harness.runner.record_task_spend", side_effect=RuntimeError("db")):
+            with self.assertRaises(RuntimeError):
+                _create_run_row(
+                    run_id=run_id,
+                    task_run_id=task_run.id,
+                    team=self.team,
+                    config=config,
+                    skill=self._skill(allowed_tools=["emit_report"], origin="custom"),
+                )
+        assert not SignalScoutRun.objects.for_team(self.team.id).filter(id=run_id).exists()
+
     # The three dimensions an eval or A/B has to hold constant. Each is unrecoverable after the
     # fact, so a regression that hardcodes one (rather than reading it off the loaded skill)
     # silently mislabels every run from then on instead of failing loudly.
@@ -3916,7 +4003,7 @@ async def test_activity_wakes_the_workflow_step_that_started_the_run(ateam, work
 )
 @pytest.mark.parametrize(
     "workflow_origin_key,trial_launch_id,timeout_minutes",
-    [("job:step:1", None, 21), (None, None, 21), (None, "11111111-1111-1111-1111-111111111111", 36)],
+    [("job:step:1", None, 36), (None, None, 36), (None, "11111111-1111-1111-1111-111111111111", 51)],
 )
 async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_cannot(
     outcome, workflow_origin_key, trial_launch_id, timeout_minutes

@@ -1,7 +1,7 @@
 import {readFileSync} from 'fs'
 import * as path from 'path'
 import * as yaml from 'js-yaml'
-import {Paths, bindChannels, loadPolicy, policyDigest, serializePolicy} from '../src/shared-image'
+import {Paths, POLICY_PATH, bindChannels, loadPolicy, policyDigest, serializePolicy} from '../src/shared-image'
 
 const destination = {repository: 'posthog-temporal-workers/data-warehouse-metadata'}
 const source = 'posthog-cloud'
@@ -9,6 +9,16 @@ const fixture = readFileSync(path.join(__dirname, '../../paths-filter/__tests__/
 const literal = JSON.parse(readFileSync(path.join(__dirname, 'fixtures/shared-image-fingerprints.json'), 'utf8')) as
   {paths: Paths; bytes: string; sha256: string}[]
 describe('shared-image publication bindings and fingerprints', () => {
+  test('binds every channel of the committed policy', () => {
+    const policy = loadPolicy(readFileSync(path.join(__dirname, '../../../..', POLICY_PATH), 'utf8'))
+    const channels = policy.images['posthog-cloud'].channels
+    const bindings = bindChannels(policy, 'posthog-cloud')['posthog-cloud']
+    expect(Object.keys(bindings).sort()).toEqual(Object.keys(channels).sort())
+    for (const [name, channel] of Object.entries(channels)) {
+      expect(bindings[name]).toEqual({repository: channel.repository})
+    }
+  })
+
   test.each([
     ['unknown build', fixture.replace('posthog-cloud:', 'unknown-image:'), 'images.unknown-image: unknown build input'],
     ['prototype build', fixture.replace('posthog-cloud:', '__proto__:'), 'images.__proto__: unknown build input'],

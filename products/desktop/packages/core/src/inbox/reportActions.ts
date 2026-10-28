@@ -17,6 +17,9 @@ export function canCreateImplementationPr(
     isTaskLookupPending?: boolean;
   } = {},
 ): boolean {
+  if (report.is_self_improvement_report && !report.repo_slug) {
+    return false;
+  }
   if (context.hasLiveImplementationTask || context.isTaskLookupPending) {
     return false;
   }

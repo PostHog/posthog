@@ -2889,6 +2889,26 @@
                   "table": null,
                   "type": "json"
               },
+              "brand_sentiment": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "brand_sentiment",
+                  "id": null,
+                  "name": "brand_sentiment",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "brand_sentiment_score": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "brand_sentiment_score",
+                  "id": null,
+                  "name": "brand_sentiment_score",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
               "cost_usd": {
                   "chain": null,
                   "fields": null,
@@ -5524,6 +5544,16 @@
                   "table": null,
                   "type": "datetime"
               },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
               "created_at": {
                   "chain": null,
                   "fields": null,
@@ -5949,6 +5979,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "created_at": {
                   "chain": null,
@@ -17517,6 +17557,26 @@
                   "table": null,
                   "type": "json"
               },
+              "brand_sentiment": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "brand_sentiment",
+                  "id": null,
+                  "name": "brand_sentiment",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "brand_sentiment_score": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "brand_sentiment_score",
+                  "id": null,
+                  "name": "brand_sentiment_score",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
               "cost_usd": {
                   "chain": null,
                   "fields": null,
@@ -20152,6 +20212,16 @@
                   "table": null,
                   "type": "datetime"
               },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
               "created_at": {
                   "chain": null,
                   "fields": null,
@@ -20577,6 +20647,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "created_at": {
                   "chain": null,

@@ -80,6 +80,7 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
 from products.alerts_platform.backend.facade.temporal import (
+    create_alerts_platform_expired_holds_schedule,
     create_alerts_platform_inventory_schedule,
     create_alerts_platform_tick_schedule,
 )
@@ -108,6 +109,7 @@ from products.engineering_analytics.backend.facade.temporal import (
 )
 from products.error_tracking.backend.facade.temporal import (
     RecommendationsRefreshInputs,
+    create_error_tracking_built_in_filters_refresh_schedule,
     create_error_tracking_spike_event_cleanup_schedule,
     create_error_tracking_symbol_set_cleanup_schedule,
     create_error_tracking_weekly_digest_schedule,
@@ -989,12 +991,14 @@ schedules = [
     create_error_tracking_symbol_set_cleanup_schedule,
     create_error_tracking_spike_event_cleanup_schedule,
     create_error_tracking_weekly_digest_schedule,
+    create_error_tracking_built_in_filters_refresh_schedule,
     create_wa_weekly_digest_schedule,
     create_wa_digest_notification_schedule,
     create_heatmap_page_history_schedule,
     create_data_catalog_weekly_digest_schedule,
     create_alerts_platform_tick_schedule,
     create_alerts_platform_inventory_schedule,
+    create_alerts_platform_expired_holds_schedule,
     create_logs_alert_check_schedule,
     disable_logs_volume_tick_schedule,
     create_schedule_due_alert_checks_schedule,

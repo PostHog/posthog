@@ -39,6 +39,7 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     launch_agent_server,
     start_agent_server,
 )
+from products.tasks.backend.temporal.process_task.utils import UserMcpServerConfigs
 
 
 @pytest.fixture(autouse=True)
@@ -743,7 +744,7 @@ def _mock_prepare_launch_dependencies(mocker) -> None:
     mocker.patch(f"{prefix}.create_oauth_access_token_for_run", return_value="access-token")
     mocker.patch(f"{prefix}.TaskRun.objects.filter").return_value.first.return_value = mocker.Mock()
     mocker.patch(f"{prefix}.get_sandbox_ph_mcp_configs", return_value=[])
-    mocker.patch(f"{prefix}.get_user_mcp_server_configs", return_value=[])
+    mocker.patch(f"{prefix}.get_user_mcp_server_configs", return_value=UserMcpServerConfigs(configs=[]))
     mocker.patch(f"{prefix}.get_imported_mcp_server_configs", return_value=[])
     mocker.patch(f"{prefix}.get_relayed_mcp_server_names", return_value=[])
     mocker.patch(f"{prefix}.emit_agent_log")
@@ -946,10 +947,20 @@ def test_agent_shadow_skips_filesystem_snapshot(mocker) -> None:
     )
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.config.snapshot_restored = True
-    sandbox.config.snapshot_kind = "filesystem"
+    sandbox.config.resume_snapshot_external_id = None
 
     assert _launch_agent_shadow(_context(agent_shadow_enabled=True), sandbox) is False
     sandbox.execute.assert_not_called()
+
+
+def test_agent_shadow_allows_directory_snapshot(mocker) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.config.snapshot_restored = True
+    sandbox.config.resume_snapshot_external_id = "im-dir"
+    sandbox.agent_server_health_url.return_value = "http://127.0.0.1:8080/health"
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    assert _launch_agent_shadow(_context(agent_shadow_enabled=True), sandbox) is True
 
 
 def test_agent_shadow_result_is_allowlisted(mocker) -> None:
@@ -1109,7 +1120,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(
     )
     get_user_mcp_configs = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_user_mcp_server_configs",
-        return_value=[],
+        return_value=UserMcpServerConfigs(configs=[]),
     )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.objects.filter",
