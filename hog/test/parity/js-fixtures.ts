@@ -119,5 +119,16 @@ export const STYLESHEETS: Record<string, string> = {
     'dist/inline.css.map': map({ sources: ['inline.scss'] }),
 }
 
+// Stylesheets whose reference doesn't name the map directly: a CDN URL that --public-path-prefix
+// strips, and a stale name that falls back to the map next to the stylesheet.
+export const STYLESHEET_LOOKUP: Record<string, string> = {
+    'dist/a.js': `a();${ref('a.js.map')}\n`,
+    'dist/a.js.map': map(),
+    'dist/cdn.css': '.a{}\n/*# sourceMappingURL=https://cdn.example.com/assets/cdn.css.map */\n',
+    'dist/cdn.css.map': map({ sources: ['cdn.scss'] }),
+    'dist/stale.css': '.b{}\n/*# sourceMappingURL=stale.0f3a.css.map */\n',
+    'dist/stale.css.map': map({ sources: ['stale.scss'] }),
+}
+
 // Real bundler output, built from the small app in bundles/README.md.
 export const bundles = (): Record<string, Uint8Array> => readTree(join(import.meta.dir, 'bundles'))

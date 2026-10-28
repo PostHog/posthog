@@ -1,4 +1,5 @@
-import { writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { accessSync, chmodSync, constants, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 
 import { HogError } from '@/core/errors'
 import type { Env } from '@/core/runtime'
@@ -80,9 +81,37 @@ export const randomChunkId = (now: () => number) => (): string => uuidv7(now())
 // posthog-cli writes every pair only after all of them were transformed, so a failure leaves the
 // build untouched. Unchanged pairs are written too, which puts every map in canonical form.
 export function savePairs(pairs: SourcePair[], serialize: (pair: SourcePair) => string): void {
-    for (const pair of pairs) {
-        writeFileSync(pair.sourcePath, pair.source)
-        writeFileSync(pair.mapPath, serialize(pair))
+    replaceFiles(
+        pairs.flatMap((pair): [string, string][] => [
+            [pair.sourcePath, pair.source],
+            [pair.mapPath, serialize(pair)],
+        ])
+    )
+}
+
+// Writes every file next to its target first, then renames them all into place. A full disk or a
+// read-only target then fails before any target changes, instead of leaving a bundle injected
+// while its map keeps the old offsets, which a rerun can't repair.
+function replaceFiles(files: [string, string][]): void {
+    const staged: [string, string][] = []
+    try {
+        for (const [path, contents] of files) {
+            const target = realpathSync(path)
+            // A rename would replace a read-only file, where posthog-cli's write fails.
+            accessSync(target, constants.W_OK)
+            const temporary = `${target}.${randomUUID()}.tmp`
+            staged.push([temporary, target])
+            writeFileSync(temporary, contents, { flag: 'wx' })
+            chmodSync(temporary, statSync(target).mode & 0o7777)
+        }
+    } catch (error) {
+        for (const [temporary] of staged) {
+            rmSync(temporary, { force: true })
+        }
+        throw error
+    }
+    for (const [temporary, target] of staged) {
+        renameSync(temporary, target)
     }
 }
 

@@ -42,6 +42,26 @@ describe('resolveCredentials', () => {
             DEFAULT_HOST,
         ],
         [
+            'POSTHOG_CLI_DOTENV_FILE names the dotenv file',
+            { POSTHOG_CLI_DOTENV_FILE: '/x/.env' },
+            { '/x/.env': DOTENV },
+            undefined,
+            undefined,
+            'phx_dotenv',
+            '2',
+            DEFAULT_HOST,
+        ],
+        [
+            'a missing dotenv file falls back to the credentials file',
+            {},
+            { '/home/test/.posthog/credentials.json': STORED },
+            '/x/missing.env',
+            undefined,
+            'phx_stored',
+            '3',
+            'https://stored.example.com',
+        ],
+        [
             'the credentials file is last',
             {},
             { '/home/test/.posthog/credentials.json': STORED },
@@ -77,20 +97,40 @@ describe('resolveCredentials', () => {
     })
 
     test.each([
-        ['nothing configured', {}, 'not_authenticated'],
+        ['nothing configured', {}, 'not_authenticated', {}],
         [
             'a key without the phx_ prefix',
             { POSTHOG_CLI_API_KEY: 'abc', POSTHOG_CLI_PROJECT_ID: '1' },
             'invalid_credentials',
+            {},
         ],
         [
             'a project ID that is not a number',
             { POSTHOG_CLI_API_KEY: 'phx_a', POSTHOG_CLI_PROJECT_ID: 'two' },
             'invalid_credentials',
+            {},
         ],
-    ] as const)('fails on %s', async (_name, env, code) => {
-        const error = await resolveCredentials(fakeRuntime({ env }), {}).catch((caught: unknown) => caught)
+        [
+            'a dotenv file without the credentials',
+            { POSTHOG_CLI_DOTENV_FILE: '/x/.env' },
+            'not_authenticated',
+            { '/x/.env': 'OTHER=1\n', '/home/test/.posthog/credentials.json': STORED },
+        ],
+    ] as const)('fails on %s', async (_name, env, code, files: Record<string, string>) => {
+        const error = await resolveCredentials(fakeRuntime({ env, files }), {}).catch((caught: unknown) => caught)
         expect(error).toBeInstanceOf(HogError)
         expect((error as HogError).code).toBe(code)
+    })
+
+    test('fails on a dotenv file it cannot read, instead of falling back', async () => {
+        const runtime = fakeRuntime({ files: { '/home/test/.posthog/credentials.json': STORED } })
+        runtime.readFile = async (path) => {
+            if (path === '/x/.env') {
+                throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })
+            }
+            return STORED
+        }
+        const error = await resolveCredentials(runtime, { dotenvFile: '/x/.env' }).catch((caught: unknown) => caught)
+        expect((error as HogError).code).toBe('invalid_dotenv_file')
     })
 })

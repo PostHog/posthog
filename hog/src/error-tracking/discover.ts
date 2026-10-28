@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 
 import type { ArtifactKind } from '@/core/config'
 import { HogError } from '@/core/errors'
@@ -139,9 +139,23 @@ function rootFiles(root: Root, cwd: string): { path: string; isFile: boolean; fi
     }
     const found = { files: [] as string[], bundles: [] as string[] }
     walk(path, found)
-    const globs = (root.ignore ?? []).map((pattern) => new Bun.Glob(pattern))
-    const kept = (file: string): boolean => !globs.some((glob) => glob.match(relative(path, file)))
+    const kept = (file: string): boolean => !isIgnored(root, path, file)
     return { path, isFile: false, files: found.files.filter(kept), bundles: found.bundles.filter(kept) }
+}
+
+const compiledGlobs = new WeakMap<Root, Bun.Glob[]>()
+
+export function isIgnored(root: Root, folder: string, file: string): boolean {
+    const within = relative(folder, file)
+    if (!root.ignore?.length || within.startsWith('..') || isAbsolute(within)) {
+        return false
+    }
+    let globs = compiledGlobs.get(root)
+    if (!globs) {
+        globs = root.ignore.map((pattern) => new Bun.Glob(pattern))
+        compiledGlobs.set(root, globs)
+    }
+    return globs.some((glob) => glob.match(within))
 }
 
 export function listFiles(roots: readonly Root[], cwd: string): string[] {
@@ -150,6 +164,15 @@ export function listFiles(roots: readonly Root[], cwd: string): string[] {
 
 export function discover(roots: readonly Root[], cwd: string, options: DiscoverOptions = {}): Artifact[] {
     const artifacts: Artifact[] = []
+    // Overlapping paths, like `build build/hbc`, reach the same file twice.
+    const seen = new Set<string>()
+    const add = (artifact: Artifact): void => {
+        const canonical = realpathSync(artifact.path)
+        if (!seen.has(canonical)) {
+            seen.add(canonical)
+            artifacts.push(artifact)
+        }
+    }
     for (const root of roots) {
         const { path, isFile, files, bundles } = rootFiles(root, cwd)
         if (isFile) {
@@ -163,18 +186,18 @@ export function discover(roots: readonly Root[], cwd: string, options: DiscoverO
                     root.kind ? undefined : 'Pass --kind to say which one it is.'
                 )
             }
-            artifacts.push({ kind, path, display: relative(cwd, path) || path, root })
+            add({ kind, path, display: relative(cwd, path) || path, root })
             continue
         }
         if (root.kind === undefined || root.kind === 'dsym') {
             for (const bundle of bundles) {
-                artifacts.push({ kind: 'dsym', path: bundle, display: relative(cwd, bundle) || bundle, root })
+                add({ kind: 'dsym', path: bundle, display: relative(cwd, bundle) || bundle, root })
             }
         }
         for (const file of files) {
             const kind = detect(file, true, root.kind, options)
             if (kind) {
-                artifacts.push({ kind, path: file, display: relative(cwd, file), root })
+                add({ kind, path: file, display: relative(cwd, file), root })
             }
         }
     }
