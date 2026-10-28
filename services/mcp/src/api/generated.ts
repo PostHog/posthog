@@ -26124,6 +26124,20 @@ export namespace Schemas {
       token: string;
     }
 
+    /**
+     * * `info` - Info
+     * * `warn` - Warn
+     * * `error` - Error
+     */
+    export type ConsoleLogLevelEnum = typeof ConsoleLogLevelEnum[keyof typeof ConsoleLogLevelEnum];
+
+
+    export const ConsoleLogLevelEnum = {
+      Info: 'info',
+      Warn: 'warn',
+      Error: 'error',
+    } as const;
+
     export interface ContentAutopilotBriefCompetitor {
       /** Product to compare against. */
       name: string;
@@ -40684,6 +40698,14 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
+    }
+
+    export interface EdgeSummary {
+      readonly id: string;
+      /** ID of the upstream node. */
+      readonly source_id: string;
+      /** ID of the downstream node. */
+      readonly target_id: string;
     }
 
     export interface ReviewerState {
@@ -76863,13 +76885,13 @@ export namespace Schemas {
       results: EarlyAccessFeature[];
     }
 
-    export interface PaginatedEdgeList {
+    export interface PaginatedEdgeSummaryList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: Edge[];
+      results: EdgeSummary[];
     }
 
     export interface PaginatedElementList {
@@ -109774,6 +109796,32 @@ export namespace Schemas {
       failed_ids: string[];
     }
 
+    export interface SessionRecordingConsoleLogEntry {
+      /** When the browser logged the message. */
+      timestamp: string;
+      /** Console level of the message.
+       *
+       * * `info` - Info
+       * * `warn` - Warn
+       * * `error` - Error */
+      level: ConsoleLogLevelEnum;
+      /** The logged text. String arguments are joined with spaces, and non-string arguments are left out. Cut to 3000 characters. */
+      message: string;
+      /** True when the message was cut to fit the length limit. */
+      truncated: boolean;
+    }
+
+    export interface SessionRecordingConsoleLogsResponse {
+      /** Console log entries in chronological order. */
+      results: SessionRecordingConsoleLogEntry[];
+      /** True when more entries exist after this page. */
+      has_more: boolean;
+      /** Whether the project captures console logs now. When false, an empty result means that nothing was captured, not that the session had no console output. */
+      console_log_capture_enabled: boolean;
+      /** True when the recording started longer ago than the console log retention period. The recording can still exist after its console log entries are deleted. Entries expire one at a time, so a recording close to the retention period can already miss its earliest entries while this is false. */
+      logs_expired: boolean;
+    }
+
     export type SessionReplayListWidgetCatalogEntryOpenApiWidgetType = typeof SessionReplayListWidgetCatalogEntryOpenApiWidgetType[keyof typeof SessionReplayListWidgetCatalogEntryOpenApiWidgetType];
 
 
@@ -121321,10 +121369,8 @@ export namespace Schemas {
       file: string;
       /** Owning team slug from the repository's ownership files, or 'unowned' when the test's file cannot be placed or no team claims its path. */
       owner_team: string;
-      /** Trunk's current health verdict on the test, e.g. 'FLAKY' or 'BROKEN'. */
+      /** Trunk's current health verdict on the test, e.g. 'flaky' or 'broken'. */
       status: string;
-      /** How the quarantine was applied in Trunk, e.g. 'AUTO_QUARANTINE'. */
-      quarantine_setting: string;
       /** When Trunk quarantined the test. */
       quarantined_at: string;
       /** Whole days since the quarantine started. */
@@ -121332,7 +121378,7 @@ export namespace Schemas {
       /** True once age_days exceeds ttl_days: the quarantine has outlived the TTL. */
       overdue: boolean;
       /**
-         * The Trunk app's page for this test; null when the connected source has no organization slug or the row carries no test case id.
+         * The Trunk app's page for this test; null when Trunk returned no URL and the source has no organization slug or the row carries no test id.
          * @nullable
          */
       trunk_url: string | null;
@@ -139842,6 +139888,46 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type SessionRecordingsConsoleLogsRetrieveParams = {
+    /**
+     * Only return entries at or after this ISO 8601 timestamp. The results never extend outside the recording's own start and end time.
+     */
+    after?: string;
+    /**
+     * Only return entries at or before this ISO 8601 timestamp. The results never extend outside the recording's own start and end time.
+     */
+    before?: string;
+    /**
+     * Only return entries at this level. Omit to return every level.
+     *
+     * * `info` - Info
+     * * `warn` - Warn
+     * * `error` - Error
+     * @minLength 1
+     */
+    level?: SessionRecordingsConsoleLogsRetrieveLevel;
+    /**
+     * Maximum number of entries to return (1-500, default 100).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of entries to skip. Use with `limit` to page through a long recording.
+     * @minimum 0
+     */
+    offset?: number;
+    };
+
+    export type SessionRecordingsConsoleLogsRetrieveLevel = typeof SessionRecordingsConsoleLogsRetrieveLevel[keyof typeof SessionRecordingsConsoleLogsRetrieveLevel];
+
+
+    export const SessionRecordingsConsoleLogsRetrieveLevel = {
+      Info: 'info',
+      Warn: 'warn',
+      Error: 'error',
+    } as const;
 
     export type SignalsActivitySummaryVersionsRetrieveParams = {
     /**
