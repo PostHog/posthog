@@ -40700,6 +40700,14 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export interface EdgeSummary {
+      readonly id: string;
+      /** ID of the upstream node. */
+      readonly source_id: string;
+      /** ID of the downstream node. */
+      readonly target_id: string;
+    }
+
     export interface ReviewerState {
       /**
          * Current reviewer artefact ID, or null before the first list.
@@ -76877,13 +76885,13 @@ export namespace Schemas {
       results: EarlyAccessFeature[];
     }
 
-    export interface PaginatedEdgeList {
+    export interface PaginatedEdgeSummaryList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: Edge[];
+      results: EdgeSummary[];
     }
 
     export interface PaginatedElementList {
