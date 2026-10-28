@@ -35,6 +35,11 @@ export function AuthPrototype(): JSX.Element {
     useLayoutEffect(() => {
         performance.mark('auth-prototype:rendered')
     }, [])
+    useLayoutEffect(() => {
+        if (canRenderAuth && document.querySelector('#root form input:not([disabled])')) {
+            document.getElementById('login-entry-recovery')?.remove()
+        }
+    })
 
     if (user || userLoading || preflightLoading) {
         return <div role="status">Loading login...</div>

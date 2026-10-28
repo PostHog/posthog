@@ -21,7 +21,14 @@ jest.mock('lib/lemon-ui/LemonButton', () => ({
         <button onClick={onClick}>{children}</button>
     ),
 }))
-jest.mock('scenes/authentication/auth/Auth', () => ({ Auth: () => <div>Login form</div> }))
+jest.mock('scenes/authentication/auth/Auth', () => ({
+    Auth: () => (
+        <form>
+            Login form
+            <input aria-label="Email" />
+        </form>
+    ),
+}))
 jest.mock('scenes/authentication/auth/authLogic', () => ({ authLogic: {} }))
 jest.mock('scenes/PreflightCheck/preflightLogic', () => ({ preflightLogic: {} }))
 jest.mock('scenes/userLogic', () => ({ userLogic: {} }))
@@ -121,6 +128,35 @@ describe('standalone login state', () => {
 
             view.rerender(<AuthPrototype />)
             expect(mountSupportRouter).toHaveBeenCalledTimes(1)
+        }
+    )
+
+    it.each([
+        ['preflight', true, false],
+        ['user', false, true],
+    ])(
+        'keeps recovery available during %s loading and removes it when the form is ready',
+        (_case, loadingPreflight, loadingUser) => {
+            window.history.replaceState(null, '', '/login?next=%2Freset%3Ftoken%3Dexample#panel=support')
+            const fallback = new URL(window.location.href)
+            fallback.searchParams.set('auth_app', 'fallback')
+            document.body.innerHTML = `<div id="root"></div><a id="login-entry-recovery" href="${fallback.href}">Open the standard login page</a>`
+            const recovery = document.getElementById('login-entry-recovery') as HTMLAnchorElement
+            preflight = { cloud: true }
+            preflightLoading = loadingPreflight
+            userLoading = loadingUser
+
+            const view = render(<AuthPrototype />, { container: document.getElementById('root')! })
+            expect(recovery.isConnected).toBe(true)
+            expect(recovery.hidden).toBe(false)
+            expect(recovery.href).toBe(fallback.href)
+            expect(window.location.hash).toBe('#panel=support')
+
+            preflightLoading = false
+            userLoading = false
+            view.rerender(<AuthPrototype />)
+            expect(document.getElementById('root')!.querySelector('form input')).toBeInTheDocument()
+            expect(recovery.isConnected).toBe(false)
         }
     )
 })

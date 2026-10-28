@@ -39,6 +39,7 @@ async function renderAuthPrototype(): Promise<void> {
     const fallback = new URL(window.location.href)
     fallback.searchParams.set('auth_app', 'fallback')
     function renderStylesheetFailure(): void {
+        document.getElementById('login-entry-recovery')?.remove()
         reportBootFailure(new Error('Login styles could not load'))
         appRoot.render(
             <div role="alert">

@@ -50,7 +50,10 @@ export function reportBootFailure(error: unknown): void {
                 $device_id: deviceId,
                 '$feature/standalone-login-entry':
                     window.POSTHOG_USER_IDENTITY_WITH_FLAGS?.featureFlags?.['standalone-login-entry'],
-                $current_url: redactMetricVariableUrl(window.location.href),
+                $current_url:
+                    window.location.pathname === '/login' || window.location.pathname === '/login/'
+                        ? `${window.location.origin}${window.location.pathname}`
+                        : redactMetricVariableUrl(window.location.href),
                 $exception_level: 'fatal',
                 $exception_list: [
                     {
@@ -97,6 +100,9 @@ export class RootErrorBoundary extends React.Component<
 
     override componentDidCatch(error: unknown, errorInfo: React.ErrorInfo): void {
         console.error('[PostHog] App failed to start:', error, errorInfo.componentStack)
+        if (this.props.fallbackHref) {
+            document.getElementById('login-entry-recovery')?.remove()
+        }
         reportBootFailure(error)
     }
 

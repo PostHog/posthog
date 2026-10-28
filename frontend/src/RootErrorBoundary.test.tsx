@@ -95,6 +95,7 @@ describe('RootErrorBoundary', () => {
     })
 
     it.each(['control', 'test'])('keeps the %s login assignment on a boot failure', (variant) => {
+        document.body.insertAdjacentHTML('beforeend', '<a id="login-entry-recovery" href="/login">Recovery</a>')
         window.localStorage.setItem(
             'ph_test-api-key_posthog',
             JSON.stringify({ distinct_id: 'synthetic-person', $device_id: 'synthetic-device' })
@@ -106,6 +107,7 @@ describe('RootErrorBoundary', () => {
             </RootErrorBoundary>
         )
         expect(screen.getByRole('link')).toHaveAttribute('href', '/login?next=%2Fproject&auth_app=fallback')
+        expect(document.getElementById('login-entry-recovery')).toBeNull()
         const event = JSON.parse(sendBeacon.mock.calls[0][1])
         expect(event.distinct_id).toBe('synthetic-person')
         expect(event.properties.$device_id).toBe('synthetic-device')
@@ -128,8 +130,10 @@ describe('RootErrorBoundary', () => {
     })
 
     it.each([
-        ['normal', '/login?next=%2Fproject%2F1', '/login?next=%2Fproject%2F1'],
-        ['metric variables', '/login?next=%2Fdashboard%3FmetricVariables%3Dprivate', '/login'],
+        ['login with nested next URL', '/login?next=%2Freset%3Ftoken%3Dexample#section', '/login'],
+        ['login with nested reset URL', '/login/?reset=%2Freset%3Ftoken%3Dexample#section', '/login/'],
+        ['other page', '/project/1?next=%2Fproject%2F2#section', '/project/1?next=%2Fproject%2F2#section'],
+        ['other page with metric variables', '/dashboard?metricVariables=example#section', '/dashboard'],
     ])('reports a %s boot URL safely', (_case, url, expectedPath) => {
         window.history.replaceState({}, '', url)
         render(

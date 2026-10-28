@@ -4,15 +4,16 @@
         {% include "head.html" %}
     </head>
     <body theme="light">
-        <div id="root" translate="no">
-            <a id="login-entry-recovery" href="/login?auth_app=fallback" hidden>Open the standard login page</a>
-        </div>
+        <div id="root" translate="no"></div>
+        <a id="login-entry-recovery" href="/login?auth_app=fallback" hidden>Open the standard login page</a>
         <script nonce="{{ request.csp_nonce }}">
             const fallback = new URL(window.location.href)
             fallback.searchParams.set('auth_app', 'fallback')
             const recovery = document.getElementById('login-entry-recovery')
             recovery.href = fallback.href
-            setTimeout(() => { recovery.hidden = false }, 5000)
+            setTimeout(() => {
+                recovery.hidden = false
+            }, 5000)
         </script>
     </body>
 </html>
