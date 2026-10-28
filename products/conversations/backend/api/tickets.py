@@ -70,7 +70,6 @@ from products.access_control.backend.presentation.access_control import (
 from products.conversations.backend.ai.evidence import citations_for_ticket, hydrate_ai_sources
 from products.conversations.backend.ai.human_outcome import AiDraftHumanOutcome, record_human_outcome
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
-from products.conversations.backend.api.ticket_brief import TicketBriefSerializer
 from products.conversations.backend.api.ticket_filters import (
     AI_TRIAGE_FILTER_VALUES,
     apply_ticket_filters,
@@ -104,8 +103,9 @@ from products.conversations.backend.models.constants import Channel, ChannelDeta
 from products.conversations.backend.person_lookup import _get_persons_by_email
 from products.conversations.backend.services.delivery import cancel_open_deliveries_for_ticket
 from products.conversations.backend.services.messages import ticket_message_type
-from products.conversations.backend.services.ticket_brief import write_brief_for_ticket
 from products.conversations.backend.tasks.email import cancel_pending_email_replies_for_ticket
+from products.conversations.backend.ticket_brief.schema import TicketBriefSerializer
+from products.conversations.backend.ticket_brief.writer import write_brief_for_ticket
 
 from .. import reply_dedupe
 
@@ -608,14 +608,6 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
         required=False,
         help_text="Tag names to set on the ticket.",
     )
-    ticket_brief = TicketBriefSerializer(
-        required=False,
-        allow_null=True,
-        help_text=(
-            "Structured summary of the ticket for the support engineer. Replaces the whole brief. "
-            "Pass null to clear it."
-        ),
-    )
 
     class Meta:
         model = Ticket
@@ -629,7 +621,6 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
             "sla_due_at",
             "snoozed_until",
             "tags",
-            "ticket_brief",
         ]
         extra_kwargs = {
             "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved."},
@@ -640,10 +631,6 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
             "sla_due_at": {"help_text": "SLA deadline. Pass null to clear it."},
             "snoozed_until": {"help_text": "Time to reopen the ticket. Pass null to reopen it now."},
         }
-
-    def validate_ticket_brief(self, value: dict[str, Any] | None) -> dict[str, Any]:
-        # The column is not nullable, so an explicit null clears the brief instead of storing one.
-        return value or {}
 
     def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
         validated_data.pop("assignee", None)
@@ -2017,8 +2004,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
     def write_brief(self, request, *args, **kwargs):
         """Write this ticket's brief now, replacing any brief already stored.
 
-        Staff only, and deliberately separate from the team's own opt-in: this is how the
-        brief is read on a real ticket before a team turns it on for every new one.
+        Staff only, and deliberately separate from the rollout flag: this is how the brief is
+        read on a real ticket before automatic briefs reach every new one.
         """
         if not request.user.is_staff:
             return Response(

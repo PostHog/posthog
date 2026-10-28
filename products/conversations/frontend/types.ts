@@ -184,7 +184,7 @@ export interface Ticket {
     person?: TicketPerson | null
     tags?: string[]
     ai_triage?: AITriage
-    /** Null until support triage routes the ticket and writes the brief. */
+    /** Null until the support reply pipeline writes the brief. Read-only. */
     ticket_brief?: TicketBriefApi | null
     /** The effective access level the current user has for this ticket. */
     user_access_level?: AccessControlLevel
