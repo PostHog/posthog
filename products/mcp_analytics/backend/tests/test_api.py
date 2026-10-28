@@ -14,10 +14,14 @@ from posthog.schema import AnyPropertyFilterDiscriminated, EventPropertyFilter, 
 
 from posthog.hogql.database.database import Database
 
+from posthog.constants import AvailableFeature
+from posthog.models import PropertyDefinition
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 from posthog.utils import generate_cache_key
 
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.mcp_analytics.backend import intent_generation, mcp_harness
 from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPSession
@@ -779,6 +783,10 @@ class TestLLMConsentGate(APIBaseTest):
 
 
 class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
     def test_aggregates_window_and_extracts_error_messages(self) -> None:
         session_id = str(uuid7())
         _create_event(
@@ -885,6 +893,46 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
         assert sum(row.calls for row in overview.top_tools) == expected_calls
         assert sum(row.calls for row in overview.clients) == expected_calls
         assert len(overview.recent_calls) == expected_calls
+
+    def _restrict_a_property(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        email = PropertyDefinition.objects.create(
+            team=self.team, name="email", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=email, access_level=PropertyAccessLevel.NONE.value
+        )
+
+    @parameterized.expand(
+        [
+            ("same_request_is_served_from_cache", 1, False, False, 1),
+            ("empty_result_is_not_cached", 0, False, False, 2),
+            ("other_filters_query_again", 1, True, False, 2),
+            ("other_property_restrictions_query_again", 1, False, True, 2),
+        ]
+    )
+    def test_caches_overview_per_filters_and_property_restrictions(
+        self,
+        _name: str,
+        calls_before: int,
+        change_filters: bool,
+        restrict_a_property: bool,
+        expected_calls: int,
+    ) -> None:
+        self.team.test_account_filters = TEST_ACCOUNT_FILTERS
+        self.team.save()
+        self._emit_call({"$mcp_client_name": "claude-code"}, count=calls_before)
+        api.get_activity_overview(self.team, user=self.user)
+
+        self._emit_call({"$mcp_client_name": "claude-code"}, count=2 - calls_before)
+        if restrict_a_property:
+            self._restrict_a_property()
+        overview = api.get_activity_overview(self.team, filter_test_accounts=change_filters, user=self.user)
+
+        assert overview.stats.total_calls == expected_calls
 
     def test_tool_filter_does_not_hide_missing_capability_reports(self) -> None:
         self._emit_call({"$mcp_tool_name": "query_run"})

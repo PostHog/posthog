@@ -28,6 +28,8 @@ from posthog.models.user import User
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import generate_cache_key
 
+from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
+from products.access_control.backend.facade.property_access import restriction_fingerprint
 from products.mcp_analytics.backend import intent_generation, mcp_harness
 from products.mcp_analytics.backend.constants import (
     MAX_SNAPSHOT_CLUSTERS,
@@ -114,6 +116,8 @@ SESSION_OVERLAP_BUFFER = timedelta(days=7)
 # aggregation instead of each re-running it — long enough to absorb a burst,
 # short enough that "Reload" still feels live.
 SESSIONS_CACHE_TTL_SECONDS = 30
+
+ACTIVITY_OVERVIEW_CACHE_TTL_SECONDS = 20
 
 # One row per $session_id, aggregated straight from events. The column shape
 # (min/max/count/groupUniqArray/argMax) maps 1:1 onto a future AggregatingMergeTree
@@ -683,16 +687,49 @@ def _shared_activity_database(team: Team, user: User | None) -> Database | None:
     )
 
 
+def _activity_overview_cache_key(
+    team: Team,
+    properties: list[AnyPropertyFilterDiscriminated] | None,
+    filter_test_accounts: bool,
+    user: User | None,
+) -> str:
+    restrictions = restriction_fingerprint(
+        get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
+    )
+    filters = _filters_cache_fragment(team, properties, filter_test_accounts)
+    return generate_cache_key(team.pk, f"mcp_activity_overview_{filters}_{restrictions}")
+
+
 def get_activity_overview(
     team: Team,
     properties: list[AnyPropertyFilterDiscriminated] | None = None,
     filter_test_accounts: bool = False,
     user: User | None = None,
 ) -> contracts.ActivityOverview:
-    """Compute everything the activity view renders, bounded to ``ACTIVITY_WINDOW``.
+    """Return everything the activity view renders, bounded to ``ACTIVITY_WINDOW``.
 
-    Always computed fresh: the view's whole point is watching data arrive, so callers
-    poll this endpoint rather than a stale cache.
+    The view polls to watch data arrive. A cache entry lives for less than one poll
+    interval, so open tabs and teammates share one computation and the view stays live.
+    """
+    cache_key = _activity_overview_cache_key(team, properties, filter_test_accounts, user)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    overview = _query_activity_overview(team, properties, filter_test_accounts, user)
+    # Don't cache an empty overview: a newly set-up team waits on this view for its first call.
+    if overview.stats.total_calls:
+        cache.set(cache_key, overview, ACTIVITY_OVERVIEW_CACHE_TTL_SECONDS)
+    return overview
+
+
+def _query_activity_overview(
+    team: Team,
+    properties: list[AnyPropertyFilterDiscriminated] | None,
+    filter_test_accounts: bool,
+    user: User | None,
+) -> contracts.ActivityOverview:
+    """Compute everything the activity view renders, bounded to ``ACTIVITY_WINDOW``.
 
     The four queries are independent, so they run concurrently. Served serially their
     latency summed, which left the summary sentence landing long after the live feed
