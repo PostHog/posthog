@@ -17,6 +17,7 @@ MODEL = "products.data_modeling.backend.models.datawarehouse_saved_query"
 GET_V2_DAG_IDS = "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids"
 RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
 NODE_MAT = "products.data_modeling.backend.logic.node_materialization"
+H12 = timedelta(hours=12)
 
 
 def _no_schedules():
@@ -42,38 +43,34 @@ class TestScheduleMaterializationV2Guard(BaseTest):
             name="view",
             team=self.team,
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
-            sync_frequency_interval=timedelta(hours=12),
         )
         Node.objects.create(team=self.team, dag=self.dag, saved_query=self.sq, type=NodeType.VIEW)
 
-    def test_skips_v1_and_nulls_frequency_when_dag_on_v2(self):
+    def test_frequency_only_call_on_v2_neither_reports_nor_starts_a_run(self):
         with (
             mock.patch(GET_V2_DAG_IDS, return_value={str(self.dag.id)}),
             mock.patch(f"{NODE_MAT}.sync_connect") as sync_connect,
             mock.patch(f"{MODEL}.capture_exception") as capture,
             self.captureOnCommitCallbacks(execute=True),
         ):
-            self.sq.schedule_materialization()
+            self.sq.schedule_materialization(frequency_target=H12)
         # reporting on the healthy path would bury the one signal that matters
         capture.assert_not_called()
         # a frequency-only call carries no enable intent, so it must not start a one-off run
         sync_connect.assert_not_called()
-        self.sq.refresh_from_db()
-        assert self.sq.sync_frequency_interval is None
 
     def test_saved_query_whose_node_vanished_is_refused_instead_of_scheduled(self):
         nodeless = DataWarehouseSavedQuery.objects.create(
             name="sync_failed",
             team=self.team,
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
-            sync_frequency_interval=timedelta(hours=12),
             is_materialized=True,
         )
         with (
             mock.patch(GET_V2_DAG_IDS, return_value={str(self.dag.id)}),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            nodeless.schedule_materialization()
+            nodeless.schedule_materialization(frequency_target=H12)
         nodeless.refresh_from_db()
         assert nodeless.is_materialized is False
 
@@ -109,14 +106,12 @@ class TestScheduleMaterializationV2Guard(BaseTest):
             mock.patch(f"{NODE_MAT}.sync_connect"),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            self.sq.schedule_materialization()
+            self.sq.schedule_materialization(frequency_target=H12)
 
         create.assert_called_once()
         assert is_tier_schedule_id(create.call_args.kwargs["id"])
         node.refresh_from_db()
-        assert get_declared_target(node) == timedelta(hours=12)
-        self.sq.refresh_from_db()
-        assert self.sq.sync_frequency_interval is None
+        assert get_declared_target(node) == H12
 
     def test_failed_bootstrap_retracts_the_materialized_claim(self):
         # the reconcile runs after the caller's transaction commits, so a failure has no caller
@@ -134,7 +129,7 @@ class TestScheduleMaterializationV2Guard(BaseTest):
             mock.patch(f"{NODE_MAT}.sync_connect"),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            self.sq.schedule_materialization()
+            self.sq.schedule_materialization(frequency_target=H12)
 
         self.sq.refresh_from_db()
         assert self.sq.is_materialized is False
@@ -144,8 +139,6 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         # are not inside an atomic block — so seeding or scheduling before the frequency is
         # validated converts the DAG to v2 on a request that then 400s
         node = Node.objects.get(saved_query=self.sq)
-        self.sq.sync_frequency_interval = timedelta(minutes=45)
-        self.sq.save(update_fields=["sync_frequency_interval"])
         with (
             mock.patch(GET_V2_DAG_IDS, return_value=set()),
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_no_schedules())),
@@ -153,32 +146,27 @@ class TestScheduleMaterializationV2Guard(BaseTest):
             self.captureOnCommitCallbacks(execute=True),
             self.assertRaises(UnsupportedFrequencyTargetError),
         ):
-            self.sq.schedule_materialization()
+            self.sq.schedule_materialization(frequency_target=timedelta(minutes=45))
 
         create.assert_not_called()
         node.refresh_from_db()
         assert get_declared_target(node) is None
 
-    def test_writes_target_through_and_nulls_interval(self):
+    def test_writes_target_through_to_the_node(self):
         node = Node.objects.get(saved_query=self.sq)
         with (
             mock.patch(GET_V2_DAG_IDS, return_value={str(self.dag.id)}),
             mock.patch(f"{RECONCILE}.maybe_reconcile_dag") as reconcile,
         ):
-            self.sq.schedule_materialization()
+            self.sq.schedule_materialization(frequency_target=H12)
         node.refresh_from_db()
-        self.sq.refresh_from_db()
-        assert get_declared_target(node) == timedelta(hours=12)
-        assert self.sq.sync_frequency_interval is None
+        assert get_declared_target(node) == H12
         reconcile.assert_called_once()
 
-    def test_tiered_call_without_interval_keeps_existing_target(self):
+    def test_tiered_call_without_a_target_keeps_the_existing_one(self):
         # a caller with no frequency opinion (e.g. re-enabling materialization) must not
-        # wipe the node target — the interval is transport, not state
         node = Node.objects.get(saved_query=self.sq)
         set_declared_target(node, timedelta(hours=6))
-        self.sq.sync_frequency_interval = None
-        self.sq.save(update_fields=["sync_frequency_interval"])
         with (
             mock.patch(GET_V2_DAG_IDS, return_value={str(self.dag.id)}),
             mock.patch(f"{RECONCILE}.maybe_reconcile_dag"),
@@ -202,21 +190,14 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         # an invalid frequency is a request problem: it must reach the caller as a validation
         # error, not silently flip is_materialized like infrastructure failures do
         self.sq.is_materialized = True
-        self.sq.sync_frequency_interval = timedelta(minutes=45)
-        self.sq.save(update_fields=["is_materialized", "sync_frequency_interval"])
+        self.sq.save(update_fields=["is_materialized"])
         with (
             mock.patch(GET_V2_DAG_IDS, return_value={str(self.dag.id)}),
+            self.assertRaises(UnsupportedFrequencyTargetError),
         ):
-            try:
-                self.sq.schedule_materialization()
-                raise AssertionError("expected UnsupportedFrequencyTargetError")
-            except UnsupportedFrequencyTargetError:
-                pass
+            self.sq.schedule_materialization(frequency_target=timedelta(minutes=45))
         self.sq.refresh_from_db()
         assert self.sq.is_materialized is True
-        # validation raises before the interval is nulled — the rejected write stays
-        # visible for retry
-        assert self.sq.sync_frequency_interval == timedelta(minutes=45)
 
     def test_disables_materialization_when_v2_lookup_fails(self):
         self.sq.is_materialized = True

@@ -34,7 +34,6 @@ class TestBatchReconcileTeams(BaseTest):
             name=f"v_{team.pk}",
             team=team,
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
-            sync_frequency_interval=H6,
         )
         node = Node.objects.create(team=team, dag=dag, saved_query=saved_query, type=NodeType.VIEW)
         return dag, node
@@ -168,6 +167,3 @@ class TestBatchReconcileTeams(BaseTest):
         delete.assert_not_called()
         node.refresh_from_db()
         assert get_declared_target(node) is None
-        assert node.saved_query is not None
-        node.saved_query.refresh_from_db()
-        assert node.saved_query.sync_frequency_interval == H6

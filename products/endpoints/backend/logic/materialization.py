@@ -237,7 +237,7 @@ class EndpointMaterializationService:
             # immediate first run; a retained enable (e.g. a metadata-only endpoint update
             # re-reconciling materialization) must not restart the workflow.
             newly_materialized = saved_query._state.adding
-            self._configure_saved_query(saved_query, version, data_freshness_seconds, bucket_overrides)
+            self._configure_saved_query(saved_query, version, bucket_overrides)
             version.enable_materialization(saved_query, bucket_overrides)
 
             # The DAG node must exist before scheduling: the v2 detection and the freshness-target
@@ -280,7 +280,9 @@ class EndpointMaterializationService:
             # query (deferred to on_commit, so it sees the version link above).
             try:
                 saved_query.schedule_materialization(
-                    trigger_immediate_run=newly_materialized, triggered_by_id=self.user.pk
+                    frequency_target=timedelta(seconds=data_freshness_seconds),
+                    trigger_immediate_run=newly_materialized,
+                    triggered_by_id=self.user.pk,
                 )
             except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
                 # The chosen data freshness can't be honored (e.g. finer than an upstream import
@@ -325,10 +327,9 @@ class EndpointMaterializationService:
         self,
         saved_query: DataWarehouseSavedQuery,
         version: EndpointVersion,
-        data_freshness_seconds: int,
         bucket_overrides: dict[str, str] | None,
     ) -> None:
-        """Point the saved query at the version's materializable HogQL and sync cadence."""
+        """Point the saved query at the version's materializable HogQL."""
         saved_query.query = build_endpoint_hogql(
             version.query,
             self.team,
@@ -337,7 +338,6 @@ class EndpointMaterializationService:
         )
         saved_query.external_tables = saved_query.s3_tables
         saved_query.is_materialized = True
-        saved_query.sync_frequency_interval = timedelta(seconds=data_freshness_seconds)
         saved_query.save()
 
     def disable_materialization(

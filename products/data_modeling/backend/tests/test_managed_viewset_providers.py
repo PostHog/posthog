@@ -33,6 +33,8 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_modeling.backend.logic.cohort_scheduling import is_tier_schedule_id
+from products.data_modeling.backend.logic.node_frequency import get_declared_target
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import MANAGED_VIEW_FREQUENCY_TARGET
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 SCHEDULE_MATERIALIZATION = (
@@ -93,7 +95,6 @@ class TestManagedViewSetProviders(BaseTest):
         views = self._views(viewset)
         view = next(v for v in views if v.name == fake_view.name)
         self.assertFalse(view.is_materialized)
-        self.assertIsNone(view.sync_frequency_interval)
         # A non-materialized view is computed at query time — it must never be scheduled for
         # materialization.
         mock_schedule.assert_not_called()
@@ -191,7 +192,8 @@ class TestManagedViewSetProviders(BaseTest):
 
         assert create.call_count > 0
         assert all(is_tier_schedule_id(call.kwargs["id"]) for call in create.call_args_list)
-        assert [v.sync_frequency_interval for v in self._views(viewset)] == [None, None, None]
+        nodes = Node.objects.filter(saved_query__in=self._views(viewset))
+        assert [get_declared_target(node) for node in nodes] == [MANAGED_VIEW_FREQUENCY_TARGET] * 3
 
     def test_sync_views_creates_nothing_for_empty_provider(self):
         with patch.dict(_expected_views_providers, clear=True):

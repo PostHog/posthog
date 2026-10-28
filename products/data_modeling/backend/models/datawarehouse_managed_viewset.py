@@ -31,6 +31,8 @@ from products.warehouse_sources.backend.facade.types import DataWarehouseManaged
 
 logger = structlog.get_logger(__name__)
 
+MANAGED_VIEW_FREQUENCY_TARGET = timedelta(hours=12)
+
 
 @dataclass(frozen=True)
 class ExpectedView:
@@ -171,12 +173,10 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 saved_query.set_columns(view.columns)
                 saved_query.external_tables = external_tables_by_view[view.name]
                 saved_query.is_materialized = view.materialized
-                # A non-materialized view is computed at query time — no sync schedule, and it never
-                # enters the schedule list below.
-                saved_query.sync_frequency_interval = timedelta(hours=12) if view.materialized else None
 
                 saved_query.save()
                 saved_queries_to_sync.append(saved_query)
+                # A non-materialized view is computed at query time, so it gets no schedule.
                 if view.materialized:
                     saved_queries_to_schedule.append(saved_query)
 
@@ -217,7 +217,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
 
         for saved_query in saved_queries_to_schedule:
             try:
-                saved_query.schedule_materialization(reconcile=False)
+                saved_query.schedule_materialization(frequency_target=MANAGED_VIEW_FREQUENCY_TARGET, reconcile=False)
             except Exception as e:
                 capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
                 logger.warning(

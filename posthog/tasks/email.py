@@ -1512,7 +1512,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         run_at = (job.last_run_at if job else None) or sq.last_run_at
         # `is_materialized` stays True after a pause, so read the cadence and the table instead.
         # Pausing clears the cadence and keeps the table; reverting clears both.
-        if qid in declared_targets or sq.sync_frequency_interval is not None:
+        if qid in declared_targets:
             schedule = "scheduled"
         elif sq.table_id is not None:
             schedule = "paused"
