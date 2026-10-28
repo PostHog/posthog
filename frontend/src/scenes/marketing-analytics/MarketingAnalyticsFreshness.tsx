@@ -1,8 +1,7 @@
-import { IconClock, IconWarning } from '@posthog/icons'
+import { IconDatabaseBolt, IconWarning } from '@posthog/icons'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 // Marketing analytics serves from precomputed data refreshed by the hourly warmer, so the numbers can
@@ -33,18 +32,17 @@ export function MarketingAnalyticsFreshness({ computedAt }: { computedAt: string
                 </div>
             }
         >
-            <LemonButton
-                icon={isBehind ? <IconWarning /> : <IconClock />}
-                status={isBehind ? 'danger' : 'default'}
-                type="secondary"
-                size="small"
-                // Informational only: keep it out of the tab order but labelled for screen readers.
-                tabIndex={-1}
+            <span
+                className="inline-flex items-center"
                 aria-label="Marketing analytics data freshness"
                 data-attr="marketing-analytics-freshness"
             >
-                Updated hourly
-            </LemonButton>
+                {isBehind ? (
+                    <IconWarning className="text-danger w-4 h-4" />
+                ) : (
+                    <IconDatabaseBolt className="text-muted w-4 h-4" />
+                )}
+            </span>
         </Tooltip>
     )
 }

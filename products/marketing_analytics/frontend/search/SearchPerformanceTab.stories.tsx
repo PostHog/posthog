@@ -297,6 +297,18 @@ const MOCKS: Mocks = {
     },
 }
 
+async function chooseOption(canvasElement: HTMLElement, dataAttr: string, label: string): Promise<void> {
+    const trigger = await waitFor(() => {
+        const element = canvasElement.querySelector<HTMLElement>(`[data-attr="${dataAttr}"]`)
+        if (!element) {
+            throw new Error(`Missing ${dataAttr}`)
+        }
+        return element
+    })
+    await userEvent.click(trigger)
+    await userEvent.click(await within(canvasElement.ownerDocument.body).findByRole('menuitem', { name: label }))
+}
+
 const meta: Meta<typeof SearchPerformanceTab> = {
     title: 'Scenes-App/Marketing Analytics/Search performance',
     component: SearchPerformanceTab,
@@ -338,62 +350,6 @@ type Story = StoryObj<typeof meta>
 
 export const Connected: Story = {
     parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=false` },
-}
-export const Pagination: Story = {
-    parameters: {
-        pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=true`,
-        msw: {
-            mocks: {
-                post: {
-                    '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': async ({
-                        request,
-                    }: {
-                        request: Request
-                    }) => {
-                        const { query } = (await request.json()) as { query: MarketingAnalyticsSearchQuery }
-                        return [
-                            200,
-                            {
-                                results: Array.from({ length: 23 }, (_, index) => ({
-                                    ...ROWS[index % ROWS.length],
-                                    previous: {
-                                        clicks: 50,
-                                        impressions: 1000,
-                                        ctr: 0.05,
-                                        cost: 100,
-                                        conversions: 2,
-                                        cpc: 2,
-                                        cpa: 50,
-                                        position: 5,
-                                    },
-                                    keyword: `Example keyword ${index + 1}`,
-                                    page: query.breakdown === 'page' ? `https://example.com/page-${index + 1}` : null,
-                                })),
-                            },
-                        ]
-                    },
-                },
-            },
-        },
-    },
-    play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await canvas.findByText('1-10 of 23 entries')
-        await userEvent.click(canvas.getByRole('button', { name: 'Next page' }))
-        await canvas.findByText('11-20 of 23 entries')
-        const nextButton = canvas.getByRole('button', { name: 'Next page' })
-        const arrowTop = nextButton.getBoundingClientRect().top
-        await userEvent.click(canvas.getByRole('button', { name: 'Go to page' }))
-        await userEvent.click(await within(canvasElement.ownerDocument.body).findByText('Page 3 of 3'))
-        await canvas.findByText('21-23 of 23 entries')
-        await expect(canvas.getByRole('button', { name: 'Next page' }).getBoundingClientRect().top).toBe(arrowTop)
-        await userEvent.click(canvas.getByRole('button', { name: 'Landing pages' }))
-        await canvas.findByText('1-10 of 23 entries')
-        await userEvent.click(canvas.getByRole('button', { name: 'Next page' }))
-        await canvas.findByText('11-20 of 23 entries')
-        await userEvent.click(canvas.getByRole('button', { name: 'Keywords and queries' }))
-        await expect(await canvas.findByText('1-10 of 23 entries')).toBeVisible()
-    },
 }
 export const Comparison: Story = {
     parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=true` },
@@ -699,7 +655,7 @@ export const SourcesError: Story = {
 export const LegacyScene: Story = {
     render: () => <MarketingAnalyticsScene />,
     parameters: {
-        pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance`,
+        pageUrl: `${urls.marketingAnalyticsApp()}?tab=search-performance`,
         featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING, FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS],
     },
 }
@@ -834,7 +790,7 @@ export const PostHogConversions: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByRole('button', { name: 'Landing pages' }))
+        await chooseOption(canvasElement, 'marketing-search-breakdown', 'Landing pages')
         await userEvent.click(await canvas.findByRole('button', { name: 'Conversions' }))
         teamLogic.actions.loadCurrentTeamSuccess({
             ...teamLogic.values.currentTeam!,
@@ -906,7 +862,7 @@ export const KeywordPostHogConversions: Story = {
     play: async (context) => {
         await PostHogConversions.play?.(context)
         const canvas = within(context.canvasElement)
-        await userEvent.click(canvas.getByRole('button', { name: 'Keywords and queries' }))
+        await chooseOption(context.canvasElement, 'marketing-search-breakdown', 'Keywords and queries')
         await expect(canvas.findByText(/Paid keywords are matched/)).resolves.toBeVisible()
         await expect(canvas.findByRole('columnheader', { name: /Cost per Purchases/ })).resolves.toBeVisible()
     },
@@ -948,7 +904,7 @@ async function showPostHogConversionColumns(canvasElement: HTMLElement): Promise
         },
     })
     const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByRole('button', { name: 'Landing pages' }))
+    await chooseOption(canvasElement, 'marketing-search-breakdown', 'Landing pages')
     await userEvent.click(await canvas.findByRole('button', { name: 'Conversions' }))
     await expect(
         (await canvas.findAllByRole('cell', { name: /https:\/\/example.com\/product-analytics/ }))[0]

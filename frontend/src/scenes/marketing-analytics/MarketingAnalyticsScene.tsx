@@ -3,7 +3,16 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconComment, IconGear, IconSparkles } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSwitch, LemonTabs, LemonSkeleton, Spinner, Link } from '@posthog/lemon-ui'
+import {
+    LemonBadge,
+    LemonBanner,
+    LemonButton,
+    LemonTabs,
+    LemonSkeleton,
+    Spinner,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -11,7 +20,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { MaxTool } from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -102,12 +110,13 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
 }
 
 const LegacySearchConnectionCard = (): JSX.Element | null => {
-    const { dataWarehouseSources, isAdPerformance } = useValues(marketingAnalyticsLogic)
+    const { dataWarehouseSources, isPerformanceTab } = useValues(marketingAnalyticsLogic)
     const { showOnboarding } = useValues(marketingOnboardingLogic)
-    if (showOnboarding && !isAdPerformance) {
+    // Until the sources load, "no search source" is unknown, so show nothing rather than a loader.
+    if ((showOnboarding && !isPerformanceTab) || !dataWarehouseSources) {
         return null
     }
-    return dataWarehouseSources?.results.some((source) =>
+    return dataWarehouseSources.results.some((source) =>
         ['GoogleAds', 'BingAds', 'GoogleSearchConsole'].includes(source.source_type)
     ) ? null : (
         <SearchConsoleSource />
@@ -135,13 +144,10 @@ const SourceMarketingAnalyticsDashboard = (): JSX.Element => {
         nativeSources,
         validExternalTables,
         loading,
-        isAdPerformance,
-        includeConversionGoals,
+        isPerformanceTab,
     } = useValues(marketingAnalyticsLogic)
-    const { setAdPerformanceConversionGoals } = useActions(marketingAnalyticsLogic)
     const { loadSources } = useActions(sourcesDataLogic)
     const { sourcesLoadError } = useValues(sourcesDataLogic)
-    const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { tiles: marketingTiles } = useValues(marketingAnalyticsTilesLogic)
     const { showOnboarding } = useValues(marketingOnboardingLogic)
     const { completeOnboarding } = useActions(marketingOnboardingLogic)
@@ -158,12 +164,12 @@ const SourceMarketingAnalyticsDashboard = (): JSX.Element => {
     const hasConfiguredSources = nativeSources.length > 0 || validExternalTables.length > 0 || hasSearchConsole
 
     useEffect(() => {
-        if (!isAdPerformance && !loading && hasConfiguredSources && showOnboarding) {
+        if (!isPerformanceTab && !loading && hasConfiguredSources && showOnboarding) {
             completeOnboarding()
         }
-    }, [loading, hasConfiguredSources, showOnboarding, completeOnboarding, isAdPerformance])
+    }, [loading, hasConfiguredSources, showOnboarding, completeOnboarding, isPerformanceTab])
 
-    if (!isAdPerformance && !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
+    if (!isPerformanceTab && !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
         return (
             <>
                 <LemonBanner type="info">
@@ -195,7 +201,7 @@ const SourceMarketingAnalyticsDashboard = (): JSX.Element => {
         )
     }
 
-    if (!isAdPerformance && !hasConfiguredSources && showOnboarding) {
+    if (!isPerformanceTab && !hasConfiguredSources && showOnboarding) {
         return (
             <>
                 <Onboarding completeOnboarding={completeOnboarding} />
@@ -206,26 +212,13 @@ const SourceMarketingAnalyticsDashboard = (): JSX.Element => {
 
     return (
         <>
-            {isAdPerformance && conversion_goals.length > 0 && (
-                <LemonSwitch
-                    className="mt-4"
-                    label="Include conversion goals"
-                    checked={includeConversionGoals}
-                    onChange={setAdPerformanceConversionGoals}
-                    data-attr="marketing-ad-performance-conversion-goals"
-                />
-            )}
             <LegacyOAuthReconnectBanner />
             {!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] && hasSyncedMarketingSources && (
                 <MarketingAnalyticsSourceStatusBanner />
             )}
-            <h2
-                className={
-                    hasSyncedMarketingSources || hasSearchConsole ? 'mt-6 mb-0' : 'max-w-3xl w-full mx-auto mt-6 mb-0'
-                }
-            >
-                Ad performance
-            </h2>
+            {!hasSyncedMarketingSources && !hasSearchConsole && (
+                <h2 className="max-w-3xl w-full mx-auto mt-6 mb-0">Ad performance</h2>
+            )}
             <DetectedSources compact={hasSearchConsole && !hasSyncedMarketingSources} dismissible />
             {!!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS] &&
                 !dataWarehouseSources?.results.some((source) =>
@@ -237,7 +230,7 @@ const SourceMarketingAnalyticsDashboard = (): JSX.Element => {
                 )}
             <DashboardConversionRecommendations />
             {hasSources && hasSyncedMarketingSources && (
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-x-4 gap-y-12">
+                <div className="mt-2 mb-8 grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
                     {marketingTiles?.map((tile, i) => (
                         <QueryTileItem key={i} tile={tile} />
                     ))}
@@ -277,15 +270,8 @@ const MarketingAnalyticsDashboardSkeleton = (): JSX.Element => (
 
 const LegacyMarketingAnalyticsDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
-    const {
-        hasSources,
-        hasNoConfiguredSources,
-        loading,
-        sourcesInitialLoading,
-        isAdPerformance,
-        includeConversionGoals,
-    } = useValues(marketingAnalyticsLogic)
-    const { setAdPerformanceConversionGoals } = useActions(marketingAnalyticsLogic)
+    const { hasSources, hasNoConfiguredSources, loading, sourcesInitialLoading, isPerformanceTab, setupEnabled } =
+        useValues(marketingAnalyticsLogic)
     const { loadSources } = useActions(sourcesDataLogic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { tiles: marketingTiles } = useValues(marketingAnalyticsTilesLogic)
@@ -302,7 +288,7 @@ const LegacyMarketingAnalyticsDashboard = (): JSX.Element => {
     // but only when not actively on the conversion-goals step (let the user click "Continue")
     useEffect(() => {
         if (
-            !isAdPerformance &&
+            !isPerformanceTab &&
             !loading &&
             hasSources &&
             conversion_goals.length > 0 &&
@@ -311,77 +297,44 @@ const LegacyMarketingAnalyticsDashboard = (): JSX.Element => {
         ) {
             completeOnboarding()
         }
-    }, [loading, hasSources, conversion_goals, showOnboarding, currentStep, completeOnboarding, isAdPerformance])
+    }, [loading, hasSources, conversion_goals, showOnboarding, currentStep, completeOnboarding, isPerformanceTab])
 
     // Reset onboarding if user truly has no configured sources (handles session/project changes).
     // Uses hasNoConfiguredSources which guards against premature evaluation while tables are loading.
     useEffect(() => {
-        if (!isAdPerformance && hasNoConfiguredSources && !showOnboarding) {
+        if (!isPerformanceTab && hasNoConfiguredSources && !showOnboarding) {
             resetOnboarding()
         }
-    }, [loading, hasSources, showOnboarding, resetOnboarding, isAdPerformance]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [loading, hasSources, showOnboarding, resetOnboarding, isPerformanceTab]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const feedbackBanner = (
-        <LemonBanner
-            type="info"
-            action={{
-                children: 'Send feedback',
-                id: 'marketing-analytics-feedback-button',
-            }}
-            className="mt-4"
-        >
-            Marketing analytics is in beta. Please let us know what you'd like to see here and/or report any issues
-            directly to us!
-        </LemonBanner>
-    )
-
-    if (!isAdPerformance && !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
+    if (!isPerformanceTab && !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
         return (
-            <>
-                {feedbackBanner}
-                <LemonBanner type="info">
-                    You can enable marketing analytics in the feature preview settings{' '}
-                    <Link to="https://app.posthog.com/settings/user-feature-previews#marketing-analytics">here</Link>.
-                </LemonBanner>
-            </>
+            <LemonBanner type="info">
+                You can enable marketing analytics in the feature preview settings{' '}
+                <Link to="https://app.posthog.com/settings/user-feature-previews#marketing-analytics">here</Link>.
+            </LemonBanner>
         )
     }
 
     // Only the first load gets the skeleton: a background refresh (window focus, sync polling)
     // also sets `loading`, and swapping the tiles for the skeleton would remount and refetch them.
     if (sourcesInitialLoading) {
-        return (
-            <>
-                {feedbackBanner}
-                <MarketingAnalyticsDashboardSkeleton />
-            </>
-        )
+        return <MarketingAnalyticsDashboardSkeleton />
     }
 
-    if (!isAdPerformance && showOnboarding) {
-        return (
-            <>
-                {feedbackBanner}
-                <Onboarding completeOnboarding={completeOnboarding} />
-            </>
-        )
+    if (!isPerformanceTab && showOnboarding) {
+        return <Onboarding completeOnboarding={completeOnboarding} />
     }
 
     return (
         <>
-            {feedbackBanner}
-            {isAdPerformance && conversion_goals.length > 0 && (
-                <LemonSwitch
-                    className="mt-4"
-                    label="Include conversion goals"
-                    checked={includeConversionGoals}
-                    onChange={setAdPerformanceConversionGoals}
-                    data-attr="marketing-ad-performance-conversion-goals"
-                />
+            {!setupEnabled && (
+                <>
+                    <LegacyOAuthReconnectBanner />
+                    <MarketingAnalyticsSourceStatusBanner />
+                </>
             )}
-            <LegacyOAuthReconnectBanner />
-            <MarketingAnalyticsSourceStatusBanner />
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-x-4 gap-y-12">
+            <div className="mt-2 mb-8 grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
                 {marketingTiles?.map((tile, i) => (
                     <QueryTileItem key={i} tile={tile} />
                 ))}
@@ -392,7 +345,7 @@ const LegacyMarketingAnalyticsDashboard = (): JSX.Element => {
 
 const MarketingAnalyticsContent = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { activeTab, hasSyncedMarketingSources, dataWarehouseSources, setupEnabled } =
+    const { activeTab, hasSyncedMarketingSources, dataWarehouseSources, setupEnabled, setupWarningCount } =
         useValues(marketingAnalyticsLogic)
     const { setActiveTab, setSetupSection } = useActions(marketingAnalyticsLogic)
     const { integrationSettingsModal } = useValues(marketingAnalyticsSettingsLogic)
@@ -425,11 +378,6 @@ const MarketingAnalyticsContent = (): JSX.Element => {
                         />
                     )}
                     <MarketingAnalyticsDashboard />
-                    {hasConnectedSearchSource && (
-                        <div className="mt-8">
-                            <SearchPerformanceTab />
-                        </div>
-                    )}
                 </>
             )}
             {/* Both dashboards carry the campaign breakdown, whose mapping menus open this modal, so it
@@ -462,10 +410,12 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     }, [absorbed, setActiveTab, setSetupSection])
 
     const tabs = [
-        { key: MarketingAnalyticsTab.DASHBOARD, label: 'Dashboard', content: dashboard },
-        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] ||
-        (!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] &&
-            featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS])
+        {
+            key: MarketingAnalyticsTab.DASHBOARD,
+            label: featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] ? 'Dashboard' : 'Paid ads',
+            content: dashboard,
+        },
+        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]
             ? [
                   {
                       key: MarketingAnalyticsTab.AD_PERFORMANCE,
@@ -485,11 +435,6 @@ const MarketingAnalyticsContent = (): JSX.Element => {
                                   />
                               )}
                               <MarketingAnalyticsDashboard />
-                              {hasConnectedSearchSource && (
-                                  <div className="mt-8">
-                                      <SearchPerformanceTab />
-                                  </div>
-                              )}
                               {integrationSettingsModal.integration && (
                                   <IntegrationSettingsModal
                                       integrationName={integrationSettingsModal.integration}
@@ -499,6 +444,20 @@ const MarketingAnalyticsContent = (): JSX.Element => {
                                       initialUtmValue={integrationSettingsModal.initialUtmValue}
                                   />
                               )}
+                          </>
+                      ),
+                  },
+              ]
+            : []),
+        ...(hasConnectedSearchSource
+            ? [
+                  {
+                      key: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+                      label: 'Search',
+                      content: (
+                          <>
+                              <MarketingAnalyticsFilters tabs={<></>} searchOnly />
+                              <SearchPerformanceTab />
                           </>
                       ),
                   },
@@ -543,7 +502,22 @@ const MarketingAnalyticsContent = (): JSX.Element => {
               ]
             : []),
         ...(setupEnabled
-            ? [{ key: MarketingAnalyticsTab.SETUP, label: 'Setup', content: <SetupTab /> }]
+            ? [
+                  {
+                      key: MarketingAnalyticsTab.SETUP,
+                      label: (
+                          <span className="flex items-center gap-1.5">
+                              Setup
+                              {setupWarningCount > 0 && (
+                                  <Tooltip title="Some sources or conversion goals need attention. Open Setup to review them.">
+                                      <LemonBadge.Number count={setupWarningCount} status="danger" size="small" />
+                                  </Tooltip>
+                              )}
+                          </span>
+                      ),
+                      content: <SetupTab />,
+                  },
+              ]
             : featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT]
               ? [
                     {
@@ -560,18 +534,17 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     // highlights: `activeTab` also feeds the scene description and `?tab=`, so leaving it
     // invalid describes a tab you aren't on and writes it back into the URL on the next
     // filter change. Above the early return, since hooks run on every render.
+    // The Search tab waits on the sources list, so a `?tab=` link to it must not be bounced before that loads.
     const tabIsRendered = tabs.some((tab) => tab.key === activeTab)
+    const tabMayStillRender =
+        activeTab === MarketingAnalyticsTab.SEARCH_PERFORMANCE &&
+        !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS] &&
+        !dataWarehouseSources
     useEffect(() => {
-        if (!tabIsRendered && !absorbed) {
-            setActiveTab(
-                activeTab === MarketingAnalyticsTab.SEARCH_PERFORMANCE &&
-                    featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] &&
-                    featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
-                    ? MarketingAnalyticsTab.AD_PERFORMANCE
-                    : MarketingAnalyticsTab.DASHBOARD
-            )
+        if (!tabIsRendered && !absorbed && !tabMayStillRender) {
+            setActiveTab(MarketingAnalyticsTab.DASHBOARD)
         }
-    }, [tabIsRendered, absorbed, setActiveTab, activeTab, featureFlags])
+    }, [tabIsRendered, absorbed, tabMayStillRender, setActiveTab])
     const selectedTab = tabIsRendered ? activeTab : MarketingAnalyticsTab.DASHBOARD
 
     // Only surface the tab bar once a secondary tab is enabled; otherwise show the dashboard directly.
@@ -579,8 +552,20 @@ const MarketingAnalyticsContent = (): JSX.Element => {
         return dashboard
     }
 
+    // The bar renders on its own, like Web analytics, so `sceneInset` can pull it to the scene edges
+    // without the tab content bleeding out with it.
     return (
-        <LemonTabs activeKey={selectedTab} onChange={(key) => setActiveTab(key as MarketingAnalyticsTab)} tabs={tabs} />
+        <>
+            <LemonTabs
+                activeKey={selectedTab}
+                onChange={(key) => setActiveTab(key as MarketingAnalyticsTab)}
+                tabs={tabs.map(({ key, label }) => ({ key, label }))}
+                sceneInset
+                // The title section shares this column, so offset only the column gap to sit flush below it.
+                className="-mt-2"
+            />
+            {tabs.find((tab) => tab.key === selectedTab)?.content}
+        </>
     )
 }
 
@@ -620,8 +605,7 @@ const MarketingAnalyticsAIToolWrapper = ({ children }: { children: React.ReactNo
     }
 
     // Register the follow-up tools so Max can actually call them when the
-    // diagnostic recommends them. Only `marketing_diagnose_setup` gets the
-    // visible MaxTool button below — the rest are data tools with no UI anchor.
+    // diagnostic recommends them. They are data tools with no UI anchor.
     useMaxTool({ identifier: 'marketing_explain_conversion_goal', context: maxContext, active: aiEnabled })
     useMaxTool({ identifier: 'marketing_list_conversion_goals', context: maxContext, active: aiEnabled })
     useMaxTool({ identifier: 'marketing_list_data_sources', context: maxContext, active: aiEnabled })
@@ -656,27 +640,22 @@ const MarketingAnalyticsAIToolWrapper = ({ children }: { children: React.ReactNo
         { active: aiEnabled }
     )
 
-    return (
-        <MaxTool
-            identifier="marketing_diagnose_setup"
-            active={aiEnabled}
-            context={maxContext}
-            contextDescription={{
-                text: 'Marketing analytics setup',
-                icon: <IconSparkles />,
-            }}
-            initialMaxPrompt="Diagnose my marketing analytics setup"
-            suggestions={[
-                'Diagnose my marketing analytics setup',
-                'Why are events showing as non-integrated?',
-                'Suggest custom_source_mappings for unmatched UTM values',
-                'Which custom events would make good conversion goals?',
-                'List my conversion goals and their last-30d performance',
-            ]}
-        >
-            <>{children}</>
-        </MaxTool>
-    )
+    useMaxTool({
+        identifier: 'marketing_diagnose_setup',
+        active: aiEnabled,
+        context: maxContext,
+        contextDescription: { text: 'Marketing analytics setup', icon: <IconSparkles /> },
+        initialMaxPrompt: 'Diagnose my marketing analytics setup',
+        suggestions: [
+            'Diagnose my marketing analytics setup',
+            'Why are events showing as non-integrated?',
+            'Suggest custom_source_mappings for unmatched UTM values',
+            'Which custom events would make good conversion goals?',
+            'List my conversion goals and their last-30d performance',
+        ],
+    })
+
+    return <>{children}</>
 }
 
 export function MarketingAnalyticsScene(): JSX.Element {
@@ -692,7 +671,7 @@ export function MarketingAnalyticsScene(): JSX.Element {
     return (
         <BindLogic logic={marketingAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-                <SceneContent className="MarketingAnalyticsDashboard">
+                <SceneContent className="MarketingAnalyticsDashboard gap-y-2">
                     <SceneTitleSection
                         name={sceneConfigurations[Scene.MarketingAnalytics]?.name || 'Marketing analytics'}
                         description={

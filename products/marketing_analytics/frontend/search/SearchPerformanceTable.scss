@@ -1,17 +1,3 @@
-.SearchPerformanceTable--paginated {
-    .LemonTable__content {
-        display: flex;
-        flex-direction: column;
-
-        // Reserve ten rows so the final page keeps navigation in place.
-        min-height: 48rem;
-    }
-
-    .PaginationControl {
-        margin-top: auto;
-    }
-}
-
 .SearchPerformanceTable {
     .SearchPerformanceTable__metric > span {
         flex-direction: column;

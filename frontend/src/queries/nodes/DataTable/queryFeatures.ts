@@ -129,6 +129,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.displayResponseError)
         features.add(QueryFeature.selectAndOrderByColumns)
+        features.add(QueryFeature.hideLoadNextButton)
         // Ad group and ad levels keep Campaign and Source as parent context, where they hold the
         // platform's own names rather than the UTM tags a mapping works on.
         if (

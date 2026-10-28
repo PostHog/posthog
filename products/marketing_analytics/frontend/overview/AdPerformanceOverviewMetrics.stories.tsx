@@ -6,6 +6,7 @@ import type { OverviewMetricCardItem } from '~/queries/nodes/OverviewGrid/Overvi
 import { expect, userEvent } from 'storybook/test'
 
 import { AdPerformanceOverviewMetrics } from './AdPerformanceOverviewMetrics'
+import { overviewMetricsLogic } from './overviewMetricsLogic'
 
 const items: OverviewMetricCardItem[] = [
     { key: 'Cost', value: 1800, previous: 1500, changeFromPreviousPct: 20, kind: 'currency', isIncreaseBad: true },
@@ -48,7 +49,12 @@ const meta: Meta<typeof AdPerformanceOverviewMetrics> = {
     title: 'Scenes-App/Marketing Analytics/Overview metrics',
     component: AdPerformanceOverviewMetrics,
     parameters: { layout: 'padded' },
-    args: { items, loading: false, numSkeletons: 13, viewKey: 'overview-metrics-story', labelFromKey: (key) => key },
+    args: {
+        items,
+        loading: false,
+        viewKey: 'overview-metrics-story',
+        labelFromKey: (key) => key,
+    },
 }
 export default meta
 
@@ -78,8 +84,9 @@ export const WithoutGoals: Story = {
 
 export const ConfigureMetrics: Story = {
     args: { viewKey: 'overview-metrics-configure-story' },
-    play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByRole('button', { name: 'Configure metrics' }))
+    play: async ({ canvasElement, args }) => {
+        // The editor opens from the Options menu, which is not part of this component.
+        overviewMetricsLogic({ viewKey: args.viewKey! }).actions.openEditor()
         await waitFor(() => expect(within(canvasElement.ownerDocument.body).getByRole('dialog')).toBeVisible())
     },
     parameters: {
@@ -109,10 +116,12 @@ export const ConfigureMetricsWithChanges: Story = {
         await ConfigureMetrics.play!(context)
         const dialog = within(context.canvasElement.ownerDocument.body).getByRole('dialog')
         await userEvent.click(within(dialog).getByRole('button', { name: 'Move Clicks up' }))
-        await userEvent.click(within(dialog).getByText('Impressions', { exact: true }))
+        const platforms = within(within(dialog).getByRole('region', { name: 'Ad platforms' }))
+        await userEvent.click(platforms.getByText('Impressions', { exact: true }))
+        await userEvent.click(platforms.getByText('CTR', { exact: true }))
         await userEvent.click(
-            within(within(dialog).getByRole('region', { name: 'PostHog' })).getByRole('button', {
-                name: 'Hide all',
+            within(within(dialog).getByRole('region', { name: 'PostHog' })).getByText('Trial started', {
+                exact: true,
             })
         )
         const applyButton = within(dialog).getByRole('button', { name: 'Apply' })

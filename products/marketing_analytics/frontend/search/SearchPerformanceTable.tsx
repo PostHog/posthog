@@ -8,8 +8,6 @@ import { LemonBanner, LemonButton, LemonSkeleton, LemonTable, Spinner } from '@p
 import { urls } from 'scenes/urls'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
-import { Reload } from '~/queries/nodes/DataNode/Reload'
 import {
     CurrencyCode,
     MarketingAnalyticsSearchMetrics,
@@ -92,10 +90,6 @@ export function SearchPerformanceTable({
     }
     return (
         <BindLogic logic={dataNodeLogic} props={baseDataNodeProps}>
-            <div className="flex flex-wrap items-center gap-2 py-2">
-                <Reload />
-                <ElapsedTime />
-            </div>
             {query.includePostHogConversions &&
                 !responseLoading &&
                 searchResponse &&
@@ -145,9 +139,9 @@ export function SearchPerformanceTable({
                 size="small"
                 tableLayout="fixed"
                 firstColumnSticky
-                allowContentScroll
+                embedded
+                stickyHeader
                 className={clsx('SearchPerformanceTable [&_th]:whitespace-normal', {
-                    'SearchPerformanceTable--paginated': rows.length > 10,
                     'SearchPerformanceTable--wrap-text': wrapText,
                 })}
                 dataSource={responseLoading ? [] : rows}
@@ -155,8 +149,6 @@ export function SearchPerformanceTable({
                 loadingSkeletonRows={10}
                 rowKey={searchPerformanceRowKey}
                 key={JSON.stringify(query)}
-                pagination={{ pageSize: 10, useUrl: false, showPageSelector: true }}
-                scrollToTopOnPageChange={false}
                 useURLForSorting={false}
                 emptyState={emptyState}
                 columns={[

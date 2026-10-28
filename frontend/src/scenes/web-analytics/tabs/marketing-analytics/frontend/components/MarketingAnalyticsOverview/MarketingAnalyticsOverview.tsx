@@ -1,7 +1,6 @@
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { useChartTheme } from 'lib/charts/hooks'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 
@@ -16,21 +15,15 @@ import { QueryContext } from '~/queries/types'
 import { MarketingAnalyticsNotReady } from '~/scenes/marketing-analytics/MarketingAnalyticsNotReady'
 
 import { adPerformanceMetricKey } from 'products/marketing_analytics/frontend/adPerformanceMetrics'
-import { adPerformanceTrendsLogic } from 'products/marketing_analytics/frontend/adPerformanceTrendsLogic'
 import { AdPerformanceOverviewMetrics } from 'products/marketing_analytics/frontend/overview/AdPerformanceOverviewMetrics'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
-import {
-    MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
-    marketingAnalyticsTilesLogic,
-} from '../../logic/marketingAnalyticsTilesLogic'
+import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../logic/marketingAnalyticsTilesLogic'
 import {
     MarketingAnalyticsValidationWarningBanner,
     validateConversionGoals,
 } from '../MarketingAnalyticsValidationWarningBanner'
-
-const BASE_METRICS_COUNT = 6 // Total Cost, Total Clicks, CPC, CTR, Total Impressions, Reported Conversion
 
 let uniqueNode = 0
 
@@ -58,17 +51,8 @@ export function MarketingAnalyticsOverview(props: {
 
     const marketingOverviewQueryResponse = response as MarketingAnalyticsAggregatedQueryResponse | undefined
 
-    const { createAdPerformanceSparklineQuery } = useValues(marketingAnalyticsTilesLogic)
-    const { tileColumnSelection } = useValues(marketingAnalyticsLogic)
+    const { tileColumnSelection, setupEnabled } = useValues(marketingAnalyticsLogic)
     const { setTileColumnSelection } = useActions(marketingAnalyticsLogic)
-    const { sparklines } = useValues(
-        adPerformanceTrendsLogic({
-            query: createAdPerformanceSparklineQuery(props.query),
-            queryKey: `${key}-sparklines`,
-            dataNodeCollectionId: dataNodeCollectionId ?? MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
-        })
-    )
-    const sparklineTheme = useChartTheme()
     const samplingRate = marketingOverviewQueryResponse?.samplingRate
 
     const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
@@ -85,14 +69,9 @@ export function MarketingAnalyticsOverview(props: {
                   isIncreaseBad: item.isIncreaseBad,
                   selected: metric ? tileColumnSelection === metric : undefined,
                   onClick: metric ? () => setTileColumnSelection(metric) : undefined,
-                  sparkline: metric && typeof item.value === 'number' ? sparklines[metric] : undefined,
               }
           })
         : []
-
-    // Calculate number of skeletons based on expected metrics
-    const conversionGoalMetrics = conversion_goals.length * 2 // Each conversion goal adds 2 metrics: goal + cost per conversion
-    const numSkeletons = BASE_METRICS_COUNT + conversionGoalMetrics
 
     const hasResults = overviewItems.length > 0
     if (responseError && !responseLoading && !hasResults) {
@@ -107,7 +86,7 @@ export function MarketingAnalyticsOverview(props: {
 
     // Combine validation warnings with any backend warnings (e.g. skipped conversion goals)
     const allWarnings = [
-        ...(validationWarnings ?? []),
+        ...(setupEnabled ? [] : (validationWarnings ?? [])),
         ...(responseError && hasResults ? [{ message: responseError, link: undefined } as const] : []),
     ]
 
@@ -118,9 +97,7 @@ export function MarketingAnalyticsOverview(props: {
                 viewKey={dataNodeCollectionId ?? MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID}
                 items={overviewItems.filter(filterEmptyMetrics)}
                 loading={responseLoading}
-                numSkeletons={numSkeletons}
                 samplingRate={samplingRate}
-                sparklineTheme={sparklineTheme}
                 labelFromKey={(key) => <span className="[overflow-wrap:anywhere]">{labelFromKey(key)}</span>}
             />
         </>

@@ -80,6 +80,10 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     /** Expected total row count from another source. The footer shows "X of Y" when all rows are loaded and the counts differ. */
     dataTableExpectedTotalRows?: number
     compactDataTableToolbar?: boolean
+    /** Extra classes for the compact toolbar row, such as padding when the table sits inside a card. */
+    dataTableToolbarClassName?: string
+    /** Show the Export button as an icon to save toolbar space. */
+    dataTableExportIconOnly?: boolean
     hideRecordingButton?: boolean
     /** Custom expandable config for DataTable rows */
     expandable?: ExpandableConfig<DataTableRow>
