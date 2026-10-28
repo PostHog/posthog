@@ -287,6 +287,104 @@ async fn concurrent_preconnects_collapse_to_one_dial() {
     );
 }
 
+async fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !done() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for {what}"
+        );
+        sleep(Duration::from_millis(5)).await;
+    }
+}
+
+/// An acquire during a preconnect's dial must reuse it, not open a second connection.
+#[tokio::test]
+async fn an_acquire_during_a_dial_reuses_its_connection() {
+    let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(1));
+    producers.hold_dials_for_test();
+
+    let dial = {
+        let p = Arc::clone(&producers);
+        let t = target(&topic);
+        tokio::spawn(async move { p.preconnect(4, &t).await })
+    };
+    wait_until("the preconnect to start dialing", || {
+        producers.connect_attempts_for_test() == 1
+    })
+    .await;
+    let acquire = {
+        let p = Arc::clone(&producers);
+        let t = target(&topic);
+        tokio::spawn(async move { p.acquire(4, &t).await })
+    };
+    // Either the acquire waits for the held dial, or it dials its own.
+    wait_until("the acquire to wait or dial", || {
+        producers.dial_waits_for_test() == 1 || producers.connect_attempts_for_test() == 2
+    })
+    .await;
+    producers.release_dials_for_test();
+
+    dial.await.unwrap();
+    acquire.await.unwrap().expect("the acquire succeeds");
+    assert_eq!(
+        producers.connect_attempts_for_test(),
+        1,
+        "the acquire must reuse the dial in flight, not open a second connection"
+    );
+}
+
+/// The wait ends at the dial's own bound, not a full timeout from the acquire.
+#[tokio::test]
+async fn an_acquire_waits_only_for_what_the_dial_has_left() {
+    let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
+    // The helper's 10s init timeout bounds the dial.
+    let producers = fenced_producers(1);
+    producers.stage_connecting_for_test(2, Duration::from_millis(9_500));
+
+    let start = std::time::Instant::now();
+    producers
+        .acquire(2, &target(&topic))
+        .await
+        .expect("the acquire goes cold once the dial's bound passes");
+    assert!(
+        start.elapsed() < Duration::from_secs(5),
+        "waited {:?}; the wait must end at the dial's bound, not a full timeout",
+        start.elapsed()
+    );
+}
+
+/// The wait follows only the first dial, so replacement dials cannot hold the acquire.
+#[tokio::test]
+async fn an_acquire_does_not_wait_out_a_replacement_dial() {
+    let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(1));
+    producers.stage_connecting_for_test(3, Duration::from_millis(9_000));
+
+    let start = std::time::Instant::now();
+    let acquire = {
+        let p = Arc::clone(&producers);
+        let t = target(&topic);
+        tokio::spawn(async move { p.acquire(3, &t).await })
+    };
+    wait_until("the acquire to wait on the first dial", || {
+        producers.dial_waits_for_test() == 1
+    })
+    .await;
+    producers.stage_connecting_for_test(3, Duration::ZERO);
+
+    acquire
+        .await
+        .unwrap()
+        .expect("the acquire goes cold once the dial it followed is gone");
+    assert!(
+        start.elapsed() < Duration::from_secs(5),
+        "waited {:?}; the acquire must not follow the replacement dial",
+        start.elapsed()
+    );
+}
+
 /// A failed dial must release its claim: the claim exists to suppress
 /// concurrent dials, not to wedge the partition out of preconnecting
 /// after a broker hiccup.
