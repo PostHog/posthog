@@ -3529,8 +3529,13 @@ jobs:
                       # Scope the file-mode plan to Core's clean per-segment durations when the
                       # pinned pytest-split supports it; only persons-on-events-off, non-compat Core
                       # matches the .core run-set (the events_json rows do not), and a missing
-                      # file falls back to the union.
-                      if [ -f .test_durations.core ] && [[ "${{ matrix.person-on-events }}" != "true" ]] && [[ "${{ matrix.compat }}" != "true" ]] && [[ "$JSON_TARGETS" != "true" ]] && python -c "from pytest_split.plugin import SUPPORTS_SPLIT_PLAN_PATH" 2>/dev/null; then
+                      # file falls back to the union. A selected run needs a plugin that scopes
+                      # the plan file to its targets.
+                      PLAN_CAPABILITY=SUPPORTS_SPLIT_PLAN_PATH
+                      if [[ "$MODE" == "selected" ]]; then
+                          PLAN_CAPABILITY=SCOPES_SPLIT_PLAN_PATH
+                      fi
+                      if [ -f .test_durations.core ] && [[ "${{ matrix.person-on-events }}" != "true" ]] && [[ "${{ matrix.compat }}" != "true" ]] && [[ "$JSON_TARGETS" != "true" ]] && python -c "from pytest_split.plugin import $PLAN_CAPABILITY" 2>/dev/null; then
                           SPLIT_GRANULARITY+=(--split-plan-path .test_durations.core)
                       fi
                   fi
@@ -3597,14 +3602,10 @@ jobs:
                       else
                           targets="$CORE_FILES"
                       fi
-                      # A selection wide enough to need more than one shard is split like a
-                      # full run. Item granularity on purpose: the target list is already
-                      # narrow, so pre-import file skipping saves nothing, and the per-segment
-                      # plan file describes a different run-set than the selected subset.
                       SELECTED_SPLIT=()
                       if [[ "${{ matrix.concurrency }}" -gt 1 ]]; then
                           SELECTED_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
-                                          --splitting-algorithm="$SPLITTING_ALGORITHM")
+                                          --splitting-algorithm="$SPLITTING_ALGORITHM" "${SPLIT_GRANULARITY[@]}")
                       fi
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
@@ -3708,14 +3709,10 @@ jobs:
                   # The --deselect guards stay on both branches so a selected run can't re-enable them.
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode uses the same single-retry budget as the full run.
-                      # A selection wide enough to need more than one shard is split like a
-                      # full run. Item granularity on purpose: the target list is already
-                      # narrow, so pre-import file skipping saves nothing, and the per-segment
-                      # plan file describes a different run-set than the selected subset.
                       SELECTED_SPLIT=()
                       if [[ "${{ matrix.concurrency }}" -gt 1 ]]; then
                           SELECTED_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
-                                          --splitting-algorithm="$SPLITTING_ALGORITHM")
+                                          --splitting-algorithm="$SPLITTING_ALGORITHM" "${SPLIT_GRANULARITY[@]}")
                       fi
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
