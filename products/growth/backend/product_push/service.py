@@ -146,7 +146,6 @@ def get_eligible_organization_queryset(now: datetime) -> QuerySet[Organization]:
 
     return (
         Organization.objects.exclude(for_internal_metrics=True)
-        .exclude(deleted=True)
         .annotate(has_active=Exists(active), has_recent_end=Exists(recently_ended), has_due_pin=Exists(due_pin))
         .filter(has_active=False)
         .filter(Q(created_at__lte=grace_cutoff, has_recent_end=False) | Q(has_due_pin=True))

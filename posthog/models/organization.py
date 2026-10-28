@@ -112,6 +112,9 @@ def _enterprise_only_feature_keys() -> frozenset[str]:
 
 
 class OrganizationManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().exclude(deleted=True)
+
     def create(self, *args: Any, **kwargs: Any):
         # Set default_anonymize_ips based on deployment if not explicitly provided
         if "default_anonymize_ips" not in kwargs:
@@ -383,6 +386,8 @@ class Organization(ModelActivityMixin, DeletedMetaFields, UUIDTModel):
     )  # DEPRECATED in favor of `OrganizationDomain` model; previously used to allow self-serve account creation based on social login (#5111)
 
     objects: OrganizationManager = OrganizationManager()
+    # Declared second, so `objects` stays the default manager.
+    objects_including_soft_deleted: models.Manager["Organization"] = models.Manager()
 
     is_platform = models.BooleanField(default=False, null=True, blank=True)
 
@@ -1002,8 +1007,7 @@ def sync_billing_on_membership_removal(sender, instance: OrganizationMembership,
     organization_id = str(instance.organization_id)
 
     def _sync_if_org_exists():
-        # A tombstoned org still has a row at commit time, but it has no members to sync.
-        if Organization.objects.filter(id=organization_id).exclude(deleted=True).exists():
+        if Organization.objects.filter(id=organization_id).exists():
             sync_members_to_billing.delay(organization_id)
 
     transaction.on_commit(_sync_if_org_exists)
@@ -1042,7 +1046,7 @@ def sync_billing_on_membership_save(sender, instance: OrganizationMembership, cr
     organization_id = str(instance.organization_id)
 
     def _sync_if_org_exists():
-        if Organization.objects.filter(id=organization_id).exclude(deleted=True).exists():
+        if Organization.objects.filter(id=organization_id).exists():
             sync_members_to_billing.delay(organization_id)
 
     transaction.on_commit(_sync_if_org_exists)

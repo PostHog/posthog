@@ -63,7 +63,7 @@ async def _run(enrich_side_effect) -> _EnrichmentRun:
         patch(f"{_MODULE}.RECHECK_DELAY", _TEST_RECHECK_DELAY),
         patch("posthog.models.Organization.objects") as org_objects,
     ):
-        org_objects.filter.return_value.exclude.return_value.exists.return_value = True
+        org_objects.filter.return_value.exists.return_value = True
         async with await WorkflowEnvironment.start_time_skipping() as env:
             async with Worker(
                 env.client,
@@ -179,7 +179,7 @@ async def test_a_second_signup_dispatch_keeps_its_first_leg_while_a_recheck_is_p
         patch(f"{_MODULE}.capture_signup_enrichment_snapshot"),
         patch("posthog.models.Organization.objects") as org_objects,
     ):
-        org_objects.filter.return_value.exclude.return_value.exists.return_value = True
+        org_objects.filter.return_value.exists.return_value = True
         async with await WorkflowEnvironment.start_time_skipping() as env:
             async with Worker(
                 env.client,
@@ -222,7 +222,7 @@ async def test_recheck_skips_without_enriching_or_emitting(domain, org_exists, s
         patch(f"{_MODULE}.get_regional_ph_client") as client_mock,
         patch("posthog.models.Organization.objects") as org_objects,
     ):
-        org_objects.filter.return_value.exclude.return_value.exists.return_value = org_exists
+        org_objects.filter.return_value.exists.return_value = org_exists
         result = await enrich_signup_organization_activity(inputs, is_recheck=True)
     assert result[skip_key] is True
     assert result["matched"] is False

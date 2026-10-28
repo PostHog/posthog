@@ -3321,12 +3321,7 @@ def iter_billable_teams(
 ) -> Iterator[Team]:
     # Page organizations to avoid repeating their wide columns on every team or retaining them all.
     # Keyset pagination bounds the organization query even when PgBouncer disables server-side cursors.
-    organizations = (
-        Organization.objects.exclude(for_internal_metrics=True)
-        .exclude(deleted=True)
-        .only(*organization_fields)
-        .order_by("id")
-    )
+    organizations = Organization.objects.exclude(for_internal_metrics=True).only(*organization_fields).order_by("id")
     if organization_ids:
         organizations = organizations.filter(id__in=organization_ids)
 

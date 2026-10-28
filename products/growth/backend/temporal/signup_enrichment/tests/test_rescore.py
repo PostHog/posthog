@@ -114,7 +114,7 @@ async def _run_workflow(resolved_inputs, enrich_side_effect=None):
         patch(f"{_WORKFLOW_MODULE}._deterministic_company_type", return_value=None),
         patch("posthog.models.Organization.objects") as org_objects,
     ):
-        org_objects.filter.return_value.exclude.return_value.exists.return_value = True
+        org_objects.filter.return_value.exists.return_value = True
         async with await WorkflowEnvironment.start_time_skipping() as env:
             async with Worker(
                 env.client,

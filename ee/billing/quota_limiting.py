@@ -1491,7 +1491,6 @@ def update_all_orgs_billing_quotas(
             str(org.id): org
             for org in retry_quota_database_operation(
                 Organization.objects.filter(id__in=refresh_candidates)
-                .exclude(deleted=True)
                 .only("id", "usage", "customer_trust_scores", "never_drop_data")
                 .annotate(usage_md5=MD5(Cast("usage", output_field=TextField())))
                 .in_bulk

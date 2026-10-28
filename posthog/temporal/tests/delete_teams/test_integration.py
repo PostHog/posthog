@@ -80,7 +80,7 @@ def _bootstrap_tenant() -> tuple[str, int]:
 
 
 def _tenant_state(org_id: str, team_id: int) -> dict[str, bool | None]:
-    org = Organization.objects.filter(id=org_id).first()
+    org = Organization.objects_including_soft_deleted.filter(id=org_id).first()
     return {
         "org": org is not None,
         "org_deleted": None if org is None else bool(org.deleted),
@@ -138,7 +138,7 @@ async def test_organization_workflow_deletes_real_rows():
         "async_deletion": True,
     }
 
-    tombstone = await sync_to_async(Organization.objects.get)(id=org_id)
+    tombstone = await sync_to_async(Organization.objects_including_soft_deleted.get)(id=org_id)
     assert tombstone.name == ""
     assert tombstone.slug == f"deleted-{tombstone.id.hex}"
     assert tombstone.is_active is False

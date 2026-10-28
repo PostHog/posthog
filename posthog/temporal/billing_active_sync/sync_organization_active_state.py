@@ -41,7 +41,7 @@ def sync_organization_active_state(organization_id: str) -> None:
         return
 
     organization = Organization.objects.filter(id=organization_id).first()
-    # A tombstoned org has is_active=False; a missing row (deleted before tombstones shipped) is also deactivated.
+    # The default manager hides tombstones, so a deleted org lands on the missing-row branch here.
     # is_active is nullable; the rest of the app treats only an explicit False as deactivated.
     deactivated = organization is None or organization.is_active is False
     BillingManager(license, None).set_organizations_deactivated([organization_id], deactivated=deactivated)
@@ -68,7 +68,11 @@ def reconcile_organization_active_state() -> None:
     manager = BillingManager(license, None)
     billing_deactivated = set(manager.get_deactivated_organizations())
     # Nullable is_active: only an explicit False is deactivated, so null lands on the reactivation side.
-    inactive = {str(pk) for pk in Organization.objects.filter(is_active=False).values_list("id", flat=True)}
+    # Tombstones (is_active=False) must stay in the deactivation set, so bypass the filtered default manager.
+    inactive = {
+        str(pk)
+        for pk in Organization.objects_including_soft_deleted.filter(is_active=False).values_list("id", flat=True)
+    }
 
     to_deactivate = sorted(inactive - billing_deactivated)
     # An id this instance does not know (e.g. a deleted org) is not ours to flip back.

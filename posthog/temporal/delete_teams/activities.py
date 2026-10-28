@@ -196,7 +196,7 @@ async def deprovision_managed_warehouse_activity(inputs: OrganizationRecordInput
 
 def _delete_organization_record(organization_id: str, user_id: int) -> None:
     from posthog.event_usage import report_organization_deletion_completed
-    from posthog.models.team.util import tombstone_organization_record
+    from posthog.models.organization_tombstone import tombstone_organization_record
 
     tombstone_organization_record(organization_id)
     report_organization_deletion_completed(user_id=user_id, organization_id=organization_id)

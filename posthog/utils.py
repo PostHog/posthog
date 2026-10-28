@@ -1698,8 +1698,7 @@ def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool
         or (settings.DEMO and user.is_anonymous)  # Demo users can have a single demo org, but not more
         or settings.E2E_TESTING
         or settings.DEBUG
-        # Definitely can create an org if zero live ones (tombstones of deleted orgs do not count)
-        or not Organization.objects.filter(for_internal_metrics=False).exclude(deleted=True).exists()
+        or not Organization.objects.filter(for_internal_metrics=False).exists()  # Definitely can create an org if zero
     ):
         return True
 

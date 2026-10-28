@@ -32,8 +32,7 @@ def region_allowed() -> bool:
 
 
 def organization_exists(organization_id: str) -> bool:
-    # A tombstoned org still has a row; enrichment must not recreate records for it.
-    return Organization.objects.filter(id=organization_id).exclude(deleted=True).exists()
+    return Organization.objects.filter(id=organization_id).exists()
 
 
 def domain_from_email(email: str) -> str | None:

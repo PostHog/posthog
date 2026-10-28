@@ -30,7 +30,7 @@ class Command(BaseCommand):
         if organization_ids:
             organizations = Organization.objects.filter(id__in=organization_ids.split(","))
         else:
-            organizations = Organization.objects.exclude(deleted=True)
+            organizations = Organization.objects.all()
 
         if limit:
             organizations = organizations[:limit]
