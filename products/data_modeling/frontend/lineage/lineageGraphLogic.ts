@@ -1,9 +1,10 @@
 import { MarkerType, Position, type Edge as ReactFlowEdge, type Node as ReactFlowNode } from '@xyflow/react'
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 
-import { DataModelingEdge, DataModelingNode } from '~/types'
+import { DataModelingNode } from '~/types'
 
 import { ElkDirection, NodeHandle, getFormattedNodes } from './autolayout'
+import { LineageEdge } from './lineageHiddenNodes'
 import { LineageNodeData, LineageVariant } from './LineageNode'
 
 const NODE_SIZES: Record<LineageVariant, { width: number; height: number }> = {
@@ -13,6 +14,12 @@ const NODE_SIZES: Record<LineageVariant, { width: number; height: number }> = {
 
 const NODE_GAP = 60
 
+const THROUGH_HIDDEN_NODES_EDGE: Partial<ReactFlowEdge> = {
+    label: '⋯',
+    ariaLabel: 'Connected through hidden models',
+    style: { strokeDasharray: '4 4' },
+}
+
 export interface LineageGraphLayout {
     nodes: ReactFlowNode<LineageNodeData>[]
     edges: ReactFlowEdge[]
@@ -20,7 +27,7 @@ export interface LineageGraphLayout {
 
 export interface LineageGraphLogicProps {
     nodes: DataModelingNode[]
-    edges: DataModelingEdge[]
+    edges: LineageEdge[]
     variant: LineageVariant
     direction: ElkDirection
 }
@@ -35,7 +42,7 @@ function handlesForDirection(nodeId: string, direction: ElkDirection): NodeHandl
 
 export function initialLineageGraphLayout(
     nodes: DataModelingNode[],
-    edges: DataModelingEdge[],
+    edges: LineageEdge[],
     variant: LineageVariant,
     direction: ElkDirection
 ): LineageGraphLayout {
@@ -65,6 +72,7 @@ export function initialLineageGraphLayout(
         sourceHandle: `source_${edge.source_id}`,
         targetHandle: `target_${edge.target_id}`,
         markerEnd: { type: MarkerType.ArrowClosed, width: 20, height: 20 },
+        ...(edge.throughHiddenNodes && THROUGH_HIDDEN_NODES_EDGE),
     }))
 
     return { nodes: rfNodes, edges: rfEdges }
@@ -74,7 +82,7 @@ export function initialLineageGraphLayout(
 // laid-out nodes at render time, so caller-supplied inline callbacks never retrigger the ELK pass.
 async function layoutGraph(
     nodes: DataModelingNode[],
-    edges: DataModelingEdge[],
+    edges: LineageEdge[],
     variant: LineageVariant,
     direction: ElkDirection
 ): Promise<LineageGraphLayout> {

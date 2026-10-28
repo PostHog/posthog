@@ -27,6 +27,7 @@ import {
     ContextMenuTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { pluralize } from 'lib/utils/strings'
 
 import { DataModelingNode } from '~/types'
 
@@ -64,6 +65,7 @@ export interface LineageNodeState {
     isSelected?: boolean
     /** Faded while another node's lineage is selected */
     isDimmed?: boolean
+    hiddenDownstreamCount?: number
     loading?: 'placeholder' | 'focus'
 }
 
@@ -205,6 +207,16 @@ function MetadataBar({ node }: { node: LineageNodeShape }): JSX.Element {
             </div>
             <StatusDot node={node} />
         </div>
+    )
+}
+
+function HiddenDownstreamTag({ count }: { count: number }): JSX.Element {
+    return (
+        <Tooltip title={`${pluralize(count, 'hidden model')} downstream`}>
+            <span className="text-[10px] text-secondary whitespace-nowrap px-1 rounded border border-dashed">
+                +{count} hidden
+            </span>
+        </Tooltip>
     )
 }
 
@@ -410,6 +422,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                         {node.lineage_issue && <LineageIssueMarker issue={node.lineage_issue} />}
                     </div>
                     <div className="flex items-center gap-1">
+                        {!!state.hiddenDownstreamCount && <HiddenDownstreamTag count={state.hiddenDownstreamCount} />}
                         {node.user_tag && (
                             <span className="text-[10px] text-muted lowercase tracking-wide px-1 rounded bg-primary dark:bg-primary/20 border-1 border-black/20">
                                 #{node.user_tag}

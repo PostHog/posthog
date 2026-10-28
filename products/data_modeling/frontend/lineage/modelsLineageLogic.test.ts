@@ -65,6 +65,7 @@ describe('modelsLineageLogic', () => {
             selectedSearchResultId: null,
             selectedSearchResult: NODES[1],
             searchFocusRequest: null,
+            hiddenDownstreamCounts: new Map([['4', 1]]),
         })
     })
 

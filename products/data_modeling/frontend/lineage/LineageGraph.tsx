@@ -31,12 +31,13 @@ import {
 import { IconArchive, IconExpand45, IconRefresh } from '@posthog/icons'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { DataModelingEdge, DataModelingNode } from '~/types'
+import { DataModelingNode } from '~/types'
 
 import { ElkDirection } from './autolayout'
 import { LINEAGE_MIN_ZOOM, lineageFitTarget } from './lineageFit'
 import { LineageGraphLoading } from './LineageGraphLoading'
 import { lineageGraphLogic } from './lineageGraphLogic'
+import { LineageEdge } from './lineageHiddenNodes'
 import { LINEAGE_NODE_TYPES, LineageNodeCallbacks, LineageNodeState, LineageVariant } from './LineageNode'
 import { lineageCone } from './lineageSelection'
 import { useNodesMeasured } from './useNodesMeasured'
@@ -44,13 +45,13 @@ import { useNodesMeasured } from './useNodesMeasured'
 export type { LineageVariant, LineageNodeState, LineageNodeCallbacks } from './LineageNode'
 
 const EMPTY_NODES: DataModelingNode[] = []
-const EMPTY_EDGES: DataModelingEdge[] = []
+const EMPTY_EDGES: LineageEdge[] = []
 const FOCUSED_NODES_MAX_ZOOM = 2
 const CURRENT_NODE_MAX_ZOOM = 1
 
 export interface LineageGraphProps {
     nodes: DataModelingNode[]
-    edges: DataModelingEdge[]
+    edges: LineageEdge[]
     /** Highlighted "you are here" node, rendered with a target marker + accent border */
     currentNodeId?: string
     variant?: LineageVariant
