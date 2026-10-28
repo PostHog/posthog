@@ -1,5 +1,5 @@
 import dataclasses
-from collections.abc import Mapping
+from collections.abc import Collection, Iterable, Mapping
 from typing import Any, Literal
 
 from django.test import SimpleTestCase
@@ -31,31 +31,63 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @frozen
-class _Match:
-    source_type: ExternalDataSourceType
-    table_aliases: Mapping[str, str] = dataclasses.field(default_factory=dict)
-    config_keys: Mapping[str, str] = dataclasses.field(default_factory=dict)
-    notes: tuple[str, ...] = ()
+class _Tables:
+    names: frozenset[str]
+    complete: bool = True
+
+
+@frozen
+class _TableMatch:
+    vendor_table: str
+    posthog_table: str | None
+    confidence: str | None
 
 
 class _Catalog:
-    def __init__(self, sources: Mapping[str, _Match], destinations: Mapping[str, str] | None = None) -> None:
-        self._sources = sources
-        self._destinations = destinations or {}
+    """Implements the catalog Protocol: exact means equal ignoring case, and `inferred` lists the rule pairs."""
 
-    def match_source(self, provider: str, vendor_service: str) -> _Match | None:
-        return self._sources.get(vendor_service)
+    def __init__(self, hubspot_tables: _Tables | None, inferred: Mapping[str, str] | None = None) -> None:
+        self._tables = {ExternalDataSourceType.HUBSPOT: hubspot_tables, ExternalDataSourceType.POSTGRES: None}
+        self._inferred = inferred or {}
+
+    def match_source(self, provider: str, vendor_service: str) -> ExternalDataSourceType | None:
+        return {"hubspot": ExternalDataSourceType.HUBSPOT, "postgres": ExternalDataSourceType.POSTGRES}.get(
+            vendor_service
+        )
 
     def match_destination(self, provider: str, vendor_service: str) -> str | None:
-        return self._destinations.get(vendor_service)
+        return {"snowflake": "Snowflake"}.get(vendor_service)
+
+    def posthog_tables(self, source_type: ExternalDataSourceType) -> _Tables | None:
+        return self._tables[source_type]
+
+    def match_tables(
+        self, provider: str, vendor_tables: Iterable[str], posthog_table_names: Collection[str]
+    ) -> tuple[_TableMatch, ...]:
+        vendor_tables = list(vendor_tables)
+        by_lower = {name.lower(): name for name in posthog_table_names}
+        exact_targets = {by_lower[t.lower()] for t in vendor_tables if t.lower() in by_lower}
+        matches = []
+        for table in vendor_tables:
+            inferred = self._inferred.get(table)
+            if table.lower() in by_lower:
+                matches.append(
+                    _TableMatch(vendor_table=table, posthog_table=by_lower[table.lower()], confidence="exact")
+                )
+            elif inferred in posthog_table_names and inferred not in exact_targets:
+                matches.append(_TableMatch(vendor_table=table, posthog_table=inferred, confidence="inferred"))
+            else:
+                matches.append(_TableMatch(vendor_table=table, posthog_table=None, confidence=None))
+        return tuple(matches)
+
+    def prefill_config(
+        self, provider: str, source_type: ExternalDataSourceType, vendor_config: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        keys = {"host": "host", "user": "user", "tunnel_host": "ssh_tunnel.host"}
+        return {keys[key]: value for key, value in vendor_config.items() if key in keys}
 
 
-_HUBSPOT = _Match(source_type=ExternalDataSourceType.HUBSPOT, table_aliases={"contact": "contacts"})
-_POSTGRES = _Match(
-    source_type=ExternalDataSourceType.POSTGRES,
-    config_keys={"host": "host", "user": "user", "tunnel_host": "ssh_tunnel.host"},
-)
-_CATALOG = _Catalog({"hubspot": _HUBSPOT, "postgres": _POSTGRES}, {"snowflake": "Snowflake"})
+_HUBSPOT_TABLES = _Tables(names=frozenset({"contacts", "deals"}))
 
 
 def _caps(**overrides: Any) -> SourceCapabilities:
@@ -63,7 +95,6 @@ def _caps(**overrides: Any) -> SourceCapabilities:
         SourceCapabilities(
             release_status=ReleaseStatus.GA,
             unreleased=False,
-            documented_tables=frozenset({"contacts", "deals"}),
             supports_column_selection=True,
             supports_row_filters=False,
         ),
@@ -72,10 +103,10 @@ def _caps(**overrides: Any) -> SourceCapabilities:
 
 
 _TEAM_FLAGS = frozenset({"flag-the-team-has"})
-_DATABASE_CAPS = _caps(documented_tables=None, supports_row_filters=True, toggle_groups=frozenset({"ssh_tunnel"}))
+_DATABASE_CAPS = _caps(supports_row_filters=True, toggle_groups=frozenset({"ssh_tunnel"}))
 
 
-def _table(name: str = "contact", **overrides: Any) -> VendorTable:
+def _table(name: str = "contacts", **overrides: Any) -> VendorTable:
     return dataclasses.replace(
         VendorTable(schema_name="hubspot", name=name, enabled=True, sync_mode=None, columns=(), row_filter=None),
         **overrides,
@@ -107,6 +138,7 @@ def _plan_all(
     connections: tuple[VendorConnection, ...],
     caps: SourceCapabilities | None = None,
     destinations: tuple[VendorDestination, ...] = (),
+    catalog: _Catalog | None = None,
 ) -> tuple[PlannedItem, ...]:
     snapshot = VendorSnapshot(
         provider=MigrationProvider.FIVETRAN,
@@ -115,21 +147,27 @@ def _plan_all(
         destinations=destinations,
         connections=connections,
     )
-    return plan_items(snapshot, _CATALOG, lambda _source_type: caps or _caps(), flag_enabled=_TEAM_FLAGS.__contains__)
+    return plan_items(
+        snapshot,
+        catalog or _Catalog(_HUBSPOT_TABLES),
+        lambda _source_type: caps or _caps(),
+        flag_enabled=_TEAM_FLAGS.__contains__,
+    )
 
 
 def _plan(
     connection: VendorConnection,
     caps: SourceCapabilities | None = None,
     destinations: tuple[VendorDestination, ...] = (),
+    catalog: _Catalog | None = None,
 ) -> PlannedItem:
-    (item,) = _plan_all((connection,), caps, destinations)
+    (item,) = _plan_all((connection,), caps, destinations, catalog)
     return item
 
 
 class TestVerdict(SimpleTestCase):
     def test_clean_connection_moves_as_is(self) -> None:
-        item = _plan(_connection(tables=(_table("contact"), _table("deals"), _table("tickets", enabled=False))))
+        item = _plan(_connection(tables=(_table("contacts"), _table("deals"), _table("tickets", enabled=False))))
 
         assert item.verdict == Verdict.AS_IS
         assert item.caveats == ()
@@ -191,18 +229,84 @@ class TestVerdict(SimpleTestCase):
 class TestTables(SimpleTestCase):
     @parameterized.expand(
         [
-            ("no_posthog_equivalent", ("contact", "email_event"), ["contacts"], "`email_event` has no PostHog"),
-            ("two_tables_one_posthog_table", ("contact", "contacts"), ["contacts"], "same PostHog table"),
-            ("nothing_moves", ("email_event",), [], "every table starts with syncing off"),
+            (
+                "unmatched_table_is_returned",
+                ("contacts", "email_event"),
+                _HUBSPOT_TABLES,
+                ["contacts"],
+                (),
+                ("email_event",),
+                "no PostHog table",
+            ),
+            (
+                "inferred_pair_is_planned_and_marked",
+                ("contact", "deals"),
+                _HUBSPOT_TABLES,
+                ["contacts", "deals"],
+                (("contact", "contacts"),),
+                (),
+                "naming rule",
+            ),
+            # An exact match takes the table, so the inferred pair does not apply.
+            (
+                "exact_match_wins_over_a_rule",
+                ("contact", "contacts"),
+                _HUBSPOT_TABLES,
+                ["contacts"],
+                (),
+                ("contact",),
+                "no PostHog table",
+            ),
+            (
+                "two_tables_one_posthog_table",
+                ("Contacts", "contacts"),
+                _HUBSPOT_TABLES,
+                ["contacts"],
+                (),
+                (),
+                "same PostHog table",
+            ),
+            (
+                "nothing_moves",
+                ("email_event",),
+                _HUBSPOT_TABLES,
+                [],
+                (),
+                ("email_event",),
+                "every table starts with syncing off",
+            ),
+            # The source discovers more tables than it lists, so apply checks this name against discovery.
+            (
+                "partial_list_keeps_the_vendor_name",
+                ("contacts", "users"),
+                _Tables(names=frozenset({"contacts"}), complete=False),
+                ["contacts", "users"],
+                (),
+                (),
+                None,
+            ),
         ]
     )
     def test_tables_that_cannot_move_are_reported_not_dropped_silently(
-        self, _name: str, tables: tuple[str, ...], expected: list[str], expected_caveat: str
+        self,
+        _name: str,
+        tables: tuple[str, ...],
+        known: _Tables,
+        expected: list[str],
+        inferred: tuple[tuple[str, str], ...],
+        unmatched: tuple[str, ...],
+        expected_caveat: str | None,
     ) -> None:
-        item = _plan(_connection(tables=tuple(_table(name) for name in tables)))
+        catalog = _Catalog(known, inferred={"contact": "contacts"})
+        item = _plan(_connection(tables=tuple(_table(name) for name in tables)), catalog=catalog)
         assert item.proposal is not None and item.proposal.schemas is not None
         assert [schema.name for schema in item.proposal.schemas] == expected
-        assert any(expected_caveat in caveat for caveat in item.caveats), item.caveats
+        assert [(pair.vendor_table, pair.posthog_table) for pair in item.proposal.inferred_tables] == list(inferred)
+        assert item.proposal.unmatched_tables == unmatched
+        if expected_caveat:
+            assert any(expected_caveat in caveat for caveat in item.caveats), item.caveats
+        else:
+            assert item.caveats == ()
 
     def test_database_tables_are_schema_qualified_and_config_is_prefilled(self) -> None:
         connection = _connection(
@@ -306,14 +410,10 @@ class TestRowFilters(SimpleTestCase):
             ),
             ("operator_without_equivalent", _DATABASE_CAPS, _row_filter(("name", "CONTAINS", ("x",))), ()),
             ("several_values_for_one_value_operator", _DATABASE_CAPS, _row_filter(("a", "EQUALS", ("1", "2"))), ()),
-            ("source_cannot_filter", _caps(documented_tables=None), _row_filter(("status", "EQUALS", ("ACTIVE",))), ()),
+            ("source_cannot_filter", _caps(), _row_filter(("status", "EQUALS", ("ACTIVE",))), ()),
             (
                 "column_not_filterable_on_this_table",
-                _caps(
-                    documented_tables=frozenset({"orders"}),
-                    supports_row_filters=True,
-                    row_filter_columns={"orders": frozenset({"created_at"})},
-                ),
+                _caps(supports_row_filters=True, row_filter_columns={"public.orders": frozenset({"created_at"})}),
                 _row_filter(("status", "EQUALS", ("ACTIVE",))),
                 (),
             ),

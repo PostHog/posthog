@@ -7,7 +7,7 @@ the user sees. Nothing is dropped silently.
 import re
 import dataclasses
 from collections import Counter
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from typing import Any, Protocol
 
 from posthog.dataclasses import frozen
@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.migration.types import (
     RowFilterOperator,
     ScheduleKind,
     SourceCapabilities,
+    TablePair,
     VendorConnection,
     VendorDestination,
     VendorSchedule,
@@ -32,20 +33,46 @@ from products.warehouse_sources.backend.migration.types import (
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
-class SourceMatchLike(Protocol):
+class PostHogTablesLike(Protocol):
     @property
-    def source_type(self) -> ExternalDataSourceType: ...
+    def names(self) -> frozenset[str]: ...
+    # False when the source also syncs tables it discovers in the user's account.
     @property
-    def table_aliases(self) -> Mapping[str, str]: ...
+    def complete(self) -> bool: ...
+
+
+class TableMatchLike(Protocol):
     @property
-    def config_keys(self) -> Mapping[str, str]: ...
+    def vendor_table(self) -> str: ...
     @property
-    def notes(self) -> tuple[str, ...]: ...
+    def posthog_table(self) -> str | None: ...
+    # "exact", "inferred", or None when nothing matched.
+    @property
+    def confidence(self) -> str | None: ...
 
 
 class CatalogLookup(Protocol):
-    def match_source(self, provider: str, vendor_service: str) -> SourceMatchLike | None: ...
+    """The connector catalog: which PostHog source, tables and settings a vendor connection maps to."""
+
+    def match_source(self, provider: str, vendor_service: str) -> ExternalDataSourceType | None: ...
     def match_destination(self, provider: str, vendor_service: str) -> str | None: ...
+    # None when the user defines the tables, as in a database.
+    def posthog_tables(self, source_type: ExternalDataSourceType) -> PostHogTablesLike | None: ...
+    def match_tables(
+        self, provider: str, vendor_tables: Iterable[str], posthog_table_names: Collection[str]
+    ) -> Sequence[TableMatchLike]: ...
+    # Keys are PostHog payload paths, where a dot is a nested field.
+    def prefill_config(
+        self, provider: str, source_type: ExternalDataSourceType, vendor_config: Mapping[str, Any]
+    ) -> Mapping[str, Any]: ...
+
+
+@frozen
+class _PlannedTables:
+    # None means Fivetran gave no table list.
+    schemas: tuple[ProposedSchema, ...] | None
+    inferred: tuple[TablePair, ...] = ()
+    unmatched: tuple[str, ...] = ()
 
 
 @frozen
@@ -160,18 +187,18 @@ def _plan_connection(
             proposal=None,
         )
 
-    match = catalog.match_source(provider, connection.service)
-    if match is None:
+    source_type = catalog.match_source(provider, connection.service)
+    if source_type is None:
         return unsupported(f"PostHog has no source for the Fivetran connector `{connection.service}` yet.")
-    caps = capabilities(match.source_type)
+    caps = capabilities(source_type)
     if caps.unreleased:
-        return unsupported(f"The PostHog {match.source_type} source is not released yet.")
+        return unsupported(f"The PostHog {source_type} source is not released yet.")
     if not all(flag_enabled(flag) for flag in caps.feature_flags):
-        return unsupported(f"The PostHog {match.source_type} source is not available to this project yet.")
+        return unsupported(f"The PostHog {source_type} source is not available to this project yet.")
 
-    caveats: list[str] = list(match.notes)
+    caveats: list[str] = []
     if caps.release_status == ReleaseStatus.ALPHA:
-        caveats.append(f"The PostHog {match.source_type} source is in alpha.")
+        caveats.append(f"The PostHog {source_type} source is in alpha.")
     if connection.setup_state and connection.setup_state != "connected":
         caveats.append(f"This connection is `{connection.setup_state}` in Fivetran, so check its settings first.")
     if connection.networking_method in _UNSUPPORTED_NETWORKING:
@@ -186,15 +213,17 @@ def _plan_connection(
     if connection.schema_change_handling == "BLOCK_ALL":
         caveats.append("Fivetran blocks new tables and columns for this connection. PostHog may add new columns.")
 
-    schemas = _plan_tables(connection, match, caps, caveats)
+    tables = _plan_tables(provider, connection, source_type, catalog, caps, caveats)
     sync_frequency, sync_time_of_day = _plan_frequency(connection, caveats)
     start_paused = _plan_paused(connection, caveats)
 
     proposal = ItemProposal(
-        source_type=match.source_type,
+        source_type=source_type,
         prefix=_prefix_for(connection.name),
-        prefill=_plan_prefill(connection, match, caps),
-        schemas=schemas,
+        prefill=_plan_prefill(catalog.prefill_config(provider, source_type, connection.config), caps),
+        schemas=tables.schemas,
+        inferred_tables=tables.inferred,
+        unmatched_tables=tables.unmatched,
         sync_frequency=sync_frequency,
         sync_time_of_day=sync_time_of_day,
         destination=_plan_destination(provider, destination, catalog, caveats),
@@ -210,17 +239,15 @@ def _plan_connection(
     )
 
 
-def _plan_prefill(connection: VendorConnection, match: SourceMatchLike, caps: SourceCapabilities) -> dict[str, Any]:
-    """Build the source payload from Fivetran config. A dot in a PostHog key is a nested field."""
+def _plan_prefill(flat_config: Mapping[str, Any], caps: SourceCapabilities) -> dict[str, Any]:
+    """Nest the catalog's prefill into the source payload. A dot in a PostHog key is a nested field."""
     prefill: dict[str, Any] = {}
-    for fivetran_key, posthog_key in match.config_keys.items():
-        if fivetran_key not in connection.config:
-            continue
+    for posthog_key, value in flat_config.items():
         *parents, leaf = posthog_key.split(".")
         target = prefill
         for parent in parents:
             target = target.setdefault(parent, {})
-        target[leaf] = connection.config[fivetran_key]
+        target[leaf] = value
     for group in caps.toggle_groups & prefill.keys():
         # A group's settings only apply when its switch is on.
         prefill[group]["enabled"] = True
@@ -228,23 +255,48 @@ def _plan_prefill(connection: VendorConnection, match: SourceMatchLike, caps: So
 
 
 def _plan_tables(
-    connection: VendorConnection, match: SourceMatchLike, caps: SourceCapabilities, caveats: list[str]
-) -> tuple[ProposedSchema, ...] | None:
+    provider: str,
+    connection: VendorConnection,
+    source_type: ExternalDataSourceType,
+    catalog: CatalogLookup,
+    caps: SourceCapabilities,
+    caveats: list[str],
+) -> _PlannedTables:
     if not connection.tables_available or not connection.tables:
         caveats.append("Fivetran did not return a table list. PostHog will use its default tables.")
-        return None
+        return _PlannedTables(schemas=None)
 
+    enabled = [table for table in connection.tables if table.enabled]
+    known = catalog.posthog_tables(source_type)
+    matches = (
+        {match.vendor_table: match for match in catalog.match_tables(provider, [t.name for t in enabled], known.names)}
+        if known is not None
+        else {}
+    )
     schemas: list[ProposedSchema] = []
-    for table in connection.tables:
-        if not table.enabled:
+    inferred: list[TablePair] = []
+    unmatched: list[str] = []
+    for table in enabled:
+        vendor_table, is_inferred = table.name, False
+        alternative_names: tuple[str, ...] = ()
+        if known is None:
+            # The user defines the tables. Databases name them `schema.table` when no single schema
+            # is set, other sources use the bare name, so apply tries both.
+            vendor_table, alternative_names = f"{table.schema_name}.{table.name}", (table.name,)
+            name = vendor_table
+        elif (match := matches.get(table.name)) is not None and match.posthog_table is not None:
+            name, is_inferred = match.posthog_table, match.confidence == "inferred"
+        elif known.complete:
+            unmatched.append(table.name)
             continue
-        name, alternative_names = _posthog_table_names(table, match, caps)
-        if caps.documented_tables is not None and name not in caps.documented_tables:
-            caveats.append(f"The Fivetran table `{table.name}` has no PostHog equivalent, so it is left out.")
-            continue
+        else:
+            # The source can discover more tables than it lists, so apply checks this one by name.
+            name = table.name
         if any(schema.name == name for schema in schemas):
             caveats.append(f"The Fivetran table `{table.name}` lands in the same PostHog table as another one.")
             continue
+        if is_inferred:
+            inferred.append(TablePair(vendor_table=table.name, posthog_table=name))
         if table.sync_mode == "HISTORY":
             caveats.append(
                 f"`{table.name}` keeps history in Fivetran. PostHog keeps only the latest version of each row."
@@ -259,11 +311,22 @@ def _plan_tables(
                 disabled_columns=_plan_disabled_columns(table, caps, caveats),
                 row_filters=_plan_row_filters(table, name, caps, caveats),
                 alternative_names=alternative_names,
+                vendor_table=vendor_table,
             )
         )
+    if inferred:
+        pairs = ", ".join(f"`{pair.vendor_table}` as `{pair.posthog_table}`" for pair in inferred)
+        caveats.append(f"PostHog paired some tables by a naming rule: {pairs}. Confirm them before applying.")
+    if unmatched:
+        names = ", ".join(f"`{name}`" for name in unmatched)
+        caveats.append(f"These Fivetran tables have no PostHog table, so they are not planned: {names}.")
     if not schemas:
         caveats.append("No Fivetran table of this connection moves to PostHog, so every table starts with syncing off.")
-    return _without_shared_alternative_names(schemas, caveats)
+    return _PlannedTables(
+        schemas=_without_shared_alternative_names(schemas, caveats),
+        inferred=tuple(inferred),
+        unmatched=tuple(unmatched),
+    )
 
 
 def _without_shared_alternative_names(schemas: list[ProposedSchema], caveats: list[str]) -> tuple[ProposedSchema, ...]:
@@ -282,17 +345,6 @@ def _without_shared_alternative_names(schemas: list[ProposedSchema], caveats: li
         else schema
         for schema in schemas
     )
-
-
-def _posthog_table_names(
-    table: VendorTable, match: SourceMatchLike, caps: SourceCapabilities
-) -> tuple[str, tuple[str, ...]]:
-    alias = match.table_aliases.get(table.name, table.name)
-    if caps.documented_tables is None:
-        # The tables are only known once PostHog connects. Databases name them `schema.table` when
-        # no single schema is set, other sources use the bare name, so apply tries both.
-        return f"{table.schema_name}.{table.name}", (alias,)
-    return alias, ()
 
 
 def _plan_disabled_columns(table: VendorTable, caps: SourceCapabilities, caveats: list[str]) -> tuple[str, ...]:
