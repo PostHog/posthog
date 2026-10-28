@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 
 from django.apps import apps
 from django.conf import settings
+from django.contrib.auth import SESSION_KEY
 from django.core.cache import cache
 from django.db import ProgrammingError, models
 from django.db.models.functions import Coalesce
@@ -568,6 +569,18 @@ def _flag_identity(current_user: dict[str, Any], joined_at: str) -> _FlagIdentit
     )
 
 
+def signed_out_session_reason(request: HttpRequest) -> Optional[str]:
+    """
+    Why a request that carries a session cookie is still signed out, or None without the cookie.
+    The app can find a user through the API straight after such a page renders, and nobody knows why yet.
+    """
+    if settings.SESSION_COOKIE_NAME not in request.COOKIES:
+        return None
+    if SESSION_KEY in request.session:
+        return "user_not_resolved"
+    return "session_without_user"
+
+
 @tracer.start_as_current_span("template.context")
 def get_context_for_template(
     template_name: str,
@@ -741,6 +754,9 @@ def _build_template_context(
     # Only the SPA shell references these; other templates (exporter, layout, ...) load different bundles
     if template_name == "index.html":
         is_authenticated = bool(request.user and request.user.is_authenticated)
+        if not is_authenticated and (reason := signed_out_session_reason(request)):
+            # Never log the path or the cookie: both can carry a credential.
+            logger.info("signed_out_page_with_session_cookie", reason=reason)
         context["preload_css_url"], context["preload_js_urls"], context["preload_font_url"] = _resolve_entry_assets(
             is_authenticated
         )

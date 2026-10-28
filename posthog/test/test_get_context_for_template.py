@@ -25,6 +25,7 @@ from posthog.utils import (
     get_context_for_template,
     get_persisted_feature_flags_for_app_context,
     should_defer_app_context,
+    signed_out_session_reason,
 )
 
 from products.conversations.backend.services.identity import IDENTITY_CLAIM_MAX_AGE_SECONDS
@@ -127,6 +128,23 @@ class TestFlagsForAppEvaluationContext(SimpleTestCase):
         definitions = [{"key": "the-flag", "evaluation_contexts": ["posthog-website"]}]
 
         assert flags_for_app_evaluation_context(None, definitions) is None
+
+
+class TestSignedOutSessionReason(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no session cookie", False, {}, None),
+            ("a session the store did not return", True, {}, "session_without_user"),
+            ("a session that names a user who did not authenticate", True, {"_auth_user_id": "1"}, "user_not_resolved"),
+        ]
+    )
+    def test_names_why_a_request_with_a_session_cookie_is_signed_out(self, _name, has_cookie, session, expected):
+        request = RequestFactory().get("/login")
+        if has_cookie:
+            request.COOKIES[settings.SESSION_COOKIE_NAME] = "a-session-key"
+        request.session = session
+
+        assert signed_out_session_reason(request) == expected
 
 
 class TestShouldDeferAppContext(SimpleTestCase):
