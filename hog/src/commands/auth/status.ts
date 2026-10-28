@@ -1,4 +1,5 @@
 import { defineCommand } from '@/core/command'
+import { escapeControls } from '@/core/output'
 import { checkAuthStatus } from '@/posthog/auth-status'
 import type { CredentialSource } from '@/posthog/credentials'
 
@@ -21,9 +22,11 @@ export default defineCommand({
             out.line(`Run ${out.style(result.next, 'bold')} to log in.`)
             return
         }
-        const who = result.user ? ` as ${out.style(result.user.email, 'bold')}` : ''
-        out.line(`${out.style('Logged in', 'green', 'bold')} to ${result.host}${who}.`)
-        out.line(`Project: ${result.projectName ? `${result.projectName} (${result.projectId})` : result.projectId}`)
+        // The email and project name come from PostHog, and anyone who can rename the project sets the name.
+        const who = result.user ? ` as ${out.style(escapeControls(result.user.email), 'bold')}` : ''
+        out.line(`${out.style('Logged in', 'green', 'bold')} to ${escapeControls(result.host)}${who}.`)
+        const name = result.projectName ? escapeControls(result.projectName) : null
+        out.line(`Project: ${name ? `${name} (${result.projectId})` : result.projectId}`)
         out.line(out.style(`Key from ${result.credentialsPath ?? SOURCE_LABELS[result.source]}`, 'dim'))
     },
 
