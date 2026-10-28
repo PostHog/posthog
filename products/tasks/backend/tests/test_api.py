@@ -56,7 +56,7 @@ from posthog.utils import absolute_uri
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.access import DesktopAccessResolutionError
-from products.tasks.backend.constants import DEV_STACK_PREVIEW_PORT
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, DEV_STACK_PREVIEW_PORT
 from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.facade import (
     access as tasks_access,
@@ -6066,6 +6066,7 @@ class TestTaskAPI(BaseTaskAPITest):
                 "context_window": "1m",
                 "fast_mode": True,
                 "snapshot_external_id": "snap-1",
+                "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
             },
         )
 
@@ -7685,7 +7686,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "sandbox_memory_gb": 8,
                 "sandbox_ttl_seconds": 1800,
                 "inactivity_timeout_seconds": 600,
-                "use_modal_directory_resume_snapshots": True,
                 "use_modal_vm_sandbox": False,
                 "sandbox_template": "default_base",
                 "agent_otel_telemetry_enabled": False,
@@ -7766,7 +7766,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "sandbox_ttl_seconds": 86400,
                     "inactivity_timeout_seconds": 86400,
                     "wizard_config": {},
-                    "use_modal_directory_resume_snapshots": False,
                     "use_modal_vm_sandbox": True,
                     # a VM template here would boot a Docker-capable box past the VM gate
                     "sandbox_template": "vm_base",
@@ -7850,7 +7849,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["sandbox_ttl_seconds"] == 1800
         assert run.state["inactivity_timeout_seconds"] == 600
         assert "wizard_config" not in run.state  # caller cannot mark a run as a wizard run
-        assert run.state["use_modal_directory_resume_snapshots"] is True
         assert run.state["use_modal_vm_sandbox"] is False
         assert run.state["sandbox_template"] == "default_base"
         assert run.state["agent_otel_telemetry_enabled"] is False
@@ -7928,7 +7926,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "stream_presence_gated",
                     "stream_thin_tail",
                     "sandbox_id",
-                    "use_modal_directory_resume_snapshots",
                     "use_modal_vm_sandbox",
                     "snapshot_external_id",
                     "snapshot_kind",
@@ -7981,7 +7978,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["stream_presence_gated"] is True  # protected key survives removal
         assert run.state["stream_thin_tail"] is True  # protected key survives removal
         assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
-        assert run.state["use_modal_directory_resume_snapshots"] is True  # protected key survives removal
         assert run.state["use_modal_vm_sandbox"] is False  # protected key survives removal
         assert run.state["snapshot_external_id"] == "im-real"  # protected key survives removal
         assert run.state["snapshot_kind"] == "directory"  # protected key survives removal
