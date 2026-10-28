@@ -110,7 +110,9 @@ Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Cod
 
 ### Knowledge source checks
 
-When the MCP server advertises Business Knowledge or documentation search tools, its agent instructions require one search of each available source before the first answer to a request. Business Knowledge is searched first, followed by current PostHog documentation. If a search fails or returns no relevant result, the agent continues with the other available evidence. In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
+When the MCP server advertises Business Knowledge or documentation search tools, its agent instructions require one search of each available source before the first answer to a request. Business Knowledge is searched first, followed by current PostHog documentation. If a search fails or returns no relevant result, the agent continues with the other available evidence. In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches. Skill loading also precedes metric catalog lookup. For metric questions, `metric-list` must still precede project-data queries, and approved catalog definitions take precedence over calculation examples in skills.
+
+When MCP skill discovery is enabled and the matching skill exists in the built-in catalog, the `query-trends`, `query-funnel`, and `query-retention` tool descriptions give the exact `learn posthog:<tool-name>` command. This instruction appears in both direct tool listings and exec `info` responses. Connections with skill discovery disabled or no matching catalog entry do not receive this command. Loading remains an agent action; the server does not block a query or load a skill automatically.
 
 ## Intent prompt trials
 

@@ -76,6 +76,8 @@ but need guidance on _which_ tools to use, in _what order_, with _what constrain
 
 ### Query selection guidance
 
+The `query-trends`, `query-funnel`, and `query-retention` skills each cover one typed query runner. Their names match the tools, and their entry points put the chart and answer requirements under `Important`. Keep each description specific to its analysis so the agent can select it without reading the SQL skill. `querying-posthog-data` covers SQL, entity discovery, and the shared semantic-layer workflow. Keep client-specific rendering detail in references.
+
 Query skills should choose methods from the requested calculation and output, not require typed queries or SQL for every task.
 Reuse matching approved metrics or saved queries when they define the requested measure.
 Default to typed runners for new product analytics and dashboard insights when their schemas support the requested calculation, including simple event counts, unique users, property sums, breakdowns, and time series.
@@ -87,7 +89,11 @@ Reassess when the task changes. Neither the previous tool call nor a request for
 Tool descriptions should state capabilities and limits. Skill examples should show direct inputs for the method they teach.
 Keep SQL examples for SQL tasks rather than requiring agents to reconstruct typed inputs from generated SQL.
 
-Rendering guidance must account for the harness: direct tools and some exec hosts display query apps inline, while other exec hosts need the separate top-level `render-ui` tool. Skip duplicate rendering only when the harness or response indicates that the view is already displayed. Otherwise, if `render-ui` is available and its enum includes the query tool, render with the same tool name and validated input after the query succeeds. If no UI path is available, summarize or follow the harness's presentation instructions; do not change a supported typed query to SQL just to display a chart.
+Rendering guidance must account for the client. PostHog AI uses native query widgets whose data comes from tool response metadata; those responses need no interactive-view text note. Some MCP app hosts display query apps inline, while others need the separate top-level `render-ui` tool. Skip duplicate rendering when the client renders the result automatically. Otherwise, if `render-ui` is available and its enum includes the query tool, render with the same tool name and validated input after the query succeeds. Slack follows its integration's attachment and link support. If no UI path is available, summarize or follow the client's presentation instructions; do not change a supported typed query to SQL just to display a chart.
+
+When a host defers tools, use its tool-search facility to find `render-ui` before concluding that the renderer is unavailable. The search command inside `exec` does not discover this separate top-level tool. Keep a worked example with the successful query input and the matching render input in the skill's references. Eval cases must use the intended client and score its actual display contract. A client without a supported chart path must remain visible as a failure or limitation. Do not switch clients to make the score pass.
+
+Use charts by default for time series, category breakdowns, funnels, and retention unless the user explicitly requests a table. Keep the written conclusion concise. A supporting table can accompany a chart when exact values help; honor explicit table requests. Check the client's chart response contract before finishing. A successful data query without a rendering contract does not establish that a chart is visible. If no chart path is available, state the limitation. Save a new insight only when the user requests it.
 
 ### When to write a skill
 
@@ -194,8 +200,8 @@ Keep `SKILL.md` under 500 lines and split detailed content into `references/`.
 
 See [`querying-posthog-data/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/querying-posthog-data/SKILL.md)
 for how this works in practice –
-the entry point links to 30+ reference files
-covering model schemas, query patterns, and HogQL extensions.
+the entry point routes trends, funnels, and retention to their focused skills and links to the query workflow and reference index.
+The index covers model schemas, query patterns, and HogQL extensions.
 
 ## Naming and description guidelines
 
@@ -289,7 +295,9 @@ which is exactly what separates a skill from a generic prompt.
 A reference skill with a clear entry point and 30+ reference files:
 
 - Entry point ([`SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/querying-posthog-data/SKILL.md))
-  links to model schemas, query patterns, and HogQL extensions.
+  explains chart delivery and the written conclusion, with links to the query workflow and reference index.
+- The query workflow covers typed queries, SQL, entity discovery, and governed metrics.
+- The reference index links to model schemas, query patterns, and HogQL extensions.
 - Guidelines file ([`references/guidelines.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/querying-posthog-data/references/guidelines.md))
   explains schema verification workflow, time ranges, joins, and HogQL differences.
 - Uses progressive disclosure – agents load only the references they need.

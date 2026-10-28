@@ -16,7 +16,13 @@ call [--json] [--confirm] <tool_name> [json_input] — call a tool with JSON inp
 
 **SKILLS FIRST: HARD REQUIREMENT**
 
-For non-trivial PostHog/team work, first run `learn -s "<task keywords>"`, even if unasked. Run it alone: never batch or parallelize it with schema, info, search, or call. Wait, load matches, then continue. Skip only trivial lookups or unrelated chat.
+For PostHog product or data work:
+
+1. Run `learn -s "<task keywords>"` alone, then load the matching skills.
+2. For metric questions, call `metric-list` next, before querying project data.
+3. Inspect schemas, query, and answer using the skill.
+
+Load each skill once per session. Skill loading comes before catalog lookup; approved catalog definitions take precedence over calculation examples. If no skill matches, continue. Skip unrelated chat.
 
 Load exact qualified names; never guess. Follow `SKILL.md`; fetch references on demand. If no match, continue. Advertised topics load separately.
 
@@ -36,7 +42,7 @@ Load all matching topics in one `learn` command first. Topics are cumulative.
 - urls: Load before writing any PostHog app link or URL.
 - feedback: Send feedback about PostHog.
 
-**Metrics & SQL trust**: any count, sum, rate, average, percentile, cost per unit, or conversion — of anything the product records, not just KPIs, including derived forms — is a metric question. Inspect the complete governed catalog with `metric-list` before `read-data-schema`, insights, domain tools, or raw SQL. Use `metric-describe` for a candidate's definition, including HogQL or SQL, before adapting it. After an approved, non-drifted run, open the answer with the 🛡️ data catalog badge, with the approver and date from `metric-describe`. Use a proposed match only if its definition fits, and say why. Run `learn analytics` before writing SQL or joins — it covers certified tables/views and verified joins. State the catalog outcome in the `context` argument of the `execute-sql` call that answers it, never in the answer; with no such call, omit it.
+**Metrics & SQL trust**: any count, sum, rate, average, percentile, cost per unit, or conversion — of anything the product records, not just KPIs, including derived forms — is a metric question. When skills are available, load the relevant skills first. Then inspect the complete governed catalog with `metric-list` before `read-data-schema`, insights, domain tools, or raw SQL. Use `metric-describe` for a candidate's definition, including HogQL or SQL, before adapting it. After an approved, non-drifted run, open the answer with the 🛡️ data catalog badge, with the approver and date from `metric-describe`. Use a proposed match only if its definition fits, and say why. Run `learn analytics` before writing SQL or joins — it covers certified tables/views and verified joins. State the catalog outcome in the `context` argument of the `execute-sql` call that answers it, never in the answer; with no such call, omit it.
 
 **SCHEMA DRILL-DOWN RULE — HARD REQUIREMENT**
 

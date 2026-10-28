@@ -1,17 +1,14 @@
-"""Does the agent answer a chart-shaped analytics question with a chart, not a Markdown table?
+"""Does the agent supply a native chart for a chart-shaped analytics question?
 
-Agents often run the right query and then retype every data point as a Markdown table, or
-answer with ``execute-sql``, which has no chart at all. Each case asks a question whose
-natural answer is a time series, a breakdown, a funnel, or a retention grid. The agent passes
-when the user sees the result as a chart and the final message states the conclusion
-without a long table.
+The cases cover time series, breakdowns, funnels, and retention. The agent passes
+when it supplies native chart data from the matching typed query and grounds its
+answer in that result. A supporting Markdown table is allowed.
 
-``ChartShown`` accepts every chart path a harness offers: the MCP client shows the query
-result inline, the agent calls ``render-ui`` with the same query tool and input, or the answer
-holds a full-size chart link or block tag (the PostHog Desktop syntax). ``ChartFromTypedQuery``
-then fails a chart that rewrites the typed result as SQL. PostHog Desktop draws a chart card
-only for a saved insight or a HogQL query, so an agent that does not save an insight can
-reach a chart only through SQL; this scorer measures how often that happens.
+The cases use the PostHog AI interaction origin. Its native query widget reads the query
+node carried by the successful tool response. The chart scorers check that payload,
+without requiring the text note used by MCP app hosts. Desktop chart links and tags do
+not establish that PostHog AI received a native chart. This checks the widget input;
+it does not inspect browser pixels or exercise Slack or external MCP app hosts.
 
 The ``table_request_keeps_typed_runner`` control asks for a table explicitly. A table is
 then a correct answer, but the request alone does not justify SQL.
@@ -28,12 +25,7 @@ from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import NoToolCall
-from products.posthog_ai.evals.cli_mcp.scorers import (
-    ChartFromTypedQuery,
-    ChartShown,
-    DidNotCiteRawSqlAfterTypedQuery,
-    NoMarkdownDataTable,
-)
+from products.posthog_ai.evals.cli_mcp.scorers import ChartFromTypedQuery, ChartShown, DidNotCiteRawSqlAfterTypedQuery
 from products.posthog_ai.evals.offline_config import offline_suite
 from products.posthog_ai.evals.product_analytics.scorers import INSIGHT_WRITE_TOOLS, AnswerFromTypedQuery
 
@@ -42,11 +34,12 @@ def _chart_case(name: str, prompt: str, tool: str) -> SandboxedEvalCase:
     return SandboxedEvalCase(
         name=name,
         prompt=prompt,
+        interaction_origin="posthog_ai",
+        metadata={"interaction_origin": "posthog_ai"},
         expected={
             "answer_from_typed_query": {},
-            "chart_shown": {"tool_name_any_of": [tool]},
-            "chart_from_typed_query": {"tool_name_any_of": [tool]},
-            "no_markdown_data_table": {},
+            "chart_shown": {"tool_name_any_of": [tool], "surface": "posthog_ai"},
+            "chart_from_typed_query": {"tool_name_any_of": [tool], "surface": "posthog_ai"},
             "did_not_cite_raw_sql_after_typed_query": {"tool": tool},
         },
     )
@@ -88,6 +81,8 @@ async def eval_chart_not_table(ctx: EvalContext) -> None:
         SandboxedEvalCase(
             name="table_request_keeps_typed_runner",
             prompt="List the weekly signup counts for the last 8 weeks as a table.",
+            interaction_origin="posthog_ai",
+            metadata={"interaction_origin": "posthog_ai"},
             expected={"answer_from_typed_query": {}},
         ),
     ]
@@ -101,7 +96,6 @@ async def eval_chart_not_table(ctx: EvalContext) -> None:
                 "answer_from_typed_query",
                 "chart_shown",
                 "chart_from_typed_query",
-                "no_markdown_data_table",
                 "did_not_cite_raw_sql_after_typed_query",
             ],
         ),
@@ -111,7 +105,6 @@ async def eval_chart_not_table(ctx: EvalContext) -> None:
             AnswerFromTypedQuery(),
             ChartShown(),
             ChartFromTypedQuery(),
-            NoMarkdownDataTable(),
             DidNotCiteRawSqlAfterTypedQuery(),
         ],
         ctx=ctx,

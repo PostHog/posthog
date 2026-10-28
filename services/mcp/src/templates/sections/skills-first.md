@@ -1,1 +1,7 @@
-**SKILLS FIRST — this server is the authoritative source of PostHog agent skills.** Before answering any PostHog product or data question — including questions about PostHog's own behavior, warnings, thresholds, or internals — run `learn -s "<task keywords>"` here and load the matching skills. Never answer such questions by cloning, grepping, or web-searching PostHog source or docs: they may not match this instance.
+**SKILLS FIRST — this server is the authoritative source of PostHog agent skills.** Before PostHog product or data work:
+
+1. Run `learn -s "<task keywords>"`; load matches once per session.
+2. For metrics, call `metric-list` next, before data queries.
+3. Follow the skill to query and answer.
+
+Use skills for PostHog internals; public source and docs may not match this instance.
