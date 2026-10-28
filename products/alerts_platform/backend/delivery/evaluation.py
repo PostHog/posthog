@@ -581,8 +581,8 @@ def _platform_subscribers(event_id: str, platform: _PlatformDestinations) -> lis
     """The `AlertDestination` rows that hear this event.
 
     A message event reaches every destination but an incident manager that asked for its kind. An
-    incident event reaches only incident managers, which ask for firings to hear the trigger and for
-    resolves to hear the resolve, as with HogFunction destinations.
+    incident event reaches every incident manager, whatever kinds it lists: one that heard a
+    trigger and not its resolve would keep the incident open.
     """
     kind = platform.kind_by_event_id.get(event_id)
     if kind is None:
@@ -591,5 +591,6 @@ def _platform_subscribers(event_id: str, platform: _PlatformDestinations) -> lis
     return [
         _SubscribedDestination(id=str(destination.id), data=destination.data, receives_emitted_events=False)
         for destination in platform.destinations
-        if kind in destination.event_kinds and (destination.data["type"] in INCIDENT_DESTINATION_TYPES) == incident
+        if (destination.data["type"] in INCIDENT_DESTINATION_TYPES) == incident
+        and (incident or kind in destination.event_kinds)
     ]

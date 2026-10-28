@@ -401,7 +401,7 @@ class TestDeliverEvaluation(APIBaseTest):
                     event_kinds=both,
                     enabled=False,
                 ),
-                NewAlertDestination(data=PAGERDUTY, event_kinds=both),
+                NewAlertDestination(data=PAGERDUTY, event_kinds=(AlertEventKind.FIRING,)),
             ),
         )
         hog_function = [_group(cast(AlertDestinationData, {**SLACK, "slack_channel_id": "C-hog"}))]
