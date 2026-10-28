@@ -75,7 +75,6 @@ class TestDagsterTestSelection(unittest.TestCase):
             "rust/persons_migrations/001_initial.sql",
             "hogli.yaml",
             "manage.py",
-            "manage_diagnostics.py",
             "posthog/conftest.py",
             "conftest.py",
             "posthog/test/base.py",

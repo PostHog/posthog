@@ -30,7 +30,6 @@ on:
             - tools/test_test_selection_verdict.py
             - tools/test_manage_diagnostics.py
             - manage.py
-            - manage_diagnostics.py
             # test_tach_map.py holds tach_map.py's pin to the locked tach version,
             # and a routine dependency bump is what moves it.
             - uv.lock
@@ -66,7 +65,6 @@ jobs:
                       /.depot/
                       /tools/
                       /manage.py
-                      /manage_diagnostics.py
                       /packages/owners-yaml/
                       /proto/
                       /rust/

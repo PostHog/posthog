@@ -43,7 +43,6 @@ filters:
         - posthog/exceptions.py
         - uv.lock
         - manage.py
-        - manage_diagnostics.py
         - Dockerfile
     experimentsRecalculationActivity:
         - 'products/experiments/backend/**'
@@ -67,7 +66,6 @@ filters:
         - uv.lock
         - bin/temporal-django-worker
         - manage.py
-        - manage_diagnostics.py
         - Dockerfile
 
 images:

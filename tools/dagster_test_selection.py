@@ -66,7 +66,6 @@ FULL_RUN_PATTERNS = (
     "bin/ci-wait-for-docker",
     "hogli.yaml",
     "manage.py",
-    "manage_diagnostics.py",
     "pytest.ini",
     "pyproject.toml",
     "uv.lock",

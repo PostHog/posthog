@@ -4,6 +4,7 @@
 import gc
 import os
 import sys
+import faulthandler
 from pathlib import Path
 
 # Add common/ to path so migration_utils module is importable (used by custom migrate command)
@@ -12,19 +13,18 @@ if _common_path not in sys.path:
     sys.path.insert(0, _common_path)
 
 
-def main() -> None:
-    def ignore_phase(_phase: str) -> None:
-        pass
+def start_stack_dumps() -> None:
+    try:
+        interval = float(os.environ.get("POSTHOG_COMMAND_DIAGNOSTICS_INTERVAL_SECONDS", "60"))
+    except ValueError:
+        interval = 60.0
+    faulthandler.dump_traceback_later(max(interval, 1.0), repeat=True)
 
+
+def main():
     if os.environ.get("POSTHOG_COMMAND_DIAGNOSTICS") == "1":
-        from manage_diagnostics import start_command_diagnostics
-
-        record_phase = start_command_diagnostics()
-    else:
-        record_phase = ignore_phase
-
+        start_stack_dumps()
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
-    record_phase("django_import_started")
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:
@@ -33,8 +33,6 @@ def main() -> None:
             "available on your PYTHONPATH environment variable? Did you "
             "forget to activate a virtual environment?"
         ) from exc
-
-    record_phase("django_import_finished")
 
     # Boot allocations are almost all permanent (modules, classes, registries), so cyclic GC
     # during django.setup() only adds pauses (~300ms across ~470 collections). Disable it for
@@ -46,9 +44,7 @@ def main() -> None:
         try:
             import django
 
-            record_phase("django_setup_started")
             django.setup()
-            record_phase("django_setup_finished")
         finally:
             gc.freeze()
             gc.enable()
@@ -58,12 +54,8 @@ def main() -> None:
     # tags at their own boundaries, so this only effectively applies to direct CLI commands.
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 
-    try:
-        with tags_context(product=Product.INTERNAL, feature=Feature.MANAGEMENT_COMMAND):
-            record_phase("command_started")
-            execute_from_command_line(sys.argv)
-    finally:
-        record_phase("command_finished")
+    with tags_context(product=Product.INTERNAL, feature=Feature.MANAGEMENT_COMMAND):
+        execute_from_command_line(sys.argv)
 
 
 if __name__ == "__main__":

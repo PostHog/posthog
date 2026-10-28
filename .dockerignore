@@ -33,7 +33,6 @@
 !frontend/webpack.config.js
 !gunicorn.config.py
 !manage.py
-!manage_diagnostics.py
 !turbo.json
 !package.json
 !patches

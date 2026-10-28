@@ -142,28 +142,13 @@ When the floor has crept, the lever is the same as it ever was — find the heav
 
 ### Diagnose a stalled management command
 
-Set `POSTHOG_COMMAND_DIAGNOSTICS=1` for the process that needs investigation.
-`manage.py` loads `manage_diagnostics.py` only when diagnostics are enabled.
-The helper starts a traceback watchdog before Django imports and sends JSON phase events and thread dumps through a bounded, nonblocking pipe.
-With diagnostics disabled, the entry point does not import the helper or its dependencies.
-`POSTHOG_COMMAND_DIAGNOSTICS_INTERVAL_SECONDS` controls the interval between thread dumps and defaults to 60 seconds.
-An invalid interval disables diagnostics and attempts to emit a warning without changing the command result.
-
-The events include a PID, elapsed time from a monotonic clock, and optional job, namespace and pod identity.
-Use the last event and the thread stacks to distinguish Django import, Django setup, command execution and process shutdown.
-The explicit setup events are absent when `--settings` or `--pythonpath` delegates setup to Django's command dispatcher.
-`command_finished` means command execution returned or raised an exception; process shutdown can still be waiting for background threads or exit handlers.
-The watchdog remains active through shutdown, so compare that event and subsequent stacks with the container's completion time.
-
-A daemon relay forwards the pipe to stderr using raw writes, without changing stderr's blocking flags.
-The command never waits for the relay, including at shutdown.
-Delivery is best effort: a full buffer drops output, and a fast process exit can lose final events.
-The bounded buffer keeps a slow or blocked logging destination from delaying the command or the watchdog's shutdown.
-
-Diagnostics preserve the command's exit status and do not impose a timeout or apply migrations.
-They write stack frames without local variable values or command arguments.
-Enable them for a scoped diagnostic run and retain stderr before replacing the process.
-The existing `migrate --profile-operations` profiler provides migration-operation timings after setup; these bootstrap diagnostics cover earlier waits and process shutdown.
+Set `POSTHOG_COMMAND_DIAGNOSTICS=1` on the process.
+`manage.py` then arms `faulthandler.dump_traceback_later` before it imports Django, and every 60 seconds (`POSTHOG_COMMAND_DIAGNOSTICS_INTERVAL_SECONDS`) the stack of every thread goes to stderr until the command exits.
+faulthandler writes from its own C thread, so a dump still arrives while the main thread is blocked in native code or holds the GIL.
+The top frames tell a Django import or `django.setup()` wait apart from a database connection or query wait.
+Nothing else changes: no timeout, same exit status, and no output when the variable is unset.
+Use it on a scoped run, such as a deployment's migration check, and capture stderr before the pod is replaced.
+`migrate --profile-operations` covers per-operation timings once migrations run; this covers everything before and around them.
 
 - Wall-clock: `time.perf_counter()` around `django.setup()` _inside_ the process.
   Do not time the shell wrapper — env activation is not part of the number.

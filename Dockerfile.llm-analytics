@@ -138,7 +138,7 @@ BAKE_MODEL
 
 # Copy project files. Must stay below the tiktoken pre-warm and the model bake, which read
 # nothing from the repo; moving it above them invalidates both layers on every source-only commit.
-COPY manage.py manage_diagnostics.py ./
+COPY manage.py manage.py
 COPY common/esbuilder common/esbuilder
 COPY common/hogvm common/hogvm/
 COPY common/migration_utils common/migration_utils/

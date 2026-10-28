@@ -104,7 +104,6 @@ jobs:
                         - 'tools/openapi-codegen/**'
                         # Django entry point (manage.py migrate / generate_demo_data)
                         - manage.py
-                        - manage_diagnostics.py
                         # Python dependencies (build + integration-tests run `uv sync --frozen`)
                         - pyproject.toml
                         - uv.lock

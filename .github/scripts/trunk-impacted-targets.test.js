@@ -457,7 +457,7 @@ test('single-language root configuration claims that language', () => {
         assert.deepEqual(computeTargets([file], CONTEXT), javascript, file)
     }
     const python = computeTargets(['mypy.ini'], CONTEXT)
-    for (const file of ['manage.py', 'manage_diagnostics.py', 'pytest_boot_gc.py', 'dagster_cloud.yaml']) {
+    for (const file of ['manage.py', 'pytest_boot_gc.py', 'dagster_cloud.yaml']) {
         assert.deepEqual(computeTargets([file], CONTEXT), python, file)
     }
 })
