@@ -215,7 +215,28 @@ def sanitize_client_parser_mode(parser_mode: ParserMode | None) -> ParserMode | 
 # Fraction of `*_shadow` parses in PROD that also run the shadow backend. With rust-py promoted to the default primary,
 # the shadow leg now runs the cpp parser on ~0.1% of requests purely as a divergence canary. Bump if a fresh regression
 # surfaces and tighter coverage is needed.
-_SHADOW_SAMPLE_RATE = 0.001
+_DEFAULT_SHADOW_SAMPLE_RATE = 0.001
+
+
+def _configured_shadow_sample_rate() -> float:
+    """`HOGQL_PARSER_SHADOW_SAMPLE_RATE` overrides the default per deployment. The cpp shadow holds the GIL for the
+    whole parse, which on a large expression is long enough to stall every other thread in the process, so a
+    latency-sensitive worker can turn it down without changing the rate everywhere else. A value that is not a
+    fraction in [0, 1] falls back to the default."""
+    raw = os.environ.get("HOGQL_PARSER_SHADOW_SAMPLE_RATE")
+    if raw is None:
+        return _DEFAULT_SHADOW_SAMPLE_RATE
+    try:
+        rate: float | None = float(raw)
+    except ValueError:
+        rate = None
+    if rate is None or not 0.0 <= rate <= 1.0:
+        logger.warning("Ignoring invalid HOGQL_PARSER_SHADOW_SAMPLE_RATE", value=raw)
+        return _DEFAULT_SHADOW_SAMPLE_RATE
+    return rate
+
+
+_SHADOW_SAMPLE_RATE = _configured_shadow_sample_rate()
 
 
 def _is_test_mode() -> bool:

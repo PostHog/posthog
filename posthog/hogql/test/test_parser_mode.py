@@ -1,5 +1,9 @@
+import os
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -13,6 +17,7 @@ from posthog.hogql.errors import SyntaxError as HogQLSyntaxError
 from posthog.hogql.parser import (
     HogQLParserShadowMismatch,
     ResolvedParserBackends,
+    _configured_shadow_sample_rate,
     _resolve_parser_mode,
     parse_expr,
     parse_select,
@@ -245,3 +250,23 @@ class TestParserMode(BaseTest):
 
     def test_backend_version_map_covers_every_parse_backend(self):
         self.assertEqual(set(parser_module._BACKEND_VERSION), set(parser_module.RULE_TO_PARSE_FUNCTION))
+
+
+class TestShadowSampleRate(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("unset", None, 0.001),
+            ("off", "0", 0.0),
+            ("fraction", "0.25", 0.25),
+            ("every_parse", "1", 1.0),
+            ("not_a_number", "off", 0.001),
+            ("above_one", "2", 0.001),
+            ("negative", "-0.1", 0.001),
+        ]
+    )
+    def test_configured_shadow_sample_rate(self, _name, env_value, expected):
+        with patch.dict(os.environ):
+            os.environ.pop("HOGQL_PARSER_SHADOW_SAMPLE_RATE", None)
+            if env_value is not None:
+                os.environ["HOGQL_PARSER_SHADOW_SAMPLE_RATE"] = env_value
+            self.assertEqual(_configured_shadow_sample_rate(), expected)
