@@ -303,7 +303,11 @@ class OrganizationAdmin(admin.ModelAdmin):
     )
 
     def get_queryset(self, request):
-        # Tombstones of deleted organizations stay visible to staff; the default manager hides them.
+        # Tombstones of deleted organizations stay visible to staff, but not in the autocomplete
+        # endpoint: other admins use it to link rows to an organization, and a tombstone is not a
+        # valid target (the form field validates against the filtered default manager).
+        if request.path.endswith("/autocomplete/"):
+            return Organization.objects.all()
         return Organization.objects_including_soft_deleted.all()
 
     def get_inlines(self, request, obj=None):
