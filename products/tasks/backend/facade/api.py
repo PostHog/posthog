@@ -50,7 +50,7 @@ from django.utils.http import content_disposition_header
 import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
-from posthog.api.tagged_item import cleanup_orphan_tags, set_tags_on_object
+from posthog.api.tagged_item import replace_tags_on_object
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
@@ -71,7 +71,6 @@ from products.posthog_ai.backend.task_ownership import (
 )
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
-    AGENT_PEER_MESSAGING_FEATURE_FLAG,
     ANALYSIS_TARGET_IMAGE_ID_STATE_KEY,
     ANALYSIS_TARGET_IMAGE_NAME_STATE_KEY,
     ANALYSIS_TARGET_REPOSITORY_STATE_KEY,
@@ -355,9 +354,7 @@ __all__ = [
     "list_sandbox_custom_images",
     "list_sandbox_environments",
     "sandbox_custom_images_enabled",
-    "agent_peer_messaging_enabled",
     "list_task_run_living_artifacts",
-    "list_task_run_peers",
     "list_task_repositories",
     "list_task_run_ids",
     "list_task_runs",
@@ -405,7 +402,6 @@ __all__ = [
     "set_task_title",
     "slack_actor_state_updates",
     "signal_report_queryset",
-    "signal_task_run_peer_message",
     "signal_task_run_user_message",
     "signal_workflow_completion",
     "soft_delete_task",
@@ -567,6 +563,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "codex_subscription_user_id",
         "context_window",
         "custom_image_id",
+        "disable_repo_hooks",
         "fast_mode",
         # An imported transcript's provenance and mirror cursor: the viewer marks the run as
         # imported, and the legacy mirror reads its own cursor back through this DTO.
@@ -1334,6 +1331,28 @@ def signal_report_pipeline_stage(task_id: str | UUID, team_id: int) -> str | Non
 
 def task_owned_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
+
+
+def filter_task_ids_created_by(task_ids: Iterable[str | UUID], team_id: int, user_id: int) -> frozenset[UUID]:
+    """The ids among `task_ids` of the team's tasks that the user started."""
+    ids = [str(t) for t in task_ids]
+    if not ids:
+        return frozenset()
+    return frozenset(
+        Task.objects.filter(id__in=ids, team_id=team_id, created_by_id=user_id).values_list("id", flat=True)
+    )
+
+
+def get_task_creator_ids(task_ids: Iterable[str | UUID], team_ids: Iterable[int]) -> dict[str, int]:
+    """The id of the user who started each task, without loading the full task."""
+    ids = [str(t) for t in task_ids]
+    teams = list(team_ids)
+    if not ids or not teams:
+        return {}
+    rows = Task.objects.filter(id__in=ids, team_id__in=teams, created_by_id__isnull=False).values_list(
+        "id", "created_by_id"
+    )
+    return {str(task_id): created_by_id for task_id, created_by_id in rows}
 
 
 def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
@@ -2291,6 +2310,21 @@ def update_task_run_state(
     return TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
 
 
+def activate_warm_task_run(run_id: str | UUID) -> None:
+    warm_runs = TaskRun.objects.filter(id=run_id, state__await_user_message=True)
+    task_id = warm_runs.values_list("task_id", flat=True).first()
+    if task_id is None:
+        return
+    with transaction.atomic():
+        task = Task.objects.select_for_update().get(id=task_id)
+        run = warm_runs.select_for_update(of=("self",)).select_related("task").first()
+        if run is None:
+            return
+        run.state.pop("await_user_message", None)
+        run.save(update_fields=["state", "updated_at"])
+        task.observe_run_started_beside_live_runs(run)
+
+
 def record_run_failure_cause(run_id: str | UUID, error_type: str) -> None:
     try:
         TaskRun.update_state_atomic(run_id, updates={"failure_error_type": error_type})
@@ -3021,6 +3055,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # is_interactive_signals_run reads it the same way, so forging it would move the run off
         # the interactive budget and out of its per-run spend ceiling.
         "ai_stage",
+        "billing_product",
         # A removed stamp lets a model change leave the token's pin, and the gateway denies every turn.
         GATEWAY_PRODUCT_STATE_KEY,
         # Names the agent (scout, custom agent, workflow) the run executes, lifted onto its
@@ -3121,22 +3156,6 @@ def _get_task_for_run_control(task_id: str | UUID, team_id: int, user_id: int | 
 def _get_visible_run(run_id: str | UUID, task_id: str | UUID, team_id: int) -> TaskRun | None:
     """A run scoped to its parent task + team. Caller is responsible for task visibility."""
     return _task_run_queryset().filter(pk=run_id, team_id=team_id, task_id=task_id).first()
-
-
-def _get_peer_sender_run(run_id: str | UUID, task_id: str | UUID, team_id: int) -> TaskRun | None:
-    return (
-        _task_run_queryset()
-        .filter(
-            pk=run_id,
-            team_id=team_id,
-            task_id=task_id,
-            environment=TaskRun.Environment.CLOUD,
-            status=TaskRun.Status.IN_PROGRESS,
-            task__runtime=Task.Runtime.PI,
-            task__deleted=False,
-        )
-        .first()
-    )
 
 
 def task_run_exists(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool:
@@ -3433,7 +3452,7 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
     and a refresh hiccup must not abort those or turn an already-committed run write into a 500.
     """
     try:
-        if old_pr_url:
+        if old_pr_url or (run.state or {}).get("billing_product") == "posthog_ai":
             return
         new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
         if not new_pr_url or run.task.origin_product != Task.OriginProduct.SIGNAL_REPORT:
@@ -3467,16 +3486,9 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
 def enforce_self_driving_free_trial(
     team: Team, *, report_id: str | None = None, stage: str = "manual_create", enabled: bool | None = None
 ) -> None:
-    """Refuse to create or start a PR-opening self-driving task while the team's org is on a
-    Self-driving free trial: a trial org gets reports, not pull requests, on any path (the
-    auto-start gate in products/signals/backend/auto_start.py holds the pipeline back the same
-    way). Emits `signal_report_free_trial_paused` at ``stage``. Raises
-    ``FreeTrialPullRequestRefused`` (402, code ``self_driving_free_trial``) so clients can show
-    the trial message.
+    """Keep PR-opening report work unavailable during the self-driving trial.
 
-    ``enabled`` takes a verdict the caller already resolved, and then the gate reads no flag of
-    its own. A caller that holds a database lock resolves the flag before it takes the lock,
-    because the read does network I/O.
+    Resolve enabled before taking database locks, since flag evaluation can use the network.
     """
     from products.signals.backend.free_trial import (  # noqa: PLC0415 — cross-product read kept off the api import path
         FreeTrialPullRequestRefused,
@@ -3491,13 +3503,6 @@ def enforce_self_driving_free_trial(
 
 
 def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, stage: str = "manual_create") -> None:
-    """Refuse to create a PR-opening self-driving task while the team's org is over its self-driving
-    credits quota with enforcement on. The implementation task is the step that leads to the
-    billable PR, so the manual create-from-report path must respect the same limit as the pipeline
-    auto-start gate (products/signals/backend/auto_start.py). Emits `signal_report_quota_paused`
-    at ``stage`` whenever the org is limited, so each caller's gate stays measurable during the
-    dark launch like every other gate. Raises ``QuotaLimitExceeded`` (402).
-    """
     from posthog.exceptions import QuotaLimitExceeded  # noqa: PLC0415 — keep billing deps off the api import path
 
     from products.signals.backend.quota import (  # noqa: PLC0415 — cross-product read kept off the api import path
@@ -3827,8 +3832,7 @@ def set_task_run_summary(
     with transaction.atomic():
         run.state = TaskRun.update_state_atomic(run.id, updates=updates)
         if tags is not None and not run.task.is_scout_experiment:
-            set_tags_on_object(tags, run.task)
-            cleanup_orphan_tags(run.team_id)
+            replace_tags_on_object(tags, run.task)
     run.refresh_from_db()
     run.publish_stream_state_event()
     return _task_run_detail_to_dto(
@@ -5739,13 +5743,6 @@ def task_is_one_shot_analysis(task_id: str | UUID, team_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, origin_product=Task.OriginProduct.TASK_ANALYSIS).exists()
 
 
-def task_created_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
-    """Whether the task exists on the team and was created by this user. The peers
-    endpoints gate on it: peer visibility and attribution derive entirely from the
-    task creator, so broader task access must not extend to them."""
-    return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
-
-
 def resolve_stream_base_url() -> str | None:
     """Agent-proxy base URL for the read leg, or ``None`` to read from Django directly.
 
@@ -5884,183 +5881,6 @@ def signal_task_run_user_message(
         except Exception:
             logger.warning("Failed to record pending follow-up message for task run %s", run.id, exc_info=True)
     return True
-
-
-# --- Agent peer messaging (docs: logic/services/peer_messages.py) ---
-
-
-def agent_peer_messaging_enabled(team: Team, user: User) -> bool:
-    """Whether agent-to-agent peer messaging is enabled for this team/user. v1
-    callers additionally require the Pi runtime on the sender task."""
-    distinct_id = user.distinct_id or f"user_{user.id}"
-    organization_id = str(team.organization_id)
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                AGENT_PEER_MESSAGING_FEATURE_FLAG,
-                distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("agent peer messaging flag check failed; treating as disabled")
-        return False
-
-
-def list_task_run_peers(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[contracts.TaskRunPeerDTO] | None:
-    """Peer agent runs the given run may message. ``None`` when the sender isn't eligible.
-
-    Discovery and send validation share one visibility policy
-    (``peer_messages.visible_peer_runs``), so an agent can only message what it can
-    list; the per-entry ``sendable`` flag is the liveness contract — clients never
-    infer eligibility from status labels.
-    """
-    from products.tasks.backend.logic.services import (
-        peer_messages,  # noqa: PLC0415 — keep storage deps off the api import path
-    )
-
-    run = _get_peer_sender_run(run_id, task_id, team_id)
-    if run is None:
-        return None
-    return [contracts.TaskRunPeerDTO(**entry) for entry in peer_messages.list_peer_run_entries(run)]
-
-
-def signal_task_run_peer_message(
-    run_id: str | UUID,
-    task_id: str | UUID,
-    team_id: int,
-    *,
-    target_run_id: str,
-    content: str,
-    artifact_ids: list[str],
-) -> contracts.PeerMessageSendResultDTO | None:
-    """Send a peer message from one agent run to another. ``None`` when the sender
-    isn't eligible.
-
-    Unlike ``signal_task_run_user_message`` this composes the signal context
-    entirely server-side (``kind``/``peer_message_id``/``from_run_id``/``from_task_id``,
-    never reserved actor keys, never merged from agent input) and carries no
-    ``actor_user_id`` — the delivery activity's peer mode preserves the recipient's
-    already-bound credential identity. The synchronous result means ``accepted``,
-    never "delivered": the sandbox handoff happens later inside the target workflow,
-    which records the delivery outcome on the message row.
-    """
-    from temporalio.service import RPCError, RPCStatusCode  # noqa: PLC0415 — keep temporalio off the api import path
-
-    from products.tasks.backend.logic.services import (
-        peer_messages,  # noqa: PLC0415 — keep storage deps off the api import path
-    )
-    from products.tasks.backend.models import AgentPeerMessage  # noqa: PLC0415
-    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
-        signal_task_followup_message,
-    )
-
-    sender_run = _get_peer_sender_run(run_id, task_id, team_id)
-    if sender_run is None:
-        return None
-
-    prepared = peer_messages.validate_and_prepare_peer_message(sender_run, target_run_id, content, artifact_ids)
-    if isinstance(prepared, peer_messages.PeerMessageRejection):
-        return contracts.PeerMessageSendResultDTO(result="rejected", detail=prepared.detail)
-    message = prepared.message
-    target_artifact_ids = prepared.artifact_ids
-    target_run = prepared.target_run
-
-    envelope = peer_messages.compose_peer_envelope(sender_run, content)
-    context = peer_messages.build_peer_message_context(message)
-    # Statuses where the server may have accepted the signal before the client saw
-    # the error. Re-signaling with the same message id is safe end-to-end (the
-    # sandbox dedupes deliveries by message_id), so these retry inline; if they
-    # still fail, the row must NOT terminalize — see the handler below.
-    transient_statuses = (
-        RPCStatusCode.UNAVAILABLE,
-        RPCStatusCode.DEADLINE_EXCEEDED,
-        RPCStatusCode.CANCELLED,
-    )
-    signal_attempts = 3
-    try:
-        for attempt in range(1, signal_attempts + 1):
-            try:
-                signal_task_followup_message(
-                    target_run.workflow_id,
-                    envelope,
-                    target_artifact_ids,
-                    str(message.id),
-                    None,
-                    context,
-                    steer=False,
-                )
-                break
-            except RPCError as retry_error:
-                if retry_error.status in transient_statuses and attempt < signal_attempts:
-                    time.sleep(0.2 * attempt)
-                    continue
-                raise
-    except RPCError as e:
-        if e.status == RPCStatusCode.NOT_FOUND:
-            peer_messages.mark_peer_message_outcome(
-                str(message.id),
-                AgentPeerMessage.Outcome.TARGET_FINISHED,
-                failure_phase="signal",
-                failure_detail="target workflow gone",
-            )
-            return contracts.PeerMessageSendResultDTO(
-                result="target_finished",
-                detail="The target run has already finished; it can no longer receive messages.",
-                message_id=str(message.id),
-            )
-        if e.status in transient_statuses:
-            # At-least-once ambiguity: the signal may have landed, so a terminal
-            # outcome here could contradict a later successful delivery. Leave the
-            # row non-terminal — delivery marks it delivered if the signal landed,
-            # and otherwise it ages out of queue capacity after the delivery window.
-            logger.warning(
-                "peer message signal hit a transient error; leaving row non-terminal",
-                extra={"peer_message_id": str(message.id), "status": str(e.status)},
-            )
-            return contracts.PeerMessageSendResultDTO(
-                result="rejected",
-                detail=(
-                    "Signaling the target run hit a transient error; the message may still "
-                    "be delivered. If it does not arrive, try again in a few minutes."
-                ),
-                message_id=str(message.id),
-            )
-        peer_messages.mark_peer_message_outcome(
-            str(message.id),
-            AgentPeerMessage.Outcome.DELIVERY_FAILED,
-            failure_phase="signal",
-            failure_detail=str(e),
-        )
-        return contracts.PeerMessageSendResultDTO(
-            result="rejected",
-            detail="Signaling the target run failed. Try again shortly.",
-            message_id=str(message.id),
-        )
-    except Exception as e:
-        # Terminalize before surfacing: an accepted row left behind would hold the
-        # target's queue capacity for the whole delivery window.
-        peer_messages.mark_peer_message_outcome(
-            str(message.id),
-            AgentPeerMessage.Outcome.DELIVERY_FAILED,
-            failure_phase="signal",
-            failure_detail=str(e),
-        )
-        return contracts.PeerMessageSendResultDTO(
-            result="rejected",
-            detail="Signaling the target run failed. Try again shortly.",
-            message_id=str(message.id),
-        )
-
-    peer_messages.mark_peer_message_signaled(str(message.id))
-    return contracts.PeerMessageSendResultDTO(
-        result="accepted",
-        detail="Message accepted for delivery. It will reach the target as a queued turn; delivery is not confirmed synchronously.",
-        message_id=str(message.id),
-    )
 
 
 def apply_task_run_model_config(
@@ -6942,6 +6762,12 @@ def resume_task_run_in_cloud(
         if is_cloud_active:
             return "already_active", None, None
 
+        if (
+            task.origin_product in {Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT}
+            and (run.state or {}).get("billing_product") != "posthog_ai"
+        ):
+            raise ValidationError("Start a new run to continue automated report or scout work.")
+
         if get_pr_authorship_mode(run.task, run.state) == PrAuthorshipMode.USER:
             pr_authorship_mode, validation_error = _resolve_cloud_pr_authorship_mode(
                 run.task,
@@ -6965,6 +6791,7 @@ def resume_task_run_in_cloud(
         prior_queued_at = run.queued_at
         prior_state = dict(run.state or {})
         run.prepare_for_cloud_resume()
+        task.observe_run_started_beside_live_runs(run)
 
         if restart_dispatch_enabled:
             snapshot = RestartSnapshot(
@@ -8304,23 +8131,17 @@ def create_task(
 
     # The write serializer binds the report as `signal_report` (a PK field); direct callers may
     # pass `signal_report_id`. Either way this is the manual "start work from a report" path.
-    # Gated regardless of the relationship label: the label is client-selected and manually
-    # created tasks run PR-capable by default, so a "discussion" label must not dodge the limit.
     report_ref = validated_data.get("signal_report") or validated_data.get("signal_report_id")
     signal_report_id = (
         str(getattr(report_ref, "id", report_ref))
         if report_ref and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
         else None
     )
-    if signal_report_id:
-        enforce_self_driving_pr_quota(team, report_id=signal_report_id)
-        # Create PR and the discussions that push to the report's PR are held back on a trial. Other
-        # discussions keep working, and one can still open a PR that billing never counts. That is
-        # an accepted risk of a sales trial.
-        if signal_report_task_relationship in (None, "implementation") or is_pull_request_run_request(
-            validated_data.get("description")
-        ):
-            enforce_self_driving_free_trial(team, report_id=signal_report_id)
+    if signal_report_id and (
+        signal_report_task_relationship in (None, "implementation")
+        or is_pull_request_run_request(validated_data.get("description"))
+    ):
+        enforce_self_driving_free_trial(team, report_id=signal_report_id)
     if refuse_without_repository and signal_report is not None:
         _capture_report_task_refused_without_repository(team=team, report_id=str(signal_report.id))
         raise ValidationError({"repository": REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED})
@@ -8853,6 +8674,7 @@ def _find_idling_warm_run(
             task__deleted=False,
             task__github_integration_id=github_integration_id,
             state__await_user_message=True,
+            **({"state__billing_product": "posthog_ai"} if origin_product == Task.OriginProduct.SIGNAL_REPORT else {}),
             branch=branch or None,
             **repository_filter,
             **({"task__signal_report_id": signal_report_id} if signal_report_id else {}),
@@ -8926,6 +8748,11 @@ def _idling_warm_run_for_task(task: Task) -> TaskRun | None:
     """The task's latest run iff it is an idling pre-warmed Run (non-terminal, awaiting first message)."""
     run = task.latest_run
     if run is None or run.is_terminal or (run.state or {}).get("cancel_requested_at"):
+        return None
+    if (
+        task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+        and (run.state or {}).get("billing_product") != "posthog_ai"
+    ):
         return None
     if not (run.state or {}).get("await_user_message"):
         return None
@@ -9045,12 +8872,14 @@ def _deliver_warm_run_message(
             raise WarmRunActivationUnavailable("delivery_failed")
 
         with transaction.atomic():
+            task = Task.objects.select_for_update().get(id=run.task_id)
             activated_run = eligible_runs.select_for_update(of=("self",)).first()
             if activated_run is None or activated_run.workflow_id != workflow_id:
                 raise WarmRunActivationUnavailable("target_unavailable")
             activated_run.state.pop("await_user_message", None)
             activated_run.state["warm_activated"] = True
             activated_run.save(update_fields=["state", "updated_at"])
+            task.observe_run_started_beside_live_runs(activated_run)
     except WarmRunActivationUnavailable as error:
         log = logger.info if error.retry_token else logger.warning
         log(
@@ -9150,7 +8979,6 @@ def _reserve_report_warm_activation(
     )
 
     report_id = str(task.signal_report_id)
-    enforce_self_driving_pr_quota(team, report_id=report_id)
     if is_pull_request_run_request(description):
         enforce_self_driving_free_trial(team, report_id=report_id)
     with transaction.atomic():
@@ -9562,14 +9390,9 @@ def run_task(
     pipeline_rerun: bool = False,
     free_trial_enabled: bool | None = None,
 ) -> contracts.TaskRunResult | None:
-    """Create a run for a task and kick off its workflow, mirroring ``TaskViewSet.run``.
+    """Return None for an inaccessible task, otherwise return its refreshed detail or a structured error.
 
-    Returns ``None`` if the task isn't found/visible (the view raises 404). Otherwise a
-    ``TaskRunResult`` carrying the refreshed task detail DTO or a structured error. The usage
-    gate (429) is applied by the view before calling this. A report implementation raises
-    ``FreeTrialPullRequestRefused`` (402) while the team's org is on a self-driving free trial.
-    ``pipeline_rerun`` is reserved for a server-requested Signals research rerun. It creates a
-    fresh run and stamps the protected implementation stage from the verified report-task link.
+    The caller applies the usage gate. Only server-requested Signals research may set pipeline_rerun.
     """
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,
@@ -9611,11 +9434,7 @@ def run_task(
     )
     is_implementation = False
     if report_id_for_slot_check is not None:
-        # Free trial gate: the create-time gate refuses a new implementation, but a task created
-        # before sales turned the flag on can still be started or retried from here, and its pull
-        # request bills the trial org. Only the implementation relationship opens one, so a
-        # discussion keeps running. Outside the transaction below, because the flag read does
-        # network I/O and must not hold the report row lock.
+        # Resolve the trial flag outside the transaction: network I/O must not hold the report lock.
         is_implementation = is_report_implementation_task(
             team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
         )
@@ -9903,7 +9722,7 @@ def run_task(
         prev_stack_base_branch = (previous_run.state or {}).get("stack_base_branch")
         if prev_stack_base_branch:
             extra_state["stack_base_branch"] = prev_stack_base_branch
-        if pipeline_rerun and task.internal and is_implementation:
+        if pipeline_rerun and is_implementation:
             extra_state["ai_stage"] = "implementation"
 
         # A read-only GitHub grant describes how the task was created, not one run — without the

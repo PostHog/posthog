@@ -80,6 +80,22 @@ class IdempotencyKeyReused(TransactionalEmailError):
     code = "idempotency_key_reused"
 
 
+class SendingSuspended(TransactionalEmailError):
+    code = "sending_suspended"
+
+
+class SendingPaused(TransactionalEmailError):
+    code = "sending_paused"
+
+
+class RecipientSuppressed(TransactionalEmailError):
+    code = "recipient_suppressed"
+
+
+class RecipientUnreachable(TransactionalEmailError):
+    code = "recipient_unreachable"
+
+
 class DeliveryUnavailable(Exception):
     """The email pipeline did not accept the send. Safe to retry."""
 

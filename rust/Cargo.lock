@@ -552,12 +552,14 @@ name = "assignment-coordination"
 version = "0.1.0"
 dependencies = [
  "etcd-client",
+ "h2 0.4.13",
  "metrics",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
+ "tonic 0.14.6",
  "tracing",
 ]
 
@@ -4050,7 +4052,7 @@ dependencies = [
 
 [[package]]
 name = "deltalite-python"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "arrow",
  "arrow-array",
@@ -11071,6 +11073,7 @@ dependencies = [
  "aws-sdk-dynamodb",
  "aws-sdk-kms",
  "aws-sdk-s3",
+ "aws-smithy-http-client",
  "axum 0.7.9",
  "base64 0.22.1",
  "brotlic",

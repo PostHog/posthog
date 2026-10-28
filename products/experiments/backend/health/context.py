@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
@@ -20,7 +20,11 @@ from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 
-from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind
+from products.experiments.backend.facade.contracts import (
+    ExperimentHealthFlagChangeKind,
+    ExperimentHealthMetricCompileErrorKind,
+)
+from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD, LAST_CALLED_AT_LAG_DURATION
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
@@ -33,6 +37,7 @@ from products.experiments.backend.metric_resolution import MetricRole, saved_met
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.metric_validation import defined_event_names, extract_entity_nodes
 from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
+from products.experiments.backend.running_time_target import RunningTimeTarget
 from products.feature_flags.backend.facade.edits import (
     BucketingChange,
     ConditionsChange,
@@ -174,6 +179,8 @@ class ConditionSetTraffic:
 
     # The latest of launch, the flag's last save and the start of the window.
     since: datetime
+    # The end of the window, which is the time of the scan.
+    until: datetime
     team_timezone: str
     # People by the condition set that served their latest call of the flag's current version.
     people_by_set: Mapping[int, int]
@@ -204,11 +211,8 @@ class PrimaryMetric:
 
     name: str
     is_funnel: bool
-    # The relative effect, as a percentage, that the experiment plans to detect.
-    minimum_detectable_effect: float
-    # Whether the running time estimate is in manual mode, where its target comes from a baseline the user entered
-    # instead of from the results.
-    manual_running_time: bool
+    # The target of the running time estimate, which the header of the experiment page shows.
+    target: RunningTimeTarget
     # The current stored result, the one the results page shows after its last calculation. None when no completed
     # result is stored under the metric's current calculation key. Only read for a funnel.
     result: MetricResultStats | None
@@ -220,6 +224,11 @@ class ExposureTotals:
     multiple_variant_handling: MultipleVariantHandling
     # None when the exposure query had too little data for the sample ratio test.
     sample_ratio_mismatch_p_value: float | None
+    # The expected count of each variant that the sample ratio test compares, in the shares of the current split, and
+    # the persons or groups first exposed on each day of the team's time zone, by variant. Only the exposure query
+    # fills them, for the retest of `srm`, so both are empty elsewhere and without the test.
+    sample_ratio_expected: Mapping[str, float]
+    daily_exposures: Mapping[str, Mapping[date, int]]
     hours_since_launch: float | None
     # Whether the totals count groups rather than persons, by the rule the exposure query uses.
     counts_groups: bool
@@ -232,6 +241,34 @@ class MetricEvents:
     name: str
     role: MetricRole
     events: tuple[str, ...]
+
+
+@frozen
+class MetricCompileFailure:
+    """A metric whose query doesn't compile, so every calculation of the metric fails."""
+
+    name: str
+    role: MetricRole
+    kind: ExperimentHealthMetricCompileErrorKind
+    # The compiler's message. None when it can hold the evaluation rules that the markers keep out of the browser.
+    message: str | None
+    # The effective definition, in which the wording looks for the names that the message gives.
+    definition: Mapping[str, Any]
+
+
+@frozen
+class MetricCompiles:
+    """The compile of the query of each metric that the experiment calculates, without running it."""
+
+    metric_count: int
+    failures: tuple[MetricCompileFailure, ...]
+    # The metrics whose compile raised an error that names no problem of the metric, such as a defect of PostHog.
+    unknown_count: int
+    # The metrics that read a warehouse table or view that the reader may not query.
+    no_access_count: int
+    # Whether the exposure query alone doesn't compile. A failure then says nothing about the metric, so `failures`
+    # is empty.
+    exposure_query_fails: bool
 
 
 @frozen
@@ -268,8 +305,11 @@ class HealthContext:
     is_launched: bool
     is_running: bool
     has_ended: bool
+    # None while the experiment has not ended.
+    ended_at: datetime | None
     is_paused: bool
     archived: bool
+    team_timezone: str
     flag: FlagState | None
     # Whether PostHog has recorded a call of the flag. None when the experiment has no flag, or when PostHog can't
     # record the calls of this organization's flags.
@@ -279,6 +319,11 @@ class HealthContext:
     # answer this. None before launch, when the experiment has no flag, when the flag's latest call came after the
     # end, or when PostHog can't record the calls of this organization's flags.
     flag_called_during_run: bool | None
+    # Whether the flag's latest recorded call came after the end. False only when no call is recorded in the
+    # ENDED_FLAG_QUIET_PERIOD after the end, also for a flag without a recorded call. None before the end, when the
+    # experiment has no flag, before that period is over, or when PostHog can't record the calls of this
+    # organization's flags.
+    flag_called_after_end: bool | None
     # Whether the team has an active flag, which posthog-js needs to request flags on page load. None when not read:
     # it is read only for a draft whose flag has no recorded call.
     team_has_active_flag: bool | None
@@ -294,7 +339,8 @@ class HealthContext:
     # ingestion never writes an event definition for is absent, because its absence proves nothing.
     events_received: Mapping[str, bool]
     exposures: ExposureTotals | None
-    # None when not loaded. Only the health endpoint loads it, because it can query the exposures.
+    # None when not loaded. The health endpoint loads it. The exposure answer loads it only when the sample ratio test
+    # fails, because the load can query the exposures and `srm` is the only exposure check that reads it.
     flag_history: FlagHistory | FlagHistoryNotChecked | None
     # None when not loaded or unknown. Only the health endpoint loads it, because it queries the events.
     condition_set_traffic: ConditionSetTraffic | None
@@ -305,6 +351,8 @@ class HealthContext:
     primary_metric: PrimaryMetric | None
     # The variants that the analysis leaves out of the results.
     excluded_variant_keys: frozenset[str]
+    # None when not loaded or unknown. Only the health endpoint loads it, as the reader.
+    metric_compiles: MetricCompiles | None
 
 
 def parse_flag_state(
@@ -421,6 +469,20 @@ def _flag_called_during_run(experiment: Experiment, flag_called: bool | None) ->
         # `last_called_at` holds only the latest call, so a call after the end hides whether any came during the run.
         end_date = experiment.end_date
         return True if end_date is None or last_called_at <= end_date else None
+    return None if _flag_calls_unrecorded(experiment) else False
+
+
+def _flag_called_after_end(experiment: Experiment) -> bool | None:
+    end_date = experiment.end_date
+    # django-stubs types the id as int, but an unsaved instance can carry None.
+    feature_flag_id: int | None = experiment.feature_flag_id
+    if not experiment.is_stopped or end_date is None or feature_flag_id is None:
+        return None
+    last_called_at = experiment.feature_flag.last_called_at
+    if last_called_at is not None and last_called_at > end_date:
+        return True
+    if timezone.now() - end_date < ENDED_FLAG_QUIET_PERIOD + LAST_CALLED_AT_LAG_DURATION:
+        return None
     return None if _flag_calls_unrecorded(experiment) else False
 
 
@@ -568,11 +630,14 @@ def load_health_context(
         is_launched=experiment.is_launched,
         is_running=experiment.is_running,
         has_ended=experiment.is_stopped,
+        ended_at=experiment.end_date if experiment.is_stopped else None,
         is_paused=experiment.is_paused,
         archived=experiment.archived,
+        team_timezone=experiment.team.timezone,
         flag=_load_flag_state(experiment),
         flag_called=flag_called,
         flag_called_during_run=_flag_called_during_run(experiment, flag_called),
+        flag_called_after_end=_flag_called_after_end(experiment),
         team_has_active_flag=(
             has_active_flags(experiment.team) if flag_called is False and not experiment.is_launched else None
         ),
@@ -589,4 +654,5 @@ def load_health_context(
         pause_history=None,
         primary_metric=None,
         excluded_variant_keys=frozenset(experiment.excluded_variants or []),
+        metric_compiles=None,
     )

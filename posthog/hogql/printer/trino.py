@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, ClassVar, NoReturn
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.database.direct_trino_table import DirectTrinoTable
+from posthog.hogql.database.models import UUIDDatabaseField
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_locator import resolve_trino_table_locator
 from posthog.hogql.database.trino_unnest_table import TrinoUnnestTable
@@ -202,6 +204,12 @@ _TRINO_REGEX_PATTERN_ARGUMENTS = {
 _POSIX_CLASS_PATTERN = re.compile(r"\[:\^?[a-z]+:\]")
 
 
+def _is_null_constant(expr: ast.Expr) -> bool:
+    if isinstance(expr, ast.Alias):
+        return _is_null_constant(expr.expr)
+    return isinstance(expr, ast.Constant) and expr.value is None
+
+
 def _escape_regex_class_brackets(pattern: str) -> str:
     """Keep RE2 bracket-expression meaning under Trino's Joni engine.
 
@@ -358,6 +366,9 @@ class TrinoPrinter(PostgresPrinter):
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> str:
         node = self._align_set_query_types(node)
+        values_sql = self._constant_rows_as_values(node)
+        if values_sql is not None:
+            return f"({values_sql})" if len(self.stack) > 1 else values_sql
         if not isinstance(node.initial_select_query, ast.SelectQuery) or not node.initial_select_query.ctes:
             return super().visit_select_set_query(node)
         ctes = node.initial_select_query.ctes
@@ -392,10 +403,25 @@ class TrinoPrinter(PostgresPrinter):
     def _invalid_function_arguments(self, node: ast.Call, detail: str) -> NoReturn:
         self._unsupported("TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED", detail, node)
 
+    def _print_select_columns(self, columns: Iterable[ast.Expr]) -> list[str]:
+        # A bare NULL output column has no Trino type, so CREATE TABLE AS rejects it.
+        if len(self.stack) != 1:
+            return super()._print_select_columns(columns)
+        printed: list[str] = []
+        for column in columns:
+            if not _is_null_constant(column):
+                printed.extend(super()._print_select_columns([column]))
+            elif isinstance(column, ast.Alias) and not column.hidden:
+                printed.append(f"CAST(NULL AS VARCHAR) AS {self._print_identifier(column.alias)}")
+            else:
+                printed.append("CAST(NULL AS VARCHAR)")
+        return printed
+
     def _align_set_query_types(self, node: ast.SelectSetQuery) -> ast.SelectSetQuery:
         branches = self._set_query_branches(node)
         if not branches:
             return node
+        is_top_level = len(self.stack) == 1
         width = min(len(branch.select) for branch in branches)
         targets: dict[int, str] = {}
         for index in range(width):
@@ -404,7 +430,9 @@ class TrinoPrinter(PostgresPrinter):
                 for branch in branches
             ]
             types = [self._resolve_type(expression) for expression in expressions]
-            if any(isinstance(value_type, ast.StringType) for value_type in types) and any(
+            if is_top_level and all(_is_null_constant(expression) for expression in expressions):
+                targets[index] = "varchar"
+            elif any(isinstance(value_type, ast.StringType) for value_type in types) and any(
                 isinstance(
                     value_type,
                     (ast.IntegerType, ast.FloatType, ast.DecimalType, ast.BooleanType, ast.UUIDType),
@@ -434,6 +462,89 @@ class TrinoPrinter(PostgresPrinter):
                 else:
                     branch.select[index] = cast_expression
         return lowered
+
+    def _constant_rows_as_values(self, node: ast.SelectSetQuery) -> str | None:
+        """Print a UNION ALL of literal-only rows as one VALUES list.
+
+        Trino gives every UNION ALL branch its own stage when the union feeds a repartitioning
+        exchange (GROUP BY, DISTINCT, JOIN), so a hand-written list of a few hundred rows can
+        exceed the query stage limit. VALUES is one plan node, with the same type coercion.
+        """
+        if node.limit is not None or node.offset is not None:
+            return None
+        if any(
+            subsequent.set_operator != "UNION ALL" or not isinstance(subsequent.select_query, ast.SelectQuery)
+            for subsequent in node.subsequent_select_queries
+        ):
+            return None
+        queries = [
+            node.initial_select_query,
+            *(subsequent.select_query for subsequent in node.subsequent_select_queries),
+        ]
+        branches = [query for query in queries if isinstance(query, ast.SelectQuery)]
+        if len(branches) != len(queries) or not all(self._is_constant_row(branch) for branch in branches):
+            return None
+        first = branches[0]
+        if not all(isinstance(projection, ast.Alias) for projection in first.select):
+            return None
+        names = [projection.alias for projection in first.select if isinstance(projection, ast.Alias)]
+        if len(set(names)) != len(names) or any(len(branch.select) != len(names) for branch in branches):
+            return None
+        rows = []
+        for branch in branches:
+            row = [
+                self.visit(projection.expr if isinstance(projection, ast.Alias) else projection)
+                for projection in branch.select
+            ]
+            rows.append(f"({', '.join(row)})")
+        columns = ", ".join(self._print_identifier(name) for name in names)
+        return f"SELECT * FROM (VALUES {', '.join(rows)}) AS {self._print_identifier('constant_rows')}({columns})"
+
+    def _is_constant_row(self, node: ast.SelectQuery) -> bool:
+        if (
+            node.ctes
+            or node.distinct
+            or node.select_from is not None
+            or node.array_join_list
+            or node.window_exprs
+            or node.where is not None
+            or node.prewhere is not None
+            or node.having is not None
+            or node.qualify is not None
+            or node.group_by
+            or node.order_by
+            or node.limit is not None
+            or node.limit_by is not None
+            or node.offset is not None
+        ):
+            return False
+        expressions = [
+            projection.expr if isinstance(projection, ast.Alias) else projection for projection in node.select
+        ]
+        # Trino expands a ROW value inside VALUES into separate columns, so a tuple column would change shape.
+        if any(isinstance(expr, ast.Call) and expr.name.lower() == "tuple" for expr in expressions):
+            return False
+        return all(self._is_constant_expression(expr) for expr in expressions)
+
+    def _is_constant_expression(self, node: ast.Expr) -> bool:
+        if isinstance(node, ast.Constant):
+            return True
+        if isinstance(node, ast.TypeCast):
+            return self._is_constant_expression(node.expr)
+        if isinstance(node, ast.ArithmeticOperation):
+            return self._is_constant_expression(node.left) and self._is_constant_expression(node.right)
+        if isinstance(node, ast.Call):
+            return (
+                not node.params
+                and not node.distinct
+                and find_hogql_aggregation(node.name) is None
+                # Window functions such as first_value print as Trino aggregates, which VALUES can't hold.
+                and node.name.lower() not in _TRINO_WINDOW_FUNCTIONS
+                and node.name.lower() not in _TRINO_WINDOW_FUNCTION_RENAMES
+                and node.name.lower() not in _TRINO_CONDITIONAL_WINDOW_FUNCTIONS
+                and all(self._is_constant_expression(arg) for arg in node.args)
+            )
+        return False
 
     def _set_query_branches(self, node: ast.SelectSetQuery) -> list[ast.SelectQuery]:
         branches: list[ast.SelectQuery] = []
@@ -874,6 +985,14 @@ class TrinoPrinter(PostgresPrinter):
                 return f"CASE WHEN {self.visit(arg)} THEN 1 ELSE 0 END"
             if name == "toint" and isinstance(arg_type, ast.StringType):
                 return f"TRY_CAST({self.visit(arg)} AS BIGINT)"
+            # HogQL toInt is accurateCastOrNull, which maps a fractional, NaN or out-of-range float to NULL
+            # but truncates a decimal. A Trino CAST rounds and raises instead.
+            if name == "toint" and isinstance(arg_type, ast.FloatType):
+                return self._visit_accurate_cast(
+                    ast.Call(name="accurateCastOrNull", args=[arg, ast.Constant(value="Int64")]), nullable=True
+                )
+            if name == "toint" and isinstance(arg_type, ast.DecimalType):
+                return f"TRY_CAST(truncate({self.visit(arg)}) AS BIGINT)"
         if name in {"tofloat", "tofloatorzero", "tofloatordefault"} and node.args:
             arg = node.args[0]
             arg_type = self._resolve_type(arg)
@@ -882,7 +1001,7 @@ class TrinoPrinter(PostgresPrinter):
             if isinstance(arg_type, ast.DateTimeType):
                 return f"to_unixtime({self.visit(arg)})"
             # HogQL defines toFloat as accurateCastOrNull, so unparsable input becomes NULL instead of an error.
-            if name == "tofloat" and len(node.args) == 1 and isinstance(arg_type, ast.StringType):
+            if name == "tofloat" and len(node.args) == 1 and isinstance(arg_type, (ast.StringType, ast.UnknownType)):
                 return f"TRY_CAST({self.visit(arg)} AS DOUBLE)"
         if (
             name == "todate"
@@ -1268,7 +1387,12 @@ class TrinoPrinter(PostgresPrinter):
         left_cast: str | None = None
         right_cast: str | None = None
 
-        if isinstance(left_type, ast.UUIDType) and isinstance(right_type, ast.StringType):
+        if isinstance(left_type, ast.UUIDType) and isinstance(right_type, ast.UUIDType):
+            # Exported tables can store UUID columns as VARCHAR, while toUUID() yields a real UUID.
+            # Keep native types when both sides are known UUIDs, so the connector can still push the predicate down.
+            if not (self._is_native_uuid(node.left) and self._is_native_uuid(node.right)):
+                left_cast = right_cast = "VARCHAR"
+        elif isinstance(left_type, ast.UUIDType) and isinstance(right_type, ast.StringType):
             left_cast = "VARCHAR"
         elif isinstance(right_type, ast.UUIDType) and isinstance(left_type, ast.StringType):
             right_cast = "VARCHAR"
@@ -1463,6 +1587,21 @@ class TrinoPrinter(PostgresPrinter):
         while isinstance(expression, ast.Alias):
             expression = expression.expr
         return self._resolve_type(expression)
+
+    def _is_native_uuid(self, node: ast.Expr) -> bool:
+        while isinstance(node, ast.Alias):
+            node = node.expr
+        if isinstance(node, ast.Call):
+            return node.name.lower() == "touuid"
+        field_type = node.type
+        while isinstance(field_type, ast.FieldAliasType):
+            field_type = field_type.type
+        if not isinstance(field_type, ast.FieldType) or not isinstance(field_type.table_type, ast.BaseTableType):
+            return False
+        # Only a direct Trino table declares its physical column types; other tables may store UUIDs as VARCHAR.
+        return isinstance(field_type.table_type.resolve_database_table(self.context), DirectTrinoTable) and isinstance(
+            field_type.resolve_database_field(self.context), UUIDDatabaseField
+        )
 
     def _is_dynamic_property(self, node: ast.Expr) -> bool:
         while isinstance(node, ast.Alias):
@@ -2078,8 +2217,10 @@ class TrinoPrinter(PostgresPrinter):
         value = self.visit(node.args[0])
         timezone = self.visit(node.args[1]) if len(node.args) == 2 else self.context.add_value(self._get_timezone())
         day_month_year = self.context.add_value("%e-%b-%y")
+        # ClickHouse accepts offsets without a colon (+0000); normalize them before Trino's ISO-8601 parser.
+        iso_value = f"regexp_replace({value}, '([+-][0-9]{{2}})([0-9]{{2}})$', '$1:$2')"
         parsed = (
-            f"coalesce(IF(regexp_like({value}, '(Z|[+-][0-9]{{2}}:[0-9]{{2}})$'), TRY(from_iso8601_timestamp({value}))), "
+            f"coalesce(IF(regexp_like({value}, '(Z|[+-][0-9]{{2}}:?[0-9]{{2}})$'), TRY(from_iso8601_timestamp({iso_value}))), "
             f"IF(regexp_like({value}, '^[0-9]{{9,10}}$'), from_unixtime(TRY_CAST({value} AS DOUBLE))), "
             f"with_timezone(TRY(date_parse({value}, {day_month_year})), {timezone}), "
             f"with_timezone(CAST({value} AS TIMESTAMP), {timezone}))"
