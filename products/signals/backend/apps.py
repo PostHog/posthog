@@ -20,10 +20,12 @@ class SignalsConfig(AppConfig):
         # receivers: post_save receiver that closes a report's implementation PR on suppression/snooze.
         from . import (
             activity_logging,  # noqa: F401
+            implementation_pr_cache,
             receivers,  # noqa: F401
         )
 
         receivers.connect_task_run_assignment_sync()
+        implementation_pr_cache.connect_implementation_pr_cache_receivers()
         self._register_task_spend_updates()
         self._register_signal_emission_gate()
         self._register_scout_skill_archive_guard()

@@ -664,6 +664,19 @@ SPECTACULAR_SETTINGS = {
             # The published name is already derived by a different choice set, so the
             # entry holds this one apart.
             "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
+            # Keeps `EngineEnum` for the warehouse source engines. The saved-query run endpoint
+            # also has an `engine` field, which would otherwise rename this one.
+            "EngineEnum": [
+                "duckdb",
+                "postgres",
+                "mysql",
+                "snowflake",
+                "redshift",
+                "clickhouse",
+                "motherduck",
+                "trino",
+                None,
+            ],
             # signals' report-metric role; AutoresearchModel.Role also sits on a field named `role`.
             "RoleEnum": ["primary", "supporting"],
             # Keeps the name `CodeEnum` for the dataset conflict codes of ai_observability. A second field named
