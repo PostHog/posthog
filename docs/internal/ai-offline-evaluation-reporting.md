@@ -399,7 +399,7 @@ Local and external datasets do not require hosted links; they can use the `*_ide
 
 Large payloads have separate storage and 30-day deadlines anchored to first acceptance.
 Retries neither extend deadlines nor restore deleted payloads.
-Automatic payload deletion and usage billing are not enabled by these endpoints.
+Automatic payload deletion is not enabled by these endpoints. Usage billing requires the separate activation described below.
 
 ### Product usage events
 
@@ -435,13 +435,62 @@ Exact retries add no usage, including retries split or regrouped into different 
 Mixed uploads count only new results, and changed content still returns a conflict.
 
 Each entry stores the environment's team ID, the owning organization's ID at acceptance, the experiment ID, and the same server acceptance timestamp as its new results.
+New entries also snapshot billing eligibility: demo environments and internal-metrics organizations are exempt.
 These identifiers are stored independently of the product records, so deleting results, experiments, or their owners does not remove usage.
 Moving a project to another organization does not rewrite historical attribution.
-The ownership snapshots and timestamp preserve the information needed for future aggregation by organization, team, and UTC day.
+The ownership and eligibility snapshots preserve attribution even after a project move or deletion.
 
 Recording begins with newly accepted results after deployment; there is no historical backfill, compaction, or ledger cleanup.
-The ledger has no editing API or editable admin interface.
-Organization usage reporting, billing, actual charging, and quota enforcement remain unchanged and do not consume this ledger.
+The ledger has no editing API, admin registration, or production update/delete path.
+The database enforces positive quantities and result identity uniqueness; experiment row locks serialize overlapping uploads, and database transactions include results, payloads, and the ledger write.
+Independent scalar identifiers prevent product deletion cascades from deleting usage.
+`editable=False`, environment scoping, and server-assigned fields are application protections, not database immutability: privileged SQL and ORM bulk updates/deletes can still change the ledger.
+
+Retry deduplication uses retained result identities, not the batch ledger. Payload expiry preserves these identities.
+There is no result/experiment deletion endpoint. Privileged deletion of a result followed by reupload while its experiment is still open creates a new result and another usage unit; the ledger cannot identify the old metric after deletion.
+Operators must not delete durable result identities and then replay uploads as a billing-neutral operation. Any future identity cleanup needs an explicit replay policy before deployment.
+
+### Usage reporting and shared AIO meter
+
+Both `organization usage report` and `llm analytics usage` expose:
+
+| Property                                 | Meaning                                                                                                |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `ai_ingested_event_count_in_period`      | Billing-eligible ingested AIO events, preserving wallet-billed gateway and sponsored-event exemptions. |
+| `ai_offline_eval_metric_count_in_period` | Sum of eligible offline ledger quantities accepted in the activated reporting window.                  |
+| `ai_event_count_in_period`               | The sum of the two components.                                                                         |
+
+Organization reports include the same breakdown in each `teams` entry, including historical environments that have moved or been deleted. A moved environment can appear under both organizations, with only the usage attributed to each.
+`team_count` continues to count live billable teams; historical entries do not increase it.
+The existing `ai_event_count_in_period` → `llm_events` contract remains the shared AIO meter. Reporting does not deduct the standard 100,000-unit monthly allowance or determine prices or custom allowances; billing owns those calculations.
+The existing `ai_metric_count`, event-type analytics, traces, costs, tokens, and dimension breakdowns remain ClickHouse-derived.
+
+`get_offline_evaluation_usage` performs database-side `SUM(quantity)` grouped by the stored organization, environment, and eligibility snapshot, with `accepted_at >= period_start AND accepted_at < period_end`.
+It uses timezone-aware UTC windows and never counts ledger rows or current results. Scheduled daily reports and current-day quota refresh use midnight-to-midnight windows, including the final microsecond of the day.
+The existing acceptance-time index supports the range filter. Only grouped totals and a bulk organization lookup reach Python; there is no query per metric, team, or organization.
+
+Celery and Temporal compose offline quantities after selecting the ingested counter source, so source switching and shadow comparisons remain about ingested events only.
+Temporal queries the ledger in its aggregation activity before emitting chunks; existing query files and activity inputs need no new serialized counter.
+Offline-only organizations, including surviving organizations with no live teams, reach the normal delivery path.
+Deleted organizations are omitted under the existing organization lifecycle policy, with an `offline_evaluation_usage_for_deleted_organizations` warning. No customer or organization is recreated; settlement after organization deletion remains a billing lifecycle decision outside these reporters.
+Currently internal-metrics organizations are also excluded, even if they have older eligible entries.
+
+Current-day quota refresh adds offline usage to `llm_events.todays_usage` by the stored organization, including usage from deleted environments.
+It leaves the prior-period `usage` received from billing intact. Ledger failures abort before quota updates or report delivery, allowing existing retries without publishing an incomplete total.
+Unknown eligibility in an activated window also fails reporting rather than guessing from current or missing team records.
+Reports are absolute totals: rereading an unchanged window does not consume or modify ledger entries. Existing analytics dispatch claims and already-reported checks still apply.
+Separately scheduled reports can observe different late-arriving ingested data; identical windows and source snapshots produce matching AIO totals.
+
+### Billing activation prerequisite
+
+`OFFLINE_EVALUATION_BILLING_START` defaults to empty, which disables the offline billing component in both reports and quota refresh while recording continues.
+Activation requires an explicitly approved ISO timestamp with UTC offset (`Z` or `+00:00`), configured consistently on all reporting and quota workers. No charging date is supplied by this implementation.
+The effective window starts at the later of the requested start and the configured charging start. Recording before that instant is not charged or backfilled.
+
+Deploy the nullable eligibility migration first, then deploy the new upload writers and all reporting/quota workers. Old writers remain compatible and write null eligibility.
+Drain old workers and pending reports/workflows before the approved future cutover; never activate over a period containing uploads from old writers.
+Temporal's exclusive-day-end patch preserves the window recorded by pre-deploy workflows. Already serialized reports are not rewritten.
+All post-cutover entries must have an eligibility snapshot; legacy nulls are intentionally not backfilled. Rollback or changing the cutover after reports have been consumed requires billing reconciliation, not an automatic replay.
 
 ## Resource tags
 

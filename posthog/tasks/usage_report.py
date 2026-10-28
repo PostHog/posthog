@@ -63,6 +63,7 @@ from posthog.usage_counters import (
 )
 from posthog.utils import DayRange, get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
+from products.ai_observability.backend.offline_evaluation_billing import get_offline_evaluation_usage
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.models.plugin import PluginConfig
@@ -297,6 +298,8 @@ class UsageReportCounters:
 
     # AI observability
     ai_event_count_in_period: int
+    ai_ingested_event_count_in_period: int = dataclasses.field(default=0, kw_only=True)
+    ai_offline_eval_metric_count_in_period: int = dataclasses.field(default=0, kw_only=True)
 
     # AI Billing Credits (PostHog AI feature usage)
     ai_credits_used_in_period: int
@@ -3579,6 +3582,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         roblox_events_count_in_period=all_data["teams_with_roblox_events_count_in_period"].get(team.id, 0),
         rust_events_count_in_period=all_data["teams_with_rust_events_count_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
+        ai_ingested_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
         signals_credits_used_in_period=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
         posthog_code_credits_used_in_period=combine_posthog_code_credits(
@@ -3682,9 +3686,67 @@ def _add_team_report_to_org_reports(
                 )
 
 
+def iter_reports_with_offline_evaluation_usage(
+    reports: Iterable[OrgReport],
+    offline_usage: dict[str, dict[int, int]],
+    period_start: datetime,
+    *,
+    organization_ids: Sequence[str] | None = None,
+) -> Iterator[OrgReport]:
+    def add_usage(report: OrgReport) -> OrgReport:
+        for team_id, quantity in offline_usage.get(report.organization_id, {}).items():
+            team_key = str(team_id)
+            if team_key not in report.teams:
+                report.teams[team_key] = UsageReportCounters(
+                    **{field.name: 0 for field in dataclasses.fields(UsageReportCounters)}
+                )
+            team_report = report.teams[team_key]
+            team_report.ai_offline_eval_metric_count_in_period = quantity
+            team_report.ai_event_count_in_period = team_report.ai_ingested_event_count_in_period + quantity
+        report.ai_offline_eval_metric_count_in_period = sum(offline_usage.get(report.organization_id, {}).values())
+        report.ai_event_count_in_period = (
+            report.ai_ingested_event_count_in_period + report.ai_offline_eval_metric_count_in_period
+        )
+        return report
+
+    seen: set[str] = set()
+    for report in reports:
+        seen.add(report.organization_id)
+        yield add_usage(report)
+    missing = offline_usage.keys() - seen
+    if organization_ids:
+        missing &= set(organization_ids)
+    user_counts = dict(
+        OrganizationMembership.objects.filter(organization_id__in=missing)
+        .values("organization_id")
+        .annotate(count=Count("id"))
+        .values_list("organization_id", "count")
+    )
+    for organization in (
+        Organization.objects.filter(id__in=missing, for_internal_metrics=False)
+        .only("id", "name", "created_at")
+        .iterator()
+    ):
+        yield add_usage(
+            OrgReport(
+                date=period_start.strftime("%Y-%m-%d"),
+                organization_id=str(organization.id),
+                organization_name=organization.name,
+                organization_created_at=organization.created_at.isoformat(),
+                organization_user_count=user_counts.get(organization.id, 0),
+                team_count=0,
+                teams={},
+                **dataclasses.asdict(
+                    UsageReportCounters(**{field.name: 0 for field in dataclasses.fields(UsageReportCounters)})
+                ),
+            )
+        )
+
+
 def _get_all_org_reports(*, period: DayRange, counter_report: UsageCounterReport | None = None) -> dict[str, OrgReport]:
     logger.info("Querying all org reports", period_start=period.start, period_end=period.end)
 
+    offline_usage = get_offline_evaluation_usage(period.start, period.end)
     all_data = _get_all_usage_data_as_team_rows(period.start, period.end, counter_report)
 
     org_reports: dict[str, OrgReport] = {}
@@ -3699,7 +3761,10 @@ def _get_all_org_reports(*, period: DayRange, counter_report: UsageCounterReport
 
     logger.info("Generating org reports complete", teams_count=teams_count, org_reports_count=len(org_reports))
 
-    return org_reports
+    return {
+        report.organization_id: report
+        for report in iter_reports_with_offline_evaluation_usage(org_reports.values(), offline_usage, period.start)
+    }
 
 
 def _get_full_org_usage_report(org_report: OrgReport, instance_metadata: InstanceMetadata) -> FullUsageReport:
@@ -3772,12 +3837,24 @@ def iter_reports_with_usage_counter_metadata(
     report_teams: set[int] = set()
     missing: dict[str, dict[str, UsageCounterComparison]] = {}
     wanted = set(organization_ids) if organization_ids else None
+    comparison_team_owners: dict[int, str] | None = None
     for report in org_reports:
         report.usage_sources = counter_report.usage_sources
         report.counter_comparisons = {} if counter_report.counter_comparisons is not None else None
         if counter_report.counter_comparisons is not None:
             org_id = report.organization_id
-            teams = [int(team_id) for team_id in report.teams]
+            if report.ai_offline_eval_metric_count_in_period and comparison_team_owners is None:
+                comparison_team_owners = {
+                    team_id: str(owner)
+                    for team_id, owner in Team.objects.filter(
+                        is_demo=False, organization__for_internal_metrics=False
+                    ).values_list("id", "organization_id")
+                }
+            teams = [
+                int(team_id)
+                for team_id in report.teams
+                if comparison_team_owners is None or comparison_team_owners.get(int(team_id)) == org_id
+            ]
             report_orgs.add(org_id)
             report_teams.update(teams)
             reported = has_non_zero_usage(report)
@@ -3885,6 +3962,7 @@ def send_all_org_usage_reports(
 
     at_date = parser.parse(at) if at else None
     period = get_previous_day(at=at_date)
+    period = DayRange(start=period.start, end=period.start + timedelta(days=1))
 
     instance_metadata = get_instance_metadata(period)
 

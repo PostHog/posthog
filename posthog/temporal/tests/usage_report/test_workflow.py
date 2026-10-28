@@ -107,6 +107,10 @@ def test_build_context_reports_full_day_at_offset(
     assert ctx.report_completeness == expected_completeness
     assert ctx.period_start.isoformat() == f"{expected_date}T00:00:00+00:00"
     assert ctx.period_end.isoformat() == f"{expected_date}T23:59:59.999999+00:00"
+    patched_ctx = build_context(
+        RunUsageReportsInputs(day_offset=day_offset), run_id="run-1", now=now, exclusive_day_end=True
+    )
+    assert patched_ctx.period_end == ctx.period_start + timedelta(days=1)
 
 
 @pytest.mark.asyncio

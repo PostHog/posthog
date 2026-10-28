@@ -23,6 +23,8 @@ from posthog.redis import get_client
 from posthog.test.fixtures import create_app_metric2
 from posthog.usage_counters import UsageRecordTotal, UsageRecordTotals
 
+from products.ai_observability.backend.models.offline_evaluations import OfflineEvaluationUsageLedger
+
 from ee.billing.quota_limiting import (
     INFORMATIONAL_USAGE_RESOURCES,
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
@@ -86,6 +88,32 @@ class TestQuotaLimiting(BaseTest):
     def _run_quota_limiting(self) -> QuotaLimitingRunResult:
         with self.captureOnCommitCallbacks(execute=True):
             return update_all_orgs_billing_quotas()
+
+    @parameterized.expand([(False,), (True,)])
+    @override_settings(OFFLINE_EVALUATION_BILLING_START="2026-10-01T00:00:00Z")
+    @time_machine.travel("2026-10-31T12:00:00Z", tick=False)
+    def test_offline_usage_updates_today_without_recounting_billing_history(self, deleted_team: bool) -> None:
+        self.organization.usage = {
+            "period": ["2026-10-01T00:00:00Z", "2026-11-01T00:00:00Z"],
+            "llm_events": {"usage": 50, "todays_usage": 0, "limit": 1000},
+        }
+        self.organization.save(update_fields=["usage"])
+        for accepted_at, quantity in ((now() - datetime.timedelta(days=1), 50), (now(), 20), (now(), 10)):
+            OfflineEvaluationUsageLedger.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                experiment_id=uuid4(),
+                accepted_at=accepted_at,
+                quantity=quantity,
+                billing_eligible=True,
+            )
+        if deleted_team:
+            self.team.delete()
+        for _ in range(2):
+            self._run_quota_limiting()
+            self.organization.refresh_from_db()
+            self.assertEqual(self.organization.usage["llm_events"]["usage"], 50)
+            self.assertEqual(self.organization.usage["llm_events"]["todays_usage"], 30)
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
