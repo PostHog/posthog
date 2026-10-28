@@ -27,7 +27,7 @@ Do not reorder for attention. Reorder only when a heading makes a rule easier fo
 
 ## 1. Does this belong in the file at all?
 
-Work down this ladder and stop at the first rung that fits. It is the same ladder `AGENTS.md` states for itself.
+Work down this ladder and stop at the first rung that fits. It is the same ladder [`.agents/agent-automation.md`](../../agent-automation.md) states for the repo.
 
 | Rung | Mechanism                                                    | Use when                                                |
 | ---- | ------------------------------------------------------------ | ------------------------------------------------------- |
@@ -69,7 +69,7 @@ Keep to the repo's prose conventions: ASD-STE100 Simplified Technical English, a
 
 ## 4. Tag what enforces it
 
-Every rule in **Architecture guidelines** and **Code Style** carries a tag. Extend the convention when you add to those sections.
+Every rule in [`.agents/architecture.md`](../../architecture.md) and [`.agents/code-style.md`](../../code-style.md) carries a tag. Extend the convention when you add to those guides.
 
 ```markdown
 - **Do not use `Team` or `Organization` rows as mutexes.** `[lint: hot-parent-row-select-for-update]` PostgreSQL takes …
@@ -79,7 +79,7 @@ Every rule in **Architecture guidelines** and **Code Style** carries a tag. Exte
 - `[lint: <id>]` — a semgrep rule id, a `ruff <CODE>`, or an invariant test filename. A reviewer skips it, because CI is the gate.
 - `[review]` — nothing catches this. A reader is the only control, so it earns its place in the file.
 
-Every rule in those two sections carries one of the two tags, and every tag must resolve against the repo.
+Every rule in those two guides carries one of the two tags, and every tag must resolve against the repo.
 `posthog/test/repo_invariants/test_agents_md_enforcement_tags.py` fails the build on an untagged rule, and on a `[lint: …]` that names a rule, code, or file which no longer enforces anything.
 A ruff code moved to the `ignore` list stops counting, so a tag cannot survive its rule being switched off.
 That is the point: a stale tag is worse than no tag, because a reviewer trusts it and skips the check.
@@ -89,9 +89,11 @@ A rule that stays `[review]` for a long time is a candidate for rung 1. That vis
 
 ## 5. Root or nested?
 
-Both files get the same smells check. The budget differs.
+All three get the same smells check. The budget differs.
 
 **Root `AGENTS.md`** — loads every session, in every tool, for every task. Strict. A rule earns its place only if it applies across the repo, or if getting it wrong is expensive and nothing catches it (the public-repo rules are the model). Keep the enforcement tags current.
+
+**Topic guides** (`.agents/<topic>.md`: architecture, code style, CI, feature usage tracking, agent automation, security) load when the routing table in the root file's "Read the guide for your area first" section sends an agent there. A repo-wide rule that applies only to one kind of work, such as application code or CI workflows, belongs in a guide. Each guide keeps its heading in the root file, and its table row is the only place that says when to read it. Put a new trigger in the row, never in the section under the heading, because two triggers drift apart.
 
 **Nested `AGENTS.md`** (about 27 of them: `posthog/temporal/`, `rust/`, `frontend/src/`, most of `products/`) — loads when an agent works in that subtree, so a local convention is cheap here and expensive in the root. Move a directory-specific rule down rather than up. No tag convention required, though it does no harm.
 
@@ -101,7 +103,7 @@ Never state the same rule in both. That is how conflicting instructions start.
 
 - The rule is on rung 4 because rungs 1 to 3 genuinely do not fit.
 - It reads as an invariant, with a trigger a reader can spot in a diff.
-- It is tagged, if it sits in Architecture guidelines or Code Style.
+- It is tagged, if it sits in `.agents/architecture.md` or `.agents/code-style.md`.
 - No other line in the file, or in a nested `AGENTS.md`, says something different.
 - Every link you added says when to read it.
 - Every link and skill reference resolves:

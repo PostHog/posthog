@@ -16,8 +16,11 @@ EXECUTED_CHECK_ROOTS = ("posthog/test/repo_invariants", ".github/scripts")
 # is not loaded by a blocking job, so it cannot back a tag.
 LOADED_SEMGREP_ROOTS = (".semgrep/rules/security", ".semgrep/rules/devex")
 
-# Sections whose every rule must declare what enforces it.
-TAGGED_SECTIONS = (("## Architecture guidelines", "## Code Style"), ("## Code Style", "## User-facing copy"))
+# Agent guides whose every rule must declare what enforces it.
+TAGGED_GUIDES = (".agents/architecture.md", ".agents/code-style.md")
+
+# Root sections that only point at a tagged guide, so a rule added there would skip the tag check.
+POINTER_SECTIONS = ("## Architecture guidelines", "## Code Style")
 
 # Tags naming a command or CI job rather than a rule id. Add to this set only
 # when no single rule id covers the check.
@@ -32,21 +35,28 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def _agents_md(repo_root: Path) -> str:
-    return (repo_root / "AGENTS.md").read_text()
+def _read(repo_root: Path, guides: tuple[str, ...]) -> str:
+    return "\n".join((repo_root / guide).read_text() for guide in guides)
 
 
-def _tags(agents_md: str) -> list[str]:
-    tags = (tag.strip() for marker in MARKER.findall(agents_md) for tag in marker.split(","))
+def _guides_with_tags(repo_root: Path) -> tuple[str, ...]:
+    agents_dir = repo_root / ".agents"
+    return ("AGENTS.md", *sorted(str(path.relative_to(repo_root)) for path in agents_dir.glob("*.md")))
+
+
+def _section(markdown: str, heading: str) -> str:
+    start = markdown.index(heading) + len(heading)
+    end = markdown.find("\n## ", start)
+    return markdown[start:] if end == -1 else markdown[start:end]
+
+
+def _tags(guides: str) -> list[str]:
+    tags = (tag.strip() for marker in MARKER.findall(guides) for tag in marker.split(","))
     return [tag for tag in tags if tag != LEGEND_PLACEHOLDER]
 
 
-def _rules(agents_md: str) -> list[str]:
-    rules: list[str] = []
-    for start, end in TAGGED_SECTIONS:
-        section = agents_md[agents_md.index(start) : agents_md.index(end)]
-        rules.extend(line for line in section.split("\n") if line.startswith("- "))
-    return rules
+def _rules(guides: str) -> list[str]:
+    return [line for line in guides.split("\n") if line.startswith("- ")]
 
 
 def _semgrep_ids(repo_root: Path) -> set[str]:
@@ -98,13 +108,13 @@ def test_agents_md_lint_tags_name_something_real() -> None:
     repo_root = _repo_root()
     semgrep_ids = _semgrep_ids(repo_root)
 
-    tags = _tags(_agents_md(repo_root))
-    assert tags, "AGENTS.md has no [lint: ...] tags — did the marker format change?"
+    tags = _tags(_read(repo_root, _guides_with_tags(repo_root)))
+    assert tags, "The agent guides have no [lint: ...] tags — did the marker format change?"
 
     unresolved = [tag for tag in tags if not _resolves(tag, repo_root, semgrep_ids)]
 
     assert not unresolved, (
-        f"AGENTS.md tags these as machine-enforced, but nothing by that name enforces them: {unresolved}. "
+        f"The agent guides tag these as machine-enforced, but nothing by that name enforces them: {unresolved}. "
         "Either the rule was renamed or deleted, or a ruff code moved to `ignore` or a per-file exemption "
         "list (fix the tag, or retag the "
         f"rule as [review]), or the tag names a command rather than a rule id (add it to FREE_FORM in {Path(__file__).name})."
@@ -113,13 +123,25 @@ def test_agents_md_lint_tags_name_something_real() -> None:
 
 def test_every_architecture_and_code_style_rule_is_tagged() -> None:
     # An untagged rule reads as review-only without saying so, which is the ambiguity the tags remove.
-    rules = _rules(_agents_md(_repo_root()))
-    assert rules, "Found no rules to check — did the section headings change?"
+    rules = _rules(_read(_repo_root(), TAGGED_GUIDES))
+    assert rules, "Found no rules to check — did the guides move?"
 
     untagged = [rule[:80] for rule in rules if not WELL_FORMED.search(rule)]
 
     assert not untagged, (
-        f"These AGENTS.md rules carry no well-formed enforcement tag: {untagged}. "
+        f"These architecture and code style rules carry no well-formed enforcement tag: {untagged}. "
         "Add `[lint: <rule-id>]` when a linter or invariant test blocks the violation, or `[review]` when "
         "nothing catches it. An empty or unclosed marker does not count."
+    )
+
+
+def test_root_pointer_sections_hold_no_rules() -> None:
+    # A rule written under a pointer heading in the root file would escape the tag check above.
+    agents_md = (_repo_root() / "AGENTS.md").read_text()
+
+    misplaced = [heading for heading in POINTER_SECTIONS if _rules(_section(agents_md, heading))]
+
+    assert not misplaced, (
+        f"These AGENTS.md sections only point at a guide under .agents/, but hold rules: {misplaced}. "
+        "Move each rule into the guide the section points at."
     )

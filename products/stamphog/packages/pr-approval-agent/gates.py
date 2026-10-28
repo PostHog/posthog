@@ -262,7 +262,7 @@ TEAM_FILE_SAMPLE = 10
 #
 # Deliberately narrow. This is a "these files carry no news" rule, which AGENTS.md says needs an
 # argument, and the argument only holds for this one directory shape: the repo forbids hand-editing
-# it (root CLAUDE.md, "don't edit them manually, change serializers and rerun"), every product's
+# it (.agents/architecture.md: change the serializer and regenerate instead), every product's
 # generated directory has this exact path, and its only consumer decides who hears about a merge
 # rather than whether code is safe to approve. A bare `generated/` match would also catch
 # hand-editable directories elsewhere in the tree, which is the case AGENTS.md warns about.

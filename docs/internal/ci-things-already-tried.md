@@ -695,7 +695,7 @@ One narrow PR from the same window did merge. [#41620](https://github.com/PostHo
 The setting is in `posthog/settings/data_stores.py`, and `Person.Meta.db_table` reads it. It defaults to `posthog_person`, so the cutover is off.
 The switch exists. The eight PRs above failed at what surrounds it: the test setup, the dual reads, and the partition guard.
 `posthog_person_new` comes from the sqlx migrations in `rust/persons_migrations/`. Three Dagster jobs read it, and one carries a comment about a future name swap.
-Person and group data now goes through the gRPC client in `posthog/personhog_client/`. `AGENTS.md` makes that client the required interface and prohibits new ORM queries against the person tables.
+Person and group data now goes through the gRPC client in `posthog/personhog_client/`. `.agents/architecture.md` makes that client the required interface and prohibits new ORM queries against the person tables.
 
 Read this entry before you propose a Django-level cutover. The setting is already there.
 What is missing is everything that must be true before a person changes its value.

@@ -132,14 +132,25 @@ Examples:
 - ❌ A PR description that quotes verbatim what a coworker said in a Slack thread
 - ❌ A test fixture adapted from a real support conversation with the names and domains replaced
 
+## Read the guide for your area first
+
+Most topic rules live in guides under `.agents/`, not in this file.
+Before your first edit, plan, or review finding, open every guide whose area the task touches.
+Reviewing a diff counts: the diff touches the areas it changes.
+Each guide's row below holds its full trigger. A section may still link one part of a guide for a rule it states.
+
+| Guide                                                                  | Read it before you write or review                                                                                                                                                                                                                                                                   |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [.agents/architecture.md](.agents/architecture.md)                     | Application or dev-stack code in any language, such as a model, view, serializer, task, or React component: entrypoints, `team_id` scoping, personhog, transactions, API schemas, Celery and Temporal, outbound calls, storage, Django settings, Django admin, and the `services/llm-gateway` freeze |
+| [.agents/code-style.md](.agents/code-style.md)                         | Python; frontend code such as a component, kea logic, a button, or a form; comments; tests; Markdown; or a choice between quill and LemonUI                                                                                                                                                          |
+| [.agents/feature-usage-tracking.md](.agents/feature-usage-tracking.md) | A feature a user interacts with, such as a new action, menu item, or scene, a change to what a user can do there, or the removal of a feature for low usage                                                                                                                                          |
+| [.agents/ci.md](.agents/ci.md)                                         | A workflow, `.nvmrc`, a publish job, event ingestion, tests that read event properties, or a flaky CI run                                                                                                                                                                                            |
+| [.agents/agent-automation.md](.agents/agent-automation.md)             | The automation of a convention, a Claude Code hook, `.claude/settings.json`, a lint-staged task, or a pre-commit check                                                                                                                                                                               |
+| [.agents/security.md](.agents/security.md)                             | Auth, secrets, service-to-service calls, raw SQL, HogQL string building, a new external origin, an inline script under the Content Security Policy, or a PR for a security fix                                                                                                                       |
+
 ## CI / GitHub Actions
 
-- `.nvmrc` controls the Node.js version for all CI workflows (via `actions/setup-node`) — changing it affects every CI job that runs Node
-- CI uploads test results to Trunk Flaky Tests; the `trunk` MCP server in `.mcp.json` queries per-test flakiness on a PR or `master` (authenticate via `/mcp`, or a `TRUNK_API_TOKEN` bearer header when headless) — see `/debugging-ci-failures` and `/fixing-flaky-tests`
-- **A workflow edit reaches every open PR before those branches rebase.** It runs against the PR merged with master, but a companion change — a new dependency, file, or config — only arrives when the branch rebases. A workflow that starts requiring something unrebased branches lack fails every in-flight PR before its tests run. Make the new behavior degrade gracefully, or gate it. This has broken CI repeatedly.
-- Mechanical workflow rules (`timeout-minutes`, concurrency, dispatch budget, path filters, gate hygiene) are enforced by `hogli lint:workflows` and actionlint, which are the source of truth. `/authoring-ci-workflows` explains the reasoning behind each.
-- **A directory of tests that read event properties belongs in `.github/new-events-schema-targets.txt`.** Backend CI reruns the listed paths against the native-JSON events table. A test outside the list runs on the legacy table only. Add the `test-new-events-schema` label when a diff needs the whole backend suite on both tables, such as an event ingestion change or event reads tested outside the list. Label while the PR is a draft, or push again after labeling, because label events do not start Backend CI.
-- **A pull request never publishes a package or release.** `[lint: github-actions-publish-on-pull-request]` A published version is public forever, and a pull request run executes code its author controls. Publish only from a `push` to `master`, a release tag, or a `workflow_dispatch` on `master`. A pull request run only builds and validates, for example with `--dry-run`. The semgrep rule cannot see a publisher inside a reusable workflow, so gate that job in the called workflow too. Never run a publish command by hand from a pull request branch. [`build-hogql-parser-npm.yml`](.github/workflows/build-hogql-parser-npm.yml) is the reference shape.
+The rules for CI and GitHub Actions live in [.agents/ci.md](.agents/ci.md). Its row in [Read the guide for your area first](#read-the-guide-for-your-area-first) says when to read it.
 
 ## Security
 
@@ -152,7 +163,7 @@ The private mirror carries this file, and its `origin` points at the private rep
 Before the first push of a branch, run `git remote get-url origin`.
 If it names `posthog-private` and the change is not an embargoed fix, open the PR from a `PostHog/posthog` checkout.
 Do not add new `INTERNAL_API_SECRET` callers.
-Read [.agents/security.md](.agents/security.md) before touching auth, secrets, service-to-service calls, raw SQL, or HogQL string building — it covers least privilege, the injection rules, and how to respond when semgrep flags your code.
+[.agents/security.md](.agents/security.md) covers least privilege, the injection rules, and how to respond when semgrep flags your code.
 `.semgrep/rules/security/` is the enforced set; run `semgrep --config .semgrep/rules/security/ .` to check a change locally.
 
 **Treat the Content Security Policy in `CSPMiddleware` as enforced.**
@@ -164,135 +175,25 @@ Read [.agents/security.md](.agents/security.md#content-security-policy) for the 
 
 ## Architecture guidelines
 
-Each rule is tagged with what catches a violation.
-`[lint: <id>]` means a linter, semgrep rule, or invariant test blocks it, so CI is the check and this text is only the reasoning.
-`[review]` means nothing catches it automatically — a reader is the only control.
-
-### Entrypoints and layering
-
-- **Keep entrypoints thin.** `[review]` The runtime calls the entrypoint first: a DRF view, a management command `handle()`, a Celery task body, an HTTP handler, a Rust `main()`, a React component. An entrypoint reads the input, connects the dependencies, and formats the output. All other logic goes in a function the entrypoint calls, so a test can call it directly. If the area already has a place for that logic, use it rather than making a new one.
-- **A product under `products/` is scaffolded, not hand-rolled.** `[lint: hogli product:lint --all]` Create one with `hogli product:bootstrap <name>`, because the scaffold emits a product that is isolated from its first commit. See "New products must be isolated" in [products/README.md](products/README.md) for the isolation rules, and [products/architecture.md](products/architecture.md) for facade and contract design.
-- **Code a single product owns belongs under `products/<product>/`** — backend, frontend, scripts, CLIs, services, packages, MCP tools, skills. `[review]` Reserve top-level `tools/`, `services/`, `packages/`, `cli/` and `hog/` for cross-product things. `product:lint` only scans `products/`, so a single-product feature parked in a top-level directory is invisible to it.
-
-### Tenancy and scoping
-
-- **Every tenant-data model must have `team_id`**, as a FK to `posthog.Team` or a plain `BigIntegerField` for multi-DB products. `[lint: idor-lookup-without-team, check-idor-model-coverage.py]` This is the primary tenant isolation boundary. New models inherit `TeamScopedRootMixin` (main DB) or `ProductTeamModel` (separate DB) so they start fail-closed — see [posthog/models/scoping/README.md](posthog/models/scoping/README.md).
-- **Classifying a model as unscoped is a review decision, not a checked one.** `[review]` A model without `team_id` must be org-scoped, user-scoped, or instance-global, never silently unscoped. `check-idor-model-coverage.py` only warns when a name lands in `NEEDS_TEAM_ID`, and passes silently for `LEGITIMATELY_UNSCOPED`, so a wrongly exempted tenant model reaches master unless a reader catches it.
-- **Reading a fail-closed model outside request context** — Temporal activities, Celery tasks, management commands — uses `Model.objects.for_team(team_id)`. `[review]` Not `Model.all_teams.filter(team_id=...)` and not `objects.unscoped().filter(...)`; those are for genuinely cross-team access and Django internals. In serializers the team comes from `self.context["get_team"]()`. Caveat: `for_team(...).get_or_create(...)` and `.create(...)` still need `team_id` passed explicitly, because a queryset filter does not propagate into row creation.
-- **Do not add domain-specific fields to the `Team` model.** `[review]` Use a Team Extension model — see [posthog/models/team/README.md](posthog/models/team/README.md) for the pattern and helpers.
-
-### Person and group data
-
-- **All person/group access goes through the personhog client.** `[review]` Never query these via the Django ORM or raw SQL: `posthog_person`, `posthog_persondistinctid`, `posthog_cohortpeople`, `posthog_group`, `posthog_grouptypemapping`, and the override tables (`posthog_personoverride`, `posthog_pendingpersonoverride`, `posthog_flatpersonoverride`, `posthog_featureflaghashkeyoverride`, `posthog_personlessdistinctid`, `posthog_personoverridemapping`). Use the routed helpers in `posthog/models/person/util.py` and `posthog/models/group_type_mapping.py`. New access follows the same `_personhog_routed()` pattern: a `personhog_fn` using `get_personhog_client()`, plus an `orm_fn` fallback. See [posthog/personhog_client/README.md](posthog/personhog_client/README.md).
-- **Personhog answers identity questions only.** `[review]` Use it for resolving distinct IDs, point lookups by person id or UUID, and lifecycle writes. Person properties, list hydration, and search come from ClickHouse (HogQL over `persons`, `ActorsQueryRunner`). Avoid reading `properties` from personhog — the API will stop surfacing it. Single-person lookups that need properties are exempt only while no ClickHouse primitive covers them, never in bulk. See [docs/internal/person-data-access.md](docs/internal/person-data-access.md).
-
-### Transactions and locking
-
-- **There is no implicit per-request transaction** — PostHog does not enable `ATOMIC_REQUESTS`. `[review]` Every operation runs in autocommit unless wrapped. Put `with transaction.atomic():` around the specific writes that must succeed or fail together, never around a whole view method. Keep irreversible side effects out of the block: an email sent or an API called before a rollback has already happened. Schedule them after the commit, or dispatch Celery tasks with `transaction.on_commit()`.
-- **Do not use `Team` or `Organization` rows as mutexes.** `[lint: hot-parent-row-select-for-update]` PostgreSQL takes `KEY SHARE` locks on parent rows for foreign-key checks, and `FOR UPDATE` conflicts with them, so an unrelated child-row write can wait behind a transaction holding a hot parent row. Lock the product's `Team<Product>Config` extension row instead, reached through `get_or_create_team_extension` so the row exists first. For a per-team count limit or number allocation, use a unique constraint, a conditional update, or a dedicated allocation row. Otherwise lock the quiet child row, or take a transaction-scoped advisory lock. Lock `Team` or `Organization` only when the transaction updates or deletes that row, and keep it short — no network calls, no input-sized loops. Each exception needs a short `nosemgrep` justification.
-
-### API schemas and generated types
-
-- **API views declare request/response schemas.** `[review]` Prefer `@validated_request` from `posthog.api.mixins`, or `@extend_schema` from drf-spectacular. A plain `ViewSet` method that validates manually needs `@extend_schema(request=YourSerializer)`; without it drf-spectacular cannot discover the request body and generated code gets an empty schema. Serializer fields need `help_text`. These flow into both frontend types and MCP tool schemas.
-- **Django serializers are the source of truth for frontend API types.** `[lint: build:openapi CI gate, prefer-codegen-api, test_generated_files_are_registered.py]` `hogli build:openapi` generates TypeScript via drf-spectacular and Orval into `frontend/src/generated/core/` and `products/{product}/frontend/generated/`. Never hand-edit `api.schemas.ts`, `api.ts` or `api.zod.ts` — change the serializer and regenerate. A value list the frontend needs comes from a typed serializer field, not from a side script; other checked-in projections are entries in `tools/hogli-commands/hogli_commands/projections.py`. [Type system guide](docs/published/handbook/engineering/type-system.md) has the full pipeline.
-- MCP tools and MCP UI apps are generated from the same OpenAPI spec. `[review]` See [implementing MCP tools](docs/published/handbook/engineering/ai/implementing-mcp-tools.md) covers the YAML config and codegen. MCP UI apps live in `products/*/mcp/tools.yaml` under `ui_apps` — see [services/mcp/CONTRIBUTING.md](services/mcp/CONTRIBUTING.md) or `/implementing-mcp-ui-apps`.
-
-### Async, storage and outbound calls
-
-- **Do not use `posthoganalytics.capture()` in a Celery task** — events are silently lost. `[review]` Use `ph_scoped_capture` from `posthog.ph_client`; its docstring explains why.
-- **Temporal activity payloads cap at ~2 MiB — pass large data by reference.** `[review]` Activity inputs and outputs cross a gRPC boundary the server rejects above that (`blobSizeLimitError`). As a field-level rule: if a field could exceed ~256 KB serialized (query results, exported file contents, LLM context, rendered HTML, image bytes, unbounded `list[dict[str, Any]]`), write it to Postgres or object storage from inside the activity and return only the row ID or S3 key. The workflow already has any ID created earlier in the run. Shuttling large data through the workflow produces `PayloadSizeError` (`TMPRL1103`) as soon as the data crosses the limit.
-- **A Python `requests` call to GitHub or Slack under `common/`, `ee/`, `posthog/` or `products/` goes through `posthog/egress/`.** `[lint: github-api-calls-go-through-egress, slack-api-calls-go-through-egress]` Route it through the gated, recorded transport.
-- **Every other call to those hosts goes through `posthog/egress/` too.** `[lint: github-api-calls-go-through-egress-wide, slack-api-calls-go-through-egress-wide]` The wide rules catch a URL bound to a variable or constant, `requests.Session`, `httpx`, `aiohttp`, `urllib.request`, and an aliased Slack SDK client. Another language, another vendor SDK, or a caller under `tools/` still passes CI, so a reader is the only control there.
-- **Any other third-party API that needs rate-limiting or egress telemetry belongs there too.** `[review]` Add a `<domain>/` incarnation (GitHub is the reference). No semgrep rule covers a new domain, so a raw client for one reaches master unless a reader catches it. `/routing-outbound-api-calls` decides the route and names the reference domain to copy.
-- **Object storage is SeaweedFS — do not add new MinIO dependencies.** `[review]` Both S3-compatible stores are SeaweedFS: `objectstorage` (`:19000`, `OBJECT_STORAGE_*`) for general storage, `seaweedfs` (`:8333`, `SESSION_RECORDING_V2_S3_*`) for session replay v2. MinIO survives only as one-off salvage tooling: `bin/migrate-storage-hobby` starts a temporary container to read an old hobby MinIO volume. Do not add compose services, scripts, tests or docs that stand up a `minio/minio` container. Talk to storage through the existing config and a standard S3 client, never a hardcoded endpoint. Note `objectstorage` registers credentials at runtime and returns `InvalidAccessKeyId` until that finishes, so wait for its readiness sentinel rather than the container start.
-
-- **A new DNS-resolution or outbound-host entry point calls the shared out-of-band domain check.** `[lint: test_oob_denylist_coverage.py]` Every host guard here is IP-based, and an out-of-band interaction domain resolves to an ordinary public IP, so a resolver that skips the check restores the gap in silence. The list and the edit procedure live in `posthog/security/crosslang/`.
-
-### Configuration and secrets
-
-- **A key in `posthog/settings/dynamic_settings.py` exists only because operators must change its value live, without a deploy.** `[review]` These instance settings are Postgres rows that staff edit at runtime, and a stored row overrides the environment variable. Kill switches and tuning knobs for incidents qualify. Secrets and static config are environment variables read in `posthog/settings/`, with values from the deployment secret store and charts. Never store a secret as an instance setting, because the database keeps it as plain text. A per-team rollout or a team allowlist is a feature flag.
-
-### Django admin
-
-- **A new `ForeignKey`/`OneToOneField` on an admin-exposed model needs explicit widget config.** `[review]` List the field in `autocomplete_fields`, `raw_id_fields`, or `readonly_fields` on **every** admin class that renders the model, including inlines attached to a related admin. Otherwise the default `<select>` loads the entire target table per row on each change-page render. Declare it on a shared base inline so per-parent variants inherit it.
-
-### LLM gateway
-
-- **`services/llm-gateway` is under an unofficial code freeze** while callers move to [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway). `[review]` If a task asks you to change it, tell the user about the freeze in your reply. New callers and features belong on the Go gateway. A Python gateway change needs a documented parity blocker for an active caller and stays limited to it — read [`services/llm-gateway/PARITY.md`](services/llm-gateway/PARITY.md). Its Postgres role reads only allowlisted tables: a new table read needs the SELECT grant landed in posthog-cloud-infra for every environment first, then a declaration in `required_tables.py`. The readiness probe checks every declared grant on every probe, so a missing grant holds a rollout instead of serving 500s. Use `/auditing-llm-gateway-parity` for contract changes, `/finding-llm-gateway-migration-candidates` to pick the next caller, `/migrating-llm-gateway-callers` to move one.
+The rules for architecture live in [.agents/architecture.md](.agents/architecture.md). Its row in [Read the guide for your area first](#read-the-guide-for-your-area-first) says when to read it.
 
 ## Code Style
 
-Same tags as above: `[lint: <id>]` is machine-enforced, `[review]` is not.
-
-### Python
-
-- **Write as if mypy `--strict` were on.** `[review]` Annotate every signature, avoid `Any`, put type-only references under `TYPE_CHECKING`. The config is not fully strict yet; new code should be. When a change is type-risky run mypy the way CI does — `uv run mypy --cache-fine-grained .`, repo-wide, never a file subset. It follows imports, so a subset misses reverse-dependency breakage.
-- **Imports stay at module level.** `[review]` ruff's `PLC0415` catches this, but `posthog/**`, `ee/**`, `common/**`, `tools/**` and most of `products/` are on grandfathered exemption lists, so CI does not block it in the trees you are most likely to be editing. Defer one only to break a true unavoidable circular import, to reference types under `TYPE_CHECKING`, or to keep a heavy or optional dependency off the import path. For the last case add a justified `# noqa: PLC0415 — keeps the heavy dep off the import path` on the line. Never blanket-suppress the rule.
-- **A stdlib `@dataclass` must declare `frozen=` explicitly.** `[lint: prefer-frozen-dataclasses, test_dataclass_defaults.py]` A bare `@dataclass` fails the ratchet; `@dataclass(frozen=False)` passes it, so intentional mutability is a choice you state.
-- **The house decorator is `@frozen` from `posthog.dataclasses`.** `[review]` Neither check prefers it over a declared stdlib `@dataclass`. Invoke `/writing-dataclasses` before adding or changing one, before returning or passing several values together, and before passing a dataclass through layers.
-- **`product:lint` and the pytest collision test say where an `__init__.py` is required, and print the fix.** `[lint: product:lint, test_pytest_module_collisions.py]` Run them rather than reasoning about it.
-- **Do not add or delete an `__init__.py` speculatively.** `[review]` Whether a directory needs one depends on what sits above it. Neither check objects to a needless one outside `products/` that creates no module-name collision, so only a reader catches that.
-- Prefer classes over loose functions unless a class genuinely does not fit. `[review]` Use `pathlib` over `os.path`. Order functions and methods so a definition appears before its first call.
-
-### Frontend
-
-- **Follow [frontend/src/AGENTS.md](frontend/src/AGENTS.md) for all frontend work** — the main app and `products/*/frontend/` alike, since they share components and generated types. `[review]` It covers reusing Lemon/quill components instead of hand-rolling tables, badges and labels, importing generated `*Api` types instead of handwriting them, and when to run typecheck and typegen.
-- **TypeScript with explicit return types. Business logic goes in the kea logic file, not a React hook.** `[review]`
-- **Guard every network-triggering button against double submission.** `[review]` Disable it and show a loading state (`loading` / `disabledReason` on `LemonButton`, or equivalent) while the request is in flight, and reset in both the success and error paths. Applies to `<form onSubmit>`, any `onClick` that calls `api.*`, and any kea `listener` that issues a request. Wire in the in-flight state from a loader `*Loading` selector, a reducer, or local `useState`.
-- **Every surface must hold up narrow.** `[review]` The nav sidebar plus an open side panel leave a 1280px window about 520px of scene. Break on container queries, not `md:`/`lg:`/`xl:`. Wrap or truncate rather than clip, and stack halves that no longer fit. Render at a few widths before calling it done. We do not support mobile — no phone-width layouts, no touch-sized targets. See "Rule 6" in [frontend/src/AGENTS.md](frontend/src/AGENTS.md).
-- **quill is for MCP apps, the desktop app, and the web app UI behind the `today-rail-nav` feature flag; LemonUI is for the rest of the web app.** `[review]` `today-rail-nav` gates a quill redesign of the whole web app UI, built alongside the current UI and kept behind the flag for months. Build or change UI on that path with quill, and read [frontend/src/design.md](frontend/src/design.md) first: it holds the components, tokens and decision rules. The current UI stays on LemonUI while the flag exists: do not add quill to it or convert it in place. On that flag-off path in `frontend/src/` and `products/*/frontend/` use LemonUI, including menus — `LemonMenu` with a `LemonButton` trigger. `lib/ui/DropdownMenu` (Radix) is legacy; do not add new ones. Where quill is right, do not mix the two inside one component, and remember quill uses Base UI's `render` prop, not Radix's `asChild`. Read [primitives/AGENTS.md](packages/quill/packages/primitives/AGENTS.md) before importing quill — it covers component choice and spacing. Charts: [/working-with-charts](.agents/skills/working-with-charts/SKILL.md) for consumers, [charts/AGENTS.md](packages/quill/packages/charts/AGENTS.md) for library changes. DataTable and DateTimePicker: [components/AGENTS.md](packages/quill/packages/components/AGENTS.md).
-- Use tailwind utility classes over inline styles, and `lib/dayjs` over a direct dayjs import. `[review]` oxlint warns on a `style` prop through `react/forbid-dom-props`, but a warning does not block.
-
-### Comments
-
-- **Explain _why_, not _what_,** and only where a future reader with no access to this PR or chat would otherwise be confused. `[review]` Default to one line. Python tests get no doc comments.
-- **Never log change history or chat context in code.** `[review]` No "previously did X, now does Y", no "per <task/PR>", no "changed because…", no "AI:" or "agent:" notes. That belongs in the commit message and PR description.
-- **When refactoring or moving code, keep the existing comments** unless the change actually makes them obsolete. `[review]`
-- Use ASD-STE100 Simplified Technical English: active voice, simple tenses, one idea per sentence, consistent terms. `[review]`
-
-### Tests
-
-- **Every new test must catch a realistic regression no existing test catches.** `[review]` If you cannot name that regression, do not add the test. Assert observable behavior through the public interface, not implementation details, and keep it cheap — deterministic, isolated, at the lowest level that catches the bug. See `/writing-tests`.
-- **Extend a relevant existing test rather than adding a standalone one** where practical, and parameterize variations of the same behavior (`parameterized` in Python, `test.each` in Jest). `[review]`
-- Jest: one top-level `describe` per file. `[review]` Node.js Jest: `.test.ts` by default, `.serial.test.ts` only when shared mutable infrastructure cannot be isolated (a test that resets a shared database).
-
-### Markdown and prose
-
-- Semantic line breaks, no hard wrapping. American English spelling. `[review]`
+The rules for code style live in [.agents/code-style.md](.agents/code-style.md). Its row in [Read the guide for your area first](#read-the-guide-for-your-area-first) says when to read it.
 
 ## User-facing copy
 
-For any text a person reads (UI labels, tooltips, empty/error states, notifications, docs, support replies). Invoke `/writing-user-facing-copy` before writing or editing it — that skill carries the full voice, em-dash, and feature-naming rules. When unsure whether copy reads well, ask a human.
-
-- Sentence case, not Title Case: capitalize only the first word and proper nouns ('Product analytics', 'Save as view').
-- Avoid the tells of AI-generated text: em dashes (—), "not just X, but Y", rule-of-three padding, hedging preambles. Write like a person typed it; if you can't tell, ask a human.
-- Plain language, no jargon. Use the labels users see, not internal names (`surveyPopupDelaySeconds` becomes "Delay the survey popup").
-- Be direct and friendly: short sentences, consistent tone across surfaces.
-- Errors and empty states guide, don't dead-end: say what happened and the next action.
+Invoke `/writing-user-facing-copy` before you write or edit text a person reads. It carries the voice, sentence-case, em-dash, and feature-naming rules. When unsure whether copy reads well, ask a human.
 
 ## Feature usage tracking
 
-- **Every feature is tracked end to end.** A user's path through a feature, from entry to outcome, emits events that show whether people start it, finish it, and where they drop off.
-- **Features adjacent to your work get tracking too.** A feature is adjacent when it shares a scene or a user flow with your change. When an adjacent feature has no tracking, add it in the same change.
-- **Check usage of tracked adjacent features.** Run a subagent that queries each tracked adjacent feature's usage over the last 6 months.
-  - Fewer than 100 interactions a week counts as low usage. Zero events in 6 months is the extreme case of low usage.
-  - Before you act on low usage, confirm the tracking fires: trigger the feature locally and check that the events arrive. Missing events can mean broken tracking, not an unused feature.
-  - Post each low-usage feature and its usage numbers in the platform UX Slack channel (Channel ID: `C08499A7REU`). The decision to keep or remove the feature is made there. Do not remove a feature before that decision.
+The rules for feature usage tracking live in [.agents/feature-usage-tracking.md](.agents/feature-usage-tracking.md). Its row in [Read the guide for your area first](#read-the-guide-for-your-area-first) says when to read it.
 
 ## Agent automation
 
-When automating a convention, try these in order — only fall back to the next if the previous isn't suitable:
+The rules for agent automation live in [.agents/agent-automation.md](.agents/agent-automation.md). Its row in [Read the guide for your area first](#read-the-guide-for-your-area-first) says when to read it.
 
-1. **Linters** (ruff, oxlint, semgrep) — code pattern enforcement, always paired with CI
-2. **lint-staged / husky** — file-level validation or warnings at commit time
-3. **Skills** (`.agents/skills/`) — scaffold with `hogli init:skill`
-4. **AGENTS.md / CLAUDE.md instructions** — when automated enforcement isn't suitable
-
-Claude Code hooks are reserved for environment bootstrapping (`SessionStart` only) — do not add `PreToolUse`, `PostToolUse`, or `Notification` hooks as they add latency and are fragile.
-Changes to `.claude/hooks/` trigger a warning from the `pre-commit` hook; lint-staged allows only repo-wide keys in `.claude/settings.json`, because personal settings belong in the gitignored `.claude/settings.local.json`.
-A warn-only check belongs in the `pre-commit` hook body rather than in a lint-staged task, because lint-staged discards the output of every task that exits 0.
-
-### Mandatory skill invocation
+## Mandatory skill invocation
 
 Each entry below is a trigger, not a task list: it fires on what the diff contains, whether you are writing that code or reading someone else's.
 ALWAYS invoke the matching skill **first** — do not skip it, and do not attempt the work or the review without loading it.
@@ -321,7 +222,7 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/profiling-slow-api-endpoints` — an endpoint, list, picker, or scene is slow, a p95 latency number needs explaining, or a Postgres query plan needs checking against production rather than a local database
 - `/placing-product-frontend-code` — adding a frontend file or directory for a product, or deciding between `products/<name>/frontend/` and `frontend/src/scenes/<name>/`
-- [`products/conversations/skills/organizing-conversations-code/SKILL.md`](products/conversations/skills/organizing-conversations-code/SKILL.md) — adding, moving, renaming, or reviewing files under `products/conversations/`
+- `/organizing-conversations-code` — adding, moving, renaming, or reviewing files under `products/conversations/`
 - `/integrating-with-posthog-ai` — making a product surface work with PostHog AI: injecting scene context or custom instructions, reacting to the agent's tool calls, or rendering your product's tool cards in a thread
 - `/sending-notifications` — adding notification support
 - `/routing-outbound-api-calls` — adding or changing Python code that calls a third-party HTTP API, or changing any domain under `posthog/egress/` (budget, lanes, identity, metrics, headers)
