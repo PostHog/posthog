@@ -22,14 +22,17 @@ export function FeatureFlagFilterTooltip({ flagKey }: { flagKey: string }): JSX.
             {summary.conditionCount !== null && (
                 <div>{pluralize(summary.conditionCount, 'release condition', 'release conditions')}</div>
             )}
-            {summary.variants.length > 0 ? (
-                <div>
-                    Variants:{' '}
-                    {summary.variants.map((variant) => `${variant.key} (${variant.rollout_percentage}%)`).join(', ')}
-                </div>
-            ) : (
-                <div>No variants (true or false)</div>
-            )}
+            {summary.variants &&
+                (summary.variants.length > 0 ? (
+                    <div>
+                        Variants:{' '}
+                        {summary.variants
+                            .map((variant) => `${variant.key} (${variant.rollout_percentage}%)`)
+                            .join(', ')}
+                    </div>
+                ) : (
+                    <div>No variants (true or false)</div>
+                ))}
         </div>
     )
 }

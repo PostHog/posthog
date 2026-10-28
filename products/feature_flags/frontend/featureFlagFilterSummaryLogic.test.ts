@@ -41,13 +41,22 @@ describe('featureFlagFilterSummaryLogic', () => {
         [
             'leaves conditions out for a flag config the UI cannot read',
             [{ key: 'my-flag', active: true, filters: { version: 2, rules: [] } }],
-            { active: true, conditionCount: null, variants: [] },
+            { active: true, conditionCount: null, variants: null },
+        ],
+        [
+            'treats a flag with empty filters as a boolean flag with no conditions',
+            [{ key: 'my-flag', active: true, filters: {} }],
+            { active: true, conditionCount: 0, variants: [] },
         ],
         ['has no summary when no flag has the key', [], null],
     ])('%s', async (_name, results, expectedSummary) => {
         useMocks({
             get: {
-                '/api/projects/:team_id/feature_flags/': () => [200, { count: results.length, results }],
+                '/api/projects/:team_id/feature_flags/': ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    const isLookupForKey = params.get('key') === 'my-flag' && params.get('limit') === '1'
+                    return [200, { count: results.length, results: isLookupForKey ? results : [] }]
+                },
             },
         })
         initKeaTests()

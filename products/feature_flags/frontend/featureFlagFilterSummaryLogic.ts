@@ -15,7 +15,7 @@ export interface FeatureFlagFilterSummaryLogicProps {
 
 export interface FeatureFlagFilterSummary {
     active: boolean
-    variants: MultivariateFlagVariant[]
+    variants: MultivariateFlagVariant[] | null
     conditionCount: number | null
 }
 
@@ -68,9 +68,16 @@ export const featureFlagFilterSummaryLogic = kea<featureFlagFilterSummaryLogicTy
         flag: [
             null as FeatureFlagApi | null,
             {
-                loadFlag: async () =>
-                    (await featureFlagsList(String(values.currentProjectId), { key: props.flagKey, limit: 1 }))
-                        .results[0] ?? null,
+                loadFlag: async () => {
+                    if (!values.currentProjectId) {
+                        return null
+                    }
+                    const response = await featureFlagsList(String(values.currentProjectId), {
+                        key: props.flagKey,
+                        limit: 1,
+                    })
+                    return response.results[0] ?? null
+                },
             },
         ],
     })),
@@ -85,8 +92,8 @@ export const featureFlagFilterSummaryLogic = kea<featureFlagFilterSummaryLogicTy
                 const isV1 = !!filters && isV1FeatureFlagConfig(filters)
                 return {
                     active: !!flag.active,
-                    variants: isV1 ? (filters.multivariate?.variants ?? []) : [],
-                    conditionCount: isV1 ? filters.groups.length : null,
+                    variants: isV1 ? (filters.multivariate?.variants ?? []) : null,
+                    conditionCount: isV1 ? (filters.groups?.length ?? 0) : null,
                 }
             },
         ],
