@@ -1522,6 +1522,16 @@ class TrinoPrinter(PostgresPrinter):
         raise ImpossibleASTError(f"Unknown ArithmeticOperationOp {node.op}")
 
     def _resolve_type(self, node: ast.Expr) -> ast.ConstantType | None:
+        # Lowerings ask for the same operand types at every nesting level, so uncached lookups grow exponentially.
+        cache: dict[int, tuple[ast.Expr, ast.ConstantType | None]] = self.__dict__.setdefault("_resolved_types", {})
+        cached = cache.get(id(node))
+        if cached is not None and cached[0] is node:
+            return cached[1]
+        resolved = self._resolve_type_uncached(node)
+        cache[id(node)] = (node, resolved)
+        return resolved
+
+    def _resolve_type_uncached(self, node: ast.Expr) -> ast.ConstantType | None:
         if isinstance(node, ast.Call) and node.name.lower() in TRINO_TUPLE_OPERATORS:
             if node.name.lower() == "tuplehammingdistance":
                 return ast.IntegerType()
@@ -1539,6 +1549,11 @@ class TrinoPrinter(PostgresPrinter):
             and node.op
             in (ast.ArithmeticOperationOp.Add, ast.ArithmeticOperationOp.Sub, ast.ArithmeticOperationOp.Mult)
             and any(isinstance(self._resolve_type(side), ast.FloatType) for side in (node.left, node.right))
+            # Date arithmetic prints as date_add, which keeps the date type.
+            and not any(
+                isinstance(self._resolve_type(side), (ast.DateType, ast.DateTimeType))
+                for side in (node.left, node.right)
+            )
         ):
             return ast.FloatType()
         # ClickHouse rounding functions return their argument's type, but the function registry declares no signature.
