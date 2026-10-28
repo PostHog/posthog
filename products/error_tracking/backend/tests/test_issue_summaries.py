@@ -434,6 +434,8 @@ class TestIssueSummaryGeneration(BaseTest):
         fetch = self.enterContext(
             patch.object(issue_created_activities, "fetch_event_properties", return_value={"$lib": "web"})
         )
+        capture = MagicMock()
+        self.enterContext(patch.object(issue_summaries, "ph_background_capture", return_value=capture))
         if arrange is not None:
             arrange(self)
 
@@ -442,6 +444,7 @@ class TestIssueSummaryGeneration(BaseTest):
         assert outcome == expected.value
         assert self.llm_calls == (1 if expected == IssueSummaryOutcome.GENERATED else 0)
         assert fetch.called is (expected == IssueSummaryOutcome.GENERATED)
+        assert capture.called is (ISSUE_SUMMARY_ON_WRITE_FLAG not in flags_off)
 
     def _drain_write_budget(self, team_id: int) -> None:
         tiny = Budget(burst=1, per_hour=1)
