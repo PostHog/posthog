@@ -154,6 +154,7 @@ from products.signals.backend.scout_report.judge import (
 from products.signals.backend.slack_formatting import strip_chart_references
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
 
 if TYPE_CHECKING:
     from products.signals.backend.scout_harness.trial_state import ScoutTrialStore, TrialReport
@@ -1473,6 +1474,28 @@ def _settled_repository(report_id: str) -> str | None:
     return selection.repository if selection is not None else None
 
 
+def _with_scout_research_context(
+    team: Team, run: SignalScoutRun | None, selection: RepoSelectionResult | None
+) -> RepoSelectionResult | None:
+    metadata = (run.metadata or {}) if run is not None else {}
+    if run is None or not metadata.get("github_optional"):
+        return selection
+    task_run = tasks_facade.get_task_run(run.task_run_id, team_id=team.id)
+    state = task_run.state if task_run else {}
+    if not metadata.get("repositories") and "github_read_access_available" not in state:
+        return selection
+    code_available = bool(metadata.get("repositories") or state.get("github_read_access_available"))
+    if selection is None:
+        selection = RepoSelectionResult(
+            repository=None, reason="The scout did not select a repository.", autostart_eligible=False
+        )
+    selection.research_context = ReportResearchContext(
+        mode="code" if code_available else "data_only",
+        repository_status="available" if code_available else "github_unavailable",
+    )
+    return selection
+
+
 async def _resolve_report_repository(
     *,
     team_id: int,
@@ -2218,6 +2241,10 @@ async def emit_report(
         if surfaced
         else None
     )
+    if surfaced:
+        repo_selection = await database_sync_to_async(_with_scout_research_context, thread_sensitive=False)(
+            team, run, repo_selection
+        )
     if surfaced and reviewers is not None:
         # Re-stamp owner provenance from the live owner set after the judge wait (see
         # `_stamp_owner_provenance`) — autostart trusts the stored stamp.
@@ -2415,6 +2442,8 @@ def emit_report_sync(
         if surfaced
         else None
     )
+    if surfaced:
+        repo_selection = _with_scout_research_context(team, run, repo_selection)
     if surfaced and reviewers is not None:
         # Re-stamp owner provenance from the live owner set after the judge wait (see
         # `_stamp_owner_provenance`) — autostart trusts the stored stamp.

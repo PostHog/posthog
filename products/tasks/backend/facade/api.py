@@ -8170,7 +8170,13 @@ def create_task(
         and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
     )
     if (validated_data.get("repository") or entitled_report_task) and not validated_data.get("github_integration"):
-        default_integration = Integration.objects.filter(team=team, kind="github").first()
+        if signal_report is not None:
+            integration_id = _report_task_github_integration_id(team, code_access_allowed=True)
+            default_integration = (
+                Integration.objects.filter(id=integration_id).first() if integration_id is not None else None
+            )
+        else:
+            default_integration = Integration.objects.filter(team=team, kind="github").first()
         if default_integration:
             validated_data["github_integration"] = default_integration
 
@@ -8219,6 +8225,26 @@ def create_task(
     if refuse_without_repository and signal_report is not None:
         _capture_report_task_refused_without_repository(team=team, report_id=str(signal_report.id))
         raise ValidationError({"repository": REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED})
+
+    if signal_report is not None and signal_report_task_relationship in (None, "implementation"):
+        from products.signals.backend.facade.github_optional import (  # noqa: PLC0415 - keeps the signals model graph out of tasks facade initialization
+            github_optional_pilot_enabled,
+            pilot_repository_integration_id,
+        )
+
+        if github_optional_pilot_enabled(team_id):
+            integration_id = (
+                pilot_repository_integration_id(team_id, validated_data["repository"])
+                if validated_data.get("repository")
+                else None
+            )
+            if integration_id is None:
+                raise ValidationError(
+                    {
+                        "repository": "Connect or repair GitHub access to the selected repository before creating a pull request."
+                    }
+                )
+            validated_data["github_integration"] = Integration.objects.get(team_id=team_id, id=integration_id)
 
     logger.info("Creating task with data: %s", validated_data)
     with transaction.atomic():
@@ -9037,6 +9063,12 @@ def _activate_warm_run(
 def _report_task_github_integration_id(team: Team, *, code_access_allowed: bool) -> int | None:
     if not code_access_allowed:
         return None
+    from products.signals.backend.facade.github_optional import (
+        github_optional_pilot_enabled,  # noqa: PLC0415 - keeps the signals model graph out of tasks facade initialization
+    )
+
+    if github_optional_pilot_enabled(team.id):
+        return readonly_github_integration_id(team.id)
     integration = Integration.objects.filter(team=team, kind="github").first()
     return integration.id if integration is not None else None
 
