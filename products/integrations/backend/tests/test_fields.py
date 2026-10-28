@@ -6,6 +6,7 @@ from parameterized import parameterized
 from rest_framework import serializers
 
 from posthog.models import Team
+from posthog.models.comment.slack_thread import CommentSlackThread
 from posthog.models.integration import ANY, Integration
 
 from products.integrations.backend.presentation.fields import IntegrationReferenceField
@@ -80,3 +81,38 @@ class TestIntegrationReferenceField(BaseTest):
             self.slack.id,
             self.slack.id,
         )
+
+
+class _ReadSerializer(serializers.Serializer):
+    integration = IntegrationReferenceField(allow_null=True)
+
+
+class _Holder:
+    def __init__(self, integration: Integration | None) -> None:
+        self.integration = integration
+
+
+class TestIntegrationReferenceFieldRead(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.slack = Integration.objects._with_auth(ANY).create(team=self.team, kind="slack", integration_id="s")
+
+    def test_reads_the_foreign_key_column_without_a_query(self) -> None:
+        thread = CommentSlackThread(team=self.team, integration_id=self.slack.id)
+
+        with self.assertNumQueries(0):
+            data = _ReadSerializer(thread).data
+
+        assert data == {"integration": self.slack.id}
+
+    @parameterized.expand(
+        [
+            ("model_field_null", lambda self: CommentSlackThread(team=self.team, integration_id=None), None),
+            ("plain_attribute", lambda self: _Holder(self.slack), "slack"),
+            ("plain_attribute_null", lambda self: _Holder(None), None),
+        ]
+    )
+    def test_represents(self, _name: str, build: Any, expected: str | None) -> None:
+        data = _ReadSerializer(build(self)).data
+
+        assert data == {"integration": None if expected is None else getattr(self, expected).id}
