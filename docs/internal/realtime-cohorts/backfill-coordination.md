@@ -132,11 +132,24 @@ The processor walks the cohort with its own current catalog and checks only the 
 The creator pins:
 
 - on each participation: the cohort's full `filters` JSON, its definition hash, and the shape hash of the run's kind,
-- on a behavioral run: every behavioral condition to replay, with its condition hash, window fields, operator, threshold, window in days and event name, plus the union of event names to scan,
+- on a behavioral run: every behavioral condition to replay, with its condition hash, window fields, operator, threshold, window in days and event name, plus the union of event names to scan and `flag_calls_table`, the table the seeder reads `$feature_flag_called` from,
 - on a person run: every person condition hash to evaluate, and a **horizon**: only persons whose record changed within the last N days are scanned.
 
 The seeder builds its catalog from these pinned filters with the same `cohort-core` code the processor uses.
 The finalizer later compares the pinned hash, and the pinned filters, with the cohort's current ones.
+
+`flag_calls_table` is `events` or `flag_evaluations`, and `schema_version` stays 1.
+The seeder reads a missing key as `events` and fails the run on any other value, so both behavioral creators write the key on every run.
+The creator pins `flag_evaluations` only when every cohort in the run that has a `$feature_flag_called` condition meets both rules:
+
+- The batch calculation reads every flag call of that cohort from `flag_evaluations`. The creator compiles the cohort's batch query to check this, so the seeder and the batch calculation read the same table.
+- Every `$feature_flag_called` window in that cohort is relative and has no end date, so it moves with the run's boundary. `flag_evaluations` drops rows after 90 days. When the seeder scans a day that a relative window still covers, the table still holds that day. The first day of a fixed date range can leave the table before the seeder scans it, while `events` still holds it. This rule does not apply to an organization whose flag calls are only in `flag_evaluations`, because `events` holds none of its new flag calls.
+
+A cohort without a `$feature_flag_called` condition does not affect the choice.
+When a cohort's batch query does not compile, the creator refuses the run.
+The save path refuses with reason `flag_calls_table_unresolved`, and the team creator raises an error that names the cohort.
+In an organization whose flag calls are only in `flag_evaluations`, a run that pinned `events` would give the cohort an empty flag-call history that still counts as backfilled.
+The pin does not change after the creator writes it, so every chunk and every retry reads the same table even if the organization's flag evaluations mode changes during the run.
 
 An edit that invalidates the run's kind supersedes it.
 A cohort-scoped run then stops at the seeder's next lease renewal.
@@ -188,6 +201,7 @@ Two management commands cover operator work.
   It can narrow the run to chosen cohorts, which is how an operator re-drives one cohort whose trigger was lost.
   It refuses when an attestation is missing or when a target cohort already has an open participation, and it supports a dry run.
   For a behavioral run it first counts the team's events on the pinned event names over the last 7 complete UTC days, through the `events` primary key on the offline cluster.
+  When the run will pin `flag_evaluations`, it counts `$feature_flag_called` from `flag_evaluations` instead.
   It prints the busiest day and its largest events, refuses above the behavioral scan limit, and records the count in the run's `preconditions`.
   The count is a recent sample, not a bound: an older day, or a day in the run's timezone, can hold more events.
   The seeder reads fewer rows when every condition on an event name filters on event property values.
