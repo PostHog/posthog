@@ -118,3 +118,7 @@ def settle_usage(bet: Bet, source: str, cumulative_cents: int, work: WorkItem | 
         key=f"usage:{bet.id}:{source}:{cumulative_cents}",
         source_ref=source,
     )
+
+
+def used_up(money: Money) -> bool:
+    return money.available_cents <= 0 and money.reserved_cents <= 0

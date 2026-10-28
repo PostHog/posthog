@@ -91,3 +91,8 @@ def plan(spread: Spread, *, mde: float, audience: int, weekly: bool, floor_days:
     if weekly:
         days = math.ceil(days / 7) * 7
     return Plan(days=days, mde=mde, audience=audience, weekly=weekly, too_long=days > MAX_DAYS)
+
+
+def extend_question(planned: dict) -> str:
+    extra = planned["proposed_days"] - planned["days"]
+    return f"The traffic is lower than planned. It needs {extra} more days. Extend or stop?"

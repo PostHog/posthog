@@ -249,9 +249,13 @@
     }
 
     .Bets__statusAction {
-        grid-row: 1 / span 2;
+        grid-row: 1;
         grid-column: 3;
         align-self: center;
+
+        &[data-tall] {
+            grid-row: 1 / span 2;
+        }
     }
 
     .Bets__statusIdea {

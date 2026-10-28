@@ -15,6 +15,7 @@ from ..models import Bet, BetsSettings, LedgerEntry, WorkItem
 from .ledger import append, totals
 from .loop import add_owner_idea, end_experiment, finish
 from .metrics import validate_goal
+from .stages import OPEN
 from .workspace import get_settings, project_id
 
 if TYPE_CHECKING:
@@ -23,7 +24,6 @@ if TYPE_CHECKING:
 GOAL_FIELDS = frozenset(
     {"goal_insight", "goal_description", "goal_metric", "target", "direction", "secondary_metrics", "repositories"}
 )
-OPEN = (WorkStage.WORKING, WorkStage.REVIEW, WorkStage.LIVE)
 
 
 def validate_insights(team: Team, user: User, data: dict) -> None:

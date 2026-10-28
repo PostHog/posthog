@@ -245,7 +245,7 @@ class TestBetLoop(APIBaseTest):
         )
         self.patch(
             f"{loop}.metric",
-            side_effect=lambda *args: Metric(
+            side_effect=lambda *args, **kwargs: Metric(
                 name="Share rate",
                 values=world.metric_values,
                 dates=[],
@@ -551,7 +551,15 @@ class TestBetLoop(APIBaseTest):
             if idea.task_run_id:
                 self.world.finish(idea)
         self.tick(bet)
-        assert self.only(bet, "idea").stage == "stuck"
+        stuck = self.only(bet, "idea")
+        assert stuck.stage == "stuck"
+        self.new_report("Copy the link after upload")
+        self.tick(bet)
+        assert "Choose an idea to build" not in [item["title"] for item in next_actions(bet)]
+        assert self.work(bet, stuck, "drop").status_code == 200
+        stuck.refresh_from_db(using=WRITER_DB)
+        assert stuck.stage == "dropped"
+        assert "Choose an idea to build" in [item["title"] for item in next_actions(bet)]
 
     def test_create_retry_keeps_one_bet_and_one_allocation(self) -> None:
         operation_id = str(uuid4())

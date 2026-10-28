@@ -7,8 +7,9 @@ from products.signals.backend.facade import api as signals
 from ..db import WRITER_DB
 from ..facade.enums import BetStatus, WorkKind, WorkStage
 from ..models import Bet, WorkItem
-from .ledger import totals
-from .plan import EXPOSURE_GRACE
+from .ledger import totals, used_up
+from .plan import EXPOSURE_GRACE, extend_question
+from .stages import OPEN
 
 EMPTY_SCOUT_RUNS = 2
 
@@ -104,7 +105,7 @@ def next_actions(bet: Bet) -> list[NextAction]:
             bet=bet,
             goal_version=bet.goal_version,
             kind=WorkKind.IDEA,
-            stage__in=[WorkStage.WORKING, WorkStage.REVIEW, WorkStage.LIVE],
+            stage__in=OPEN,
         )
     )
     if (count := proposed.count()) and not building.exists():
@@ -125,7 +126,9 @@ def next_actions(bet: Bet) -> list[NextAction]:
     ):
         if work.stage == WorkStage.LIVE:
             if work.plan.get("proposed_days"):
-                result.append(action(bet, f"{work.id}:extend", work.title, work.note, "Extend or stop", 0, work))
+                result.append(
+                    action(bet, f"{work.id}:extend", work.title, extend_question(work.plan), "Extend or stop", 0, work)
+                )
             elif unseen(work):
                 result.append(
                     action(bet, f"{work.id}:unseen", work.title, work.note, "Check the deploy", 0, work, work.pr_url)
@@ -159,7 +162,7 @@ def next_actions(bet: Bet) -> list[NextAction]:
                     1,
                 )
             )
-    if bet.status == BetStatus.RUNNING and totals(bet.team_id, bet).available_cents <= 0:
+    if bet.status == BetStatus.RUNNING and used_up(totals(bet.team_id, bet)):
         result.append(
             action(bet, "budget", "The budget is used up", "Add budget to keep going, or close the bet.", "Budget", 0)
         )

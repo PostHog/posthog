@@ -14,7 +14,7 @@ from products.tasks.backend.facade import api as tasks
 from ..adapters.identity import Member, PostHogIdentity
 from ..db import WRITER_DB
 from ..facade.contracts import Metric
-from ..facade.enums import BetsAccessLevel, BetStatus, IdeaOutcome, LedgerKind, ModelStep, WorkKind, WorkStage
+from ..facade.enums import BetsAccessLevel, IdeaOutcome, LedgerKind, ModelStep, WorkKind, WorkStage
 from ..models import Bet, BetsSettings, LedgerEntry, WorkItem
 from .ledger import totals
 from .metrics import metric, proposed_plan
@@ -103,7 +103,7 @@ def entry(
         "spend_pending": money.reserved_cents > 0,
         "ideas_tried": sum(1 for outcome in ideas if outcome and outcome != IdeaOutcome.DROPPED),
         "ideas_won": sum(1 for outcome in ideas if outcome == IdeaOutcome.WON),
-        "needs_you": bet.status in (BetStatus.SETTING_UP, BetStatus.RUNNING) and bool(actions),
+        "needs_you": bool(actions),
     }
 
 

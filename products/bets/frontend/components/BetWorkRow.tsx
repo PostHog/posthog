@@ -151,7 +151,7 @@ export function BetWorkRow({ item, bet }: { item: BetsWorkApi; bet: BetsDetailAp
                             )}
                         </div>
                         <div className="TodayRow__detailFooter gap-3">
-                            {bet.is_owner && idea && isOpen(item) && item.stage !== 'stuck' && !needsDecision && (
+                            {bet.is_owner && idea && isOpen(item) && !needsDecision && (
                                 <Button
                                     size="sm"
                                     variant="link-muted"

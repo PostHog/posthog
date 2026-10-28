@@ -44,7 +44,7 @@ from ..facade.enums import (
 from ..models import Bet, LedgerEntry, WorkItem
 from . import access
 from .baseline import baseline
-from .ledger import append, totals
+from .ledger import append, totals, used_up
 from .metrics import metric, proposed_plan, refresh_metrics, validate_goal
 from .notify import notify_owner
 from .plan import (
@@ -53,11 +53,13 @@ from .plan import (
     MIN_DAYS,
     MIN_OBSERVATIONS,
     control_spread,
+    extend_question,
     plan as make_plan,
 )
 from .prompts import instructions
 from .scout import scout_body, scout_failure, scout_job
 from .spend import reconcile_spend, spend_pending
+from .stages import ACTIVE, OPEN
 from .step_models import run_settings
 from .usage import track_from_task
 from .verdict import Verdict, verdict
@@ -73,7 +75,6 @@ IDEA_REPORT_STATUSES = ("ready", "pending_input")
 LEASE = timedelta(minutes=10)
 HARM_CONFIRM = timedelta(hours=12)
 GOAL_POINTS = 3
-OPEN = (WorkStage.WORKING, WorkStage.REVIEW, WorkStage.LIVE)
 OWNER_TITLE = re.compile(r"^\s*(?:bet idea:\s*)?owner idea (\d+)\s*[:.\-]\s*", re.IGNORECASE)
 VERDICT = re.compile(r"^\W*(not supported|supported)\b", re.IGNORECASE)
 AUDIENCE = re.compile(r"^\W*audience\W*:\D*([\d,]+)", re.IGNORECASE | re.MULTILINE)
@@ -373,11 +374,6 @@ def end_experiment(bet: Bet, work: WorkItem) -> None:
         logger.warning("bets.end_experiment_failed", bet_id=str(bet.id), work_id=str(work.id))
 
 
-def extend_question(planned: dict) -> str:
-    extra = planned["proposed_days"] - planned["days"]
-    return f"The traffic is lower than planned. It needs {extra} more days. Extend or stop?"
-
-
 def replan(team: Team, user: User, bet: Bet, work: WorkItem, data: dict) -> dict:
     settings = get_settings(bet.team_id)
     planned = dict(work.plan)
@@ -447,7 +443,7 @@ def follow_cleanup(team: Team, user: User, bet: Bet, idea: WorkItem) -> None:
 
 def goal_reached(team: Team, user: User, bet: Bet) -> bool:
     refresh_metrics(team, user, [bet.goal_insight])
-    values = metric(team, user, bet.goal_insight).values[-GOAL_POINTS:]
+    values = metric(team, user, bet.goal_insight, complete=True).values[-GOAL_POINTS:]
     if not values or bet.target is None:
         return False
     current = fmean(values)
@@ -754,7 +750,7 @@ def step(team: Team, user: User, bet: Bet) -> str:
         if bet.status in ENDED:
             return_unused(bet)
         return ""
-    open_items = list(items(bet).filter(stage__in=OPEN).order_by("created_at"))
+    open_items = list(items(bet).filter(stage__in=ACTIVE).order_by("created_at"))
     tasks.refresh_pull_requests_for_tasks(bet.team_id, user.id, [work.task_id for work in open_items if work.task_id])
     for work in open_items:
         observe(team, user, bet, work)
@@ -793,7 +789,7 @@ def step(team: Team, user: User, bet: Bet) -> str:
         confirmed, goal_note = goal_check(team, user, bet, idea_open)
         if confirmed:
             return stop(bet, BetStatus.REACHED, team, user)
-        if not idea_open and money.available_cents <= 0 and money.reserved_cents <= 0:
+        if not idea_open and used_up(money):
             return stop(bet, BetStatus.SPENT, team, user)
         job, reason = scout_job(bet)
         failure = scout_failure(bet) if job else None
@@ -807,7 +803,9 @@ def step(team: Team, user: User, bet: Bet) -> str:
             set_scout(bet, False)
             note = goal_note or reason
     dispatched = dispatch(bet, user)
-    current = items(bet).filter(stage__in=OPEN).order_by("created_at").first()
+    current = (
+        items(bet).filter(stage__in=OPEN, kind__in=[WorkKind.IDEA, WorkKind.TRACKING]).order_by("created_at").first()
+    )
     return dispatched or (current.note if current else "") or note
 
 
@@ -938,7 +936,8 @@ def act(
     elif action == "retry" and work.stage == WorkStage.STUCK:
         if work.kind == WorkKind.IDEA and items(bet).filter(kind=WorkKind.IDEA, stage__in=OPEN).exists():
             raise ValidationError("Another idea is in progress. Wait for its result.")
-        move(work, WorkStage.WORKING, work.note, attempts=0, task_run_id=None)
+        resume = WorkStage.LIVE if work.merged_at else WorkStage.REVIEW if work.pr_url else WorkStage.WORKING
+        move(work, resume, work.note, attempts=0, task_run_id=None)
     elif action == "extend" and work.stage == WorkStage.LIVE and work.plan.get("proposed_days"):
         planned = {key: value for key, value in work.plan.items() if key != "proposed_days"}
         move(work, WorkStage.LIVE, "Extended by the owner.", plan={**planned, "days": work.plan["proposed_days"]})

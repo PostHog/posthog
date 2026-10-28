@@ -16,6 +16,7 @@ from ..facade.enums import BetStatus, IdeaSource, WorkKind, WorkStage
 from ..models import Bet, WorkItem
 from .ledger import totals
 from .prompts import bet_context, history
+from .stages import OPEN
 
 
 def scout_body(bet: Bet) -> str:
@@ -61,7 +62,6 @@ def source_bet(team_id: int, source_id: str) -> Bet | None:
 
 FIND = "find"
 CHECK = "check"
-TESTING = (WorkStage.WORKING, WorkStage.REVIEW, WorkStage.LIVE)
 DISMISS_LIMIT = 10
 EMPTY_LOOKBACK = 8
 EMPTY_PAUSE = timedelta(minutes=30)
@@ -75,7 +75,7 @@ def scout_job(bet: Bet) -> tuple[str, str]:
         return ("", "The bet has no budget left.")
     ideas = WorkItem.objects.for_team(bet.team_id).using(WRITER_DB).filter(bet=bet, goal_version=bet.goal_version)
     unchecked = ideas.filter(source=IdeaSource.OWNER, stage=WorkStage.PROPOSED, report_id=None).exists()
-    if ideas.filter(kind=WorkKind.IDEA, stage__in=TESTING).exists():
+    if ideas.filter(kind=WorkKind.IDEA, stage__in=OPEN).exists():
         if unchecked:
             return (CHECK, "Checking your idea while the current idea is tested.")
         return ("", "The bet is already testing an idea.")
@@ -122,7 +122,7 @@ def live_flag(bet: Bet) -> str:
     live = (
         WorkItem.objects.for_team(bet.team_id)
         .using(WRITER_DB)
-        .filter(bet=bet, goal_version=bet.goal_version, kind=WorkKind.IDEA, stage__in=TESTING)
+        .filter(bet=bet, goal_version=bet.goal_version, kind=WorkKind.IDEA, stage__in=OPEN)
         .first()
     )
     return live.flag_key if live else ""

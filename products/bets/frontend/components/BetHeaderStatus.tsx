@@ -25,7 +25,9 @@ export function BetHeaderStatus({ bet }: { bet: BetsDetailApi }): JSX.Element {
     const { setExpandedWork } = useActions(betLogic({ id: bet.id }))
     const { goalConfirmAt } = useValues(betLogic({ id: bet.id }))
     const live = ['setting_up', 'running'].includes(bet.status)
-    const current = bet.work.find((item) => item.goal_version === bet.goal_version && isOpen(item))
+    const current = bet.work.find(
+        (item) => item.goal_version === bet.goal_version && item.kind !== 'cleanup' && isOpen(item)
+    )
     const testing = live && current?.kind === 'idea' ? current : null
     const target = live && bet.next_action?.id.endsWith(':target') ? bet.next_action : null
     const step = !live
@@ -101,6 +103,7 @@ export function BetHeaderStatus({ bet }: { bet: BetsDetailApi }): JSX.Element {
                     variant="primary"
                     size="sm"
                     className="Bets__statusAction"
+                    data-tall={note ? true : undefined}
                     render={<LinkPrimitive to={urls.betEdit(bet.id)} />}
                     data-attr="bets-header-set-target"
                 >
@@ -112,6 +115,7 @@ export function BetHeaderStatus({ bet }: { bet: BetsDetailApi }): JSX.Element {
                         variant="outline"
                         size="sm"
                         className="Bets__statusAction"
+                        data-tall={note ? true : undefined}
                         onClick={() => document.getElementById('bet-ideas')?.scrollIntoView({ behavior: 'smooth' })}
                         data-attr="bets-header-choose-idea"
                     >
