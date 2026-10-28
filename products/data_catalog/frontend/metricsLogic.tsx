@@ -262,6 +262,8 @@ export const metricsLogic = kea<metricsLogicType>([
             DEFAULT_METRICS_FILTERS as MetricsFilters,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
+                // Set here rather than through setFilters, so a card click reports one event, not two.
+                toggleStage: (state, { stage }) => ({ ...state, status: state.status === stage ? 'all' : stage }),
             },
         ],
         creatingMetricAs: [
@@ -339,9 +341,7 @@ export const metricsLogic = kea<metricsLogicType>([
     }),
     listeners(({ values, actions }) => ({
         toggleStage: ({ stage }) => {
-            const status: MetricStatusFilter = values.filters.status === stage ? 'all' : stage
-            actions.setFilters({ status })
-            posthog.capture('data catalog stage card clicked', { stage, status })
+            posthog.capture('data catalog stage card clicked', { stage, status: values.filters.status })
         },
         setFilters: async ({ filters }, breakpoint) => {
             // The search box dispatches on every keystroke, so wait for typing to settle before reporting.

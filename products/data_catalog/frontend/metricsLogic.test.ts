@@ -256,7 +256,7 @@ describe('metricsLogic', () => {
         expect(logic.values.metrics.map((metric) => metric.name)).toEqual(['b'])
     })
 
-    it('filters to drifted metrics of any status from the stage strip and resets on a second click', async () => {
+    it('filters to drifted metrics of any status from the stage strip, reports one event per click, and resets on a second click', async () => {
         const proposed = buildMetric({ id: 'metric-1', name: 'proposed' })
         const approvedDrifted = buildMetric({
             id: 'metric-2',
@@ -269,8 +269,18 @@ describe('metricsLogic', () => {
 
         expect(logic.values.stageCounts).toEqual({ proposed: 1, approved: 2, drifted: 1 })
 
-        logic.actions.toggleStage('drifted')
-        expect(logic.values.metrics).toEqual([approvedDrifted])
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] })
+        try {
+            logic.actions.toggleStage('drifted')
+            expect(logic.values.metrics).toEqual([approvedDrifted])
+
+            await jest.advanceTimersByTimeAsync(500)
+            expect(capture.mock.calls.map(([event]) => event)).toEqual(['data catalog stage card clicked'])
+        } finally {
+            jest.useRealTimers()
+            capture.mockRestore()
+        }
 
         logic.actions.toggleStage('drifted')
         expect(logic.values.filters.status).toEqual('all')
