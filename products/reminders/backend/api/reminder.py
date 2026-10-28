@@ -173,11 +173,12 @@ class ReminderSerializer(serializers.ModelSerializer):
         if scoped_organizations is not None:
             organization_ids = [id for id in organization_ids if str(id) in scoped_organizations]
         organization_field = cast(serializers.PrimaryKeyRelatedField, self.fields["organization"])
-        organization_field.queryset = Organization.objects.filter(id__in=organization_ids)
+        organization_field.queryset = Organization.objects.filter(id__in=organization_ids)  # type: ignore[arg-type]  # DRF stubs type queryset as a Manager, which django-stubs treats as a descriptor
         teams = Team.objects.filter(organization_id__in=organization_ids)
         if scoped_teams is not None:
             teams = teams.filter(id__in=scoped_teams)
-        cast(serializers.PrimaryKeyRelatedField, self.fields["team"]).queryset = teams
+        team_field = cast(serializers.PrimaryKeyRelatedField, self.fields["team"])
+        team_field.queryset = teams  # type: ignore[arg-type]  # DRF stubs type queryset as a Manager, which django-stubs treats as a descriptor
 
     class Meta:
         model = Reminder

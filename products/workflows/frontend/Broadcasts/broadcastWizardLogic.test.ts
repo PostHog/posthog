@@ -624,7 +624,20 @@ describe('broadcastWizardLogic', () => {
         expect(router.values.location.pathname).toContain('/workflows/broadcast-1/workflow')
     })
 
-    it('creates the draft and stores its send time when the workflow editor opens before any Continue', async () => {
+    it.each([
+        {
+            firstSave: 'the workflow editor opens',
+            step: 'review' as const,
+            save: (): void => logic.actions.openInWorkflowEditorConfirmed(),
+            path: '/workflows/broadcast-1/workflow',
+        },
+        {
+            firstSave: 'Continue saves the schedule step',
+            step: 'schedule' as const,
+            save: (): void => logic.actions.continueStep(),
+            path: '/broadcasts/broadcast-1',
+        },
+    ])('creates the draft and stores its send time when $firstSave before any other save', async (testCase) => {
         const createdSchedules: Record<string, any>[] = []
         useMocks({
             post: {
@@ -639,17 +652,13 @@ describe('broadcastWizardLogic', () => {
         router.actions.push('/broadcasts/new')
         logic.actions.setScheduleMode('later')
         logic.actions.setSendAt(sendAt)
-        logic.actions.setStep('review')
+        logic.actions.setStep(testCase.step)
         releaseCreate()
 
-        await expectLogic(logic, () => {
-            logic.actions.openInWorkflowEditorConfirmed()
-        })
-            .toDispatchActions(['saveBroadcastFinished'])
-            .toFinishAllListeners()
+        await expectLogic(logic, testCase.save).toDispatchActions(['saveBroadcastFinished']).toFinishAllListeners()
 
         expect(createdSchedules).toEqual([expect.objectContaining({ starts_at: sendAt, rrule: expect.any(String) })])
-        expect(router.values.location.pathname).toContain('/workflows/broadcast-1/workflow')
+        expect(router.values.location.pathname).toContain(testCase.path)
     })
 
     it('keeps an email edit made while Continue is saving and moves to the draft URL after it saves', async () => {

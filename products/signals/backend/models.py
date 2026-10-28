@@ -489,6 +489,12 @@ class SignalReport(UUIDModel):
     latest_actionability = models.CharField(max_length=30, null=True, blank=True)
     latest_already_addressed = models.BooleanField(null=True, blank=True)
 
+    # Cached from `implementation_pr_report_filter`, with and without `active_only`, so the inbox
+    # filters on a column instead of evaluating five link subqueries for every report.
+    # implementation_pr_cache.py keeps them current.
+    has_implementation_pr = models.BooleanField(default=False, db_default=False)
+    has_active_implementation_pr = models.BooleanField(default=False, db_default=False)
+
     class Meta:
         indexes = [
             models.Index(fields=["team", "status", "promoted_at"]),
@@ -2569,6 +2575,7 @@ class SignalReportCheck(UUIDModel):
     expires_at = models.DateTimeField()
     monitoring_fallback_expires_at = models.DateTimeField(null=True, blank=True)
     monitoring_dispatch_after = models.DateTimeField(null=True, blank=True)
+    legacy_monitoring_attempt_id = models.UUIDField(null=True, blank=True)
 
     status = models.CharField(max_length=20, choices=Status, default=Status.ACTIVE)
     consecutive_errors = models.PositiveIntegerField(default=0)
