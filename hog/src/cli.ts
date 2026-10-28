@@ -203,6 +203,18 @@ function nestedMatches(tree: CommandTree, name: string, prefix = ''): string[] {
     })
 }
 
+// posthog-cli commands that hog groups under a new name, with the flags that changed.
+const RENAMED: Record<string, { to: string; hint: string }> = {
+    sourcemap: {
+        to: 'error-tracking inject|upload|process',
+        hint: 'Pass the folders as arguments instead of --directory, as in `hog error-tracking process dist`.',
+    },
+    proguard: {
+        to: 'error-tracking upload',
+        hint: 'Pass the mapping as an argument instead of --path, as in `hog error-tracking upload mapping.txt --map-id <id>`.',
+    },
+}
+
 function toHogError(caught: unknown): HogError {
     if (caught instanceof HogError) {
         return caught
@@ -212,6 +224,15 @@ function toHogError(caught: unknown): HogError {
         const sentence = message.charAt(0).toUpperCase() + message.slice(1)
         if (caught.code === 'commander.unknownCommand') {
             const name = /unknown command '([^']+)'/.exec(caught.message)?.[1] ?? ''
+            const renamed = RENAMED[name]
+            if (renamed) {
+                return new HogError(
+                    'unknown_command',
+                    `\`${name}\` is \`hog ${renamed.to}\` in hog.`,
+                    renamed.hint,
+                    EXIT_USAGE
+                )
+            }
             const [match] = nestedMatches(COMMANDS, name)
             const message = match ? `Unknown command '${name}'. Did you mean \`hog ${match}\`?` : sentence
             return new HogError(

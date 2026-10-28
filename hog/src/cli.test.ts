@@ -52,10 +52,13 @@ describe('hog', () => {
         expect(result.error()).toMatchObject({ code })
     })
 
-    test('a command that moved into a group points to its full name', async () => {
-        const result = await runHog(['login'])
+    test.each([
+        ['login', 'Did you mean `hog auth login`?'],
+        ['sourcemap', '`sourcemap` is `hog error-tracking inject|upload|process` in hog.'],
+    ])('a command that moved, like %s, points to its new name', async (name, message) => {
+        const result = await runHog([name, 'upload'])
         expect(result.exitCode).toBe(2)
-        expect(result.error().message).toContain('Did you mean `hog auth login`?')
+        expect(result.error().message).toContain(message)
     })
 
     test('a person sees errors as text', async () => {
@@ -82,7 +85,9 @@ describe('hog', () => {
             'auth status',
             'query run',
             'query check',
+            'error-tracking inject',
             'error-tracking upload',
+            'error-tracking process',
             'config check',
             'config schema',
             'commands',

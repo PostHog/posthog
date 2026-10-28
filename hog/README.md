@@ -18,7 +18,9 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog auth logout`                       | Removes the stored key. The key stays valid in PostHog until you delete it there.                                       |
 | `hog query run <query>`                 | Runs a HogQL query. `-` reads the query from stdin.                                                                     |
 | `hog query check <query>`               | Checks a query without running it. Exits with code 1 when the query has errors.                                         |
-| `hog error-tracking upload [paths...]`  | Uploads symbols for readable stack traces. ProGuard and R8 mappings so far. `hog et` is an alias.                       |
+| `hog error-tracking inject [paths...]`  | Adds chunk IDs to JavaScript bundles and their sourcemaps. `hog et` is an alias for `hog error-tracking`.               |
+| `hog error-tracking upload [paths...]`  | Uploads symbols for readable stack traces: JavaScript sourcemaps, and ProGuard and R8 mappings.                         |
+| `hog error-tracking process [paths...]` | Runs `inject`, then `upload`. Use it in CI after the build.                                                             |
 | `hog config check`, `hog config schema` | Check `posthog.json` against its schema, or print the schema.                                                           |
 | `hog commands`                          | Lists every command, its arguments, options and scopes.                                                                 |
 | Everything else                         | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.         |
@@ -54,6 +56,27 @@ Point `$schema` at the published schema to get validation in your editor:
 ```
 
 `posthog.schema.json` is generated from `src/core/config.ts` with `pnpm --filter @posthog/hog schema`.
+
+## Error tracking
+
+`hog error-tracking` finds the artifacts in each path and detects their type from the files:
+
+- a `.js`, `.mjs` or `.cjs` file is a JavaScript bundle when its sourcemap exists, through its `sourceMappingURL` comment or a `.map` file next to it
+- a `.txt` file is a ProGuard or R8 mapping when its content parses as one
+
+Without paths, the commands read `errorTracking.sources` from `posthog.json`, where `ignore` globs skip files.
+`--kind` skips detection.
+
+JavaScript releases work in two modes, as in posthog-cli:
+
+- `event`, the default, puts the release in the snippet hog adds to each bundle, so every event carries it. Chunk IDs come from the bundle content, so the same build gets the same IDs.
+- `symbol-set` puts the release in the sourcemap, and gives a bundle a new random chunk ID when its release changes.
+
+hog uploads the same bytes and content hashes as posthog-cli, so either CLI can re-upload what the other uploaded. A few things differ on purpose:
+
+- `posthog-cli sourcemap` and `posthog-cli proguard` are `hog error-tracking`, with paths as arguments instead of `--directory` and `--path`
+- hog walks folders in sorted order and skips `node_modules`, `.git` and symlinks, so two machines visit the same files in the same order
+- `--dry-run` shows the plan and the content hashes without writing files or contacting PostHog. posthog-cli's `--dry-run` skips the whole command.
 
 ## Credentials
 

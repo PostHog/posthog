@@ -4,15 +4,15 @@
 
 ## Layout
 
-| Path                  | Holds                                                                                                                                        |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/commands/`       | One file per command. `index.ts` is the tree of every command; `legacy.ts` holds the ones posthog-cli still owns                             |
-| `src/core/`           | The shared parts every command uses: command definitions, context and global options, output, agent detection, errors, runtime, the manifest |
-| `src/posthog/`        | The PostHog API client and credentials                                                                                                       |
-| `src/error-tracking/` | Symbol upload: discovery, artifact types under `kinds/`, the container and content hash, releases, git, the upload protocol                  |
-| `test/parity/`        | Goldens recorded from posthog-cli and the tests that hold hog to them. Read its README before changing anything that reaches an upload       |
-| `src/cli.ts`          | Turns the command tree into a commander program, runs it, and maps errors to exit codes                                                      |
-| `src/testing.ts`      | `runHog` and a fake runtime, so tests run the real CLI without a process or a network                                                        |
+| Path                  | Holds                                                                                                                                                                                     |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/commands/`       | One file per command. `index.ts` is the tree of every command; `legacy.ts` holds the ones posthog-cli still owns                                                                          |
+| `src/core/`           | The shared parts every command uses: command definitions, context and global options, output, agent detection, errors, runtime, the manifest                                              |
+| `src/posthog/`        | The PostHog API client and credentials                                                                                                                                                    |
+| `src/error-tracking/` | Symbol upload: discovery, artifact types under `kinds/`, the container and content hash, releases, git, the upload protocol, and `run.ts`, the inject and upload steps the commands share |
+| `test/parity/`        | Goldens recorded from posthog-cli and the tests that hold hog to them. Read its README before changing anything that reaches an upload                                                    |
+| `src/cli.ts`          | Turns the command tree into a commander program, runs it, and maps errors to exit codes                                                                                                   |
+| `src/testing.ts`      | `runHog` and a fake runtime, so tests run the real CLI without a process or a network                                                                                                     |
 
 Import from another folder with `@/`, which `tsconfig.json` maps to `src/`, as in `import { defineCommand } from '@/core/command'`. Use `./` only inside the same folder.
 

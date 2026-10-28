@@ -12,13 +12,8 @@ export const LEGACY_COMMANDS: CommandTree = {
         description: 'Download event definitions and generate a typed SDK',
         use: 'posthog-cli exp schema',
     }),
-    sourcemap: defineLegacy({
-        description: 'Inject chunk IDs into bundles and upload their sourcemaps',
-        use: 'posthog-cli sourcemap',
-    }),
     hermes: defineLegacy({ description: 'Upload Hermes sourcemaps to PostHog', use: 'posthog-cli hermes' }),
     dsym: defineLegacy({ description: 'Upload Apple dSYM debug symbol files to PostHog', use: 'posthog-cli dsym' }),
-    proguard: defineLegacy({ description: 'Upload ProGuard mapping files to PostHog', use: 'posthog-cli proguard' }),
     'symbol-sets': defineLegacy({
         description: 'Upload, download, and manage symbol sets',
         use: 'posthog-cli symbol-sets',

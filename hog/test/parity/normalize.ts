@@ -3,7 +3,8 @@ import type { RecordedRequest } from './fake-server'
 // Rewrites only what is random by design, so the rest can be compared byte for byte:
 // - upload run and attempt ids (UUIDv7) become <run> and <attempt-n>,
 // - the keys of `content_hashes` and release `metadata`, which Rust writes in HashMap order, are sorted,
-// - object-storage uploads inside one batch are sorted by path, because they run in parallel,
+// - `symbol_sets` lists are sorted by chunk id, because posthog-cli walks folders in file-system order,
+// - object-storage uploads inside one batch are sorted by path and object key, because they run in parallel,
 // - the multipart boundary, the user agent and object-storage headers are dropped.
 // The user agent differs on purpose: hog sends `hog/<version>`, posthog-cli sends `posthog-cli`.
 export interface NormalizedRequest {
@@ -48,6 +49,11 @@ export function normalize(requests: RecordedRequest[]): NormalizedRequest[] {
             if (parsed.content_hashes && typeof parsed.content_hashes === 'object') {
                 parsed.content_hashes = sortKeys(parsed.content_hashes as Record<string, unknown>)
             }
+            if (Array.isArray(parsed.symbol_sets)) {
+                parsed.symbol_sets = [...(parsed.symbol_sets as { chunk_id: string }[])].sort((a, b) =>
+                    a.chunk_id < b.chunk_id ? -1 : 1
+                )
+            }
             if (parsed.metadata && typeof parsed.metadata === 'object') {
                 parsed.metadata = sortKeys(parsed.metadata as Record<string, unknown>)
             }
@@ -74,7 +80,8 @@ export function normalize(requests: RecordedRequest[]): NormalizedRequest[] {
         while (end < out.length && out[end]!.path.startsWith('/s3/')) {
             end++
         }
-        out.splice(start, end - start, ...out.slice(start, end).sort((a, b) => (a.path < b.path ? -1 : 1)))
+        const order = (request: NormalizedRequest): string => `${request.path} ${request.upload?.fields?.key ?? ''}`
+        out.splice(start, end - start, ...out.slice(start, end).sort((a, b) => (order(a) < order(b) ? -1 : 1)))
         start = end
     }
     return out

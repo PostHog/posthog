@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../src/reviews.js"],
+  "sourcesContent": ["export function fetchReviews(productId) {\n    if (!productId) {\n        throw new Error('Missing product')\n    }\n    return [{ productId, stars: 5, text: 'Works as described' }]\n}\n"],
+  "mappings": "AAAO,SAASA,EAAaC,EAAW,CACpC,GAAI,CAACA,EACD,MAAM,IAAI,MAAM,iBAAiB,EAErC,MAAO,CAAC,CAAE,UAAAA,EAAW,MAAO,EAAG,KAAM,oBAAqB,CAAC,CAC/D",
+  "names": ["fetchReviews", "productId"]
+}

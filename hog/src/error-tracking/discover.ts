@@ -4,12 +4,20 @@ import { join, relative, resolve } from 'node:path'
 import type { ArtifactKind } from '@/core/config'
 import { HogError } from '@/core/errors'
 
+import { isJsBundle, JS_EXTENSIONS } from './kinds/js'
 import { isValidProguardMapping } from './kinds/proguard'
 
 export interface Root {
     path: string
     kind?: ArtifactKind
     mapId?: string
+    // Globs relative to `path`. Matching files are never opened.
+    ignore?: string[]
+}
+
+export interface DiscoverOptions {
+    // Strips a URL prefix from `sourceMappingURL` comments, so absolute URLs resolve to local maps.
+    publicPathPrefix?: string
 }
 
 export interface Artifact {
@@ -26,7 +34,7 @@ interface Detector {
     kind: ArtifactKind
     // While scanning a folder, only files with these extensions are opened.
     extensions: readonly string[]
-    matches(path: string): boolean
+    matches(path: string, options: DiscoverOptions): boolean
 }
 
 const DETECTORS: readonly Detector[] = [
@@ -35,15 +43,27 @@ const DETECTORS: readonly Detector[] = [
         extensions: ['.txt'],
         matches: (path) => isValidProguardMapping(readFileSync(path)),
     },
+    {
+        // A bundle counts only when its sourcemap exists, as in posthog-cli. Bundles without one are
+        // skipped without a message, because most build folders hold some.
+        kind: 'js',
+        extensions: JS_EXTENSIONS,
+        matches: (path, options) => isJsBundle(path, options.publicPathPrefix),
+    },
 ]
 
-function detect(path: string, fromFolder: boolean, kind: ArtifactKind | undefined): ArtifactKind | undefined {
+function detect(
+    path: string,
+    fromFolder: boolean,
+    kind: ArtifactKind | undefined,
+    options: DiscoverOptions
+): ArtifactKind | undefined {
     const candidates = DETECTORS.filter(
         (detector) =>
             (kind === undefined || detector.kind === kind) &&
             (!fromFolder || detector.extensions.some((extension) => path.endsWith(extension)))
     )
-    const matched = candidates.filter((detector) => detector.matches(path))
+    const matched = candidates.filter((detector) => detector.matches(path, options))
     if (matched.length > 1) {
         throw new HogError(
             'ambiguous_artifact',
@@ -55,7 +75,8 @@ function detect(path: string, fromFolder: boolean, kind: ArtifactKind | undefine
 }
 
 function walk(folder: string, out: string[]): void {
-    // Sorted, so runs on different machines visit files in the same order.
+    // Sorted, so runs on different machines visit files in the same order. Symlinks are skipped, as
+    // in posthog-cli, so a link can't make hog rewrite files outside the folder.
     for (const entry of readdirSync(folder, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
         if (entry.name === 'node_modules' || entry.name === '.git') {
             continue
@@ -69,16 +90,35 @@ function walk(folder: string, out: string[]): void {
     }
 }
 
-export function discover(roots: readonly Root[], cwd: string): Artifact[] {
+function rootFiles(root: Root, cwd: string): { path: string; isFile: boolean; files: string[] } {
+    const path = resolve(cwd, root.path)
+    const stat = statSync(path, { throwIfNoEntry: false })
+    if (!stat) {
+        throw new HogError('path_not_found', `${root.path} doesn't exist.`)
+    }
+    if (stat.isFile()) {
+        return { path, isFile: true, files: [path] }
+    }
+    const files: string[] = []
+    walk(path, files)
+    const globs = (root.ignore ?? []).map((pattern) => new Bun.Glob(pattern))
+    return {
+        path,
+        isFile: false,
+        files: files.filter((file) => !globs.some((glob) => glob.match(relative(path, file)))),
+    }
+}
+
+export function listFiles(roots: readonly Root[], cwd: string): string[] {
+    return roots.flatMap((root) => rootFiles(root, cwd).files)
+}
+
+export function discover(roots: readonly Root[], cwd: string, options: DiscoverOptions = {}): Artifact[] {
     const artifacts: Artifact[] = []
     for (const root of roots) {
-        const path = resolve(cwd, root.path)
-        const stat = statSync(path, { throwIfNoEntry: false })
-        if (!stat) {
-            throw new HogError('path_not_found', `${root.path} doesn't exist.`)
-        }
-        if (stat.isFile()) {
-            const kind = detect(path, false, root.kind)
+        const { path, isFile, files } = rootFiles(root, cwd)
+        if (isFile) {
+            const kind = detect(path, false, root.kind, options)
             if (!kind) {
                 throw new HogError(
                     'unknown_artifact',
@@ -91,10 +131,8 @@ export function discover(roots: readonly Root[], cwd: string): Artifact[] {
             artifacts.push({ kind, path, display: relative(cwd, path) || path, root })
             continue
         }
-        const files: string[] = []
-        walk(path, files)
         for (const file of files) {
-            const kind = detect(file, true, root.kind)
+            const kind = detect(file, true, root.kind, options)
             if (kind) {
                 artifacts.push({ kind, path: file, display: relative(cwd, file), root })
             }

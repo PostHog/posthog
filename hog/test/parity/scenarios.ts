@@ -1,14 +1,37 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 import type { Scenario } from './fake-server'
 import { GIT_REPO, mappingOfSize, SMALL_MAPPING } from './fixtures'
+import { bundles, EDGE_CASES, MALFORMED_MAP_DEBUG_ID, PUBLIC_PATH, STYLESHEETS } from './js-fixtures'
+import { decodeFile, type ParityResult } from './run'
+
+type Files = Record<string, string | Uint8Array>
 
 export interface ParityScenario {
     name: string
     server: Scenario
-    files: Record<string, string | Uint8Array>
+    files: () => Files
     rust: string[]
     hog: string[]
+    // Commands to run first, against the same folder and server. Only the main command is recorded.
+    before?: { rust: string[]; hog: string[] }[]
     // Run this many times against the same server and compare only the last run, to cover re-uploads.
     runs?: number
+    // Also compare every file in the folder after the run.
+    snapshot?: boolean
+    // The run mints random UUIDv7 chunk ids, so compare their positions and not their values.
+    randomIds?: boolean
+}
+
+// The files posthog-cli left behind in another scenario, so a step can start from its real output.
+function filesFrom(name: string): () => Files {
+    return () => {
+        const golden = JSON.parse(
+            readFileSync(join(import.meta.dir, 'golden', 'e2e', `${name}.json`), 'utf8')
+        ) as ParityResult
+        return Object.fromEntries(Object.entries(golden.files ?? {}).map(([path, text]) => [path, decodeFile(text)]))
+    }
 }
 
 const release = ['--release-name', 'com.example.app', '--release-version', '1.0', '--build', '7']
@@ -23,7 +46,7 @@ const proguard = (
     return {
         name: `proguard-${name}`,
         server,
-        files: options.files ?? { [file]: SMALL_MAPPING },
+        files: options.files ?? (() => ({ [file]: SMALL_MAPPING })),
         rust: ['proguard', 'upload', '--path', file, '--map-id', `map-${name}`, ...args],
         hog: ['error-tracking', 'upload', file, '--map-id', `map-${name}`, ...args],
         runs: options.runs,
@@ -35,7 +58,7 @@ export const SCENARIOS: ParityScenario[] = [
     proguard('no-release', 'fresh'),
     proguard('release-from-git', 'fresh', {
         file: 'app/mapping.txt',
-        files: { ...GIT_REPO, 'app/mapping.txt': SMALL_MAPPING },
+        files: () => ({ ...GIT_REPO, 'app/mapping.txt': SMALL_MAPPING }),
     }),
     proguard('already-present', 'fresh', { args: release, runs: 2 }),
     proguard('post-only', 'post-only', { args: release }),
@@ -45,6 +68,80 @@ export const SCENARIOS: ParityScenario[] = [
     proguard('release-mismatch', 'release-mismatch', { args: release }),
     proguard('check-403', 'check-403', { args: release }),
     proguard('start-500-once', 'start-500-once', { args: release }),
-    proguard('block-multiple', 'fresh', { files: { 'mapping.txt': mappingOfSize(2 * 128 * 1024) } }),
-    proguard('bom-crlf', 'fresh', { files: { 'mapping.txt': `﻿${SMALL_MAPPING.replaceAll('\n', '\r\n')}` } }),
+    proguard('block-multiple', 'fresh', { files: () => ({ 'mapping.txt': mappingOfSize(2 * 128 * 1024) }) }),
+    proguard('bom-crlf', 'fresh', {
+        files: () => ({ 'mapping.txt': `\uFEFF${SMALL_MAPPING.replaceAll('\n', '\r\n')}` }),
+    }),
 ]
+
+type JsCommand = 'inject' | 'upload' | 'process'
+
+// posthog-cli's `sourcemap <command> -d <path>` and hog's `error-tracking <command> <path>` take the
+// same flags after the path.
+const jsArgs = (command: JsCommand, path: string, args: string[]): { rust: string[]; hog: string[] } => ({
+    rust: ['sourcemap', command, '-d', path, ...args],
+    hog: ['error-tracking', command, path, ...args],
+})
+
+const js = (
+    name: string,
+    command: JsCommand,
+    files: () => Files,
+    options: Partial<Omit<ParityScenario, 'before'>> & {
+        args?: string[]
+        path?: string
+        before?: [JsCommand, string[]][]
+    } = {}
+): ParityScenario => ({
+    name: `js-${name}`,
+    server: options.server ?? 'fresh',
+    files,
+    ...jsArgs(command, options.path ?? '.', options.args ?? []),
+    before: options.before?.map(([step, args]) => jsArgs(step, options.path ?? '.', args)),
+    runs: options.runs,
+    snapshot: options.snapshot ?? true,
+    randomIds: options.randomIds,
+})
+
+const jsRelease = ['--release-name', 'web', '--release-version', '2.1.0']
+const symbolSet = ['--release-mode', 'symbol-set']
+
+SCENARIOS.push(
+    js('inject-bundles', 'inject', bundles),
+    js('inject-edge-cases', 'inject', () => EDGE_CASES),
+    js('inject-twice', 'inject', () => EDGE_CASES, { runs: 2 }),
+    js('inject-malformed-map-debug-id', 'inject', () => MALFORMED_MAP_DEBUG_ID),
+    js('inject-release', 'inject', bundles, { args: jsRelease }),
+    js('inject-release-from-git', 'inject', () => ({ ...GIT_REPO, ...bundles() })),
+    js('inject-release-change', 'inject', bundles, {
+        args: ['--release-name', 'web', '--release-version', '2.2.0'],
+        before: [['inject', jsRelease]],
+    }),
+    js('inject-public-path', 'inject', () => PUBLIC_PATH, { args: ['--public-path-prefix', '/static/js'] }),
+    js('inject-file-root', 'inject', bundles, { path: 'esbuild-cjs/index.cjs' }),
+    js('process-bundles', 'process', bundles, { args: jsRelease }),
+    js('process-no-release', 'process', bundles),
+    js('process-edge-cases', 'process', () => EDGE_CASES, { args: jsRelease }),
+    js('process-already-present', 'process', bundles, { args: jsRelease, runs: 2 }),
+    js('process-hash-mismatch', 'process', bundles, {
+        args: [...jsRelease, '--skip-on-conflict'],
+        server: 'hash-mismatch',
+    }),
+    js('process-release-mismatch', 'process', bundles, { args: jsRelease, server: 'release-mismatch' }),
+    js('process-post-only', 'process', bundles, { args: jsRelease, server: 'post-only' }),
+    js('process-delete-after', 'process', () => ({ ...STYLESHEETS, ...bundles() }), {
+        args: [...jsRelease, '--delete-after'],
+    }),
+    js('upload-native-debug-ids', 'upload', bundles),
+    js('upload-after-inject', 'upload', bundles, { before: [['inject', jsRelease]] }),
+    js('upload-not-injected', 'upload', () => EDGE_CASES),
+    js('inject-symbol-set', 'inject', bundles, { args: [...jsRelease, ...symbolSet], randomIds: true }),
+    js('upload-symbol-set', 'upload', filesFrom('js-inject-symbol-set'), { args: [...jsRelease, ...symbolSet] }),
+    js('upload-symbol-set-new-release', 'upload', filesFrom('js-inject-symbol-set'), {
+        args: ['--release-name', 'web', '--release-version', '3.0.0', ...symbolSet],
+    }),
+    js('upload-symbol-set-hash-mismatch', 'upload', filesFrom('js-inject-symbol-set'), {
+        args: [...jsRelease, ...symbolSet, '--skip-on-conflict'],
+        server: 'hash-mismatch',
+    })
+)

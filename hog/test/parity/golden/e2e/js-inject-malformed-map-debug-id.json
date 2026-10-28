@@ -1,0 +1,10 @@
+{
+  "exitCode": 1,
+  "requests": [],
+  "files": {
+    "bad/a.js": "utf8:a();\n//# sourceMappingURL=a.js.map\n",
+    "bad/a.js.map": "utf8:{\"version\":3,\"sources\":[\"src/a.ts\"],\"names\":[],\"mappings\":\"AAAA\",\"debugId\":\"not-a-uuid\"}",
+    "ok/a.js": "utf8:a();\n//# sourceMappingURL=a.js.map\n",
+    "ok/a.js.map": "utf8:{\"version\":3,\"sources\":[\"src/a.ts\"],\"names\":[],\"mappings\":\"AAAA\"}"
+  }
+}
