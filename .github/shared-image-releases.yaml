@@ -72,6 +72,12 @@ filters:
         - 'products/logs/backend/**'
         - 'products/notifications/backend/**'
         - 'products/access_control/backend/facade/**'
+        - 'products/alerts/backend/facade/destinations.py'
+        - 'products/alerts/backend/logic/delivery_destinations.py'
+        - 'products/alerts/backend/logic/destinations.py'
+        - 'products/alerts/backend/logic/destination_configs.py'
+        - 'products/alerts/backend/logic/alert_email.py'
+        - 'products/alerts/backend/logic/alert_in_app.py'
         - 'products/signals/backend/**'
         - 'posthog/email.py'
         - 'posthog/templates/email/alert_platform_notification.html'
@@ -114,4 +120,4 @@ images:
             alerts-platform-delivery:
                 repository: posthog-temporal-workers/alerts-platform-delivery
                 filter: alertsPlatformDelivery
-                bootstrapPolicyDigest: 58e87a888b8cd3d7e21e977b0189c4e42421d8081870b11da94447df708c4855
+                bootstrapPolicyDigest: 44aa81545fac7148bc440a10aee53985b48c90fbede9193f9da06c4928afdf19
