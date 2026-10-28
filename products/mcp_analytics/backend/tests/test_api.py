@@ -866,6 +866,7 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
                 timestamp=datetime.now(tz=UTC) - timedelta(minutes=5),
                 properties={"$session_id": str(uuid7()), "$mcp_tool_name": "query_run", **properties},
             )
+        flush_persons_and_events()
 
     @parameterized.expand(
         [
