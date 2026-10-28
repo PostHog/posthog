@@ -70,11 +70,16 @@ export const biCatalogPickerLogic = kea<biCatalogPickerLogicType>([
             {
                 loadMetrics: async (_: void, breakpoint) => {
                     await breakpoint(250)
-                    const response = await api.dataCatalogMetricsList(String(teamLogic.values.currentTeamId), {
-                        search: values.search.trim() || undefined,
-                        limit: 20,
-                        offset: values.page * 20,
-                    })
+                    const response = await api
+                        .dataCatalogMetricsList(String(teamLogic.values.currentTeamId), {
+                            search: values.search.trim() || undefined,
+                            limit: 20,
+                            offset: values.page * 20,
+                        })
+                        .catch((error) => {
+                            breakpoint()
+                            throw error
+                        })
                     breakpoint()
                     return response
                 },
