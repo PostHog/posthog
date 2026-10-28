@@ -32,6 +32,7 @@ describe("parsePostHogObjectUrl", () => {
       ["replay", "0190-s1"],
     ],
     [`${PROJECT}/feature_flags/42`, ["flag", "42"]],
+    [`${PROJECT}/feature-flags/42`, ["flag", "42"]],
     [`${PROJECT}/persons/a%20b`, ["person", "a b"]],
     [`${PROJECT}/feature_flags/my-key`, null],
     [`${PROJECT}/insights/new`, null],

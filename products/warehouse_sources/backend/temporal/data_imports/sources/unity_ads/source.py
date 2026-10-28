@@ -124,7 +124,7 @@ class UnityAdsSource(ResumableSource[UnityAdsSourceConfig, UnityAdsResumeConfig]
             caption="Sync daily user acquisition statistics for your Unity Ads campaigns, by campaign and by country.",
             docsUrl="https://posthog.com/docs/cdp/sources/unity-ads",
             iconPath="/static/services/unity_ads.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

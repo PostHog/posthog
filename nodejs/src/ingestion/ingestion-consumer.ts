@@ -185,7 +185,7 @@ export class IngestionConsumer {
             staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
             staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
         })
-        this.eventFilterManagerComponent = new EventFilterManagerComponent(deps.postgres)
+        this.eventFilterManagerComponent = new EventFilterManagerComponent(deps.postgres, { pipeline: 'analytics' })
         // Schema loads run detached in the LazyLoader buffer, so an un-retried transient
         // failure can surface as an unhandled rejection and restart the worker.
         this.eventSchemaEnforcementManager = new EventSchemaEnforcementManager(deps.postgres, {
@@ -317,6 +317,8 @@ export class IngestionConsumer {
                 PERSON_MERGE_SYNC_BATCH_SIZE: this.config.PERSON_MERGE_SYNC_BATCH_SIZE,
                 PERSON_MERGE_FOLD_ENABLED: this.config.PERSON_MERGE_FOLD_ENABLED,
                 PERSON_MERGE_FOLD_TEAM_ALLOWLIST: this.config.PERSON_MERGE_FOLD_TEAM_ALLOWLIST,
+                PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS: this.config.PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS,
+                PERSON_MERGE_NOT_APPLIED_WAIT_MS: this.config.PERSON_MERGE_NOT_APPLIED_WAIT_MS,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,

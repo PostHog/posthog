@@ -209,11 +209,6 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @patch("products.mcp_store.backend.proxy.pinned_client")
     def test_proxy_forwards_posthog_namespace_headers(self, mock_client_cls):
-        # Required for PostHog MCP installs through the Store: without
-        # `x-posthog-mcp-consumer` reaching the upstream, single-exec mode
-        # never resolves and `exec` comes back as "Tool exec not found".
-        # The full `x-posthog-*` namespace forwards so callers can also pass
-        # custom headers through.
         installation = self._create_installation(
             sensitive_configuration={"api_key": "sk-test-key"},
         )
@@ -230,6 +225,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             headers={
                 "x-posthog-mcp-consumer": "posthog-code",
                 "x-posthog-mcp-mode": "cli",
+                "x-posthog-mcp-store": "false",
                 "x-posthog-mcp-version": "2",
                 "x-posthog-project-id": "42",
                 "x-posthog-read-only": "true",
@@ -243,7 +239,8 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Case-insensitive lookup since Django normalizes to title case.
         forwarded = {k.lower(): v for k, v in kwargs["headers"].items()}
         assert forwarded["x-posthog-mcp-consumer"] == "posthog-code"
-        assert forwarded["x-posthog-mcp-mode"] == "cli"
+        assert forwarded["x-posthog-mcp-mode"] == "tools"
+        assert forwarded["x-posthog-mcp-store"] == "true"
         assert forwarded["x-posthog-mcp-version"] == "2"
         assert forwarded["x-posthog-project-id"] == "42"
         assert forwarded["x-posthog-read-only"] == "true"
@@ -700,6 +697,29 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
         assert response.status_code == 200
         mock_client.send.assert_called_once()
+
+    @patch("products.mcp_store.backend.proxy.pinned_client")
+    def test_owner_approval_on_shared_installation_still_prompts_a_teammate(self, mock_client_cls):
+        owner = User.objects.create_and_join(self.organization, "owner@example.com", None)
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=owner,
+            display_name="Shared tools",
+            url="https://mcp.example.com/mcp",
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "sk"},
+            scope="shared",
+        )
+        self._tool(installation, "search", "approved")
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "search"}},
+            format="json",
+        )
+
+        assert response.json()["error"]["code"] == -32001
+        mock_client_cls.assert_not_called()
 
     @patch("products.mcp_store.backend.proxy.pinned_client")
     def test_needs_approval_tool_call_blocked_with_jsonrpc_error(self, mock_client_cls):

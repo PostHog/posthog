@@ -179,8 +179,13 @@ pub const META_SCHEMA_VERSION: MetaKey = MetaKey(b"schema_version");
 /// Present once the store records slice coverage. The value is empty.
 pub const META_SLICE_COVERAGE: MetaKey = MetaKey(b"slice_coverage");
 
+/// `cf_meta[b"pod_partitions"]` → the [`PartitionOwnership`](crate::partitions::PartitionOwnership)
+/// the store was written under.
+pub const META_POD_PARTITIONS: MetaKey = MetaKey(b"pod_partitions");
+
 // `Meta::decode` assumes one key length.
 const _: () = assert!(META_SLICE_COVERAGE.0.len() == META_SCHEMA_VERSION.0.len());
+const _: () = assert!(META_POD_PARTITIONS.0.len() == META_SCHEMA_VERSION.0.len());
 
 mod sealed {
     /// Sealed so only this module's keyspaces implement [`super::Keyspace`]; downstream code cannot
@@ -283,9 +288,13 @@ impl Keyspace for Meta {
         // `cf_meta` keys are a closed set of literals; match them rather than fabricate a `&'static`
         // from runtime bytes. A wrong length is a length error; a right-length key that matches no
         // literal is an unknown key — conflating the two would report "expected N bytes, got N".
-        if let Some(key) = [META_SCHEMA_VERSION, META_SLICE_COVERAGE]
-            .into_iter()
-            .find(|key| key.0 == bytes)
+        if let Some(key) = [
+            META_SCHEMA_VERSION,
+            META_SLICE_COVERAGE,
+            META_POD_PARTITIONS,
+        ]
+        .into_iter()
+        .find(|key| key.0 == bytes)
         {
             Ok(key)
         } else if bytes.len() != META_SCHEMA_VERSION.0.len() {

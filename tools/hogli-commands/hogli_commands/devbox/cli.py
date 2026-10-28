@@ -78,6 +78,7 @@ from .coder import (
     print_setup_summary,
     region_from_workspace_name,
     restart_workspace,
+    run_with_capacity_fallback,
     server_supports_user_secrets,
     share_workspace,
     ssh_replace,
@@ -346,6 +347,34 @@ def _render_sync_status(workspace_name: str) -> str:
     return click.style(f"● {status}", fg="green")
 
 
+def _pause_sync(name: str) -> bool:
+    """Pause the devbox's running sync session while the box is stopped, and return whether it did.
+
+    mutagen redials a lost box forever. Paused, it leaves the box and Coder
+    alone until `devbox:start` resumes it. A failed pause only warns: stopping
+    the box matters more, and the SSH shim already stops the sync from
+    starting it again.
+    """
+    selector = mutagen.workspace_label_selector(name)
+    if all(session.get("paused") for session in mutagen.sync_list(label_selector=selector)):
+        return False
+    try:
+        mutagen.sync_pause(selector)
+    except SystemExit:
+        click.echo(click.style(f"Could not pause the sync to '{name}'. Stopping the box anyway.", fg="yellow"))
+        return False
+    click.echo(f"Paused the sync to '{name}'. `hogli devbox:start` resumes it.")
+    return True
+
+
+def _resume_sync(name: str) -> None:
+    """Resume the devbox's sync session if `devbox:stop` paused it."""
+    selector = mutagen.workspace_label_selector(name)
+    if any(session.get("paused") for session in mutagen.sync_list(label_selector=selector)):
+        mutagen.sync_resume(selector)
+        click.echo(f"Resumed the sync to '{name}'.")
+
+
 def _start_existing_workspace(
     name: str, workspace: dict[str, Any], *, start_app: bool | None = None, verbose: bool
 ) -> None:
@@ -370,19 +399,21 @@ def _start_existing_workspace(
     if status == "stopped":
         if workspace.get("outdated"):
             click.echo(f"Starting devbox '{name}' on the latest template...")
-            update_workspace(name, verbose=verbose)
+            run_with_capacity_fallback(name, lambda: update_workspace(name, verbose=verbose))
         else:
             click.echo(f"Starting devbox '{name}'...")
-            start_workspace(name, verbose=verbose)
+            run_with_capacity_fallback(name, lambda: start_workspace(name, verbose=verbose))
         _wait_until_ready(name)
         click.echo("Started.")
+        _resume_sync(name)
         _print_connection_info(name)
         return
 
     click.echo(f"Devbox '{name}' is in state: {status}")
     click.echo("Attempting to start...")
-    start_workspace(name, verbose=verbose)
+    run_with_capacity_fallback(name, lambda: start_workspace(name, verbose=verbose))
     _wait_until_ready(name)
+    _resume_sync(name)
     _print_connection_info(name)
 
 
@@ -1488,17 +1519,20 @@ def devbox_start(
     config = load_config()
 
     click.echo(f"Creating devbox '{name}' (template={template}, preset={preset}, region={effective_region})...")
-    create_workspace(
+    run_with_capacity_fallback(
         name,
-        disk,
-        git_name=config.get("git_name"),
-        git_email=config.get("git_email"),
-        dotfiles_uri=config.get("dotfiles_uri"),
-        region=effective_region,
-        template=template,
-        preset=preset,
-        start_app=start_app,
-        verbose=verbose,
+        lambda: create_workspace(
+            name,
+            disk,
+            git_name=config.get("git_name"),
+            git_email=config.get("git_email"),
+            dotfiles_uri=config.get("dotfiles_uri"),
+            region=effective_region,
+            template=template,
+            preset=preset,
+            start_app=start_app,
+            verbose=verbose,
+        ),
     )
     _wait_until_ready(name)
     click.echo("Created.")
@@ -1597,14 +1631,25 @@ def devbox_stop(workspace: str | None, verbose: bool) -> None:
     name, workspaces = resolve_workspace_name(workspace)
     ws = _get_workspace_or_fail(name, workspaces)
 
+    # Also for a box that Coder stopped on its schedule, whose sync still redials it.
+    paused = _pause_sync(name)
+
     status = get_workspace_status(ws)
     if status == "stopped":
         click.echo(f"Devbox '{name}' is already stopped.")
         return
 
     click.echo(f"Stopping '{name}'...")
-    stop_workspace(name, verbose=verbose)
-    click.echo("Stopped. Disk preserved. Run 'hogli devbox:start' to resume.")
+    try:
+        stop_workspace(name, verbose=verbose)
+    except (Exception, SystemExit):
+        if paused:
+            mutagen.sync_resume(mutagen.workspace_label_selector(name))
+            click.echo(f"The box still runs, so the sync to '{name}' is resumed.")
+        raise
+    start_command = f"hogli devbox:start {workspace}" if workspace else "hogli devbox:start"
+    click.echo("Stopped. Billing for the box stops now.")
+    click.echo(f"The disk and your files stay until you destroy the box. Run '{start_command}' to resume it.")
 
 
 @click.command(name="devbox:restart", help="Restart your devbox")
@@ -1616,7 +1661,7 @@ def devbox_restart(workspace: str | None, verbose: bool) -> None:
     name, workspaces = resolve_workspace_name(workspace)
     _get_workspace_or_fail(name, workspaces)
     click.echo(f"Restarting '{name}'...")
-    restart_workspace(name, verbose=verbose)
+    run_with_capacity_fallback(name, lambda: restart_workspace(name, verbose=verbose))
     _wait_until_ready(name)
     click.echo("Restarted.")
     _print_connection_info(name)
@@ -1634,7 +1679,7 @@ def devbox_update(workspace: str | None, verbose: bool) -> None:
         click.echo(f"Devbox '{name}' is already up to date.")
         return
     click.echo(f"Updating '{name}' to the latest template...")
-    update_workspace(name, verbose=verbose)
+    run_with_capacity_fallback(name, lambda: update_workspace(name, verbose=verbose))
     _wait_until_ready(name)
     click.echo("Updated.")
     click.echo(

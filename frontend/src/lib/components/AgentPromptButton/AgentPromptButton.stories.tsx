@@ -57,6 +57,13 @@ export const OpenDropdown: Story = {
     },
 }
 
+export const LemonAppearance: Story = {
+    args: {
+        actions: ERROR_ACTIONS,
+        appearance: 'lemon',
+    },
+}
+
 export const SingleAction: Story = {
     args: {
         actions: [

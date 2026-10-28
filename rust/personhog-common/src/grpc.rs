@@ -4,7 +4,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use futures::stream::unfold;
 use http::{HeaderValue, Request, Response};
@@ -12,10 +12,13 @@ use metrics::{counter, gauge, histogram};
 use pin_project::{pin_project, pinned_drop};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{AcquireError, OwnedSemaphorePermit, Semaphore};
 use tokio::task::futures::TaskLocalFuture;
+use tokio::time::error::Elapsed;
 use tonic::metadata::MetadataValue;
 use tonic::transport::server::Connected;
-use tower::{Layer, Service};
+use tower::util::Oneshot;
+use tower::{Layer, Service, ServiceExt};
 
 use crate::storage_error::TimeoutKind;
 
@@ -426,7 +429,7 @@ where
     }
 
     fn call(&mut self, request: Request<ReqBody>) -> Self::Future {
-        let method: Arc<str> = Arc::from(extract_grpc_method(request.uri().path()));
+        let method = extract_grpc_method(request.uri().path());
         let client = extract_client_name(&request);
         let caller_tag = extract_caller_tag(&request);
         gauge!("grpc_server_requests_in_flight", "method" => method.clone(), "client" => client.clone())
@@ -526,23 +529,54 @@ impl<F> PinnedDrop for GrpcMetricsFuture<F> {
 
 /// Tower layer that sheds gRPC requests when the server is at capacity.
 ///
-/// Tracks in-flight requests with an atomic counter shared across all
-/// connections on the pod. When the count exceeds `max_requests`,
-/// immediately returns gRPC `UNAVAILABLE` so the router retries on
-/// another pod. When `max_requests` is 0, the layer is a pass-through.
+/// A request that finds no permit is refused with `x-not-applied`, so the
+/// caller knows nothing ran. [`with_wait`](Self::with_wait) lets it wait a
+/// bounded time first, so a sub-second burst shows up as latency rather
+/// than refusals. When `max_requests` is 0, the layer is a pass-through.
 #[derive(Clone)]
 pub struct GrpcLoadShedLayer {
     max_requests: usize,
-    in_flight: Arc<AtomicUsize>,
+    permits: Arc<Semaphore>,
+    wait_for_slot: Duration,
+    max_waiters: usize,
+    waiters: Arc<AtomicUsize>,
+    grpc_status: HeaderValue,
 }
 
 impl GrpcLoadShedLayer {
     pub fn new(max_requests: usize) -> Self {
         Self {
             max_requests,
-            in_flight: Arc::new(AtomicUsize::new(0)),
+            permits: Arc::new(Semaphore::new(max_requests)),
+            wait_for_slot: Duration::ZERO,
+            max_waiters: max_requests,
+            waiters: Arc::new(AtomicUsize::new(0)),
+            grpc_status: grpc_status_header(tonic::Code::Unavailable),
         }
     }
+
+    pub fn with_code(mut self, code: tonic::Code) -> Self {
+        self.grpc_status = grpc_status_header(code);
+        self
+    }
+
+    /// Past `max_waiters` queued requests the pod sheds on arrival again:
+    /// a deep queue is the signal that the overload is not a burst, and
+    /// shedding late only holds the stream and body longer for the same
+    /// answer. `max_waiters` of 0 means `max_requests`.
+    pub fn with_wait(mut self, wait_for_slot: Duration, max_waiters: usize) -> Self {
+        self.wait_for_slot = wait_for_slot;
+        self.max_waiters = if max_waiters == 0 {
+            self.max_requests
+        } else {
+            max_waiters
+        };
+        self
+    }
+}
+
+fn grpc_status_header(code: tonic::Code) -> HeaderValue {
+    HeaderValue::from(code as i32)
 }
 
 impl<S> Layer<S> for GrpcLoadShedLayer {
@@ -552,7 +586,11 @@ impl<S> Layer<S> for GrpcLoadShedLayer {
         GrpcLoadShedService {
             inner: service,
             max_requests: self.max_requests,
-            in_flight: self.in_flight.clone(),
+            permits: self.permits.clone(),
+            wait_for_slot: self.wait_for_slot,
+            max_waiters: self.max_waiters,
+            waiters: self.waiters.clone(),
+            grpc_status: self.grpc_status.clone(),
         }
     }
 }
@@ -561,17 +599,75 @@ impl<S> Layer<S> for GrpcLoadShedLayer {
 pub struct GrpcLoadShedService<S> {
     inner: S,
     max_requests: usize,
-    in_flight: Arc<AtomicUsize>,
+    permits: Arc<Semaphore>,
+    wait_for_slot: Duration,
+    max_waiters: usize,
+    waiters: Arc<AtomicUsize>,
+    grpc_status: HeaderValue,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ShedReason {
+    NoWait,
+    QueueFull,
+    WaitTimeout,
+}
+
+impl ShedReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            ShedReason::NoWait => "no_wait",
+            ShedReason::QueueFull => "queue_full",
+            ShedReason::WaitTimeout => "wait_timeout",
+        }
+    }
+}
+
+fn record_shed(method: Arc<str>, client: Arc<str>, reason: ShedReason) {
+    counter!("grpc_server_load_shed_total",
+        "method" => method,
+        "client" => client,
+        "reason" => reason.as_str(),
+    )
+    .increment(1);
+}
+
+fn shed_response<ResBody: Default>(grpc_status: &HeaderValue) -> Response<ResBody> {
+    Response::builder()
+        .status(200)
+        .header("content-type", "application/grpc")
+        .header("grpc-status", grpc_status.clone())
+        .header("grpc-message", "Server at capacity")
+        .header(NOT_APPLIED_HEADER, "load_shed")
+        .body(ResBody::default())
+        .unwrap()
+}
+
+/// Holds one waiter slot; dropping it releases the slot, so a client that
+/// disconnects mid-wait cannot leak one.
+pub struct WaiterSlot {
+    waiters: Arc<AtomicUsize>,
+}
+
+impl Drop for WaiterSlot {
+    fn drop(&mut self) {
+        self.waiters.fetch_sub(1, Ordering::Relaxed);
+        gauge!("grpc_server_admission_waiters").decrement(1.0);
+    }
+}
+
+type AcquireFuture = Pin<
+    Box<dyn Future<Output = Result<Result<OwnedSemaphorePermit, AcquireError>, Elapsed>> + Send>,
+>;
 
 impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for GrpcLoadShedService<S>
 where
-    S: Service<Request<ReqBody>, Response = Response<ResBody>>,
+    S: Service<Request<ReqBody>, Response = Response<ResBody>> + Clone,
     ResBody: Default,
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future = GrpcLoadShedFuture<S::Future, ResBody>;
+    type Future = GrpcLoadShedFuture<S, ReqBody, ResBody>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)
@@ -581,79 +677,149 @@ where
         if self.max_requests == 0 {
             return GrpcLoadShedFuture::Inner {
                 inner: self.inner.call(request),
-                in_flight: None,
+                permit: None,
             };
         }
 
-        let current = self.in_flight.fetch_add(1, Ordering::Relaxed);
-        if current >= self.max_requests {
-            self.in_flight.fetch_sub(1, Ordering::Relaxed);
+        if let Ok(permit) = self.permits.clone().try_acquire_owned() {
+            return GrpcLoadShedFuture::Inner {
+                inner: self.inner.call(request),
+                permit: Some(permit),
+            };
+        }
 
-            let client = extract_client_name(&request);
-            let method = extract_grpc_method(request.uri().path());
-            counter!("grpc_server_load_shed_total",
-                "method" => method,
-                "client" => client,
-            )
-            .increment(1);
+        let client = extract_client_name(&request);
+        let method = extract_grpc_method(request.uri().path());
 
-            let response = Response::builder()
-                .status(200)
-                .header("content-type", "application/grpc")
-                .header("grpc-status", "14") // UNAVAILABLE
-                .header("grpc-message", "Server at capacity")
-                .header(NOT_APPLIED_HEADER, "load_shed")
-                .body(ResBody::default())
-                .unwrap();
-
+        if self.wait_for_slot.is_zero() {
+            record_shed(method, client, ShedReason::NoWait);
             return GrpcLoadShedFuture::Shed {
-                response: Some(response),
+                response: Some(shed_response(&self.grpc_status)),
             };
         }
 
-        GrpcLoadShedFuture::Inner {
-            inner: self.inner.call(request),
-            in_flight: Some(self.in_flight.clone()),
+        if self.waiters.fetch_add(1, Ordering::Relaxed) >= self.max_waiters {
+            self.waiters.fetch_sub(1, Ordering::Relaxed);
+            record_shed(method, client, ShedReason::QueueFull);
+            return GrpcLoadShedFuture::Shed {
+                response: Some(shed_response(&self.grpc_status)),
+            };
+        }
+        gauge!("grpc_server_admission_waiters").increment(1.0);
+
+        GrpcLoadShedFuture::Waiting {
+            acquire: Box::pin(tokio::time::timeout(
+                self.wait_for_slot,
+                self.permits.clone().acquire_owned(),
+            )),
+            slot: Some(WaiterSlot {
+                waiters: self.waiters.clone(),
+            }),
+            request: Some(request),
+            service: Some(self.inner.clone()),
+            method,
+            client,
+            started: Instant::now(),
+            grpc_status: self.grpc_status.clone(),
         }
     }
 }
 
-#[pin_project(project = GrpcLoadShedFutureProj, PinnedDrop)]
-pub enum GrpcLoadShedFuture<F, ResBody> {
+/// The permit and the `WaiterSlot` release on drop, on completion and on
+/// cancellation alike, which keeps the counts correct under client
+/// disconnects.
+#[pin_project(project = GrpcLoadShedFutureProj)]
+pub enum GrpcLoadShedFuture<S, ReqBody, ResBody>
+where
+    S: Service<Request<ReqBody>>,
+{
     Shed {
         response: Option<Response<ResBody>>,
     },
     Inner {
         #[pin]
-        inner: F,
-        in_flight: Option<Arc<AtomicUsize>>,
+        inner: S::Future,
+        permit: Option<OwnedSemaphorePermit>,
+    },
+    Waiting {
+        acquire: AcquireFuture,
+        slot: Option<WaiterSlot>,
+        request: Option<Request<ReqBody>>,
+        service: Option<S>,
+        method: Arc<str>,
+        client: Arc<str>,
+        started: Instant,
+        grpc_status: HeaderValue,
+    },
+    /// `Oneshot` polls the clone's readiness, which `poll_ready` never
+    /// covered.
+    Admitted {
+        #[pin]
+        inner: Oneshot<S, Request<ReqBody>>,
+        permit: OwnedSemaphorePermit,
     },
 }
 
-impl<F, ResBody, E> Future for GrpcLoadShedFuture<F, ResBody>
+impl<S, ReqBody, ResBody> Future for GrpcLoadShedFuture<S, ReqBody, ResBody>
 where
-    F: Future<Output = Result<Response<ResBody>, E>>,
+    S: Service<Request<ReqBody>, Response = Response<ResBody>>,
+    ResBody: Default,
 {
-    type Output = F::Output;
+    type Output = Result<Response<ResBody>, S::Error>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.project() {
-            GrpcLoadShedFutureProj::Shed { response } => Poll::Ready(Ok(response.take().unwrap())),
-            GrpcLoadShedFutureProj::Inner { inner, .. } => inner.poll(cx),
-        }
-    }
-}
-
-#[pinned_drop]
-impl<F, ResBody> PinnedDrop for GrpcLoadShedFuture<F, ResBody> {
-    fn drop(self: Pin<&mut Self>) {
-        if let GrpcLoadShedFutureProj::Inner {
-            in_flight: Some(counter),
-            ..
-        } = self.project()
-        {
-            counter.fetch_sub(1, Ordering::Relaxed);
-        }
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let admitted = match self.as_mut().project() {
+            GrpcLoadShedFutureProj::Shed { response } => {
+                return Poll::Ready(Ok(response.take().unwrap()))
+            }
+            GrpcLoadShedFutureProj::Inner { inner, .. } => return inner.poll(cx),
+            GrpcLoadShedFutureProj::Admitted { inner, .. } => return inner.poll(cx),
+            GrpcLoadShedFutureProj::Waiting {
+                acquire,
+                slot,
+                request,
+                service,
+                method,
+                client,
+                started,
+                grpc_status,
+            } => {
+                let outcome = match acquire.as_mut().poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(outcome) => outcome,
+                };
+                // Release the queue slot at the decision, not when hyper
+                // drops the future.
+                drop(slot.take());
+                let waited_ms = started.elapsed().as_secs_f64() * 1000.0;
+                match outcome {
+                    Ok(Ok(permit)) => {
+                        histogram!("grpc_server_admission_wait_ms",
+                            "method" => method.clone(),
+                            "client" => client.clone(),
+                            "outcome" => "admitted",
+                        )
+                        .record(waited_ms);
+                        let inner = service.take().unwrap().oneshot(request.take().unwrap());
+                        GrpcLoadShedFuture::Admitted { inner, permit }
+                    }
+                    // The semaphore is never closed, so `Ok(Err)` cannot
+                    // happen; shed rather than panic in a server path.
+                    Ok(Err(_)) | Err(_) => {
+                        histogram!("grpc_server_admission_wait_ms",
+                            "method" => method.clone(),
+                            "client" => client.clone(),
+                            "outcome" => "shed",
+                        )
+                        .record(waited_ms);
+                        record_shed(method.clone(), client.clone(), ShedReason::WaitTimeout);
+                        return Poll::Ready(Ok(shed_response(grpc_status)));
+                    }
+                }
+            }
+        };
+        self.set(admitted);
+        self.poll(cx)
     }
 }
 
@@ -664,19 +830,19 @@ impl<F, ResBody> PinnedDrop for GrpcLoadShedFuture<F, ResBody> {
 ///
 /// Cardinality is bounded because tonic rejects requests to unknown methods
 /// before they reach this middleware.
-fn extract_grpc_method(path: &str) -> String {
+fn extract_grpc_method(path: &str) -> Arc<str> {
     path.rsplit_once('/')
         .map(|(_, method)| method)
         .filter(|m| !m.is_empty())
         .unwrap_or("unknown")
-        .to_string()
+        .into()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::poll;
     use std::convert::Infallible;
-    use std::sync::atomic::AtomicUsize;
     use std::task::{Context, Poll};
     use tower::Layer;
 
@@ -720,14 +886,38 @@ mod tests {
         }
     }
 
+    fn hold_pod_full(layer: &GrpcLoadShedLayer) -> Vec<GrpcLoadShedFuture<PendingService, (), ()>> {
+        let mut svc = layer.layer(PendingService);
+        (0..layer.max_requests)
+            .map(|_| svc.call(grpc_request("/pkg.Svc/Held")))
+            .collect()
+    }
+
+    fn waiting_layer(max_waiters: usize) -> GrpcLoadShedLayer {
+        GrpcLoadShedLayer::new(1).with_wait(Duration::from_millis(500), max_waiters)
+    }
+
+    fn assert_shed(resp: &Response<()>, expected_status: &str) {
+        assert_eq!(resp.headers().get("grpc-status").unwrap(), expected_status);
+        assert_eq!(
+            resp.headers().get("grpc-message").unwrap(),
+            "Server at capacity"
+        );
+        assert_eq!(resp.headers().get(NOT_APPLIED_HEADER).unwrap(), "load_shed");
+    }
+
+    fn assert_admitted(resp: &Response<()>) {
+        assert_eq!(resp.status(), 200);
+        assert!(resp.headers().get("grpc-status").is_none());
+    }
+
     #[tokio::test]
     async fn passthrough_when_disabled() {
         let layer = GrpcLoadShedLayer::new(0);
         let mut svc = layer.layer(OkService);
 
         let resp = svc.call(grpc_request("/pkg.Svc/Method")).await.unwrap();
-        assert_eq!(resp.status(), 200);
-        assert!(resp.headers().get("grpc-status").is_none());
+        assert_admitted(&resp);
     }
 
     #[tokio::test]
@@ -736,91 +926,157 @@ mod tests {
         let mut svc = layer.layer(OkService);
 
         let resp = svc.call(grpc_request("/pkg.Svc/Method")).await.unwrap();
-        assert_eq!(resp.status(), 200);
-        assert!(resp.headers().get("grpc-status").is_none());
+        assert_admitted(&resp);
     }
 
     #[tokio::test]
     async fn sheds_at_capacity() {
-        let in_flight = Arc::new(AtomicUsize::new(0));
-        let layer = GrpcLoadShedLayer {
-            max_requests: 2,
-            in_flight: in_flight.clone(),
-        };
-        in_flight.store(2, Ordering::Relaxed);
+        for (layer, expected_status) in [
+            (GrpcLoadShedLayer::new(2), "14"),
+            (
+                GrpcLoadShedLayer::new(2).with_code(tonic::Code::ResourceExhausted),
+                "8",
+            ),
+        ] {
+            let held = hold_pod_full(&layer);
+            let mut svc = layer.layer(OkService);
 
-        let mut svc = layer.layer(OkService);
-
-        let resp = svc.call(grpc_request("/pkg.Svc/GetPerson")).await.unwrap();
-        assert_eq!(resp.headers().get("grpc-status").unwrap(), "14");
-        assert_eq!(
-            resp.headers().get("grpc-message").unwrap(),
-            "Server at capacity"
-        );
-        assert_eq!(resp.headers().get(NOT_APPLIED_HEADER).unwrap(), "load_shed");
-        // Shed path: increment then immediate decrement, net zero change
-        assert_eq!(in_flight.load(Ordering::Relaxed), 2);
+            let resp = svc.call(grpc_request("/pkg.Svc/GetPerson")).await.unwrap();
+            assert_shed(&resp, expected_status);
+            assert_eq!(layer.permits.available_permits(), 0);
+            drop(held);
+            assert_eq!(layer.permits.available_permits(), 2);
+        }
     }
 
     #[tokio::test]
-    async fn counter_decrements_on_completion() {
-        let in_flight = Arc::new(AtomicUsize::new(0));
-        let layer = GrpcLoadShedLayer {
-            max_requests: 10,
-            in_flight: in_flight.clone(),
-        };
+    async fn permit_returns_on_completion() {
+        let layer = GrpcLoadShedLayer::new(10);
         let mut svc = layer.layer(OkService);
-
-        assert_eq!(in_flight.load(Ordering::Relaxed), 0);
 
         let resp = svc.call(grpc_request("/pkg.Svc/Method")).await.unwrap();
-        assert!(resp.headers().get("grpc-status").is_none());
+        assert_admitted(&resp);
 
-        // Future completed and dropped — counter back to 0
-        assert_eq!(in_flight.load(Ordering::Relaxed), 0);
+        assert_eq!(layer.permits.available_permits(), 10);
     }
 
     #[tokio::test]
-    async fn counter_decrements_on_drop() {
-        let in_flight = Arc::new(AtomicUsize::new(0));
-        let layer = GrpcLoadShedLayer {
-            max_requests: 10,
-            in_flight: in_flight.clone(),
-        };
+    async fn permit_returns_on_drop() {
+        let layer = GrpcLoadShedLayer::new(10);
         let mut svc = layer.layer(PendingService);
 
         let future = svc.call(grpc_request("/pkg.Svc/Method"));
-        assert_eq!(in_flight.load(Ordering::Relaxed), 1);
+        assert_eq!(layer.permits.available_permits(), 9);
 
         // Drop without polling to completion — simulates request cancellation
         drop(future);
-        assert_eq!(in_flight.load(Ordering::Relaxed), 0);
+        assert_eq!(layer.permits.available_permits(), 10);
     }
 
-    #[tokio::test]
-    async fn shed_response_does_not_decrement_existing() {
-        let in_flight = Arc::new(AtomicUsize::new(5));
-        let layer = GrpcLoadShedLayer {
-            max_requests: 5,
-            in_flight: in_flight.clone(),
-        };
+    #[tokio::test(start_paused = true)]
+    async fn waits_for_a_permit_that_frees_inside_the_window() {
+        let layer = waiting_layer(4);
+        let mut held = hold_pod_full(&layer);
         let mut svc = layer.layer(OkService);
 
-        let _resp = svc.call(grpc_request("/pkg.Svc/Method")).await.unwrap();
+        let waiter = svc.call(grpc_request("/pkg.Svc/GetPerson"));
+        tokio::pin!(waiter);
+        assert!(poll!(waiter.as_mut()).is_pending());
+        assert_eq!(layer.waiters.load(Ordering::Relaxed), 1);
 
-        // Existing in-flight count unchanged after shed
-        assert_eq!(in_flight.load(Ordering::Relaxed), 5);
+        held.pop();
+        let resp = waiter.await.unwrap();
+        assert_admitted(&resp);
+        assert_eq!(layer.waiters.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn sheds_after_the_wait_window() {
+        for (layer, expected_status) in [
+            (waiting_layer(4), "14"),
+            (
+                waiting_layer(4).with_code(tonic::Code::ResourceExhausted),
+                "8",
+            ),
+        ] {
+            let _held = hold_pod_full(&layer);
+            let mut svc = layer.layer(OkService);
+
+            let start = tokio::time::Instant::now();
+            let resp = svc.call(grpc_request("/pkg.Svc/GetPerson")).await.unwrap();
+            assert!(start.elapsed() >= Duration::from_millis(500));
+            assert_shed(&resp, expected_status);
+            assert_eq!(layer.waiters.load(Ordering::Relaxed), 0);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn sheds_immediately_when_the_queue_is_full() {
+        let layer = waiting_layer(1);
+        let _held = hold_pod_full(&layer);
+        let mut svc = layer.layer(OkService);
+
+        let first = svc.call(grpc_request("/pkg.Svc/GetPerson"));
+        tokio::pin!(first);
+        assert!(poll!(first.as_mut()).is_pending());
+
+        let start = tokio::time::Instant::now();
+        let resp = svc.call(grpc_request("/pkg.Svc/GetPerson")).await.unwrap();
+        assert_eq!(start.elapsed(), Duration::ZERO);
+        assert_shed(&resp, "14");
+        assert_eq!(layer.waiters.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn dropped_waiter_frees_its_queue_slot() {
+        let layer = waiting_layer(1);
+        let _held = hold_pod_full(&layer);
+        let mut svc = layer.layer(OkService);
+
+        {
+            let first = svc.call(grpc_request("/pkg.Svc/GetPerson"));
+            tokio::pin!(first);
+            assert!(poll!(first.as_mut()).is_pending());
+            assert_eq!(layer.waiters.load(Ordering::Relaxed), 1);
+        }
+        assert_eq!(layer.waiters.load(Ordering::Relaxed), 0);
+
+        let second = svc.call(grpc_request("/pkg.Svc/GetPerson"));
+        tokio::pin!(second);
+        assert!(poll!(second.as_mut()).is_pending());
+        assert_eq!(layer.waiters.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn earliest_waiter_takes_the_freed_permit() {
+        let layer = waiting_layer(4);
+        let mut held = hold_pod_full(&layer);
+        let mut svc = layer.layer(OkService);
+
+        let first = svc.call(grpc_request("/pkg.Svc/GetPerson"));
+        tokio::pin!(first);
+        let second = svc.call(grpc_request("/pkg.Svc/GetPerson"));
+        tokio::pin!(second);
+        assert!(poll!(first.as_mut()).is_pending());
+        assert!(poll!(second.as_mut()).is_pending());
+
+        held.pop();
+        assert!(poll!(second.as_mut()).is_pending());
+        match poll!(first.as_mut()) {
+            Poll::Ready(Ok(resp)) => assert_admitted(&resp),
+            other => panic!("first waiter not admitted: {other:?}"),
+        }
     }
 
     #[test]
     fn extract_method_from_grpc_path() {
         assert_eq!(
-            extract_grpc_method("/package.Service/GetPerson"),
+            &*extract_grpc_method("/package.Service/GetPerson"),
             "GetPerson"
         );
-        assert_eq!(extract_grpc_method("/a.b.c/Method"), "Method");
-        assert_eq!(extract_grpc_method("/"), "unknown");
-        assert_eq!(extract_grpc_method(""), "unknown");
+        assert_eq!(&*extract_grpc_method("/a.b.c/Method"), "Method");
+        assert_eq!(&*extract_grpc_method("/"), "unknown");
+        assert_eq!(&*extract_grpc_method(""), "unknown");
     }
 
     #[test]

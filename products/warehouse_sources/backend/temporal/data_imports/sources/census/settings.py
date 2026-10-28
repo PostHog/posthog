@@ -1,10 +1,15 @@
+import dataclasses
 from dataclasses import dataclass, field
 from typing import Literal
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
 )
 from products.warehouse_sources.backend.types import IncrementalField
+
+CENSUS_API_V1 = UNVERSIONED_API_VERSION
+CENSUS_API_V2 = "v2"
 
 CENSUS_HOSTS = {
     "us": "https://app.getcensus.com",
@@ -35,7 +40,7 @@ class CensusEndpointConfig:
     permission_denied_reason: str | None = None
 
 
-CENSUS_ENDPOINTS: dict[str, CensusEndpointConfig] = {
+_V1_ENDPOINTS: dict[str, CensusEndpointConfig] = {
     # Census has no server-side `updated_since`/`created_since` filter on any list endpoint
     # (only `page`/`per_page`/`order`), so every table is full refresh only.
     "syncs": CensusEndpointConfig(
@@ -91,8 +96,39 @@ CENSUS_ENDPOINTS: dict[str, CensusEndpointConfig] = {
     ),
 }
 
-ENDPOINTS = tuple(CENSUS_ENDPOINTS)
-
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    name: config.incremental_fields for name, config in CENSUS_ENDPOINTS.items()
+# V2 serves the same pagination and response envelope under `/api/v2`. Workspaces have no V2
+# equivalent (the vendor retires them with V1), so that table exists only on V1.
+_V2_PATHS: dict[str, str] = {
+    "syncs": "/api/v2/syncs",
+    "sync_runs": "/api/v2/syncs/{sync_id}/sync_runs",
+    "sources": "/api/v2/sources",
+    # V2 replaces destination connections with activations. The table keeps its name so a repinned
+    # source does not orphan it.
+    "destinations": "/api/v2/activations",
+    "datasets": "/api/v2/datasets",
 }
+
+# V2 source rows add `notification_emails`, which carries people's addresses, and `storage_backend`,
+# whose custom-storage configuration can hold cloud credentials such as service-account keys.
+_V2_EXTRA_STRIP_FIELDS: dict[str, tuple[str, ...]] = {
+    "sources": ("notification_emails", "storage_backend"),
+}
+
+CENSUS_ENDPOINTS_BY_VERSION: dict[str, dict[str, CensusEndpointConfig]] = {
+    CENSUS_API_V1: _V1_ENDPOINTS,
+    CENSUS_API_V2: {
+        name: dataclasses.replace(
+            _V1_ENDPOINTS[name],
+            path=path,
+            strip_fields=_V1_ENDPOINTS[name].strip_fields + _V2_EXTRA_STRIP_FIELDS.get(name, ()),
+        )
+        for name, path in _V2_PATHS.items()
+    },
+}
+
+
+def get_census_endpoints(api_version: str) -> dict[str, CensusEndpointConfig]:
+    endpoints = CENSUS_ENDPOINTS_BY_VERSION.get(api_version)
+    if endpoints is None:
+        raise ValueError(f"Unsupported Census API version: {api_version}")
+    return endpoints

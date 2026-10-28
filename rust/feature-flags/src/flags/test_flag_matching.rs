@@ -8238,7 +8238,7 @@ mod tests {
             Arc::new(GroupTypeCacheManager::new(stalled_db.clone(), None, None)),
             Some(HashMap::from([("project".to_string(), json!("p1"))])),
         )
-        .with_persons_db_deadline(Some(deadline));
+        .with_persons_db_deadline(Some(tokio::time::Instant::now() + deadline));
 
         let rollout_flag = mock!(FeatureFlag, id: 1, key: "rollout_flag".mock_into());
         let person_flag = mock!(FeatureFlag,
@@ -8332,6 +8332,8 @@ mod tests {
             "a persons call that starts after the deadline must not take a connection"
         );
         assert_eq!(log.persons_db_deadline_exceeded, Some(first_stopped_call));
+        assert!(log.outcome_marks.needs_persons());
+        assert!(log.outcome_marks.degraded());
         for operation in [first_stopped_call, "fetch_properties"] {
             assert_eq!(
                 counter_total(
@@ -8346,6 +8348,53 @@ mod tests {
                 "{operation} stop counted once"
             );
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_db_free_flags_do_not_need_persons() {
+        let stalled_db = Arc::new(StalledPgClient::default());
+        let router = PostgresRouter::new(
+            stalled_db.clone(),
+            stalled_db.clone(),
+            stalled_db.clone(),
+            stalled_db.clone(),
+        );
+        let mut matcher = FeatureFlagMatcher::new(
+            "db_free_user".to_string(),
+            None,
+            1,
+            router,
+            Arc::new(CohortCacheManager::new(stalled_db.clone(), None, None)),
+            Arc::new(GroupTypeCacheManager::new(stalled_db.clone(), None, None)),
+            None,
+        );
+        let flags = flag_list_with_metadata(vec![
+            mock!(FeatureFlag, id: 1, key: "rollout_flag".mock_into()),
+        ]);
+
+        let (response, log) = run_with_canonical_log(
+            FlagsCanonicalLogLine::new(Uuid::new_v4(), "127.0.0.1".to_string()),
+            tokio::time::timeout(
+                Duration::from_secs(60),
+                matcher.evaluate_all_feature_flags(
+                    flags,
+                    None,
+                    None,
+                    None,
+                    Uuid::new_v4(),
+                    None,
+                    false,
+                ),
+            ),
+        )
+        .await;
+        response
+            .expect("database-free flags must not wait on the database")
+            .unwrap();
+
+        assert_eq!(stalled_db.connection_requests.load(Ordering::SeqCst), 0);
+        assert!(!log.outcome_marks.needs_persons());
+        assert!(!log.outcome_marks.degraded());
     }
 
     #[tokio::test]
@@ -8516,6 +8565,7 @@ mod tests {
                 dependency_stages: vec![vec![1, 2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::new())]),
+                ..Default::default()
             }),
             cohorts: None,
         };
@@ -8609,6 +8659,7 @@ mod tests {
                 dependency_stages: vec![vec![1], vec![2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::from([1]))]),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -8714,6 +8765,7 @@ mod tests {
                 dependency_stages: vec![vec![1], vec![2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::from([1]))]),
+                ..Default::default()
             }),
             cohorts: None,
         };
@@ -8813,6 +8865,7 @@ mod tests {
                 dependency_stages: vec![vec![1], vec![2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::from([1]))]),
+                ..Default::default()
             }),
             cohorts: None,
         };
@@ -9009,6 +9062,7 @@ mod tests {
                     (2, HashSet::from([1])),
                     (3, HashSet::from([1, 2])),
                 ]),
+                ..Default::default()
             }),
             cohorts: None,
         };
@@ -10247,6 +10301,7 @@ mod tests {
                     (2, HashSet::from([3])),
                     (3, HashSet::new()),
                 ]),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -10336,6 +10391,7 @@ mod tests {
                 dependency_stages: vec![vec![1, 2]],
                 flags_with_missing_deps: vec![1],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::new())]),
+                ..Default::default()
             }),
             ..Default::default()
         };

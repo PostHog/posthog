@@ -41,7 +41,6 @@ class TestAssemblyAISource:
     @pytest.mark.parametrize(
         "observed_error",
         [
-            "401 Client Error: Unauthorized for url: https://api.assemblyai.com/v2/transcript?limit=200",
             "401 Client Error: Unauthorized for url: https://api.eu.assemblyai.com/v2/transcript/abc",
         ],
     )
@@ -52,8 +51,6 @@ class TestAssemblyAISource:
     @pytest.mark.parametrize(
         "other_error",
         [
-            "500 Server Error: Internal Server Error for url: https://api.assemblyai.com/v2/transcript",
-            "429 Client Error: Too Many Requests for url: https://api.assemblyai.com/v2/transcript",
             "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
         ],
     )

@@ -57,4 +57,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "error": "Details about the failure, with a human-readable message. Present when the status is failed.",
         },
     },
+    "knowledge_store_item_tags": {
+        "description": "An item tag marks a moment or a range of a knowledge store video item and carries custom metadata.",
+        "docs_url": "https://docs.twelvelabs.io/v1.3/api-reference/knowledge-store-items/item-tags/list",
+        "columns": {
+            "_id": "Unique identifier of the item tag.",
+            "knowledge_store_id": "Identifier of the knowledge store.",
+            "item_id": "Identifier of the knowledge store item that holds the tag.",
+            "start_sec": "Start of the tag, in seconds from the start of the video.",
+            "end_sec": "End of the range, in seconds from the start of the video. Null for a tag on a single moment.",
+            "tag_metadata": "Custom metadata of the tag. Each value is a string, a number, a boolean, or an array of strings.",
+            "created_at": "Date and time, in RFC 3339 format, the tag was created.",
+            "updated_at": "Date and time, in RFC 3339 format, the tag was last updated.",
+        },
+    },
 }

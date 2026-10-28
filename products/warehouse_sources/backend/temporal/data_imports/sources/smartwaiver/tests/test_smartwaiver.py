@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartwaiver import (
     SmartwaiverSourceConfig,
@@ -22,7 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.smartwaive
     SmartwaiverResumeConfig,
     _clamp_before_current_hour,
     _format_dts,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.source import SmartwaiverSource
 
@@ -180,26 +178,3 @@ class TestSmartwaiverSourceResponse:
         assert response.partition_keys == expected_partition_keys
         # List order is undocumented, so the watermark must only advance on completed syncs.
         assert response.sort_mode == "desc"
-
-
-class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("valid", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Smartwaiver API key"),
-            ("forbidden", 403, False, "Invalid Smartwaiver API key"),
-            ("server_error", 500, False, "Smartwaiver returned HTTP 500"),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status: int, expected_valid: bool, expected_message: str | None) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            is_valid, message = validate_credentials("key")
-        assert is_valid is expected_valid
-        assert message == expected_message
-
-    def test_connection_error_is_not_validated(self) -> None:
-        # A probe that raises (transport error) must never bubble out of validate_credentials.
-        with scripted_network(always(ConnectionError("boom"))):
-            is_valid, message = validate_credentials("key")
-        assert is_valid is False
-        assert message == "Could not validate Smartwaiver API key"

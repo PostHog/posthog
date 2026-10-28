@@ -1,6 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import { IconDatabase } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { langchainCerebrasImageError } from '../sampleFixtures/langchainCerebrasImageError'
 import {
     FIXTURE_EVALS,
@@ -62,7 +65,20 @@ export const LoadingContent: Story = {
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 export const ContentLoadError: Story = {
-    args: { ...base, content: { kind: 'error', message: 'This step could not be loaded. Try again later.' } },
+    args: { ...base, content: { kind: 'error', message: 'This step could not be loaded. Select it again to retry.' } },
+}
+export const ContentNotFound: Story = {
+    args: {
+        ...base,
+        content: {
+            kind: 'error',
+            message: 'This step could not be found. It may have been deleted, or it is outside the retention period.',
+        },
+    },
+}
+export const RawTabWhileLoading: Story = {
+    args: { ...base, content: { kind: 'loading' }, initialTab: 'raw' },
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 export const WithError: Story = {
     args: {
@@ -82,6 +98,18 @@ export const EvalsLoadError: Story = {
     },
 }
 export const Narrow: Story = { args: base, decorators: [withWidth(520)] }
+export const NarrowWithActions: Story = {
+    args: {
+        ...base,
+        node: { ...generation, name: 'answer-billing-question-with-retrieved-context-and-follow-up' },
+        actions: (
+            <LemonButton type="secondary" size="xsmall" icon={<IconDatabase />}>
+                Add to dataset
+            </LemonButton>
+        ),
+    },
+    decorators: [withWidth(520)],
+}
 export const FailedGenerationWithImage: Story = {
     args: {
         ...langchainCerebrasImageError.details[failedGeneration.id],

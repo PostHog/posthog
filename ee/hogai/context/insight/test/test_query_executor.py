@@ -37,7 +37,14 @@ from posthog.schema import (
 )
 
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    NotImplementedError as HogQLNotImplementedError,
+    ParsingError,
+    QueryError,
+    ResolutionError,
+    SyntaxError as HogQLSyntaxError,
+)
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
@@ -51,10 +58,35 @@ from ee.hogai.context.insight.query_executor import (
     AssistantQueryExecutor,
     execute_and_format_query,
     get_example_prompt,
+    hogql_error_code,
     is_supported_query,
 )
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.utils.query import validate_assistant_query
+
+
+def _exposed_from(cause: Exception) -> ExposedHogQLError:
+    error = ExposedHogQLError("HogQL error")
+    error.__cause__ = cause
+    return error
+
+
+class TestHogQLErrorCode(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("unknown_table", QueryError("Unknown table `evnts`."), "hogql_unknown_table"),
+            (
+                "internal_unknown_table_type",
+                ResolutionError("Unknown table type in LazyTableResolver: X"),
+                "hogql_resolution_error",
+            ),
+            ("not_implemented", HogQLNotImplementedError("No support for X"), "hogql_not_implemented"),
+            ("other_internal", ParsingError("Parsing failed"), "hogql_internal_error"),
+            ("not_hogql", ValueError("Unable to resolve field: x"), None),
+        ]
+    )
+    def test_codes_hold_no_caller_input(self, _name: str, error: Exception, expected_code: str | None) -> None:
+        self.assertEqual(hogql_error_code(error), expected_code)
 
 
 class TestSQLResultBudgets(SimpleTestCase):
@@ -296,22 +328,35 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertEqual(str(context.exception), "API error message")
 
+    @parameterized.expand(
+        [
+            ("outage", ExposedHogQLError("Warehouse connection failed"), "internal", "hogql_error"),
+            ("unresolved_field", QueryError("Unable to resolve field: plan"), "validation", "hogql_unresolved_field"),
+            ("syntax", HogQLSyntaxError("mismatched input 'FORM'"), "validation", "hogql_syntax_error"),
+            (
+                "wrapped_cause",
+                _exposed_from(QueryError("Unable to resolve field: plan")),
+                "validation",
+                "hogql_unresolved_field",
+            ),
+        ]
+    )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
-    async def test_run_and_format_query_handles_exposed_hogql_error(self, mock_process_query):
-        """Test handling of ExposedHogQLError"""
-
-        mock_process_query.side_effect = ExposedHogQLError("HogQL error")
-
-        query = AssistantHogQLQuery(query="SELECT invalid")
+    async def test_run_and_format_query_handles_exposed_hogql_error(
+        self, _name, error, expected_type, expected_code, mock_process_query
+    ):
+        mock_process_query.side_effect = error
 
         with self.assertRaises(MaxToolRetryableError) as context:
-            await self.query_runner.arun_and_format_query(query)
+            await self.query_runner.arun_and_format_query(AssistantHogQLQuery(query="SELECT plan FROM events"))
 
-        self.assertIn("HogQL error", str(context.exception))
+        self.assertEqual(str(context.exception), str(error))
+        self.assertEqual(context.exception.error_type, expected_type)
+        self.assertEqual(context.exception.error_code, expected_code)
 
     @parameterized.expand(
         [
-            ("unknown", ExposedCHQueryError("ClickHouse error"), "ClickHouse error", "internal", None),
+            ("unknown", ExposedCHQueryError("ClickHouse error"), "ClickHouse error", "internal", "unknown_exception"),
             (
                 "argument_type",
                 CHQueryErrorIllegalTypeOfArgument("Expected an integer argument", code=43),
@@ -338,7 +383,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 ExposedCHQueryError("Server failure", code=99999, code_name="caller-supplied-name"),
                 "Server failure",
                 "internal",
-                None,
+                "unknown_exception",
             ),
         ]
     )
@@ -404,6 +449,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertEqual(str(context.exception), "Query has hit the max execution time before completing.")
         self.assertEqual(context.exception.error_type, "internal")
+        self.assertEqual(context.exception.error_code, "query_result_error")
         self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
@@ -463,7 +509,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 "Query memory limit exceeded",
                 "clickhouse_memory_limit_exceeded",
                 "Query memory limit exceeded",
-                None,
+                "clickhouse_memory_limit_exceeded",
                 expected_error_type="memory_limit",
             ),
             ("warehouse_connection", "Warehouse connection failed", None, "Warehouse connection failed", None),
@@ -626,10 +672,19 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             self.assertEqual(context.exception.error_code, expected_code)
             self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
 
-    @parameterized.expand([("keeper_exception",), ("syntax_error",), (None,)])
+    @parameterized.expand(
+        [
+            ("keeper_exception", "keeper_exception"),
+            ("syntax_error", "syntax_error"),
+            ("UNKNOWN_EXCEPTION", "unknown_exception"),
+            (None, None),
+        ]
+    )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
-    async def test_async_server_fault_stays_unknown(self, error_code, mock_get_query_status, mock_process_query):
+    async def test_async_server_fault_stays_unknown(
+        self, error_code, expected_code, mock_get_query_status, mock_process_query
+    ):
         mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
         mock_get_query_status.return_value = Mock(
             model_dump=lambda mode: {
@@ -641,10 +696,11 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             }
         )
         with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
-            with self.assertRaises(Exception) as context:
+            with self.assertRaises(MaxToolRetryableError) as context:
                 await self.query_runner.arun_and_format_query(AssistantHogQLQuery(query="SELECT 1"))
-        self.assertIs(type(context.exception), Exception)
-        self.assertEqual(str(context.exception), "There was an unknown error running this query: Query failed")
+        self.assertEqual(str(context.exception), "The query failed because of an internal error")
+        self.assertEqual(context.exception.error_type, "internal")
+        self.assertEqual(context.exception.error_code, expected_code)
 
     @parameterized.expand(
         [

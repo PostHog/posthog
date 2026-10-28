@@ -1,5 +1,6 @@
 import os
 import json
+import datetime as dt
 from typing import Any
 
 import pytest
@@ -10,10 +11,9 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.clickhouse.client import sync_execute
-
 from products.logs.backend import services_query_runner
 from products.logs.backend.services_query_runner import rule_could_apply_to_service
+from products.logs.backend.test.volume_rollup_fixtures import insert_logs_and_rollups, log_row
 
 
 def _wrap(inner: dict) -> dict:
@@ -169,16 +169,7 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
     def setUpTestData(cls):
         super().setUpTestData()
         with open(os.path.join(os.path.dirname(__file__), "test_logs.jsonnd")) as f:
-            sql = ""
-            for line in f:
-                log_item = json.loads(line)
-                log_item["team_id"] = cls.team.id
-                sql += json.dumps(log_item) + "\n"
-            sync_execute(f"""
-                INSERT INTO logs
-                FORMAT JSONEachRow
-                {sql}
-            """)
+            insert_logs_and_rollups([{**json.loads(line), "team_id": cls.team.id} for line in f])
 
     def _services(self, date_from: str, date_to: str, service_name_search: str | None = None) -> dict:
         query: dict[str, Any] = {
@@ -298,6 +289,222 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual({s["service_name"] for s in result["services"]}, expected_names)
         self.assertEqual(result["total_services"], len(expected_names))
+
+
+_COMPARE_NOW = "2026-06-23T13:00:00Z"
+_CURRENT = {"date_from": "2026-06-23T12:00:00Z", "date_to": "2026-06-23T13:00:00Z"}
+_PRODUCTION = {"deployment.environment.name": "production"}
+_STAGING = {"deployment.environment": "staging"}
+_COMPARE_SERVICES: dict[str, tuple[dict[str, str], tuple[int, int], tuple[int, int]]] = {
+    "checkout": (_PRODUCTION, (200, 2), (200, 20)),
+    "billing": (_PRODUCTION, (50, 0), (0, 0)),
+    "search": (_PRODUCTION, (0, 0), (30, 0)),
+    "inventory": ({"env": "production"}, (150, 0), (150, 0)),
+    "ledger": (_STAGING, (100, 10), (100, 10)),
+    "payments": (_STAGING, (100, 20), (120, 0)),
+}
+
+
+def _hour_rows(team_id: int, service: str, hour: int, info: int, errors: int, resource: dict[str, str]) -> list[dict]:
+    total = info + errors
+    start = dt.datetime(2026, 6, 23, hour, 0, 30, tzinfo=dt.UTC)
+    rows = []
+    for i in range(total):
+        rows.append(
+            log_row(
+                team_id,
+                start + dt.timedelta(seconds=i * 3540 / total),
+                service=service,
+                severity="error" if i < errors else "info",
+                resource_attributes=resource,
+            )
+        )
+    return rows
+
+
+class TestServicesCompare(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = True
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        rows: list[dict] = []
+        for service, (resource, (base_info, base_errors), (cur_info, cur_errors)) in _COMPARE_SERVICES.items():
+            rows += _hour_rows(cls.team.id, service, 11, base_info, base_errors, resource)
+            rows += _hour_rows(cls.team.id, service, 12, cur_info, cur_errors, resource)
+        insert_logs_and_rollups(rows)
+
+    def _services(
+        self, expected_status: int = status.HTTP_200_OK, baselineDateRange: dict | None = None, **query: Any
+    ) -> dict:
+        body: dict[str, Any] = {"query": {"dateRange": _CURRENT, **query}}
+        if baselineDateRange is not None:
+            body["baselineDateRange"] = baselineDateRange
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/services",
+            data=body,
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status, response.content)
+        return response.json()
+
+    @staticmethod
+    def _by_service(result: dict) -> dict[str, dict]:
+        return {row["service_name"]: row for row in result["services"]}
+
+    @time_machine.travel(_COMPARE_NOW, tick=False)
+    def test_previous_period_classifies_each_service(self) -> None:
+        result = self._services(compare="previous_period")
+        rows = self._by_service(result)
+
+        assert {name: row["status"] for name, row in rows.items()} == {
+            "checkout": "regressed",
+            "billing": "silent",
+            "search": "new",
+            "inventory": "ok",
+            "ledger": "degraded",
+            "payments": "recovered",
+        }
+        assert rows["checkout"]["reason"] == "error rate 1.0% → 9.1%"
+        assert rows["checkout"]["error_rate_pct"] == 9.1
+        assert rows["checkout"]["error_rate_delta_pp"] == 8.1
+        assert rows["checkout"]["baseline_log_count"] == 202
+        assert rows["billing"]["log_count"] == 0
+        assert rows["billing"]["baseline_log_count"] == 50
+        assert rows["billing"]["last_seen"] == "2026-06-23T11:55:00Z"
+        assert result["window"] == {
+            "current": {"from": "2026-06-23T12:00:00Z", "to": "2026-06-23T13:00:00Z"},
+            "baseline": {"from": "2026-06-23T11:00:00Z", "to": "2026-06-23T12:00:00Z"},
+            "timezone": "UTC",
+        }
+        assert result["summary"]["status_counts"] == {
+            "ok": 1,
+            "degraded": 1,
+            "regressed": 1,
+            "improved": 0,
+            "recovered": 1,
+            "new": 1,
+            "silent": 1,
+        }
+        assert all(len(row["reason"]) <= 80 for row in result["services"])
+
+    @time_machine.travel(_COMPARE_NOW, tick=False)
+    def test_next_suggests_follow_ups_for_problem_services(self) -> None:
+        result = self._services(compare="previous_period")
+
+        suggestions = {(step["tool"], tuple(step["query"].get("serviceNames", []))) for step in result["next"]}
+        assert ("logs-count-ranges", ("billing",)) in suggestions
+        assert ("logs-patterns-diff", ("checkout",)) in suggestions
+        assert len(result["next"]) <= 3
+
+    @parameterized.expand(
+        [
+            ("aligned_window_reads_the_rollup", _CURRENT, "rollup"),
+            (
+                "unaligned_window_adds_raw_edges",
+                {"date_from": "2026-06-23T12:02:10Z", "date_to": "2026-06-23T12:57:50Z"},
+                "rollup+raw",
+            ),
+        ]
+    )
+    @time_machine.travel(_COMPARE_NOW, tick=False)
+    def test_rollup_and_raw_paths_give_the_same_counts(self, _name: str, window: dict, expected_source: str) -> None:
+        def counts(result: dict) -> dict[str, tuple]:
+            return {
+                row["service_name"]: (
+                    row["log_count"],
+                    row["error_count"],
+                    row["severity_breakdown"],
+                    row["baseline_log_count"],
+                    row["status"],
+                )
+                for row in result["services"]
+            }
+
+        fast = self._services(dateRange=window, compare="previous_period")
+        with patch.object(services_query_runner.ServicesQueryRunner, "_use_rollup", return_value=False):
+            raw = self._services(dateRange=window, compare="previous_period")
+
+        assert fast["source"] == expected_source
+        assert raw["source"] == "raw"
+        assert counts(fast) == counts(raw)
+        assert fast["total_services"] == raw["total_services"]
+
+    @parameterized.expand([("rollup", True), ("raw", False)])
+    @time_machine.travel(_COMPARE_NOW, tick=False)
+    def test_environment_filter_follows_the_fallback_chain(self, _name: str, use_rollup: bool) -> None:
+        with patch.object(services_query_runner.ServicesQueryRunner, "_use_rollup", return_value=use_rollup):
+            result = self._services(compare="previous_period", environment="production")
+
+        assert set(self._by_service(result)) == {"checkout", "billing", "search", "inventory"}
+
+    @time_machine.travel(_COMPARE_NOW, tick=False)
+    def test_no_compare_keeps_the_single_window_response(self) -> None:
+        result = self._services()
+        rows = self._by_service(result)
+
+        assert set(rows) == {"checkout", "search", "inventory", "ledger", "payments"}
+        assert rows["checkout"]["status"] == "degraded"
+        assert rows["inventory"]["status"] == "ok"
+        assert rows["inventory"]["baseline_log_count"] is None
+        assert "baseline" not in result["window"]
+        assert {"sparkline", "total_services", "summary"} <= set(result)
+
+    @time_machine.travel(_COMPARE_NOW, tick=False)
+    def test_explicit_baseline_matches_previous_period(self) -> None:
+        explicit = self._services(
+            baselineDateRange={"date_from": "2026-06-23T11:00:00Z", "date_to": "2026-06-23T12:00:00Z"}
+        )
+        previous = self._services(compare="previous_period")
+
+        assert explicit["services"] == previous["services"]
+
+    @time_machine.travel(_COMPARE_NOW, tick=False)
+    def test_previous_day_without_history_marks_every_service_new(self) -> None:
+        result = self._services(compare="previous_day")
+
+        assert result["window"]["baseline"] == {"from": "2026-06-22T12:00:00Z", "to": "2026-06-22T13:00:00Z"}
+        assert {row["status"] for row in result["services"]} == {"new"}
+
+    @time_machine.travel(_COMPARE_NOW, tick=False)
+    def test_next_keeps_the_original_scope(self) -> None:
+        excluded = {
+            "key": "k8s.namespace.name",
+            "operator": "is_not",
+            "value": ["staging"],
+            "type": "log_resource_attribute",
+        }
+        result = self._services(compare="previous_period", searchTerm="log line", filterGroup=[excluded])
+
+        assert result["next"]
+        for step in result["next"]:
+            assert step["query"]["searchTerm"] == "log line"
+            assert step["query"]["filterGroup"] == [excluded]
+        diff = next(step for step in result["next"] if step["tool"] == "logs-patterns-diff")
+        assert diff["baselineDateRange"] == {"date_from": "2026-06-23T11:00:00Z", "date_to": "2026-06-23T12:00:00Z"}
+        assert self._services(compare="previous_period", environment="production")["next"] == []
+
+    def test_next_filters_on_the_stored_service_name(self) -> None:
+        window = (dt.datetime(2026, 6, 23, 12, tzinfo=dt.UTC), dt.datetime(2026, 6, 23, 13, tzinfo=dt.UTC))
+
+        steps = services_query_runner._next_steps([("", "degraded")], window, None, {})
+
+        assert {tuple(step["query"]["serviceNames"]) for step in steps} == {("",)}
+
+    @time_machine.travel(_COMPARE_NOW, tick=False)
+    def test_a_capped_scan_does_not_invent_silent_or_new_services(self) -> None:
+        with patch("products.logs.backend.services_query_runner.SERVICES_LIMIT", 2):
+            result = self._services(compare="previous_period")
+
+        assert not {row["status"] for row in result["services"]} & {"silent", "new"}
+        assert result["summary"]["truncated"] is True
+
+    def test_environment_must_be_a_string(self) -> None:
+        self._services(expected_status=status.HTTP_400_BAD_REQUEST, environment=["production"])
+
+    def test_unknown_compare_mode_is_rejected(self) -> None:
+        response = self._services(expected_status=status.HTTP_400_BAD_REQUEST, compare="yesterday")
+        assert "compare" in json.dumps(response)
 
 
 if __name__ == "__main__":

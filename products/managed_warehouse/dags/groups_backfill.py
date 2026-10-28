@@ -1,7 +1,5 @@
-import json
-from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
-from uuid import uuid4
 
 from django.utils import timezone
 
@@ -20,7 +18,6 @@ from dagster import (
     sensor,
 )
 from psycopg import sql
-from tenacity import retry, retry_if_exception, stop_after_attempt, wait_random_exponential
 
 from posthog.hogql.escape_sql import escape_clickhouse_string
 
@@ -38,13 +35,15 @@ from posthog.dags.events_backfill_to_duckling import (
     DucklingTarget,
     _compute_fanout,
     _DuckgresSession,
+    _execute_export_with_retry,
     _get_cluster,
     _glob_run_files,
     _repair_stale_running_statuses,
     _resolve_duckling_target,
     get_s3_url_for_clickhouse,
+    is_full_export_partition,
+    parse_partition_key_dates,
 )
-from posthog.dataclasses import frozen
 
 from products.data_warehouse.backend.facade.backfill_status import record_backfill_finished, record_backfill_started
 from products.data_warehouse.backend.facade.models import ManagedWarehouseBackfillPartition
@@ -60,11 +59,11 @@ if TYPE_CHECKING:
 GROUPS_DATASET = ManagedWarehouseBackfillPartition.Dataset.GROUPS
 GROUPS_JOB_NAME = "duckling_groups_backfill_job"
 GROUPS_SNAPSHOT_TAG = "groups_backfill/snapshot"
+GROUPS_REFRESH_DATE_TAG = "groups_backfill/refresh_date"
 MAX_TEAMS_PER_TICK = 25
 MAX_RUN_REQUESTS_PER_TICK = 3
 RETRY_HISTORY_LIMIT = 6
 RETRY_BASE_SECONDS = 600
-STATE_COMMENT_PREFIX = "posthog_groups_backfill:"
 GROUPS_TAGS = {"owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value, **DUCKLING_BACKFILL_CONCURRENCY_TAG}
 duckling_groups_partitions_def = DynamicPartitionsDefinition(name="duckling_groups_backfill")
 GROUPS_COLUMN_TYPES = {
@@ -78,16 +77,21 @@ GROUPS_COLUMN_TYPES = {
 }
 
 
-def groups_snapshot_select_sql(team_id: int) -> str:
+def groups_snapshot_select_sql(team_id: int, date: datetime | None = None) -> str:
     if team_id <= 0:
         raise ValueError("Groups backfill requires a positive team ID")
+    date_filter = ""
+    if date is not None:
+        start = escape_clickhouse_string(date.strftime("%Y-%m-%d"))
+        end = escape_clickhouse_string((date + timedelta(days=1)).strftime("%Y-%m-%d"))
+        date_filter = f"AND _timestamp >= toDateTime({start}, 'UTC') AND _timestamp < toDateTime({end}, 'UTC')"
     return f"""
         SELECT team_id, group_type_index, group_key,
             group_properties, created_at,
             toDateTime64(_timestamp, 6) AS _timestamp,
             now64(6) AS _inserted_at
         FROM groups FINAL
-        WHERE team_id = {int(team_id)}
+        WHERE team_id = {int(team_id)} {date_filter}
     """
 
 
@@ -96,8 +100,10 @@ def export_groups_to_duckling_s3(
     client: "Client",
     config: DucklingBackfillConfig,
     target: DucklingTarget,
+    date: datetime | None = None,
 ) -> str | None:
-    path = f"backfill/groups/{target.team_id}/{context.run.run_id}/{{_partition_id}}.parquet"
+    period = f"/{date.strftime('%Y-%m-%d')}" if date is not None else ""
+    path = f"backfill/groups/{target.team_id}{period}/{context.run.run_id}/{{_partition_id}}.parquet"
     s3_url = get_s3_url_for_clickhouse(target.bucket, target.bucket_region, path)
     s3_glob = f"s3://{target.bucket}/{path.replace('{_partition_id}', '*')}"
     if config.dry_run:
@@ -111,18 +117,22 @@ def export_groups_to_duckling_s3(
         **(config.clickhouse_settings or {}),
     }
     settings.update(PARQUET_WRITER_SETTINGS)
-    row_count = client.execute(
-        "SELECT count() FROM groups WHERE team_id = %(team_id)s", {"team_id": target.team_id}, settings=settings
-    )[0][0]
+    count_sql = "SELECT count() FROM groups WHERE team_id = %(team_id)s"
+    count_params: dict[str, int | str] = {"team_id": target.team_id}
+    if date is not None:
+        count_sql += " AND _timestamp >= toDateTime(%(date)s, 'UTC') AND _timestamp < toDateTime(%(next_date)s, 'UTC')"
+        count_params.update(date=date.strftime("%Y-%m-%d"), next_date=(date + timedelta(days=1)).strftime("%Y-%m-%d"))
+    row_count = client.execute(count_sql, count_params, settings=settings)[0][0]
     fanout = _compute_fanout(int(row_count), config.target_rows_per_file, config.max_s3_file_fanout)
     export_sql = f"""
         INSERT INTO FUNCTION s3({escape_clickhouse_string(s3_url)}, 'Parquet')
         PARTITION BY toString(cityHash64(group_type_index, group_key) % {fanout})
-        {groups_snapshot_select_sql(target.team_id)}
+        {groups_snapshot_select_sql(target.team_id, date)}
         SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
     """
     # A failed export can leave partial S3 objects; only register files after the whole query succeeds.
-    client.execute(export_sql, settings=settings)
+    info = f"team_id={target.team_id}, date={date.strftime('%Y-%m-%d') if date is not None else 'full'}"
+    _execute_export_with_retry(client, export_sql, settings, info)
     return s3_glob
 
 
@@ -148,169 +158,118 @@ def ensure_groups_table(
             raise ValueError(f"Groups table schema mismatch: expected {GROUPS_COLUMN_TYPES}, got {actual}")
 
 
-@frozen
-class GroupsSnapshotTicket:
-    epoch: str
-    generation: int
-
-
-@frozen
-class GroupsSnapshotRegistration:
-    files_registered: int
-    superseded: bool = False
-
-
-@frozen
-class _GroupsSnapshotState:
-    epoch: str
-    issued: int
-    applied: dict[str, int]
-
-
-def _read_snapshot_state(conn: psycopg.Connection[tuple[object, ...]], table_name: str) -> _GroupsSnapshotState:
-    rows = conn.execute(
-        "SELECT comment FROM duckdb_tables() WHERE database_name = %s AND schema_name = 'posthog' AND table_name = %s",
-        (DUCKLAKE_ALIAS, table_name),
-    ).fetchall()
-    if len(rows) != 1:
-        raise ValueError("Groups table is missing from the catalog")
-    comment = rows[0][0]
-    if comment is None:
-        return _GroupsSnapshotState(epoch=uuid4().hex, issued=0, applied={})
-    if not isinstance(comment, str) or not comment.startswith(STATE_COMMENT_PREFIX):
-        raise ValueError("Groups table has unexpected snapshot metadata")
-    payload = json.loads(comment[len(STATE_COMMENT_PREFIX) :])
-    if not isinstance(payload, dict):
-        raise ValueError("Invalid groups snapshot metadata")
-    epoch, issued, applied = payload.get("epoch"), payload.get("issued"), payload.get("applied")
-    if not isinstance(epoch, str) or type(issued) is not int or issued < 0 or not isinstance(applied, dict):
-        raise ValueError("Invalid groups snapshot metadata")
-    if any(not isinstance(k, str) or type(v) is not int or not 0 <= v <= issued for k, v in applied.items()):
-        raise ValueError("Invalid groups snapshot generations")
-    return _GroupsSnapshotState(epoch=epoch, issued=issued, applied=applied)
-
-
-def _write_snapshot_state(
-    conn: psycopg.Connection[tuple[object, ...]], table_name: str, state: _GroupsSnapshotState
-) -> None:
-    comment = STATE_COMMENT_PREFIX + json.dumps(
-        {"epoch": state.epoch, "issued": state.issued, "applied": state.applied}
-    )
-    conn.execute(
-        sql.SQL("COMMENT ON TABLE {} IS {}").format(
-            sql.Identifier(DUCKLAKE_ALIAS, "posthog", table_name), sql.Literal(comment)
-        )
-    )
-
-
-def _transaction_conflict(error: BaseException) -> bool:
-    return "transaction conflict" in str(error).lower()
-
-
-@retry(
-    retry=retry_if_exception(_transaction_conflict),
-    stop=stop_after_attempt(4),
-    wait=wait_random_exponential(multiplier=0.1, max=1),
-    reraise=True,
-)
-def reserve_groups_snapshot(conn: psycopg.Connection[tuple[object, ...]], table_name: str) -> GroupsSnapshotTicket:
-    with conn.transaction():
-        state = _read_snapshot_state(conn, table_name)
-        state = replace(state, issued=state.issued + 1)
-        _write_snapshot_state(conn, table_name, state)
-    return GroupsSnapshotTicket(epoch=state.epoch, generation=state.issued)
-
-
-@retry(
-    retry=retry_if_exception(_transaction_conflict),
-    stop=stop_after_attempt(4),
-    wait=wait_random_exponential(multiplier=0.1, max=1),
-    reraise=True,
-)
-def replace_groups_snapshot(
+def delete_groups_partition_data(
     conn: psycopg.Connection[tuple[object, ...]],
     target: DucklingTarget,
     table_name: str,
+    date: datetime | None = None,
+) -> None:
+    query = sql.SQL("DELETE FROM {} WHERE team_id = %s").format(sql.Identifier(DUCKLAKE_ALIAS, "posthog", table_name))
+    params: tuple[object, ...] = (target.team_id,)
+    if date is not None:
+        query += sql.SQL(" AND _timestamp >= %s AND _timestamp < %s")
+        params += (date.strftime("%Y-%m-%d"), (date + timedelta(days=1)).strftime("%Y-%m-%d"))
+    conn.execute(query, params)
+
+
+def register_groups_files_with_duckling(
+    context: AssetExecutionContext,
+    conn: psycopg.Connection[tuple[object, ...]],
+    table_name: str,
     s3_glob: str,
-    ticket: GroupsSnapshotTicket,
-) -> GroupsSnapshotRegistration:
+) -> int:
     files = _glob_run_files(conn, s3_glob)
-    # The generation marker commits with the data, so disconnects and empty snapshots preserve ordering.
-    with conn.transaction():
-        state = _read_snapshot_state(conn, table_name)
-        applied = state.applied.get(str(target.team_id), 0)
-        if ticket.epoch != state.epoch or ticket.generation < applied:
-            return GroupsSnapshotRegistration(files_registered=0, superseded=True)
-        if ticket.generation == applied:
-            return GroupsSnapshotRegistration(files_registered=len(files))
-        if ticket.generation > state.issued:
-            raise ValueError("Groups snapshot generation was not reserved")
+    if not files:
+        context.log.info(f"No groups files produced for {s3_glob}, nothing to register")
+        return 0
+    context.log.info(f"Registering {len(files)} groups file(s) with DuckLake from {s3_glob}")
+    for path in files:
         conn.execute(
-            sql.SQL("DELETE FROM {} WHERE team_id = %s").format(sql.Identifier(DUCKLAKE_ALIAS, "posthog", table_name)),
-            (target.team_id,),
+            "CALL ducklake_add_data_files(%s, %s, %s, schema => 'posthog', allow_missing => true)",
+            (DUCKLAKE_ALIAS, table_name, path),
         )
-        for path in files:
-            conn.execute(
-                "CALL ducklake_add_data_files(%s, %s, %s, schema => 'posthog', allow_missing => true)",
-                (DUCKLAKE_ALIAS, table_name, path),
-            )
-        _write_snapshot_state(
-            conn, table_name, replace(state, applied={**state.applied, str(target.team_id): ticket.generation})
-        )
-    return GroupsSnapshotRegistration(files_registered=len(files))
+    return len(files)
 
 
 def run_groups_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
-    team_id = int(context.partition_key)
+    partition_key = context.partition_key
+    is_full = is_full_export_partition(partition_key)
+    dates: list[datetime | None]
+    if is_full:
+        team_id = int(partition_key)
+        dates = [None]
+    else:
+        team_id, partition_dates = parse_partition_key_dates(partition_key)
+        dates = list(partition_dates)
     groups_snapshot_select_sql(team_id)
-    if not config.cleanup_existing_partition_data:
-        raise ValueError("Groups snapshots require cleanup_existing_partition_data=True")
+    mode = "full" if is_full else "daily"
     target = _resolve_duckling_target(team_id)
     table_name = resolve_groups_table(team_id)
     tags = dagster_tags(context)
-    session = None
-    registration = GroupsSnapshotRegistration(files_registered=0)
+    should_use_duckgres = not (config.dry_run or config.skip_ducklake_registration)
+    session = _DuckgresSession(context, target) if should_use_duckgres else None
+    files_registered = 0
+    partitions_exported = 0
     try:
-        ticket = None
-        if not (config.dry_run or config.skip_ducklake_registration):
-            session = _DuckgresSession(context, target)
+        if session is not None:
             session.run("ensure groups table", lambda conn: ensure_groups_table(conn, table_name, config))
-            ticket = session.run("reserve groups snapshot", lambda conn: reserve_groups_snapshot(conn, table_name))
+        for partition_date in dates:
+            date_label = partition_date.strftime("%Y-%m-%d") if partition_date is not None else "full"
+            if session is not None and config.cleanup_existing_partition_data:
 
-        def export(client: "Client") -> str | None:
-            with tags_context(kind="dagster", dagster=tags):
-                return export_groups_to_duckling_s3(context, client, config, target)
+                def delete_groups_partition(
+                    conn: psycopg.Connection[tuple[object, ...]], date: datetime | None = partition_date
+                ) -> None:
+                    delete_groups_partition_data(conn, target, table_name, date)
 
-        s3_glob = (
-            _get_cluster()
-            .any_host_by_role(
-                fn=export, workload=Workload.OFFLINE if is_cloud() else Workload.DEFAULT, node_role=NodeRole.DATA
+                session.run(f"delete groups partition {date_label}", delete_groups_partition)
+
+            def export(client: "Client", date: datetime | None = partition_date) -> str | None:
+                with tags_context(kind="dagster", dagster=tags):
+                    return export_groups_to_duckling_s3(context, client, config, target, date)
+
+            s3_glob = (
+                _get_cluster()
+                .any_host_by_role(
+                    fn=export, workload=Workload.OFFLINE if is_cloud() else Workload.DEFAULT, node_role=NodeRole.DATA
+                )
+                .result()
             )
-            .result()
-        )
-        if s3_glob is not None and session is not None and ticket is not None:
-            registration = session.run(
-                "replace groups snapshot",
-                lambda conn: replace_groups_snapshot(conn, target, table_name, s3_glob, ticket),
-            )
+            if s3_glob is not None:
+                partitions_exported += 1
+                if session is not None:
+
+                    def register_groups_files(
+                        conn: psycopg.Connection[tuple[object, ...]],
+                        glob: str = s3_glob,
+                        date: datetime | None = partition_date,
+                    ) -> int:
+                        # Re-clear the partition on replay because an unacknowledged registration may have committed.
+                        if config.cleanup_existing_partition_data:
+                            delete_groups_partition_data(conn, target, table_name, date)
+                        return register_groups_files_with_duckling(context, conn, table_name, glob)
+
+                    files_registered += session.run(f"register groups files {date_label}", register_groups_files)
     finally:
         if session is not None:
             session.close()
     context.add_output_metadata(
         {
             "team_id": team_id,
+            "partition_key": partition_key,
+            "export_mode": mode,
             "groups_table": table_name,
-            "files_registered": registration.files_registered,
-            "superseded": registration.superseded,
+            "files_registered": files_registered,
+            "partitions_exported": partitions_exported,
         }
     )
-    if not config.dry_run and not config.skip_ducklake_registration and not registration.superseded:
+    if not config.dry_run and not config.skip_ducklake_registration:
         record_duckling_backfill_workload(
             team_id=team_id,
             dataset=GROUPS_DATASET,
-            mode="full",
-            files_registered=registration.files_registered,
-            partitions_exported=1,
+            mode=mode,
+            files_registered=files_registered,
+            partitions_exported=partitions_exported,
         )
 
 
@@ -320,11 +279,13 @@ def duckling_groups_backfill(context: AssetExecutionContext, config: DucklingBac
         context.instance.add_run_tags(context.run.run_id, {GROUPS_SNAPSHOT_TAG: "false"})
         run_groups_backfill(context, config)
         return
-    team_id = int(context.partition_key)
+    is_full = is_full_export_partition(context.partition_key)
+    team_id = int(context.partition_key) if is_full else parse_partition_key_dates(context.partition_key)[0]
+    mode = "full" if is_full else "daily"
     run_id = context.run.run_id
     context.instance.add_run_tags(run_id, {GROUPS_SNAPSHOT_TAG: "true"})
     record_backfill_started(team_id=team_id, dataset=GROUPS_DATASET, partition_key=context.partition_key, run_id=run_id)
-    with track_duckling_backfill(team_id=team_id, dataset=GROUPS_DATASET, mode="full"):
+    with track_duckling_backfill(team_id=team_id, dataset=GROUPS_DATASET, mode=mode):
         try:
             run_groups_backfill(context, config)
         except Exception as error:
@@ -342,11 +303,64 @@ duckling_groups_backfill_job = define_asset_job(
 )
 
 
-@sensor(job=duckling_groups_backfill_job, minimum_interval_seconds=600, default_status=DefaultSensorStatus.STOPPED)
-def duckling_groups_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
-    backfills = sorted(
-        list_enabled_backfill_team_memberships("groups_full_backfill_sensor"), key=lambda row: row.team_id
+def _groups_snapshot_run_request(
+    context: SensorEvaluationContext, key: str, *, refresh_daily: bool, now: datetime
+) -> RunRequest | None:
+    full_partition_tags = {"dagster/partition": key}
+    successes = context.instance.get_run_records(
+        filters=RunsFilter(
+            job_name=GROUPS_JOB_NAME,
+            tags={**full_partition_tags, GROUPS_SNAPSHOT_TAG: "true"},
+            statuses=[DagsterRunStatus.SUCCESS],
+        ),
+        limit=1,
     )
+    if refresh_daily:
+        if not successes:
+            return None
+        if context.instance.get_runs(
+            filters=RunsFilter(job_name=GROUPS_JOB_NAME, tags=full_partition_tags, statuses=ACTIVE_RUN_STATUSES),
+            limit=1,
+        ):
+            return None
+        key = f"{key}_{(now - timedelta(days=1)).date().isoformat()}"
+    elif successes:
+        return None
+    partition_tags = {"dagster/partition": key}
+    if context.instance.get_runs(
+        filters=RunsFilter(job_name=GROUPS_JOB_NAME, tags=partition_tags, statuses=ACTIVE_RUN_STATUSES), limit=1
+    ):
+        return None
+    history = context.instance.get_run_records(
+        filters=RunsFilter(job_name=GROUPS_JOB_NAME, tags={**partition_tags, GROUPS_SNAPSHOT_TAG: "true"}),
+        limit=RETRY_HISTORY_LIMIT,
+    )
+    latest = history[0] if history else None
+    if latest is not None and latest.dagster_run.is_success:
+        return None
+    if latest is not None and latest.dagster_run.status in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
+        failures = 0
+        for record in history:
+            if record.dagster_run.status not in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
+                break
+            failures += 1
+        retry_after = RETRY_BASE_SECONDS * 2 ** (failures - 1)
+        ended_at = latest.end_time or latest.update_timestamp.timestamp()
+        if now.timestamp() < ended_at + retry_after:
+            return None
+    return RunRequest(
+        partition_key=key,
+        run_key=f"{key}_groups_{latest.dagster_run.run_id if latest else 'new'}",
+        tags={
+            GROUPS_SNAPSHOT_TAG: "true",
+            **({GROUPS_REFRESH_DATE_TAG: key.split("_", 1)[1]} if refresh_daily else {}),
+        },
+    )
+
+
+def _groups_snapshot_sensor_result(context: SensorEvaluationContext, *, refresh_daily: bool) -> SensorResult:
+    call_site = "groups_daily_backfill_sensor" if refresh_daily else "groups_full_backfill_sensor"
+    backfills = sorted(list_enabled_backfill_team_memberships(call_site), key=lambda row: row.team_id)
     if not backfills:
         return SensorResult(run_requests=[])
     _repair_stale_running_statuses(context, GROUPS_DATASET)
@@ -355,41 +369,16 @@ def duckling_groups_full_backfill_sensor(context: SensorEvaluationContext) -> Se
     existing = set(context.instance.get_dynamic_partitions("duckling_groups_backfill"))
     new_partitions: list[str] = []
     requests: list[RunRequest] = []
+    now = timezone.now().astimezone(UTC)
     for membership in candidates[:MAX_TEAMS_PER_TICK]:
         after_team = membership.team_id
         key = str(membership.team_id)
-        active = context.instance.get_runs(
-            filters=RunsFilter(job_name=GROUPS_JOB_NAME, tags={"dagster/partition": key}, statuses=ACTIVE_RUN_STATUSES),
-            limit=1,
-        )
-        if active:
+        request = _groups_snapshot_run_request(context, key, refresh_daily=refresh_daily, now=now)
+        if request is None:
             continue
-        history = context.instance.get_run_records(
-            filters=RunsFilter(job_name=GROUPS_JOB_NAME, tags={"dagster/partition": key, GROUPS_SNAPSHOT_TAG: "true"}),
-            limit=RETRY_HISTORY_LIMIT,
-        )
-        latest = history[0] if history else None
-        if latest is not None and latest.dagster_run.is_success:
-            continue
-        if latest is not None:
-            failures = 0
-            for record in history:
-                if record.dagster_run.status not in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
-                    break
-                failures += 1
-            retry_after = RETRY_BASE_SECONDS * 2 ** max(failures - 1, 0)
-            ended_at = latest.end_time or latest.update_timestamp.timestamp()
-            if timezone.now().timestamp() < ended_at + retry_after:
-                continue
-        if key not in existing:
-            new_partitions.append(key)
-        requests.append(
-            RunRequest(
-                partition_key=key,
-                run_key=f"{key}_groups_{latest.dagster_run.run_id if latest else 'new'}",
-                tags={GROUPS_SNAPSHOT_TAG: "true"},
-            )
-        )
+        if request.partition_key is not None and request.partition_key not in existing:
+            new_partitions.append(request.partition_key)
+        requests.append(request)
         if len(requests) >= MAX_RUN_REQUESTS_PER_TICK:
             break
     return SensorResult(
@@ -399,3 +388,13 @@ def duckling_groups_full_backfill_sensor(context: SensorEvaluationContext) -> Se
         if new_partitions
         else [],
     )
+
+
+@sensor(job=duckling_groups_backfill_job, minimum_interval_seconds=600, default_status=DefaultSensorStatus.STOPPED)
+def duckling_groups_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
+    return _groups_snapshot_sensor_result(context, refresh_daily=False)
+
+
+@sensor(job=duckling_groups_backfill_job, minimum_interval_seconds=600, default_status=DefaultSensorStatus.STOPPED)
+def duckling_groups_daily_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
+    return _groups_snapshot_sensor_result(context, refresh_daily=True)

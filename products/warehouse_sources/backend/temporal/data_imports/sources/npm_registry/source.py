@@ -49,7 +49,7 @@ class NpmRegistrySource(ResumableSource[NpmRegistrySourceConfig, NpmRegistryResu
             name=ExternalDataSourceType.NPMREGISTRY,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="npm registry",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["npm", "node", "javascript", "downloads"],
             caption="""Pull daily download counts and published-version metadata for npm packages from the public npm registry into the PostHog Data warehouse.
 
@@ -68,6 +68,7 @@ Daily download counts only go back to 2015-01-10 and are fetched in windows, so 
                 [
                     SourceFieldInputConfig(
                         name="package_names",
+                        sync_setting=True,
                         label="Package names",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

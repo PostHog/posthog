@@ -7,6 +7,7 @@ from django.db import models, transaction
 from django.utils import timezone
 from django.utils.functional import Promise
 
+from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UUIDModel
@@ -283,25 +284,33 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         help_text="When an estimate was last attempted, success or failure. Backs off the refresher on scanners whose estimate query keeps failing.",
     )
 
-    search_suggestions = models.JSONField(
-        default=list,
-        blank=True,
-        help_text="Example searches drawn from recent observations, shown on the Search tab's empty state.",
+    # Retired with the scheduled search suggestion refresher; the columns stay until a later drop.
+    search_suggestions = deprecate_field(
+        models.JSONField(
+            default=list,
+            null=True,
+            blank=True,
+            help_text="Example searches drawn from recent observations, shown on the Search tab's empty state.",
+        )
     )
-    search_suggestions_watermark = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text="created_at of the newest observation the suggestions were drawn from.",
+    search_suggestions_watermark = deprecate_field(
+        models.DateTimeField(
+            null=True,
+            blank=True,
+            help_text="created_at of the newest observation the suggestions were drawn from.",
+        )
     )
-    search_suggestions_generated_at = models.DateTimeField(null=True, blank=True)
-    search_last_viewed_at = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text="When the Search tab last asked for this scanner's suggestions. Only viewed scanners refresh.",
+    search_suggestions_generated_at = deprecate_field(models.DateTimeField(null=True, blank=True))
+    search_last_viewed_at = deprecate_field(
+        models.DateTimeField(
+            null=True,
+            blank=True,
+            help_text="When the Search tab last asked for this scanner's suggestions. Only viewed scanners refresh.",
+        )
     )
 
     # Written with the prompt by every path that sets one, see `prompt_questions`; inline scanners keep only a
-    # template's question. Not version-tracked: it restates the prompt and changes nothing about how the scanner scans.
+    # built-in scan's question. Not version-tracked: it restates the prompt and changes nothing about how the scanner scans.
     prompt_question = models.TextField(
         blank=True,
         default="",
@@ -457,10 +466,6 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         "admission_budget_refreshed_at",
         "admission_budget_period_start",
         "admission_credits_since_refresh",
-        "search_suggestions",
-        "search_suggestions_watermark",
-        "search_suggestions_generated_at",
-        "search_last_viewed_at",
     )
 
     def save(self, *args, **kwargs) -> None:

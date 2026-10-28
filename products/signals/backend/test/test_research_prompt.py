@@ -299,7 +299,12 @@ class TestBuildFixVerificationPrompt:
             agent_checks_enabled=agent_checks_enabled,
         )
         preferred = metric_checks_enabled
-        for field in ("reference_period_minutes", "threshold_scaling", "baseline_period_minutes"):
+        for field in (
+            "reference_period_minutes",
+            "threshold_scaling",
+            "baseline_period_minutes",
+            "run_interval_minutes",
+        ):
             assert (field in prompt) is (metric_checks_enabled and monitoring_enabled)
         assert ("70-80% confidence" in prompt) is preferred
         assert ('Prefer `kind: "metric_threshold"`' in prompt) is preferred
@@ -658,6 +663,31 @@ class TestReportPresentationOutputCharts:
         assert parsed.summary == "Signups fell 60% over the week."
 
 
+class TestReportPresentationOutputTags:
+    @pytest.mark.parametrize(
+        "tags,expected",
+        [
+            (["Session Replay", "session_replay", "!!!", 3], ["session-replay"]),
+            ("billing", None),
+            (None, None),
+        ],
+    )
+    def test_invalid_tags_are_dropped_and_the_prose_survives(self, tags: object, expected: list[str] | None):
+        parsed = ReportPresentationOutput.model_validate(
+            {"title": "fix(checkout): Handle the timeout", "summary": "Checkout times out.", "tags": tags}
+        )
+
+        assert parsed.tags == expected
+        assert parsed.summary == "Checkout times out."
+
+    def test_prompt_offers_current_and_team_tags(self) -> None:
+        prompt = build_report_presentation_prompt(1, current_tags=["billing"], team_tags=["api", "billing"])
+
+        assert 'Current tags on this report: ["billing"]' in prompt
+        assert 'most-used first: ["api", "billing"]' in prompt
+        assert "Do not repeat the title type" in prompt
+
+
 class TestReportPresentationOutputSourceSuggestion:
     @pytest.mark.parametrize(
         "suggestion",
@@ -684,6 +714,47 @@ _WINDOW_GOAL = {"goal_value": 0.01, "goal_direction": "at_most", "decision_windo
 
 
 class TestReportPresentationOutputMetrics:
+    @pytest.mark.parametrize("keep_valid_metric", [False, True])
+    def test_invalid_metrics_preserve_prose_and_valid_metrics(
+        self, keep_valid_metric: bool, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        valid_metric = {
+            "metric_id": "upload-failures",
+            "title": "Upload failures",
+            "kind": "occurrences",
+            "role": "primary",
+            "value_format": "count",
+            "query": trends_metric_query(series=[{"kind": "EventsNode", "event": "upload_failed"}]),
+            "series": [1, 2],
+            **_WINDOW_GOAL,
+        }
+        with caplog.at_level(logging.WARNING):
+            parsed = ReportPresentationOutput.model_validate(
+                {
+                    "title": "fix(uploads): Handle failed uploads",
+                    "summary": "Uploads can fail.",
+                    "metrics": [
+                        {**valid_metric, "title": "private-metric-title", "query": {"private-filter": "private-value"}},
+                        None,
+                        *([valid_metric] if keep_valid_metric else []),
+                    ],
+                }
+            )
+
+        assert parsed.title == "fix(uploads): Handle failed uploads"
+        assert parsed.summary == "Uploads can fail."
+        assert [metric.metric_id for metric in parsed.metrics] == (["upload-failures"] if keep_valid_metric else [])
+        if keep_valid_metric:
+            assert parsed.metrics[0].query == valid_metric["query"]
+            assert parsed.metrics[0].series is None
+            assert parsed.metrics[0].goal_value is None
+        warning = "".join(record.getMessage() for record in caplog.records)
+        assert "dropped metric at index 0" in warning
+        assert "query: value_error" in warning
+        assert "private-metric-title" not in warning
+        assert "private-filter" not in warning
+        assert "private-value" not in warning
+
     @pytest.mark.parametrize(
         "goal",
         [

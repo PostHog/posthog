@@ -7,10 +7,12 @@ import { ReactNode, useCallback, useMemo, useState } from 'react'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/country'
+import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { getResultSeries, getResultSeriesIndex } from 'scenes/insights/utils/resultSeries'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -19,22 +21,18 @@ import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
 
+import { getResultSeriesName } from 'products/product_analytics/frontend/insights/shared/resultSeriesName'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
-import {
-    AggregationColumnItem,
-    AggregationColumnTitle,
-    CALC_COLUMN_LABELS,
-    getAggregatedValue,
-} from './columns/AggregationColumn'
+import { AggregationColumnItem, AggregationColumnTitle, CALC_COLUMN_LABELS } from './columns/AggregationColumn'
 import { BreakdownColumnItem, BreakdownColumnTitle, MultipleBreakdownColumnTitle } from './columns/BreakdownColumn'
 import { ColorCustomizationColumnItem, ColorCustomizationColumnTitle } from './columns/ColorCustomizationColumn'
 import { SeriesCheckColumnItem, SeriesCheckColumnTitle } from './columns/SeriesCheckColumn'
 import { SeriesColumnItem, formatCompareLabel } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColumn'
-import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
+import { AggregationType, getAggregatedValue, insightsTableDataLogic } from './insightsTableDataLogic'
 
 export type CalcColumnState = 'total' | 'average' | 'median'
 
@@ -99,10 +97,21 @@ export function InsightsTable({
         getTrendsColor,
         getTrendsHidden,
         insightData,
+        querySource,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleResultHidden, toggleAllResultsHidden } = useActions(trendsDataLogic(insightProps))
-    const { aggregation, allowAggregation, pinnedColumns, isColumnPinned, getPreviousResult, displayResults } =
-        useValues(insightsTableDataLogic(insightProps))
+    const {
+        aggregation,
+        allowAggregation,
+        pinnedColumns,
+        isColumnPinned,
+        getPreviousResult,
+        displayResults,
+        showPercentOfTotal,
+        getPercentOfTotal,
+        showPercentOfDayTotal,
+        getPercentOfDayTotal,
+    } = useValues(insightsTableDataLogic(insightProps))
     const { setDetailedResultsAggregationType, toggleColumnPin } = useActions(insightsTableDataLogic(insightProps))
     const { weekStartDay, timezone, baseCurrency } = useValues(teamLogic)
     const [maxVisibleColumns, setMaxVisibleColumns] = useState(MAX_VALUE_COLUMNS)
@@ -114,10 +123,17 @@ export function InsightsTable({
             typeKey: filterKey,
         })
         if (entityFilter) {
-            entityFilter.actions.selectFilter(item.action)
+            entityFilter.actions.selectSeriesAt(getResultSeriesIndex(querySource, item) ?? null)
             entityFilter.actions.showModal()
         }
     }
+
+    const mathPropertyOf = (item: IndexedTrendResult): string | null | undefined =>
+        getResultSeries(querySource, item).math?.math_property
+    const showCountedByTag = indexedResults.some((item) => {
+        const math = getResultSeries(querySource, item).math?.math
+        return !!math && math !== 'total'
+    })
 
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
@@ -197,7 +213,8 @@ export function InsightsTable({
             ) : (
                 <SeriesColumnItem
                     item={item}
-                    indexedResults={indexedResults}
+                    series={getResultSeries(querySource, item)}
+                    showCountedByTag={showCountedByTag}
                     canEditSeriesNameInline={canEditSeriesNameInline}
                     seriesNameTooltip={seriesNameTooltip}
                     handleEditClick={handleSeriesEditClick}
@@ -231,8 +248,8 @@ export function InsightsTable({
                 return compareFn()(formatItemBreakdownLabel!(a), formatItemBreakdownLabel!(b))
             }
 
-            const labelA = a.action?.name || a.label || ''
-            const labelB = b.action?.name || b.label || ''
+            const labelA = getResultSeriesName(getResultSeries(querySource, a)) || a.label || ''
+            const labelB = getResultSeriesName(getResultSeries(querySource, b)) || b.label || ''
             return labelA.localeCompare(labelB)
         },
     })
@@ -352,6 +369,7 @@ export function InsightsTable({
             render: (_: any, item: IndexedTrendResult) => (
                 <AggregationColumnItem
                     item={item}
+                    mathProperty={mathPropertyOf(item)}
                     isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
                     aggregation={aggregation}
                     trendsFilter={trendsFilter}
@@ -365,6 +383,19 @@ export function InsightsTable({
             align: 'right',
         })
 
+        if (showPercentOfTotal) {
+            columns.push({
+                title: <span>% of total</span>,
+                render: (_: any, item: IndexedTrendResult) => {
+                    const share = getPercentOfTotal(item)
+                    return <span>{share === null ? '—' : percentage(share, 1)}</span>
+                },
+                sorter: (a, b) => (getPercentOfTotal(a) ?? 0) - (getPercentOfTotal(b) ?? 0),
+                key: 'percent-of-total',
+                align: 'right',
+            })
+        }
+
         if (isCompareTable) {
             columns.push({
                 title: <span>Previous {CALC_COLUMN_LABELS[aggregation]}</span>,
@@ -376,6 +407,7 @@ export function InsightsTable({
                     return (
                         <AggregationColumnItem
                             item={previousItem}
+                            mathProperty={mathPropertyOf(previousItem)}
                             isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
                             aggregation={aggregation}
                             trendsFilter={trendsFilter}
@@ -452,9 +484,11 @@ export function InsightsTable({
                 <ValueColumnItem
                     index={index}
                     item={item}
+                    mathProperty={mathPropertyOf(item)}
                     isStickiness={isStickiness}
                     renderCount={renderCount}
                     formatPropertyValueForDisplay={formatPropertyValueForDisplay}
+                    percentOfDayTotal={showPercentOfDayTotal ? getPercentOfDayTotal(item, index) : null}
                 />
             ),
             key: `data-${index}`,
@@ -463,12 +497,15 @@ export function InsightsTable({
         }))
     }, [
         indexedResults,
+        querySource,
         renderCount,
         formatPropertyValueForDisplay,
         isStickiness,
         compareFilter?.compare,
         interval,
         maxVisibleColumns,
+        showPercentOfDayTotal,
+        getPercentOfDayTotal,
     ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const totalValueColumns = indexedResults?.[0]?.data?.length ?? 0

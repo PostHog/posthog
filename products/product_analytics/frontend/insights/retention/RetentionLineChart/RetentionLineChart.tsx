@@ -33,6 +33,7 @@ import {
 } from '../shared/retentionChartTransforms'
 
 interface RetentionLineChartProps {
+    resultMenuEnabled?: boolean
     inSharedMode?: boolean
 }
 const EMPTY_GOAL_LINES: GoalLine[] = []
@@ -57,7 +58,10 @@ function resolveGroupTypeLabel(
     return aggregationLabel(labelGroupType).plural
 }
 
-export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartProps): JSX.Element | null {
+export function RetentionLineChart({
+    inSharedMode = false,
+    resultMenuEnabled = false,
+}: RetentionLineChartProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { insightDataLoading } = useValues(insightVizDataLogic(insightProps))
     const theme = useChartTheme()
@@ -228,6 +232,7 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
             config={lineConfig}
             tooltip={renderTooltip}
             onPointClick={canClick ? onPointClick : undefined}
+            onPointContextMenu={resultMenuEnabled && !inSharedMode && canClick ? onPointClick : undefined}
             className="LineGraph"
             dataAttr="trend-line-graph"
             onError={handleChartError}

@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, type ReactNode, type Ref } from 'react'
 
 import { IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
@@ -26,6 +26,8 @@ import { BIToolbar } from 'products/business_intelligence/frontend/components/BI
 import { BIAnalysisControls } from './BIAnalysisControls'
 import { BILocalFieldModal } from './BILocalFieldModal'
 import { BIMeasureSettingsModal } from './BIMeasureSettingsModal'
+import { biMetricParametersLogic, metricParameterDrafts } from './biMetricParametersLogic'
+import { BIMetricParametersModal } from './BIMetricParametersModal'
 
 export function BIEditor({
     tabId,
@@ -40,6 +42,8 @@ export function BIEditor({
     const { removeFieldFromShelf, setActiveDropShelf, setActivePanel, toggleFieldsPane } = useActions(
         biEditorLogic({ tabId })
     )
+    const { open: openMetricParameters } = useActions(biMetricParametersLogic({ tabId }))
+    const hasMetricParameters = metricParameterDrafts(config.querySnapshot).length > 0
     const containerRef = useRef<HTMLDivElement>(null)
     const biEditorResizerProps: ResizerLogicProps = {
         logicKey: 'bi-editor-side-pane',
@@ -87,15 +91,24 @@ export function BIEditor({
         return (
             <BindLogic logic={biEditorLogic} props={{ tabId }}>
                 <div className="@container/bi-editor flex min-h-0 flex-1 flex-col" data-attr="bi-catalog-snapshot">
-                    <LemonBanner type="info">
-                        Query snapshot: dates and dimensions are fixed by the metric definition. Changing the chart does
-                        not regroup the data. This copy does not track later catalog edits.
+                    <LemonBanner type="info" dismissKey="bi-query-snapshot">
+                        This is a SQL copy.{' '}
+                        {hasMetricParameters
+                            ? 'Edit its parameters below, or use View SQL to change the query.'
+                            : 'Use View SQL to edit its dates or grouping in the SQL editor.'}{' '}
+                        Catalog changes won't update this copy.{' '}
                         {config.catalogMetric && (
-                            <LemonButton size="xsmall" to={urls.dataCatalogMetric(config.catalogMetric)}>
-                                View catalog definition
-                            </LemonButton>
+                            <Link to={urls.dataCatalogMetric(config.catalogMetric)}>View catalog definition</Link>
                         )}
                     </LemonBanner>
+                    {hasMetricParameters && (
+                        <div className="p-2">
+                            <LemonButton type="secondary" onClick={openMetricParameters}>
+                                Edit parameters
+                            </LemonButton>
+                        </div>
+                    )}
+                    <BIMetricParametersModal tabId={tabId} />
                     <BIToolbar />
                     <div className="relative flex min-h-0 flex-1">
                         <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
@@ -138,12 +151,12 @@ export function BIEditor({
                             data-attr="bi-editor-fields-pane"
                         >
                             <div className="flex items-center justify-between px-2 pt-1">
-                                <span className="text-sm font-semibold">Data</span>
+                                <span className="text-sm font-semibold">Fields</span>
                                 <LemonButton
                                     icon={<IconX />}
                                     size="xsmall"
                                     type="tertiary"
-                                    aria-label="Hide fields"
+                                    aria-label="Hide fields panel"
                                     onClick={toggleFieldsPane}
                                     data-attr="bi-editor-close-fields"
                                 />

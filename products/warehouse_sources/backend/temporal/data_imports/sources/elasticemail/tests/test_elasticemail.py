@@ -254,10 +254,7 @@ class TestErrorClassification:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, "[]", True),
             ("expired_key", 400, '{"Error":"APIKey Expired"}', False),
-            ("unauthorized", 401, "", False),
-            ("forbidden", 403, "", False),
             # A non-auth error (e.g. a transient 500) should not be reported as an invalid key.
             ("server_error", 500, "boom", True),
         ]

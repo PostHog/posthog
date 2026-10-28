@@ -53,7 +53,7 @@ describe('VisualizationWidget', () => {
         }
         render(
             <Provider>
-                <VisualizationWidget content={content} isCollapsed embedded />
+                <VisualizationWidget content={content} isCollapsed />
             </Provider>
         )
         expect(detail).not.toHaveBeenCalled()

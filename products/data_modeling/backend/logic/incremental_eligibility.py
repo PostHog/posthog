@@ -13,11 +13,15 @@ count(DISTINCT), float sum) that Snowflake, Redshift, BigQuery and Databricks al
 They have to reject them because they combine partial aggregates across refreshes; we never do.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateDatabaseField,
@@ -33,13 +37,14 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.functions.clickhouse.datetime import DATE_GENERATOR_FUNCTIONS
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import has_aggregation
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor, clear_locations, clone_expr
 
 if TYPE_CHECKING:
-    from posthog.hogql.database.database import Database
+    from posthog.models import User
 
 from products.data_modeling.backend.logic.incremental import IncrementalConfig
 from products.data_modeling.backend.logic.incremental_filter import find_key_expression
@@ -48,10 +53,9 @@ from products.data_modeling.backend.logic.incremental_filter import find_key_exp
 # so a re-run silently rewrites rows. Warned rather than blocked, because a `now()` in a filter is
 # common and usually harmless, and blocking it would refuse a lot of reasonable models.
 NON_DETERMINISTIC_FUNCTIONS = {
-    "now",
+    *(name.lower() for name in DATE_GENERATOR_FUNCTIONS),
+    "nowinblock",
     "now64",
-    "today",
-    "yesterday",
     "rand",
     "rand32",
     "rand64",
@@ -61,6 +65,28 @@ NON_DETERMINISTIC_FUNCTIONS = {
 }
 
 SET_OPERATORS_BLOCKING_INCREMENTAL = {"EXCEPT", "INTERSECT"}
+
+TIME_ORDER_PRESERVING_FUNCTIONS = {
+    "todate",
+    "todatetime",
+    "todatetime64",
+    "totimezone",
+    "tostartofminute",
+    "tostartoffiveminutes",
+    "tostartoftenminutes",
+    "tostartoffifteenminutes",
+    "tostartofhour",
+    "tostartofday",
+    "tostartofweek",
+    "tomonday",
+    "tostartofmonth",
+    "tostartofquarter",
+    "tostartofyear",
+    "tostartofinterval",
+}
+
+INCREMENTAL_KEY_FIELD = "incremental_key"
+UNIQUE_KEY_FIELD = "unique_key"
 
 _CONSTANT_TYPE_LABELS: dict[type, str] = {
     ast.DateTimeType: "datetime",
@@ -115,7 +141,18 @@ class EligibilityResult:
     # Coarse type per candidate, for the picker's type tags. Missing entry: type unknown.
     key_candidate_types: dict[str, str] = field(default_factory=dict)
     blockers: list[str] = field(default_factory=list)
+    blocked_keys: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+
+
+def definition_database(team_id: int, *, user: Optional["User"] = None) -> Database:
+    """The team's HogQL schema with every saved query read as its definition, never as its materialized table."""
+    return Database.create_for(
+        team_id=team_id,
+        user=user,
+        modifiers=HogQLQueryModifiers(useMaterializedViews=False),
+        bypass_warehouse_access_control=user is None,
+    )
 
 
 def check_incremental_eligibility(
@@ -123,7 +160,7 @@ def check_incremental_eligibility(
     config: Optional[IncrementalConfig],
     *,
     column_types: Optional[dict[str, str]] = None,
-    database: Optional["Database"] = None,
+    database: Optional[Database] = None,
 ) -> EligibilityResult:
     """``column_types`` is the saved query's stored ClickHouse types, used only to catch a nullable
     unique key. Omit it and that check is skipped; the runtime guard still catches it.
@@ -173,12 +210,21 @@ def check_incremental_eligibility(
             warnings=_unique(warnings),
         )
 
+    key_blockers: list[str] = []
+    unique_key_blockers: list[str] = []
     for select in selects:
-        _check_key(select, config, blockers, warnings)
-        _check_unique_key(select, config, blockers)
+        _check_key(select, config, key_blockers, warnings)
+        _check_unique_key(select, config, unique_key_blockers)
+    _check_unique_key_types(config, key_candidate_types, unique_key_blockers)
 
-    _check_nullable_unique_key(config, column_types, blockers)
+    _check_nullable_unique_key(config, column_types, unique_key_blockers)
     _check_determinism(node, warnings)
+    blockers.extend([*key_blockers, *unique_key_blockers])
+    blocked_keys = []
+    if key_blockers:
+        blocked_keys.append(INCREMENTAL_KEY_FIELD)
+    if unique_key_blockers:
+        blocked_keys.append(UNIQUE_KEY_FIELD)
 
     return EligibilityResult(
         eligible=not blockers,
@@ -186,8 +232,149 @@ def check_incremental_eligibility(
         unique_key_candidates=unique_key_candidates,
         key_candidate_types=key_candidate_types,
         blockers=_unique(blockers),
+        blocked_keys=blocked_keys,
         warnings=_unique(warnings),
     )
+
+
+def propose_incremental_config(
+    query: str, column_types: Mapping[str, str], *, database: Optional[Database] = None
+) -> Optional[IncrementalConfig]:
+    """The incremental config a grouped query admits on its own, or None when choosing one needs a person."""
+    try:
+        node = parse_select(query)
+    except (ExposedHogQLError, ValueError):
+        return None
+    if not isinstance(node, ast.SelectQuery):
+        return None
+    resolved_selects = _resolved_selects(node, database) or []
+    if any(
+        _is_nondeterministic(select) or _reads_a_data_dependent_value(select) for select in (node, *resolved_selects)
+    ):
+        return None
+    grouped_names = _grouped_output_names(node)
+    if grouped_names is None:
+        return None
+    unique_key = sorted(set(grouped_names))
+    time_keys = [name for name in unique_key if _is_time_type(column_types.get(name))]
+    if len(time_keys) != 1 or not _advances_with_time((resolved_selects or [node])[0], time_keys[0]):
+        return None
+    config = IncrementalConfig(incremental_key=time_keys[0], unique_key=tuple(unique_key))
+    result = check_incremental_eligibility(query, config, column_types=dict(column_types), database=database)
+    return config if result.eligible else None
+
+
+def _is_nondeterministic(node: ast.SelectQuery) -> bool:
+    finder = _NonDeterministicFinder()
+    finder.visit(node)
+    return bool(finder.found)
+
+
+def _reads_a_data_dependent_value(select: ast.SelectQuery) -> bool:
+    finder = _DataDependentValueFinder()
+    for expression in _value_expressions(select):
+        finder.visit(expression)
+    return finder.found or any(
+        _reads_a_data_dependent_value(leaf) for source in _source_nodes(select) for leaf in _leaf_selects(source)
+    )
+
+
+def _advances_with_time(
+    select: ast.SelectQuery, column: str, outer_ctes: Optional[Mapping[str, ast.CTE]] = None
+) -> bool:
+    ctes = {**(outer_ctes or {}), **(select.ctes or {})}
+    expression = find_key_expression(select, column)
+    while isinstance(expression, ast.Alias) or (
+        isinstance(expression, ast.Call) and expression.name.lower() in TIME_ORDER_PRESERVING_FUNCTIONS
+    ):
+        if isinstance(expression, ast.Alias):
+            expression = expression.expr
+        else:
+            expression = expression.args[0] if expression.args else None
+    if not isinstance(expression, ast.Field):
+        return False
+    source = _row_source(select, expression.chain, ctes)
+    if source is None:
+        return False
+    if not isinstance(source, (ast.SelectQuery, ast.SelectSetQuery)):
+        return True
+    return all(_advances_with_time(leaf, str(expression.chain[-1]), ctes) for leaf in _leaf_selects(source))
+
+
+def _row_source(select: ast.SelectQuery, chain: list[str | int], ctes: Mapping[str, ast.CTE]) -> Optional[ast.Expr]:
+    joins: list[ast.JoinExpr] = []
+    join = select.select_from
+    while join is not None:
+        joins.append(join)
+        join = join.next_join
+    if len(chain) > 1:
+        qualifier = str(chain[0])
+        found = next((join for join in joins if qualifier in (join.alias, _table_name(join))), None)
+    else:
+        found = joins[0] if len(joins) == 1 else None
+    if found is None:
+        return None
+    table_name = _table_name(found)
+    cte = ctes.get(table_name) if table_name else None
+    if cte is not None and cte.cte_type == "subquery":
+        return cte.expr
+    return found.table
+
+
+def _table_name(join: ast.JoinExpr) -> Optional[str]:
+    if isinstance(join.table, ast.Field) and join.table.chain:
+        return str(join.table.chain[-1])
+    return None
+
+
+def _value_expressions(select: ast.SelectQuery) -> list[ast.Expr]:
+    column_ctes = [cte.expr for cte in (select.ctes or {}).values() if cte.cte_type != "subquery"]
+    join_constraints = []
+    join: Optional[ast.JoinExpr] = select.select_from
+    while join is not None:
+        if join.constraint is not None:
+            join_constraints.append(join.constraint.expr)
+        join = join.next_join
+    filters = [expression for expression in (select.where, select.prewhere, select.having) if expression is not None]
+    return [
+        *select.select,
+        *(select.group_by or []),
+        *(select.array_join_list or []),
+        *filters,
+        *column_ctes,
+        *join_constraints,
+    ]
+
+
+def _grouped_output_names(select: ast.SelectQuery) -> Optional[list[str]]:
+    if not select.group_by:
+        return None
+    aliases = {item.alias for item in select.select if isinstance(item, ast.Alias)}
+    name_by_expression = {
+        repr(clear_locations(item.expr if isinstance(item, ast.Alias) else item)): name
+        for item in select.select
+        if (name := _output_name(item)) is not None
+    }
+    names = []
+    for entry in select.group_by:
+        if isinstance(entry, ast.Field) and len(entry.chain) == 1 and str(entry.chain[0]) in aliases:
+            names.append(str(entry.chain[0]))
+            continue
+        name = name_by_expression.get(repr(clear_locations(entry)))
+        if name is None:
+            return None
+        names.append(name)
+    return names
+
+
+def _is_time_type(clickhouse_type: Optional[str]) -> bool:
+    return clickhouse_type is not None and _without_low_cardinality(clickhouse_type).removeprefix(
+        "nullable("
+    ).startswith("date")
+
+
+def _without_low_cardinality(clickhouse_type: str) -> str:
+    return clickhouse_type.strip().lower().removeprefix("lowcardinality(")
 
 
 def _unique(messages: list[str]) -> list[str]:
@@ -197,7 +384,7 @@ def _unique(messages: list[str]) -> list[str]:
 
 
 def _resolved_selects(
-    node: ast.SelectQuery | ast.SelectSetQuery, database: Optional["Database"]
+    node: ast.SelectQuery | ast.SelectSetQuery, database: Optional[Database]
 ) -> Optional[list[ast.SelectQuery]]:
     """The query's leaf selects with types resolved, which expands ``*`` to the table's columns.
 
@@ -299,7 +486,7 @@ def _expression_field_label(field_type: ast.ExpressionFieldType, context: HogQLC
         return None
 
 
-def _key_candidate_types(selects: list[ast.SelectQuery], database: "Database") -> dict[str, str]:
+def _key_candidate_types(selects: list[ast.SelectQuery], database: Database) -> dict[str, str]:
     """Coarse type labels for the picker's type tags, from the resolved AST.
 
     A raw table column resolves to its schema DatabaseField, which is the reliable source; only
@@ -463,6 +650,9 @@ def _check_key(select: ast.SelectQuery, config: IncrementalConfig, blockers: lis
 
 
 def _check_unique_key(select: ast.SelectQuery, config: IncrementalConfig, blockers: list[str]) -> None:
+    if not config.unique_key:
+        blockers.append("Choose at least one unique key column, so each refresh can update the rows it recomputes.")
+        return
     outputs = _output_names(select)
     # An unexpanded star (no database to resolve against) passes every source column through, so a
     # name that is not spelled out can still be in the output. The runtime upsert fails loudly if
@@ -476,6 +666,16 @@ def _check_unique_key(select: ast.SelectQuery, config: IncrementalConfig, blocke
         )
         return
 
+    aggregate_outputs = _aggregate_output_names(select)
+    aggregates = sorted(column for column in config.unique_key if column in aggregate_outputs)
+    if aggregates:
+        blockers.append(
+            f"Unique key {'columns' if len(aggregates) > 1 else 'column'} {', '.join(aggregates)} "
+            f"{'are aggregates' if len(aggregates) > 1 else 'is an aggregate'}. Its value changes as rows arrive, so "
+            "a refresh adds a new row instead of updating the stored one. Use the columns the query groups by."
+        )
+        return
+
     if _is_grouped(select):
         grouping = _grouping_key_names(select)
         uncovered = sorted(grouping - set(config.unique_key))
@@ -484,6 +684,42 @@ def _check_unique_key(select: ast.SelectQuery, config: IncrementalConfig, blocke
                 f"The unique key must include every GROUP BY column. Add {', '.join(uncovered)}, "
                 "or rows that differ only by those columns will overwrite each other."
             )
+
+
+def _aggregate_output_names(select: ast.SelectQuery) -> set[str]:
+    aggregates: set[str] = set()
+    found_more = True
+    while found_more:
+        found_more = False
+        for item in select.select:
+            name = _output_name(item)
+            if name is None or name in aggregates:
+                continue
+            expression = item.expr if isinstance(item, ast.Alias) else item
+            if has_aggregation(expression) or _referenced_names(expression) & aggregates:
+                aggregates.add(name)
+                found_more = True
+    return aggregates
+
+
+def _referenced_names(expression: ast.Expr) -> set[str]:
+    collector = _FieldNameCollector()
+    collector.visit(expression)
+    return collector.names
+
+
+def _check_unique_key_types(
+    config: IncrementalConfig, key_candidate_types: dict[str, str], blockers: list[str]
+) -> None:
+    unusable = sorted(
+        column for column in config.unique_key if key_candidate_types.get(column) in _NON_UNIQUE_KEY_TYPE_LABELS
+    )
+    if unusable:
+        blockers.append(
+            f"Unique key {'columns' if len(unusable) > 1 else 'column'} {', '.join(unusable)} "
+            f"{'have' if len(unusable) > 1 else 'has'} a type that cannot identify a row, such as an array or a map. "
+            "Use plain columns for the unique key."
+        )
 
 
 def _check_nullable_unique_key(
@@ -495,7 +731,7 @@ def _check_nullable_unique_key(
         return
     for column in config.unique_key:
         clickhouse_type = column_types.get(column)
-        if isinstance(clickhouse_type, str) and clickhouse_type.strip().lower().startswith("nullable("):
+        if isinstance(clickhouse_type, str) and _without_low_cardinality(clickhouse_type).startswith("nullable("):
             blockers.append(
                 f'Unique key column "{column}" can be null. A null key adds a duplicate row on '
                 f"every run instead of updating. Wrap it in coalesce() to give it a fallback value."
@@ -637,3 +873,35 @@ def _check_determinism(node: ast.Expr, warnings: list[str]) -> None:
             f"{names} makes each run depend on when it happened, so re-running a window can change "
             "rows it already wrote."
         )
+
+
+class _DataDependentValueFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        self.found = True
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        self.found = True
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        if node.op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort):
+            self.found = True
+        super().visit_compare_operation(node)
+
+    def visit_call(self, node: ast.Call) -> None:
+        if node.name.lower() == "cohort":
+            self.found = True
+        super().visit_call(node)
+
+
+class _FieldNameCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.names: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        if node.chain:
+            self.names.add(str(node.chain[-1]))

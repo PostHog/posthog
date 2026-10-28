@@ -31,6 +31,7 @@ export function buildBIDataSourceTree(
 ): TreeDataItem[] {
     const remaining = new Map(sources.map((source) => [getBIDataSourceKey(source), source]))
     const leaves: TreeDataItem[] = []
+    const certified: TreeDataItem[] = []
     const visit = (items: TreeDataItem[]): TreeDataItem[] =>
         items.flatMap((item) => {
             if (['table', 'view', 'managed-view', 'view-table', 'endpoint'].includes(item.record?.type)) {
@@ -48,6 +49,10 @@ export function buildBIDataSourceTree(
                     icon: item.icon,
                     record: { ...item.record, type: item.record?.type },
                 }
+                if (node.record?.certification?.status === 'certified') {
+                    certified.push(node)
+                    return []
+                }
                 leaves.push(node)
                 return [node]
             }
@@ -58,11 +63,14 @@ export function buildBIDataSourceTree(
         })
     const grouped = visit(tree)
     const missing = [...remaining.values()].map((source) => ({ id: getBIDataSourceKey(source), name: source.table }))
-    return prioritizeCertifiedSources(
-        directConnection
-            ? groupDirectConnectionTableNodesBySchema([...leaves, ...missing], false, defaultSchemaName)
-            : [...grouped, ...missing]
-    )
+    return [
+        ...(certified.length ? [{ id: 'bi-certified-sources', name: 'Certified sources', children: certified }] : []),
+        ...prioritizeCertifiedSources(
+            directConnection
+                ? groupDirectConnectionTableNodesBySchema([...leaves, ...missing], false, defaultSchemaName)
+                : [...grouped, ...missing]
+        ),
+    ]
 }
 
 export function searchBIDataSourceTree(tree: TreeDataItem[], search: string): TreeDataItem[] {

@@ -12,7 +12,11 @@ from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    request_deadline,
+    stop_at_request_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.singular.settings import (
@@ -175,7 +179,7 @@ class SingularClient:
         # The transport retries only GETs, so the report POST needs its own bounded retry.
         self._create_retrying = Retrying(
             retry=retry_if_exception_type((SingularRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-            stop=stop_after_attempt(CREATE_MAX_ATTEMPTS),
+            stop=stop_after_attempt(CREATE_MAX_ATTEMPTS) | stop_at_request_deadline(),
             wait=wait_exponential_jitter(initial=5, max=60),
             reraise=True,
         )
@@ -195,7 +199,8 @@ class SingularClient:
 
     def create_report(self, query: SingularReportQuery, day: dt.date) -> str:
         try:
-            value = self._create_retrying(self._post_report, query, day)
+            with request_deadline():
+                value = self._create_retrying(self._post_report, query, day)
         except SingularRateLimitError as error:
             # Singular does not document how it reports a used-up daily row quota. A 429 that
             # outlasts the retries is the closest signal, and waiting longer inside one run cannot

@@ -92,6 +92,34 @@ export interface HighlightValueFormatApi {
     decimal_places: number | null
 }
 
+/**
+ * * `routine` - You open this often
+ * * `dashboard` - On a dashboard you open often
+ * * `key_metric` - Project key metric
+ * * `popular` - Opened often in this project
+ */
+export type HighlightMetricReasonEnumApi =
+    (typeof HighlightMetricReasonEnumApi)[keyof typeof HighlightMetricReasonEnumApi]
+
+export const HighlightMetricReasonEnumApi = {
+    Routine: 'routine',
+    Dashboard: 'dashboard',
+    KeyMetric: 'key_metric',
+    Popular: 'popular',
+} as const
+
+export interface HighlightMoverApi {
+    /** Name of one series of the insight, for example a breakdown value. */
+    label: string
+    /** Value of the series for the last complete period. */
+    value: number
+    /**
+     * Change of the series against the period before, in percent. Null when the period before is 0.
+     * @nullable
+     */
+    change_pct: number | null
+}
+
 export interface HighlightMetricApi {
     /** Stable key of the metric: a key metric setting such as signup_event, or insight:<short_id>. */
     key: string
@@ -127,6 +155,40 @@ export interface HighlightMetricApi {
     value_format: HighlightValueFormatApi | null
     /** The first day of the period each value in `series` covers, in the project's timezone. Same length and order as `series`. */
     period_starts: string[]
+    /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open. Null for metrics computed before this field existed.
+     *
+     * * `routine` - You open this often
+     * * `dashboard` - On a dashboard you open often
+     * * `key_metric` - Project key metric
+     * * `popular` - Opened often in this project */
+    reason: HighlightMetricReasonEnumApi | null
+    /**
+     * Name of the dashboard the tile comes from when `reason` is `dashboard`, else null.
+     * @nullable
+     */
+    dashboard_name: string | null
+    /**
+     * Id of the dashboard the tile comes from, with its filters applied. Pass it when pinning the tile. Null otherwise.
+     * @nullable
+     */
+    dashboard_id: number | null
+    /**
+     * On how many of the last 14 days the person opened the insight, or the dashboard of the tile. Null for a key metric.
+     * @nullable
+     */
+    opened_days: number | null
+    /**
+     * The last day the person opened the insight, or the dashboard of the tile, in the project's timezone. Null for a key metric.
+     * @nullable
+     */
+    last_opened: string | null
+    /**
+     * Value for the period before the last complete one, the base of `change_pct`. Null when unknown.
+     * @nullable
+     */
+    previous_value: number | null
+    /** For an insight with several series, the series that changed most last period, biggest change first. Empty otherwise. */
+    movers: HighlightMoverApi[]
 }
 
 /**
@@ -188,6 +250,32 @@ export interface HighlightItemApi {
     score: number
     /** Name of the highlight source that found the item, for example alerts. */
     source: string
+    /**
+     * Product that declares the source, for example feature_flags. Null for items stored before this field existed and for sources that no product declares any more.
+     * @nullable
+     */
+    product?: string | null
+}
+
+/**
+ * * `ready` - Ready
+ * * `unavailable` - Unavailable
+ */
+export type HighlightPinStatusEnumApi = (typeof HighlightPinStatusEnumApi)[keyof typeof HighlightPinStatusEnumApi]
+
+export const HighlightPinStatusEnumApi = {
+    Ready: 'ready',
+    Unavailable: 'unavailable',
+} as const
+
+export interface HighlightPinApi {
+    /** Key of a number the person keeps on their home. */
+    key: string
+    /** `ready` when the number is in `pulse`. `unavailable` when it has no number to show, for example a deleted insight, one that is not a trend, or a query that failed or did not finish in time. A pin missing from this list was added after these highlights were computed.
+     *
+     * * `ready` - Ready
+     * * `unavailable` - Unavailable */
+    status: HighlightPinStatusEnumApi
 }
 
 export interface HighlightsApi {
@@ -210,6 +298,31 @@ export interface HighlightsApi {
     pulse: HighlightMetricApi[]
     /** Up to 6 items, the highest scores across sources, in display order: by `priority`, then by `score`, highest first. */
     items: HighlightItemApi[]
+    /** The numbers the person keeps, in their order, with the state of each one. Pinned numbers lead `pulse`. */
+    pins: HighlightPinApi[]
+}
+
+export interface PulsePinApi {
+    /**
+     * Key of the number to keep: a key metric setting such as signup_event, or insight:<short_id>.
+     * @maxLength 200
+     */
+    key: string
+    /**
+     * Name to show for the number until the highlights compute its value.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * For an insight pinned from a dashboard tile, the dashboard whose filters it keeps. Null otherwise.
+     * @nullable
+     */
+    dashboard_id?: number | null
+}
+
+export interface PulsePinsApi {
+    /** Numbers the person keeps at the start of the key numbers, in order. Suggestions fill the free places. Only the first 4 distinct keys are kept. At most 20 entries. */
+    pins: PulsePinApi[]
 }
 
 /**

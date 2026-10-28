@@ -97,6 +97,7 @@ from products.access_control.backend.presentation.access_control import (
 from products.approvals.backend.decorators import approval_gate
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.approvals.backend.models import ApprovalPolicy
+from products.approvals.backend.ownership import scope_by_owner_enabled
 from products.approvals.backend.policies import lock_approval_policies
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
@@ -321,6 +322,15 @@ V2_SAFETY_FIELDS = frozenset({"version", "active", "deleted"})
 V2_UPDATE_FIELDS = V2_SAFETY_FIELDS | {"filters", "name", "key", "tags"}
 V2_CREATE_FIELDS = V2_UPDATE_FIELDS - {"deleted"}
 V2_APPROVAL_ACTIONS = ("feature_flag.enable", "feature_flag.disable", "feature_flag.update")
+# Every family that can gate a flag write. The gate offers all of them and the product that
+# owns the flag decides which one evaluates, so an experiment's flag is governed wherever it is
+# edited rather than only through the experiment endpoints. See approvals' `ownership` module.
+FLAG_WRITE_APPROVAL_ACTIONS = (
+    *V2_APPROVAL_ACTIONS,
+    "experiment.launch",
+    "experiment.pause",
+    "experiment.update",
+)
 
 _MISSING: Any = object()
 
@@ -674,6 +684,12 @@ def calculate_filter_size_bytes(filters: dict | None) -> int:
         return 0
     filter_json = json.dumps(filters, separators=(",", ":"), sort_keys=True, ensure_ascii=False)
     return len(filter_json.encode("utf-8"))
+
+
+V2_CONDITIONS_UNAVAILABLE_REASON = (
+    "Per-rule analysis is not available for flags with config version 2. "
+    "`condition_index` is the zero-based index of the deciding rule in `filters.rules`, or null when no rule decided."
+)
 
 
 def _filter_person_properties_for_flag(
@@ -1185,6 +1201,66 @@ def _iter_flag_filter_properties(groups: Any) -> Iterator[_FlagFilterProperty]:
                 )
 
 
+def _condition_cohort_id(value: Any) -> int | None:
+    """Return the cohort id a condition's value names, or None when the value is not an id."""
+    # The Rust flag evaluator (PropertyFilter::get_cohort_id) accepts only a JSON integer or a string that
+    # parse::<i32>() accepts (ASCII digits with an optional sign), and only when the id fits in 32 bits.
+    # It rejects a float such as 42.5, which int() would truncate to a live cohort's id.
+    # A JSON true is the Python integer 1, so the bool check must come before the int check.
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        if not re.fullmatch(r"[+-]?[0-9]+", value):
+            return None
+        try:
+            value = int(value)
+        except ValueError:
+            # Python refuses to convert a string with more digits than sys.get_int_max_str_digits().
+            return None
+    if isinstance(value, int) and -(2**31) <= value < 2**31:
+        return value
+    return None
+
+
+def _validate_cohort_reference(cohort_id: Any, project_id: int) -> Cohort:
+    """Return the cohort a release condition targets, or raise if the flag cannot evaluate it.
+
+    The flag evaluator loads only non-deleted cohorts. A request that reaches a condition on a
+    deleted cohort therefore fails the whole flag. The lookup includes deleted cohorts so that the
+    error can name the cohort.
+    """
+    parsed_id = _condition_cohort_id(cohort_id)
+    cohort = Cohort.objects.filter(pk=parsed_id, team__project_id=project_id).first() if parsed_id is not None else None
+    if cohort is None:
+        raise serializers.ValidationError(
+            detail=f"Cohort with id {cohort_id} does not exist",
+            code="cohort_does_not_exist",
+        )
+    if cohort.deleted:
+        label = f"Cohort '{cohort.name}' (ID {cohort.pk})" if cohort.name else f"Cohort with id {cohort.pk}"
+        raise serializers.ValidationError(
+            detail=f"{label} has been deleted. Restore the cohort, choose another cohort, or remove this condition.",
+            code="cohort_does_not_exist",
+        )
+    return cohort
+
+
+def _cohort_properties(groups: Any) -> Iterator[dict[str, Any]]:
+    """Yield the cohort properties in a v1 document's release condition groups."""
+    for located in _iter_flag_filter_properties(groups):
+        if located.prop.get("type") == PropertyFilterType.COHORT:
+            yield located.prop
+
+
+def validate_stored_cohort_references(flag: FeatureFlag) -> None:
+    """Raise if a stored release condition targets a cohort the flag cannot evaluate."""
+    # Only config version 1 can reference a cohort.
+    if detect_config_format(flag.filters).kind != "v1":
+        return
+    for prop in _cohort_properties(flag.conditions):
+        _validate_cohort_reference(prop.get("value"), flag.team.project_id)
+
+
 class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
     key = serializers.CharField(required=False, help_text="Feature flag key.")
     name = serializers.CharField(
@@ -1283,6 +1359,15 @@ class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
         help_text="Identifier used to bucket users into rollout percentages and variants: 'distinct_id' "
         "(user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.",
     )
+    version = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "The `version` from your most recent read of this flag. Required when the flag's `filters.version` is "
+            "2: the update is then refused with 409 if anyone else changed the flag after that version. Other flags "
+            "do not check it."
+        ),
+    )
 
 
 class FeatureFlagExperimentSetMetadataSerializer(serializers.Serializer):
@@ -1294,11 +1379,41 @@ class FeatureFlagExperimentSetMetadataSerializer(serializers.Serializer):
     )
 
 
-COHORT_NAMES_CONTEXT_KEY = "feature_flag_cohort_names"
+CONDITION_COHORTS_CONTEXT_KEY = "feature_flag_condition_cohorts"
+
+
+@frozen
+class _ConditionCohort:
+    name: str | None
+    deleted: bool
+
+
+def _load_condition_cohorts(flags: Iterable[FeatureFlag], project_id: int) -> dict[int, _ConditionCohort]:
+    """Load the cohorts that the flags' release conditions target, keyed by id.
+
+    Deleted cohorts are included so that a condition on one can show its name. An id with no
+    cohort in the project has no entry.
+    """
+    cohort_ids: set[int] = set()
+    for flag in flags:
+        if detect_config_format(flag.filters).kind != "v1":
+            continue
+        for cohort_prop in _cohort_properties(flag.conditions):
+            cohort_id = _condition_cohort_id(cohort_prop.get("value"))
+            if cohort_id is not None:
+                cohort_ids.add(cohort_id)
+    if not cohort_ids:
+        return {}
+    return {
+        cohort_id: _ConditionCohort(name=name, deleted=deleted)
+        for cohort_id, name, deleted in Cohort.objects.filter(
+            id__in=cohort_ids, team__project_id=project_id
+        ).values_list("id", "name", "deleted")
+    }
 
 
 class FeatureFlagListSerializer(serializers.ListSerializer):
-    """Resolves the cohort names of every flag on a page in one query, instead of one query per flag.
+    """Loads the condition cohorts of every flag on a page in one query, instead of one query per flag.
 
     The cohort ids live in each flag's JSON filters, so a queryset prefetch cannot select them. This is
     the only hook DRF gives that sees the whole page.
@@ -1307,26 +1422,13 @@ class FeatureFlagListSerializer(serializers.ListSerializer):
     def to_representation(self, data: Any) -> Any:
         flags = list(data)
         assert isinstance(self.child, FeatureFlagSerializer)
-        cohort_ids: set[int] = set()
-        for flag in flags:
-            config = decode_config(flag.get_filters())
-            # A document no reader can parse has no cohort names to show, and must not fail the page.
-            if isinstance(config, UnsupportedConfig):
-                continue
-            cohort_ids.update(references(config).cohort_ids)
-        cohort_names: dict[str, str | None] = {}
-        if cohort_ids:
-            cohort_names = {
-                str(cohort_id): name
-                for cohort_id, name in Cohort.objects.filter(
-                    id__in=cohort_ids, team__project_id=self.child.context["project_id"], deleted=False
-                ).values_list("id", "name")
-            }
-        self.child.context[COHORT_NAMES_CONTEXT_KEY] = cohort_names
+        self.child.context[CONDITION_COHORTS_CONTEXT_KEY] = _load_condition_cohorts(
+            flags, self.child.context["project_id"]
+        )
         try:
             return super().to_representation(flags)
         finally:
-            self.child.context.pop(COHORT_NAMES_CONTEXT_KEY, None)
+            self.child.context.pop(CONDITION_COHORTS_CONTEXT_KEY, None)
 
 
 class FeatureFlagSerializer(
@@ -1479,10 +1581,13 @@ class FeatureFlagSerializer(
         # Fallback to database query if annotation is not available
         return teams_gating_replay_on_flag(feature_flag, key=feature_flag.key).exists()
 
-    def _validate_reactivated_dependency_formats(self, attrs: Mapping[str, JsonValue]) -> None:
-        """Empty filters retain stored targeting and bypass dependency checks in _validate_filters_inner.
+    def _validate_reactivated_references(self, attrs: Mapping[str, JsonValue]) -> None:
+        """Check stored references when a write turns the flag on or brings it back.
 
-        Treat them as omitted so enabling or restoring an active flag still checks its dependencies.
+        Turning the flag on, including restoring a flag that comes back active, checks its flag
+        dependencies and cohorts. Restoring a disabled flag or unarchiving a flag checks its cohorts.
+        Empty filters retain stored targeting and bypass the reference checks in _validate_filters_inner,
+        so treat them as omitted.
         """
         # A v2 document cannot be walked as v1; enabling one validates the stored document
         # strictly under the lock instead, and that validator admits no flag or cohort reference.
@@ -1490,14 +1595,18 @@ class FeatureFlagSerializer(
             return
 
         enabling = attrs.get("active") is True and not self.instance.active
-        restoring_active = (
-            attrs.get("deleted") is False and self.instance.deleted and attrs.get("active", self.instance.active)
+        # The cohort delete guard skips deleted and archived flags. Once a flag is neither, a writer
+        # that skips this serializer can enable it. Survey resume is one such writer.
+        returning = (self.instance.deleted or self.instance.archived) and not (
+            attrs.get("deleted", self.instance.deleted) or attrs.get("archived", self.instance.archived)
         )
-        if not (enabling or restoring_active):
+        if not (enabling or returning):
             return
 
         try:
-            self._validate_dependency_formats(self.instance.filters or {}, traverse=True)
+            if attrs.get("active", self.instance.active):
+                self._validate_dependency_formats(self.instance.filters or {}, traverse=True)
+            validate_stored_cohort_references(self.instance)
         except serializers.ValidationError as exc:
             raise serializers.ValidationError({"filters": exc.detail}) from exc
 
@@ -1527,7 +1636,7 @@ class FeatureFlagSerializer(
         self._validate_device_bucketing_with_persist_auth(attrs)
         self._validate_encrypted_payloads_require_remote_config(attrs)
         self._validate_archived_flags_are_disabled(attrs)
-        self._validate_reactivated_dependency_formats(attrs)
+        self._validate_reactivated_references(attrs)
         self._validate_flag_limits()
 
         # Materialize the remote-config 100% rollout default here, before the approval gate runs in
@@ -1925,9 +2034,11 @@ class FeatureFlagSerializer(
         # Deliberately broader than the gate's own detect(): any enabled flag-write policy on
         # this team or its organization denies the write, because a v2 change that needs
         # approval has nowhere to go. Existence only, so PolicyEngine's precedence is irrelevant.
+        # Before rollout the experiment policies are unenforced copies, so they deny nothing.
+        action_keys = FLAG_WRITE_APPROVAL_ACTIONS if scope_by_owner_enabled(team.organization) else V2_APPROVAL_ACTIONS
         if (
             ApprovalPolicy.objects.enabled()
-            .filter(organization_id=team.organization_id, action_key__in=V2_APPROVAL_ACTIONS)
+            .filter(organization_id=team.organization_id, action_key__in=action_keys)
             .filter(Q(team=team) | Q(team__isnull=True))
             .exists()
         ):
@@ -2015,12 +2126,26 @@ class FeatureFlagSerializer(
 
     def _validate_filters_inner(self, filters, operation: str):
         stored_filters = (self.instance.filters or {}) if self.instance is not None else {}
+        if filters and detect_config_format(stored_filters).kind == "v2" and detect_config_format(filters).kind == "v1":
+            # Writing version 1 filters would silently convert the flag, which nothing may do.
+            hint = (
+                "Send the complete version 2 document with version 2 and its rules, or leave filters out"
+                if self._v2_limits is not None
+                else "Its targeting can't be changed through the API yet. Leave filters out"
+            )
+            raise serializers.ValidationError(
+                "This flag uses config version 2, so version 1 filters (groups, multivariate, payloads) "
+                f"cannot be written to it. {hint} to change other fields.",
+                code="v1_filters_on_v2_flag",
+            )
         reserved_variant_key = _reserved_variant_key(filters, stored=stored_filters)
         if reserved_variant_key is not None:
-            raise serializers.ValidationError(
-                f"The variant key {reserved_variant_key} is reserved. Choose another key.",
-                code="reserved_variant_key",
+            message = (
+                "Variant keys can't be empty. Enter a key for each variant."
+                if reserved_variant_key == ""
+                else f"The variant key {reserved_variant_key} is reserved. Choose another key."
             )
+            raise serializers.ValidationError(message, code="reserved_variant_key")
 
         if self._v2_limits is not None:
             # An admitted v2 document passes through untouched (no v1 merge or normalization): a
@@ -2294,49 +2419,40 @@ class FeatureFlagSerializer(
                     raise serializers.ValidationError(f"{located.path}.value: invalid regex pattern")
 
             if located.prop.get("type") == "cohort":
-                cohort_id = located.prop.get("value")
-                try:
-                    initial_cohort: Cohort = Cohort.objects.get(
-                        pk=cast(str | int, cohort_id), team__project_id=self.context["project_id"]
-                    )
-                    # Static cohorts (including one-time snapshots) hold a
-                    # materialised person list.  The populating criteria may
-                    # still be stored on the record, but they are inert – the
-                    # cohort no longer re-evaluates them, and the Rust engine's
-                    # extract_dependencies returns an empty set for them.  Skip
-                    # both the behavioural property check and the dependency walk
-                    # so snapshot cohorts can be used in flags without an extra
-                    # export step, even when their inert criteria reference
-                    # another cohort.  See #65270.
-                    dependency_cohorts = (
-                        []
-                        if initial_cohort.is_static
-                        else get_all_cohort_dependencies(initial_cohort, stop_traversal_at_static=True)
-                    )
-                    for cohort in [initial_cohort, *dependency_cohorts]:
-                        # Static cohorts have materialized membership, any preserved behavioral
-                        # filters are display-only and never evaluated, so skip them.
-                        if cohort.is_static:
-                            continue
-                        behavioral_props = [
-                            cohort_prop for cohort_prop in cohort.properties.flat if cohort_prop.type == "behavioral"
-                        ]
-                        # Gate on both signals: cohort.properties.flat parses each leaf into a
-                        # Property() object, so a leaf shape the parser doesn't recognize would
-                        # silently vanish from it and defeat this guard; _has_filter_type walks
-                        # the raw filters JSON instead, so it can't miss an unparsable leaf. But
-                        # _has_filter_type only reads `filters` — legacy cohorts that store their
-                        # condition in the deprecated `groups` field instead (see Cohort.properties)
-                        # would defeat *that* check, so behavioral_props still needs to cover them.
-                        if cohort._has_filter_type("behavioral") or behavioral_props:
-                            _validate_behavioral_cohort_for_feature_flag(
-                                cohort, behavioral_props, allow_realtime_backfilled=self._allow_realtime_backfilled
-                            )
-                except Cohort.DoesNotExist:
-                    raise serializers.ValidationError(
-                        detail=f"Cohort with id {cohort_id} does not exist",
-                        code="cohort_does_not_exist",
-                    )
+                initial_cohort = _validate_cohort_reference(located.prop.get("value"), self.context["project_id"])
+                # Static cohorts (including one-time snapshots) hold a
+                # materialised person list.  The populating criteria may
+                # still be stored on the record, but they are inert – the
+                # cohort no longer re-evaluates them, and the Rust engine's
+                # extract_dependencies returns an empty set for them.  Skip
+                # both the behavioural property check and the dependency walk
+                # so snapshot cohorts can be used in flags without an extra
+                # export step, even when their inert criteria reference
+                # another cohort.  See #65270.
+                dependency_cohorts = (
+                    []
+                    if initial_cohort.is_static
+                    else get_all_cohort_dependencies(initial_cohort, stop_traversal_at_static=True)
+                )
+                for cohort in [initial_cohort, *dependency_cohorts]:
+                    # Static cohorts have materialized membership, any preserved behavioral
+                    # filters are display-only and never evaluated, so skip them.
+                    if cohort.is_static:
+                        continue
+                    behavioral_props = [
+                        cohort_prop for cohort_prop in cohort.properties.flat if cohort_prop.type == "behavioral"
+                    ]
+                    # Gate on both signals: cohort.properties.flat parses each leaf into a
+                    # Property() object, so a leaf shape the parser doesn't recognize would
+                    # silently vanish from it and defeat this guard; _has_filter_type walks
+                    # the raw filters JSON instead, so it can't miss an unparsable leaf. But
+                    # _has_filter_type only reads `filters` — legacy cohorts that store their
+                    # condition in the deprecated `groups` field instead (see Cohort.properties)
+                    # would defeat *that* check, so behavioral_props still needs to cover them.
+                    if cohort._has_filter_type("behavioral") or behavioral_props:
+                        _validate_behavioral_cohort_for_feature_flag(
+                            cohort, behavioral_props, allow_realtime_backfilled=self._allow_realtime_backfilled
+                        )
 
         self._reject_oversized_filters(merged)
 
@@ -2411,10 +2527,6 @@ class FeatureFlagSerializer(
             for prop in group.get("properties", []):
                 if property_type is None or prop.get("type") == property_type:
                     yield prop
-
-    def _get_cohort_properties_from_filters(self, filters: dict):
-        """Extract cohort properties from filters."""
-        return list(self._get_properties_from_filters(filters, PropertyFilterType.COHORT))
 
     def _get_group_key_properties_from_filters(self, filters: dict):
         """Extract $group_key properties from group-type filters."""
@@ -2617,7 +2729,7 @@ class FeatureFlagSerializer(
 
         return instance
 
-    @approval_gate(list(V2_APPROVAL_ACTIONS))
+    @approval_gate(list(FLAG_WRITE_APPROVAL_ACTIONS))
     def update(self, instance: FeatureFlag, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         # Service-layer callers may carry no body, and an endpoint that declares no request schema
@@ -2985,22 +3097,39 @@ class FeatureFlagSerializer(
         flag_status, _ = checker.get_status()
         return flag_status.name
 
+    def _annotate_condition_cohorts(self, instance: FeatureFlag, filters: dict[str, Any]) -> None:
+        # A document in another config version can still hold `groups`. Annotating it would mark its live
+        # cohorts as deleted.
+        if detect_config_format(filters).kind != "v1":
+            return
+        cohort_props = list(_cohort_properties((filters or {}).get("groups")))
+        if not cohort_props:
+            return
+
+        # FeatureFlagListSerializer loads the cohorts of a whole page. Retrieve and writes serialize one flag.
+        cohorts = self.context.get(CONDITION_COHORTS_CONTEXT_KEY)
+        if cohorts is None:
+            cohorts = _load_condition_cohorts([instance], self.context["project_id"])
+
+        for cohort_prop in cohort_props:
+            cohort_id = _condition_cohort_id(cohort_prop.get("value"))
+            cohort = cohorts.get(cohort_id) if cohort_id is not None else None
+            cohort_prop["cohort_name"] = cohort.name if cohort else None
+            # The flag evaluator loads only non-deleted cohorts. A condition on a deleted or missing
+            # cohort fails the flag. A client that echoes these keys back can store them. Removing a
+            # key here hides that stale value on a live cohort.
+            markers = {"cohort_deleted": cohort is None or cohort.deleted, "cohort_missing": cohort is None}
+            for key, marked in markers.items():
+                if marked:
+                    cohort_prop[key] = True
+                else:
+                    cohort_prop.pop(key, None)
+
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         filters = representation.get("filters", {})
 
-        # FeatureFlagListSerializer resolves the names of a whole page. Retrieve and writes serialize one flag.
-        cohorts = self.context.get(COHORT_NAMES_CONTEXT_KEY)
-        if cohorts is None:
-            cohort_ids = {cohort_prop.get("value") for cohort_prop in self._get_cohort_properties_from_filters(filters)}
-            cohorts = {
-                str(cohort.id): cohort.name
-                for cohort in Cohort.objects.filter(id__in=cohort_ids, team__project_id=self.context["project_id"])
-            }
-
-        # Add cohort names to the response
-        for cohort_prop in self._get_cohort_properties_from_filters(filters):
-            cohort_prop["cohort_name"] = cohorts.get(str(cohort_prop.get("value")))
+        self._annotate_condition_cohorts(instance, filters)
 
         # Resolve group key display names for $group_key filters. Check both
         # the flag-level and per-condition-set aggregation_group_type_index to
@@ -3372,7 +3501,11 @@ class FeatureFlagTestEvaluationResponseSerializer(serializers.Serializer):
         ),
     )
     condition_index = serializers.IntegerField(
-        allow_null=True, help_text="The index of the condition that matched, if applicable"
+        allow_null=True,
+        help_text=(
+            "The index of the condition that matched, if applicable. For a flag with config version 2, the "
+            "zero-based index of the rule in `filters.rules` that decided the result, or null when no rule decided it."
+        ),
     )
     payload = serializers.JSONField(allow_null=True, help_text="Payload associated with the flag result, if any")
     person_properties = serializers.DictField(
@@ -3387,7 +3520,18 @@ class FeatureFlagTestEvaluationResponseSerializer(serializers.Serializer):
         ),
     )
     conditions = FeatureFlagConditionAnalysisSerializer(
-        many=True, help_text="Detailed analysis of each condition in the feature flag"
+        many=True,
+        help_text=(
+            "Detailed analysis of each condition in the feature flag. Always empty for a flag with config "
+            "version 2, which `conditions_unavailable_reason` then explains."
+        ),
+    )
+    conditions_unavailable_reason = serializers.CharField(
+        required=False,
+        help_text=(
+            "Present only when `conditions` is empty because the evaluated config has no per-condition "
+            "analysis. An empty list then does not mean the flag has no conditions or rules."
+        ),
     )
 
 
@@ -3823,6 +3967,19 @@ class FeatureFlagSetReleaseConditionRolloutRequestSerializer(serializers.Seriali
     version = serializers.IntegerField(min_value=0, allow_null=True, help_text=FLAG_VERSION_PRECONDITION_HELP)
 
 
+class FeatureFlagSetActiveRequestSerializer(serializers.Serializer):
+    version = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        allow_null=True,
+        help_text=(
+            "The `version` from your most recent read of this flag. Required when the flag's `filters.version` is "
+            "2, optional otherwise. When sent, the change is refused with 409 if anyone else changed the flag after "
+            "that version. Null is the same as leaving it out."
+        ),
+    )
+
+
 class FeatureFlagRollOutToEveryoneRequestSerializer(serializers.Serializer):
     version = serializers.IntegerField(min_value=0, allow_null=True, help_text=FLAG_VERSION_PRECONDITION_HELP)
     variant_key = serializers.CharField(
@@ -3864,7 +4021,7 @@ class FlagLifecycleWriteRequest(ServiceRequest):
     extraction returns None for POST, so pending change requests for different flags collide and
     the second one is dropped as a duplicate. Reporting the write as the PATCH it is fixes both.
 
-    ``data`` stays empty because these endpoints declare no body. The serializer reads ``version``
+    ``data`` stays empty whatever the caller sent. The serializer reads ``version``
     and ``original_flag`` off the request, so a body echoed back from an earlier read could
     otherwise discard the state change and still return 200.
 
@@ -3899,8 +4056,8 @@ class FlagLifecycleWriteRequest(ServiceRequest):
         return getattr(self._request, name)
 
 
-class FlagRolloutWriteRequest(FlagLifecycleWriteRequest):
-    """The request a flag rollout action hands to the flag facade.
+class FlagVersionCheckedWriteRequest(FlagLifecycleWriteRequest):
+    """The request a flag rollout action, or a toggle that sends `version`, hands to the flag facade.
 
     ``strict_version_precondition`` makes ``FeatureFlagSerializer`` refuse the write when the
     caller's version is not the current one, under the row lock it already takes. ``version`` is
@@ -3913,6 +4070,13 @@ class FlagRolloutWriteRequest(FlagLifecycleWriteRequest):
     def __init__(self, request: request.Request, *, version: int) -> None:
         super().__init__(request)
         self.data = {"version": version}
+
+
+class CreateStaticCohortForFlagResponseSerializer(serializers.Serializer):
+    cohort = CohortSerializer(
+        read_only=True,
+        help_text="The new static cohort. It fills with the people the flag matches in the background, so is_calculating is usually still true in this response.",
+    )
 
 
 # ClickHouse cost attribution: this viewset currently has no direct ClickHouse calls —
@@ -4272,18 +4436,18 @@ class FeatureFlagViewSet(
     # rewrites `filters`, so a caller no longer reads the flag, mutates one field, and sends
     # the whole targeting object back.
     #
-    # That shrinks the lost-update window; it does not close it. The serializer saves the
-    # instance get_object() loaded, and Django writes every column, so an edit committed
-    # between that read and the save is still reverted. A version-sending PATCH has the same
-    # hole: the conflict check only fires when the caller's own fields overlap. What these
+    # Without `version`, that shrinks the lost-update window but does not close it. The
+    # serializer saves the instance get_object() loaded, and Django writes every column, so an
+    # edit committed between that read and the save is still reverted. A version-sending PATCH
+    # has the same hole: the conflict check only fires when the caller's own fields overlap. What these
     # endpoints remove is the caller-held read, which spans as long as the caller takes
     # rather than the inside of one request.
     #
     # Each routes through the flag facade, which writes through FeatureFlagSerializer — the
     # same path PATCH uses, so the approval gate, the dependency guards, cache invalidation
-    # and activity logging all apply. The write bumps `version` under a row lock, but the
-    # stale-write conflict check does not run: it compares a caller-supplied `version`, and
-    # these endpoints take no body.
+    # and activity logging all apply. The write bumps `version` under a row lock. The
+    # stale-write conflict check runs only when the caller sends `version`, which enable and
+    # disable accept and a config version 2 flag requires.
     #
     # A flag already in the requested state is returned with no write, so a caller retrying in
     # order cannot bump the version or log a change that did not happen. Two calls racing still
@@ -4299,14 +4463,17 @@ class FeatureFlagViewSet(
         apply_encrypted_payload_response_form(self.request, data)
         return Response(data, status=status.HTTP_200_OK)
 
-    def _set_active(self, request: request.Request, *, active: bool) -> Response:
-        from products.feature_flags.backend.facade.api import set_flag_active
+    def _set_active(self, request: ValidatedRequest, *, active: bool) -> Response:
+        from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 
         feature_flag: FeatureFlag = self.get_object()
         rejection = self._deleted_flag_rejection(feature_flag, "enabling it" if active else "disabling it")
         if rejection is not None:
             return rejection
-        if feature_flag.active != active:
+        if feature_flag.active == active:
+            return self._lifecycle_response(feature_flag)
+        version = request.validated_data.get("version")
+        if version is None:
             feature_flag = set_flag_active(
                 feature_flag,
                 active,
@@ -4314,37 +4481,53 @@ class FeatureFlagViewSet(
                 user=request.user,
                 request=FlagLifecycleWriteRequest(request),
             )
+        else:
+            # The serializer reads `version` from the request for a config version 1 flag.
+            # It reads `version` from the written data for a config version 2 flag, so both carry it.
+            self._version_precondition(feature_flag, version)
+            feature_flag = update_flag(
+                feature_flag,
+                {"active": active, "version": version},
+                team=self.team,
+                user=request.user,
+                request=FlagVersionCheckedWriteRequest(request, version=version),
+            )
         return self._lifecycle_response(feature_flag)
 
-    @action(
-        methods=["POST"],
-        detail=True,
-        required_scopes=["feature_flag:write"],
-        request=None,
+    @validated_request(
+        FeatureFlagSetActiveRequestSerializer,
         responses=flag_lifecycle_responses(
-            "The flag is archived, one of the flags it depends on is disabled, or a flag it "
-            "depends on uses an unsupported configuration format."
+            "The flag is archived, one of the flags it depends on is disabled, a flag it depends "
+            "on uses an unsupported configuration format, a cohort it targets has been deleted, or "
+            "the flag uses config version 2 and no `version` was sent.",
+            version_precondition=True,
         ),
     )
-    def enable(self, request: request.Request, **kwargs) -> Response:
+    @action(methods=["POST"], detail=True, required_scopes=["feature_flag:write"])
+    def enable(self, request: ValidatedRequest, **kwargs) -> Response:
         """
         Enable a feature flag.
 
         Sets `active` to true and changes nothing else. Targeting, variants, payloads, tags and
         archived state are left as they are. An archived flag is refused: unarchive it first. A
         flag whose own flag dependencies are disabled or use an unsupported configuration
-        format is also refused. An already-enabled flag is returned unchanged.
+        format is also refused, as is a flag whose release conditions target a deleted cohort.
+        An already-enabled flag is returned unchanged.
+
+        Send the `version` your last read returned. A flag whose `filters.version` is 2 requires
+        it, and for any flag a change after that version is refused with 409.
         """
         return self._set_active(request, active=True)
 
-    @action(
-        methods=["POST"],
-        detail=True,
-        required_scopes=["feature_flag:write"],
-        request=None,
-        responses=flag_lifecycle_responses("Another active flag depends on this one."),
+    @validated_request(
+        FeatureFlagSetActiveRequestSerializer,
+        responses=flag_lifecycle_responses(
+            "Another active flag depends on this one, or the flag uses config version 2 and no `version` was sent.",
+            version_precondition=True,
+        ),
     )
-    def disable(self, request: request.Request, **kwargs) -> Response:
+    @action(methods=["POST"], detail=True, required_scopes=["feature_flag:write"])
+    def disable(self, request: ValidatedRequest, **kwargs) -> Response:
         """
         Disable a feature flag.
 
@@ -4354,6 +4537,9 @@ class FeatureFlagViewSet(
 
         A disabled flag stops evaluating for every consumer, including a linked experiment or a
         session replay setting. Read the full definition first to report that impact.
+
+        Send the `version` your last read returned. A flag whose `filters.version` is 2 requires
+        it, and for any flag a change after that version is refused with 409.
         """
         return self._set_active(request, active=False)
 
@@ -4396,14 +4582,17 @@ class FeatureFlagViewSet(
         detail=True,
         required_scopes=["feature_flag:write"],
         request=None,
-        responses=flag_lifecycle_responses(approval_gated=False),
+        responses=flag_lifecycle_responses(
+            "One of the flag's release conditions targets a deleted cohort.", approval_gated=False
+        ),
     )
     def unarchive(self, request: request.Request, **kwargs) -> Response:
         """
         Restore an archived feature flag to the default flag list.
 
         Sets `archived` to false and changes nothing else. The flag stays disabled; enable it
-        with a separate call. An already-unarchived flag is returned unchanged.
+        with a separate call. A flag whose release conditions target a deleted cohort is
+        refused: remove that condition first. An already-unarchived flag is returned unchanged.
         """
         from products.feature_flags.backend.facade.api import unarchive_flag
 
@@ -4418,12 +4607,12 @@ class FeatureFlagViewSet(
         )
         return self._lifecycle_response(updated)
 
-    # Rollout actions. Unlike the state actions above, these carry a value, so they close the
+    # Rollout actions. These require `version`, so, like a toggle that sends it, they close the
     # lost-update window rather than only shrinking it: FeatureFlagSerializer compares the
     # caller's `version` under the row lock it already takes, so no edit can land between the
     # check and the save. A transform that leaves `filters` unchanged writes nothing.
 
-    def _rollout_precondition(self, feature_flag: FeatureFlag, version: int) -> None:
+    def _version_precondition(self, feature_flag: FeatureFlag, version: int) -> None:
         # Repeated by the serializer under its row lock, which is the check that closes the
         # window. This one runs first so a stale caller never reaches the approval gate, which
         # sits ahead of the lock and would leave a change request for a write it then refuses.
@@ -4454,7 +4643,7 @@ class FeatureFlagViewSet(
         # A flag written before versioning reads as null; the precondition normalises the stored
         # side the same way, so a caller can send back exactly what the read returned.
         version = request.validated_data["version"] or 0
-        self._rollout_precondition(feature_flag, version)
+        self._version_precondition(feature_flag, version)
 
         with transaction.atomic():
             # The checks above ran against the instance loaded before the lock, which is a fast
@@ -4472,7 +4661,7 @@ class FeatureFlagViewSet(
             rejection = self._deleted_flag_rejection(locked_flag, deleted_hint)
             if rejection is not None:
                 return rejection
-            self._rollout_precondition(locked_flag, version)
+            self._version_precondition(locked_flag, version)
 
             current_filters = locked_flag.get_filters()
             new_filters = transform(current_filters)
@@ -4498,7 +4687,7 @@ class FeatureFlagViewSet(
             {"filters": filters},
             team=self.team,
             user=request.user,
-            request=FlagRolloutWriteRequest(request, version=version),
+            request=FlagVersionCheckedWriteRequest(request, version=version),
         )
 
     @validated_request(
@@ -5471,6 +5660,7 @@ class FeatureFlagViewSet(
 
         return Response({"affected": result.affected, "total": result.total})
 
+    @extend_schema(request=None, responses={201: CreateStaticCohortForFlagResponseSerializer})
     @action(methods=["POST"], detail=True)
     def create_static_cohort_for_flag(self, request: request.Request, **kwargs):
         feature_flag = self.get_object()
@@ -5479,6 +5669,7 @@ class FeatureFlagViewSet(
             data={
                 "is_static": True,
                 "key": feature_flag_key,
+                # flagCohortNamePrefix in featureFlagLogic.ts matches this name to reuse the cohort. Rename both together.
                 "name": f"Users with feature flag {feature_flag_key} enabled at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
                 "is_calculating": True,
             },
@@ -5854,6 +6045,8 @@ class FeatureFlagViewSet(
                 "evaluation_distinct_id": response_evaluation_distinct_id,
                 "conditions": detailed_conditions,
             }
+            if detect_config_format(evaluation_filters).kind == "v2":
+                response_data["conditions_unavailable_reason"] = V2_CONDITIONS_UNAVAILABLE_REASON
 
             response_serializer = FeatureFlagTestEvaluationResponseSerializer(data=response_data)
             if not response_serializer.is_valid():

@@ -13,6 +13,8 @@ class PlatformAlertConfigurationSourceKind(LabeledStrEnum):
 
     LOGS = "logs", "Logs"
     INSIGHT = "insight", "Insight"
+    WAREHOUSE_SOURCE = "warehouse_source", "Warehouse source"
+    WAREHOUSE_DESTINATION = "warehouse_destination", "Warehouse destination"
 
 
 class PlatformAlertOwner(LabeledStrEnum):
@@ -20,6 +22,17 @@ class PlatformAlertOwner(LabeledStrEnum):
 
     SOURCE = "source", "Source"
     PLATFORM = "platform", "Platform"
+
+
+class DeliveryPath(LabeledStrEnum):
+    """How the platform sends an alert it owns.
+
+    `HOG_FUNCTION` sends nothing natively. The source emits the internal events its own stack
+    emitted, and the alert's HogFunctions send exactly what they sent before the cutover.
+    """
+
+    NATIVE = "native", "Native"
+    HOG_FUNCTION = "hog_function", "HogFunction"
 
 
 class PlatformAlertState(LabeledStrEnum):
@@ -47,3 +60,22 @@ class PlatformAlertConfigurationRecurrenceUnit(LabeledStrEnum):
     DAY = "day", "Day"
     WEEK = "week", "Week"
     MONTH = "month", "Month"
+
+
+class HoldRelease(LabeledStrEnum):
+    """What releasing a held delivery does with it."""
+
+    SEND = "send", "Send"
+    SUPPRESS = "suppress", "Suppress"
+
+
+class HoldReleasedBy(LabeledStrEnum):
+    """Who released a held delivery.
+
+    A release returns the request to a retry only from the caller that released it, so the agent
+    and the safety net cannot both send one evaluation.
+    """
+
+    VERDICT = "verdict", "Verdict"
+    CLAIM_REFUSED = "claim_refused", "Claim refused"
+    SAFETY_NET = "safety_net", "Safety net"

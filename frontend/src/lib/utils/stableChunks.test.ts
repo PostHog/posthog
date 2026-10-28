@@ -20,22 +20,31 @@ describe('reloadAfterChunkLoadError', () => {
     })
 
     it('reloads the same page on the default build', () => {
-        reloadAfterChunkLoadError()
+        reloadAfterChunkLoadError(new TypeError('Failed to resolve module specifier "@c/Abc123".'))
 
         expect(reload).toHaveBeenCalledTimes(1)
         expect(replace).not.toHaveBeenCalled()
     })
 
-    it('loads the page on the default build when the stable build fails, keeping the rest of the URL', () => {
+    it.each([
+        [
+            'a chunk that failed to load',
+            new TypeError('Failed to fetch dynamically imported module: /static/chunk.js'),
+            'https://us.posthog.com/project/1/dashboard?tab=a&stable_chunks=fallback#panel=x',
+        ],
+        [
+            'a chunk missing from the import map',
+            new TypeError('Failed to resolve module specifier "@c/Abc123". Relative references must start with "/".'),
+            'https://us.posthog.com/project/1/dashboard?tab=a&stable_chunks=fallback&stable_chunks_unmapped=%40c%2FAbc123#panel=x',
+        ],
+    ])('loads the page on the default build after %s, keeping the rest of the URL', (_name, error, expectedUrl) => {
         const importMap = document.createElement('script')
         importMap.type = 'importmap'
         document.head.appendChild(importMap)
 
-        reloadAfterChunkLoadError()
+        reloadAfterChunkLoadError(error)
 
         expect(reload).not.toHaveBeenCalled()
-        expect(replace).toHaveBeenCalledWith(
-            'https://us.posthog.com/project/1/dashboard?tab=a&stable_chunks=fallback#panel=x'
-        )
+        expect(replace).toHaveBeenCalledWith(expectedUrl)
     })
 })

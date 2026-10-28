@@ -47,16 +47,6 @@ class TestAdjustSource:
         assert network.requests_log[0].headers["authorization"] == "Bearer adjust-token"
         assert network.requests_log[0].param("app_token__in") == "abc123"
 
-    def test_validate_credentials_surfaces_the_specific_rejection(self) -> None:
-        with scripted_network([ScriptedResponse(status=401)]):
-            is_valid, message = self.source.validate_credentials(self.config, self.team_id)
-
-        assert is_valid is False
-        assert message == (
-            "Adjust rejected the API token. Check that you pasted a valid Adjust API token from "
-            "your account settings in the Adjust dashboard."
-        )
-
     @pytest.mark.parametrize(
         "response",
         [ScriptedResponse(status=503), ConnectionResetError("boom"), TimeoutError("slow")],

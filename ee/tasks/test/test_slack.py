@@ -7,7 +7,6 @@ from posthog.models.integration import Integration
 from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.contracts import SharedInsightImage
 
@@ -41,7 +40,6 @@ def create_mock_unfurl_event(team_id: str, links: list[str]):
 @patch("ee.tasks.slack.SlackIntegration")
 @time_machine.travel("2022-01-01T12:00:00.000Z", tick=False)
 class TestSlackSubscriptionsTasks(APIBaseTest):
-    subscription: Subscription
     dashboard: Dashboard
     insight: Insight
     integration: Integration

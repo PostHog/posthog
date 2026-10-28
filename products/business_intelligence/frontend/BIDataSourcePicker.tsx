@@ -58,6 +58,14 @@ export function BIDataSourcePicker(): JSX.Element {
                                 virtualizationScrollContainerRef={scrollRef}
                                 expandedItemIds={visibleExpandedIds}
                                 onSetExpandedItemIds={setExpandedIds}
+                                onFolderClick={(item, expanded) =>
+                                    item &&
+                                    setExpandedIds(
+                                        expanded
+                                            ? visibleExpandedIds.filter((id) => id !== item.id)
+                                            : [...visibleExpandedIds, item.id]
+                                    )
+                                }
                                 onItemClick={(item) => item && selectSource(item.id)}
                                 isItemActive={(item) =>
                                     !!config.source && item.id === getBIDataSourceKey(config.source)

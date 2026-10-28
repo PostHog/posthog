@@ -49,6 +49,7 @@ ACTIVITY_LOG_WRITE_FAILURES = Counter(
 ActivityScope = Literal[
     "Cohort",
     "CrossProjectDashboard",
+    "DevGatewayToken",
     "FeatureFlag",
     "Person",
     "Group",
@@ -74,6 +75,7 @@ ActivityScope = Literal[
     "EarlyAccessFeature",
     "SessionRecordingPlaylist",
     "ReplayScanner",
+    "ReplayObservation",
     "VisionAlertConfiguration",
     "Comment",
     "Team",
@@ -111,12 +113,14 @@ ActivityScope = Literal[
     "EvaluationDirectory",
     "LLMPrompt",
     "LLMPromptLabel",
+    "LLMSkill",
     "LLMTrace",
     "AIGatewayCredit",
     "WebAnalyticsFilterPreset",
     "CustomerProfileConfig",
     "Log",
     "LogsAlertConfiguration",
+    "PlatformAlertConfiguration",
     "LogsExclusionRule",
     "LogsRetentionRule",
     "TracesRetentionRule",
@@ -135,6 +139,9 @@ ActivityScope = Literal[
     "DataQualityCheck",
     "DataQualityCheckSchedule",
     "WarehouseSuggestion",
+    "AccessControl",
+    "DataWarehouseTable",
+    "DataWarehouseJoin",
     "Billing",
     "Loop",
     "StamphogRepoConfig",
@@ -255,6 +262,12 @@ class ActivityLog(UUIDTModel):
                 fields=["team_id", "-created_at"],
                 name="idx_alog_team_created_at",
             ),
+            # One user's rows in a time window, for the activity summary. Not partial, because the
+            # query keeps rows where `is_system` and `was_impersonated` are NULL.
+            models.Index(
+                fields=["team_id", "user", "-created_at"],
+                name="idx_alog_team_user_created_at",
+            ),
         ]
 
     team_id = models.PositiveIntegerField(null=True)
@@ -367,6 +380,16 @@ common_field_exclusions = [
 
 
 field_with_masked_contents: dict[AuditableScope, list[str]] = {
+    # Any activity-log reader sees these rows, including readers denied the tables they name.
+    "DataWarehouseJoin": [
+        "source_table_name",
+        "source_table_key",
+        "joining_table_name",
+        "joining_table_key",
+        "field_name",
+        "configuration",
+    ],
+    "SignalTeamConfig": ["onboarding"],
     "AccountView": ["name", "content", "text_content"],
     "WarehouseSuggestion": ["dismissal_note"],
     "HogFunction": [
@@ -436,6 +459,8 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     # directly, keyed by the comment's own scope.
     "Ticket": ["content"],
     cast(AuditableScope, "conversations_ticket"): ["content"],
+    # Observation notes are gated on observation access, which activity_log:read does not imply.
+    "ReplayObservation": ["content"],
     # The rubric API is limited to staff, so saved criteria and generated suggestions must not be
     # readable through activity_log:read. Record that the rubrics changed, never their contents.
     "SignalScoutConfig": ["rubrics"],
@@ -561,6 +586,18 @@ vision_alert_machine_fields = [
     "updated_at",
 ]
 
+# Written by checks, ownership handovers and the logs route's snooze, never by a settings edit.
+platform_alert_runtime_fields = [
+    "next_check_at",
+    "snooze_until",
+    "consecutive_failures",
+    "check_status",
+    "owner",
+    "owner_changed_at",
+    "switched_off_at",
+    "updated_at",
+]
+
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
     "DataQualityCheckSchedule": ["next_run_at", "last_run_at", "last_suite_run", "updated_at"],
@@ -581,6 +618,7 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "consecutive_failures",
         "state",
     ],
+    "PlatformAlertConfiguration": platform_alert_runtime_fields,
     "PersonalAPIKey": [
         "last_used_at",
     ],
@@ -646,10 +684,11 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "allow_staff": True,
     },
     {
-        # Staff-only email sending suspension flips: the acting staff user must not leak into the
-        # org activity log. The customer is told via email and in-app notification instead.
+        # Staff-only email sending controls: the acting staff user must not leak into the org
+        # activity log. Suspensions and automatic tier moves reach the customer through email and
+        # in-app notification, and the Reputation tab shows the current tier.
         "scope": "Team",
-        "activities": ["email_sending_suspended", "email_sending_unsuspended"],
+        "activities": ["email_sending_suspended", "email_sending_unsuspended", "email_sending_tier_changed"],
         "exclude_when": {},
         "allow_staff": True,
     },
@@ -719,6 +758,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "alerts",
     ],
     "VisionAlertConfiguration": [*vision_alert_machine_fields, "events", "matches"],
+    # The reverse relations hold runtime state per group and per notification thread.
+    "PlatformAlertConfiguration": [*platform_alert_runtime_fields, "alerts", "threads", "delivery_paths"],
     "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
     # The pointer names the tagged object, which a row never changes, and content_type and team
     # are model objects the diff cannot serialize.
@@ -910,6 +951,10 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     ],
     "Project": ["id", "created_at"],
     "DataWarehouseExpression": ["deleted_at"],
+    "DataWarehouseJoin": ["deleted_at"],
+    # The subject is the identity of a rule and never changes. The receiver names it in the
+    # context, so the diff does not load the role and the membership for both sides.
+    "AccessControl": ["organization_member", "role"],
     "DataWarehouseSavedQuery": [
         "name",
         "columns",
@@ -1171,7 +1216,8 @@ def safely_get_field_value(instance: models.Model | None, field: str):
             if hasattr(field_id, "pk"):
                 field_id = field_id.pk
             # Only fetch the actual object if we have a valid ID
-            related_model = field_obj.related_model
+            # Widen the stub type to keep the guard against an unresolved lazy "app.Model" reference.
+            related_model: type[models.Model] | str = field_obj.related_model
             if isinstance(related_model, type) and issubclass(related_model, models.Model):
                 return related_model.objects.get(pk=field_id)  # type: ignore[attr-defined]
             else:
@@ -1545,6 +1591,7 @@ def log_activity_with_soft_delete(
     user: "User | None",
     was_impersonated: bool,
     name: str | None = None,
+    organization_id: UUID | None = None,
 ) -> None:
     instance = current or previous
     if instance is None:
@@ -1556,7 +1603,7 @@ def log_activity_with_soft_delete(
     if deleted_change:
         activity = "deleted" if deleted_change.after else "restored"
     log_activity(
-        organization_id=None,
+        organization_id=organization_id,
         team_id=instance.serializable_value("team"),
         user=user,
         was_impersonated=was_impersonated,
@@ -1688,6 +1735,7 @@ def load_activity(
     item_ids: Optional[list[str]] = None,
     limit: int = 10,
     page: int = 1,
+    user: Union["User", AnonymousUser, None] = None,
 ) -> ActivityPage:
     # TODO in follow-up to posthog #8931 selecting specific fields into a return type from this query
 
@@ -1697,6 +1745,9 @@ def load_activity(
 
     if item_ids is not None:
         activity_query = activity_query.filter(item_id__in=item_ids)
+
+    if user is not None:
+        activity_query = apply_activity_visibility_restrictions(activity_query, user)
 
     return get_activity_page(activity_query, limit, page)
 

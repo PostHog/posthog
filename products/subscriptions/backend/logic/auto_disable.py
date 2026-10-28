@@ -8,7 +8,6 @@ from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 
-from products.exports.backend.models.subscription import Subscription
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -18,6 +17,7 @@ from products.notifications.backend.facade.api import (
 )
 from products.notifications.backend.facade.enums import NotificationOnlyResourceType
 from products.subscriptions.backend.logic import SUPPORTED_TARGET_TYPES
+from products.subscriptions.backend.models.subscription import Subscription
 
 
 class DisableReason(NamedTuple):

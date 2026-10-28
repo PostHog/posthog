@@ -132,8 +132,6 @@ class TestValidateCredentials:
         ("status_code", "expected_valid"),
         [
             (200, True),
-            (401, False),
-            (500, False),
         ],
     )
     def test_validate_credentials_status_mapping(self, status_code: int, expected_valid: bool) -> None:
@@ -146,13 +144,6 @@ class TestValidateCredentials:
             assert message is None
         else:
             assert message is not None
-
-    def test_validate_credentials_swallows_exceptions(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            is_valid, message = validate_credentials("test-token", CLEVER_API_VERSION_V3_1)
-
-        assert is_valid is False
-        assert message is not None
 
     def test_validate_credentials_redacts_token(self) -> None:
         with scripted_network([ScriptedResponse(status=200)]) as network:

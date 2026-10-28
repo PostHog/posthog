@@ -1,0 +1,24 @@
+diff --git a/visuallyHidden.js b/visuallyHidden.js
+index e7deeaeafbaefba1d838badcea9fafe9afe113e1..78d0b3594568267cc55f152239037ebbef4dc8a9 100644
+--- a/visuallyHidden.js
++++ b/visuallyHidden.js
+@@ -17,7 +17,6 @@ const visuallyHiddenBase = {
+ const visuallyHidden = exports.visuallyHidden = {
+   ...visuallyHiddenBase,
+   position: 'fixed',
+-  margin: 0,
+   top: 0,
+   left: 0
+ };
+diff --git a/visuallyHidden.mjs b/visuallyHidden.mjs
+index 6cf2e86d079219c1794ef701546bd6c710782a42..e4abb6ad8dfb9fb8967b2e2d640194412206e148 100644
+--- a/visuallyHidden.mjs
++++ b/visuallyHidden.mjs
+@@ -11,7 +11,6 @@ const visuallyHiddenBase = {
+ export const visuallyHidden = {
+   ...visuallyHiddenBase,
+   position: 'fixed',
+-  margin: 0,
+   top: 0,
+   left: 0
+ };

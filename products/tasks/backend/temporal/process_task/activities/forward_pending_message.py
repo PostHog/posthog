@@ -272,6 +272,7 @@ def _enqueue_pending_reply_relay(task_run: Any, user_message_ts: str | None, com
             user_message_ts=user_message_ts,
             trace_id=_extract_trace_id_from_command_result(command_result_data),
             offer_reply_suggestions=is_agent_answer,
+            offer_feature_tip=is_agent_answer,
         )
     except Exception:
         logger.exception("forward_pending_message_relay_enqueue_failed", run_id=str(task_run.id))

@@ -24,7 +24,10 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.activ
     _merge_fingerprint_into_closest_issue,
 )
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.judge import (
+    JEEVES_MODEL,
+    JEVK5_MODEL,
     AutoMergeConfig,
+    JudgeModel,
     JudgeUnavailableError,
     JudgeVerdict,
     ask_judge,
@@ -61,15 +64,29 @@ class TestAutoMergeConfig:
     def test_no_payload_keeps_todays_rule(self) -> None:
         assert parse_auto_merge_config(None) == AutoMergeConfig(auto_merge_threshold=0.019, judge_enabled=False)
 
-    def test_full_payload(self) -> None:
+    @parameterized.expand(
+        [
+            ("no_model", {}, JEEVES_MODEL),
+            ("selected_model", {"model": JEVK5_MODEL}, JEVK5_MODEL),
+        ]
+    )
+    def test_full_payload(self, _name: str, model_payload: dict[str, str], expected_model: JudgeModel) -> None:
         payload = {
             "auto_merge_threshold": 0.005,
-            "judge": {"enabled": True, "max_distance": 0.3, "cutoff": 0.8, "shadow": False, "timeout_seconds": 5},
+            "judge": {
+                "enabled": True,
+                **model_payload,
+                "max_distance": 0.3,
+                "cutoff": 0.8,
+                "shadow": False,
+                "timeout_seconds": 5,
+            },
         }
 
         assert parse_auto_merge_config(payload) == AutoMergeConfig(
             auto_merge_threshold=0.005,
             judge_enabled=True,
+            judge_model=expected_model,
             judge_max_distance=0.3,
             judge_cutoff=0.8,
             judge_shadow=False,
@@ -82,6 +99,14 @@ class TestAutoMergeConfig:
             ("not_a_number", {"judge": {"cutoff": "0.8"}}, "judge_cutoff", 0.9),
             ("enabled_must_be_true", {"judge": {"enabled": "yes"}}, "judge_enabled", False),
             ("shadow_unless_false", {"judge": {"shadow": 0}}, "judge_shadow", True),
+            ("unknown_model", {"judge": {"enabled": True, "model": "other", "cutoff": 0.8}}, "judge_enabled", False),
+            ("model_without_cutoff", {"judge": {"enabled": True, "model": JEVK5_MODEL}}, "judge_enabled", False),
+            (
+                "model_with_invalid_cutoff",
+                {"judge": {"enabled": True, "model": JEVK5_MODEL, "cutoff": "0.8"}},
+                "judge_enabled",
+                False,
+            ),
         ]
     )
     def test_invalid_field_keeps_its_default(self, _name: str, payload: dict, field: str, expected: object) -> None:
@@ -100,24 +125,40 @@ class TestAutoMergeConfig:
 
 
 class TestAskJudge:
-    def _ask(self, result: SystemOneResult | Exception) -> tuple[JudgeVerdict, MagicMock, MagicMock]:
+    def _ask(
+        self, result: SystemOneResult | Exception | list, model: JudgeModel | None = None
+    ) -> tuple[JudgeVerdict, MagicMock, MagicMock]:
         client = MagicMock()
-        if isinstance(result, Exception):
+        if isinstance(result, Exception | list):
             client.decide.side_effect = result
         else:
             client.decide.return_value = result
-        with patch(f"{JUDGE}.build_system_one_client", return_value=client) as build:
-            verdict = ask_judge(7, "Error: a", "Error: b", timeout_seconds=3)
+        with (
+            patch(f"{JUDGE}.build_system_one_client", return_value=client) as build,
+            patch(f"{JUDGE}.time.sleep"),
+            patch(f"{JUDGE}.random.uniform", return_value=1),
+        ):
+            if model is None:
+                verdict = ask_judge(7, "Error: a", "Error: b", timeout_seconds=3)
+            else:
+                verdict = ask_judge(7, "Error: a", "Error: b", timeout_seconds=3, model=model)
         return verdict, build, client
 
-    def test_returns_the_noul_probability(self) -> None:
+    @parameterized.expand(
+        [
+            ("default", None, JEEVES_MODEL),
+            ("selected", JEVK5_MODEL, JEVK5_MODEL),
+        ]
+    )
+    def test_returns_the_noul_probability(self, _name: str, model: JudgeModel | None, expected: JudgeModel) -> None:
         verdict, build, client = self._ask(
-            SystemOneResult(model="jeeves-0.1", answers={"same_issue": NoulAnswer(probability=0.87)}, input_tokens=10)
+            SystemOneResult(model=expected, answers={"same_issue": NoulAnswer(probability=0.87)}, input_tokens=10),
+            model=model,
         )
 
         assert verdict.score == pytest.approx(0.87)
         assert build.call_args.kwargs == {
-            "model": "posthog/hogference/jeeves-0.1",
+            "model": expected,
             "ai_product": "error_tracking",
             "team_id": 7,
             "timeout": 3,
@@ -126,7 +167,10 @@ class TestAskJudge:
 
     @parameterized.expand(
         [
-            ("refusal", SystemOneResult(model="jeeves-0.1", answers={"same_issue": RefusalAnswer()}, input_tokens=1)),
+            (
+                "refusal",
+                SystemOneResult(model="jevk5-fp8-0.2", answers={"same_issue": RefusalAnswer()}, input_tokens=1),
+            ),
             ("not_configured", SystemOneNotConfigured("no gateway")),
             ("request_failed", SystemOneRequestFailed("rate limited", status_code=429)),
         ]
@@ -134,6 +178,47 @@ class TestAskJudge:
     def test_no_answer_is_unavailable(self, _name: str, result: SystemOneResult | Exception) -> None:
         with pytest.raises(JudgeUnavailableError):
             self._ask(result)
+
+    @parameterized.expand([("rate_limited", 429), ("overloaded", 529)])
+    def test_throttled_request_is_retried(self, _name: str, status_code: int) -> None:
+        answer = SystemOneResult(model=JEVK5_MODEL, answers={"same_issue": NoulAnswer(probability=0.7)}, input_tokens=1)
+
+        verdict, build, client = self._ask([SystemOneRequestFailed("throttled", status_code=status_code), answer])
+
+        assert verdict.score == pytest.approx(0.7)
+        assert client.decide.call_count == 2
+        assert build.call_args_list[1].kwargs["timeout"] < 3
+
+    @parameterized.expand([("bad_request", 400), ("transport_error", None)])
+    def test_other_failures_are_not_retried(self, _name: str, status_code: int | None) -> None:
+        client = MagicMock()
+        client.decide.side_effect = SystemOneRequestFailed("failed", status_code=status_code)
+        with (
+            patch(f"{JUDGE}.build_system_one_client", return_value=client),
+            patch(f"{JUDGE}.time.sleep") as sleep,
+            pytest.raises(JudgeUnavailableError),
+        ):
+            ask_judge(7, "Error: a", "Error: b", timeout_seconds=3)
+        assert client.decide.call_count == 1
+        sleep.assert_not_called()
+
+    def test_retries_stop_within_the_timeout(self) -> None:
+        client = MagicMock()
+        client.decide.side_effect = SystemOneRequestFailed("rate limited", status_code=429)
+        clock = [100.0]
+
+        def sleep(seconds: float) -> None:
+            clock[0] += seconds
+
+        with (
+            patch(f"{JUDGE}.build_system_one_client", return_value=client),
+            patch(f"{JUDGE}.time.monotonic", side_effect=lambda: clock[0]),
+            patch(f"{JUDGE}.time.sleep", side_effect=sleep),
+            patch(f"{JUDGE}.random.uniform", return_value=1),
+            pytest.raises(JudgeUnavailableError),
+        ):
+            ask_judge(7, "Error: a", "Error: b", timeout_seconds=2)
+        assert client.decide.call_count == 3
 
     def test_long_documents_keep_the_message_and_the_throw_site(self) -> None:
         document = "TypeError: boom\n" + "outer frame\n" * 1000 + "throwSite in app.js line 1"
@@ -214,6 +299,13 @@ class TestMergeWithJudge:
         merged = run.events["error_tracking_issue_merged"]
         assert (merged["merge_decision"], merged["judge_score"]) == ("judge", 0.8)
 
+    def test_selected_model_is_used_and_reported(self) -> None:
+        run = self._merge(0.05, config=dataclasses.replace(JUDGE_ON, judge_model=JEVK5_MODEL))
+
+        assert run.judge.call_args.kwargs["model"] == JEVK5_MODEL
+        assert run.events["error_tracking_auto_merge_judged"]["judge_model"] == JEVK5_MODEL
+        assert run.events["error_tracking_issue_merged"]["judge_model"] == JEVK5_MODEL
+
     def test_judge_below_the_cutoff_does_not_merge(self) -> None:
         run = self._merge(0.05, score=0.79)
 
@@ -258,6 +350,7 @@ class TestMergeWithJudge:
 
         assert run.fetch.call_args.kwargs == {"timeout_seconds": 10.0}
         assert run.judge.call_args.args[3] == pytest.approx(6.0)
+        assert run.judge.call_args.kwargs["model"] == JUDGE_ON.judge_model
 
     def test_exhausted_budget_skips_the_inference(self) -> None:
         with patch(f"{ACTIVITIES}.time.monotonic", side_effect=[100.0, 111.0]):

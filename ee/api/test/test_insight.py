@@ -3,7 +3,6 @@ from datetime import timedelta
 from typing import Optional, cast
 
 import time_machine
-from posthog.test.base import FuzzyInt, snapshot_postgres_queries
 
 from django.test import override_settings
 
@@ -12,7 +11,6 @@ from rest_framework import status
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
-from posthog.test.db_context_capturing import capture_db_queries
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -20,7 +18,6 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.api.test.base import APILicensedTest
-from ee.models import DashboardPrivilege
 
 
 class TestInsightEnterpriseAPI(APILicensedTest):
@@ -148,14 +145,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             self.assertEqual(response_data["name"], "insight new name")
             self.assertEqual(sorted(response_data["tags"]), sorted(["add", "these", "tags"]))
             self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
-            self.assertEqual(
-                response_data["effective_restriction_level"],
-                Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-            )
-            self.assertEqual(
-                response_data["effective_privilege_level"],
-                Dashboard.PrivilegeLevel.CAN_EDIT,
-            )
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}")
 
@@ -210,96 +199,33 @@ class TestInsightEnterpriseAPI(APILicensedTest):
                 ],
             )
 
-    def test_non_admin_user_with_privilege_can_add_an_insight_to_a_restricted_dashboard(
-        self,
-    ) -> None:
-        self._require_access_control()
-        # create insight and dashboard separately with default user
-        dashboard_restricted: Dashboard = Dashboard.objects.create(
-            team=self.team,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-
-        insight_id, response_data = self.dashboard_api.create_insight(data={"name": "starts un-restricted dashboard"})
-
-        user_with_permissions = User.objects.create_and_join(
-            organization=self.organization,
-            email="with_access_user@posthog.com",
-            password=None,
-        )
-
-        DashboardPrivilege.objects.create(
-            dashboard=dashboard_restricted,
-            user=user_with_permissions,
-            level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-
-        self.client.force_login(user_with_permissions)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
-            {"dashboards": [dashboard_restricted.id]},
-        )
-        assert response.status_code == status.HTTP_200_OK
-
-    def test_an_insight_on_both_restricted_dashboard_does_not_restrict_with_explicit_privilege(
-        self,
-    ) -> None:
-        self._require_access_control()
-        dashboard_restricted: Dashboard = Dashboard.objects.create(
-            team=self.team,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-
-        DashboardPrivilege.objects.create(
-            dashboard=dashboard_restricted,
-            user=self.user,
-            level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-
-        _, response_data = self.dashboard_api.create_insight(
-            data={
-                "name": "on a restricted and unrestricted dashboard",
-                "dashboards": [dashboard_restricted.pk],
-            }
-        )
-        self.assertEqual(
-            response_data["effective_restriction_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_EDIT,
-        )
-
-    def test_cannot_update_restricted_insight_as_other_user_who_is_project_member(self):
+    def test_cannot_update_an_insight_the_caller_can_only_view(self):
         self._require_access_control()
         self._set_project_default_member_access()
-        creator = User.objects.create_and_join(self.organization, "y@x.com", None)
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        original_name = "Edit-restricted dashboard"
-        dashboard: Dashboard = Dashboard.objects.create(
+
+        # The caller is not the creator, so the creator bypass does not grant edit access.
+        insight: Insight = Insight.objects.create(team=self.team, name="XYZ", created_by=None)
+        AccessControl.objects.create(
             team=self.team,
-            name=original_name,
-            created_by=creator,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
+            resource="insight",
+            resource_id=str(insight.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+            role=None,
         )
-        insight: Insight = Insight.objects.create(team=self.team, name="XYZ", created_by=self.user)
-        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
         response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight.id}", {"name": "ABC"})
         response_data = response.json()
-        dashboard.refresh_from_db()
+        insight.refresh_from_db()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
             response_data,
-            self.permission_denied_response(
-                "This insight is on a dashboard that can only be edited by its owner, team members invited to editing the dashboard, and project admins."
-            ),
+            self.permission_denied_response("You do not have editor access to this resource."),
         )
-        self.assertEqual(dashboard.name, original_name)
+        self.assertEqual(insight.name, "XYZ")
 
     def test_event_definition_no_duplicate_tags(self):
         from ee.models.license import License, LicenseManager
@@ -348,47 +274,28 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             insight_four_id,
         ]
 
-    def test_cannot_update_an_insight_if_on_restricted_dashboard(self) -> None:
-        self._require_access_control()
-        self._set_project_default_member_access()
-        dashboard_restricted: Dashboard = Dashboard.objects.create(
-            team=self.team,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-
-        # Attach via ORM: the create API now blocks attaching to a dashboard the user can't edit,
-        # and this test is about the resulting edit restriction, not the attach permission.
-        insight: Insight = Insight.objects.create(
-            team=self.team, name="on a restricted and unrestricted dashboard", created_by=self.user
-        )
-        DashboardTile.objects.create(dashboard=dashboard_restricted, insight=insight)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight.id}",
-            {"name": "changing when restricted"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
     def test_non_admin_user_cannot_add_an_insight_to_a_restricted_dashboard(
         self,
     ) -> None:
         self._require_access_control()
         self._set_project_default_member_access()
-        # create insight and dashboard separately with default user
-        dashboard_restricted = Dashboard.objects.create(
-            team=self.team,
-            created_by=self.user,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
+        dashboard_restricted = Dashboard.objects.create(team=self.team, created_by=self.user)
         dashboard_restricted_id = dashboard_restricted.id
 
         insight_id, response_data = self.dashboard_api.create_insight(data={"name": "starts un-restricted dashboard"})
 
-        # user with no permissions on the dashboard cannot add insight to it
+        # a member explicitly denied dashboard access cannot add an insight to it
         user_without_permissions = User.objects.create_and_join(
             organization=self.organization,
             email="no_access_user@posthog.com",
             password=None,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(dashboard_restricted_id),
+            access_level="none",
+            organization_member=user_without_permissions.organization_memberships.first(),
         )
         self.client.force_login(user_without_permissions)
 
@@ -411,17 +318,20 @@ class TestInsightEnterpriseAPI(APILicensedTest):
     ) -> None:
         self._require_access_control()
         self._set_project_default_member_access()
-        dashboard_restricted = Dashboard.objects.create(
-            team=self.team,
-            created_by=self.user,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
+        dashboard_restricted = Dashboard.objects.create(team=self.team, created_by=self.user)
         dashboard_restricted_id = dashboard_restricted.id
 
         user_without_permissions = User.objects.create_and_join(
             organization=self.organization,
             email="no_access_user@posthog.com",
             password=None,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(dashboard_restricted_id),
+            access_level="none",
+            organization_member=user_without_permissions.organization_memberships.first(),
         )
         self.client.force_login(user_without_permissions)
 
@@ -433,208 +343,13 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         # the rejected request must not leave an orphaned insight behind
         assert not Insight.objects.filter(created_by=user_without_permissions).exists()
 
-    def test_admin_user_can_create_an_insight_on_a_restricted_dashboard(self) -> None:
-        self._require_access_control()
-        self._set_project_default_member_access()
-        dashboard_restricted = Dashboard.objects.create(
-            team=self.team,
-            created_by=self.user,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        dashboard_restricted_id = dashboard_restricted.id
-
-        self.client.force_login(self.user)
-        self.dashboard_api.create_insight(
-            data={"name": "allowed on create", "dashboards": [dashboard_restricted_id]},
-        )
-        assert DashboardTile.objects.filter(dashboard_id=dashboard_restricted_id).exists()
-
-    def test_admin_user_can_add_an_insight_to_a_restricted_dashboard(self) -> None:
-        self._require_access_control()
-        # create insight and dashboard separately with default user
-        dashboard_restricted: Dashboard = Dashboard.objects.create(
-            team=self.team,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-
-        insight_id, response_data = self.dashboard_api.create_insight(data={"name": "starts un-restricted dashboard"})
-
-        # an admin user has implicit permissions on the dashboard and can add the insight to it
-        admin = User.objects.create_and_join(
-            organization=self.organization,
-            email="team2@posthog.com",
-            password=None,
-            level=OrganizationMembership.Level.ADMIN,
-        )
-        self.client.force_login(admin)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
-            {"dashboards": [dashboard_restricted.id]},
-        )
-        assert response.status_code == status.HTTP_200_OK
-
-    def test_an_insight_on_no_dashboard_has_no_restrictions(self) -> None:
-        _, response_data = self.dashboard_api.create_insight(data={"name": "not on a dashboard"})
-        self.assertEqual(
-            response_data["effective_restriction_level"],
-            Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_EDIT,
-        )
-
-    def test_an_insight_on_unrestricted_dashboard_has_no_restrictions(self) -> None:
-        dashboard: Dashboard = Dashboard.objects.create(team=self.team)
-        _, response_data = self.dashboard_api.create_insight(
-            data={"name": "on an unrestricted dashboard", "dashboards": [dashboard.pk]}
-        )
-        self.assertEqual(
-            response_data["effective_restriction_level"],
-            Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_EDIT,
-        )
-
-    def test_an_insight_on_restricted_dashboard_has_restrictions_cannot_edit_without_explicit_privilege(
-        self,
-    ) -> None:
-        self._require_access_control()
-        self._set_project_default_member_access()
-        dashboard: Dashboard = Dashboard.objects.create(
-            team=self.team,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        # Attach via ORM: the create API now blocks attaching to a dashboard the user can't edit,
-        # and this test is about the inherited restriction, not the attach permission.
-        insight: Insight = Insight.objects.create(
-            team=self.team, name="on a restricted dashboard", created_by=self.user
-        )
-        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
-
-        response_data = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}").json()
-        self.assertEqual(
-            response_data["effective_restriction_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_VIEW,
-        )
-
-    def test_an_insight_on_both_restricted_and_unrestricted_dashboard_has_no_restrictions(
-        self,
-    ) -> None:
-        self._require_access_control()
-        dashboard_restricted: Dashboard = Dashboard.objects.create(
-            team=self.team,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        dashboard_unrestricted: Dashboard = Dashboard.objects.create(
-            team=self.team,
-            restriction_level=Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        )
-        _, response_data = self.dashboard_api.create_insight(
-            data={
-                "name": "on a restricted and unrestricted dashboard",
-                "dashboards": [dashboard_restricted.pk, dashboard_unrestricted.pk],
-            }
-        )
-        self.assertEqual(
-            response_data["effective_restriction_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_EDIT,
-        )
-
-    def test_an_insight_on_restricted_dashboard_does_not_restrict_admin(self) -> None:
-        self._require_access_control()
-        dashboard_restricted: Dashboard = Dashboard.objects.create(
-            team=self.team,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-
-        admin = User.objects.create_and_join(
-            organization=self.organization,
-            email="y@x.com",
-            password=None,
-            level=OrganizationMembership.Level.ADMIN,
-        )
-        self.client.force_login(admin)
-        _, response_data = self.dashboard_api.create_insight(
-            data={
-                "name": "on a restricted and unrestricted dashboard",
-                "dashboards": [dashboard_restricted.pk],
-            }
-        )
-        self.assertEqual(
-            response_data["effective_restriction_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.PrivilegeLevel.CAN_EDIT,
-        )
-
-        # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
-        @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
-        @snapshot_postgres_queries
-        def test_listing_insights_does_not_nplus1(self) -> None:
-            query_counts: list[int] = []
-            queries = []
-
-            for i in range(5):
-                user = User.objects.create(email=f"testuser{i}@posthog.com")
-                OrganizationMembership.objects.create(user=user, organization=self.organization)
-                dashboard = Dashboard.objects.create(name=f"Dashboard {i}", team=self.team)
-
-                self.dashboard_api.create_insight(
-                    data={
-                        "short_id": f"insight{i}",
-                        "dashboards": [dashboard.pk],
-                    }
-                )
-
-                self.assertEqual(Insight.objects.count(), i + 1)
-
-                with capture_db_queries() as capture_query_context:
-                    response = self.client.get(f"/api/projects/{self.team.id}/insights?basic=true")
-                    self.assertEqual(response.status_code, status.HTTP_200_OK)
-                    self.assertEqual(len(response.json()["results"]), i + 1)
-
-                query_count_for_create_and_read = len(capture_query_context.captured_queries)
-                queries.append(capture_query_context.captured_queries)
-                query_counts.append(query_count_for_create_and_read)
-
-            # adding more insights doesn't change the query count
-            self.assertEqual(
-                [
-                    FuzzyInt(11, 12),
-                    FuzzyInt(11, 12),
-                    FuzzyInt(11, 12),
-                    FuzzyInt(11, 12),
-                    FuzzyInt(11, 12),
-                ],
-                query_counts,
-                f"received query counts\n\n{query_counts}",
-            )
-
     def test_non_admin_user_cannot_remove_an_insight_from_a_restricted_dashboard(
         self,
     ) -> None:
         self._require_access_control()
         self._set_project_default_member_access()
-        # create a restricted dashboard with the default user (who has edit permission)
-        dashboard_restricted = Dashboard.objects.create(
-            team=self.team,
-            created_by=self.user,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
+        # create a dashboard the default user can edit
+        dashboard_restricted = Dashboard.objects.create(team=self.team, created_by=self.user)
         dashboard_restricted_id = dashboard_restricted.id
 
         # create an insight on that dashboard
@@ -642,11 +357,18 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             data={"name": "on restricted dashboard", "dashboards": [dashboard_restricted_id]}
         )
 
-        # user with no edit permissions on the dashboard cannot remove insight from it
+        # a member explicitly denied dashboard access cannot remove the insight from it
         user_without_permissions = User.objects.create_and_join(
             organization=self.organization,
             email="no_remove_access_user@posthog.com",
             password=None,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(dashboard_restricted_id),
+            access_level="none",
+            organization_member=user_without_permissions.organization_memberships.first(),
         )
         self.client.force_login(user_without_permissions)
 

@@ -55,7 +55,7 @@ class OctolensSource(ResumableSource[OctolensSourceConfig, OctolensResumeConfig]
             name=ExternalDataSourceType.OCTOLENS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Octolens",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Octolens API key to pull your brand and keyword mentions into the PostHog Data warehouse.
 
 Create a key under **Settings → API** in Octolens. A key with the `read` scope is enough for every table this source syncs.""",

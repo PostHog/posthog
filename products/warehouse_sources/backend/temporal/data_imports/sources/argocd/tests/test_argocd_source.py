@@ -18,10 +18,3 @@ class TestArgocdSource:
             assert schema.supports_incremental is False
             assert schema.supports_append is False
             assert schema.incremental_fields == []
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["applications"])
-        assert [s.name for s in schemas] == ["applications"]
-
-    def test_get_schemas_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []

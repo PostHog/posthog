@@ -5,11 +5,14 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
 )
 from products.experiments.backend.health.context import HealthContext
+from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckOutcome, not_applicable
 
 
-def no_metric(ctx: HealthContext) -> ExperimentHealthFinding | None:
+def no_metric(ctx: HealthContext) -> CheckOutcome:
+    if not ctx.is_launched:
+        return not_applicable(RUNS_AFTER_LAUNCH)
     # The deprecated `filters` metric does not count, because no engine reads it.
-    if not ctx.is_launched or ctx.primary_metric_count + ctx.secondary_metric_count > 0:
+    if ctx.primary_metric_count + ctx.secondary_metric_count > 0:
         return None
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.NO_METRIC,

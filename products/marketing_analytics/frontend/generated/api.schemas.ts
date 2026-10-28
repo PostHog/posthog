@@ -149,6 +149,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -224,6 +225,10 @@ export interface SessionPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null
@@ -1318,6 +1323,101 @@ export interface ConversionGoalWriteApi {
     goal: ConversionGoalApi
 }
 
+/**
+ * * `pending` - Pending
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type ZendeskImportJobStatusEnumApi =
+    (typeof ZendeskImportJobStatusEnumApi)[keyof typeof ZendeskImportJobStatusEnumApi]
+
+export const ZendeskImportJobStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface ConversionRecommendationRunApi {
+    readonly id: string
+    readonly status: ZendeskImportJobStatusEnumApi
+    readonly lookback_days: number
+    readonly date_from: string
+    readonly date_to: string
+    readonly created_at: string
+    /** @nullable */
+    readonly completed_at: string | null
+    readonly error: string
+}
+
+export type IntentEnumApi = (typeof IntentEnumApi)[keyof typeof IntentEnumApi]
+
+export const IntentEnumApi = {
+    Conversion: 'conversion',
+    Customer: 'customer',
+    Revenue: 'revenue',
+} as const
+
+export type ConversionCandidateKindEnumApi =
+    (typeof ConversionCandidateKindEnumApi)[keyof typeof ConversionCandidateKindEnumApi]
+
+export const ConversionCandidateKindEnumApi = {
+    EventsNode: 'EventsNode',
+    ActionsNode: 'ActionsNode',
+} as const
+
+export interface ConversionCandidateApi {
+    source_ref: string
+    kind: ConversionCandidateKindEnumApi
+    event?: string | null
+    action_id?: number | null
+    name: string
+    description?: string
+    count?: number | null
+    distinct_users?: number | null
+    numeric_properties?: string[]
+    property_names?: string[]
+    already_configured?: boolean
+}
+
+export interface ConversionRecommendationApi {
+    source_ref: string
+    name: string
+    reason: string
+    intent: IntentEnumApi
+    questions: string[]
+    candidate: ConversionCandidateApi
+    /** Observed numeric property proposed for revenue. Confirm its units and currency. */
+    amount_property?: string | null
+}
+
+export interface ConversionRecommendationResultsApi {
+    recommendations?: ConversionRecommendationApi[]
+    limitations?: string[]
+}
+
+export interface ConversionRecommendationStateApi {
+    /**
+     * Why this user cannot start an analysis, or null when generation is available.
+     * @nullable
+     */
+    generation_disabled_reason: string | null
+    /** Latest analysis, including its actual state and observation period. */
+    latest_run: ConversionRecommendationRunApi | null
+    /** Completed analysis that supplied the visible recommendations. Previous results remain available during an update or failure. */
+    result_run: ConversionRecommendationRunApi | null
+    /** Suggested event or action goals with source evidence and business questions. Configure reviewed goals with the existing editor. */
+    results: ConversionRecommendationResultsApi
+    /** Whether this user can request or initialize project recommendations. */
+    can_generate: boolean
+}
+
+export interface ConversionRecommendationStartApi {
+    /** False starts the first 30-day analysis once. True requests a new 14-day analysis; use only after an explicit user request. */
+    refresh?: boolean
+}
+
 export interface CompareFilterApi {
     /** Whether to compare the current date range to a previous date range. */
     compare?: boolean | null
@@ -1619,6 +1719,8 @@ export interface HogQLQueryModifiersApi {
     inCohortVia?: InCohortViaApi | null
     inlineCohortCalculation?: InlineCohortCalculationApi | null
     materializationMode?: MaterializationModeApi | null
+    /** Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag. */
+    materializeRepeatedCTEs?: boolean | null
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
     mergeFederatedAggregateJoins?: boolean | null
@@ -1648,9 +1750,7 @@ export interface HogQLQueryModifiersApi {
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
     typeAwareCastSimplification?: boolean | null
     useMaterializedViews?: boolean | null
-    /** Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported. */
-    useNewEventsCluster?: boolean | null
-    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
     useNewEventsSchema?: boolean | null
     usePreaggregatedIntermediateResults?: boolean | null
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
@@ -1748,7 +1848,7 @@ export interface QueryStatusApi {
     end_time?: string | null
     /** If the query failed, this will be set to true. More information can be found in the error_message field. */
     error?: boolean | null
-    /** Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name. */
+    /** Stable machine-readable code for the error, when known: the DRF exception code, the ClickHouse error name, the HogQL error code, or `unhandled_<exception class>` for a failure that no handler classified. */
     error_code?: string | null
     error_message?: string | null
     expiration_time?: string | null
@@ -1811,6 +1911,8 @@ export interface DataWarehouseSourceUsageApi {
     source_type?: string | null
     /** Warehouse table name that was referenced */
     table_name: string
+    /** Whether the query read a history table of this source */
+    uses_history_table?: boolean | null
 }
 
 export interface DataWarehouseSyncWarningApi {

@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.monday.mon
     ACTIVITY_LOGS_PAGE_SIZE,
     ITEMS_PAGE_SIZE,
     MONDAY_VERSION_2026_07,
+    MONDAY_VERSION_2026_10,
     MONDAY_VERSION_V2,
     PAGE_SIZE,
     MondayGraphQLError,
@@ -111,6 +112,7 @@ class TestGetRowsPaged:
         [
             (MONDAY_VERSION_V2, "2024-10"),
             (MONDAY_VERSION_2026_07, "2026-07"),
+            (MONDAY_VERSION_2026_10, "2026-10"),
         ],
     )
     def test_requests_carry_token_and_pinned_api_version(self, api_version: str, expected_header: str) -> None:
@@ -172,17 +174,22 @@ class TestGetRowsBoardChildren:
         ]
 
     @pytest.mark.parametrize(
-        "api_version, requested_field, absent_field",
+        "endpoint, api_version, requested_field, absent_field",
         [
-            (MONDAY_VERSION_V2, "settings_str", " settings "),
-            (MONDAY_VERSION_2026_07, " settings ", "settings_str"),
+            ("board_columns", MONDAY_VERSION_V2, "settings_str", " settings "),
+            ("board_columns", MONDAY_VERSION_2026_07, " settings ", "settings_str"),
+            ("board_columns", MONDAY_VERSION_2026_10, " settings ", "settings_str"),
+            ("users", MONDAY_VERSION_V2, "is_admin", "status"),
+            ("users", MONDAY_VERSION_2026_07, "is_admin", "status"),
+            ("users", MONDAY_VERSION_2026_10, "status", "is_admin"),
+            ("users", MONDAY_VERSION_2026_10, "kind", "enabled"),
         ],
     )
-    def test_columns_request_the_settings_field_the_pinned_version_serves(
-        self, api_version, requested_field, absent_field
+    def test_queries_request_the_fields_the_pinned_version_serves(
+        self, endpoint, api_version, requested_field, absent_field
     ):
-        with scripted_network([ScriptedResponse(json={"data": {"boards": []}})]) as network:
-            list(get_rows("token", "board_columns", mock.MagicMock(), api_version))
+        with scripted_network([ScriptedResponse(json={"data": {"boards": [], "users": []}})]) as network:
+            list(get_rows("token", endpoint, mock.MagicMock(), api_version))
 
         query = network.requests_log[0].json()["query"]
         assert requested_field in query

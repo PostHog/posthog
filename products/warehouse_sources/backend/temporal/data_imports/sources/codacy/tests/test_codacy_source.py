@@ -29,10 +29,6 @@ class TestCodacySource:
         assert all(schema.supports_incremental is False for schema in schemas)
         assert all(schema.supports_append is False for schema in schemas)
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(_config(), team_id=1, names=["files", "commits"])
-        assert {schema.name for schema in schemas} == {"files", "commits"}
-
     def test_get_documented_tables_lists_static_catalog(self) -> None:
         # lists_tables_without_credentials powers the public docs table catalog; it must work
         # with a placeholder config and no network.

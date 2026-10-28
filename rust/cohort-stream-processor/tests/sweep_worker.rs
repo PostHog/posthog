@@ -2264,11 +2264,17 @@ async fn dispatch_sweeper_routes_an_end_to_end_eviction() {
     let sweeper = DispatchSweeper::with_clock(dispatcher.clone(), margin_ms, Arc::new(move || now));
     sweeper.run_once().await;
 
-    // Drain the worker through a revoke so it processes the queued event then the routed sweep before
-    // we assert. The `Left` can only come from the sweep evicting the member (a revoke alone never
-    // emits one), so its presence proves the routed `Sweep` reached the worker and fired.
-    dispatcher.revoke_partition_sync(0);
-    dispatcher.revoke_partition_drain(0).await;
+    // The `Left` can only come from the sweep evicting the member, so its arrival proves the routed
+    // `Sweep` reached the worker and fired.
+    let start = std::time::Instant::now();
+    while sink.changes().len() < 2 {
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(10),
+            "the routed sweep never evicted the member: {:?}",
+            sink.changes(),
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
 
     let changes = sink.changes();
     assert_eq!(

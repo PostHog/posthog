@@ -220,6 +220,7 @@ describe("BaseAcpAgent", () => {
   it.each([
     "moonshotai/kimi-k3",
     "deepseek-ai/deepseek-v4-flash-0731",
+    "deepseek-ai/deepseek-v4.1-flash-1017-fast",
     "zai-org/glm-5.3",
     "zai-org/glm-5.3-flash",
   ])(
@@ -237,6 +238,7 @@ describe("BaseAcpAgent", () => {
       ]);
 
       const agent = new TestAcpAgent({} as AgentSideConnection);
+      const warn = vi.spyOn(agent.logger, "warn");
       const result = await agent.getModelConfigOptions(
         savedModel,
         "https://gateway.us.posthog.com/posthog_code",
@@ -246,6 +248,13 @@ describe("BaseAcpAgent", () => {
       expect(result.currentModelId).toBe("claude-opus-4-8");
       expect(result.options).not.toContainEqual(
         expect.objectContaining({ value: savedModel }),
+      );
+      expect(warn).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          requestedModel: savedModel,
+          fallbackModel: "claude-opus-4-8",
+        }),
       );
     },
   );

@@ -7,6 +7,7 @@ from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.enums import WizardRunStage
 from products.wizard.backend.logic.workers import service as cloud_worker
 from products.wizard.backend.logic.workers.service import WizardExecutionRequest
+from products.wizard.backend.observability.service import wizard_observability
 from products.wizard.backend.observability.tracing import annotate_run_span
 from products.wizard.backend.temporal.activities.errors import (
     WIZARD_WORKER_EXECUTION_ERROR_TYPE,
@@ -41,8 +42,11 @@ def execute_wizard(input: PreparedGitRepositoryWorkspace) -> None:
             non_retryable=True,
         ) from error
     except cloud_worker.WizardWorkerExecutionError as error:
+        # sanitize_activity_errors drops this error's message before Temporal records it, so this log
+        # line is the only place the wizard's own failure message survives.
+        wizard_observability.wizard_execution_failed(run, error.exit_code, error.wizard_error)
         raise ApplicationError(
             str(error),
-            type=error.wizard_error_code or WIZARD_WORKER_EXECUTION_ERROR_TYPE,
+            type=error.wizard_error.code if error.wizard_error is not None else WIZARD_WORKER_EXECUTION_ERROR_TYPE,
             non_retryable=True,
         ) from error

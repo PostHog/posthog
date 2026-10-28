@@ -547,13 +547,92 @@ class TestFramer:
         rows = self._run_endpoint("Deployments", {"listDeployments": list_deployments})
         assert rows == [{"id": "d1"}, {"id": "d2"}]
 
-    def test_locales_and_redirects_rows(self) -> None:
-        assert self._run_endpoint("Locales", {"getLocales": [{"id": "l1", "code": "en-US"}]}) == [
-            {"id": "l1", "code": "en-US"}
+    @parameterized.expand(
+        [
+            ("Locales", "getLocales", [{"id": "l1", "code": "en-US"}]),
+            ("Redirects", "getRedirects", [{"id": "r1", "from": "/a", "to": "/b"}]),
+            (
+                "UnpublishedPageChanges",
+                "getUnpublishedPageChanges",
+                [
+                    {"nodeId": "n1", "path": "/pricing", "status": "added"},
+                    {"nodeId": "n2", "path": "/about", "status": "removed"},
+                ],
+            ),
+            ("UnpublishedPageChanges", "getUnpublishedPageChanges", []),
         ]
-        assert self._run_endpoint("Redirects", {"getRedirects": [{"id": "r1", "from": "/a", "to": "/b"}]}) == [
-            {"id": "r1", "from": "/a", "to": "/b"}
+    )
+    def test_single_call_endpoint_rows(self, endpoint: str, method: str, rows: list[dict[str, Any]]) -> None:
+        assert self._run_endpoint(endpoint, {method: rows}) == rows
+
+    @parameterized.expand(
+        [
+            ("streamed", "5.1.0", [None, "cur-1", "cur-2"]),
+            ("bulk", "0.1.29", []),
         ]
+    )
+    def test_localization_groups_rows(
+        self, _name: str, protocol_version: str, expected_cursors: list[Optional[str]]
+    ) -> None:
+        groups = [
+            {
+                "id": "g1",
+                "name": "Home",
+                "type": "page",
+                "supportsExcludedStatus": False,
+                "sources": [
+                    {
+                        "id": "s1",
+                        "type": "string",
+                        "value": "Welcome",
+                        "valueByLocale": {"fr": {"status": "done", "value": "Bienvenue"}},
+                    }
+                ],
+                "statusByLocale": {"fr": "ready"},
+            },
+            {
+                "id": "g2",
+                "name": "Launch post",
+                "type": "collection-item",
+                "supportsExcludedStatus": True,
+                "sources": [],
+                "statusByLocale": {"fr": "excluded"},
+            },
+        ]
+        cursors: list[Optional[str]] = []
+
+        def list_next(request: dict[str, Any]) -> dict[str, Any]:
+            cursor = request.get("cursor")
+            cursors.append(cursor)
+            position = int(cursor.removeprefix("cur-")) if cursor else 0
+            if position >= len(groups):
+                return {"group": None}
+            return {"group": groups[position], "cursor": f"cur-{position + 1}"}
+
+        rows = self._run_endpoint(
+            "LocalizationGroups",
+            {"listLocalizationGroupsNext": list_next, "getLocalizationGroups": groups},
+            protocol_version,
+        )
+        assert rows == groups
+        assert cursors == expected_cursors
+
+    @parameterized.expand(
+        [
+            ("missing_cursor", {"group": {"id": "g1"}}),
+            ("missing_group", {}),
+            ("non_object_response", None),
+            ("invalid_group", {"group": "g1", "cursor": "cur-1"}),
+        ]
+    )
+    def test_streamed_localization_groups_fail_on_malformed_response(self, _name: str, response: Any) -> None:
+        with pytest.raises(FramerAPIError) as exc_info:
+            self._run_endpoint(
+                "LocalizationGroups",
+                {"listLocalizationGroupsNext": response},
+                "5.1.0",
+            )
+        assert exc_info.value.code == "INVALID_RESPONSE"
 
     def test_source_response_raises_for_invalid_project(self) -> None:
         response = framer_source("not a project", "key", "Project", protocol_version="0.1.29")
