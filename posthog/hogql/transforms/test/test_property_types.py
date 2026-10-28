@@ -177,6 +177,19 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
             "countIf(ifNull(equals(CAST(events.properties.value, 'Nullable(String)'), %(hogql_val_0)s), 0))" in native
         )
 
+    def test_boolean_text_comparison_keeps_user_written_cast(self) -> None:
+        context = self._context(use_new_events_schema=True, event_properties={"opted_in": {"type": "Boolean"}})
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(
+                parse_select("SELECT toBool(toString(properties.opted_in)) = 'pending' FROM events"),
+                context,
+                "clickhouse",
+            )
+        assert "CAST(events.properties.opted_in, 'Nullable(String)')" not in printed
+        assert (
+            "accurateCastOrNull(toString(accurateCastOrNull(transform(toString(events.properties.opted_in)" in printed
+        )
+
     @parameterized.expand([("$active_feature_flags",), ("$exception_types",)])
     def test_property_comparison_planner_does_not_depend_on_json_storage_type(self, property_name: str) -> None:
         plan = self._plan_where_comparison(f"select count() from events where properties.{property_name} = 'TypeError'")
@@ -594,18 +607,18 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
 
     @parameterized.expand(
         [
-            ("text_equals", "properties.status = 'SUCCESS'", [1, 0, 0, 0, 0, 0]),
-            ("text_not_equals", "properties.status != 'SUCCESS'", [0, 1, 1, 1, 1, 1]),
-            ("text_in", "properties.status IN ('SUCCESS', 'FAILURE')", [1, 1, 0, 0, None, 0]),
-            ("text_and_boolean_in", "properties.status IN ('SUCCESS', 'true')", [1, 0, 1, 1, None, 0]),
-            ("boolean_text_equals", "properties.status = 'true'", [0, 0, 1, 1, 0, 0]),
-            ("boolean_digit_equals", "properties.status = '1'", [0, 0, 1, 1, 0, 0]),
+            ("text_equals", "properties.opted_in = 'pending'", [1, 0, 0, 0, 0, 0]),
+            ("text_not_equals", "properties.opted_in != 'pending'", [0, 1, 1, 1, 1, 1]),
+            ("text_in", "properties.opted_in IN ('pending', 'declined')", [1, 1, 0, 0, None, 0]),
+            ("text_and_boolean_in", "properties.opted_in IN ('pending', 'true')", [1, 0, 1, 1, None, 0]),
+            ("boolean_text_equals", "properties.opted_in = 'true'", [0, 0, 1, 1, 0, 0]),
+            ("boolean_digit_equals", "properties.opted_in = '1'", [0, 0, 1, 1, 0, 0]),
         ]
     )
     def test_boolean_property_compared_to_text_matches_text(
         self, _name: str, predicate: str, expected: list[int | None]
     ) -> None:
-        context = self._context(event_properties={"status": {"type": "Boolean"}})
+        context = self._context(event_properties={"opted_in": {"type": "Boolean"}})
         with patch("posthog.hogql.printer.utils.build_property_swapper"):
             printed, _ = prepare_and_print_ast(parse_select(f"SELECT {predicate} FROM events"), context, "clickhouse")
         rows = sync_execute(
@@ -614,27 +627,16 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             {
                 **context.values,
                 "documents": [
-                    '{"status":"SUCCESS"}',
-                    '{"status":"FAILURE"}',
-                    '{"status":true}',
-                    '{"status":"true"}',
+                    '{"opted_in":"pending"}',
+                    '{"opted_in":"declined"}',
+                    '{"opted_in":true}',
+                    '{"opted_in":"true"}',
                     "{}",
-                    '{"status":false}',
+                    '{"opted_in":false}',
                 ],
             },
         )
         assert [row[0] for row in rows] == expected
-
-    def test_boolean_text_comparison_keeps_user_written_cast(self) -> None:
-        context = self._context(use_new_events_schema=True, event_properties={"status": {"type": "Boolean"}})
-        with patch("posthog.hogql.printer.utils.build_property_swapper"):
-            printed, _ = prepare_and_print_ast(
-                parse_select("SELECT toBool(toString(properties.status)) = 'SUCCESS' FROM events"),
-                context,
-                "clickhouse",
-            )
-        assert "CAST(events.properties.status, 'Nullable(String)')" not in printed
-        assert "accurateCastOrNull(toString(accurateCastOrNull(transform(toString(events.properties.status)" in printed
 
     @parameterized.expand(
         [
