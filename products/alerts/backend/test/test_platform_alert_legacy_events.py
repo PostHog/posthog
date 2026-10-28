@@ -105,7 +105,7 @@ class TestInsightLegacyEvents(APIBaseTest):
             trigger_alert_hog_functions(self.alert, {"breaches": "\n".join(breaches), **sent})
 
         with patch(f"{_EMITTER}.insight_chart_url", return_value=CHART_URL) as mint:
-            (event,) = self._emit(self._emission(detail={"breaches": breaches, **stored}))
+            (event,) = self._emit(self._emission(detail={"breaches": breaches, "is_anomaly": True, **stored}))
 
         assert event.event_name == produce.call_args.kwargs["event_name"]
         expected = produce.call_args.kwargs["properties"]

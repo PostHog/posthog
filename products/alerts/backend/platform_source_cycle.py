@@ -745,6 +745,8 @@ def _decide_grouped(
                 breaches[key] = found
                 details_by_key[key] = (series.result.triggered_metadata or {}).get("breach_details", [])
         wants_chart = _wants_chart(check, alert)
+        # One insight, so its tags are read once rather than once per firing breakdown value.
+        tags = _insight_tags(alert)
         decision = replace(
             decision,
             verdicts=tuple(
@@ -757,6 +759,7 @@ def _decide_grouped(
                             breaches.get(verdict.group.grouping_key, []),
                             wants_chart=wants_chart,
                             breach_details=details_by_key.get(verdict.group.grouping_key),
+                            tags=tags,
                         ),
                     ),
                 )
@@ -825,12 +828,22 @@ def _clipped(text: str, limit: int = MAX_BREACH_CHARS) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
+def _insight_tags(alert: AlertConfiguration) -> list[str]:
+    return [
+        _clipped(tag, MAX_TAG_CHARS)
+        for tag in alert.insight.tagged_items.filter(tag__team_id=alert.team_id)
+        .values_list("tag__name", flat=True)
+        .order_by("tag__name")[:MAX_TAGS]
+    ]
+
+
 def _detail(
     alert: AlertConfiguration,
     breaches: Sequence[str],
     *,
     wants_chart: bool,
     breach_details: list[dict[str, str]] | None = None,
+    tags: list[str] | None = None,
 ) -> dict[str, Any]:
     # Bounded, because the outcome crosses into Temporal and a breach names user-written labels.
     detail: dict[str, Any] = {
@@ -843,12 +856,7 @@ def _detail(
         "timezone": alert.team.timezone,
         "is_anomaly": bool(alert.detector_config),
         "insight_interval": (alert.insight.query or {}).get("source", alert.insight.query or {}).get("interval"),
-        "tags": [
-            _clipped(tag, MAX_TAG_CHARS)
-            for tag in alert.insight.tagged_items.filter(tag__team_id=alert.team_id)
-            .values_list("tag__name", flat=True)
-            .order_by("tag__name")[:MAX_TAGS]
-        ],
+        "tags": _insight_tags(alert) if tags is None else tags,
         "team_name": _clipped(alert.team.name, MAX_TAG_CHARS),
     }
     if breach_details:

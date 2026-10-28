@@ -215,6 +215,13 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "insight_name": alert.insight.name,
             "insight_short_id": alert.insight.short_id,
             "alert_id": str(alert.id),
+            # Recorded at trigger time so the card stays a function of the transition.
+            "metric_name": alert.insight.name,
+            "timezone": self.team.timezone,
+            "is_anomaly": False,
+            "insight_interval": (alert.insight.query or {}).get("source", alert.insight.query or {}).get("interval"),
+            "tags": [],
+            "team_name": self.team.name,
             **({CHART_PENDING_KEY: str(alert.id)} if wants_chart else {}),
         }
 

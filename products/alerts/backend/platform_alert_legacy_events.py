@@ -82,8 +82,11 @@ def insight_chart_image(*, team_id: int, transition: AnnouncedTransition) -> Mes
 def _firing_event(alert: AlertConfiguration, transition: AnnouncedTransition) -> AlertInternalEvent:
     detail = transition.source_detail
     properties: dict[str, Any] = {
-        **insight_transition_properties(alert, transition),
+        **alert.internal_event_properties(state=alert.state, last_checked_at=alert.last_checked_at),
+        # Joined with newlines so each breach renders on its own line, as the insight stack sends it.
+        "breaches": "\n".join(detail.get("breaches") or []),
         **detector_verdict_event_fields(detail.get("triggered_metadata")),
+        **insight_transition_properties(transition),
     }
     if chart_url := insight_chart_url_of(alert.team_id, detail):
         properties["insight_chart_url"] = chart_url
