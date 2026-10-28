@@ -1,3 +1,4 @@
+import urllib.parse
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -12,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hu
     HubspotResumeConfig,
     _backfill_associations_into_results,
     _batch_read_associations,
+    _get_properties_str,
     _iso_to_ms,
     _resolve_search_properties,
     get_rows_via_search,
@@ -151,6 +153,31 @@ class TestResolveSearchProperties:
         assert "not_real" not in props
         assert "amount" in props
         logger.warning.assert_called()
+
+
+class TestGetPropertiesStr:
+    def test_truncates_with_headroom_below_hubspots_url_ceiling(self) -> None:
+        # Regression: HubSpot's own paginated `next` link re-serializes `associations` as
+        # repeated query keys instead of the compact comma-joined form the initial request
+        # sends, adding bytes on a resumed page. A cap that only just fit the initial URL (the
+        # old 16_000) left no room for that and produced a production 431 (Request Header
+        # Fields Too Large). The properties value alone must leave real headroom, not just stay
+        # under HubSpot's ~16_300-char ceiling.
+        many_props = [f"custom_property_name_{i}" for i in range(2000)]
+        logger = MagicMock()
+
+        props_str = _get_properties_str(
+            props=many_props,
+            api_key="k",
+            refresh_token="r",
+            object_type="contact",
+            logger=logger,
+            include_custom_props=False,
+        )
+
+        assert len(urllib.parse.quote(props_str)) <= 12_000
+        assert len(props_str.split(",")) < len(many_props)
+        logger.warning.assert_called_once()
 
 
 class TestBatchReadAssociations:

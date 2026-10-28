@@ -58,7 +58,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.se
     apply_crm_api_version,
 )
 
-PROPERTY_LENGTH_LIMIT = 16_000  # Empirically determined rough limit for the HubSpot API
+# HubSpot's practical URL ceiling sits around 16_300 chars, and this bounds only the properties
+# value, not the rest of the URL (base, path, limit, associations) — nor the fact that HubSpot's
+# own paginated `next` link re-serializes `associations` as repeated query keys instead of the
+# compact comma-joined form the initial request sends, adding bytes on later pages. 16_000 left too
+# little margin and produced a production 431 (Request Header Fields Too Large) on a resumed page.
+PROPERTY_LENGTH_LIMIT = 10_000
 # Cap on the number of properties requested via the search path. The search API has no URL-length
 # concern (POST body), but each extra property multiplies backfill work and response payload size.
 SEARCH_PROPERTIES_LIMIT = 250
