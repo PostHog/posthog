@@ -70,7 +70,14 @@ export function SourceSetupPanel({
 }: SourceSetupPanelProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const sourceTypes = Array.from(new Set(connections.map((connection) => connection.sourceType)))
-    const groupsLogic = sourceConnectionGroupsLogic({ expansionKey, sourceTypes })
+    const sourceTypesNeedingAction = Array.from(
+        new Set(
+            connections
+                .filter((connection) => needsAction(connection.status))
+                .map((connection) => connection.sourceType)
+        )
+    )
+    const groupsLogic = sourceConnectionGroupsLogic({ expansionKey, sourceTypes, sourceTypesNeedingAction })
     const { expandedSourceTypes } = useValues(groupsLogic)
     const { setExpandedSourceTypes } = useActions(groupsLogic)
     const hasConnectionsToFix = connections.some((connection) => needsAction(connection.status))
