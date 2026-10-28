@@ -67,6 +67,39 @@ filters:
         - bin/temporal-django-worker
         - manage.py
         - Dockerfile
+    genericWorker:
+        - 'products/batch_exports/backend/**'
+        - posthog/settings/batch_exports.py
+        - 'posthog/hogql*/**'
+        - 'posthog/clickhouse/**'
+        - 'posthog/temporal/common/**'
+        - 'posthog/management/commands/start_temporal_worker.py'
+        - 'posthog/settings/temporal.py'
+        - posthog/schema.py
+        - 'posthog/models/**'
+        - 'posthog/migrations/**'
+        - 'products/*/backend/migrations/**'
+        - posthog/exceptions.py
+        - 'products/access_control/backend/**'
+        - posthog/user_permissions.py
+        - posthog/organization_caching.py
+        - 'products/notifications/backend/**'
+        - products/cdp/backend/internal_events.py
+        - ee/billing/quota_limiting.py
+        - posthog/tasks/email.py
+        - 'posthog/usage_ingestion/**'
+        - 'posthog/kafka_client/**'
+        - posthog/credentials.py
+        - 'posthog/credentials_service/**'
+        - 'posthog/security/**'
+        - posthog/psycopg_helpers.py
+        - posthog/helpers/encrypted_fields.py
+        - 'common/hogvm/**'
+        - pyproject.toml
+        - uv.lock
+        - bin/temporal-django-worker
+        - manage.py
+        - Dockerfile
 
 images:
     posthog-cloud:
@@ -79,3 +112,7 @@ images:
                 repository: posthog-temporal-workers/data-warehouse-metadata
                 filter: dataWarehouseMetadata
                 bootstrapPolicyDigest: 49975342dfa3dce5f0c4767e2bc90c295a7ce12cfb5daaa99075026f20dd3620
+            generic:
+                repository: posthog-temporal-workers/generic
+                filter: genericWorker
+                bootstrapPolicyDigest: 3555594bc141236febf69f9a03367200e19ad854f47a3601f476dbb979e2aeeb
