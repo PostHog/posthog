@@ -218,14 +218,15 @@ export function DashboardsTable({
         } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         createdByColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         createdAtColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
-        atColumn<DashboardType>('last_accessed_at', 'Last accessed at') as LemonTableColumn<
-            DashboardType,
-            keyof DashboardType | undefined
-        >,
-        atColumn<DashboardType>('last_viewed_at', 'You last viewed') as LemonTableColumn<
-            DashboardType,
-            keyof DashboardType | undefined
-        >,
+        {
+            ...atColumn<DashboardType>('last_accessed_at', 'Last accessed at'),
+            // Fixed-layout table: long right-aligned headers get clipped on the left without an explicit width.
+            width: 180,
+        } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
+        {
+            ...atColumn<DashboardType>('last_viewed_at', 'You last viewed'),
+            width: 180,
+        } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         hideActions
             ? {}
             : {
