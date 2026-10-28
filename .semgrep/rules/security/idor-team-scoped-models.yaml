@@ -336,6 +336,7 @@ rules:
                               |PluginConfig
                               |ProductBrief
                               |ProductTour
+                              |ProviderImportRun
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
                               |PullRequestAudience
@@ -822,6 +823,7 @@ rules:
                         |PluginConfig
                         |ProductBrief
                         |ProductTour
+                        |ProviderImportRun
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
                         |PullRequestAudience

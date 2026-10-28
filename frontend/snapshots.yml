@@ -8378,6 +8378,14 @@ snapshots:
         hash: v1.k794b7964.ea5155a38680b44a133382c65e04c769f83c65fc39b9e6755ffd32886c3050c1.kPCkKfbt0yvdjTV8VJn_CxXAYIoek_yy07zyItt9Itc
     products-workflows-customerioimportmodal--both-steps-not-completed--light:
         hash: v1.k794b7964.1df6ca04972f8b0d0b0c517ce16d6924fe27254f359cc0c8e16e816cea95d56c.GQootOFxJjyqS8jojYyVBjB5IY92XYB_MYa0bDIA9s8
+    products-workflows-customerioimportmodal--import-running--dark:
+        hash: v1.k794b7964.57dd6aca001fbf101255b448c27de4688d18c095cfca3c042ab44ccc6bcc3f9f.inc_-_1Gkkm4ByDHH97dG8v-iH2-AyTNW5T9ZqVFLuA
+    products-workflows-customerioimportmodal--import-running--light:
+        hash: v1.k794b7964.9213d0fd3adaa8e7da81fa39786fe293e535dc103850bd9f35d5c1ab5dd47e14.ymzYjelfakfjTVTYmn4ev6e0Ck8ur-Ha4SjiPNnxck8
+    products-workflows-customerioimportmodal--import-step-failed--dark:
+        hash: v1.k794b7964.2ddd7fdaac8c5d05c03c4ca70a9c1e6e3dbb2f9aa2be9966795d776f205c3319.ROrRNxbO6pDmia5A5H_oxodvc71spgu3ch2gfrCoOs8
+    products-workflows-customerioimportmodal--import-step-failed--light:
+        hash: v1.k794b7964.e6f80c0774e1d41294546fa74a08ddef80f8366688f6366273a8e26f19a4159d.MUXxZf-aSFCOIy1uIP3QdcFC7egvFpGYcqnUPBPduGE
     products-workflows-customerioimportmodal--step-1-completed--dark:
         hash: v1.k794b7964.c83846d9a55e8de54910a1334c52aa8dd46108c77d73826d694e3a8b113b75f6.x7ONobAIrfQGWsfDxcoRtXBqw0UA-6GqPlyhg17HRiY
     products-workflows-customerioimportmodal--step-1-completed--light:
