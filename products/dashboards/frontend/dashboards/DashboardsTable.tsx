@@ -196,6 +196,7 @@ export function DashboardsTable({
         {
             title: 'Folder',
             dataIndex: 'folder' as keyof DashboardType,
+            width: 160,
             render: function Render(folder: DashboardType['folder']) {
                 // Unfiled dashboards live in the default `Unfiled/Dashboards` folder — that's not a folder
                 // the user chose, so show nothing rather than a filter affordance.
@@ -216,11 +217,18 @@ export function DashboardsTable({
                 )
             },
         } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
-        createdByColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
-        createdAtColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
+        // Fixed-layout table: columns without a width split the leftover space, which clips their
+        // nowrap headers on narrower screens. Size every column so the table scrolls instead.
+        {
+            ...createdByColumn<DashboardType>(),
+            width: 160,
+        } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
+        {
+            ...createdAtColumn<DashboardType>(),
+            width: 120,
+        } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         {
             ...atColumn<DashboardType>('last_accessed_at', 'Last accessed at'),
-            // Fixed-layout table: long right-aligned headers get clipped on the left without an explicit width.
             width: 180,
         } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         {
