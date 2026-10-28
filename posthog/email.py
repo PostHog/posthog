@@ -117,7 +117,7 @@ EMAIL_TASK_KWARGS = {
 # cardinality (per-team volume lives in MessagingRecord); scraped via prometheus multiprocess.
 EMAIL_SEND_COUNTER = Counter(
     "posthog_email_send_total",
-    "Email send attempts by outcome (sent|failed) and transport (smtp|http).",
+    "Email send attempts by outcome (sent|failed|undeliverable) and transport (smtp|http).",
     labelnames=["outcome", "transport"],
 )
 
@@ -223,6 +223,11 @@ WORKFLOWS_PIN_TTL_SECONDS = 24 * 60 * 60
 # 422 codes for an email the send API refused before queueing it: sending is suspended for the project or paused for
 # the workflow, or the recipient is on the suppression list. Customer.io sends these emails instead.
 WORKFLOWS_NOT_QUEUED_422_CODES = frozenset({"sending_suspended", "sending_paused", "recipient_suppressed"})
+
+# 422 codes for an email the send API refused before queueing it because the address can't receive email: the syntax
+# is invalid or the domain has no mail servers. Every provider would hard bounce it, so the email is dropped. It is not
+# retried and Customer.io does not send it.
+WORKFLOWS_UNDELIVERABLE_422_CODES = frozenset({"recipient_unreachable"})
 
 EMAIL_WORKFLOWS_FALLBACK_COUNTER = Counter(
     "posthog_email_workflows_fallback_total",
@@ -505,8 +510,11 @@ def _capture_email_event(capture: ScopedCapture, dest: dict[str, str], event: st
 
 def _send_one(
     capture: ScopedCapture, dest: dict[str, str], campaign_key: str, template_name: str, properties: dict
-) -> tuple[str, dict]:
-    """Send one email and return the provider that sent it with the provider's response."""
+) -> tuple[str, dict] | None:
+    """Send one email and return the provider that sent it with the provider's response.
+
+    Returns None when Workflows refused the recipient as undeliverable, so no provider sent the email.
+    """
     idempotency_key = _workflows_idempotency_key(campaign_key, dest["raw_email"])
     # After an attempt Workflows may have queued, a retry skips the flag and never falls back. Otherwise a flag
     # change or a different error on the retry would send the same email again through Customer.io.
@@ -519,6 +527,17 @@ def _send_one(
             _pin_to_workflows(idempotency_key, workflows_template_id)
             return "workflows", response
         except WorkflowsEmailError as err:
+            if err.status_code == 422 and err.code in WORKFLOWS_UNDELIVERABLE_422_CODES:
+                # The send API replays an idempotency key before it checks the recipient, so this refusal also
+                # means that no earlier attempt queued the email.
+                logger.info("email_workflows_recipient_undeliverable", template_name=template_name)
+                _capture_email_event(
+                    capture,
+                    dest,
+                    "transactional email workflows rejected",
+                    {"template_name": template_name, "campaign_key": campaign_key, "error": str(err)[:500]},
+                )
+                return None
             if pinned_template_id or not _workflows_error_allows_fallback(err):
                 _pin_to_workflows(idempotency_key, workflows_template_id)
                 raise
@@ -561,6 +580,7 @@ def _send_via_http_batch(
 ) -> None:
     sent_count = 0
     already_sent_count = 0  # delivered in a prior run — not a failure if the batch later aborts
+    undeliverable_count = 0
     dest: dict[str, str] | None = None
     try:
         for dest in to:
@@ -574,7 +594,13 @@ def _send_via_http_batch(
                     already_sent_count += 1
                     continue
 
-                provider, provider_response = _send_one(capture, dest, campaign_key, template_name, properties)
+                sent = _send_one(capture, dest, campaign_key, template_name, properties)
+                if sent is None:
+                    # sent_at stays unset, so raise_if_delivery_rejected tells a synchronous caller nothing went out.
+                    EMAIL_SEND_COUNTER.labels(outcome="undeliverable", transport="http").inc()
+                    undeliverable_count += 1
+                    continue
+                provider, provider_response = sent
 
                 # Mark delivery before any non-essential step so a delivered email is never
                 # recorded as rejected (raise_if_delivery_rejected keys off sent_at). Analytics
@@ -617,7 +643,9 @@ def _send_via_http_batch(
             )
         # Count every recipient that did not get through (the failing one + any not yet attempted),
         # so `failed` shares the per-recipient unit with `sent` instead of registering once per batch.
-        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc(len(to) - already_sent_count - sent_count)
+        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc(
+            len(to) - already_sent_count - sent_count - undeliverable_count
+        )
         if retryable:
             # The retry sends the same idempotency key, so Workflows returns an email it already queued instead of
             # sending a second one, and recipients already marked sent are skipped.

@@ -484,6 +484,14 @@ class TestEmail(BaseTest):
                 ["transactional email workflows rejected", "transactional email triggered"],
             ),
             (
+                "workflows_refuses_unreachable_recipient_drops_email",
+                True,
+                [(422, {"type": "invalid_request", "code": "recipient_unreachable"})],
+                ["workflows"],
+                None,
+                ["transactional email workflows rejected"],
+            ),
+            (
                 "workflows_key_already_used_sends_nothing",
                 True,
                 [(422, {"type": "invalid_request", "code": "idempotency_key_reused"})],
@@ -591,7 +599,7 @@ class TestEmail(BaseTest):
                 use_http=True,
             )
             message.add_recipient("test@posthog.com", "Test", distinct_id="user-1")
-            if sent_by is None:
+            if "transactional email failed" in expected_events:
                 # Workflows may have queued the email, so the error reaches Celery, which retries with the same key.
                 with self.assertRaises(WorkflowsEmailError):
                     message.send(send_async=False, retry=False)
