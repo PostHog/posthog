@@ -330,6 +330,24 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "Timestamp when the stocktake was last updated.",
         },
     },
+    "stocktake_rows": {
+        "description": "Line items of a stocktake: the expected and counted quantity of each variant, and the difference between them.",
+        "docs_url": f"{_DOCS}/findstocktakerows",
+        "columns": {
+            "id": "Unique identifier for the stocktake row.",
+            "stocktake_id": "Stocktake the row belongs to.",
+            "variant_id": "Variant being counted.",
+            "batch_id": "Batch being counted, when the variant is batch-tracked.",
+            "bin_location_id": "Bin location being counted, when the location uses bins.",
+            "in_stock_quantity": "Quantity Katana expected to be in stock when the count started.",
+            "counted_quantity": "Quantity counted. Null until the row is counted.",
+            "discrepancy_quantity": "Difference between the counted and the expected quantity.",
+            "notes": "Notes on the counted row.",
+            "created_at": "Timestamp when the stocktake row was created.",
+            "updated_at": "Timestamp when the stocktake row was last updated.",
+            "deleted_at": "Timestamp when the stocktake row was deleted, if it was.",
+        },
+    },
     "inventory_movements": {
         "description": "Append-only log of every inventory movement created by Katana resources.",
         "docs_url": f"{_DOCS}/list-all-inventory-movements",
@@ -362,6 +380,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "is_active": "Whether the price list is active.",
         },
     },
+    "price_list_rows": {
+        "description": "Variant prices of a price list. Full refresh only.",
+        "docs_url": f"{_DOCS}/getallpricelistrows",
+        "columns": {
+            "id": "Unique identifier for the price list row.",
+            "price_list_id": "Price list the row belongs to.",
+            "variant_id": "Variant the price applies to.",
+            "adjustment_method": "How the amount sets the price: fixed, percentage or markup.",
+            "amount": "Price, or the percentage applied, depending on the adjustment method.",
+            "created_at": "Timestamp when the price list row was created.",
+            "updated_at": "Timestamp when the price list row was last updated.",
+        },
+    },
     "locations": {
         "description": "Warehouses and factories where stock is held and orders are fulfilled.",
         "docs_url": f"{_DOCS}/list-all-locations",
@@ -381,6 +412,38 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "rate": "Tax rate percentage.",
             "is_default_sales": "Whether this is the default sales tax rate.",
             "is_default_purchases": "Whether this is the default purchases tax rate.",
+        },
+    },
+    "bin_locations": {
+        "description": "Storage bins inside a location. Full refresh only.",
+        "docs_url": f"{_DOCS}/getallbinlocations",
+        "columns": {
+            "id": "Unique identifier for the bin location.",
+            "name": "Bin name.",
+            "location_id": "Location the bin is in.",
+            "created_at": "Timestamp when the bin location was created.",
+            "updated_at": "Timestamp when the bin location was last updated.",
+            "deleted_at": "Timestamp when the bin location was deleted, if it was.",
+        },
+    },
+    "bin_inventory": {
+        "description": "Current in-stock, committed and expected stock per location, variant and bin. Full refresh only.",
+        "docs_url": f"{_DOCS}/getbininventory",
+        "columns": {
+            "location_id": "Location the stock balance is for.",
+            "variant_id": "Variant the stock balance is for.",
+            "bin_location_id": "Bin the stock is in. Null for stock with no bin assigned.",
+            "quantity_in_stock": "Quantity currently in stock, as a decimal string.",
+            "quantity_committed": "Quantity committed to orders, as a decimal string.",
+            "quantity_expected": "Quantity expected from incoming orders, as a decimal string.",
+        },
+    },
+    "operators": {
+        "description": "Shop floor and warehouse operators that work on manufacturing order operations. Full refresh only.",
+        "docs_url": f"{_DOCS}/getoperators",
+        "columns": {
+            "id": "Unique identifier for the operator.",
+            "operator_name": "Operator name.",
         },
     },
 }

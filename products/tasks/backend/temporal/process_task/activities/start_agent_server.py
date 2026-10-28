@@ -42,7 +42,6 @@ from products.tasks.backend.logic.services.launch_preparation_metrics import lau
 from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import (
     REPO_READY_FILE,
-    SNAPSHOT_KIND_DIRECTORY,
     SUBSCRIPTION_CLI_FLAGS,
     SandboxBase,
     get_sandbox_class_for_sandbox_id,
@@ -227,7 +226,7 @@ def _has_agent_shadow_launch_marker(ctx: TaskProcessingContext, sandbox: Sandbox
 
 
 def _launch_agent_shadow(ctx: TaskProcessingContext, sandbox: SandboxBase) -> bool:
-    if sandbox.config.snapshot_restored and sandbox.config.snapshot_kind != SNAPSHOT_KIND_DIRECTORY:
+    if sandbox.config.snapshot_restored and sandbox.config.resume_snapshot_external_id is None:
         return False
     if current_activity_attempt() > 1 and _has_agent_shadow_launch_marker(ctx, sandbox):
         return True
@@ -646,7 +645,6 @@ def _invoke_start_agent_server(
             wait_for_health=wait_for_health,
             rtk_enabled=ctx.rtk_enabled,
             benjamin_enabled=ctx.benjamin_enabled,
-            peer_messaging=ctx.peer_messaging_enabled,
             pi_acp_conversation=ctx.pi_acp_conversation_enabled,
             claude_model_access=ctx.model_access.access_for("claude"),
             codex_model_access=ctx.model_access.access_for("codex"),
@@ -786,7 +784,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     """Start the agent-server HTTP server in the sandbox.
 
     Sandbox credentials (sandbox_url, connect_token) are passed directly via input
-    from get_sandbox_for_repository output.
+    from the sandbox provisioning output.
     """
     ctx = input.context
 

@@ -783,6 +783,20 @@ class TestHasDuplicatePrimaryKeys:
 
         mock_capture.assert_not_called()
 
+    def test_access_denied_leaves_key_unverified_without_capturing(self):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        client = MagicMock()
+        client.query.side_effect = ClickHouseError(
+            "Code: 497. DB::Exception: posthog: Not enough privileges. To execute this query, it's necessary "
+            "to have the grant SELECT ON db.t. (ACCESS_DENIED)"
+        )
+
+        with patch.object(ch_module, "capture_exception") as mock_capture:
+            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is None
+
+        mock_capture.assert_not_called()
+
 
 class TestDuplicateProbeTargetsMergeKey:
     _MEMORY_LIMIT = ClickHouseError("Code: 241. DB::Exception: Query memory limit exceeded. (MEMORY_LIMIT_EXCEEDED)")

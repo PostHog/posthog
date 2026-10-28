@@ -49,6 +49,9 @@ export const INBOX_EVENTS = {
     REPORT_SOURCE_SUGGESTION_SHOWN: 'Inbox report source suggestion shown',
     REPORT_SOURCE_SUGGESTION_CLICKED: 'Inbox report source suggestion clicked',
     REPORT_FEEDBACK_NOTE: 'Inbox report feedback note',
+    INTERVIEW_INVITE_SHOWN: 'Inbox interview invite shown',
+    INTERVIEW_INVITE_CLICKED: 'Inbox interview invite clicked',
+    INTERVIEW_INVITE_DISMISSED: 'Inbox interview invite dismissed',
     // Cloud-only for now: the desktop inbox has no model sorts.
     RANKING_DETAILS_VIEWED: 'Inbox ranking details viewed',
     SETTINGS_CHANGED: 'Inbox settings changed',
@@ -779,6 +782,15 @@ export function captureInboxReportFeedbackNote(params: {
         note: params.note,
         surface: params.surface,
     })
+}
+
+export function captureInboxInterviewInvite(action: 'shown' | 'clicked' | 'dismissed'): void {
+    const event = {
+        shown: INBOX_EVENTS.INTERVIEW_INVITE_SHOWN,
+        clicked: INBOX_EVENTS.INTERVIEW_INVITE_CLICKED,
+        dismissed: INBOX_EVENTS.INTERVIEW_INVITE_DISMISSED,
+    }[action]
+    captureInboxEvent(event, { surface: 'report_feedback_note' })
 }
 
 export function captureSignalSourceConnected(params: {

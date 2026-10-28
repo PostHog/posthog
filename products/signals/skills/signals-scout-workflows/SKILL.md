@@ -12,9 +12,6 @@ compatibility: >
   Read-only analytics + signal_scout_internal:write
   (scratchpad) + hog_flow_proposal:write (declared below, granted to this scout only), plus the
   workflows tools in the MCP tools section.
-  The suggestion tools exist only on projects with the
-  `self-optimising-workflows` flag; hold the scout back from a team with the `signals-scout`
-  flag's `withheld_skills` until the project has it.
   Deliberately on neither output channel -
   see "Why this scout files no reports".
 metadata:

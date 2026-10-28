@@ -108,6 +108,7 @@ export type BIWorksheetAction =
     | 'first_chart'
     | 'saved'
     | 'added_to_dashboard'
+    | 'dashboard_segment_selected'
     | 'drilldown_opened'
     | 'underlying_rows_viewed'
     | 'drilldown_worksheet_opened'

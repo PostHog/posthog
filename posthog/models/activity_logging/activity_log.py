@@ -75,6 +75,7 @@ ActivityScope = Literal[
     "EarlyAccessFeature",
     "SessionRecordingPlaylist",
     "ReplayScanner",
+    "ReplayObservation",
     "VisionAlertConfiguration",
     "Comment",
     "Team",
@@ -458,6 +459,8 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     # directly, keyed by the comment's own scope.
     "Ticket": ["content"],
     cast(AuditableScope, "conversations_ticket"): ["content"],
+    # Observation notes are gated on observation access, which activity_log:read does not imply.
+    "ReplayObservation": ["content"],
     # The rubric API is limited to staff, so saved criteria and generated suggestions must not be
     # readable through activity_log:read. Record that the rubrics changed, never their contents.
     "SignalScoutConfig": ["rubrics"],
@@ -682,10 +685,11 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "allow_staff": True,
     },
     {
-        # Staff-only email sending suspension flips: the acting staff user must not leak into the
-        # org activity log. The customer is told via email and in-app notification instead.
+        # Staff-only email sending controls: the acting staff user must not leak into the org
+        # activity log. Suspensions and automatic tier moves reach the customer through email and
+        # in-app notification, and the Reputation tab shows the current tier.
         "scope": "Team",
-        "activities": ["email_sending_suspended", "email_sending_unsuspended"],
+        "activities": ["email_sending_suspended", "email_sending_unsuspended", "email_sending_tier_changed"],
         "exclude_when": {},
         "allow_staff": True,
     },
@@ -1731,6 +1735,7 @@ def load_activity(
     item_ids: Optional[list[str]] = None,
     limit: int = 10,
     page: int = 1,
+    user: Union["User", AnonymousUser, None] = None,
 ) -> ActivityPage:
     # TODO in follow-up to posthog #8931 selecting specific fields into a return type from this query
 
@@ -1740,6 +1745,9 @@ def load_activity(
 
     if item_ids is not None:
         activity_query = activity_query.filter(item_id__in=item_ids)
+
+    if user is not None:
+        activity_query = apply_activity_visibility_restrictions(activity_query, user)
 
     return get_activity_page(activity_query, limit, page)
 

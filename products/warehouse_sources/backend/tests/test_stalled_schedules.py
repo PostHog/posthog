@@ -203,12 +203,14 @@ class TestStalledSchedules(BaseTest):
         assert mock_sync.call_args.kwargs["trigger_immediately"] is False
         assert mock_sync.call_args.kwargs["should_sync"] is True
 
-    def test_repair_stamps_last_error_notified_at_to_avoid_a_stale_renotify(self) -> None:
-        # get_team_ids_with_recent_sync_failures renotifies once last_error_notified_at is more
-        # than seven days old, with no newer failed job required. Without a fresh stamp here, a
-        # schema that failed and was notified long ago, then recovered, would have this repaint
-        # read as "still failing" and send the failure digest instead of the informational message.
-        old_notification = timezone.now() - timedelta(days=30)
+    @parameterized.expand([("never_notified", None), ("notified_long_ago", timedelta(days=30))])
+    def test_repair_stamps_last_error_notified_at_to_keep_the_repaint_out_of_the_digest(
+        self, _name: str, notified_ago: timedelta | None
+    ) -> None:
+        # The failure digest lists a FAILED schema with no notification stamp. Without a fresh
+        # stamp here, this repaint would read as a sync failure in the next digest instead of
+        # the informational message.
+        old_notification = timezone.now() - notified_ago if notified_ago is not None else None
         schema = self._schema(
             synced_ago=timedelta(days=5),
             status=ExternalDataSchema.Status.RUNNING,
@@ -221,7 +223,8 @@ class TestStalledSchedules(BaseTest):
 
         schema.refresh_from_db()
         assert schema.last_error_notified_at is not None
-        assert schema.last_error_notified_at > old_notification
+        if old_notification is not None:
+            assert schema.last_error_notified_at > old_notification
 
     def test_repair_skips_a_schema_disabled_since_it_was_discovered(self) -> None:
         # The confirmation prompt in the management command alone can put minutes between

@@ -1,7 +1,8 @@
 import re
 import base64
 import dataclasses
-from datetime import UTC, date, datetime
+from collections.abc import Callable
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
 from urllib.parse import urlencode
 
@@ -39,6 +40,9 @@ BASE_URL_TEMPLATE = "https://{subdomain}.xmatters.com/api/xm/1"
 # `@`, etc.) could redirect worker requests to an attacker-controlled host (SSRF).
 SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$")
 
+# Historical data has a 15-minute synchronization window, so an `at` closer to now can be rejected.
+HISTORICAL_DATA_LAG = timedelta(minutes=20)
+
 
 @dataclasses.dataclass(frozen=True)
 class XmattersResumeConfig:
@@ -46,6 +50,8 @@ class XmattersResumeConfig:
     # per-parent checkpoint through `paginator_state`.
     offset: int = 0
     paginator_state: Optional[dict[str, Any]] = None
+    # A resumed child offset only addresses the same rows under the same historical snapshot.
+    historical_at: Optional[str] = None
 
 
 def is_valid_subdomain(subdomain: str) -> bool:
@@ -124,6 +130,25 @@ def _normalize_group_member(item: dict[str, Any]) -> dict[str, Any]:
     return {**item, "member_id": item["member"]["id"]}
 
 
+def _normalize_on_call(item: dict[str, Any]) -> dict[str, Any]:
+    return {**item, "shift_id": item["shift"]["id"]}
+
+
+def _normalize_user_delivery(item: dict[str, Any]) -> dict[str, Any]:
+    return {**item, "person_id": item["person"]["id"]}
+
+
+_FANOUT_ROW_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    "group_members": _normalize_group_member,
+    "on_call": _normalize_on_call,
+    "user_deliveries": _normalize_user_delivery,
+}
+
+
+def _historical_at(now: datetime) -> str:
+    return (now - HISTORICAL_DATA_LAG).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _build_params(
     config: XmattersEndpointConfig,
     should_use_incremental_field: bool,
@@ -132,11 +157,10 @@ def _build_params(
     params: dict[str, Any] = {}
 
     if config.supports_from:
-        # START_TIME is the event's initiation (created) time, which is exactly what `from`
-        # filters on — sorting ascending on it means new events append to the end and never
-        # shift pages we've already read. Sent on every sync so full refreshes paginate over a
-        # stable ordering too.
-        params["sortBy"] = "START_TIME"
+        # `sort_by` is the timestamp `from` filters on — sorting ascending on it means new rows
+        # append to the end and never shift pages we've already read. Sent on every sync so full
+        # refreshes paginate over a stable ordering too.
+        params["sortBy"] = config.sort_by
         params["sortOrder"] = "ASCENDING"
         if should_use_incremental_field and db_incremental_field_last_value:
             params["from"] = _format_incremental_value(db_incremental_field_last_value)
@@ -186,14 +210,22 @@ def _fanout_source(
     assert config.fanout is not None
 
     initial_paginator_state: Optional[dict[str, Any]] = None
+    historical_at: Optional[str] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None:
             initial_paginator_state = resume.paginator_state
+            historical_at = resume.historical_at
+
+    if config.name == "user_deliveries" and historical_at is None:
+        historical_at = _historical_at(datetime.now(UTC))
+    child_params_extra = {"at": historical_at} if historical_at is not None else None
 
     def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state:
-            resumable_source_manager.save_state(XmattersResumeConfig(paginator_state=dict(state)))
+            resumable_source_manager.save_state(
+                XmattersResumeConfig(paginator_state=dict(state), historical_at=historical_at)
+            )
 
     resource = cast(
         Resource,
@@ -209,12 +241,14 @@ def _fanout_source(
             db_incremental_field_last_value=None,
             parent_endpoint_extra={"data_selector": "data"},
             child_endpoint_extra={"data_selector": "data"},
+            child_params_extra=child_params_extra,
             resume_hook=save_fanout_checkpoint,
             initial_paginator_state=initial_paginator_state,
         ),
     )
-    if config.name == "group_members":
-        resource = resource.add_map(_normalize_group_member)
+    row_map = _FANOUT_ROW_MAPS.get(config.name)
+    if row_map is not None:
+        resource = resource.add_map(row_map)
 
     return SourceResponse(
         name=config.name,
@@ -294,7 +328,7 @@ def xmatters_source(
         name=endpoint,
         items=lambda: resource,
         primary_keys=config.primary_keys,
-        # We request START_TIME ascending where a sort is available, and full-refresh endpoints
+        # We request an ascending `sort_by` where a sort is available, and full-refresh endpoints
         # replace wholesale, so ascending is correct everywhere.
         sort_mode="asc",
         partition_count=1,

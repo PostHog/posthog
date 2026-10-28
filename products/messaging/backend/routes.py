@@ -3,7 +3,11 @@ from posthog.api.routing import RouterRegistry
 from products.messaging.backend.presentation.views.message_categories import MessageCategoryViewSet
 from products.messaging.backend.presentation.views.message_preferences import MessagePreferencesViewSet
 from products.messaging.backend.presentation.views.message_suppression import MessageSuppressionViewSet
-from products.messaging.backend.presentation.views.message_templates import MessageTemplatesViewSet
+from products.messaging.backend.presentation.views.message_templates import (
+    MessageTemplatesViewSet,
+    MessagingSendViewSet,
+)
+from products.messaging.backend.presentation.views.provider_imports import ProviderImportViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -19,4 +23,8 @@ def register_routes(routers: RouterRegistry) -> None:
     # New endpoint — register under /api/projects/ only, not the dual-route legacy shim.
     routers.projects.register(
         r"messaging_suppressions", MessageSuppressionViewSet, "project_messaging_suppressions", ["team_id"]
+    )
+    routers.projects.register(r"messaging/send", MessagingSendViewSet, "project_messaging_send", ["team_id"])
+    routers.projects.register(
+        r"messaging_provider_imports", ProviderImportViewSet, "project_messaging_provider_imports", ["team_id"]
     )

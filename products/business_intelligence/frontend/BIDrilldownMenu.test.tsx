@@ -16,9 +16,14 @@ describe('native result-menu links', () => {
     beforeEach(() => initKeaTests())
     afterEach(cleanup)
 
-    it.each([false, true])(
-        'renders real destinations without intercepting modified clicks (quill=%s)',
-        async (quill) => {
+    it.each([
+        [false, false],
+        [true, false],
+        [false, true],
+        [true, true],
+    ])(
+        'renders real destinations without intercepting modified clicks (quill=%s, filtering=%s)',
+        async (quill, filtering) => {
             featureFlagLogic.actions.setFeatureFlags([], { 'today-rail-nav': quill })
             const config = {
                 ...DEFAULT_BI_CONFIG,
@@ -38,18 +43,22 @@ describe('native result-menu links', () => {
                 kind: NodeKind.BIVisualizationNode,
                 config,
             }
+            const onFilterDashboard = jest.fn()
             const props = {
                 key: 'native-links',
                 query,
-                dashboardMenu: true,
+                onFilterDashboard: filtering ? onFilterDashboard : undefined,
+                getDashboardFilterUrl: () => '/project/1/dashboard/1#bi_filter=selection',
+                isDashboardFilterSelected: (record: Record<string, unknown>) => record.status === 'paid',
             }
             const logic = biDrilldownLogic(props)
             const unmount = logic.mount()
             try {
+                logic.actions.setInteraction({ x: 40, y: 40 })
                 logic.actions.inspect({ status: 'paid' })
                 render(<BIDrilldownMenu logicProps={props} />)
                 await screen.findByText('View underlying rows')
-                const names = ['View underlying rows', 'Open in SQL editor']
+                const names = ['View underlying rows', 'Open in SQL editor', ...(filtering ? ['Remove filter'] : [])]
                 for (const name of names) {
                     const link = screen.getByText(name).closest('a')!
                     expect(link).not.toBeNull()
@@ -66,11 +75,26 @@ describe('native result-menu links', () => {
                 expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual(names)
                 expect(screen.queryByText('Filter dashboard by this result')).not.toBeInTheDocument()
                 expect(screen.queryByText('Filter in new worksheet')).not.toBeInTheDocument()
+                if (filtering) {
+                    expect(onFilterDashboard).not.toHaveBeenCalled()
+                    fireEvent.click(screen.getByText('Remove filter'))
+                    expect(onFilterDashboard).toHaveBeenCalledWith({ status: 'paid' })
+                    expect(logic.values.record).toBeNull()
+                    act(() => {
+                        logic.actions.setInteraction({ x: 40, y: 40 })
+                        logic.actions.inspect({ status: 'refunded' })
+                    })
+                    expect(screen.getByText('Filter dashboard by this result')).toBeInTheDocument()
+                }
                 fireEvent.click(screen.getByText('View underlying rows'))
                 expect(logic.values.showRows).toBe(true)
                 act(() => logic.actions.inspect({ count: 8 }))
-                expect(screen.queryByText('Filter dashboard by this result')).not.toBeInTheDocument()
-                expect(screen.getAllByRole('menuitem')).toHaveLength(2)
+                expect(screen.getAllByRole('menuitem')).toHaveLength(filtering ? 3 : 2)
+                if (filtering) {
+                    act(() => logic.actions.filterDashboard())
+                    expect(onFilterDashboard).toHaveBeenCalledTimes(1)
+                    expect(logic.values.record).toEqual({ count: 8 })
+                }
                 fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
                 expect(logic.values.record).toBeNull()
             } finally {

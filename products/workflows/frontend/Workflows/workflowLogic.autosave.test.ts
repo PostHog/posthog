@@ -1,16 +1,19 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
 import { saveEntrySource } from '../Broadcasts/broadcastUsage'
-import { HogFlow } from './hogflows/types'
+import { HogFlow, HogFlowSchedule } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
 
 const WORKFLOW_ID = 'wf-autosave-1'
+const STARTS_AT = '2026-05-04T09:00:00.000Z'
 
 const makeWorkflow = (overrides: Partial<HogFlow> = {}): HogFlow => ({
     id: WORKFLOW_ID,
@@ -145,6 +148,48 @@ describe('workflowLogic auto-save', () => {
             await jest.advanceTimersByTimeAsync(3500)
             await expectLogic(logic).toDispatchActions(['saveWorkflow', 'saveWorkflowSuccess'])
             expect(updateCalls).toBe(2)
+        })
+
+        it('keeps an unsaved schedule change when an auto-save lands', async () => {
+            const saved: HogFlowSchedule = {
+                id: 'schedule-1',
+                rrule: 'FREQ=WEEKLY;INTERVAL=1;BYDAY=MO',
+                starts_at: '2026-05-04T09:00:00.000Z',
+                timezone: 'UTC',
+            }
+            logic.actions.setSchedules([saved])
+            // Move the run from Monday to Wednesday. Only a manual save writes the schedule, so
+            // an auto-save landing in between must leave this edit staged and saveable.
+            logic.actions.setScheduleState({ ...logic.values.scheduleState, weekdays: [2] })
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.markAutoSave(true)
+                logic.actions.saveWorkflow(logic.values.workflow)
+            }).toDispatchActions(['saveWorkflowSuccess'])
+
+            expect(logic.values.scheduleState.weekdays).toEqual([2])
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+        })
+
+        it('keeps the created schedule as the baseline when the list read says there is none', async () => {
+            useMocks({
+                get: { '/api/environments/:team_id/hog_flows/:id/schedules/': [] },
+                post: {
+                    '/api/environments/:team_id/hog_flows/:id/schedules/': () => [
+                        201,
+                        { id: 'schedule-created', rrule: 'FREQ=DAILY;COUNT=1', starts_at: STARTS_AT, timezone: 'UTC' },
+                    ],
+                },
+            })
+            logic.actions.setScheduleStartsAt(STARTS_AT)
+
+            await expectLogic(logic, () => {
+                logic.actions.saveWorkflow(logic.values.workflow)
+            }).toDispatchActions(['saveWorkflowSuccess', 'setSchedules'])
+
+            // Without this the next save sees no schedule and creates a second one.
+            expect(logic.values.currentSchedule?.id).toBe('schedule-created')
         })
 
         it('does not re-save when nothing changed during the round-trip', async () => {
@@ -724,6 +769,57 @@ describe('workflowLogic auto-save', () => {
             await new Promise((resolve) => setTimeout(resolve, 200))
 
             expect(logic.values.isWorkflowSubmitting).toBe(false)
+        })
+    })
+
+    describe('manual trigger on an active workflow', () => {
+        const activeWorkflow = (draft?: Record<string, any>): HogFlow =>
+            makeWorkflow({
+                status: 'active',
+                trigger: { type: 'schedule' } as HogFlow['trigger'],
+                ...(draft ? { draft, draft_updated_at: '2026-05-01T00:01:00.000Z' } : {}),
+            })
+
+        const mountLoaded = async (): Promise<void> => {
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        }
+
+        it('blocks the trigger while only the draft carries the new trigger type', async () => {
+            const staged = activeWorkflow({ trigger: { type: 'manual', filters: {} }, actions: [], edges: [] })
+            useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': staged } })
+            await mountLoaded()
+
+            expect(logic.values.manualTriggerDisabledReason).toBe(
+                'Publish your draft first. The live workflow still uses its published trigger.'
+            )
+        })
+
+        it('allows the trigger when the draft leaves the trigger alone', async () => {
+            const staged = activeWorkflow({ name: 'Renamed', actions: [], edges: [] })
+            useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': staged } })
+            await mountLoaded()
+
+            expect(logic.values.manualTriggerDisabledReason).toBeUndefined()
+        })
+
+        it('reports a refused trigger instead of claiming the workflow ran', async () => {
+            useMocks({
+                get: { '/api/environments/:team_id/hog_flows/:id/': activeWorkflow() },
+                post: { '/public/webhooks/:id': () => [404, {}] },
+            })
+            await mountLoaded()
+            const errorToast = jest.spyOn(lemonToast, 'error')
+            const successToast = jest.spyOn(lemonToast, 'success')
+
+            await expectLogic(logic, () => {
+                logic.actions.triggerManualWorkflow({})
+            }).toFinishAllListeners()
+
+            expect(successToast).not.toHaveBeenCalled()
+            expect(errorToast).toHaveBeenCalled()
         })
     })
 
