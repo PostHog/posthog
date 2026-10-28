@@ -6036,6 +6036,68 @@
           "row_count": null,
           "type": "system"
       },
+      "system.event_definitions": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_seen_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_seen_at",
+                  "id": null,
+                  "name": "last_seen_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "tags": {
+                  "chain": null,
+                  "fields": [
+                      "definition_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "definition_tags",
+                  "type": "lazy_table"
+              }
+          },
+          "id": "system.event_definitions",
+          "name": "system.event_definitions",
+          "row_count": null,
+          "type": "system"
+      },
       "system.error_tracking_assignment_rules": {
           "certification": null,
           "fields": {
@@ -12064,6 +12126,88 @@
           },
           "id": "system.session_recording_playlists",
           "name": "system.session_recording_playlists",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.property_definitions": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "type",
+                  "id": null,
+                  "name": "type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "group_type_index": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "group_type_index",
+                  "id": null,
+                  "name": "group_type_index",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "property_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "property_type",
+                  "id": null,
+                  "name": "property_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "is_numerical": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_numerical",
+                  "id": null,
+                  "name": "is_numerical",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "tags": {
+                  "chain": null,
+                  "fields": [
+                      "definition_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "definition_tags",
+                  "type": "lazy_table"
+              }
+          },
+          "id": "system.property_definitions",
+          "name": "system.property_definitions",
           "row_count": null,
           "type": "system"
       },
@@ -20704,6 +20848,68 @@
           "row_count": null,
           "type": "system"
       },
+      "system.event_definitions": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_seen_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_seen_at",
+                  "id": null,
+                  "name": "last_seen_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "tags": {
+                  "chain": null,
+                  "fields": [
+                      "definition_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "definition_tags",
+                  "type": "lazy_table"
+              }
+          },
+          "id": "system.event_definitions",
+          "name": "system.event_definitions",
+          "row_count": null,
+          "type": "system"
+      },
       "system.error_tracking_assignment_rules": {
           "certification": null,
           "fields": {
@@ -26732,6 +26938,88 @@
           },
           "id": "system.session_recording_playlists",
           "name": "system.session_recording_playlists",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.property_definitions": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "type",
+                  "id": null,
+                  "name": "type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "group_type_index": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "group_type_index",
+                  "id": null,
+                  "name": "group_type_index",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "property_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "property_type",
+                  "id": null,
+                  "name": "property_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "is_numerical": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_numerical",
+                  "id": null,
+                  "name": "is_numerical",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "tags": {
+                  "chain": null,
+                  "fields": [
+                      "definition_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "definition_tags",
+                  "type": "lazy_table"
+              }
+          },
+          "id": "system.property_definitions",
+          "name": "system.property_definitions",
           "row_count": null,
           "type": "system"
       },

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Optional
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.lazy_join_tags import TICKET_ASSIGNMENT, TICKET_TAGS
+from posthog.hogql.database.lazy_join_tags import DEFINITION_TAGS, TICKET_ASSIGNMENT, TICKET_TAGS
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DANGEROUS_NoTeamIdCheckTable,
@@ -3802,6 +3802,204 @@ inbox_report_checks: PostgresTable = PostgresTable(
 )
 
 
+def _definition_tagged_items(tagged_model: str, definitions_table: str) -> TaggedItemsTable:
+    return TaggedItemsTable(
+        tagged_model=tagged_model,
+        predicates=[
+            parse_expr(
+                "definition_id IN (SELECT id FROM {definitions})",
+                {"definitions": ast.Field(chain=["system", definitions_table])},
+            )
+        ],
+        name=f"_{tagged_model}_tagged_items",
+        postgres_table_name="posthog_taggeditem",
+        description=f"Internal junction table (PostgreSQL `posthog_taggeditem`) of tag-to-{tagged_model} links; not for direct querying — use `system.{definitions_table}.tags`.",
+        fields={
+            "id": UUIDDatabaseField(name="id", description="Primary key of the tagged-item junction row."),
+            "tag_id": UUIDDatabaseField(
+                name="tag_id", description="Tag applied to the definition; join to `system.tags.id`."
+            ),
+            "definition_id": UUIDDatabaseField(
+                name="object_uuid",
+                nullable=True,
+                description=f"Definition the tag is applied to; join to `system.{definitions_table}.id`.",
+            ),
+            "content_type_id": IntegerDatabaseField(
+                name="content_type_id",
+                hidden=True,
+                description=f"Kind of object the tag is applied to; the table only returns {tagged_model} rows.",
+            ),
+        },
+    )
+
+
+event_definition_tagged_items: TaggedItemsTable = _definition_tagged_items("event_definition", "event_definitions")
+property_definition_tagged_items: TaggedItemsTable = _definition_tagged_items(
+    "property_definition", "property_definitions"
+)
+
+
+def _definition_tags_select(tagged_items_table: str) -> ast.SelectQuery | ast.SelectSetQuery:
+    return parse_select(
+        """
+        SELECT
+            ti.definition_id AS definition_id,
+            arraySort(arrayDistinct(groupArray(t.name))) AS names
+        FROM {tagged_items} AS ti
+        INNER JOIN system.tags AS t ON t.id = ti.tag_id
+        GROUP BY ti.definition_id
+        """,
+        {"tagged_items": ast.Field(chain=["system", tagged_items_table])},
+    )
+
+
+class _DefinitionTagsTable(LazyTable):
+    tagged_items_table: str
+    description: str = "Internal aggregating table backing the `tags` column of the definition tables: the distinct, sorted tag names per definition."
+    fields: dict[str, FieldOrTable] = {
+        "definition_id": UUIDDatabaseField(name="definition_id", description="Definition these tags belong to."),
+        "names": StringArrayDatabaseField(
+            name="names", description="Distinct, sorted tag names applied to the definition."
+        ),
+    }
+
+    def lazy_select(
+        self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        return _definition_tags_select(self.tagged_items_table)
+
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        return "definition_tags"
+
+    def to_printed_hogql(self) -> str:
+        return "definition_tags"
+
+
+def definition_tags_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
+    if not join_to_add.fields_accessed:
+        raise ResolutionError(f"No fields requested from `{join_to_add.to_table}`")
+    return ast.JoinExpr(
+        alias=join_to_add.to_table,
+        table=_definition_tags_select(join_to_add.lazy_join.resolver_params["tagged_items_table"]),
+        join_type="LEFT JOIN",
+        constraint=ast.JoinConstraint(
+            constraint_type="ON",
+            expr=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=[join_to_add.from_table, "id"]),
+                right=ast.Field(chain=[join_to_add.to_table, "definition_id"]),
+            ),
+        ),
+    )
+
+
+def _definition_tags_lazy_join(tagged_items_table: TaggedItemsTable) -> LazyJoin:
+    return LazyJoin(
+        from_field=["id"],
+        join_table=_DefinitionTagsTable(tagged_items_table=tagged_items_table.name),
+        resolver=DEFINITION_TAGS,
+        resolver_params={"tagged_items_table": tagged_items_table.name},
+    )
+
+
+event_definitions: PostgresTable = PostgresTable(
+    name="event_definitions",
+    postgres_table_name="posthog_eventdefinition",
+    description="Events known to the project, from ingestion or defined ahead of time; one row per event name.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Event definition UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name", description="Event name, e.g. '$pageview' or 'signed_up'."),
+        "created_at": DateTimeDatabaseField(
+            name="created_at",
+            nullable=True,
+            description="When the event was first seen or defined.",
+        ),
+        "last_seen_at": DateTimeDatabaseField(
+            name="last_seen_at",
+            nullable=True,
+            description="When the event was last ingested; NULL if it has not been seen since this was tracked.",
+        ),
+        "tags": _definition_tags_lazy_join(event_definition_tagged_items),
+    },
+)
+
+
+_PROPERTY_DEFINITION_TYPES: dict[int, str] = {1: "event", 2: "person", 3: "group", 4: "session"}
+
+
+class _PropertyDefinitionsTable(PostgresTable):
+    """Hides the properties that property-level access control denies the caller, as the REST list does.
+
+    The restrictions are loaded into the context before printing, so the predicate is built per query.
+    """
+
+    def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
+        restricted = context.restricted_properties if context is not None else None
+        if not restricted:
+            return []
+        matches: list[Expr] = []
+        for prop in sorted(restricted, key=lambda p: (p.property_type, p.group_type_index or -1, p.name)):
+            conditions: list[Expr] = [
+                parse_expr("name = {name}", {"name": ast.Constant(value=prop.name)}),
+                parse_expr("_type = {type}", {"type": ast.Constant(value=prop.property_type)}),
+            ]
+            if prop.group_type_index is not None:
+                conditions.append(
+                    parse_expr("group_type_index = {index}", {"index": ast.Constant(value=prop.group_type_index)})
+                )
+            matches.append(ast.And(exprs=conditions))
+        return [ast.Not(expr=ast.Or(exprs=matches))]
+
+
+property_definitions: _PropertyDefinitionsTable = _PropertyDefinitionsTable(
+    name="property_definitions",
+    postgres_table_name="posthog_propertydefinition",
+    description="Properties known to the project for events, persons, groups, and sessions; one row per property name and type.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Property definition UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name", description="Property name, e.g. '$browser' or 'plan'."),
+        "_type": IntegerDatabaseField(name="type", hidden=True),
+        "type": ExpressionField(
+            name="type",
+            expr=ast.Call(
+                name="multiIf",
+                args=[
+                    *(
+                        arg
+                        for value, label in _PROPERTY_DEFINITION_TYPES.items()
+                        for arg in (
+                            parse_expr("_type = {value}", {"value": ast.Constant(value=value)}),
+                            ast.Constant(value=label),
+                        )
+                    ),
+                    ast.Constant(value=None),
+                ],
+            ),
+            description="What the property describes: 'event', 'person', 'group', or 'session'.",
+        ),
+        "group_type_index": IntegerDatabaseField(
+            name="group_type_index",
+            nullable=True,
+            description="Group type index (0-4) for group properties; join to `system.group_type_mappings`. NULL for other types.",
+        ),
+        "property_type": StringDatabaseField(
+            name="property_type",
+            nullable=True,
+            description="Detected value type: 'String', 'Numeric', 'Boolean', 'DateTime', or 'Duration'. NULL if not detected yet.",
+        ),
+        "_is_numerical": BooleanDatabaseField(name="is_numerical", hidden=True),
+        "is_numerical": ExpressionField(
+            name="is_numerical",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_numerical"])]),
+            description="1 if the property's values can be used in numeric aggregations, 0 otherwise.",
+        ),
+        "tags": _definition_tags_lazy_join(property_definition_tagged_items),
+    },
+)
+
+
 tags: PostgresTable = PostgresTable(
     name="tags",
     postgres_table_name="posthog_tag",
@@ -3871,6 +4069,10 @@ class SystemTables(TableNode):
         "data_modeling_endpoints": TableNode(name="data_modeling_endpoints", table=endpoints),
         "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
         "data_warehouse_tables": TableNode(name="data_warehouse_tables", table=data_warehouse_tables),
+        "event_definitions": TableNode(name="event_definitions", table=event_definitions),
+        "_event_definition_tagged_items": TableNode(
+            name="_event_definition_tagged_items", table=event_definition_tagged_items, hidden=True
+        ),
         "error_tracking_assignment_rules": TableNode(
             name="error_tracking_assignment_rules", table=error_tracking_assignment_rules
         ),
@@ -3941,6 +4143,10 @@ class SystemTables(TableNode):
         "review_queues": TableNode(name="review_queues", table=review_queues),
         "score_definitions": TableNode(name="score_definitions", table=score_definitions),
         "session_recording_playlists": TableNode(name="session_recording_playlists", table=session_recording_playlists),
+        "property_definitions": TableNode(name="property_definitions", table=property_definitions),
+        "_property_definition_tagged_items": TableNode(
+            name="_property_definition_tagged_items", table=property_definition_tagged_items, hidden=True
+        ),
         "replay_scanners": TableNode(name="replay_scanners", table=replay_scanners),
         "revenue_analytics_config": TableNode(name="revenue_analytics_config", table=revenue_analytics_config),
         "scout_configs": TableNode(name="scout_configs", table=scout_configs),

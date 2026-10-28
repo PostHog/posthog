@@ -427,12 +427,20 @@ class TestQueriedAccessControlledResources(BaseTest):
         assert result == set()
 
 
+# Hidden tables whose rows no per-user rule narrows. Their parent tables carry no access scope, and the
+# property restrictions that narrow system.property_definitions are already part of the cache key.
+_HIDDEN_SYSTEM_TABLES_WITHOUT_PARTITIONING = frozenset(
+    {"_event_definition_tagged_items", "_property_definition_tagged_items"}
+)
+
+
 class TestHiddenSystemTableCachePartitioning(SimpleTestCase):
     def test_every_hidden_system_table_partitions_the_cache(self) -> None:
         unpartitioned = sorted(
             name
             for name, node in SystemTables().children.items()
             if node.hidden
+            and name not in _HIDDEN_SYSTEM_TABLES_WITHOUT_PARTITIONING
             and isinstance(node.table, PostgresTable)
             and node.table.access_scope is None
             and not _TRANSITIVE_SYSTEM_TABLE_SCOPES.get(f"system.{name}")

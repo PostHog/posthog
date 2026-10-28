@@ -224,6 +224,7 @@ class TestLazyJoinManifest(SimpleTestCase):
             "account_tags",
             "data_warehouse",
             "data_warehouse_experiments",
+            "definition_tags",
             "error_tracking_fingerprint_issue_state",
             "error_tracking_issue_fingerprint_overrides",
             "events_to_sessions_v1",
