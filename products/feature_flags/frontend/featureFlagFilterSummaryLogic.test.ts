@@ -75,4 +75,28 @@ describe('featureFlagFilterSummaryLogic', () => {
 
         logic.unmount()
     })
+
+    it('reuses a recent lookup when the logic mounts again', async () => {
+        let requests = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/feature_flags/': () => {
+                    requests++
+                    return [200, { count: 1, results: [{ key: 'my-flag', active: true, filters: { groups: [] } }] }]
+                },
+            },
+        })
+        initKeaTests()
+
+        for (let mount = 0; mount < 2; mount++) {
+            const logic = featureFlagFilterSummaryLogic({ flagKey: 'my-flag' })
+            logic.mount()
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({ summary: expect.objectContaining({ active: true }) })
+            logic.unmount()
+        }
+
+        expect(requests).toBe(1)
+    })
 })

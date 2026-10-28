@@ -1,6 +1,7 @@
 import { MakeLogicType, afterMount, connect, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { RetainedValues } from 'lib/utils/retainedValues'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { FeatureFlagConfig, MultivariateFlagVariant } from '~/types'
@@ -8,6 +9,13 @@ import { FeatureFlagConfig, MultivariateFlagVariant } from '~/types'
 import { isV1FeatureFlagConfig } from './featureFlagConfigFormat'
 import { featureFlagsList } from './generated/api'
 import type { FeatureFlagApi } from './generated/api.schemas'
+
+const FLAG_LOOKUP_TTL_MS = 60 * 1000
+
+const retainedFlagLookups = new RetainedValues<{ flag: FeatureFlagApi | null }>({
+    maxEntries: 200,
+    ttlMs: FLAG_LOOKUP_TTL_MS,
+})
 
 export interface FeatureFlagFilterSummaryLogicProps {
     flagKey: string
@@ -74,7 +82,9 @@ export const featureFlagFilterSummaryLogic = kea<featureFlagFilterSummaryLogicTy
                     }
                     const response = await featureFlagsList(String(values.currentProjectId), { key: props.flagKey })
                     // The API matches the key case-insensitively, but flag keys that differ only by case can both exist.
-                    return response.results.find((flag) => flag.key === props.flagKey) ?? null
+                    const flag = response.results.find((flag) => flag.key === props.flagKey) ?? null
+                    retainedFlagLookups.set(props.flagKey, { flag })
+                    return flag
                 },
             },
         ],
@@ -96,7 +106,12 @@ export const featureFlagFilterSummaryLogic = kea<featureFlagFilterSummaryLogicTy
             },
         ],
     }),
-    afterMount(({ actions }) => {
-        actions.loadFlag()
+    afterMount(({ actions, props }) => {
+        const retained = retainedFlagLookups.get(props.flagKey)
+        if (retained) {
+            actions.loadFlagSuccess(retained.flag)
+        } else {
+            actions.loadFlag()
+        }
     }),
 ])
