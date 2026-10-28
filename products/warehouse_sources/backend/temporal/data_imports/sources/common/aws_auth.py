@@ -7,7 +7,7 @@ from asgiref.sync import async_to_sync
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials, RefreshableCredentials
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from posthog.models.integration import AWSS3Integration, AWSS3RoleBasedIntegration, IntegrationError
 from posthog.models.team import Team
@@ -230,6 +230,10 @@ def _integration_credentials(integration_id: int, team_id: int) -> Credentials:
             raise AwsAuthError(
                 f"{ROLE_ACCESS_DENIED_ERROR}. Check that its trust policy allows PostHog's role and requires the external ID {external_id}."
             ) from None
+        except BotoCoreError as e:
+            # A connection error or a timeout before STS answered.
+            failed_at = time.monotonic()
+            raise AwsAuthError(ROLE_CREDENTIALS_RETRY_ERROR) from e
 
         assert assumed.aws_session_token and assumed.expiration
         expires_at, failed_at = assumed.expiration, None

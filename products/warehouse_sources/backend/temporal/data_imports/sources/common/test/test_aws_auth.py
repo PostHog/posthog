@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import RefreshableCredentials
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, EndpointConnectionError
 from parameterized import parameterized
 
 from posthog.models.integration import Integration
@@ -156,10 +156,15 @@ class TestResolveAwsCredentials(BaseTest):
         assert str(raised.exception) == ROLE_CREDENTIALS_RETRY_ERROR
         assert ROLE_CREDENTIALS_RETRY_ERROR not in AWS_AUTH_NON_RETRYABLE_ERRORS
 
-    def test_failed_advisory_refresh_waits_before_calling_sts_again(self) -> None:
+    @parameterized.expand(
+        [
+            ("throttled", ClientError({"Error": {"Code": "Throttling", "Message": ""}}, "AssumeRole")),
+            ("unreachable", EndpointConnectionError(endpoint_url="https://sts.amazonaws.com")),
+        ]
+    )
+    def test_failed_advisory_refresh_waits_before_calling_sts_again(self, _name: str, failure: Exception) -> None:
         integration = self._integration(self.team, aws_role_arn=ROLE_ARN)
-        throttled = ClientError({"Error": {"Code": "Throttling", "Message": ""}}, "AssumeRole")
-        assume = AsyncMock(side_effect=[assumed("FIRST", dt.timedelta(minutes=12)), throttled, throttled])
+        assume = AsyncMock(side_effect=[assumed("FIRST", dt.timedelta(minutes=12)), failure, failure])
 
         with patch(ASSUME_ROLE, assume):
             credentials = resolve_aws_credentials(Auth(aws_integration_id=integration.id), self.team.id)
