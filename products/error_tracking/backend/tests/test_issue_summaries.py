@@ -212,27 +212,29 @@ class TestIssueSummaryGeneration(BaseTest):
 
     @parameterized.expand(
         [
-            (f"{name}_{trigger}", target, patch_kwargs, trigger, expected)
+            (f"{name}_{trigger}", target, patch_kwargs, generate, expected)
             for name, target, patch_kwargs in [
                 ("lock_unavailable", "get_client", {"side_effect": RedisError("down")}),
                 ("budget_peek_unavailable", "peek", {"return_value": BucketUnavailable(error="down")}),
                 ("budget_unavailable", "consume", {"return_value": BucketUnavailable(error="down")}),
             ]
-            for trigger, expected in [
-                ("read", IssueSummaryOutcome.GENERATED),
-                ("write", IssueSummaryOutcome.RATE_LIMITED),
+            for trigger, generate, expected in [
+                (
+                    "read",
+                    lambda test: get_or_generate_issue_summary(test.team.id, test.issue.id).outcome,
+                    IssueSummaryOutcome.GENERATED,
+                ),
+                ("write", lambda test: test._generate_on_creation(), IssueSummaryOutcome.RATE_LIMITED),
+                ("reopen", lambda test: test._refresh_on_reopen(), IssueSummaryOutcome.RATE_LIMITED),
             ]
         ]
     )
-    def test_redis_outage_fails_open_on_read_and_closed_on_write(
-        self, _name: str, target: str, patch_kwargs: dict[str, Any], trigger: str, expected: IssueSummaryOutcome
+    def test_redis_outage_fails_open_on_read_and_closed_in_workflows(
+        self, _name: str, target: str, patch_kwargs: dict[str, Any], generate: Any, expected: IssueSummaryOutcome
     ) -> None:
         self.enterContext(patch.object(issue_summaries, target, **patch_kwargs))
 
-        if trigger == "read":
-            outcome = get_or_generate_issue_summary(self.team.id, self.issue.id).outcome
-        else:
-            outcome = self._generate_on_creation()
+        outcome = generate(self)
 
         assert outcome == expected
         assert self.llm_calls == (1 if expected == IssueSummaryOutcome.GENERATED else 0)

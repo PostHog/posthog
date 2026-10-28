@@ -533,7 +533,7 @@ class _SummaryGeneration:
 
     @property
     def fails_closed(self) -> bool:
-        return self.trigger == IssueSummaryTrigger.WRITE
+        return self.trigger != IssueSummaryTrigger.READ
 
 
 def _get_or_generate_counted(
