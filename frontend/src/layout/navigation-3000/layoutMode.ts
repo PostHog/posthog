@@ -1,7 +1,7 @@
 import type { Navigation3000Mode } from './navigationLogic'
 
 /** The page layout. Splits `Navigation3000Mode`'s `full` into classic and the two Today forms. */
-export type LayoutMode = 'bare' | 'minimal' | 'zen' | 'embedded' | 'classic' | 'today-framed' | 'today-phone'
+export type LayoutMode = 'bare' | 'minimal' | 'embedded' | 'classic' | 'today-framed' | 'today-phone'
 
 export function resolveLayoutMode({
     mode,
@@ -17,8 +17,6 @@ export function resolveLayoutMode({
             return 'bare'
         case 'minimal':
             return 'minimal'
-        case 'zen':
-            return 'zen'
         case 'embedded':
             return 'embedded'
         case 'full':

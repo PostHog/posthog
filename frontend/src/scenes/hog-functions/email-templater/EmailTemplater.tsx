@@ -1102,7 +1102,7 @@ function EmailTemplaterModal({
                     host={sceneTakeoverElement}
                 />
             ) : (
-                // No takeover host registered (minimal/zen layouts): keep the fullscreen modal.
+                // No takeover host registered (minimal layout): keep the fullscreen modal.
                 <LemonModal
                     isOpen={isModalOpen}
                     fullScreen

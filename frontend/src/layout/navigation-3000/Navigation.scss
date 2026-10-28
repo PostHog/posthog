@@ -16,12 +16,12 @@
     --scene-padding: 1rem;
     --scene-padding-bottom: 4rem;
 
-    // Height of the MinimalNavigation top bar (orgless/zen modes). The settings
+    // Height of the MinimalNavigation top bar (orgless mode). The settings
     // scene's viewport-fixed nav clears it via --settings-nav-top below.
     --minimal-navigation-height: 3.5rem;
 
     // Top offset for the settings scene's viewport-fixed nav. Defaults to the
-    // scene padding (full app layout); the minimal/zen wrapper overrides it to
+    // scene padding (full app layout); the minimal wrapper overrides it to
     // also clear the MinimalNavigation bar so the nav doesn't overlap the logo.
     --settings-nav-top: var(--scene-padding);
 

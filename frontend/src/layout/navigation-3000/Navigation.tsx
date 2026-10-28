@@ -16,7 +16,6 @@ import { EmbeddedLayout } from './layout-modes/EmbeddedLayout'
 import { MinimalLayout } from './layout-modes/MinimalLayout'
 import { TodayFramedLayout } from './layout-modes/TodayFramedLayout'
 import { TodayPhoneLayout } from './layout-modes/TodayPhoneLayout'
-import { ZenLayout } from './layout-modes/ZenLayout'
 import { resolveLayoutMode } from './layoutMode'
 import { navigation3000Logic } from './navigationLogic'
 
@@ -65,8 +64,6 @@ export function Navigation({
             return <BareLayout>{children}</BareLayout>
         case 'minimal':
             return <MinimalLayout sceneConfig={sceneConfig}>{children}</MinimalLayout>
-        case 'zen':
-            return <ZenLayout>{children}</ZenLayout>
         case 'embedded':
             return <EmbeddedLayout>{children}</EmbeddedLayout>
         case 'classic':
