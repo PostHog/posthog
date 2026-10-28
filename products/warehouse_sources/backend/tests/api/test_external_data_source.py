@@ -3336,6 +3336,35 @@ class TestExternalDataSource(APIBaseTest):
                 "rotated-secret",
                 True,
             ),
+            # A client edits the top-level copy that GET returned and sends the whole object back.
+            (
+                "rotation_through_returned_copy",
+                {
+                    "aws_auth": {"selection": "access_keys", "aws_access_key_id": "AKIAEXAMPLE"},
+                    "aws_access_key_id": "AKIAROTATED",
+                    "aws_secret_access_key": "rotated-secret",
+                    "region": "eu-west-1",
+                },
+                "AKIAROTATED",
+                "rotated-secret",
+                True,
+            ),
+            # The settings form edits the container and echoes the unchanged top-level copy.
+            (
+                "form_edit_with_echoed_copy",
+                {
+                    "aws_auth": {
+                        "selection": "access_keys",
+                        "aws_access_key_id": "AKIAFORM",
+                        "aws_secret_access_key": "form-secret",
+                    },
+                    "aws_access_key_id": "AKIAEXAMPLE",
+                    "region": "eu-west-1",
+                },
+                "AKIAFORM",
+                "form-secret",
+                True,
+            ),
         ]
     )
     @patch(

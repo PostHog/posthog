@@ -442,7 +442,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             SourceInputsStore.load(instance), source_fields, source.flat_stored_selects
         )
         incoming_job_inputs = nest_flat_select_containers(
-            validated_data.get("job_inputs", {}), source_fields, source.flat_stored_selects
+            validated_data.get("job_inputs", {}), source_fields, source.flat_stored_selects, existing_job_inputs
         )
         sensitive_fields = helpers.get_sensitive_field_names(source.get_source_config.fields)
         declared_field_names = helpers.get_declared_field_names(source.get_source_config.fields)

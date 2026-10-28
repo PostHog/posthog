@@ -126,7 +126,10 @@ def _flat_stored_select_fields(
 
 
 def nest_flat_select_containers(
-    job_inputs: dict[str, Any], fields: list[FieldType], flat_stored_selects: Iterable[str]
+    job_inputs: dict[str, Any],
+    fields: list[FieldType],
+    flat_stored_selects: Iterable[str],
+    stored: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return a copy of job_inputs with the fields of a select branch held only in the select's container.
 
@@ -135,14 +138,33 @@ def nest_flat_select_containers(
     already reads them as the select's default branch. Validation, the settings form and the update
     merge read the container instead. Without this, a create with the old shape fails validation,
     the form shows the fields empty, and an update either drops the stored secrets or ignores the
-    new ones. When the container exists, the top-level fields are the copies `serialize_config`
-    keeps for older workers, so they are dropped here and the update logic sees one copy of a secret.
+    new ones.
+
+    When the container exists too, the top-level fields are the copies that `serialize_config` and
+    the API read keep for older readers. A client that edits only the copy still means it, so a
+    top-level value fills the default branch when it differs from `stored`, the already nested
+    stored job_inputs, and the container does not change that field itself.
     """
     nested = dict(job_inputs)
     for field, branch_names in _flat_stored_select_fields(fields, flat_stored_selects):
         flat = {name: nested.pop(name) for name in sorted(branch_names) if name in nested}
-        if flat and field.name not in job_inputs:
+        if not flat:
+            continue
+        container = job_inputs.get(field.name)
+        if not isinstance(container, dict):
             nested[field.name] = {"selection": field.defaultValue, **flat}
+            continue
+        if container.get("selection", field.defaultValue) != field.defaultValue:
+            continue
+        stored_container = (stored or {}).get(field.name)
+        stored_values = stored_container if isinstance(stored_container, dict) else {}
+        merged = dict(container)
+        for name, value in flat.items():
+            if value in (None, "") or value == stored_values.get(name):
+                continue
+            if merged.get(name) in (None, "", stored_values.get(name)):
+                merged[name] = value
+        nested[field.name] = merged
     return nested
 
 
