@@ -387,6 +387,10 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         definition: { name: 'scopy docs crawler', category: 'ai_crawler', trafficType: 'AI Agent', operator: 'scopy' },
     },
     {
+        pattern: 'unstale-collector',
+        definition: { name: 'unstale', category: 'ai_crawler', trafficType: 'AI Agent', operator: 'unstale' },
+    },
+    {
         pattern: 'llms-txt-sync',
         definition: {
             name: 'llms-txt-sync',

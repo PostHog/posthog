@@ -751,6 +751,9 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "scopy-docs-crawler": BotDefinition(
         "scopy docs crawler", "ai_crawler", "AI Agent", "scopy", documentation_url="https://scopy.dev"
     ),
+    "unstale-collector": BotDefinition(
+        "unstale", "ai_crawler", "AI Agent", "unstale", documentation_url="https://github.com/vuca-dev/unstale"
+    ),
     "llms-txt-sync": BotDefinition("llms-txt-sync", "ai_crawler", "AI Agent", "llms-txt-sync"),
     "PromptingBot": BotDefinition("PromptingBot", "ai_crawler", "AI Agent", "PromptingBot"),
     "llm-code-docs-scraper": BotDefinition("LLM code docs scraper", "ai_crawler", "AI Agent", "llm-code-docs-scraper"),

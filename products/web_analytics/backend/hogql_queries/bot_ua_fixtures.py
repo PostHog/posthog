@@ -58,6 +58,8 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "docs-puller/0.3 (+https://github.com/nstranquist/docs-puller)",
         "ToolchestBot/0.1 (+https://toolchest.ai)",
         "scopy-docs-crawler/1.0 (+https://scopy.dev)",
+        "unstale-collector/0.0 (+https://github.com/vuca-dev/unstale)",
+        "unstale-collector/0.0 (+https://github.com/jasontd92/unstale)",
         "llms-txt-sync/2.0 (research crawler)",
         "PromptingBot/1.0.0",
         "llm-code-docs-scraper/1.0",
