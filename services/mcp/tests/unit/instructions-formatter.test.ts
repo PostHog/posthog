@@ -522,7 +522,7 @@ describe('InstructionsFormatter', () => {
         })
 
         it.each(surfaces)(
-            '$name sends chart explanations to the walkthrough only when explain-chart exists',
+            '$name sends chart explanations to explain-chart only when explain-chart exists',
             ({ render }) => {
                 const formatter = new InstructionsFormatter()
                 const withTool = render(formatter, {
