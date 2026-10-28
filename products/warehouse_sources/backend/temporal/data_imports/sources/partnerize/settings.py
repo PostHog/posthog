@@ -7,7 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class PartnerizeEndpointConfig:
     name: str
     # Path relative to the API base. `{publisher_id}` is substituted with the configured partner ID.

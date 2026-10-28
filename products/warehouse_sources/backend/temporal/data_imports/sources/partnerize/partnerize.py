@@ -38,7 +38,7 @@ REPORT_PAGE_LIMIT = 300
 DEFAULT_START_DATE = "2010-01-01T00:00:00Z"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class PartnerizeResumeConfig:
     # Report endpoints resume from the row offset within the current date window; the window
     # itself is recomputed deterministically from the job's incremental inputs.
