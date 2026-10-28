@@ -14254,6 +14254,54 @@
             "readOnlyHint": false
         }
     },
+    "supabase-auth-emails-settings-get": {
+        "description": "Get how the project sends a Supabase project's auth emails through PostHog email templates, including the hook URL to paste into Supabase and every email type it can map. Call this before supabase-auth-emails-settings-update, because that tool replaces the whole template mapping.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "Get the Supabase auth email settings",
+        "title": "Get the Supabase auth email settings",
+        "required_scopes": ["hog_flow:read"],
+        "api_operations": ["GET /api/projects/{project_id}/messaging_supabase_auth_emails/settings/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-supabase-auth-emails"
+    },
+    "supabase-auth-emails-settings-update": {
+        "description": "Update how the project sends a Supabase project's auth emails. Send only the fields to change. To get templates to map, call supabase-auth-emails-starter-templates-create or use the email template tools. Ask the user for the hook secret. Never invent one. Sending starts when the user turns on the Send Email hook in Supabase, so map the core emails before telling them to.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "Update the Supabase auth email settings",
+        "title": "Update the Supabase auth email settings",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/messaging_supabase_auth_emails/settings/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-supabase-auth-emails"
+    },
+    "supabase-auth-emails-starter-templates-create": {
+        "description": "Create and map an email template for each core Supabase auth email that has no usable template yet. A repeat call skips types that still have one. Needs a verified email sender on the project. Edit the templates afterwards with the email template tools.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "Create starter templates for the Supabase auth emails",
+        "title": "Create starter templates for the Supabase auth emails",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["POST /api/projects/{project_id}/messaging_supabase_auth_emails/starter_templates/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-supabase-auth-emails"
+    },
     "survey-create": {
         "description": "Creates a new survey in the project. For the draft, targeting, preview, and launch workflow, load the creating-surveys skill when available. Use this for both in-app surveys and hosted forms. Prefer draft creation by default and do not set start_date unless the user explicitly asks to launch immediately. For in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use external_survey. Keep surveys short unless the user asks for a longer flow. Survey content is public: anyone can read the name, questions, and appearance text. In-app surveys send them to every visitor's browser, and a hosted survey shows them on its public page. Tell the user before putting a customer name or other private detail in a survey. For substantial visual changes, preview the final draft once before launch if browser access is already available. Skip browser checks for small edits.",
         "category": "Surveys",

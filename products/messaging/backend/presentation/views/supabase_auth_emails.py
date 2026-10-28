@@ -110,20 +110,24 @@ class SupabaseAuthEmailSettingsUpdateSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         max_length=200,
-        help_text="The Supabase project URL, such as https://abcdefgh.supabase.co.",
+        help_text="The Supabase project URL, such as https://abcdefgh.supabase.co, from the project's API settings in "
+        "the Supabase dashboard. It must use https.",
     )
     hook_secret = serializers.CharField(
         required=False,
         allow_blank=True,
         write_only=True,
         max_length=500,
-        help_text="The Send Email Hook secret from Supabase, starting with v1,whsec_. Leave it out to keep the "
-        "stored secret.",
+        help_text="The Send Email Hook secret, starting with v1,whsec_. Supabase generates it under Authentication, "
+        "Hooks, Send Email hook. Leave it out to keep the stored secret.",
     )
     templates = serializers.DictField(
         child=serializers.UUIDField(),
         required=False,
-        help_text="Supabase email action type to transactional message template id. Replaces the whole mapping. "
+        help_text="Supabase email action type to the id of the email template that sends it. Each template must be "
+        "transactional and marked sensitive. This replaces the whole mapping: include every type to keep, and leave a "
+        "type out to unmap it. A core auth email with no template fails in Supabase, and a notification with no "
+        "template is skipped. "
         f"Valid action types: {', '.join(SupabaseEmailActionType.values)}.",
     )
 
