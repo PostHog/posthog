@@ -32,6 +32,8 @@ from hogli import telemetry
 from hogli.cli import send_completion_before_exec
 from hogli.manifest import load_manifest
 
+from .config import load_config
+
 _MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 _TAILSCALE_RUNBOOK_URL = "https://wiki.posthog.com/access/vpn#which-tailnet"
 # The only tailnet that routes to devboxes. PostHog also runs per-environment
@@ -142,21 +144,49 @@ def _fail(message: str, *, cause: str | None = None) -> NoReturn:
     raise SystemExit(1)
 
 
+def saved_region() -> str | None:
+    """Return the saved region preference, or ``None`` when absent or invalid.
+
+    A saved value outside ``REGIONS``, such as a typo in a hand-edited
+    config, reads as unset, so ``get_coder_url`` falls back to the default
+    region instead of raising.
+    """
+    saved = load_config().get("region")
+    return saved if saved in REGIONS else None
+
+
+def preferred_region() -> str:
+    """Return the saved region, falling back to ``DEFAULT_REGION``.
+
+    Every command path that needs the user's region reads it here, so the
+    Coder server URL and the workspace names use the same region.
+    """
+    return saved_region() or DEFAULT_REGION
+
+
 def get_coder_url() -> str:
-    """Resolve the configured Coder deployment URL."""
+    """Return the Coder server URL: ``HOGLI_DEVBOX_CODER_URL`` or ``CODER_URL``
+    if set, else the hogli.yaml entry for ``preferred_region()``.
+
+    Each region runs its own Coder server with its own users and
+    workspaces, so a session or workspace on one never shows up on the other.
+    """
     if url := os.environ.get("HOGLI_DEVBOX_CODER_URL"):
         return url
 
     if url := os.environ.get("CODER_URL"):
         return url
 
-    manifest = load_manifest()
-    metadata = manifest.get("metadata", {})
-    devbox_metadata = metadata.get("devbox", {})
-    if isinstance(devbox_metadata, dict) and isinstance(devbox_metadata.get("coder_url"), str):
-        return devbox_metadata["coder_url"]
+    region = preferred_region()
+    devbox_metadata = load_manifest().get("metadata", {}).get("devbox", {})
+    coder_urls = devbox_metadata.get("coder_urls") if isinstance(devbox_metadata, dict) else None
+    url = coder_urls.get(region) if isinstance(coder_urls, dict) else None
+    if isinstance(url, str):
+        return url
 
-    raise RuntimeError("Missing `metadata.devbox.coder_url` in hogli.yaml.")
+    raise RuntimeError(
+        f"hogli.yaml has no `metadata.devbox.coder_urls.{region}` entry. Add the Coder server URL for {region} there."
+    )
 
 
 def _normalize_version(version: str) -> str:
@@ -929,24 +959,55 @@ def _coder_user_show_me() -> subprocess.CompletedProcess[str]:
     return _run(["coder", "users", "show", "me", "--output", "json"], capture_output=True)
 
 
-def coder_authenticated() -> bool:
-    """Return whether the local machine is authenticated with Coder."""
+def coder_session_url() -> str | None:
+    """Return the Coder server URL the coder CLI is logged in to, or ``None`` when logged out."""
     if not coder_installed():
-        return False
+        return None
 
-    return _coder_whoami().returncode == 0
+    result = _coder_whoami()
+    if result.returncode != 0:
+        return None
+
+    try:
+        rows = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    row = rows[0] if isinstance(rows, list) and rows else rows
+    url = row.get("url") if isinstance(row, dict) else None
+    return url if isinstance(url, str) and url else None
+
+
+def _same_deployment(a: str, b: str) -> bool:
+    return a.rstrip("/").lower() == b.rstrip("/").lower()
+
+
+def coder_authenticated() -> bool:
+    """Return whether the coder CLI is logged in to the Coder server for ``preferred_region()``."""
+    session_url = coder_session_url()
+    return session_url is not None and _same_deployment(session_url, get_coder_url())
+
+
+def _wrong_deployment_message(session_url: str, coder_url: str) -> str:
+    return (
+        f"The coder CLI is logged in to {session_url}, but your devbox region "
+        f"({preferred_region()}) uses {coder_url}. Each region has its own Coder server, "
+        "with its own logins and devboxes."
+    )
 
 
 def ensure_coder_authenticated() -> None:
-    """Run interactive login when needed."""
-    if coder_authenticated():
-        click.echo("Coder login is ready.")
-        return
-
+    """Run interactive login when the coder CLI is logged out or logged in to another region's Coder server."""
     if not coder_installed():
         _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
     coder_url = get_coder_url()
+    session_url = coder_session_url()
+    if session_url is not None and _same_deployment(session_url, coder_url):
+        click.echo("Coder login is ready.")
+        return
+    if session_url is not None:
+        click.echo(_wrong_deployment_message(session_url, coder_url))
+
     click.echo(f"Logging in to {coder_url}...")
     result = _run(["coder", "login", coder_url])
     if result.returncode != 0:
@@ -960,8 +1021,16 @@ def ensure_runtime_ready() -> None:
     if not coder_installed():
         _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
-    if not coder_authenticated():
-        _fail(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}", cause="coder_login_not_ready")
+    coder_url = get_coder_url()
+    session_url = coder_session_url()
+    if session_url is None:
+        _fail(f"Coder login is not ready for {coder_url}. {RUNTIME_SETUP_HINT}", cause="coder_login_not_ready")
+    if not _same_deployment(session_url, coder_url):
+        _fail(
+            f"{_wrong_deployment_message(session_url, coder_url)}\n"
+            f"  Run `hogli devbox:setup --configure-region` and choose {preferred_region()} to log in there.",
+            cause="coder_login_wrong_region",
+        )
 
     _warn_version_mismatch()
 

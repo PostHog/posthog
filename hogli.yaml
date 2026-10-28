@@ -40,7 +40,9 @@ config:
 
 metadata:
     devbox:
-        coder_url: https://coder.dev.posthog.dev
+        coder_urls:
+            us-east-1: https://coder.dev.posthog.dev
+            eu-central-1: https://coder-eu.dev.posthog.dev
     categories:
         - key: devenv
           title: Intent-based dev environment

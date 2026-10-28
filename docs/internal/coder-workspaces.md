@@ -66,7 +66,7 @@ hogli devbox:sync --terminate                        # tear down when done
 ## Prerequisites
 
 - Access to the PostHog Tailscale tailnet (on macOS, the Tailscale app bundle CLI is detected automatically if `tailscale` isn't on PATH)
-- Access to the internal Coder deployment at `https://coder.dev.posthog.dev`
+- Access to the internal Coder deployment for your region: `https://coder.dev.posthog.dev` for `us-east-1`, `https://coder-eu.dev.posthog.dev` for `eu-central-1`
 - `hogli` available locally
 
 ## First-time setup
@@ -116,7 +116,7 @@ The Coder CLI keeps a parameter's last-build value even when hogli passes a new 
 
 Run `hogli devbox` to see all available commands, and `hogli <command> --help` for options.
 
-Region selection is available for `devbox:start` via `--region` (`us-east-1` or `eu-central-1`, default `us-east-1`). The region is set once at creation and cannot be changed. Workspaces in `eu-central-1` get an `-eu` name suffix (e.g. `devbox-alice-eu`). `devbox:list` and `devbox:status` show which region a workspace is in.
+Each region (`us-east-1` or `eu-central-1`, default `us-east-1`) has its own Coder server. The region saved by `hogli devbox:setup --configure-region` picks the server for every devbox command. `devbox:start --region` must match the saved region, and a workspace's region cannot change after creation. Workspaces in `eu-central-1` get an `-eu` name suffix (for example `devbox-alice-eu`). `devbox:list` and `devbox:status` show which region a workspace is in.
 
 `devbox:start --start-app` opts a workspace into bringing the PostHog app up (`hogli up`) in the background on every start — useful for scripted, ephemeral devboxes that should be usable without an interactive `hogli up`. The setting is stored as a workspace parameter (`auto_start_app`), so it stays in effect for future starts. The flag applies only when hogli creates the devbox; on an existing devbox hogli refuses it, and the parameter can be changed in the Coder dashboard. Requires a template version that defines the parameter; on older templates hogli drops it with a warning.
 
@@ -143,4 +143,4 @@ Common secrets include `CLAUDE_CODE_OAUTH_TOKEN` and `GH_TOKEN`.
 - Git inside the workspace should use HTTPS via Coder external auth — do not set up SSH Git inside the workspace
 - Claude auth is stored as a Coder user secret named `CLAUDE_CODE_OAUTH_TOKEN` (requires Coder 2.33+). Run `hogli devbox:setup --configure-claude` to set or replace it.
 
-`go/coder` is a convenient shortcut for humans, but the canonical deployment URL is `https://coder.dev.posthog.dev`.
+`go/coder` redirects to the `us-east-1` deployment at `https://coder.dev.posthog.dev`. The `eu-central-1` deployment is at `https://coder-eu.dev.posthog.dev`.
