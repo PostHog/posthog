@@ -409,7 +409,8 @@ potential → candidate → in_progress → ready
 # RESOLVED is terminal and never re-promotes: a recurrence spawns a fresh report, linked back to the
 # resolved one via a recurrence_of report link (assign_and_emit_signal_activity). A report dismissed with a
 # reason that claims the issue is fixed (already_fixed, fixed_outside_posthog, pr_merged) makes the
-# same claim, so it forks the same way; every other dismissal reason absorbs later signals silently
+# same claim, so it forks the same way. A wrong_repo dismissal also forks so repository selection
+# can run again; every other dismissal reason absorbs later signals silently
 # (recurrence.py). The pipeline records each successor with a typed recurrence_of link. Generic related_to
 # links do not control signal assignment. Matching follows this successor chain, including
 # preference-dismissed reports that must keep absorbing signals. Repeated feedback does not break
@@ -1108,6 +1109,8 @@ A bulk dismissal processes only the reports that name the caller, and it skips t
 The next matching signal starts a fresh report linked back by `recurrence_of`, while the original stays dismissed.
 Further matching signals follow that link to the same successor, which uses the normal weight threshold for research promotion.
 Repository selection runs afresh with the project's correction feedback; the successor does not reuse the dismissed report's selection or treat its findings as evidence of a previous fix.
+If selection returns the repository rejected by the parent's latest dismissal, the successor requests repository input before research, including when that repository is the only eligible candidate. This check applies only to the linked successor, so unrelated reports can still use that repository.
+The successor does not copy `corrected_repository` into its selection; the correction informs normal selection, which checks current eligibility and source visibility.
 The dismissal artefact denormalizes `selected_repository` (the report's latest `repo_selection` at dismissal time) next to the correction, so a selection mistake is one self-contained record.
 When the corrected repository is currently connected to the team, the state action also appends it as a user-attributed `repo_selection` artefact, latest-wins.
 Restoring the report does not itself re-research; the appended selection means the report's next research run, once new signals re-promote it, targets the corrected repository instead of repeating the rejected pick.
