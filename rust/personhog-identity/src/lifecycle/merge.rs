@@ -1464,6 +1464,7 @@ impl MergeDriver {
                     outcome: ReleaseOutcome::Aborted.into(),
                     sealed_version: None,
                     created_at: 0,
+                    tombstone_version: None,
                 };
                 async move { leader.release_fence(request).await }
             })
@@ -2115,6 +2116,7 @@ impl MergeDriver {
                             outcome: ReleaseOutcome::Committed.into(),
                             sealed_version: Some(snapshot.version),
                             created_at: snapshot.created_at,
+                            tombstone_version: None,
                         })
                         .await
                         .map(|_| ())
