@@ -47,7 +47,8 @@ async function run(
 ): Promise<(string | undefined)[]> {
     const shown: (string | undefined)[] = []
     for (const call of calls) {
-        shown.push((await engine.evaluate(state, call))?.ruleId)
+        const notice = await engine.evaluate(state, call)
+        shown.push(notice && `${notice.ruleId}:${notice.outcome}`)
     }
     return shown
 }
@@ -58,18 +59,29 @@ describe('GuidanceEngine', () => {
         await expect(run(engine, makeState(), [replayQuery, otherQuery, replayQuery, replayQuery])).resolves.toEqual([
             undefined,
             undefined,
-            'test-rule',
+            'test-rule:shown',
             undefined,
         ])
     })
 
-    it('stays silent once the session has called a suppressing tool', async () => {
+    it('stamps a suppressed outcome once when the session already called a suggested tool', async () => {
         const engine = new GuidanceEngine(makeGuidanceRedis(), [rule])
-        await expect(run(engine, makeState(), [visionCall, replayQuery, replayQuery])).resolves.toEqual([
+        await expect(run(engine, makeState(), [visionCall, replayQuery, replayQuery, replayQuery])).resolves.toEqual([
             undefined,
             undefined,
+            'test-rule:suppressed',
             undefined,
         ])
+    })
+
+    it('stamps a flag_off outcome without text when the flag is off', async () => {
+        const engine = new GuidanceEngine(makeGuidanceRedis(), [rule])
+        const state = makeState({ toolFeatureFlags: {} })
+        await engine.evaluate(state, replayQuery)
+        await expect(engine.evaluate(state, replayQuery)).resolves.toEqual({
+            ruleId: 'test-rule',
+            outcome: 'flag_off',
+        })
     })
 
     it.each([
@@ -85,7 +97,7 @@ describe('GuidanceEngine', () => {
         const first = makeState({ requestContext: { ...makeState().requestContext, mcpSessionId: 'sess-1' } })
         const second = makeState({ ...first, ...overrides(first) })
         await run(engine, first, [replayQuery])
-        await expect(run(engine, second, [replayQuery, replayQuery])).resolves.toEqual([undefined, 'test-rule'])
+        await expect(run(engine, second, [replayQuery, replayQuery])).resolves.toEqual([undefined, 'test-rule:shown'])
     })
 
     it('reserves the allowance once when matching calls run concurrently', async () => {
@@ -108,7 +120,6 @@ describe('GuidanceEngine', () => {
     })
 
     it.each([
-        ['flag off', { toolFeatureFlags: {} }],
         ['impersonated session', { isImpersonated: true }],
         ['analytics suppressed', { suppressAnalytics: true }],
         ['sandbox token', { apiKeyScopes: ['internal_run:read'] }],
@@ -127,7 +138,7 @@ describe('GuidanceEngine', () => {
         const engine = new GuidanceEngine(makeGuidanceRedis(), [errorRule])
         await expect(run(engine, makeState(), [replayQuery, { ...replayQuery, isError: true }])).resolves.toEqual([
             undefined,
-            'test-rule',
+            'test-rule:shown',
         ])
     })
 

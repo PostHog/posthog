@@ -108,6 +108,19 @@ describe('ToolExecutor guidance notices', () => {
             undefined,
             'replay-sql-to-vision',
         ])
+        expect(capture.mock.calls[1]?.[0].properties?.mcp_guidance_outcome).toBe('shown')
+    })
+
+    it('stamps flag_off on the event and leaves the result alone when the flag is off', async () => {
+        const { callSql, capture } = setup('direct', () => ({ results: [] }), 'some-other-flag')
+        const first = await callSql('select 1 from session_replay_events')
+        const second = await callSql('select 2 from session_replay_events')
+
+        expect(second.content).toEqual(first.content)
+        expect(capture.mock.calls[1]?.[0].properties).toMatchObject({
+            mcp_guidance_rule: 'replay-sql-to-vision',
+            mcp_guidance_outcome: 'flag_off',
+        })
     })
 
     it.each(['direct', 'exec'])('prepends the schema notice to the third failed query in %s mode', async (mode) => {

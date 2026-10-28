@@ -221,8 +221,8 @@ export function routeLabel(pathname: string): string {
 
 export const guidanceNoticesTotal = new Counter({
     name: 'mcp_guidance_notices_total',
-    help: 'Guidance notices prepended to tool results, by rule.',
-    labelNames: ['rule'] as const,
+    help: 'Guidance rule outcomes on tool calls (shown, flag_off, suppressed), by rule.',
+    labelNames: ['rule', 'outcome'] as const,
 })
 
 export { register }

@@ -22,9 +22,13 @@ export interface GuidanceCall {
     isError: boolean
 }
 
+export type GuidanceOutcome = 'shown' | 'flag_off' | 'suppressed'
+
 export interface GuidanceNotice {
     ruleId: string
-    text: string
+    outcome: GuidanceOutcome
+    /** Only present when the notice is shown to the agent. */
+    text?: string
 }
 
 export function matchesToolPattern(pattern: string, toolName: string): boolean {
@@ -72,9 +76,10 @@ function isGuidanceAudience(state: ResolvedState): boolean {
     )
 }
 
+// The flag decides only whether the text goes out: an eligible caller with the flag off is
+// counted the same way, so the stamped outcome gives a control group for the analysis.
 function ruleApplies(rule: GuidanceRule, state: ResolvedState, preset: string): boolean {
     return (
-        state.toolFeatureFlags?.[rule.flag] === true &&
         rule.trigger.presets.includes(preset as GuidanceRule['trigger']['presets'][number]) &&
         rule.requiresTool.some((name) => state.allTools.some((tool) => tool.name === name))
     )
@@ -93,7 +98,13 @@ local matched = redis.call('INCR', KEYS[1])
 redis.call('EXPIRE', KEYS[1], ttl)
 redis.call('EXPIRE', KEYS[2], ttl)
 redis.call('EXPIRE', KEYS[3], ttl)
-if ARGV[5] ~= '1' or matched < tonumber(ARGV[2]) or redis.call('EXISTS', KEYS[2]) == 1 then
+if ARGV[5] ~= '1' or matched < tonumber(ARGV[2]) then
+    return 0
+end
+if redis.call('EXISTS', KEYS[2]) == 1 then
+    if matched == tonumber(ARGV[2]) then
+        return 2
+    end
     return 0
 end
 local shown = redis.call('INCR', KEYS[3])
@@ -103,6 +114,12 @@ if shown > tonumber(ARGV[3]) then
 end
 return 1
 `
+
+enum RuleResult {
+    None = 0,
+    Fired = 1,
+    Suppressed = 2,
+}
 
 export class GuidanceEngine {
     constructor(
@@ -126,17 +143,24 @@ export class GuidanceEngine {
         const scope = `mcp:guidance:{${hashKey(`${state.distinctId}|${sessionKey ?? ''}`)}}`
 
         try {
-            let winner: GuidanceRule | undefined
+            let winner: GuidanceNotice | undefined
             for (const rule of rules) {
-                if (await this.touchRule(rule, scope, ttl, call, winner === undefined)) {
-                    winner = rule
+                const result = await this.touchRule(rule, scope, ttl, call, winner === undefined)
+                if (result === RuleResult.Fired) {
+                    const shown = state.toolFeatureFlags?.[rule.flag] === true
+                    winner = {
+                        ruleId: rule.id,
+                        outcome: shown ? 'shown' : 'flag_off',
+                        ...(shown ? { text: rule.text } : {}),
+                    }
+                } else if (result === RuleResult.Suppressed && !winner) {
+                    winner = { ruleId: rule.id, outcome: 'suppressed' }
                 }
             }
-            if (!winner) {
-                return undefined
+            if (winner) {
+                guidanceNoticesTotal.inc({ rule: winner.ruleId, outcome: winner.outcome })
             }
-            guidanceNoticesTotal.inc({ rule: winner.id })
-            return { ruleId: winner.id, text: winner.text }
+            return winner
         } catch {
             return undefined
         }
@@ -148,10 +172,10 @@ export class GuidanceEngine {
         ttl: number,
         call: GuidanceCall,
         canFire: boolean
-    ): Promise<boolean> {
+    ): Promise<RuleResult> {
         const suppressing = rule.suppressIfCalled.some((pattern) => matchesToolPattern(pattern, call.toolName))
         if (!suppressing && !triggerMatches(rule, call)) {
-            return false
+            return RuleResult.None
         }
         const key = (suffix: string): string => `${scope}:${rule.id}:${suffix}`
         const fired = await this.redis.eval(
@@ -166,7 +190,7 @@ export class GuidanceEngine {
             suppressing ? 'suppress' : 'match',
             canFire ? '1' : '0'
         )
-        return Number(fired) === 1
+        return Number(fired) as RuleResult
     }
 }
 
@@ -177,7 +201,7 @@ function hashKey(value: string): string {
 // Prepended on errors too: a notice that fires on repeated failures must reach the agent.
 export function prependGuidanceNotice(result: unknown, notice: GuidanceNotice | undefined): unknown {
     if (
-        !notice ||
+        !notice?.text ||
         typeof result !== 'object' ||
         result === null ||
         !Array.isArray((result as { content?: unknown }).content)
@@ -189,5 +213,5 @@ export function prependGuidanceNotice(result: unknown, notice: GuidanceNotice | 
 }
 
 export function guidanceAnalyticsProperties(notice: GuidanceNotice | undefined): Record<string, unknown> {
-    return notice ? { mcp_guidance_rule: notice.ruleId } : {}
+    return notice ? { mcp_guidance_rule: notice.ruleId, mcp_guidance_outcome: notice.outcome } : {}
 }
