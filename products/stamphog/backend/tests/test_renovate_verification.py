@@ -149,7 +149,8 @@ class TestLockfileVersions(SimpleTestCase):
             ("patch_downgrade", "1.2.4", "1.2.3", "a downgrade"),
             ("minor_downgrade", "1.10.0", "1.9.5", "a downgrade"),
             ("onto_a_prerelease", "1.2.0", "1.2.0-rc.1", "a prerelease"),
-            ("between_prereleases", "1.2.0-rc.1", "1.2.0-rc.2", None),
+            ("back_to_an_earlier_prerelease", "1.2.0-rc.2", "1.2.0-rc.1", "a prerelease"),
+            ("prerelease_to_its_release", "1.2.0-rc.2", "1.2.0", None),
         ]
     )
     def test_update_refusal(self, _name: str, old: str, new: str, expected: str | None) -> None:
