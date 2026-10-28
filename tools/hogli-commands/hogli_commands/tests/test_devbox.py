@@ -33,6 +33,13 @@ def agent_ready_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
+def stub_mutagen_setup(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(devbox_mutagen, "ensure_mutagen_installed", lambda **kwargs: None)
+    monkeypatch.setattr(devbox_mutagen, "ensure_daemon_with_shim", lambda: None)
+    monkeypatch.setattr(devbox_mutagen, "ensure_user_mutagen_config", lambda: tmp_path / "mutagen.yml")
+
+
+@pytest.fixture
 def devbox_config_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     config_path = tmp_path / "hogli_devbox.json"
     monkeypatch.setattr(devbox_config, "get_config_path", lambda: config_path)
@@ -1479,6 +1486,7 @@ class TestResolveWorkspaceName:
             devbox_cli.resolve_workspace_name(None)
 
 
+@pytest.mark.usefixtures("stub_mutagen_setup")
 class TestDevboxCommands:
     """Test the Click command contract for devbox commands."""
 
@@ -1798,6 +1806,29 @@ class TestDevboxCommands:
 
         assert result.exit_code == 0, result.output
         assert captured["start_app"] == expected
+
+    @pytest.mark.parametrize("exists", [False, True])
+    def test_eval_setup_defers_app_only_when_creating(self, monkeypatch: pytest.MonkeyPatch, exists: bool) -> None:
+        name = "devbox-test-user-eval"
+        workspace = {"name": name, "latest_build": {"status": "running"}} if exists else None
+        created = MagicMock()
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda *args, **kwargs: (name, []))
+        monkeypatch.setattr(devbox_cli, "get_workspace", lambda *args: workspace)
+        monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
+        monkeypatch.setattr(devbox_cli, "_print_connection_info", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "_wait_until_ready", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "create_workspace", created)
+
+        result = devbox_cli.start_or_create_workspace(
+            "eval", None, "template", "preset", "us-east-1", None, False, create_without_app=True
+        )
+
+        assert result == name
+        if exists:
+            created.assert_not_called()
+        else:
+            assert created.call_args.kwargs["start_app"] is False
 
     def test_devbox_start_rejects_unknown_region(self) -> None:
         # click.Choice rejects the value during option parsing, before the
@@ -2378,6 +2409,7 @@ class TestDevboxConfigCommands:
         assert "Restart any running devbox" in result.output
 
 
+@pytest.mark.usefixtures("stub_mutagen_setup")
 class TestDevboxSetupGate:
     """Cover the Y/n gate at the top of ``hogli devbox:setup``."""
 

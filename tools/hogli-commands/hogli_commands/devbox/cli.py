@@ -1448,6 +1448,58 @@ def _maybe_hint_region_mismatch(name: str) -> None:
         )
 
 
+def start_or_create_workspace(
+    workspace: str | None,
+    disk: int | None,
+    template: str,
+    preset: str,
+    region: str | None,
+    start_app: bool | None,
+    verbose: bool,
+    *,
+    create_without_app: bool = False,
+) -> str:
+    """Start or create a devbox and return its resolved name."""
+    ensure_runtime_ready()
+    effective_region = region or _preferred_region()
+    if workspace is None and region is not None:
+        # An explicit --region targets that region's default directly, so it
+        # can be created (or resumed) regardless of boxes in other regions.
+        name = get_workspace_name(region=effective_region)
+        workspaces: list[dict[str, Any]] | None = list_user_workspaces()
+    else:
+        # Resolution prefers the effective region's default but falls back to
+        # the box the user already has -- a saved pref alone never abandons it.
+        name, workspaces = resolve_workspace_name(workspace, region=effective_region)
+    ws = get_workspace(name, workspaces)
+
+    if ws is not None:
+        if workspace is None and region is None:
+            _maybe_hint_region_mismatch(name)
+        _start_existing_workspace(name, ws, start_app=start_app, verbose=verbose)
+        return name
+
+    config = load_config()
+
+    click.echo(f"Creating devbox '{name}' (template={template}, preset={preset}, region={effective_region})...")
+    create_workspace(
+        name,
+        disk,
+        git_name=config.get("git_name"),
+        git_email=config.get("git_email"),
+        dotfiles_uri=config.get("dotfiles_uri"),
+        region=effective_region,
+        template=template,
+        preset=preset,
+        start_app=False if create_without_app else start_app,
+        verbose=verbose,
+    )
+    _wait_until_ready(name)
+    click.echo("Created.")
+    _print_connection_info(name)
+    return name
+
+
 @click.command(name="devbox:start", help="Start or create your remote devbox")
 @workspace_argument
 @click.option(
@@ -1496,43 +1548,7 @@ def devbox_start(
     verbose: bool,
 ) -> None:
     """Start or create the remote devbox."""
-    ensure_runtime_ready()
-    effective_region = region or _preferred_region()
-    if workspace is None and region is not None:
-        # An explicit --region targets that region's default directly, so it
-        # can be created (or resumed) regardless of boxes in other regions.
-        name = get_workspace_name(region=effective_region)
-        workspaces: list[dict[str, Any]] | None = list_user_workspaces()
-    else:
-        # Resolution prefers the effective region's default but falls back to
-        # the box the user already has -- a saved pref alone never abandons it.
-        name, workspaces = resolve_workspace_name(workspace, region=effective_region)
-    ws = get_workspace(name, workspaces)
-
-    if ws is not None:
-        if workspace is None and region is None:
-            _maybe_hint_region_mismatch(name)
-        _start_existing_workspace(name, ws, start_app=start_app, verbose=verbose)
-        return
-
-    config = load_config()
-
-    click.echo(f"Creating devbox '{name}' (template={template}, preset={preset}, region={effective_region})...")
-    create_workspace(
-        name,
-        disk,
-        git_name=config.get("git_name"),
-        git_email=config.get("git_email"),
-        dotfiles_uri=config.get("dotfiles_uri"),
-        region=effective_region,
-        template=template,
-        preset=preset,
-        start_app=start_app,
-        verbose=verbose,
-    )
-    _wait_until_ready(name)
-    click.echo("Created.")
-    _print_connection_info(name)
+    start_or_create_workspace(workspace, disk, template, preset, region, start_app, verbose)
 
 
 @click.command(
