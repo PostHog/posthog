@@ -1450,6 +1450,13 @@ describe('sessionRecordingsPlaylistLogic', () => {
             }
             expect(logic.values.filters.person_uuid).toBe(expected)
             expect('person_uuid' in logic.values.filters).toBe(expected !== undefined)
+            expect(router.values.searchParams.filters?.person_uuid).toBe(expected)
+            expect(logic.values.totalFiltersCount).toBe(expected ? 1 : 0)
+        })
+
+        it('reads the person from the URL', async () => {
+            router.actions.push('/replay', { filters: { person_uuid: 'p' } })
+            await expectLogic(logic).toMatchValues({ filters: expect.objectContaining({ person_uuid: 'p' }) })
         })
     })
 

@@ -12,7 +12,7 @@ import { asUniversalFilters, sessionRecordingsPlaylistLogic } from './sessionRec
 // The select beside the chips lists every saved filter, so only the first few get a chip.
 const MAX_CHIPS = 4
 
-export function SavedFilterChips(): JSX.Element | null {
+export function SavedFilterChips({ edited }: { edited: boolean }): JSX.Element | null {
     const { savedFilters, appliedSavedFilter } = useValues(sessionRecordingSavedFiltersLogic)
     const { setAppliedSavedFilter } = useActions(sessionRecordingSavedFiltersLogic)
     const { applySavedFilter } = useActions(sessionRecordingsPlaylistLogic)
@@ -37,7 +37,7 @@ export function SavedFilterChips(): JSX.Element | null {
                     key={filter.short_id}
                     size="small"
                     type="secondary"
-                    active={filter.short_id === appliedSavedFilter?.short_id}
+                    active={!edited && filter.short_id === appliedSavedFilter?.short_id}
                     onClick={() => apply(filter)}
                     className="max-w-60"
                     truncate

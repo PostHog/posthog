@@ -63,7 +63,7 @@ export function ReplayBulkBar({ type, shortId }: { type: 'filters' | 'collection
     return (
         <div className="flex flex-1 min-w-0 items-center gap-1 text-xs" data-attr="list-bulk-bar">
             <span className="font-semibold px-1 shrink-0">{selectedRecordingsIds.length} selected</span>
-            <div className="hidden @min-[28rem]/list-header:flex items-center gap-1">
+            <div className="hidden @min-[24rem]/list-header:flex items-center gap-1">
                 {primaryItems.map((item) => (
                     <LemonButton
                         key={item['data-attr']}
@@ -85,7 +85,7 @@ export function ReplayBulkBar({ type, shortId }: { type: 'filters' | 'collection
                     />
                 </LemonMenu>
             </div>
-            <div className="@min-[28rem]/list-header:hidden">
+            <div className="@min-[24rem]/list-header:hidden">
                 <LemonMenu items={[...primaryItems, ...moreItems]} placement="bottom-end" buttonSize="xsmall">
                     <LemonButton
                         size="xsmall"

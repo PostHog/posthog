@@ -1,6 +1,6 @@
 import { deepEqual as equal } from 'fast-equals'
 import { useActions, useValues } from 'kea'
-import { ReactNode, useState } from 'react'
+import { useState } from 'react'
 
 import { IconFilter, IconRefresh } from '@posthog/icons'
 import { LemonBadge, LemonButton } from '@posthog/lemon-ui'
@@ -15,6 +15,7 @@ import { RecordingUniversalFilters } from '~/types'
 import { FilterChips } from './FilterChips'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { comparableRecordingFilters } from './playlistUtils'
+import { SavedFilterChips } from './SavedFilterChips'
 import { SavedFilterEditedBar } from './SavedFilterEditedBar'
 import { SavedFilterSelect } from './SavedFilterSelect'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
@@ -32,7 +33,7 @@ export function ReplayFilterBar({
     totalFiltersCount?: number
     currentSessionRecordingId?: string
     onReload: () => void
-    savedFilterChips?: ReactNode
+    savedFilterChips?: boolean
 }): JSX.Element {
     const { sessionRecordingsResponseLoading } = useValues(sessionRecordingsPlaylistLogic)
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
@@ -72,7 +73,7 @@ export function ReplayFilterBar({
                         {totalFiltersCount ? <LemonBadge.Number count={totalFiltersCount} size="small" /> : null}
                     </LemonButton>
                     <SavedFilterSelect edited={edited} onSaveCurrent={() => setSaveModalOpen(true)} />
-                    {savedFilterChips}
+                    {savedFilterChips && <SavedFilterChips edited={edited} />}
                     <FilterChips filters={filters} setFilters={setFilters} />
                 </div>
                 <LemonButton

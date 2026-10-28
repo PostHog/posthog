@@ -29,7 +29,6 @@ import { isFeedReplayLayout, isNewReplayLayout } from './replayLayout'
 import { ReplayListColumn } from './ReplayListColumn'
 import { replayListColumnLogic } from './replayListColumnLogic'
 import { ReplayListColumnWithPicks } from './ReplayListColumnWithPicks'
-import { SavedFilterChips } from './SavedFilterChips'
 import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 const HedgehogDirector = pngHoggie(directorPng)
@@ -248,7 +247,7 @@ function FeedFilterBar(): JSX.Element {
             totalFiltersCount={totalFiltersCount}
             currentSessionRecordingId={activeSessionRecordingId}
             onReload={() => maybeLoadSessionRecordings()}
-            savedFilterChips={<SavedFilterChips />}
+            savedFilterChips
         />
     )
 }

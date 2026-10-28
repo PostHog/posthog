@@ -1733,7 +1733,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 })
             },
 
-            // A second person replaces the first, so the chip never shows two people.
             filterByPerson: () => {
                 actions.loadSessionRecordings()
                 props.onFiltersChange?.(values.filters)
