@@ -172,6 +172,34 @@ export interface PatchedEnterpriseEventDefinitionApi {
 }
 
 /**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface EventDefinitionRecordApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    last_seen_at?: string | null
+    readonly last_updated_at: string
+    tags?: unknown[]
+    enforcement_mode?: SchemaEnforcementModeEnumApi
+    /**
+     * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+     * @maxLength 400
+     * @nullable
+     */
+    primary_property?: string | null
+    readonly is_action: boolean
+    readonly action_id: number
+    readonly is_calculating: boolean
+    readonly last_calculated_at: string
+    readonly created_by: UserBasicApi
+    post_to_slack?: boolean
+}
+
+/**
  * * `add` - add
  * * `remove` - remove
  * * `set` - set
@@ -250,34 +278,6 @@ export interface EventDefinitionBulkUpdateVerifiedResponseApi {
     updated: EventDefinitionBulkUpdateVerifiedItemApi[]
     /** Events that were skipped (e.g. not found in this project), with a reason each. */
     skipped: BulkUpdateTagsUUIDErrorApi[]
-}
-
-/**
- * Serializer mixin that handles tags for objects.
- */
-export interface EventDefinitionRecordApi {
-    readonly id: string
-    /** @maxLength 400 */
-    name: string
-    /** @nullable */
-    created_at?: string | null
-    /** @nullable */
-    last_seen_at?: string | null
-    readonly last_updated_at: string
-    tags?: unknown[]
-    enforcement_mode?: SchemaEnforcementModeEnumApi
-    /**
-     * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
-     * @maxLength 400
-     * @nullable
-     */
-    primary_property?: string | null
-    readonly is_action: boolean
-    readonly action_id: number
-    readonly is_calculating: boolean
-    readonly last_calculated_at: string
-    readonly created_by: UserBasicApi
-    post_to_slack?: boolean
 }
 
 /**

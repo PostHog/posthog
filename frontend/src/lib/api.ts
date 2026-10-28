@@ -3032,6 +3032,13 @@ const api = {
         async delete({ eventDefinitionId }: { eventDefinitionId: EventDefinition['id'] }): Promise<void> {
             return new ApiRequest().eventDefinitionDetail(eventDefinitionId).delete()
         },
+        async stopIngesting({
+            eventDefinitionId,
+        }: {
+            eventDefinitionId: EventDefinition['id']
+        }): Promise<EventDefinition> {
+            return new ApiRequest().eventDefinitionDetail(eventDefinitionId).withAction('stop_ingesting').create()
+        },
         async list({
             limit = EVENT_DEFINITIONS_PER_PAGE,
             teamId,

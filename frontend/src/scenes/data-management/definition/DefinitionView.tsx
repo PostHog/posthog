@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useMemo } from 'react'
 
 import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
-import { LemonTag, LemonTagType, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonTag, LemonTagType, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -19,6 +19,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { getPrimaryPropertyForEvent } from 'lib/utils/events'
 import {
@@ -134,7 +135,7 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
     const logic = definitionLogic(props)
     const { definition, definitionLoading, definitionMissing, singular, isEvent, isProperty, metrics, metricsLoading } =
         useValues(logic)
-    const { deleteDefinition } = useActions(logic)
+    const { deleteDefinition, stopIngestingEvent } = useActions(logic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const memoizedQuery = useMemo(() => {
@@ -194,8 +195,12 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
         }
     }
 
+    // `hidden` is only on the enterprise definition, which the drop also needs. Dropping a PostHog
+    // event such as $pageview breaks other products, so the API refuses those too.
+    const canStopIngesting = isEvent && 'hidden' in definition && !definition.name.startsWith('$')
+
     const openDeleteDialog = (): void =>
-        LemonDialog.open({
+        LemonDialog.openForm({
             title: `Delete this ${singular} definition?`,
             description: (
                 <>
@@ -211,14 +216,28 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                     <p>This definition will be recreated if the {singular} is ever seen again in the event stream.</p>
                 </>
             ),
-            primaryButton: {
-                status: 'danger',
-                children: 'Delete definition',
-                onClick: () => deleteDefinition(),
-            },
-            secondaryButton: {
-                children: 'Cancel',
-            },
+            initialValues: { stopIngesting: false },
+            content: canStopIngesting ? (
+                <LemonField name="stopIngesting">
+                    {({ value, onChange }) => (
+                        <div className="flex flex-col gap-1">
+                            <LemonCheckbox
+                                checked={value}
+                                onChange={onChange}
+                                label="Also stop ingesting this event"
+                                data-attr="event-definition-delete-stop-ingesting"
+                            />
+                            <p className="text-secondary text-xs mb-0 ml-6">
+                                PostHog drops new events with this name before it stores them. Dropped events can't be
+                                recovered. The definition is hidden now. You can remove the drop condition in{' '}
+                                <Link to={urls.eventFiltering()}>Event filtering</Link>.
+                            </p>
+                        </div>
+                    )}
+                </LemonField>
+            ) : undefined,
+            primaryButtonProps: { status: 'danger', children: 'Delete definition' },
+            onSubmit: ({ stopIngesting }) => (stopIngesting ? stopIngestingEvent() : deleteDefinition()),
             width: 448,
         })
 

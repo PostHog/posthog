@@ -46,6 +46,47 @@ describe('definitionLogic', () => {
                     definition: createNewDefinition(true),
                 })
         })
+
+        it('stops ingesting the event and returns to the event list', async () => {
+            const stopIngesting = jest.fn(() => [200, { ...mockEventDefinitions[0], hidden: true }])
+            useMocks({ post: { '/api/projects/:team/event_definitions/:id/stop_ingesting': stopIngesting } })
+            router.actions.push(urls.eventDefinition('1'))
+            logic = definitionLogic({ id: '1' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadDefinitionSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.stopIngestingEvent()
+            }).toDispatchActions(['stopIngestingEvent', 'stopIngestingEventSuccess'])
+
+            expect(stopIngesting).toHaveBeenCalledTimes(1)
+            expect(router.values.location.pathname).toMatch(new RegExp(`${urls.eventDefinitions()}$`))
+        })
+
+        it('stays on the definition when the event filter refuses the condition', async () => {
+            useMocks({
+                post: {
+                    '/api/projects/:team/event_definitions/:id/stop_ingesting': () => [
+                        400,
+                        {
+                            detail: 'The event filter is in dry run. Make it live or remove its conditions, then try again.',
+                        },
+                    ],
+                },
+            })
+            router.actions.push(urls.eventDefinition('1'))
+            logic = definitionLogic({ id: '1' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadDefinitionSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.stopIngestingEvent()
+            })
+                .toDispatchActions(['stopIngestingEvent', 'stopIngestingEventFailure'])
+                .toMatchValues({ definition: mockEventDefinitions[0] })
+
+            expect(router.values.location.pathname).toMatch(new RegExp(`${urls.eventDefinition('1')}$`))
+        })
     })
 
     describe('event property definition', () => {
