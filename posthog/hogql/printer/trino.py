@@ -45,6 +45,10 @@ from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION
 if TYPE_CHECKING:
     from posthog.hogql.database.models import Table
 
+# Trino refuses a sorted LIMIT whose LIMIT + OFFSET is above this. On the outermost query a LIMIT that large
+# cannot cut a result, so the printer drops it. In a nested query it can, so the printer refuses it.
+TRINO_MAX_LIMIT = 2**31 - 1
+
 _TRINO_SIMPLE_TYPES = {
     "bigint": "BIGINT",
     "bool": "BOOLEAN",
@@ -313,11 +317,20 @@ class TrinoPrinter(PostgresPrinter):
     def _append_select_limit_and_offset(
         self, clauses: list[str | None], node: ast.SelectQuery, limit: ast.Expr | None
     ) -> None:
+        offset = self._validate_row_count(node.offset, "OFFSET") if node.offset is not None else 0
         if node.offset is not None:
-            clauses.append(f"OFFSET {self._validate_row_count(node.offset, 'OFFSET')} ROWS")
+            clauses.append(f"OFFSET {offset} ROWS")
         if limit is None:
             return
         count = self._validate_row_count(limit, "LIMIT")
+        if node.order_by and not node.limit_percent and count + offset > TRINO_MAX_LIMIT:
+            if len(self.stack) > 1:
+                self._unsupported(
+                    "TRINO_SORTED_LIMIT_TOO_LARGE",
+                    f"A sorted LIMIT plus OFFSET above {TRINO_MAX_LIMIT} is only supported on the outermost query in Trino mode.",
+                    node,
+                )
+            return
         if node.limit_percent:
             self._unsupported("TRINO_LIMIT_PERCENT_UNSUPPORTED", "LIMIT PERCENT is not supported in Trino mode.")
         if node.limit_with_ties:
