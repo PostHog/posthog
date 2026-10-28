@@ -28,7 +28,7 @@ import {
     suiteRunSummary,
 } from 'products/data_quality/frontend/suiteRuns'
 
-const CHECKS_LIMIT = 500
+export const CHECKS_LIMIT = 500
 
 export type OverviewStatusFilter = 'all' | 'failing' | 'never_run'
 
@@ -44,6 +44,7 @@ export const DEFAULT_OVERVIEW_FILTERS: OverviewFilters = { search: '', status: '
 /** Checks and rollups from one refresh, committed together so rows and health always agree. */
 export interface OverviewSnapshot {
     checks: DataQualityOverviewCheckApi[]
+    totalCheckCount: number
     health: DataQualitySubjectHealthApi[]
 }
 
@@ -142,6 +143,7 @@ export interface dataQualityOverviewLogicValues {
     checkRunsByCheckId: Record<string, DataQualityCheckRunApi[]>
     checks: DataQualityOverviewCheckApi[]
     checksStatus: OverviewChecksStatus
+    checksTruncated: boolean
     deletingCheckIds: Record<string, boolean>
     expandedSubjectKeys: string[]
     expansionInitialized: boolean
@@ -311,6 +313,7 @@ export interface dataQualityOverviewLogicMeta {
             filters: OverviewFilters
         ) => DataQualityOverviewCheckApi[]
         failingCheckCount: (checks: DataQualityOverviewCheckApi[]) => number
+        checksTruncated: (overview: OverviewSnapshot | null) => boolean
         failingSubjectCount: (checks: DataQualityOverviewCheckApi[]) => number
         overviewSummary: (
             checks: DataQualityOverviewCheckApi[],
@@ -369,7 +372,7 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                         dataQualityChecksList(projectId(), { limit: CHECKS_LIMIT }),
                         dataQualityChecksHealthList(projectId()),
                     ])
-                    return { checks: checks.results, health }
+                    return { checks: checks.results, totalCheckCount: checks.count, health }
                 },
             },
         ],
@@ -544,6 +547,10 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                         .some((field) => String(field).toLowerCase().includes(search))
                 })
             },
+        ],
+        checksTruncated: [
+            (s) => [s.overview],
+            (overview: OverviewSnapshot | null): boolean => (overview?.totalCheckCount ?? 0) > CHECKS_LIMIT,
         ],
         failingCheckCount: [
             (s) => [s.checks],

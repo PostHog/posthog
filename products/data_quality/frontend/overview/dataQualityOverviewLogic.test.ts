@@ -363,14 +363,16 @@ describe('dataQualityOverviewLogic', () => {
         expect(logic.values.checksStatus).toEqual(expectedStatus)
     })
 
-    it('does not claim every check passed when the checks fill the page', async () => {
+    it('does not claim every check passed when the checks fill the page, and says the list is cut short', async () => {
         ;(dataQualityChecksList as jest.Mock).mockResolvedValue({
+            count: 742,
             results: Array.from({ length: 500 }, (_, index) => buildCheck(`check-${index}`, 'orders', 'passed')),
         })
         ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue([])
         await mountLogic()
 
         expect(logic.values.checksStatus).toEqual('unknown')
+        expect(logic.values.checksTruncated).toBe(true)
     })
 
     it('sends no ids when running everything', async () => {

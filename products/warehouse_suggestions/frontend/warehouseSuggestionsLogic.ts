@@ -57,6 +57,7 @@ import {
 
 export type StripState = 'loading' | 'error' | 'hidden' | 'warming_up' | 'not_eligible' | 'active' | 'all_done'
 export type SuggestionSurface = 'models' | 'catalog'
+export type SuggestionPlacement = 'overview' | 'models_tab'
 export interface SuggestionGroup {
     kind: string
     suggestions: WarehouseSuggestionApi[]
@@ -64,6 +65,7 @@ export interface SuggestionGroup {
 
 export interface WarehouseSuggestionsLogicProps {
     surface: SuggestionSurface
+    placement?: SuggestionPlacement
     onAccepted?: (suggestion: WarehouseSuggestionApi) => void
     onViewAccepted?: (suggestion: WarehouseSuggestionApi) => void
 }
@@ -215,6 +217,7 @@ export interface warehouseSuggestionsLogicValues {
     statusLoading: boolean
     stripState: StripState
     suggestionGroups: SuggestionGroup[]
+    rankedSuggestions: WarehouseSuggestionApi[]
     suggestions: WarehouseSuggestionApi[] | null
     suggestionsLoading: boolean
     surfaceSuggestions: WarehouseSuggestionApi[]
@@ -394,6 +397,7 @@ export interface warehouseSuggestionsLogicMeta {
             listedSuggestions: WarehouseSuggestionApi[],
             leavingSuggestionIds: string[]
         ) => WarehouseSuggestionApi[]
+        rankedSuggestions: (surfaceSuggestions: WarehouseSuggestionApi[]) => WarehouseSuggestionApi[]
         savingsSummary: (surfaceSuggestions: WarehouseSuggestionApi[]) => SavingsSummary
         materializeModalSuggestion: (
             suggestions: WarehouseSuggestionApi[] | null,
@@ -624,6 +628,10 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                 (listed: WarehouseSuggestionApi[], leavingIds: string[]): WarehouseSuggestionApi[] =>
                     listed.filter((suggestion) => !leavingIds.includes(suggestion.id)),
             ],
+            rankedSuggestions: [
+                (s) => [s.surfaceSuggestions],
+                (open: WarehouseSuggestionApi[]): WarehouseSuggestionApi[] => [...open].sort(compareSuggestions),
+            ],
             savingsSummary: [
                 (s) => [s.surfaceSuggestions],
                 (open: WarehouseSuggestionApi[]): SavingsSummary => {
@@ -718,12 +726,15 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             ],
         }),
         listeners(({ actions, values, props, cache, selectors }) => {
+            const capture = (event: string, properties: Record<string, unknown>): void => {
+                posthog.capture(event, { ...properties, placement: props.placement })
+            }
             const reportViewedOnce = (): void => {
                 if (cache.viewReported || values.stripState !== 'active') {
                     return
                 }
                 cache.viewReported = true
-                posthog.capture('warehouse suggestions viewed', {
+                capture('warehouse suggestions viewed', {
                     surface: props.surface,
                     suggestion_count: values.surfaceSuggestions.length,
                 })
@@ -754,18 +765,18 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                 loadSuggestionsSuccess: () => reportViewedOnce(),
                 loadStatusSuccess: () => reportViewedOnce(),
                 closeMaterializeModal: (_, __, ___, previousState) => {
-                    posthog.capture('warehouse suggestion materialize cancelled', {
+                    capture('warehouse suggestion materialize cancelled', {
                         suggestion_id: selectors.materializeModalSuggestionId(previousState),
                     })
                 },
                 openAcceptConfirm: ({ id }) => {
-                    posthog.capture('warehouse suggestion confirm opened', {
+                    capture('warehouse suggestion confirm opened', {
                         suggestion_id: id,
                         kind: values.acceptConfirmSuggestion?.kind,
                     })
                 },
                 closeAcceptConfirm: (_, __, ___, previousState) => {
-                    posthog.capture('warehouse suggestion confirm cancelled', {
+                    capture('warehouse suggestion confirm cancelled', {
                         suggestion_id: selectors.acceptConfirmSuggestionId(previousState),
                     })
                 },
@@ -778,13 +789,13 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     actions.acceptSuggestion(suggestion.id, keepMaterialized ? { keep_materialized: true } : undefined)
                 },
                 openReview: () => {
-                    posthog.capture('warehouse suggestion review opened', {
+                    capture('warehouse suggestion review opened', {
                         surface: props.surface,
                         suggestion_count: values.surfaceSuggestions.length,
                     })
                 },
                 openMaterializeModal: ({ id }) => {
-                    posthog.capture('warehouse suggestion materialize opened', { suggestion_id: id })
+                    capture('warehouse suggestion materialize opened', { suggestion_id: id })
                     const payload = values.suggestions?.find((suggestion) => suggestion.id === id)?.payload
                     if (!payload || !isMaterializePayload(payload)) {
                         actions.setMaterializeInterval(null)

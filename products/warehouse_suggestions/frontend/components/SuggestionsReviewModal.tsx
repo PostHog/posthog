@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
-import { ReactNode, useEffect, useRef } from 'react'
+import { ReactNode, useRef } from 'react'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
+import { useFocusFollowsRemovedRow } from './useFocusFollowsRemovedRow'
 
 export interface SuggestionsReviewModalProps {
     title: string
@@ -20,7 +21,8 @@ export function SuggestionsReviewModal({ title, summary, children }: Suggestions
     const returnFocusRef = useRef<HTMLSpanElement>(null)
     useFocusFollowsRemovedRow(
         bodyRef,
-        listedSuggestions.map((suggestion) => suggestion.id)
+        listedSuggestions.map((suggestion) => suggestion.id),
+        () => bodyRef.current?.querySelector<HTMLElement>('[data-suggestions-done]')?.focus()
     )
 
     const focusSurfaceIfOpenerLeft = (): void => {
@@ -72,25 +74,4 @@ export function SuggestionsReviewModal({ title, summary, children }: Suggestions
             </LemonModal>
         </>
     )
-}
-
-function useFocusFollowsRemovedRow(bodyRef: React.RefObject<HTMLDivElement>, rowIds: string[]): void {
-    const previousRowIds = useRef(rowIds)
-
-    useEffect(() => {
-        const previous = previousRowIds.current
-        previousRowIds.current = rowIds
-        const removedIndex = previous.findIndex((id) => !rowIds.includes(id))
-        const focusWasLost = !document.activeElement || document.activeElement === document.body
-        if (removedIndex < 0 || !focusWasLost || !bodyRef.current) {
-            return
-        }
-        const nextId = rowIds[removedIndex] ?? rowIds[removedIndex - 1]
-        const target = nextId
-            ? bodyRef.current.querySelector<HTMLElement>(
-                  `[data-suggestion-row="${nextId}"] [data-suggestion-actions] button`
-              )
-            : bodyRef.current.querySelector<HTMLElement>('[data-suggestions-done]')
-        target?.focus()
-    }, [rowIds, bodyRef])
 }

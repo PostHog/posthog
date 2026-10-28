@@ -279,3 +279,14 @@ export function spokenDuration(seconds: number, maxUnits: number): string {
 export function countOf(count: number, singular: string, plural: string): string {
     return `${count} ${count === 1 ? singular : plural}`
 }
+
+export const SUGGESTED_MODEL_SECTIONS: Record<string, { title: string; description: string }> = {
+    materialize: {
+        title: 'Materialize',
+        description: 'These views run their full query every time someone reads them.',
+    },
+    unmaterialize: {
+        title: 'Stop materializing',
+        description: 'These views cost more to refresh than to run on each read.',
+    },
+}
