@@ -447,6 +447,21 @@ describe("SessionLogWriter", () => {
           },
         ],
       },
+      {
+        label: "a progress update for an earlier tool call",
+        wireMessages: [
+          {
+            method: "session/update",
+            params: {
+              update: {
+                sessionUpdate: "tool_call_update",
+                toolCallId: "tc0",
+                status: "in_progress",
+              },
+            },
+          },
+        ],
+      },
     ])(
       "keeps a streamed message whole across an interleaved $label",
       async ({ wireMessages }) => {
