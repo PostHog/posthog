@@ -129,7 +129,8 @@ class MCPSession(UUIDModel, TeamScopedRootMixin):
 
 
 class MCPCustomHarness(UUIDModel, TeamScopedRootMixin):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    # A database constraint to posthog_team would lock that hot table when the table is created.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     name = models.CharField(
         max_length=100,
         validators=[RegexValidator(r"^[\w .+&()/-]+$", "Use letters, numbers, spaces and . + & ( ) / - only.")],
