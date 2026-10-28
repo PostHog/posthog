@@ -544,7 +544,7 @@ DISMISSAL_REASON_WRONG_REPO = "wrong_repo"
 # Reason codes that claim the issue is fixed, rather than stating a preference about the report.
 # A later matching signal contradicts the claim, so the grouping stage treats these dismissals the
 # way it treats a resolved report: the recurrence gets a fresh report (see `recurrence.py`). The
-# `wontfix_*` codes and the rest stay sinks, because they say "I do not want this".
+# `wrong_repo` can also start a fresh report, but does not claim a previous fix.
 FIXED_DISMISSAL_REASONS = frozenset({"already_fixed", "fixed_outside_posthog", "pr_merged"})
 # Bounds shared by the state API and this schema, so the generic artefact endpoint cannot store a
 # dismissal the state API would reject. Readers scan these rows in bulk (`repo_corrections`), so an

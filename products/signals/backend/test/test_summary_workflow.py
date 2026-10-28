@@ -25,6 +25,7 @@ from products.signals.backend.models import SignalReport
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.startup_failure import RESEARCH_STARTUP_FAILURE, ResearchStartupFailure
 from products.signals.backend.temporal.agentic.report import (
     RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE,
     RunAgenticReportInput,
@@ -40,6 +41,7 @@ from products.signals.backend.temporal.summary import (
     MarkReportInProgressInput,
     MarkReportPendingInput,
     MarkReportReadyInput,
+    NotifyResearchStartupFailureInput,
     PublishReportCompletedInput,
     ReportHasAssignedSignalsInput,
     ResetReportToPotentialInput,
@@ -206,6 +208,8 @@ class _Recorder:
         self.selected_repository = selected_repository
         self.research_errors = list(research_errors or [])
         self.failure_error_types: list[str | None] = []
+        self.failure_startups: list[ResearchStartupFailure | None] = []
+        self.startup_notice_attempts = 0
         self.gate_checks: list[str] = []
         self.fetches = 0
         self.claimed_before_fetch: list[bool] = []
@@ -350,6 +354,15 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
         recorder.failures += 1
         recorder.failure_reasons.append(input.failure_reason)
         recorder.failure_error_types.append(input.error_type)
+        recorder.failure_startups.append(input.startup_failure)
+
+    @activity.defn(name="notify_research_startup_failure_activity")
+    async def fake_startup_notification(input: NotifyResearchStartupFailureInput) -> None:
+        assert recorder.failures == 1
+        assert input.failure == recorder.failure_startups[0]
+        recorder.startup_notice_attempts += 1
+        if recorder.startup_notice_attempts == 1:
+            raise OperationalError("Notification temporarily unavailable")
 
     # The production self-driving worker runs with the pydantic data converter; the default converter
     # mangles the enum/pydantic payloads these activities exchange (RepoSelectionResult,
@@ -376,6 +389,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
                 fake_revert,
                 fake_reset,
                 fake_failed,
+                fake_startup_notification,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -467,6 +481,34 @@ async def test_research_does_not_retry_other_activity_errors(research_error: Exc
     assert recorder.failures == 1
     assert recorder.failure_reasons == ["agentic_activity_error"]
     assert recorder.failure_error_types == [error_type]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("requires_action,attempts", [(True, 1), (False, 2)])
+async def test_research_startup_retry_policy_and_failure_details_survive_temporal(requires_action: bool, attempts: int):
+    payload = {
+        "failure": {
+            "provider": "claude",
+            "phase": "sdk_initialization",
+            "reason": "proxy_invalid" if requires_action else None,
+            "retryability": "requires_action" if requires_action else "unknown",
+        },
+        "task_id": str(uuid.uuid4()),
+        "run_id": str(uuid.uuid4()),
+        "repository": "example/research",
+    }
+    error = ApplicationError(
+        "Research could not start", payload, type=RESEARCH_STARTUP_FAILURE, non_retryable=requires_action
+    )
+    recorder = _Recorder(research_errors=[error, error])
+    with pytest.raises(WorkflowFailureError):
+        await _run_summary_workflow(recorder)
+    assert recorder.researches == attempts
+    assert recorder.failures == 1
+    assert recorder.failure_startups[0] is not None
+    assert str(recorder.failure_startups[0].run_id) == payload["run_id"]
+    assert recorder.failure_startups[0].failure.retryability == ("requires_action" if requires_action else "unknown")
+    assert recorder.startup_notice_attempts == 2
 
 
 @pytest.mark.asyncio

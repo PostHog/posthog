@@ -31,6 +31,13 @@ It is exercised locally via management commands, and it is also used by the prod
 
   The repository used for research is tracked separately via the `repo_selection` artefact.
 
+  Startup failures cross the Tasks facade as `AgentStartupFailed`. The caller activity preserves
+  their typed details in `ResearchAgentStartupFailed`; transient sandbox failures retain the extended
+  `ResearchSandboxUnavailable` retry budget. Only failures classified as `requires_action` skip activity retries; a new run can succeed after the configuration or credentials are corrected.
+  The summary workflow persists the terminal failure, then retries its deduplicated notice in a separate
+  activity through `backend/startup_failure.py`. Recovery requires worker-attested startup success.
+  Keep this lifecycle in the caller, outside the research prompt flow.
+
 - `ownership_reviewers.py`
   Matches a finding's relevant code paths against the repository's `owners.yaml` and CODEOWNERS on the connected GitHub repository. When both name different project members, it suggests the `owners.yaml` owner first and the CODEOWNERS owner second. The artefact write path preserves human pins, exclusions, and confirmed lists during later research.
 
