@@ -416,17 +416,18 @@ class MCPCustomHarnessViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Rows save under the parent team (`TeamScopedRootMixin.save()`), so a child environment filters on it too.
         return queryset.filter(team_id=self.team.parent_team_id or self.team_id)
 
-    def perform_create(self, serializer: BaseSerializer[Any]) -> None:
-        super().perform_create(serializer)
+    def _invalidate_harness_caches(self) -> None:
         api.refresh_custom_harness_rules(self.team)
         clear_sources_cache()
+
+    def perform_create(self, serializer: BaseSerializer[Any]) -> None:
+        super().perform_create(serializer)
+        self._invalidate_harness_caches()
 
     def perform_update(self, serializer: BaseSerializer[Any]) -> None:
         super().perform_update(serializer)
-        api.refresh_custom_harness_rules(self.team)
-        clear_sources_cache()
+        self._invalidate_harness_caches()
 
     def perform_destroy(self, instance: MCPCustomHarness) -> None:
         super().perform_destroy(instance)
-        api.refresh_custom_harness_rules(self.team)
-        clear_sources_cache()
+        self._invalidate_harness_caches()
