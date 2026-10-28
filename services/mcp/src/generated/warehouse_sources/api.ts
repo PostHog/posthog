@@ -3,44 +3,10 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 31 enabled ops
+ * PostHog API - MCP 30 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
-
-/**
- * Manage where warehouse sources write their synced rows.
- *
- * A destination can be attached to several sources, or to a single table on a source.
- * Credentials come from an integration, so one connection can be reused across syncs.
- */
-export const ExternalDataDestinationsListParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const ExternalDataDestinationsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-})
-
-/**
- * Manage where warehouse sources write their synced rows.
- *
- * A destination can be attached to several sources, or to a single table on a source.
- * Credentials come from an integration, so one connection can be reused across syncs.
- */
-export const ExternalDataDestinationsRetrieveParams = () => zod.object({
-    id: zod.string().describe('A UUID string identifying this external data destination.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
 
 export const ExternalDataSchemasListParams = () => zod.object({
     project_id: zod
@@ -2085,6 +2051,29 @@ export const ExternalDataSourcesDestinationsRetrieveParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Read or replace the destinations every table on this source syncs to.
+ *
+ * A table with its own override ignores this set until the override is cleared.
+ */
+export const ExternalDataSourcesDestinationsPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this external data source.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ExternalDataSourcesDestinationsPartialUpdateBody = () => zod.object({
+    destination_ids: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Destinations to sync to. On a table, null clears the override so the table follows its source again.'
         ),
 })
 
