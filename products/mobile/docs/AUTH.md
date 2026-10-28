@@ -58,8 +58,12 @@ Every redirect URI a build uses must be registered on the OAuth application it s
 
 Expo Go produces an `exp://` redirect that no app registers, so sign in needs a development build.
 
-Self-hosted hosts must be https. Plain http is accepted only for loopback (`localhost`, `127.0.0.0/8`, `::1`), which is also the only place the server allows http redirects, and only in internal builds (dev, preview, or any Metro session).
-A store build rejects `http://localhost`.
+Self-hosted hosts must be https. Internal builds (dev, preview, or any Metro session) accept plain http only for `localhost`, `127.0.0.1` and `[::1]`. These are also loopback hosts accepted by the server's OAuth redirect policy. Other `127.*` addresses, localhost subdomains and the Android emulator's `10.0.2.2` alias require https.
+A store build rejects plain http, including loopback hosts.
+
+Android release binaries built with the development or preview variant allow cleartext only for those three exact loopback hosts. Production release binaries deny cleartext for all hosts; loading a Metro bundle does not change that native policy. Local Android debug builds, including `pnpm android` with the default store identity, retain Expo's cleartext allowance so Metro can load over the local network. The app's token host validation still accepts HTTP only on the three loopback hosts.
+
+To reach a local stack from an Android device or emulator, run `adb reverse tcp:8010 tcp:8010` and enter `http://localhost:8010` (substitute the stack's port). OAuth's browser must be able to reach the same host.
 
 ## AI approval roles
 

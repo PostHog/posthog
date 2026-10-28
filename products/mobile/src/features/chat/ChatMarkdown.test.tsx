@@ -10,9 +10,10 @@ jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: () => ({ host: 'ht
 jest.mock('@/api/insights', () => ({ getInsightSummary: jest.fn() }))
 jest.mock('./MermaidDiagram', () => ({ MermaidDiagram: jest.fn(() => null) }))
 const summary = getInsightSummary as jest.MockedFunction<typeof getInsightSummary>
+let client: QueryClient
 function view(text: string): ReturnType<typeof render> {
     return render(
-        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <QueryClientProvider client={client}>
             <ChatMarkdown text={text} />
         </QueryClientProvider>
     )
@@ -29,8 +30,12 @@ describe('reply object rendering', () => {
         view('> ```mermaid\n> flowchart LR\n> A-->B\n> ```')
         expect(diagram).toHaveBeenCalled()
     })
-    beforeEach(() => jest.clearAllMocks())
+    beforeEach(() => {
+        jest.clearAllMocks()
+        client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+    })
     afterEach(() => {
+        client.clear()
         jest.restoreAllMocks()
         jest.mocked(useColorScheme).mockReturnValue('light')
     })

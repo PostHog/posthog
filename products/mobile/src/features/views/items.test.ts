@@ -34,10 +34,16 @@ describe('Views insight reads', () => {
     let context: ItemContext
 
     beforeEach(() => {
-        context = { client: new QueryClient(), scope: null, demo: false }
+        context = {
+            client: new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } }),
+            scope: null,
+            demo: false,
+        }
         useItemErrors.getState().reset()
         jest.mocked(readInsight).mockReset()
     })
+
+    afterEach(() => context.client.clear())
 
     test.each([
         [undefined, true, 'Oct 1 – 20'],
@@ -67,7 +73,6 @@ describe('Views insight reads', () => {
             )
             expect(snapshot).toMatchObject({ usesOwnRange: expected })
             expect(snapshot && pinRangeLabel(snapshot)).toBe(label)
-            context.client.clear()
         }
     )
 

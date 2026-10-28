@@ -182,7 +182,8 @@ The names, id suffixes and schemes are in `src/lib/appVariants.json`.
 - In the app, `src/lib/environment.ts` reads the variant from the bundle id, so an update cannot change it.
   A Metro bundle always counts as development.
 - Development and preview builds show an environment ribbon on the sign-in screen and in Settings, and a Settings Environment group.
-  They accept `http://localhost` hosts and prefill the local dev OAuth client id. Store builds do none of this.
+  They accept HTTP on `localhost`, `127.0.0.1` and `[::1]`, and prefill the local dev OAuth client id. Store builds do none of this.
+  Android's release network policy allows those exact loopback hosts only in development and preview variants; production release binaries deny cleartext. Local debug builds retain Expo's cleartext allowance for Metro on the local network, including with the store identity. A native rebuild is needed to change either policy. See [Auth](AUTH.md#redirect-uris) for port forwarding.
   A store build shows a red ribbon only when the session's host is not PostHog Cloud.
 
 ## One-time setup

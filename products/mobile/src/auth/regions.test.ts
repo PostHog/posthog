@@ -57,6 +57,7 @@ describe('regions', () => {
         ['http://localhost:8010', 'http://localhost:8010'],
         ['http://127.0.0.1:8000', 'http://127.0.0.1:8000'],
         ['http://[::1]:8010', 'http://[::1]:8010'],
+        ['http://[0:0:0:0:0:0:0:1]:8010', 'http://[::1]:8010'],
     ])('accepts %s as %s', (input, host) => {
         expect(validateHost(input)).toEqual({ ok: true, host })
     })
@@ -64,6 +65,10 @@ describe('regions', () => {
     test.each([
         ['an empty value', '  '],
         ['plain http to a remote host', 'http://posthog.example.com'],
+        ['another loopback address outside the native allowlist', 'http://127.0.0.2:8010'],
+        ['the emulator host alias', 'http://10.0.2.2:8010'],
+        ['a localhost subdomain', 'http://app.localhost:8010'],
+        ['an IPv4-mapped IPv6 address', 'http://[::ffff:127.0.0.1]:8010'],
         ['a non-web scheme', 'ftp://posthog.example.com'],
         ['a script URL', 'javascript:alert(1)'],
     ])('rejects %s', (_name, input) => {
@@ -73,6 +78,7 @@ describe('regions', () => {
     test.each([
         ['http://localhost:8010', false],
         ['http://127.0.0.1:8000', false],
+        ['http://[::1]:8010', false],
         ['https://localhost:8010', true],
     ])('a store build given %s accepts it: %s', (input, ok) => {
         expect(validateHost(input, false)).toMatchObject({ ok })

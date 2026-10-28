@@ -152,6 +152,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
                     microphonePermission: false,
                 },
             ],
+            ['./plugins/withAndroidLoopbackNetworking', { allowLoopback: variant !== 'production' }],
             './plugins/withAndroidAdaptiveIconInsets',
             './plugins/withIosSceneLifecycle',
             '@bacons/apple-targets',

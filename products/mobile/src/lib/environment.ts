@@ -38,7 +38,7 @@ export const appScheme: string = APP_VARIANTS[buildVariant].scheme
 
 export function isLoopbackHost(hostname: string): boolean {
     const bare = hostname.replace(/^\[|\]$/g, '').toLowerCase()
-    return bare === 'localhost' || bare === '::1' || /^127(\.\d{1,3}){3}$/.test(bare)
+    return bare === 'localhost' || bare === '127.0.0.1' || bare === '::1'
 }
 
 export function hostKind(host: string): HostKind {

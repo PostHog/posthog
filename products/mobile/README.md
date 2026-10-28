@@ -56,6 +56,40 @@ xcrun simctl openurl booted "posthog://report/demo-report-load-time/details"
 
 A build made with `APP_VARIANT=development` or `preview` uses the `posthog-dev://` or `posthog-preview://` scheme instead.
 
+### Sign in to the local backend
+
+Until the backend setup changes merge, run the PostHog stack from the paired `codex/mobile-dev-environment` branch and the mobile app from `codex/mobile-app`.
+The backend branch contains the setup commands and shared seed data; it does not contain this mobile workspace yet.
+Use the normal [local development setup](../../docs/published/handbook/engineering/developing-locally.md), wait for migrations, then run from that backend checkout:
+
+```sh
+python manage.py setup_local_dev --json
+python manage.py check_local_dev --json
+```
+
+The setup creates the usual `test@posthog.com` / `12345678` account when absent, registers the local OAuth callbacks, and adds personal Inbox reports and a completed Chat with saved messages.
+It preserves an existing account and selected project.
+It stops with instructions if migrations are missing or an existing account has different sign-in details.
+The JSON output contains the project and seeded object IDs.
+
+From this mobile workspace, build the development app:
+
+```sh
+APP_VARIANT=development pnpm ios
+```
+
+Leave demo mode, choose **Self-hosted**, and enter `http://localhost:8010`.
+Keep the prefilled local Client ID, then sign in as the usual test account and approve access.
+The browser returns through `posthog-dev://callback`.
+A production-identity local build uses `posthog://callback`; a preview build uses `posthog-preview://callback`.
+All three callbacks are registered by `setup_tasks_oauth`.
+
+The iOS simulator can reach the Mac's loopback backend.
+For an Android emulator, run `adb reverse tcp:8010 tcp:8010` before using the same localhost URL.
+A physical device's localhost refers to the device; use a reachable HTTPS backend and register its OAuth configuration instead.
+The web preview supports render checks; native OAuth sign-in needs iOS or Android.
+See [Authenticated local checks](docs/TESTING.md#authenticated-local-checks) for the backend and device checklist.
+
 ### Environment variables
 
 | Variable                                                           | Use                                                                                                                                                                                                                                                                   |
@@ -75,11 +109,16 @@ EAS builds and updates read them from the EAS environment of their profile, see 
 ## Check
 
 ```sh
-pnpm typecheck        # tsc --noEmit
+pnpm check:expo       # compare installed Expo SDK compatibility metadata
+pnpm typecheck        # Expo compatibility check, then tsc --noEmit
 pnpm lint             # biome check .   (pnpm fix to apply fixes)
 pnpm test             # jest (jest-expo preset)
 npx expo-doctor
 ```
+
+`pnpm check:expo` compares dependencies with the installed Expo SDK's bundled compatibility metadata.
+It does not compare newer patch metadata from a remote service.
+`pnpm typecheck` runs this check automatically before TypeScript.
 
 ## Assets
 
@@ -103,4 +142,4 @@ Regenerate them after an icon change with `uv run --with pillow python scripts/m
 - [Release checks](../../docs/internal/mobile-release-checks.md): build checks and manual smoke checks before sharing a release
 - [OTA updates](docs/OTA.md): update channels, runtime version, rollbacks
 - [CI](docs/CI.md): the Mobile CI and Mobile Build workflows
-- [Testing](docs/TESTING.md): the demo walkthrough on the iOS simulator with Argent
+- [Testing](docs/TESTING.md): authenticated local checks and demo walkthroughs on the iOS simulator with Argent
