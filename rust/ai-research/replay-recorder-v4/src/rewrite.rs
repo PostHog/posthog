@@ -323,6 +323,9 @@ mod tests {
             ),
             ("https://10.0.0.7/a.png", "non_public_host"),
             ("http://cdn.example.com/a.png", "bad_scheme"),
+            ("//user:secret@cdn.example.com/a.png", "credential"),
+            ("//10.0.0.7/a.png", "non_public_host"),
+            ("https:/user:secret@cdn.example.com/a.png", "credential"),
         ] {
             let out = rewrite(&[url], &format!(r#"{{"src":"{url}"}}"#));
             assert_eq!(

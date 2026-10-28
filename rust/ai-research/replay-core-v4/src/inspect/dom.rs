@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use crate::bytescan::{self as scan, Span};
-use crate::url_policy::MAX_URL_LEN;
+use crate::url_policy::{self, MAX_URL_LEN};
 
 use super::css;
 use super::events::{field, fields, number, text};
@@ -253,13 +253,20 @@ fn fetchable(url: &str) -> Option<&str> {
     (url.len() <= MAX_URL_LEN && is_remote(url)).then_some(url)
 }
 
-/// A URL scheme is not case sensitive, so `HTTPS://` loads as `https://` does.
+/// A URL scheme is not case sensitive, so `HTTPS://` loads as `https://` does. A browser reads any run of slashes and
+/// backslashes after `http:` or `https:` as `//`, and none at all on a page of another scheme, so `https:\\host` and
+/// `https:host` can load from the host too. A protocol-relative URL does as well. The writer must replace each of them
+/// like any other remote URL.
 fn is_remote(url: &str) -> bool {
-    let starts = |prefix: &str| {
-        url.get(..prefix.len())
-            .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
-    };
-    starts("https://") || starts("http://")
+    let after_scheme = ["https:", "http:"].iter().find_map(|scheme| {
+        url.get(..scheme.len())
+            .filter(|start| start.eq_ignore_ascii_case(scheme))
+            .map(|_| &url[scheme.len()..])
+    });
+    match after_scheme {
+        Some(rest) => !rest.is_empty(),
+        None => url_policy::is_protocol_relative(url),
+    }
 }
 
 impl Urls {
@@ -1562,7 +1569,7 @@ mod tests {
                 element(8, "iframe", json!({}), json!([])),
                 element(9, "canvas", json!({}), json!([])),
                 element(11, "img", json!({"src": "https://cdn.example.com/a.png", "srcset": "https://cdn.example.com/a@2x.png 2x, data:image/png;base64,AA 3x"}), json!([])),
-                element(12, "video", json!({"poster": "https://cdn.example.com/p.jpg"}), json!([])),
+                element(12, "video", json!({"poster": "//cdn.example.com/p.jpg"}), json!([])),
                 {"type": 2, "tagName": "div", "attributes": {}, "childNodes": [], "isShadowHost": true, "id": 10},
             ])),
         ]))], "id": 1}})
@@ -1586,7 +1593,7 @@ mod tests {
                 [
                     "https://cdn.example.com/a.png",
                     "https://cdn.example.com/a@2x.png",
-                    "https://cdn.example.com/p.jpg"
+                    "//cdn.example.com/p.jpg"
                 ]
             );
 
