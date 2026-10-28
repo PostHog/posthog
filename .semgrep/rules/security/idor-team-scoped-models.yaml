@@ -309,7 +309,9 @@ rules:
                               |MCPAuditEvent
                               |MCPGatewayServer
                               |MCPIntentClusterSnapshot
+                              |MCPIntentClusteringRun
                               |MCPIntentEmbeddingCache
+                              |MCPIntentTopic
                               |MCPMeasuredStats
                               |MCPMemberServerRevocation
                               |MCPOrgRule
@@ -798,7 +800,9 @@ rules:
                         |MCPAuditEvent
                         |MCPGatewayServer
                         |MCPIntentClusterSnapshot
+                        |MCPIntentClusteringRun
                         |MCPIntentEmbeddingCache
+                        |MCPIntentTopic
                         |MCPMemberServerRevocation
                         |MCPOrgRule
                         |MCPServiceAccount

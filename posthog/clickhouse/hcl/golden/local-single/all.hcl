@@ -779,6 +779,48 @@ database "posthog" {
     }
   }
 
+  table "distributed_mcp_intent_assignments" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "intent_hash" {
+      type = "String"
+    }
+    column "run_id" {
+      type = "String"
+    }
+    column "topic_id" {
+      type = "Nullable(String)"
+    }
+    column "distance" {
+      type = "Float32"
+    }
+    column "x" {
+      type = "Float32"
+    }
+    column "y" {
+      type = "Float32"
+    }
+    column "is_outlier" {
+      type = "UInt8"
+    }
+    column "intent_text" {
+      type = "String"
+    }
+    column "calls_in_run" {
+      type = "UInt32"
+    }
+    column "timestamp" {
+      type = "DateTime64(3, 'UTC')"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_mcp_intent_assignments"
+      sharding_key    = "cityHash64(intent_hash)"
+    }
+  }
+
   table "distributed_person_group_membership_config" {
     column "team_id" {
       type = "Int64"
@@ -12283,6 +12325,54 @@ SQL
     }
   }
 
+  table "sharded_mcp_intent_assignments" {
+    order_by     = ["team_id", "intent_hash"]
+    partition_by = "toYYYYMM(timestamp)"
+    ttl          = "toDateTime(timestamp) + toIntervalMonth(3)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "intent_hash" {
+      type = "String"
+    }
+    column "run_id" {
+      type = "String"
+    }
+    column "topic_id" {
+      type = "Nullable(String)"
+    }
+    column "distance" {
+      type = "Float32"
+    }
+    column "x" {
+      type = "Float32"
+    }
+    column "y" {
+      type = "Float32"
+    }
+    column "is_outlier" {
+      type = "UInt8"
+    }
+    column "intent_text" {
+      type = "String"
+    }
+    column "calls_in_run" {
+      type = "UInt32"
+    }
+    column "timestamp" {
+      type = "DateTime64(3, 'UTC')"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_mcp_intent_assignments"
+      replica_name   = "{replica}"
+      version_column = "timestamp"
+    }
+  }
+
   table "sharded_performance_events" {
     order_by     = ["team_id", "toDate(timestamp)", "session_id", "pageview_id", "timestamp"]
     partition_by = "toYYYYMM(timestamp)"
@@ -17933,6 +18023,48 @@ SQL
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
       remote_table    = "logs34"
+    }
+  }
+
+  table "writable_mcp_intent_assignments" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "intent_hash" {
+      type = "String"
+    }
+    column "run_id" {
+      type = "String"
+    }
+    column "topic_id" {
+      type = "Nullable(String)"
+    }
+    column "distance" {
+      type = "Float32"
+    }
+    column "x" {
+      type = "Float32"
+    }
+    column "y" {
+      type = "Float32"
+    }
+    column "is_outlier" {
+      type = "UInt8"
+    }
+    column "intent_text" {
+      type = "String"
+    }
+    column "calls_in_run" {
+      type = "UInt32"
+    }
+    column "timestamp" {
+      type = "DateTime64(3, 'UTC')"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_mcp_intent_assignments"
+      sharding_key    = "cityHash64(intent_hash)"
     }
   }
 

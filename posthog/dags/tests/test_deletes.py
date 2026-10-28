@@ -57,6 +57,11 @@ from posthog.models.organization import Organization
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 from posthog.models.team import Team
 
+from products.mcp_analytics.backend.facade.clickhouse_schema import (
+    MCP_INTENT_ASSIGNMENTS_DISTRIBUTED_TABLE,
+    MCP_INTENT_ASSIGNMENTS_WRITABLE_TABLE,
+)
+
 
 def surviving_flag_evaluations(client: Client) -> set[tuple[int, UUID, UUID]]:
     # _row_exists = 1 filters out lightweight-deleted rows, which stay visible until a merge. Without
@@ -327,6 +332,18 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
 
     cluster.any_host(insert_documents).result()
 
+    def insert_intent_assignments(client: Client) -> None:
+        client.execute(
+            f"""INSERT INTO {MCP_INTENT_ASSIGNMENTS_WRITABLE_TABLE}
+               (team_id, intent_hash, run_id, distance, x, y, is_outlier, intent_text, calls_in_run, timestamp) VALUES""",
+            [
+                (team_id, f"{team_id:064x}", "run", 0.1, 0.0, 0.0, 0, "text", 1, timestamp)
+                for team_id in (0, delete_count)
+            ],
+        )
+
+    cluster.any_host(insert_intent_assignments).result()
+
     def get_by_team(table: str, client: Client) -> dict[int, int]:
         result = client.execute(f"SELECT team_id, count(1) FROM {table} GROUP BY team_id")
         if not isinstance(result, list):
@@ -395,6 +412,11 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
     # Other tests leave documents for their own teams in this table, so only the two inserted above are judged.
     assert {team for team in final_documents if team in (0, delete_count)} == {delete_count}, (
         "the deleted team's embedded documents survived"
+    )
+
+    final_intent_assignments = cluster.any_host(partial(get_by_team, MCP_INTENT_ASSIGNMENTS_DISTRIBUTED_TABLE)).result()
+    assert {team for team in final_intent_assignments if team in (0, delete_count)} == {delete_count}, (
+        "the deleted team's MCP intent assignments survived"
     )
 
     final_persons = cluster.any_host(partial(get_by_team, "person")).result()

@@ -235,6 +235,7 @@ jobs:
                         - 'products/tasks/backend/facade/user_task_summaries.py'
                         - 'products/tasks/backend/logic/user_task_summaries.py'
                         - 'products/marketing_analytics/backend/**/*.py'
+                        - 'products/mcp_analytics/backend/facade/**/*.py'
                         - 'products/ai_observability/backend/**/*.py'
                         - 'products/posthog_ai/backend/**/*.py'
                         - 'products/revenue_analytics/backend/**/*.py'

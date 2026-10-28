@@ -69,6 +69,10 @@ from products.error_tracking.backend.facade.api import (
     document_embedding_tables,
     document_embeddings_buffer_table,
 )
+from products.mcp_analytics.backend.facade.clickhouse_schema import (
+    MCP_INTENT_ASSIGNMENTS_DATA_TABLE,
+    MCP_INTENT_ASSIGNMENTS_DISTRIBUTED_TABLE,
+)
 
 
 class DeleteConfig(dagster.Config):
@@ -223,6 +227,23 @@ _DOCUMENT_DELETE_PREDICATE = """or(
     dictHas(%(pending_deletes_dictionary)s, (team_id, %(event_deletion_type)s, document_id)),
     dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id))
 )"""
+
+_TEAM_ONLY_DELETE_PREDICATE = "dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id))"
+
+
+@frozen
+class TeamOnlyTable:
+    sharded_table: str
+    distributed_table: str
+
+
+# Sharded tables that hold text copied from events but carry neither a person id nor an event uuid,
+# so only a team deletion can name their rows.
+TEAM_ONLY_TABLES: tuple[TeamOnlyTable, ...] = (
+    TeamOnlyTable(
+        sharded_table=MCP_INTENT_ASSIGNMENTS_DATA_TABLE, distributed_table=MCP_INTENT_ASSIGNMENTS_DISTRIBUTED_TABLE
+    ),
+)
 
 ShardMutations = dict[int, MutationWaiters]
 # Shard numbers are per cluster, so a sweep spanning two of them cannot key its waiters by shard
@@ -900,6 +921,50 @@ def delete_event_documents(
     return (load_and_verify_deletes_dictionary, cluster_mutations)
 
 
+@dagster.op
+def delete_team_only_tables(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    load_and_verify_deletes_dictionary: PendingDeletesDictionary,
+) -> tuple[PendingDeletesDictionary, ClusterShardMutations]:
+    """Delete the rows of the teams queued for deletion from every table in `TEAM_ONLY_TABLES`."""
+
+    def count_pending_deletes(client: Client) -> int:
+        result = client.execute(
+            f"""
+            SELECT count()
+            FROM {load_and_verify_deletes_dictionary.qualified_name}
+            WHERE deletion_type = {DeletionType.Team}
+            """
+        )
+        return result[0][0] if result else 0
+
+    pending = cluster.any_host_by_role(count_pending_deletes, NodeRole.DATA).result()
+    context.add_output_metadata({"pending_team_deletes": dagster.MetadataValue.int(pending)})
+    if pending == 0:
+        return (load_and_verify_deletes_dictionary, {})
+
+    reuse_floor = _mutation_reuse_floor(cluster)
+    by_shard: dict[int, list[MutationWaiter]] = {}
+    for table in _present_team_only_tables(cluster):
+        runner = LightweightDeleteMutationRunner(
+            table=table.sharded_table,
+            predicate=_TEAM_ONLY_DELETE_PREDICATE,
+            parameters=_document_delete_predicate_params(load_and_verify_deletes_dictionary),
+            reuse_since=reuse_floor,
+        )
+        for host, mutation in cluster.map_one_host_per_shard(runner).result().items():
+            if host.shard_num is not None:
+                by_shard.setdefault(host.shard_num, []).append(mutation)
+
+    cluster_mutations: ClusterShardMutations = {
+        (cluster.data_cluster_name, cluster.shard_role): {
+            shard_num: MutationWaiters(waiters=shard_waiters) for shard_num, shard_waiters in by_shard.items()
+        }
+    }
+    return (load_and_verify_deletes_dictionary, cluster_mutations)
+
+
 def delete_team_data(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
@@ -1017,6 +1082,11 @@ def _present_document_embedding_tables(cluster: ClickhouseCluster) -> list[Docum
     makes the mutation fail loudly there, which beats skipping the deletion.
     """
     return [table for table in document_embedding_tables() if _any_node_has(cluster, table.sharded_table)]
+
+
+def _present_team_only_tables(cluster: ClickhouseCluster) -> list[TeamOnlyTable]:
+    """The team-only tables that exist here, judged as `_present_document_embedding_tables` judges embeddings tables."""
+    return [table for table in TEAM_ONLY_TABLES if _any_node_has(cluster, table.sharded_table)]
 
 
 def _document_delete_predicate_params(pending_deletes_dictionary: "PendingDeletesDictionary") -> dict[str, str | int]:
@@ -1146,6 +1216,15 @@ def _count_unswept_rows(
             document_params,
             max_execution_time,
             predicate=_DOCUMENT_DELETE_PREDICATE,
+        )
+    for team_only_table in _present_team_only_tables(cluster):
+        counts[team_only_table.distributed_table] = _count_through(
+            context,
+            partial(_rows_from_any_host, cluster),
+            team_only_table.distributed_table,
+            document_params,
+            max_execution_time,
+            predicate=_TEAM_ONLY_DELETE_PREDICATE,
         )
     return counts
 
@@ -1289,6 +1368,10 @@ def deletes_job():
     document_mutations = delete_event_documents(pending_deletes_dictionary)
     pending_deletes_dictionary = wait_for_delete_mutations_in_shards.alias("wait_for_document_delete_mutations")(
         document_mutations
+    )
+    team_only_mutations = delete_team_only_tables(pending_deletes_dictionary)
+    pending_deletes_dictionary = wait_for_delete_mutations_in_shards.alias("wait_for_team_only_delete_mutations")(
+        team_only_mutations
     )
 
     for table in [

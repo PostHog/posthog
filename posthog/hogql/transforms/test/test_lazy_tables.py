@@ -149,6 +149,18 @@ class TestLazyJoins(BaseTest):
             'SAMPLE clause ignored: the "sessions" table is computed on the fly and cannot be sampled'
         ]
 
+    @parameterized.expand(
+        [
+            ("fields", "select id, properties.email from posthog.persons"),
+            ("no_fields", "select count() from posthog.persons"),
+        ]
+    )
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_lazy_table_resolves_by_qualified_name_without_an_alias(self, _name: str, query: str):
+        printed = self._print_select(query)
+
+        assert "AS posthog__persons" in printed
+
     def _print_select(self, select: str, modifiers: HogQLQueryModifiers | None = None):
         expr = parse_select(select)
         query, _ = prepare_and_print_ast(

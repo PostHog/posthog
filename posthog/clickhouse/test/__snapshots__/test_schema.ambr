@@ -1434,6 +1434,26 @@
   
   '''
 # ---
+# name: test_create_table_query[distributed_mcp_intent_assignments]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS distributed_mcp_intent_assignments
+  (
+      team_id Int64,
+      intent_hash String, -- sha256 hex of the raw $mcp_intent text, see intent_hash.py
+      run_id String, -- pipeline run that wrote the row
+      topic_id Nullable(String), -- MCPIntentTopic id; NULL when no topic was within reach
+      distance Float32, -- cosine distance to the assigned topic centroid
+      x Float32, -- 2D map position
+      y Float32,
+      is_outlier UInt8,
+      intent_text String, -- truncated copy for the map and outlier lists
+      calls_in_run UInt32, -- calls carrying this intent in the assignment window
+      timestamp DateTime64(3, 'UTC') -- when the assignment was made; newest wins
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_mcp_intent_assignments', cityHash64(intent_hash))
+  
+  '''
+# ---
 # name: test_create_table_query[distributed_person_group_membership_config]
   '''
   
@@ -8409,6 +8429,31 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_mcp_intent_assignments]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_mcp_intent_assignments
+  (
+      team_id Int64,
+      intent_hash String, -- sha256 hex of the raw $mcp_intent text, see intent_hash.py
+      run_id String, -- pipeline run that wrote the row
+      topic_id Nullable(String), -- MCPIntentTopic id; NULL when no topic was within reach
+      distance Float32, -- cosine distance to the assigned topic centroid
+      x Float32, -- 2D map position
+      y Float32,
+      is_outlier UInt8,
+      intent_text String, -- truncated copy for the map and outlier lists
+      calls_in_run UInt32, -- calls carrying this intent in the assignment window
+      timestamp DateTime64(3, 'UTC') -- when the assignment was made; newest wins
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_mcp_intent_assignments', '{replica}', timestamp)
+  
+      PARTITION BY toYYYYMM(timestamp)
+      ORDER BY (team_id, intent_hash)
+      TTL toDateTime(timestamp) + INTERVAL 3 MONTH
+      SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query[sharded_performance_events]
   '''
   
@@ -10900,6 +10945,26 @@
   , _offset UInt64
   
   ) ENGINE = Distributed('aux', 'posthog_test', 'log_entries_data')
+  
+  '''
+# ---
+# name: test_create_table_query[writable_mcp_intent_assignments]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_mcp_intent_assignments
+  (
+      team_id Int64,
+      intent_hash String, -- sha256 hex of the raw $mcp_intent text, see intent_hash.py
+      run_id String, -- pipeline run that wrote the row
+      topic_id Nullable(String), -- MCPIntentTopic id; NULL when no topic was within reach
+      distance Float32, -- cosine distance to the assigned topic centroid
+      x Float32, -- 2D map position
+      y Float32,
+      is_outlier UInt8,
+      intent_text String, -- truncated copy for the map and outlier lists
+      calls_in_run UInt32, -- calls carrying this intent in the assignment window
+      timestamp DateTime64(3, 'UTC') -- when the assignment was made; newest wins
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_mcp_intent_assignments', cityHash64(intent_hash))
   
   '''
 # ---
@@ -14324,6 +14389,31 @@
   ORDER BY (team_id, job_id, person_id, touchpoint_timestamp)
   TTL expires_at
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_mcp_intent_assignments]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_mcp_intent_assignments
+  (
+      team_id Int64,
+      intent_hash String, -- sha256 hex of the raw $mcp_intent text, see intent_hash.py
+      run_id String, -- pipeline run that wrote the row
+      topic_id Nullable(String), -- MCPIntentTopic id; NULL when no topic was within reach
+      distance Float32, -- cosine distance to the assigned topic centroid
+      x Float32, -- 2D map position
+      y Float32,
+      is_outlier UInt8,
+      intent_text String, -- truncated copy for the map and outlier lists
+      calls_in_run UInt32, -- calls carrying this intent in the assignment window
+      timestamp DateTime64(3, 'UTC') -- when the assignment was made; newest wins
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_mcp_intent_assignments', '{replica}', timestamp)
+  
+      PARTITION BY toYYYYMM(timestamp)
+      ORDER BY (team_id, intent_hash)
+      TTL toDateTime(timestamp) + INTERVAL 3 MONTH
+      SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
   
   '''
 # ---
