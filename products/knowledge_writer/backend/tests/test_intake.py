@@ -4,14 +4,16 @@ import dataclasses
 import pytest
 from unittest.mock import MagicMock, patch
 
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 
 from products.knowledge_writer.backend.adapters.registry import REGISTRY
 from products.knowledge_writer.backend.facade.contracts import DocsCommandRequest
 from products.knowledge_writer.backend.facade.enums import DocsRequestSource
 from products.knowledge_writer.backend.logic import caps, intake
-from products.knowledge_writer.backend.logic.pull_requests import LINK_BACK_START
+from products.knowledge_writer.backend.logic.pull_requests import LINK_BACK_START, section_marker
 from products.knowledge_writer.backend.logic.records import PULL_REQUEST_STATE_KEY, REQUEST_STATE_KEY
+from products.knowledge_writer.backend.logic.routing import route_request
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import TaskRun
 
@@ -23,6 +25,7 @@ CAPTURE_ALERT = "products.knowledge_writer.backend.logic.caps.capture_exception"
 DOCS_HEAD = {"repository": "PostHog/posthog.com", "branch": "docs/retention"}
 SECTION_PAGE = "https://posthog.com/docs/session-replay/retention"
 START_WORKFLOW = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
+WRITER_APP_LOGIN = "posthog-app[bot]"
 
 COMMAND = DocsCommandRequest(
     repository="PostHog/posthog",
@@ -39,23 +42,27 @@ def writer_env(team, user):
     Integration.objects.create(
         team=team, kind="github", integration_id="31337", config={"account": {"name": "PostHog"}}
     )
-    with patch.dict(
-        os.environ,
-        {
-            "KNOWLEDGE_WRITER_TEAM_ID": str(team.id),
-            "KNOWLEDGE_WRITER_USER_ID": str(user.id),
-            "KNOWLEDGE_WRITER_DOCS_REPOSITORY": "PostHog/posthog.com",
-        },
+    with (
+        override_instance_config("GITHUB_APP_SLUG", "posthog-app"),
+        patch.dict(
+            os.environ,
+            {
+                "KNOWLEDGE_WRITER_TEAM_ID": str(team.id),
+                "KNOWLEDGE_WRITER_USER_ID": str(user.id),
+                "KNOWLEDGE_WRITER_DOCS_REPOSITORY": "PostHog/posthog.com",
+            },
+        ),
     ):
         yield
 
 
-def _open_on_github(*bodies_by_number: tuple[int, str]) -> MagicMock:
+def _open_on_github(*bodies_by_number: tuple[int, str], author_login: str = WRITER_APP_LOGIN) -> MagicMock:
     listed = [
         {
             "number": number,
             "html_url": f"https://github.com/PostHog/posthog.com/pull/{number}",
             "body": body,
+            "user": {"login": author_login},
             "head": {"ref": DOCS_HEAD["branch"], "repo": {"full_name": "PostHog/posthog.com"}},
         }
         for number, body in bodies_by_number
@@ -145,10 +152,12 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     ):
         started = intake.submit(first_verdict, team_id=team.id)
     assert started.task_id is not None
-    with patch(CREATE_PULL_REQUEST, return_value=opened) as create_pull_request:
+    with patch(CREATE_PULL_REQUEST, side_effect=ConnectionError("GitHub unreachable")):
         _finish_run(started.task_id, django_capture_on_commit_callbacks)
-        with django_capture_on_commit_callbacks(execute=True):
-            TaskRun.objects.get(task_id=started.task_id).save(update_fields=["output"])
+    with patch(CREATE_PULL_REQUEST, return_value=opened) as create_pull_request:
+        for _ in range(2):
+            with django_capture_on_commit_callbacks(execute=True):
+                TaskRun.objects.get(task_id=started.task_id).save(update_fields=["output"])
 
     create_pull_request.assert_called_once()
     assert create_pull_request.call_args.args == ("posthog.com",)
@@ -186,6 +195,25 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     stored = tasks_facade.read_task_state_entry(joined.task_id, team.id, PULL_REQUEST_STATE_KEY)
     assert isinstance(stored, dict)
     assert stored["number"] == 9
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("author_login, expected_status", [(WRITER_APP_LOGIN, "joined"), ("someone-else", "started")])
+def test_only_a_pull_request_the_writer_app_opened_can_be_joined(
+    team, writer_env, author_login, expected_status
+) -> None:
+    verdict = _verdict(suggested_page_urls=(SECTION_PAGE,))
+    assert verdict.request is not None
+    section = route_request(verdict.request, team_id=team.id).section
+    assert section is not None
+    lookalike_body = f"{LINK_BACK_START}\n{section_marker(section)}"
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(LIST_PULL_REQUESTS, return_value=_open_on_github((9, lookalike_body), author_login=author_login)),
+        patch(START_WORKFLOW),
+    ):
+        outcome = intake.submit(verdict, team_id=team.id)
+    assert outcome.status == expected_status
 
 
 @pytest.mark.django_db

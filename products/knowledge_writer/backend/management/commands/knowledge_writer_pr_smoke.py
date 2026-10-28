@@ -283,6 +283,7 @@ def run_writer_request(writer: WriterSettings, team: Team, section: str, branch:
     routing = route_request(request, team_id=team.id)
     joining = pull_request_to_join(list_writer_pull_requests(writer), routing.section)
     task_id = start_writer(request, routing, team=team, writer=writer, joining=joining, start_workflow=False)
+    pushed_branch = joining.head_branch if joining is not None else branch
     for run_id in tasks_facade.list_task_run_ids(task_id, team.id):
         tasks_facade.update_task_run(
             run_id,
@@ -290,7 +291,7 @@ def run_writer_request(writer: WriterSettings, team: Team, section: str, branch:
             team.id,
             validated_data={
                 "status": "completed",
-                "output": {"head_branches": [{"repository": writer.docs_repository, "branch": branch}]},
+                "output": {"head_branches": [{"repository": writer.docs_repository, "branch": pushed_branch}]},
             },
         )
     stored = tasks_facade.read_task_state_entry(task_id, team.id, PULL_REQUEST_STATE_KEY)
