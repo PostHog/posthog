@@ -9,6 +9,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -95,6 +96,9 @@ export function MetricsTab(): JSX.Element {
         reviewQueue,
         approvedMetrics,
         metricsLoadState,
+        splitTablesLoading,
+        showReviewQueue,
+        showApproved,
     } = useValues(metricsLogic)
     const {
         setFilters,
@@ -117,11 +121,6 @@ export function MetricsTab(): JSX.Element {
     // Block it while any mutation is in flight; the view is authoritative again on the next load.
     const reloadDisabledReason =
         bulkBusyReason ?? (Object.values(actionsInFlight).some(Boolean) ? 'A metric action is running' : undefined)
-    // An empty queue is a verdict about loaded data, so stay in the skeleton until the first load answers.
-    const tableLoading = allMetricsLoading || metricsLoadState === 'unknown'
-    // A drifted approved metric sits in the queue, so the queue stays visible under the Approved stage when it holds one.
-    const showReviewQueue = filters.status !== 'approved' || reviewQueue.length > 0
-    const showApproved = filters.status === 'all' || filters.status === 'approved'
     const otherBulkActionReason = (self: BulkMetricAction): string | undefined =>
         bulkActionInFlight && bulkActionInFlight !== self ? 'Another bulk action is running' : undefined
 
@@ -192,8 +191,17 @@ export function MetricsTab(): JSX.Element {
                 <LemonTableLink
                     to={urls.dataCatalogMetric(metric.name)}
                     title={metric.display_name || metric.name}
+                    // Render descriptions with images disabled so a stored image URL can't beacon other viewers.
                     description={
-                        metric.description ? <MetricDescription description={metric.description} /> : undefined
+                        metric.description ? (
+                            reviewQueueEnabled ? (
+                                <MetricDescription description={metric.description} />
+                            ) : (
+                                <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings disableImages>
+                                    {metric.description}
+                                </LemonMarkdown>
+                            )
+                        ) : undefined
                     }
                 />
             ),
@@ -223,7 +231,7 @@ export function MetricsTab(): JSX.Element {
             key: 'owner',
             render: (_, metric) => (
                 <MetricOwnerSelect
-                    truncate
+                    truncate={reviewQueueEnabled}
                     owner={metric.owner}
                     loading={!!actionsInFlight[metric.name]}
                     disabledReason={bulkBusyReason}
@@ -234,15 +242,17 @@ export function MetricsTab(): JSX.Element {
         },
         // Left-aligned so the date sits next to the owner instead of across an empty gap.
         // The shared column right-aligns inside its render, so only the render is replaced; sorting is kept.
-        {
-            ...(createdAtColumn<DataCatalogMetricApi>() as LemonTableColumns<DataCatalogMetricApi>[number]),
-            align: 'left',
-            render: (_, metric) => (
-                <div className="whitespace-nowrap">
-                    <TZLabel time={metric.created_at} />
-                </div>
-            ),
-        },
+        reviewQueueEnabled
+            ? {
+                  ...(createdAtColumn<DataCatalogMetricApi>() as LemonTableColumns<DataCatalogMetricApi>[number]),
+                  align: 'left',
+                  render: (_, metric) => (
+                      <div className="whitespace-nowrap">
+                          <TZLabel time={metric.created_at} />
+                      </div>
+                  ),
+              }
+            : (createdAtColumn<DataCatalogMetricApi>() as LemonTableColumns<DataCatalogMetricApi>[number]),
     ]
 
     const menuColumn: LemonTableColumns<DataCatalogMetricApi>[number] = {
@@ -362,7 +372,7 @@ export function MetricsTab(): JSX.Element {
     const bulkSelection = (
         tableMetrics: DataCatalogMetricApi[],
         barPortalTarget: HTMLDivElement | null,
-        withApprove: boolean
+        { withApprove }: { withApprove: boolean }
     ): BulkSelectionConfig<DataCatalogMetricApi> => ({
         // Key on the stable id, not the name: a name is freed for reuse when a metric is
         // deleted or renamed, so a name-keyed selection could target a different metric
@@ -504,12 +514,12 @@ export function MetricsTab(): JSX.Element {
                                 dataSource={reviewQueue}
                                 rowKey="name"
                                 columns={reviewColumns}
-                                loading={tableLoading}
+                                loading={splitTablesLoading}
                                 pagination={{ pageSize: SPLIT_TABLE_PAGE_SIZE }}
                                 emptyState={metricsLoadState === 'failed' ? LOAD_FAILED : 'Nothing to review.'}
                                 nouns={['metric', 'metrics']}
                                 onSort={(sorting) => reportCatalogTableSorted('metrics', sorting)}
-                                bulkSelection={bulkSelection(reviewQueue, bulkBarTarget, true)}
+                                bulkSelection={bulkSelection(reviewQueue, bulkBarTarget, { withApprove: true })}
                             />
                             <div ref={setBulkBarTarget} className={BULK_BAR_CLASS} />
                         </section>
@@ -526,12 +536,14 @@ export function MetricsTab(): JSX.Element {
                                 dataSource={approvedMetrics}
                                 rowKey="name"
                                 columns={approvedColumns}
-                                loading={tableLoading}
+                                loading={splitTablesLoading}
                                 pagination={{ pageSize: SPLIT_TABLE_PAGE_SIZE }}
                                 emptyState={metricsLoadState === 'failed' ? LOAD_FAILED : 'No approved metrics yet.'}
                                 nouns={['metric', 'metrics']}
                                 onSort={(sorting) => reportCatalogTableSorted('metrics', sorting)}
-                                bulkSelection={bulkSelection(approvedMetrics, approvedBulkBarTarget, false)}
+                                bulkSelection={bulkSelection(approvedMetrics, approvedBulkBarTarget, {
+                                    withApprove: false,
+                                })}
                             />
                             <div ref={setApprovedBulkBarTarget} className={BULK_BAR_CLASS} />
                         </section>
@@ -552,7 +564,7 @@ export function MetricsTab(): JSX.Element {
                         }
                         nouns={['metric', 'metrics']}
                         onSort={(sorting) => reportCatalogTableSorted('metrics', sorting)}
-                        bulkSelection={bulkSelection(allMetrics, bulkBarTarget, true)}
+                        bulkSelection={bulkSelection(allMetrics, bulkBarTarget, { withApprove: true })}
                     />
                     <div ref={setBulkBarTarget} className={BULK_BAR_CLASS} />
                 </>
