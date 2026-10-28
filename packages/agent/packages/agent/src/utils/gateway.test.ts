@@ -616,17 +616,14 @@ describe("resolveAiProduct", () => {
     expect(resolveAiProduct({ product: "signals", aiStage })).toBe(expected);
   });
 
-  it("leaves signals unsplit for an unrecognized stage", () => {
-    expect(resolveAiProduct({ product: "signals", aiStage: "match" })).toBe(
-      "signals",
-    );
-  });
-
-  it("leaves signals unsplit when no stage is set", () => {
-    expect(resolveAiProduct({ product: "signals", aiStage: null })).toBe(
-      "signals",
-    );
-  });
+  it.each([["match"], [null]])(
+    "bills a signals run with stage %s to posthog_ai",
+    (aiStage) => {
+      expect(resolveAiProduct({ product: "signals", aiStage })).toBe(
+        "posthog_ai",
+      );
+    },
+  );
 
   it("does not split a non-signals product that shares a stage name", () => {
     expect(

@@ -168,6 +168,11 @@ export function resolveAiProduct({
       return `signals_${stage}`;
     }
   }
+  // A stageless signals run has no server provenance for an internally funded
+  // token, so it bills the run's team.
+  if (product === "signals") {
+    return "posthog_ai";
+  }
   return product;
 }
 
