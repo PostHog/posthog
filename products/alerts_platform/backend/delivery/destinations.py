@@ -31,24 +31,3 @@ def list_alert_destination_groups(
     if _resolver is None:
         raise RuntimeError("No destination resolver is registered. products.alerts registers one in its ready().")
     return _resolver(team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids)
-
-
-_recipient_resolver: DestinationResolver | None = None
-
-
-def register_recipients(resolver: DestinationResolver) -> None:
-    global _recipient_resolver
-    if _recipient_resolver is not None and _recipient_resolver is not resolver:
-        raise RuntimeError("A different recipient resolver is already registered.")
-    _recipient_resolver = resolver
-
-
-def list_recipient_groups(
-    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
-) -> list[AlertDestinationGroup]:
-    """The email recipients a source names for its own events, such as a warehouse alert's project
-    members. An alert whose destinations are `AlertDestination` rows reaches them too, because they
-    come from the alert's settings rather than from a destination a person added."""
-    if _recipient_resolver is None:
-        raise RuntimeError("No recipient resolver is registered. products.alerts registers one in its ready().")
-    return _recipient_resolver(team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids)

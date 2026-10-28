@@ -50,11 +50,10 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.warehouse_sources.backend.facade.sync_alerts import (
-    DESTINATION_EVENT_KINDS,
     WAREHOUSE_ALERT_DESTINATION_TYPES,
+    WAREHOUSE_DESTINATION_EVENT_KINDS,
 )
 
-MAX_DESTINATION_IDS_PER_DELETE_REQUEST = MAX_DESTINATIONS_PER_ALERT
 WAREHOUSE_ALERT_KINDS = (SourceKind.WAREHOUSE_SOURCE.value, SourceKind.WAREHOUSE_DESTINATION.value)
 # The warehouse data an alert names is gated by the same resource as the sources page.
 WAREHOUSE_RESOURCE: Literal["external_data_source"] = "external_data_source"
@@ -67,7 +66,7 @@ WarehouseAlertDestinationTypeChoices = cast(Any, models.TextChoices)(
 )
 WarehouseAlertEventKindChoices = cast(Any, models.TextChoices)(
     "WarehouseAlertEventKindChoices",
-    [(member.name, (member.value, member.value)) for member in DESTINATION_EVENT_KINDS],
+    [(member.name, (member.value, member.value)) for member in WAREHOUSE_DESTINATION_EVENT_KINDS],
 )
 PagerDutySeverityChoices = cast(Any, models.TextChoices)(
     "PagerDutySeverityChoices", [(member.name, (member.value, member.value)) for member in PagerDutySeverity]
@@ -79,6 +78,13 @@ _EVENT_KINDS_HELP = (
     "Which transitions send a message. A PagerDuty destination opens an incident when the alert fires and "
     "resolves it when the alert resolves, whatever this lists."
 )
+
+
+def _split(attrs: dict[str, Any]) -> tuple[AlertDestinationData, tuple[AlertEventKind, ...]]:
+    """A create request's destination settings, apart from the kinds it asks to hear about."""
+    data = {key: value for key, value in attrs.items() if key != "event_kinds"}
+    data["type"] = DestinationType(attrs["type"])
+    return cast(AlertDestinationData, data), tuple(AlertEventKind(kind) for kind in attrs["event_kinds"])
 
 
 class WarehouseAlertDestinationSerializer(serializers.Serializer):
@@ -124,7 +130,7 @@ class WarehouseAlertCreateDestinationSerializer(serializers.Serializer):
         child=serializers.ChoiceField(choices=WarehouseAlertEventKindChoices.choices),
         required=False,
         min_length=1,
-        default=[kind.value for kind in DESTINATION_EVENT_KINDS],
+        default=[kind.value for kind in WAREHOUSE_DESTINATION_EVENT_KINDS],
         help_text=f"{_EVENT_KINDS_HELP} Defaults to every kind.",
     )
     slack_workspace_id = serializers.IntegerField(
@@ -156,8 +162,7 @@ class WarehouseAlertCreateDestinationSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        data = cast(AlertDestinationData, {key: value for key, value in attrs.items() if key != "event_kinds"})
-        data["type"] = DestinationType(attrs["type"])
+        data, _ = _split(attrs)
         try:
             validate_destination_data(data, allowed_destination_types=WAREHOUSE_ALERT_DESTINATION_TYPES)
         except AlertDestinationValidationError as error:
@@ -169,7 +174,7 @@ class WarehouseAlertDeleteDestinationSerializer(serializers.Serializer):
     destination_ids = serializers.ListField(
         child=serializers.UUIDField(),
         min_length=1,
-        max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
+        max_length=MAX_DESTINATIONS_PER_ALERT,
         help_text="IDs of the alert's destinations to delete, as the list endpoint returns them.",
     )
 
@@ -239,9 +244,7 @@ class WarehouseAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         alert = self._alert(pk)
         serializer = WarehouseAlertCreateDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        attrs = dict(serializer.validated_data)
-        event_kinds = tuple(AlertEventKind(kind) for kind in attrs.pop("event_kinds"))
-        data = cast(AlertDestinationData, attrs)
+        data, event_kinds = _split(serializer.validated_data)
         try:
             with transaction.atomic():
                 # The alert's row stays locked until the destination commits, so two adds cannot both

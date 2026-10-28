@@ -242,7 +242,6 @@ def _request(
     A firing that opens or closes needs a delivery even when cooldown or mute held the message,
     because a paging destination needs one resolve for every trigger.
     """
-    destination_alert_id = str(check.destination_alert_id)
     actions = {
         verdict.group.grouping_key: action
         for verdict in decision.verdicts
@@ -264,7 +263,7 @@ def _request(
         team_id=check.team_id,
         configuration_id=str(check.id),
         evaluation_key=recorded.evaluation_key,
-        destination_alert_id=destination_alert_id,
+        destination_alert_id=str(check.destination_alert_id),
         event_ids_by_kind=EVENT_IDS_BY_KIND[source],
         event_ids_by_incident_action=EVENT_IDS_BY_INCIDENT_ACTION[source],
         incident_actions=actions,

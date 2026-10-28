@@ -24,7 +24,7 @@ WAREHOUSE_ALERT_DESTINATION_TYPES: Final = (
 )
 
 # What a destination may ask to hear about. An incident manager hears every incident edge whatever it asks for.
-DESTINATION_EVENT_KINDS: Final = (AlertEventKind.FIRING, AlertEventKind.RESOLVED)
+WAREHOUSE_DESTINATION_EVENT_KINDS: Final = (AlertEventKind.FIRING, AlertEventKind.RESOLVED)
 
 _PREFIXES: Final[dict[SourceKind, str]] = {
     SourceKind.WAREHOUSE_SOURCE: "warehouse_source_alert",
@@ -34,7 +34,7 @@ _PREFIXES: Final[dict[SourceKind, str]] = {
 # Which event id each announced kind goes out under. The platform imports no source, so the
 # delivery request carries this map.
 EVENT_IDS_BY_KIND: Final[dict[SourceKind, dict[str, str]]] = {
-    source: {kind.value: f"${prefix}_{kind.value}" for kind in DESTINATION_EVENT_KINDS}
+    source: {kind.value: f"${prefix}_{kind.value}" for kind in WAREHOUSE_DESTINATION_EVENT_KINDS}
     for source, prefix in _PREFIXES.items()
 }
 

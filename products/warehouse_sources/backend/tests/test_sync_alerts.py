@@ -17,7 +17,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.alerts.backend.facade.destinations import MAX_DESTINATIONS_PER_ALERT, list_delivery_destination_groups
+from products.alerts.backend.facade.destinations import MAX_DESTINATIONS_PER_ALERT
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
     create_configuration,
@@ -30,7 +30,6 @@ from products.alerts_platform.backend.facade.api import (
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
-    DestinationType,
     Grouping,
     GroupingMode,
     IncidentAction,
@@ -43,7 +42,8 @@ from products.warehouse_sources.backend.models.external_data_destination import 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.presentation.views import warehouse_alert_destinations as destinations_view
-from products.warehouse_sources.backend.sync_alerts.destinations import EVENT_IDS_BY_INCIDENT_ACTION, EVENT_IDS_BY_KIND
+from products.warehouse_sources.backend.sync_alerts.destinations import EVENT_IDS_BY_KIND
+from products.warehouse_sources.backend.sync_alerts.email_recipients import project_member_emails
 from products.warehouse_sources.backend.sync_alerts.evaluation import evaluate_warehouse_alert_batch
 from products.warehouse_sources.backend.sync_alerts.wording import (
     describe_destination_transition,
@@ -677,21 +677,9 @@ class TestWarehouseAlerts(APIBaseTest):
         configuration_id = self._alert(kind, {"email_project_members": email_project_members}, grouping_key)
         expected = sorted([self.user.email, person.email] if reached else [self.user.email])
 
-        event_ids = [*EVENT_IDS_BY_KIND[kind].values(), *EVENT_IDS_BY_INCIDENT_ACTION[kind].values()]
-        groups_by_event = {
-            event_id: list_delivery_destination_groups(
-                team_id=self.team.id, alert_id=str(configuration_id), allowed_event_ids=[event_id]
-            )
-            for event_id in event_ids
-        }
-
-        message_event_ids = set(EVENT_IDS_BY_KIND[kind].values())
-        assert {event_id: [group.data for group in groups] for event_id, groups in groups_by_event.items()} == {
-            event_id: [{"type": DestinationType.EMAIL, "email_addresses": expected}]
-            if email_project_members and event_id in message_event_ids
-            else []
-            for event_id in event_ids
-        }
+        assert project_member_emails(team_id=self.team.id, configuration_id=configuration_id) == (
+            expected if email_project_members else []
+        )
 
     def test_a_failing_table_emails_the_project_members_of_an_alert_that_emails_them(self) -> None:
         self._person("member")

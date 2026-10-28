@@ -20,7 +20,6 @@ class AlertsConfig(AppConfig):
         from products.alerts.backend.facade.destinations import (  # noqa: PLC0415
             choose_delivery_path,
             list_delivery_destination_groups,
-            list_registered_email_groups,
         )
         from products.alerts.backend.platform_alert_wording import describe_insight_transition  # noqa: PLC0415
         from products.alerts.backend.platform_hooks import (  # noqa: PLC0415
@@ -34,13 +33,11 @@ class AlertsConfig(AppConfig):
             register_destination_resolver,
             register_image_resolver,
             register_legacy_event_emitter,
-            register_recipient_resolver,
             register_source_describer,
         )
         from products.alerts_platform.backend.facade.source_configs import register_source_config  # noqa: PLC0415
 
         register_destination_resolver(list_delivery_destination_groups)
-        register_recipient_resolver(list_registered_email_groups)
         register_delivery_path_chooser(choose_delivery_path)
         register_legacy_event_emitter(SourceKind.INSIGHT, emit_insight_legacy_events)
         register_source_describer(SourceKind.INSIGHT, describe_insight_transition)

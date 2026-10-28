@@ -1409,6 +1409,15 @@ class SourceDescriber(Protocol):
     def __call__(self, *, project_id: int, transition: AnnouncedTransition) -> SourceDescription: ...
 
 
+class SourceRecipients(Protocol):
+    """Who a source's own settings say to email about an alert, beside the destinations a person added.
+
+    It runs once per delivery of an alert whose destinations the platform owns.
+    """
+
+    def __call__(self, *, team_id: int, configuration_id: UUID) -> list[str]: ...
+
+
 class SourceImageResolver(Protocol):
     """The picture a message shows for a transition, such as an insight's chart, or None.
 
