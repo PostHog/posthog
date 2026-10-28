@@ -49,12 +49,20 @@ describe('featureFlagFilterSummaryLogic', () => {
             { active: true, conditionCount: 0, variants: [] },
         ],
         ['has no summary when no flag has the key', [], null],
+        [
+            'picks the flag whose key matches in the same case',
+            [
+                { key: 'MY-FLAG', active: false, filters: { groups: [] } },
+                { key: 'my-flag', active: true, filters: { groups: [{ rollout_percentage: 100 }] } },
+            ],
+            { active: true, conditionCount: 1, variants: [] },
+        ],
     ])('%s', async (_name, results, expectedSummary) => {
         useMocks({
             get: {
                 '/api/projects/:team_id/feature_flags/': ({ request }) => {
                     const params = new URL(request.url).searchParams
-                    const isLookupForKey = params.get('key') === 'my-flag' && params.get('limit') === '1'
+                    const isLookupForKey = params.get('key') === 'my-flag'
                     return [200, { count: results.length, results: isLookupForKey ? results : [] }]
                 },
             },

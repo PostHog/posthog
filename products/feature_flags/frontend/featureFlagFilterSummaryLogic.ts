@@ -72,11 +72,9 @@ export const featureFlagFilterSummaryLogic = kea<featureFlagFilterSummaryLogicTy
                     if (!values.currentProjectId) {
                         return null
                     }
-                    const response = await featureFlagsList(String(values.currentProjectId), {
-                        key: props.flagKey,
-                        limit: 1,
-                    })
-                    return response.results[0] ?? null
+                    const response = await featureFlagsList(String(values.currentProjectId), { key: props.flagKey })
+                    // The API matches the key case-insensitively, but flag keys that differ only by case can both exist.
+                    return response.results.find((flag) => flag.key === props.flagKey) ?? null
                 },
             },
         ],
