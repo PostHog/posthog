@@ -89,6 +89,28 @@ def schema(**definitions: Any) -> dict[str, Any]:
             id="renamed-recursive-model",
         ),
         pytest.param(
+            schema(Modifiers={"properties": {"inner": {"properties": {"kept": {}}}}}),
+            schema(Modifiers={"properties": {"inner": {"anyOf": [{"properties": {"kept": {}}}, {"type": "null"}]}}}),
+            [],
+            id="object-made-nullable-unchanged",
+        ),
+        pytest.param(
+            schema(Modifiers={"properties": {"inner": {"properties": {"kept": {}, "gone": {}}}}}),
+            schema(Modifiers={"properties": {"inner": {"anyOf": [{"properties": {"kept": {}}}, {"type": "null"}]}}}),
+            ["`Modifiers` at `inner`: property `gone`"],
+            id="object-made-nullable-with-a-removal",
+        ),
+        pytest.param(
+            schema(
+                Modifiers={
+                    "properties": {"inner": {"anyOf": [{"properties": {"kept": {}, "gone": {}}}, {"type": "null"}]}}
+                }
+            ),
+            schema(Modifiers={"properties": {"inner": {"anyOf": [{"properties": {"kept": {}}}, {"type": "null"}]}}}),
+            ["`Modifiers` at `inner`: property `gone`"],
+            id="property-removed-from-an-inline-object-inside-a-union",
+        ),
+        pytest.param(
             schema(Modifiers={"properties": {"keep": {}}}, Request={"properties": {"gone": {}}}),
             schema(Modifiers={"properties": {"keep": {}}}, Request={"properties": {}}),
             [],
