@@ -23,6 +23,12 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
 
+import {
+    FlagCallCriterionProblem,
+    MAX_LOOKBACK_DAYS,
+    flagCallCriterionProblem,
+} from 'products/cohorts/frontend/criteria/flagCallCriterionProblem'
+
 export interface CohortCriteriaRowBuilderProps {
     id: CohortLogicProps['id']
     criteria: AnyCohortCriteriaType
@@ -32,6 +38,20 @@ export interface CohortCriteriaRowBuilderProps {
     logicalOperator: FilterLogicalOperator
     hideDeleteIcon?: boolean
     onChangeType?: (nextType: BehavioralFilterType) => void
+}
+
+const MOVE_NOTICE_FIXES: Record<FlagCallCriterionProblem, string> = {
+    type: 'To keep it matching, change it to "Completed event", "Did not complete event" or "Completed an event multiple times".',
+    window: `To keep it matching, pick a range relative to today that goes back ${MAX_LOOKBACK_DAYS} days or less, such as "Last 30 days".`,
+    'flag-key':
+        'To keep it matching, add an event property filter where "Feature flag" equals one or more flag keys, and filter only on event properties.',
+}
+
+function moveNoticeText(problem: FlagCallCriterionProblem | null): string {
+    if (problem === null) {
+        return "Feature flag called is moving out of the events table. Once your organization starts the move, you can't add new criteria on it. When the move finishes, this criterion stops matching new flag calls. To see how a flag is used, open the flag and check its Usage tab."
+    }
+    return `Feature flag called is moving out of the events table. When the move finishes, this criterion stops matching new flag calls. ${MOVE_NOTICE_FIXES[problem]}`
 }
 
 export function CohortCriteriaRowBuilder({
@@ -50,10 +70,15 @@ export function CohortCriteriaRowBuilder({
         useFeatureFlag('FLAG_CALLED_MOVE_NOTICES')
     )
     const announcementUrl = moveAnnouncementUrl(getFeatureFlagPayload(FEATURE_FLAGS.FLAG_CALLED_MOVE_NOTICES))
-    const showsMoveNotice =
+    const namesMovingEvent =
         (criteria.event_type === TaxonomicFilterGroupType.Events && moveNoticeEvents.includes(String(criteria.key))) ||
         (criteria.seq_event_type === TaxonomicFilterGroupType.Events &&
             moveNoticeEvents.includes(String(criteria.seq_event)))
+    // Without the rewrite, the batch calculation reads every flag-call criterion from events.
+    const flagCallsReadFromFlagEvaluations = useFeatureFlag('HOGQL_FLAG_CALLS_FROM_FLAG_EVALUATIONS')
+    const flagCallProblem =
+        namesMovingEvent && flagCallsReadFromFlagEvaluations ? flagCallCriterionProblem(criteria) : null
+    const showsMoveNotice = namesMovingEvent && (!flagCallsReadFromFlagEvaluations || flagCallProblem !== null)
     // Falling back to another row's fields would let an edit merge into the unmapped criterion,
     // which cleanCriteria then strips to undefined. An empty row keeps the type selector as the
     // recovery path.
@@ -194,9 +219,7 @@ export function CohortCriteriaRowBuilder({
                                     : undefined
                             }
                         >
-                            Feature flag called is moving out of the events table. Once your organization starts the
-                            move, you can't add new criteria on it. When the move finishes, this criterion stops
-                            matching new flag calls. To see how a flag is used, open the flag and check its Usage tab.
+                            {moveNoticeText(flagCallProblem)}
                         </LemonBanner>
                     )}
                 </>

@@ -981,6 +981,9 @@ def _hidden_event_references(properties: Iterable[Property]) -> Iterator[tuple[s
                 yield str(event), prop
 
 
+# products/cohorts/frontend/criteria/flagCallCriterionProblem.ts copies the type, window and flag key rules for the
+# cohort move notice. A change to these rules needs the same change there.
+
 # The criterion types whose flag calls both the batch calculation and the realtime backfill read from flag_evaluations.
 _FLAG_CALL_CRITERION_TYPES = frozenset(
     {BehavioralPropertyType.PERFORMED_EVENT, BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE}
