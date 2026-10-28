@@ -167,8 +167,8 @@ def check_endpoint_access(api_key: str, base_url: str, endpoint: str) -> str | N
     """
     config = GITGUARDIAN_ENDPOINTS[endpoint]
     # Fan-out children share their parent's scope, and their path needs a real parent id.
-    probe_path = GITGUARDIAN_ENDPOINTS[config.parent_endpoint].path if config.parent_endpoint else config.path
-    url = _build_url(base_url, probe_path, {"per_page": 1})
+    probe = GITGUARDIAN_ENDPOINTS[config.parent_endpoint] if config.parent_endpoint else config
+    url = _build_url(base_url, probe.path, {"per_page": 1} if probe.page_size else {})
     try:
         # capture=False keeps GitGuardian security metadata (repo names, file paths, secret hashes)
         # out of the HTTP sample bucket — the name-based scrubbers can't recognise these fields.
@@ -187,7 +187,7 @@ def check_endpoint_access(api_key: str, base_url: str, endpoint: str) -> str | N
 
 
 def _list_params(config: GitGuardianEndpointConfig) -> dict[str, Any]:
-    params: dict[str, Any] = {"per_page": config.page_size}
+    params: dict[str, Any] = {"per_page": config.page_size} if config.page_size else {}
     if config.ordering:
         params["ordering"] = config.ordering
     return params
@@ -245,7 +245,10 @@ def _get_fan_out_rows(
                     session, _build_url(base_url, path, _list_params(config)), headers, base_url, config.name, logger
                 ):
                     if page.rows:
-                        yield page.rows
+                        if config.parent_id_field:
+                            yield [{**row, config.parent_id_field: parent_id} for row in page.rows]
+                        else:
+                            yield page.rows
             except requests.HTTPError as e:
                 # The parent can be deleted between listing it and fetching its children.
                 if e.response is not None and e.response.status_code == 404:
