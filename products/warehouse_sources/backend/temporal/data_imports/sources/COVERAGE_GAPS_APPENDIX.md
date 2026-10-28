@@ -1586,9 +1586,9 @@ Diffed against: <https://docs.bigeye.com/llms.txt>
 - [x] `Metric runs (POST /api/v1/metrics/runs)` — measure observed values, failed checks, and data quality trends over time (high)
 - [x] `Metric scorecard (POST /api/v1/metrics/scorecard)` — report monitoring coverage and successful checks over time, which metric configuration cannot provide (high)
 - [x] `Schema changes (POST /api/v1/schema-changes/fetch)` — track schema changes and connect added, removed, or changed fields to data quality incidents (medium)
-- [ ] `Deltas (POST /api/v1/deltas/fetch)` — analyze data comparison results to find replication failures and inconsistent datasets (medium)
+- [x] `Deltas (POST /api/v1/deltas/fetch)` — analyze data comparison results to find replication failures and inconsistent datasets (medium)
 - [x] `Metric revisions (GET /api/v1/metrics/{metricId}/revisions)` — track changes to checks and thresholds when investigating changes in alert frequency (medium)
-- [ ] `Lineage graph (GET /api/v2/lineage/nodes/{dataNodeId}/graph)` — connect data incidents to affected tables and downstream assets (medium)
+- [x] `Lineage graph (GET /api/v2/lineage/nodes/{dataNodeId}/graph)` — connect data incidents to affected tables and downstream assets (medium)
 
 Note: The official index links supplied OpenAPI definitions for every listed gap. Metrics contains configuration; observed results need separate calls for each metric. Read-only POST collections are included alongside the lineage GET route. Embedded catalog details, issue events, settings, keys, and execution commands are excluded.
 
@@ -13609,10 +13609,10 @@ Today (3): `thread_messages`, `threads`, `users`
 
 Diffed against: <https://help.getzep.com/sitemap.xml>
 
-- [ ] `graph/edge/user/{user_id} and graph/edge/graph/{graph_id} (edges/facts)` — the temporal fact triples that are Zep's headline product - relationships with valid_at/invalid_at intervals (high)
-- [ ] `graph/node/user/{user_id} and graph/node/graph/{graph_id} (nodes/entities)` — the extracted entities in the knowledge graph, the lookup table every edge and observation points at (high)
-- [ ] `graph/episodes/user/{user_id} and graph/episodes/graph/{graph_id}` — the ingested source episodes that produced each node and edge - the provenance link back to thread messages (high)
-- [ ] `graph/list-all (graphs)` — lookup enumerating non-user graphs; without it the entire graph-scoped side of the API is unreachable (high)
+- [x] `graph/edge/user/{user_id} and graph/edge/graph/{graph_id} (edges/facts)` — the temporal fact triples that are Zep's headline product - relationships with valid_at/invalid_at intervals (high)
+- [x] `graph/node/user/{user_id} and graph/node/graph/{graph_id} (nodes/entities)` — the extracted entities in the knowledge graph, the lookup table every edge and observation points at (high)
+- [x] `graph/episodes/user/{user_id} and graph/episodes/graph/{graph_id}` — the ingested source episodes that produced each node and edge - the provenance link back to thread messages (high)
+- [x] `graph/list-all (graphs)` — lookup enumerating non-user graphs; without it the entire graph-scoped side of the API is unreachable (high)
 - [ ] `graph/observation/user/{user_id} and graph/observation/graph/{graph_id}` — per-entity observations, the granular memory records behind summarized facts (medium)
 - [ ] `graph thread summaries (get-user-thread-summaries / get-graph-thread-summaries)` — generated summaries per thread, the analytical rollup of the thread_messages we already sync (medium)
 - [ ] `graph/list-ontology (entity and edge type definitions)` — lookup resolving the type labels stamped on nodes and edges (medium)
