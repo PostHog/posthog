@@ -2,15 +2,12 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { confirmCreateAsBroadcast } from '../Broadcasts/broadcastLifecycle'
-import { hogFlowEditorLogic } from './hogflows/hogFlowEditorLogic'
 import type { HogFlow, HogFlowAction } from './hogflows/types'
 import { workflowEditorVisitLogic } from './workflowEditorVisitLogic'
 import { NEW_WORKFLOW, TriggerAction, WorkflowLogicProps, workflowLogic } from './workflowLogic'
@@ -121,7 +118,6 @@ describe('workflowEditorVisitLogic', () => {
                 entry_source: null,
                 workflow_id: null,
                 status: 'draft',
-                editor_layout: 'graph',
             },
         ])
 
@@ -146,8 +142,6 @@ describe('workflowEditorVisitLogic', () => {
                 invalid_step_types: ['delay'],
                 step_types: { delay: 2 },
                 branch_count: 0,
-                editor_layout: 'graph',
-                layout_switch_count: 0,
                 last_edit: 'step_added',
                 last_added_step_type: 'delay',
                 enable_attempted: false,
@@ -280,91 +274,6 @@ describe('workflowEditorVisitLogic', () => {
         confirmLeave.mockRestore()
         expect(captured('workflow editor left')).toEqual([
             expect.objectContaining({ step_count: 1, step_types: { delay: 1 }, last_edit: 'step_added' }),
-        ])
-    })
-
-    it.each(['workflow', 'overview'])(
-        'reports the layout a person lands in, the one they leave from, and each real switch, from the %s route',
-        async (startTab) => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW], {
-                [FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW]: true,
-            })
-            useMocks({
-                get: { [`/api/projects/:team_id/hog_flows/${SAVED_ID}/`]: { ...NEW_WORKFLOW, id: SAVED_ID } },
-            })
-            const props = { id: SAVED_ID }
-            router.actions.push(urls.workflow(SAVED_ID, startTab))
-            const visit = await openEditor(props)
-
-            hogFlowEditorLogic(props).actions.switchEditorLayout('simple')
-            hogFlowEditorLogic(props).actions.switchEditorLayout('advanced')
-            router.actions.push(urls.workflow(SAVED_ID, 'metrics'))
-            visit.unmount()
-
-            expect(captured('workflow editor opened')).toEqual([expect.objectContaining({ editor_layout: 'list' })])
-            expect(captured('workflow editor left')).toEqual([
-                expect.objectContaining({ editor_layout: 'graph', layout_switch_count: 1 }),
-            ])
-        }
-    )
-
-    it('keeps tracking the layout after the person moves from a fallback tab to the Workflow tab', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW], {
-            [FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW]: true,
-        })
-        useMocks({ get: { [`/api/projects/:team_id/hog_flows/${SAVED_ID}/`]: { ...NEW_WORKFLOW, id: SAVED_ID } } })
-        const props = { id: SAVED_ID }
-        router.actions.push(urls.workflow(SAVED_ID, 'overview'))
-        const visit = await openEditor(props)
-
-        router.actions.push(urls.workflow(SAVED_ID, 'workflow'))
-        hogFlowEditorLogic(props).actions.switchEditorLayout('advanced')
-        router.actions.push(urls.workflow(SAVED_ID, 'metrics'))
-        visit.unmount()
-
-        expect(captured('workflow editor left')).toEqual([
-            expect.objectContaining({ editor_layout: 'graph', layout_switch_count: 1 }),
-        ])
-    })
-
-    it('keeps the graph when the editor rejects a list view the workflow cannot fit', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW], {
-            [FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW]: true,
-        })
-        const withUnreachableStep = {
-            ...NEW_WORKFLOW,
-            id: SAVED_ID,
-            actions: [...NEW_WORKFLOW.actions, delayStep('orphan', { delay_duration: '10m' })],
-        }
-        useMocks({ get: { [`/api/projects/:team_id/hog_flows/${SAVED_ID}/`]: withUnreachableStep } })
-        const props = { id: SAVED_ID }
-        router.actions.push(urls.workflow(SAVED_ID, 'workflow'))
-        const visit = await openEditor(props)
-
-        hogFlowEditorLogic(props).actions.switchEditorLayout('simple')
-        visit.unmount()
-
-        expect(captured('workflow editor opened')).toEqual([expect.objectContaining({ editor_layout: 'graph' })])
-        expect(captured('workflow editor left')).toEqual([
-            expect.objectContaining({ editor_layout: 'graph', layout_switch_count: 0 }),
-        ])
-    })
-
-    it('reports the tile canvas as the layout when the person builds on it', async () => {
-        featureFlagLogic.actions.setFeatureFlags(
-            [FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW, FEATURE_FLAGS.WORKFLOWS_TILE_CANVAS],
-            { [FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW]: true, [FEATURE_FLAGS.WORKFLOWS_TILE_CANVAS]: true }
-        )
-        useMocks({ get: { [`/api/projects/:team_id/hog_flows/${SAVED_ID}/`]: { ...NEW_WORKFLOW, id: SAVED_ID } } })
-        const props = { id: SAVED_ID }
-        router.actions.push(urls.workflow(SAVED_ID, 'workflow'))
-        const visit = await openEditor(props)
-
-        visit.unmount()
-
-        expect(captured('workflow editor opened')).toEqual([expect.objectContaining({ editor_layout: 'canvas' })])
-        expect(captured('workflow editor left')).toEqual([
-            expect.objectContaining({ editor_layout: 'canvas', layout_switch_count: 0 }),
         ])
     })
 
