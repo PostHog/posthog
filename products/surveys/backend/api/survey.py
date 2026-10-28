@@ -84,6 +84,7 @@ from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import FLAG_OWNER_SURVEY, assert_flag_available_for
 from products.product_analytics.backend.facade.models import Insight
+from products.surveys.backend.llm import gemini_configured
 from products.surveys.backend.models import (
     MAX_ITERATION_COUNT,
     MAX_ITERATION_FREQUENCY_DAYS,
@@ -3187,8 +3188,7 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
             return Response(cached_response)
 
         environment_is_allowed = settings.DEBUG or is_cloud()
-        has_gemini_api_key = bool(settings.GEMINI_API_KEY)
-        if not environment_is_allowed or not has_gemini_api_key:
+        if not environment_is_allowed or not gemini_configured():
             raise exceptions.ValidationError("survey summary is only supported in PostHog Cloud")
 
         # Same AI-processing gate that summary_headline uses — applies to per-question summaries too.
@@ -3398,8 +3398,10 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
                 "survey translation generation is only supported in PostHog Cloud or DEBUG mode"
             )
 
-        if not settings.GEMINI_API_KEY:
-            raise exceptions.ValidationError("GEMINI_API_KEY must be configured to generate translations")
+        if not gemini_configured():
+            raise exceptions.ValidationError(
+                "GEMINI_API_KEY or the AI gateway must be configured to generate translations"
+            )
 
         if not self.team.organization.is_ai_data_processing_approved:
             return Response(

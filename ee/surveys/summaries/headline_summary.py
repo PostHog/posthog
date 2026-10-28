@@ -2,7 +2,6 @@ from collections import Counter
 from datetime import datetime
 
 import structlog
-from langchain_core.messages import HumanMessage, SystemMessage
 
 from posthog.schema import SurveyQuestionType
 
@@ -11,13 +10,12 @@ from posthog.hogql.parser import parse_select
 
 from posthog.api.utils import ServerTimingsGathered
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
+from posthog.llm.gateway_client import build_openai_client
 from posthog.models import Team, User
 
 from products.surveys.backend.models import Survey
 from products.surveys.backend.responses.fetch_rows import RESPONSE_EVENT_FILTER, SUBMISSION_GROUPING_KEY
 from products.surveys.backend.util import get_archived_response_uuids, get_survey_response_clickhouse_query
-
-from ee.hogai.llm import MaxChatOpenAI
 
 logger = structlog.get_logger(__name__)
 
@@ -177,36 +175,30 @@ def generate_survey_headline(
     with timer("llm"):
         logger.info("[survey_headline_summary] starting LLM call", survey_id=str(survey.id))
         try:
-            llm = MaxChatOpenAI(
-                user=user,
-                team=team,
+            client = build_openai_client(
+                product="django",
+                ai_product="surveys",
+                distinct_id=user.distinct_id,
+                properties={"ai_feature": "survey_headline", "survey_id": str(survey.id), "team_id": str(team.id)},
+            )
+            completion = client.chat.completions.create(
                 model="gpt-4.1-mini",
                 temperature=0.3,
-                billable=False,
-                inject_context=True,
-                streaming=False,
-                disable_streaming=True,
+                messages=[
+                    {"role": "system", "content": HEADLINE_SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": HEADLINE_USER_PROMPT.format(
+                            survey_name=survey.name,
+                            formatted_data=formatted_data,
+                        ),
+                    },
+                ],
+                user=user.distinct_id or "",
             )
-
-            messages = [
-                SystemMessage(content=HEADLINE_SYSTEM_PROMPT),
-                HumanMessage(
-                    content=HEADLINE_USER_PROMPT.format(
-                        survey_name=survey.name,
-                        formatted_data=formatted_data,
-                    )
-                ),
-            ]
-
-            llm_result = llm.invoke(messages)
             logger.info("[survey_headline_summary] LLM call completed", survey_id=str(survey.id))
-            content = llm_result.content
-            if isinstance(content, str):
-                headline = content.strip()
-            elif content:
-                headline = str(content[0]).strip() if content else "Unable to generate summary"
-            else:
-                headline = "Unable to generate summary"
+            content = completion.choices[0].message.content if completion.choices else None
+            headline = content.strip() if content else "Unable to generate summary"
         except Exception as e:
             logger.exception("[survey_headline_summary] LLM call failed", survey_id=str(survey.id), error=str(e))
             raise

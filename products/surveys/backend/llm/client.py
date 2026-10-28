@@ -13,10 +13,17 @@ from pydantic import BaseModel
 from rest_framework import exceptions
 
 from posthog.event_usage import groups
+from posthog.llm.gateway_client import build_gemini_client, resolve_ai_gateway_config
 
 logger = structlog.get_logger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+
+AI_PRODUCT = "surveys"
+
+
+def gemini_configured() -> bool:
+    return bool(settings.GEMINI_API_KEY) or resolve_ai_gateway_config() is not None
 
 
 def create_gemini_client():
@@ -46,8 +53,6 @@ def generate_structured_output(
     distinct_id: str | None = None,
     billable: bool = False,
 ) -> tuple[T, str]:
-    client = create_gemini_client()
-
     config = GenerateContentConfig(
         system_instruction=system_prompt,
         response_mime_type="application/json",
@@ -63,15 +68,24 @@ def generate_structured_output(
         posthog_groups.update(groups())
 
     try:
-        response = client.models.generate_content(
-            model=model,
-            contents=user_prompt,
-            config=config,
-            posthog_distinct_id=distinct_id or "",
-            posthog_trace_id=trace_id,
-            posthog_properties=properties,
-            posthog_groups=posthog_groups,
+        gateway_client = build_gemini_client(
+            ai_product=AI_PRODUCT,
+            trace_id=trace_id,
+            properties=_gateway_labels(properties, team_id),
+            distinct_id=distinct_id,
         )
+        if gateway_client:
+            response = gateway_client.models.generate_content(model=model, contents=user_prompt, config=config)
+        else:
+            response = create_gemini_client().models.generate_content(
+                model=model,
+                contents=user_prompt,
+                config=config,
+                posthog_distinct_id=distinct_id or "",
+                posthog_trace_id=trace_id,
+                posthog_properties=properties,
+                posthog_groups=posthog_groups,
+            )
 
         if not response.text:
             raise exceptions.ValidationError("Gemini returned empty response")
@@ -83,3 +97,14 @@ def generate_structured_output(
     except Exception:
         logger.exception("Gemini API call failed", model=model, properties=properties)
         raise exceptions.APIException("Failed to generate response")
+
+
+def _gateway_labels(properties: dict, team_id: int | None) -> dict[str, str]:
+    labels = {
+        key: str(value)
+        for key, value in properties.items()
+        if value is not None and key != "ai_product" and not key.startswith("$")
+    }
+    if team_id is not None:
+        labels["team_id"] = str(team_id)
+    return labels
