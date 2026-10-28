@@ -794,6 +794,8 @@ If new:
 
 2. **Integration kind**.
    - Add to the `IntegrationKind` enum in `posthog/models/integration/model.py`.
+   - Add the kind to `_KIND_AUTH_TYPES` in `posthog/models/integration/auth_types.py`, with `default=IntegrationAuthType.OAUTH`.
+     Query its rows with `Integration.objects.with_auth(Integration.AuthType.OAUTH)`.
    - Add to `OauthIntegration.supported_kinds` in `posthog/models/integration/oauth.py`.
    - Add an `elif kind == "your-source": return OauthConfig(...)` branch in `oauth_config_for_kind()`, also in `oauth.py`.
      Raise `NotImplementedError("<Source> app not configured")` when the env vars are empty — that's the

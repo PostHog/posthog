@@ -1,0 +1,49 @@
+rules:
+    # Severity INFO keeps this rule out of the three semgrep-devex passes, which select WARNING and
+    # ERROR. The "Integration auth-type ratchet" step of that job runs it on its own and compares the
+    # findings per file with posthog/models/integration/with_auth_baseline.txt.
+    - id: integration-queries-use-with-auth
+      message: |
+          Start every `Integration.objects` query with `.with_auth(...)`, for example
+          `Integration.objects.with_auth(Integration.AuthType.APP).filter(team_id=team_id, kind="github")`.
+
+          An Integration row has an auth type (an App installation, an OAuth grant, a typed-in API key).
+          Name the auth types that this code can handle. Use `DEFAULT` for the default auth type of each
+          row's kind, and `ANY` for code that handles every row the same way. Both come from
+          `posthog.models.integration`. A query without `with_auth` returns only rows with the default
+          auth type of their kind.
+
+          After you migrate a call site, lower its count in
+          `posthog/models/integration/with_auth_baseline.txt`, or remove the line when it gets to zero.
+      severity: INFO
+      languages: [python]
+      paths:
+          include:
+              - 'common/**/*.py'
+              - 'ee/**/*.py'
+              - 'posthog/**/*.py'
+              - 'products/**/*.py'
+          exclude:
+              - 'products/desktop/**'
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+              - '**/*_test.py'
+              - '**/conftest*.py'
+              - '**/migrations/**'
+      patterns:
+          - pattern-either:
+                - pattern: Integration.objects
+                - pattern: $MODULE.Integration.objects
+                - pattern: posthog.models.Integration.objects
+                - pattern: posthog.models.integration.Integration.objects
+                - pattern: posthog.models.integration.model.Integration.objects
+          - pattern-not-inside: Integration.objects.with_auth(...)
+          - pattern-not-inside: $MODULE.Integration.objects.with_auth(...)
+          - pattern-not-inside: posthog.models.Integration.objects.with_auth(...)
+          - pattern-not-inside: posthog.models.integration.Integration.objects.with_auth(...)
+          - pattern-not-inside: posthog.models.integration.model.Integration.objects.with_auth(...)
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit

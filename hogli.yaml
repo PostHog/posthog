@@ -1300,3 +1300,7 @@ environment:
         bin_script: rasterize-recording-file
         description: 'Render a recording JSONL file to video with the rasterizer'
         hidden: true
+    lint:semgrep-ratchet:
+        bin_script: semgrep_ratchet.py
+        description: 'Compare semgrep findings per file with a checked-in baseline'
+        hidden: true

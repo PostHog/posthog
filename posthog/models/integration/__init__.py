@@ -16,6 +16,15 @@ from .anthropic import (
     AnthropicIntegrationError,
 )
 from .assignees import Assignee, AssigneeLookupFailed, ReconnectRequired
+from .auth_types import (
+    ANY,
+    DEFAULT,
+    AuthRequirement,
+    AuthTypeSelector,
+    IntegrationAuthType,
+    KindAuthTypes,
+    register_kind_auth_types,
+)
 from .aws import (
     AWSCredentialsIntegration,
     AWSRedshiftIntegration,
@@ -150,6 +159,13 @@ from .stripe import STRIPE_POSTHOG_SECRET_NAMES, StripeIntegration
 from .twilio import TwilioIntegration
 
 __all__ = [
+    "ANY",
+    "DEFAULT",
+    "AuthRequirement",
+    "AuthTypeSelector",
+    "IntegrationAuthType",
+    "KindAuthTypes",
+    "register_kind_auth_types",
     "UndecryptedIntegrationSecretError",
     "integration_secret_decrypt_counter",
     "IntegrationQuerySet",
