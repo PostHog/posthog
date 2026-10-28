@@ -1,16 +1,18 @@
 from django.db import models
 from django.db.models import Q
+from django.utils.functional import Promise
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
 
 class ImportProviderKey(models.TextChoices):
-    CIO = "cio", "c.io"
+    CUSTOMERIO = "customerio", "Customer.io"
 
 
-def import_provider_choices() -> list[tuple[str, str]]:
-    return ImportProviderKey.choices
+def import_provider_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so adding a provider doesn't generate a no-op migration.
+    return list(ImportProviderKey.choices)
 
 
 class ProviderImportStatus(models.TextChoices):
@@ -54,7 +56,7 @@ class ProviderImportRun(TeamScopedRootMixin, UUIDModel):
     # Step keys in the order they run.
     steps = models.JSONField(default=list)
     status = models.CharField(max_length=16, choices=ProviderImportStatus.choices, default=ProviderImportStatus.QUEUED)
-    # Step key -> {"status", "processed", "imported", "warnings", "last_error", "checkpoint"}.
+    # Step key -> {"status", "processed", "imported", "warnings", "last_error", "checkpoint", "attempt"}.
     progress = models.JSONField(default=dict)
 
     class Meta:
