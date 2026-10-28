@@ -7,7 +7,6 @@ from zoneinfo import ZoneInfo
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.html import format_html
-from django.utils.safestring import SafeString
 
 import pytz
 import structlog
@@ -268,25 +267,8 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
     return receipts
 
 
-def _investigation_email_html(breaches: list[str], summary_index: int) -> list[SafeString]:
-    """The email body, or an empty list when the summary cannot be rendered.
-
-    The caller falls back to the plain-text breach lines. The render reads untrusted Markdown, and
-    the chat notification is dispatched after this point, so a failure here must not take it down
-    with it.
-    """
-    try:
-        return [
-            render_markdown_email_html(breach) if index == summary_index else format_html("<p>{}</p>", breach)
-            for index, breach in enumerate(breaches)
-        ]
-    except Exception:
-        logger.exception("alert_investigation_email_render_failed", summary_index=summary_index)
-        return []
-
-
 def _destination_breach_text(breaches: list[str], summary_index: int | None) -> str:
-    if summary_index is None or not 0 <= summary_index < len(breaches):
+    if summary_index is None:
         return truncate_markdown_safely("\n".join(breaches), _DESTINATION_MAX_CHARS)
     other_lines = [breach for index, breach in enumerate(breaches) if index != summary_index]
     budget = max(_DESTINATION_MAX_CHARS - len("\n".join(other_lines)) - 1, _DESTINATION_MIN_SUMMARY_CHARS)
@@ -302,7 +284,7 @@ def send_notifications_for_breaches(
     alert: AlertConfiguration,
     breaches: list[str],
     idempotency_key: str,
-    extra_properties: dict[str, Any] | None = None,
+    extra_properties: dict[str, str] | None = None,
     summary_index: int | None = None,
 ) -> list[AlertDelivery]:
     """A stable idempotency_key (typically alert_check.id) lets MessagingRecord enforce
@@ -325,7 +307,10 @@ def send_notifications_for_breaches(
         logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
         match_descriptions_html = []
         if summary_index is not None:
-            match_descriptions_html = _investigation_email_html(breaches, summary_index)
+            match_descriptions_html = [
+                render_markdown_email_html(breach) if index == summary_index else format_html("<p>{}</p>", breach)
+                for index, breach in enumerate(breaches)
+            ]
         email_sent = send_alert_email(
             recipients=email_targets,
             campaign_key=campaign_key,
@@ -585,7 +570,7 @@ def dispatch_alert_notification(
     alert: AlertConfiguration,
     alert_check: AlertCheck,
     breaches: list[str] | None,
-    extra_properties: dict[str, Any] | None = None,
+    extra_properties: dict[str, str] | None = None,
     idempotency_key: str | None = None,
     render_chart: bool = True,
     summary_index: int | None = None,

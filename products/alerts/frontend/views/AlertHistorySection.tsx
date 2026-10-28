@@ -58,7 +58,6 @@ function InvestigationCell({ check, alertId }: { check: AlertCheck; alertId: Ale
     const { toggleInvestigationSummary } = useActions(logic)
     const expanded = !!expandedInvestigationChecks[check.id]
     const summaryRef = useRef<HTMLDivElement>(null)
-    const summaryId = `investigation-summary-${check.id}`
     const [isClamped, setIsClamped] = useState(false)
     const status = check.investigation_status
     const shortId = check.investigation_notebook_short_id
@@ -98,7 +97,6 @@ function InvestigationCell({ check, alertId }: { check: AlertCheck; alertId: Ale
                     <>
                         <div
                             ref={summaryRef}
-                            id={summaryId}
                             className={`text-sm leading-normal text-muted ${expanded ? '' : 'line-clamp-2'}`}
                         >
                             <LemonMarkdown disableImages="all" disableLinks disableMentions lowKeyHeadings>
@@ -111,7 +109,6 @@ function InvestigationCell({ check, alertId }: { check: AlertCheck; alertId: Ale
                                 size="xsmall"
                                 onClick={() => toggleInvestigationSummary(check.id)}
                                 aria-expanded={expanded}
-                                aria-controls={summaryId}
                             >
                                 {expanded ? 'Show less' : 'Show more'}
                             </LemonButton>

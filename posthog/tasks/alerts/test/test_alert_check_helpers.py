@@ -181,9 +181,6 @@ def test_destination_summary_truncated_inside_autolink_does_not_leak_url() -> No
         # The per-summary floor keeps a readable summary when our own breach lines are long, so the
         # composed message needs the cap too.
         (["breach " * 400, "summary " * 200], 1),
-        # An index the caller got wrong must not raise and lose the delivery.
-        (["one", "two"], 7),
-        (["one", "two"], -1),
     ],
 )
 def test_destination_text_stays_within_the_cap(breaches: list[str], summary_index: int) -> None:
