@@ -1,7 +1,7 @@
 from collections.abc import Mapping
 from zoneinfo import ZoneInfo
 
-from scipy.stats import chisquare
+from scipy.stats import chi2_contingency, chisquare
 
 from posthog.schema import SampleRatioMismatch
 
@@ -23,11 +23,13 @@ from products.feature_flags.backend.facade.edits import SplitChange
 SAMPLE_RATIO_MISMATCH_P_VALUE = 0.001
 SRM_MINIMUM_SAMPLE_SIZE = 100
 TOP_SEGMENT_VALUES = 5
-_NAMED_SEGMENTS = 3
 
-# pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
+# pinned: the subcode is sent as `finding_variant` on the health finding events, so insights group on it.
 SPLIT_CHANGED = "split_changed"
-SEGMENT_MISMATCH = "segment_mismatch"
+
+# pinned: sent as `finding_reason` on the health finding events, so insights group on them.
+REASON_LIBRARY_AND_PAGE = "library_and_page"
+REASON_UNIFORM = "uniform"
 
 
 def sample_ratio_test(observed: Mapping[str, int], weights: Mapping[str, float]) -> SampleRatioMismatch | None:
@@ -58,6 +60,10 @@ def reads_flag_history(ctx: HealthContext) -> bool:
 def reads_segments(ctx: HealthContext) -> bool:
     """Whether `srm` reports a mismatch that no split change explains, which it then looks for in the segments of the
     exposures. The exposure query loads the segments only then, because their query scans the exposure events."""
+    # With an activation, the segments would come from the activation event, not from the flag call that assigned
+    # the variant.
+    if ctx.exposure_events is not None and ctx.exposure_events.activation is not None:
+        return False
     outcome = srm(ctx)
     return isinstance(outcome, ExperimentHealthFinding) and outcome.subcode != SPLIT_CHANGED
 
@@ -160,15 +166,14 @@ def _split_change_warning(ctx: HealthContext) -> ExperimentHealthFinding | None:
 def _mismatch(exposures: ExposureTotals, p_value: float) -> ExperimentHealthFinding:
     unit = "group" if exposures.counts_groups else "user"
     tests = _segment_tests(exposures)
-    located = [sentence for dimension in ExposureSegmentDimension for sentence in _located(tests, dimension, unit)]
-    cause = (
-        [*located, f"Check that the code there sends the exposure for every {unit} in every variant."]
-        if located
-        else ["This may indicate issues with randomization or data collection."]
-    )
+    verdicts = [_verdict(tests, dimension, exposures.sample_ratio_expected) for dimension in ExposureSegmentDimension]
+    cause, reason = _cause(verdicts, unit)
+    evidence: dict[str, str | int | float | None] = {"p_value": p_value, **_segment_evidence(tests, verdicts)}
+    if reason is not None:
+        evidence["reason"] = reason
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.SRM,
-        subcode=SEGMENT_MISMATCH if located else None,
+        subcode=None,
         severity=ExperimentHealthFindingSeverity.WARNING,
         title=f"{unit.capitalize()}s are not split across variants as configured",
         detail=" ".join(
@@ -178,7 +183,7 @@ def _mismatch(exposures: ExposureTotals, p_value: float) -> ExperimentHealthFind
                 *cause,
             ]
         ),
-        evidence={"p_value": p_value, **_segment_evidence(tests)},
+        evidence=evidence,
         actions=(),
         diagnostic_ref="A2",
     )
@@ -190,9 +195,12 @@ class _SegmentTest:
     # None when the segment holds too few persons or groups for the test.
     p_value: float | None
 
-    @property
-    def mismatched(self) -> bool:
-        return self.p_value is not None and self.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
+
+@frozen
+class _Verdict:
+    dimension: ExposureSegmentDimension
+    homogeneity_p_value: float | None
+    located: ExposureSegment | None
 
 
 def _segment_tests(exposures: ExposureTotals) -> list[_SegmentTest]:
@@ -205,49 +213,84 @@ def _segment_tests(exposures: ExposureTotals) -> list[_SegmentTest]:
     return tests
 
 
-def _located(tests: list[_SegmentTest], dimension: ExposureSegmentDimension, unit: str) -> list[str]:
-    """The sentences that name the segments of the dimension with the mismatch. Empty unless other segments of the
-    dimension match the split, because a mismatch in every segment doesn't point at one."""
-    tested = [test for test in tests if test.segment.dimension == dimension and test.p_value is not None]
-    mismatched = [test for test in tested if test.mismatched]
-    matched = [test for test in tested if not test.mismatched]
-    if not mismatched or not matched:
-        return []
-    exposed = (
-        "whose first exposure was sent by" if dimension == ExposureSegmentDimension.LIBRARY else "first exposed on"
-    )
-    matched_p_value = f" (p = {matched[0].p_value:.2g})" if len(matched) == 1 else ""
-    return [
-        f"The mismatch comes from {unit}s {exposed} {_segment_list(mismatched)}.",
-        f"{unit.capitalize()}s {exposed} {_segment_list(matched)} match the split{matched_p_value}.",
+def _verdict(tests: list[_SegmentTest], dimension: ExposureSegmentDimension, weights: Mapping[str, float]) -> _Verdict:
+    # A test per segment would blame the largest segment for a skew that every segment shares, because the same skew
+    # reaches significance first in the most users. The homogeneity test asks whether the segments differ at all.
+    compared = [test for test in tests if test.segment.dimension == dimension and test.p_value is not None]
+    variants = [
+        variant for variant in weights if any(test.segment.exposed_by_variant.get(variant, 0) for test in compared)
     ]
+    if len(compared) < 2 or len(variants) < 2:
+        return _Verdict(dimension=dimension, homogeneity_p_value=None, located=None)
+    table = [[test.segment.exposed_by_variant.get(variant, 0) for variant in variants] for test in compared]
+    homogeneity_p_value = float(chi2_contingency(table).pvalue)
+    if homogeneity_p_value >= SAMPLE_RATIO_MISMATCH_P_VALUE:
+        return _Verdict(dimension=dimension, homogeneity_p_value=homogeneity_p_value, located=None)
+    failing = [
+        test.segment for test in compared if test.p_value is not None and test.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
+    ]
+    located = max(failing, key=lambda segment: _distance_from_split(segment, weights), default=None)
+    return _Verdict(dimension=dimension, homogeneity_p_value=homogeneity_p_value, located=located)
 
 
-def _segment_list(tests: list[_SegmentTest]) -> str:
-    names = [_segment_name(test.segment) for test in tests[:_NAMED_SEGMENTS]]
-    if len(tests) > _NAMED_SEGMENTS:
-        names.append(f"{len(tests) - _NAMED_SEGMENTS} more")
-    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+def _distance_from_split(segment: ExposureSegment, weights: Mapping[str, float]) -> float:
+    """The share of the segment's persons or groups that would have to move between variants to match the split."""
+    total = sum(segment.exposed_by_variant.get(variant, 0) for variant in weights)
+    total_weight = sum(weights.values())
+    return (
+        sum(
+            abs(segment.exposed_by_variant.get(variant, 0) / total - weight / total_weight)
+            for variant, weight in weights.items()
+        )
+        / 2
+    )
 
 
-def _segment_name(segment: ExposureSegment) -> str:
+def _cause(verdicts: list[_Verdict], unit: str) -> tuple[list[str], str | None]:
+    """The sentences that follow the mismatch, and the finding's reason."""
+    located = [verdict.located for verdict in verdicts if verdict.located is not None]
+    if located:
+        places = ", and from ".join(f"{unit}s {_segment_place(segment)}" for segment in located)
+        return [
+            f"The mismatch comes from {places}.",
+            f"Check that the code there sends the exposure for every {unit} in every variant.",
+        ], REASON_LIBRARY_AND_PAGE if len(located) > 1 else located[0].dimension.value
+    compared = {
+        verdict.dimension: verdict.homogeneity_p_value
+        for verdict in verdicts
+        if verdict.homogeneity_p_value is not None
+    }
+    if compared and all(p_value >= SAMPLE_RATIO_MISMATCH_P_VALUE for p_value in compared.values()):
+        across = " and ".join(
+            "SDK libraries" if dimension == ExposureSegmentDimension.LIBRARY else "pages" for dimension in compared
+        )
+        return [
+            f"The mismatch looks the same across {across}, which points at how {unit}s get their variants rather "
+            "than at one integration."
+        ], REASON_UNIFORM
+    return ["This may indicate issues with randomization or data collection."], None
+
+
+def _segment_place(segment: ExposureSegment) -> str:
     if segment.dimension == ExposureSegmentDimension.LIBRARY:
         if segment.value == BREAKDOWN_OTHER_STRING_LABEL:
-            return "other libraries"
+            return f"whose first exposure was sent by a library other than the {TOP_SEGMENT_VALUES} most common"
         if segment.value == BREAKDOWN_NULL_STRING_LABEL:
-            return "an unknown library"
-        return f'the "{segment.value}" library'
+            return "whose first exposure was sent by an unknown library"
+        return f'whose first exposure was sent by the "{segment.value}" library'
     if segment.value == BREAKDOWN_OTHER_STRING_LABEL:
-        return "other pages"
-    if segment.value == BREAKDOWN_NULL_STRING_LABEL:
-        return "a page without a path"
-    return f"the page {segment.value}"
+        return f"first exposed on a page other than the {TOP_SEGMENT_VALUES} most common"
+    return f"first exposed on the page {segment.value}"
 
 
-def _segment_evidence(tests: list[_SegmentTest]) -> dict[str, str | int | float | None]:
-    """Each segment in the keys `<dimension>_N` (the value), `<dimension>_N_p_value` and `<dimension>_N_exposed_<variant>`."""
+def _segment_evidence(tests: list[_SegmentTest], verdicts: list[_Verdict]) -> dict[str, str | int | float | None]:
+    """Each segment in the keys `<dimension>_N` (the value), `<dimension>_N_p_value` and
+    `<dimension>_N_exposed_<variant>`, and each compared dimension in `<dimension>_homogeneity_p_value`."""
     evidence: dict[str, str | int | float | None] = {}
-    for dimension in ExposureSegmentDimension:
+    for verdict in verdicts:
+        dimension = verdict.dimension
+        if verdict.homogeneity_p_value is not None:
+            evidence[f"{dimension.value}_homogeneity_p_value"] = verdict.homogeneity_p_value
         in_dimension = [test for test in tests if test.segment.dimension == dimension]
         for index, test in enumerate(in_dimension, start=1):
             key = f"{dimension.value}_{index}"

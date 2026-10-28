@@ -14,6 +14,8 @@ EXPERIMENT_PAUSED = "experiment_paused"
 FLAG_NOT_CALLED = "flag_not_called"
 CALLS_NOT_COUNTED = "calls_not_counted"
 CUSTOM_EXPOSURE_NOT_MATCHED = "custom_exposure_not_matched"
+# pinned: sent as `finding_reason` on the health finding events.
+TEST_ACCOUNT_FILTER = "test_account_filter"
 
 
 def reads_exposed_without_test_account_filter(ctx: HealthContext) -> bool:
@@ -36,7 +38,7 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
     # check calls it rather than repeating its rules, so exactly one of the two reports the experiment.
     if isinstance(exposure_criteria_cannot_match(ctx), ExperimentHealthFinding):
         return not_applicable("The exposure criteria check reports why no users are exposed")
-    evidence = {"hours_since_launch": int(exposures.hours_since_launch)}
+    evidence: dict[str, int | str] = {"hours_since_launch": int(exposures.hours_since_launch)}
     # A group experiment counts groups, by the rule the exposure query uses.
     unit = "group" if exposures.counts_groups else "user"
     # The cause reads the flag besides the cached exposure answer. The page recomputes that answer on each load while it
@@ -134,6 +136,7 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
         if exposed_without_filter is not None:
             evidence["exposed_without_test_account_filter"] = exposed_without_filter
         if exposed_without_filter:
+            evidence["reason"] = TEST_ACCOUNT_FILTER
             return _test_accounts_filtered_out(
                 exposed_without_filter, flag_key, unit, ended=ctx.has_ended, evidence=evidence
             )
@@ -181,7 +184,7 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
 
 
 def _test_accounts_filtered_out(
-    exposed: int, flag_key: str, unit: str, *, ended: bool, evidence: dict[str, int]
+    exposed: int, flag_key: str, unit: str, *, ended: bool, evidence: dict[str, int | str]
 ) -> ExperimentHealthFinding:
     exposed_units = f"the only {unit}" if exposed == 1 else f"all {exposed:,} {unit}s"
     served = f'{exposed_units} that got a variant of the feature flag "{flag_key}"'
@@ -209,7 +212,7 @@ def _test_accounts_filtered_out(
     )
 
 
-def _cause_unknown(evidence: dict[str, int], unit: str, *, ended: bool) -> ExperimentHealthFinding:
+def _cause_unknown(evidence: dict[str, int | str], unit: str, *, ended: bool) -> ExperimentHealthFinding:
     if ended:
         detail = (
             f"No {unit}s were exposed while the experiment ran, so it shows no results. "
@@ -239,7 +242,7 @@ def _finding(
     severity: ExperimentHealthFindingSeverity,
     title: str,
     detail: str,
-    evidence: dict[str, int],
+    evidence: dict[str, int | str],
     actions: tuple[ExperimentHealthFindingActionKind, ...],
 ) -> ExperimentHealthFinding:
     return ExperimentHealthFinding(

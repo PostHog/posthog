@@ -63,6 +63,7 @@ from products.experiments.backend.health.registry import (
     EXPOSURE_HEALTH_CHECKS,
     evaluate as evaluate_health,
 )
+from products.experiments.backend.health.rollout import shows_health_findings
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import analysis_window, analysis_window_end
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
@@ -123,6 +124,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         self.error_event_context = error_event_context
         # The user id and whether that user may read the flag's history.
         self._flag_history_access: tuple[int, bool] | None = None
+        self._health_findings_shown: tuple[int, bool] | None = None
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -318,6 +320,15 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             self._flag_history_access = (self.user.pk, readable)
         return self._flag_history_access[1]
 
+    def _runs_health_queries(self) -> bool:
+        # The queries that explain a finding scan the exposure events, so they run only for a reader who sees the
+        # findings. A userless run sees none.
+        if not isinstance(self.user, User):
+            return False
+        if self._health_findings_shown is None or self._health_findings_shown[0] != self.user.pk:
+            self._health_findings_shown = (self.user.pk, shows_health_findings(self.user, self.team))
+        return self._health_findings_shown[1]
+
     def _flag_history(self) -> FlagHistory | FlagHistoryNotChecked | None:
         try:
             restrictions = get_restricted_properties_with_group_type_index_for_team(
@@ -339,6 +350,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         context = load_health_context(self.experiment, exposures)
         if reads_flag_history(context):
             context = replace(context, flag_history=self._flag_history())
+        if not self._runs_health_queries():
+            return evaluate_health(context, EXPOSURE_HEALTH_CHECKS)
         if reads_segments(context):
             exposures = replace(exposures, segments=self._segments(exposure_params))
             context = replace(context, exposures=exposures)
@@ -366,12 +379,11 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         )
 
     def _exposed_without_test_account_filter(self, exposure_params: ExposureQueryParams) -> int | None:
-        query = self._query_builder(
-            replace(exposure_params, filter_test_accounts=False)
-        ).get_exposure_timeseries_query()
-        query.limit = ast.Constant(value=QUERY_ROW_LIMIT)
+        query = self._query_builder(replace(exposure_params, filter_test_accounts=False)).get_exposed_count_query()
         rows = self._run_health_query("ExperimentExposuresWithoutTestAccountFilterQuery", query)
-        return None if rows is None else sum(int(count) for _day, _variant, count in rows)
+        if rows is None:
+            return None
+        return int(rows[0][0]) if rows else 0
 
     def _run_health_query(self, query_type: str, query: ast.SelectQuery) -> list[Any] | None:
         """The rows of a query that only explains a health finding. None when it fails, so that the finding keeps the
@@ -561,4 +573,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # history, a userless run included, must not get a cached answer of one who can.
         if not self._can_read_flag_history():
             payload["flag_history_hidden"] = True
+        # The findings of a reader who sees them can carry what the extra queries found.
+        if self._runs_health_queries():
+            payload["health_queries"] = True
         return payload

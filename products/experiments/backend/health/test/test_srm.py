@@ -9,7 +9,7 @@ from posthog.schema import MultipleVariantHandling
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFinding
-from products.experiments.backend.health.checks.srm import SEGMENT_MISMATCH, srm
+from products.experiments.backend.health.checks.srm import srm
 from products.experiments.backend.health.context import ExposureSegment, ExposureTotals
 from products.experiments.backend.health.test.factories import RUNNING_CONTEXT
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
@@ -52,9 +52,9 @@ class TestSrmSegments(TestCase):
             (
                 "server_library",
                 SERVER_SKEWED,
-                SEGMENT_MISMATCH,
-                f'{MISMATCH} The mismatch comes from users whose first exposure was sent by the "posthog-node" library. '
-                f'Users whose first exposure was sent by the "web" library match the split (p = 1). {NEXT_STEP}',
+                "library",
+                f'{MISMATCH} The mismatch comes from users whose first exposure was sent by the "posthog-node" '
+                f"library. {NEXT_STEP}",
             ),
             (
                 "one_page",
@@ -64,15 +64,27 @@ class TestSrmSegments(TestCase):
                     _segment(PAGE, "/checkout", 100, 400),
                     _segment(PAGE, BREAKDOWN_OTHER_STRING_LABEL, 100, 100),
                 ),
-                SEGMENT_MISMATCH,
-                f"{MISMATCH} The mismatch comes from users first exposed on the page /checkout. Users first exposed on "
-                f"the page /pricing and other pages match the split. {NEXT_STEP}",
+                "page",
+                f"{MISMATCH} The mismatch comes from users first exposed on the page /checkout. {NEXT_STEP}",
             ),
             (
-                "every_library",
-                (_segment(LIBRARY, "web", 300, 450), _segment(LIBRARY, "posthog-node", 300, 450)),
-                None,
-                NO_LOCATION,
+                "the_largest_segment_with_the_skew",
+                (
+                    _segment(LIBRARY, "web", 800, 1200),
+                    _segment(LIBRARY, "posthog-node", 400, 400),
+                    _segment(PAGE, "/pricing", 600, 600),
+                    _segment(PAGE, "/checkout", 200, 600),
+                ),
+                "library_and_page",
+                f'{MISMATCH} The mismatch comes from users whose first exposure was sent by the "web" library, and '
+                f"from users first exposed on the page /checkout. {NEXT_STEP}",
+            ),
+            (
+                "the_same_skew_everywhere",
+                (_segment(LIBRARY, "web", 96900, 93100), _segment(LIBRARY, "posthog-node", 5100, 4900)),
+                "uniform",
+                f"{MISMATCH} The mismatch looks the same across SDK libraries, which points at how users get their "
+                "variants rather than at one integration.",
             ),
             (
                 "too_few_to_compare",
@@ -84,14 +96,14 @@ class TestSrmSegments(TestCase):
         ]
     )
     def test_names_the_segment_with_the_mismatch(
-        self, _name: str, segments: tuple[ExposureSegment, ...] | None, subcode: str | None, detail: str
+        self, _name: str, segments: tuple[ExposureSegment, ...] | None, reason: str | None, detail: str
     ) -> None:
         outcome = srm(replace(RUNNING_CONTEXT, exposures=_exposures(segments)))
 
         assert isinstance(outcome, ExperimentHealthFinding)
         self.assertEqual(
-            (outcome.subcode, outcome.title, outcome.detail),
-            (subcode, "Users are not split across variants as configured", detail),
+            (outcome.subcode, outcome.title, outcome.detail, outcome.evidence.get("reason")),
+            (None, "Users are not split across variants as configured", detail, reason),
         )
 
     def test_puts_every_segment_in_the_evidence(self) -> None:
@@ -99,13 +111,13 @@ class TestSrmSegments(TestCase):
 
         assert isinstance(outcome, ExperimentHealthFinding)
         evidence = dict(outcome.evidence)
-        server_p_value = evidence.pop("library_2_p_value")
-        assert isinstance(server_p_value, float)
-        self.assertLess(server_p_value, 0.001)
+        significant = [evidence.pop("library_2_p_value"), evidence.pop("library_homogeneity_p_value")]
+        self.assertTrue(all(isinstance(p_value, float) and p_value < 0.001 for p_value in significant))
         self.assertEqual(
             evidence,
             {
                 "p_value": 0.00001,
+                "reason": "library",
                 "library_1": "web",
                 "library_1_p_value": 1.0,
                 "library_1_exposed_control": 500,
@@ -113,6 +125,7 @@ class TestSrmSegments(TestCase):
                 "library_2": "posthog-node",
                 "library_2_exposed_control": 100,
                 "library_2_exposed_test": 400,
+                "page_homogeneity_p_value": 1.0,
                 "page_1": "/pricing",
                 "page_1_p_value": 1.0,
                 "page_1_exposed_control": 300,

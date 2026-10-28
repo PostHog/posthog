@@ -593,6 +593,7 @@ class TestSrmAfterSplitChange(TestCase):
             ("failing_test", RUNNING_CONTEXT, 0.00001, (True, True)),
             ("passing_test", RUNNING_CONTEXT, 0.01, (False, False)),
             ("split_change_explains_it", _context(EVEN, UNEVEN, exposed_units=5), 0.00001, (True, False)),
+            ("activation", replace(RUNNING_CONTEXT, exposure_events=ACTIVATION_EVENTS), 0.00001, (True, False)),
         ]
     )
     def test_reads_the_flag_history_and_the_segments_only_for_a_mismatch(
