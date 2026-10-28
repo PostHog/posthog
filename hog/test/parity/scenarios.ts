@@ -351,6 +351,12 @@ const STORED = (): StoredObject[] => [
         data: SYMBOL_SETS['app.js.map.bin']!,
     },
     { id: '0192f0a0-0000-7000-8000-00000000000b', ref: 'Shop.dSYM', data: SYMBOL_SETS['Shop.dSYM']! },
+    // A chunk ID is a ref that looks like a symbol set ID.
+    {
+        id: '0192f0a0-0000-7000-8000-00000000000c',
+        ref: '3f161e6c-fc03-5fe2-a9e9-08e5ae65fd15',
+        data: SYMBOL_SETS['app.js.map.bin']!,
+    },
 ]
 
 const download = (name: string, rust: string[], hog: string[]): ParityScenario => ({
@@ -371,6 +377,11 @@ SCENARIOS.push(
     download('by-ref', ['--ref', 'static/chunks/app.js.map'], ['static/chunks/app.js.map']),
     download('by-id', ['--id', '0192f0a0-0000-7000-8000-00000000000b'], ['0192f0a0-0000-7000-8000-00000000000b']),
     download('dsym-by-ref', ['--ref', 'Shop.dSYM'], ['Shop.dSYM']),
+    download(
+        'uuid-shaped-ref',
+        ['--ref', '3f161e6c-fc03-5fe2-a9e9-08e5ae65fd15'],
+        ['3f161e6c-fc03-5fe2-a9e9-08e5ae65fd15', '--ref']
+    ),
     download('unknown-ref', ['--ref', 'missing.js.map'], ['missing.js.map'])
 )
 
