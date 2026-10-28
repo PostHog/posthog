@@ -73,11 +73,23 @@ const REDRAW_TOOLS = new Map(
 )
 
 function redrawToolFor(query: Record<string, unknown> | undefined): string | null {
-    const redraw = query && typeof query.kind === 'string' ? REDRAW_TOOLS.get(query.kind) : undefined
+    // A trends query may leave out `kind`, which the trends tool fills in.
+    const kind = query?.kind ?? 'TrendsQuery'
+    const redraw = query && typeof kind === 'string' ? REDRAW_TOOLS.get(kind) : undefined
     return redraw && redraw.schema.safeParse(query).success ? redraw.tool : null
 }
 
 type SqlEvidence = { chart: StoryEvidenceChartData | null } | { error: string }
+
+const SQL_EVIDENCE_TIME_LIMIT_MS = 60_000
+
+function beforeDeadline<T>(promise: Promise<T>, deadline: number): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('it did not finish in time')), deadline - Date.now())
+    })
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
+}
 
 function isSqlQuery(query: Record<string, unknown> | undefined): query is Record<string, unknown> {
     return query?.kind === 'HogQLQuery' && typeof query.query === 'string'
@@ -94,11 +106,19 @@ async function runSqlEvidence(
             queries.set(JSON.stringify(item.query), item.query)
         }
     }
-    // One at a time, so the evidence does not use up the team's concurrent query limit.
+    // One at a time, so the evidence does not use up the team's concurrent query limit, within one shared time limit.
+    const deadline = Date.now() + SQL_EVIDENCE_TIME_LIMIT_MS
     const results = new Map<string, SqlEvidence>()
     for (const [key, query] of queries) {
+        if (Date.now() >= deadline) {
+            results.set(key, { error: 'it did not finish in time' })
+            continue
+        }
         try {
-            const response = await context.api.query({ projectId }).runQuery({ query })
+            const response = await beforeDeadline<{ columns?: unknown[] | null; results: unknown }>(
+                context.api.query({ projectId }).runQuery({ query }),
+                deadline
+            )
             const columns = (response.columns ?? []).map(String)
             const rows = Array.isArray(response.results) ? (response.results as unknown[][]) : []
             results.set(key, { chart: sqlEvidenceChart(columns, rows) })
@@ -122,7 +142,7 @@ function sqlProblems(chapters: Params['chapters'], sqlEvidence: Map<string, SqlE
             return result.chart
                 ? []
                 : [
-                      `The SQL behind "${item.text}" returned no rows to draw, so it shows as a link only. Select the x-axis column first and at least one number after it.`,
+                      `The SQL behind "${item.text}" returned nothing to draw, so it shows as a link only. Select the x-axis column first, then either the numbers to draw, or one text column to break down by followed by one number.`,
                   ]
         })
     )

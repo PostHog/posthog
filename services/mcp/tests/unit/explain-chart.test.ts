@@ -144,6 +144,10 @@ describe('explain-chart', () => {
             },
             by_browser: { columns: ['browser', 'failures'], results: [['Safari', 13]] },
             no_numbers: { columns: ['browser', 'version'], results: [['Safari', '17']] },
+            two_metrics: {
+                columns: ['hour', 'browser', 'failures', 'requests'],
+                results: [['2026-10-02 23:00:00', 'Safari', 4, 10]],
+            },
         }
         const context = createContext({ kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } })
         vi.mocked(context.api.query({ projectId: '1' }).runQuery).mockImplementation(
@@ -188,6 +192,8 @@ describe('explain-chart', () => {
                         { text: 'Failures by hour.', query: sql('by_hour') },
                         { text: 'Failures by browser.', query: sql('by_browser') },
                         { text: 'Versions.', query: sql('no_numbers') },
+                        { text: 'Two metrics.', query: sql('two_metrics') },
+                        { text: 'No kind.', query: { series } },
                         { text: 'A broken query.', query: sql('oops') },
                         { text: 'An unknown kind.', query: { kind: '__proto__' } },
                     ],
@@ -225,9 +231,12 @@ describe('explain-chart', () => {
             ],
             [null, null, true],
             [null, null, true],
+            ['query-trends', null, true],
+            [null, null, true],
             [null, null, true],
         ])
-        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('"Versions." returned no rows to draw')
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('"Versions." returned nothing to draw')
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('"Two metrics." returned nothing to draw')
         expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain(
             '"A broken query." failed, so it shows as a link only: Unknown column "oops"'
         )
