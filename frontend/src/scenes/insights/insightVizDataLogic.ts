@@ -1214,7 +1214,8 @@ export interface insightVizDataLogicMeta {
                 | null,
             dateRange: DateRange | null | undefined,
             compareFilter: CompareFilter | null | undefined,
-            insightData: Record<string, any>
+            insightData: Record<string, any>,
+            timezone: string
         ) => boolean
         isNonTimeSeriesDisplay: (display: ChartDisplayType | null | undefined) => boolean
         isSingleSeriesOutput: (
@@ -2314,17 +2315,19 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ) => isUsingSessionAnalysis && !(isInsightVizNode(query) && query.suppressSessionAnalysisWarning),
         ],
         showsFlagCallsRetentionNotice: [
-            (s) => [s.querySource, s.dateRange, s.compareFilter, s.insightData],
+            (s) => [s.querySource, s.dateRange, s.compareFilter, s.insightData, s.timezone],
             (
                 querySource: InsightQueryNode | null,
                 dateRange: DateRange | null | undefined,
                 compareFilter: CompareFilter | null | undefined,
-                insightData: Record<string, any>
+                insightData: Record<string, any>,
+                timezone: string
             ): boolean =>
                 !!querySource &&
                 readsFlagCalls(querySource) &&
                 insightReachesPastFlagEvaluationsRetention({
                     dateFrom: dateRange?.date_from,
+                    timezone,
                     resolvedDateRange: insightData?.resolved_date_range,
                     compareFilter,
                 }),

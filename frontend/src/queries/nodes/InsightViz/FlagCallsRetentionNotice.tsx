@@ -1,15 +1,16 @@
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import {
     FLAG_EVALUATIONS_RETENTION_DAYS,
-    flagEvaluationsRetentionStart,
+    flagEvaluationsRetentionStartDate,
 } from 'scenes/feature-flags/flagEvaluationsTable'
 
-export function FlagCallsRetentionNotice(): JSX.Element {
+export function FlagCallsRetentionNotice({ timezone }: { timezone: string }): JSX.Element {
     return (
         <LemonBanner type="info" className="m-2">
             This insight includes feature flag calls from the last {FLAG_EVALUATIONS_RETENTION_DAYS} days only. Periods
-            before {flagEvaluationsRetentionStart().format('MMMM D, YYYY')} show no calls.
+            before {dayjs.utc(flagEvaluationsRetentionStartDate(timezone)).format('MMMM D, YYYY')} show no calls.
         </LemonBanner>
     )
 }

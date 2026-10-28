@@ -30,11 +30,32 @@ export function storesFlagCallsOutsideEvents(team: TeamPublicType | TeamType | n
  */
 export const FLAG_EVALUATIONS_RETENTION_DAYS = 90
 
+// Intl reads the date in `timezone` without the browser's timezone. dayjs's tz() parses the wall time in the
+// browser's timezone. Near a DST change in that timezone, the result can move by an hour or to another day.
+function dateInTimezone(instant: dayjs.Dayjs, timezone: string): string {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).formatToParts(instant.valueOf())
+    const part = (type: Intl.DateTimeFormatPartTypes): string => parts.find((p) => p.type === type)?.value ?? ''
+    return `${part('year')}-${part('month')}-${part('day')}`
+}
+
+export function flagEvaluationsRetentionStartDate(timezone: string): string {
+    // The subtraction runs on a UTC date so that no DST change can shift it.
+    return dayjs
+        .utc(dateInTimezone(dayjs(), timezone))
+        .subtract(FLAG_EVALUATIONS_RETENTION_DAYS, 'day')
+        .format('YYYY-MM-DD')
+}
+
 // Start of the oldest day that FLAG_EVALUATIONS_RETENTION_DAYS covers. dateStringToDayJs resolves the ranges this is
 // compared to against UTC, so the boundary is UTC too: a browser-local midnight sits hours off it,
 // which drops the 90-day preset in a timezone ahead of UTC.
 export function flagEvaluationsRetentionStart(): dayjs.Dayjs {
-    return dayjs.utc().startOf('day').subtract(FLAG_EVALUATIONS_RETENTION_DAYS, 'day')
+    return dayjs.utc(flagEvaluationsRetentionStartDate('UTC'))
 }
 
 export function reachesPastFlagEvaluationsRetention(dateFrom: string | null): boolean {
@@ -46,11 +67,14 @@ export function reachesPastFlagEvaluationsRetention(dateFrom: string | null): bo
 /** Whether the range an insight ran over, or the period it compares against, starts before the table's oldest day. */
 export function insightReachesPastFlagEvaluationsRetention({
     dateFrom,
+    timezone,
     resolvedDateRange,
     compareFilter,
 }: {
     /** The live editor range, which wins over the saved query's. */
     dateFrom: string | null | undefined
+    /** The team timezone the backend resolved the range in. */
+    timezone: string
     resolvedDateRange: { date_from?: string | null; date_to?: string | null } | null | undefined
     compareFilter: CompareFilter | null | undefined
 }): boolean {
@@ -68,5 +92,8 @@ export function insightReachesPastFlagEvaluationsRetention({
         : compareToComponents
           ? componentsToDayJs(compareToComponents, start)
           : start.subtract(dayjs(resolvedDateRange.date_to ?? undefined).diff(start), 'millisecond')
-    return comparedStart.isBefore(flagEvaluationsRetentionStart())
+    // The window covers whole days in the team timezone. This compares dates, not instants, because a DST change
+    // can repeat midnight. The backend resolves the 90-day preset to the first midnight, and a boundary at the
+    // second midnight would flag the preset.
+    return dateInTimezone(comparedStart, timezone) < flagEvaluationsRetentionStartDate(timezone)
 }
