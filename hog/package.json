@@ -8,8 +8,8 @@
     },
     "type": "module",
     "scripts": {
-        "hog": "bun src/index.ts",
-        "compile": "bun build --compile src/index.ts --outfile dist/hog",
+        "hog": "bun --no-env-file src/index.ts",
+        "compile": "bun build --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig src/index.ts --outfile dist/hog",
         "typecheck": "tsc --noEmit",
         "unit": "bun test",
         "schema": "bun scripts/write-schema.ts"
@@ -25,5 +25,8 @@
         "@types/bun": "1.3.14",
         "@types/pako": "2.0.4",
         "typescript": "catalog:"
+    },
+    "engines": {
+        "bun": ">=1.3.3"
     }
 }

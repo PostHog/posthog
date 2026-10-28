@@ -117,7 +117,7 @@ hog uploads the same bytes and content hashes as posthog-cli, so either CLI can 
 Each command is one file under `src/commands/`, and declares what people and agents see separately.
 [AGENTS.md](AGENTS.md) has the layout and the steps to add a command.
 
-Install [Bun](https://bun.sh), then from the repo root:
+Install [Bun](https://bun.sh) 1.3.3 or later, then from the repo root:
 
 ```bash
 pnpm --filter @posthog/hog hog --help       # run hog from source
@@ -125,3 +125,5 @@ pnpm --filter @posthog/hog unit             # run the tests
 pnpm --filter @posthog/hog typecheck        # check types
 pnpm --filter @posthog/hog compile          # build dist/hog for this machine
 ```
+
+hog reads credentials only from the sources above, like posthog-cli. Bun would otherwise load a `.env` or `bunfig.toml` from the working folder, so the scripts turn that off. Older Bun versions ignore those flags, hence the minimum version.
