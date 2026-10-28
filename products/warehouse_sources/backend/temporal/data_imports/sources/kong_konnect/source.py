@@ -69,7 +69,7 @@ class KongKonnectSource(ResumableSource[KongKonnectSourceConfig, KongKonnectResu
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Kong Inc. (Kong Konnect)",
             releaseStatus=ReleaseStatus.BETA,
-            caption="""Enter a Kong Konnect access token to pull your gateway's Advanced Analytics API request logs, plus the control planes, gateway entities, consumer groups, API products, Service Catalog scorecards, and identity realm consumers behind them, into the PostHog Data warehouse.
+            caption="""Enter a Kong Konnect access token to pull your gateway's Advanced Analytics API request logs and daily service metrics, plus the control planes, gateway entities, consumer groups, API products, Service Catalog scorecards, identity realm consumers, and Metering & Billing meters and subscriptions behind them, into the PostHog Data warehouse.
 
 Create a **Personal Access Token** under **Konnect → Personal access tokens**, or a **System Account access token** for a service identity. Either is sent as a bearer token.
 
@@ -126,7 +126,7 @@ How far back the initial sync can reach depends on your Konnect plan's Advanced 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized": "Your Kong Konnect access token is invalid or has expired. Create a new token in Konnect and reconnect.",
-            "403 Client Error: Forbidden": "Your Kong Konnect access token is missing the permissions needed to read this data. Grant the token or account read access to the Konnect area this table comes from (Advanced Analytics, control planes, API Products, Service Catalog, or Consumers), then reconnect.",
+            "403 Client Error: Forbidden": "Your Kong Konnect access token is missing the permissions needed to read this data. Grant the token or account read access to the Konnect area this table comes from (Advanced Analytics, control planes, API Products, Service Catalog, Consumers, or Metering & Billing), then reconnect.",
         }
 
     def get_schemas(

@@ -6988,13 +6988,13 @@ Diffed against: <https://raw.githubusercontent.com/Kong/developer.konghq.com/mai
 - [x] `/control-planes/{id}/core-entities/routes` — lookup resolving route_id on api_requests to a path/method (high)
 - [x] `/control-planes/{id}/core-entities/consumers` — lookup resolving consumer_id on api_requests to a named API consumer (high)
 - [x] `/api-products (API Products v2)` — lookup for the api_product / api_product_version dimensions filterable on api_requests (high)
-- [ ] `/metrics (Analytics Metrics v2)` — vendor's aggregated traffic, latency and error-rate metrics without re-aggregating raw request rows (medium)
-- [ ] `/control-planes/{id}/core-entities/plugins` — which rate-limit/auth plugins were active on a service or route when traffic was served (medium)
+- [x] `/metrics (Analytics Metrics v2)` — vendor's aggregated traffic, latency and error-rate metrics without re-aggregating raw request rows (medium)
+- [x] `/control-planes/{id}/core-entities/plugins` — which rate-limit/auth plugins were active on a service or route when traffic was served (medium)
 - [x] `/control-planes/{id}/core-entities/consumer_groups and /consumer_groups/{id}/consumers` — consumer-group membership junction for segmenting request volume by tier (medium)
 - [x] `/realms/{realmId}/consumers (Konnect Consumers v1)` — identity-realm consumer registry backing the consumer dimension (medium)
 - [x] `/catalog-services and /scorecards (Service Catalog v1)` — service inventory plus scorecard scores, the headline governance metric (medium)
-- [ ] `/control-planes/{id}/core-entities/upstreams and /targets` — upstream/target topology behind each service for latency attribution (low)
-- [ ] `/openmeter/meters and /openmeter/subscriptions (Metering & Billing v3)` — metered usage and subscription state for cost-per-request analysis (low)
+- [x] `/control-planes/{id}/core-entities/upstreams and /targets` — upstream/target topology behind each service for latency attribution (low)
+- [x] `/openmeter/meters and /openmeter/subscriptions (Metering & Billing v3)` — metered usage and subscription state for cost-per-request analysis (low)
 
 Note: Kong publishes 25 separate Konnect OpenAPI specs under https://github.com/Kong/developer.konghq.com/tree/main/api-specs/konnect; PostHog implements one path (/api-requests) from analytics-requests/v2. Other specs diffed this run: control-planes/v2, control-planes-config/v2, analytics-metrics/v2, api-products/v2, consumers/v1, service-catalog/v1, audit-logs/v3, metering-and-billing/v3. The audit-logs v3 spec only exposes webhook/destination config, so there is no queryable audit-log table to add.
 

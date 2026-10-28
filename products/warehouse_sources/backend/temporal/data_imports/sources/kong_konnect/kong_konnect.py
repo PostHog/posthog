@@ -21,7 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konne
     KONG_KONNECT_ENDPOINTS,
     LIST_PAGE_SIZE,
     MAX_PAGE_SIZE,
+    METRICS_QUERY_LIMIT,
     REGION_BASE_URLS,
+    SERVICE_METRICS_GROUPS,
     KongKonnectEndpointConfig,
 )
 
@@ -399,6 +401,80 @@ def get_rows(
         resumable_source_manager.save_state(KongKonnectResumeConfig(start=start, end=end, offset=offset))
 
 
+def _to_day(value: Any) -> date:
+    if isinstance(value, datetime):
+        return (value.astimezone(UTC) if value.tzinfo is not None else value).date()
+    if isinstance(value, date):
+        return value
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(UTC).date()
+
+
+def _build_metrics_body(metrics: tuple[str, ...], start: datetime, end: datetime) -> dict[str, Any]:
+    return {
+        "datasource": "api_usage",
+        "metrics": list(metrics),
+        "dimensions": ["gateway_service"],
+        "time_range": {
+            "type": "absolute",
+            "start": _format_datetime(start),
+            "end": _format_datetime(end),
+            "tz": "Etc/UTC",
+        },
+        "limit": METRICS_QUERY_LIMIT,
+    }
+
+
+def get_daily_service_metrics(
+    api_token: str,
+    region: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[KongKonnectResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+    lookback_days: int = DEFAULT_INITIAL_LOOKBACK_DAYS,
+) -> Iterator[list[dict[str, Any]]]:
+    url = f"{_get_base_url(region)}{KONG_KONNECT_ENDPOINTS['daily_service_metrics'].path}"
+    headers = _get_headers(api_token)
+    session = make_tracked_session()
+    now = datetime.now(UTC)
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.start:
+        day = _to_day(resume.start)
+    elif should_use_incremental_field and db_incremental_field_last_value:
+        day = _to_day(_clamp_future_value_to_now(db_incremental_field_last_value))
+    else:
+        day = (now - timedelta(days=lookback_days)).date()
+
+    day_start = datetime.combine(day, datetime.min.time(), tzinfo=UTC)
+    while day_start < now:
+        next_day_start = day_start + timedelta(days=1)
+        rows_by_service: dict[str, dict[str, Any]] = {}
+
+        for metrics in SERVICE_METRICS_GROUPS:
+            body = _build_metrics_body(metrics, day_start, min(next_day_start, now))
+            data = _fetch_page(session, url, headers, body, logger)
+            if (data.get("meta") or {}).get("truncated"):
+                logger.warning(
+                    f"Kong Konnect: metrics for {day_start.date()} exceed {METRICS_QUERY_LIMIT} services, "
+                    "the rest are grouped as ____OTHER____"
+                )
+            for record in data.get("data") or []:
+                event = dict(record.get("event") or {})
+                # Traffic that matched no gateway service has no service ID. An empty string keeps the
+                # primary key non-null so the merge can replace the row.
+                service = event.pop("gateway_service", None) or ""
+                rows_by_service.setdefault(service, {"day": day_start, "gateway_service": service}).update(event)
+
+        if rows_by_service:
+            resumable_source_manager.save_state(KongKonnectResumeConfig(start=_format_datetime(next_day_start)))
+            yield list(rows_by_service.values())
+        else:
+            resumable_source_manager.safe_point()
+
+        day_start = next_day_start
+
+
 def kong_konnect_source(
     api_token: str,
     region: str,
@@ -412,6 +488,16 @@ def kong_konnect_source(
     endpoint_config = KONG_KONNECT_ENDPOINTS[endpoint]
 
     def items() -> Iterator[list[dict[str, Any]]]:
+        if endpoint_config.kind == "metrics":
+            return get_daily_service_metrics(
+                api_token=api_token,
+                region=region,
+                logger=logger,
+                resumable_source_manager=resumable_source_manager,
+                should_use_incremental_field=should_use_incremental_field,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+                lookback_days=lookback_days,
+            )
         if endpoint_config.kind != "analytics":
             return get_lookup_rows(
                 api_token=api_token,
