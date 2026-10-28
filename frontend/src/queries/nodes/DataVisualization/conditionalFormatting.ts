@@ -35,7 +35,7 @@ export function conditionalFormattingColor(
             rule: n,
             result: execute(n.bytecode, {
                 globals: {
-                    value: value,
+                    value: typeof value === 'string' ? convertTableValue(value, columnType) : value,
                     input: convertTableValue(n.input, columnType),
                 },
                 functions: {},
