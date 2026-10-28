@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.core.cache import cache
@@ -2718,6 +2718,13 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(f"{self._list_url()}section_counts/")
 
         assert response.status_code == status.HTTP_200_OK
+
+    def test_section_counts_refuse_a_private_scout_trial(self) -> None:
+        self._create_report()
+        with patch("products.signals.backend.views.trial_store_for_request", return_value=MagicMock()):
+            response = self.client.get(f"{self._list_url()}section_counts/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_section_counts_reject_a_condition_a_section_sets(self) -> None:
         response = self.client.get(f"{self._list_url()}section_counts/?status=ready")

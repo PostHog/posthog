@@ -1635,6 +1635,8 @@ class SignalReportViewSet(
     @action(detail=False, methods=["get"], required_scopes=["task:read"], pagination_class=None)
     @tracer.start_as_current_span("signals.reports.section_counts")
     def section_counts(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        if trial_store_for_request(request, self.team_id) is not None:
+            raise exceptions.PermissionDenied("Private scout trials cannot read inbox section counts.")
         rejected = sorted(name for name in _SECTION_DEFINING_PARAMETERS if name in request.query_params)
         if rejected:
             raise serializers.ValidationError(
