@@ -3,6 +3,8 @@ from graphlib import TopologicalSorter
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from django.utils import timezone
+
 import structlog
 
 from products.data_modeling.backend.logic.saved_query_reads import dependent_saved_query_ids
@@ -45,5 +47,11 @@ def _refresh_columns(view: DataWarehouseSavedQuery, user: "User | None") -> bool
         return False
 
     view.set_columns(columns)
-    view.save(update_fields=["columns", "column_order", "updated_at"])
-    return True
+    return _save_columns_unless_query_changed(view)
+
+
+def _save_columns_unless_query_changed(view: DataWarehouseSavedQuery) -> bool:
+    saved_rows = DataWarehouseSavedQuery.objects.filter(
+        team_id=view.team_id, pk=view.pk, query_revision=view.query_revision
+    ).update(columns=view.columns, column_order=view.column_order, updated_at=timezone.now())
+    return saved_rows == 1

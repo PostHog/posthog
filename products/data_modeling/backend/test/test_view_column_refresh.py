@@ -1,5 +1,7 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
+
 from posthog.hogql.query import execute_hogql_query
 
 from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
@@ -19,13 +21,21 @@ class TestViewColumnRefresh(ClickhouseTestMixin, BaseTest):
         view.set_columns(view.get_columns(user=self.user))
         view.save()
 
-    def test_select_star_over_views_whose_upstream_renamed_a_column_refreshes_their_columns(self) -> None:
+    @parameterized.expand(
+        [
+            ("select_star", "SELECT * FROM downstream_view"),
+            ("select_renamed_column", "SELECT new_id FROM downstream_view"),
+        ]
+    )
+    def test_query_over_views_whose_upstream_renamed_a_column_refreshes_their_columns(
+        self, _name: str, sql: str
+    ) -> None:
         upstream = self._create_view("upstream_view", "SELECT 1 AS old_id")
         middle = self._create_view("middle_view", "SELECT * FROM upstream_view")
         downstream = self._create_view("downstream_view", "SELECT * FROM middle_view")
         self._edit_view(upstream, "SELECT 1 AS new_id")
 
-        response = execute_hogql_query("SELECT * FROM downstream_view", team=self.team, user=self.user)
+        response = execute_hogql_query(sql, team=self.team, user=self.user)
 
         assert response.columns == ["new_id"]
         assert response.results == [(1,)]

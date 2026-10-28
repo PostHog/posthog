@@ -53,7 +53,14 @@ from posthog.hogql.direct_sql import (
     get_adapter_for_source,
     get_raw_adapter_for_source,
 )
-from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
+from posthog.hogql.errors import (
+    BaseHogQLError,
+    ExposedHogQLError,
+    InternalHogQLError,
+    QueryError,
+    ResolutionError,
+    UnresolvedFieldError,
+)
 from posthog.hogql.feature_extractor import extract_hogql_features
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.prompt_jev import PromptJevFinder
@@ -1074,7 +1081,7 @@ class HogQLQueryExecutor:
         query = self.query
         try:
             return self._execute()
-        except CHQueryErrorUnknownIdentifier:
+        except (CHQueryErrorUnknownIdentifier, UnresolvedFieldError):
             if not self._refreshed_stale_view_columns():
                 raise
             return self._with_fresh_database(query).execute()

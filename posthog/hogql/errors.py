@@ -68,6 +68,10 @@ class QueryError(ExposedHogQLError):
     code_name = "hogql_query_error"
 
 
+class UnresolvedFieldError(QueryError):
+    """A field name matches no column of the tables in scope."""
+
+
 class TableAccessDeniedError(QueryError):
     """The user has no access to the table (raised by Database.get_table)."""
 
