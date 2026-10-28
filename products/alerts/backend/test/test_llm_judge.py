@@ -276,15 +276,15 @@ _NEXT_SLOT = "b8f3a1e0-0000-0000-0000-000000000001:2026-01-07T00:15:00+00:00"
 
 
 @contextmanager
-def _mocked_model(verdict: LLMDetectionVerdict) -> Iterator[Any]:
+def _mocked_model(verdict: LLMDetectionVerdict, *, privacy_mode: bool = False) -> Iterator[Any]:
     with (
         patch("products.alerts.backend.judge.prompt.render_series_chart", return_value=None),
-        patch("products.alerts.backend.judge.llm.posthoganalytics.default_client", None),
-        patch("ee.hogai.llm.MaxChatAnthropic") as chat,
+        patch("ee.hogai.utils.feature_flags.is_privacy_mode_enabled", return_value=privacy_mode),
+        patch("products.alerts.backend.judge.llm.build_ai_gateway_anthropic_client") as build_client,
     ):
-        invoke = chat.return_value.with_structured_output.return_value.invoke
-        invoke.return_value = verdict
-        yield invoke
+        parse = build_client.return_value.with_options.return_value.messages.parse
+        parse.return_value = MagicMock(parsed_output=verdict)
+        yield parse
 
 
 @pytest.fixture
@@ -364,10 +364,20 @@ def test_provider_rejections_do_not_disable_an_alert(
             LLMSeriesJudge({"type": "llm"}).judge_latest(SERIES, series=_series(), attribution=_attribution())
 
 
-@pytest.mark.parametrize("is_agent_billable", [True, False])
-def test_model_call_preserves_the_billing_decision(is_agent_billable: bool) -> None:
-    with _mocked_model(_verdict()) as invoke:
+@pytest.mark.parametrize(
+    "is_agent_billable,privacy_mode,expected_headers",
+    [
+        (True, False, {}),
+        (False, False, {"X-PostHog-Billable": "false"}),
+        (True, True, {"X-PostHog-Privacy-Mode": "true"}),
+        (False, True, {"X-PostHog-Billable": "false", "X-PostHog-Privacy-Mode": "true"}),
+    ],
+)
+def test_model_call_preserves_the_billing_and_privacy_decisions(
+    is_agent_billable: bool, privacy_mode: bool, expected_headers: dict[str, str]
+) -> None:
+    with _mocked_model(_verdict(), privacy_mode=privacy_mode) as parse:
         LLMSeriesJudge({"type": "llm"}).judge_latest(
             SERIES, series=_series(), attribution=_attribution(is_agent_billable=is_agent_billable)
         )
-    assert invoke.call_args.kwargs["config"]["configurable"]["is_agent_billable"] is is_agent_billable
+    assert parse.call_args.kwargs["extra_headers"] == expected_headers

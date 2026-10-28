@@ -1039,7 +1039,7 @@ export const TOOLBAR_USER_INTENTS = [
     'edit-product-tour',
     'preview-product-tour',
 ] as const satisfies readonly ToolbarUserIntent[]
-export type ToolbarSource = 'url' | 'localstorage'
+export type ToolbarSource = 'url' | 'localstorage' | 'extension'
 export type ToolbarVersion = 'toolbar'
 
 export type ExperimentIdType = number | 'new' | 'web'
