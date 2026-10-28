@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from google.api_core.exceptions import Forbidden, NotFound, ServiceUnavailable
+from google.api_core.exceptions import BadRequest, Forbidden, NotFound, ServiceUnavailable
 from google.auth.exceptions import RefreshError
 from google.cloud import bigquery
 from parameterized import parameterized
@@ -455,6 +455,19 @@ class TestIncremental:
             (1, "a", None),
             (2, "b", value),
         ]
+
+    def test_the_fake_rejects_a_ddl_type_with_no_alias_the_way_bigquery_does(self) -> None:
+        # Guards the float case above: if the fake accepted FLOAT in an ALTER TABLE, that case
+        # would pass with or without `_ddl_type` normalizing it to FLOAT64 first.
+        client = FakeBigQueryClient()
+        client.load_table_from_file(
+            _parquet(_rows([1], ["a"])),
+            "proj.dataset.charges",
+            bigquery.LoadJobConfig(write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE),
+        )
+
+        with pytest.raises(BadRequest, match="FLOAT"):
+            client.query("ALTER TABLE `proj.dataset.charges` ADD COLUMN IF NOT EXISTS `rate` FLOAT")
 
     async def test_text_that_cannot_convert_to_the_int64_column_is_a_configuration_error(self) -> None:
         # A retry sends the same values, so a retryable error would fail until someone changes the table.
