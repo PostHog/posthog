@@ -3805,10 +3805,15 @@ inbox_report_checks: PostgresTable = PostgresTable(
 def _definition_tagged_items(tagged_model: str, definitions_table: str) -> TaggedItemsTable:
     return TaggedItemsTable(
         tagged_model=tagged_model,
+        # Built as AST: this runs at import time, and placeholder parsing would pull posthog.schema into django.setup().
         predicates=[
-            parse_expr(
-                "definition_id IN (SELECT id FROM {definitions})",
-                {"definitions": ast.Field(chain=["system", definitions_table])},
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["definition_id"]),
+                right=ast.SelectQuery(
+                    select=[ast.Field(chain=["id"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["system", definitions_table])),
+                ),
             )
         ],
         name=f"_{tagged_model}_tagged_items",
@@ -3970,7 +3975,11 @@ property_definitions: _PropertyDefinitionsTable = _PropertyDefinitionsTable(
                         arg
                         for value, label in _PROPERTY_DEFINITION_TYPES.items()
                         for arg in (
-                            parse_expr("_type = {value}", {"value": ast.Constant(value=value)}),
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["_type"]),
+                                right=ast.Constant(value=value),
+                            ),
                             ast.Constant(value=label),
                         )
                     ),
