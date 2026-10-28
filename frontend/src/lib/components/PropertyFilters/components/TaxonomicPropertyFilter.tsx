@@ -38,6 +38,7 @@ import { AnyPropertyFilter, GroupTypeIndex, PropertyDefinitionType, PropertyFilt
 
 import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
+import { FeatureFlagFilterTooltip } from 'products/feature_flags/frontend/FeatureFlagFilterTooltip'
 
 import { FILTER_ROW_FRAME_CLASSES } from './filterRowFrame'
 import { PropertyFilterRowOperator } from './PropertyFilterRowOperator'
@@ -129,6 +130,7 @@ export function TaxonomicPropertyFilter({
     // A group row has no key, operator or value, so everything below it reads the leaf filter only.
     const nestedGroup = isPropertyGroupFilterLike(row) ? row : undefined
     const filter = isPropertyGroupFilterLike(row) ? null : row
+    const flagKey = typeof filter?.key === 'string' && filter.key.startsWith('$feature/') ? filter.key.slice(9) : null
     const valuePresent = !!nestedGroup || filter?.type === 'cohort' || !!filter?.key
     const showInitialSearchInline =
         !disablePopover &&
@@ -321,6 +323,7 @@ export function TaxonomicPropertyFilter({
                 tooltip={
                     <>
                         {cohortLabel ?? nestedGroupLabel ?? filterContent ?? (addText || 'Add filter')}
+                        {flagKey && <FeatureFlagFilterTooltip flagKey={flagKey} />}
                         {addFilterDocLink && (
                             <>
                                 <br />
