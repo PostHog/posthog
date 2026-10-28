@@ -463,16 +463,20 @@ def _match_worktree_boxes(worktrees: list[Worktree], registry: dict[str, Worktre
 
     A record keeps the path the worktree had when it was registered, so a
     worktree that `git worktree move` relocated is found through its admin
-    directory, which the move carries over.
+    directory, which the move carries over. A path match with another admin
+    directory is a new worktree at a reused path, so it does not count.
     """
     registry_by_path = {_resolve(Path(path)): (Path(path), record) for path, record in registry.items()}
     registry_by_git_dir = {_resolve(Path(record.git_dir)): (Path(path), record) for path, record in registry.items()}
     boxes: list[WorktreeBox] = []
     for wt in worktrees:
+        git_dir = _gitdir_for(wt.path)
+        resolved_git_dir = _resolve(git_dir) if git_dir is not None else None
         match = registry_by_path.get(_resolve(wt.path))
-        if match is None:
-            git_dir = _gitdir_for(wt.path)
-            match = registry_by_git_dir.get(_resolve(git_dir)) if git_dir is not None else None
+        if match is not None and resolved_git_dir is not None and _resolve(Path(match[1].git_dir)) != resolved_git_dir:
+            match = None
+        if match is None and resolved_git_dir is not None:
+            match = registry_by_git_dir.get(resolved_git_dir)
         if match is not None:
             boxes.append(WorktreeBox(worktree_path=match[0], record=match[1], current_path=wt.path))
     return boxes

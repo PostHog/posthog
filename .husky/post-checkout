@@ -19,13 +19,14 @@ if [ -f "$HOOK_DIR/../bin/helpers/worktree-borrow.sh" ]; then
 
     # `git worktree add` checks out from the all-zeros ref. The grep keeps
     # Python off the path of everyone who has not run `devbox:worktree --auto`.
-    # hogli and its manifest come from the hook's checkout, never from the new
-    # worktree, whose branch may not be trusted.
+    # hogli, its manifest, its tools and its imports come from the hook's
+    # checkout or the main clone, never from the new worktree, whose branch may
+    # not be trusted. PYTHONPATH could name the worktree through `.` despite -P.
     case "$1" in
         *[!0]*) ;;
         *)
             if grep -qs '"worktree_auto_box"' "$HOME/.config/posthog/hogli_devbox.json"; then
-                (posthog_worktree_borrow && HOGLI_MANIFEST="$HOOK_DIR/../hogli.yaml" "$HOOK_DIR/../bin/hogli" devbox:worktree:auto) || echo "husky: couldn't start the automatic devbox. Run 'hogli devbox:worktree'."
+                (unset PYTHONPATH && posthog_worktree_borrow main-only && HOGLI_MANIFEST="$HOOK_DIR/../hogli.yaml" "$HOOK_DIR/../bin/hogli" devbox:worktree:auto) || echo "husky: couldn't start the automatic devbox. Run 'hogli devbox:worktree'."
             fi
             ;;
     esac

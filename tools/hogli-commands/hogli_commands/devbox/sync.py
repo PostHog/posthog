@@ -43,6 +43,8 @@ _CHECKOUT_DETACHED_UNSAVED = 5
 # box's branch is an ancestor of the target, and a detached HEAD is left only
 # when a ref or the target still reaches it, so box-only commits are never
 # dropped. `--no-overwrite-ignore` keeps ignored files such as `.env.local`.
+# Hooks stay off because the box's branch may carry an untrusted hook, and the
+# session forwards the user's SSH agent.
 _CHECKOUT_SCRIPT = f"""
 branch="$1"; sha="$2"
 cd {_REMOTE_REPO_PATH} || exit 1
@@ -56,12 +58,12 @@ if ! git symbolic-ref --quiet HEAD >/dev/null \\
     && [ -z "$(git for-each-ref --contains HEAD --count=1)" ]; then
     exit {_CHECKOUT_DETACHED_UNSAVED}
 fi
-[ "$branch" = {_DETACHED} ] && exec git checkout --quiet --no-overwrite-ignore --detach "$sha"
+[ "$branch" = {_DETACHED} ] && exec git -c core.hooksPath=/dev/null checkout --quiet --no-overwrite-ignore --detach "$sha"
 if git rev-parse --verify --quiet "refs/heads/$branch" >/dev/null \\
     && ! git merge-base --is-ancestor "refs/heads/$branch" "$sha"; then
     exit {_CHECKOUT_BRANCH_DIVERGED}
 fi
-exec git checkout --quiet --no-overwrite-ignore -B "$branch" "$sha"
+exec git -c core.hooksPath=/dev/null checkout --quiet --no-overwrite-ignore -B "$branch" "$sha"
 """
 
 

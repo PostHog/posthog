@@ -375,11 +375,14 @@ class TestWorktreeBoxes:
         moved = tmp_path / "moved" / "feature"
         moved.mkdir(parents=True)
         (moved / ".git").write_text(f"gitdir: {admin}\n")
+        reused = tmp_path / "old" / "feature"
+        reused.mkdir(parents=True)
+        (reused / ".git").write_text(f"gitdir: {admin.parent / 'feature1'}\n")
         record = _box("devbox-test-user-feature", git_dir=admin)
 
-        boxes = _match_worktree_boxes([_make_worktree(moved)], {str(tmp_path / "old" / "feature"): record})
+        boxes = _match_worktree_boxes([_make_worktree(reused), _make_worktree(moved)], {str(reused): record})
 
-        assert boxes == [WorktreeBox(worktree_path=tmp_path / "old" / "feature", record=record, current_path=moved)]
+        assert boxes == [WorktreeBox(worktree_path=reused, record=record, current_path=moved)]
 
     @pytest.mark.parametrize(
         ("case", "sources", "pending"),
