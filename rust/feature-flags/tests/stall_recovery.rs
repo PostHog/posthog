@@ -295,7 +295,8 @@ async fn seed() -> String {
     team.api_token
 }
 
-/// One global recorder per process, so the tests compare counter values, never totals.
+/// One global recorder per process, so each test compares how much a counter grew between two
+/// reads, never its absolute value.
 fn metrics() -> &'static Snapshotter {
     static SNAPSHOTTER: OnceLock<Snapshotter> = OnceLock::new();
     SNAPSHOTTER.get_or_init(|| {
@@ -338,7 +339,7 @@ fn counter(name: &str, labels: &[(&str, &str)]) -> u64 {
 fn persons_requests(outcome: &str) -> u64 {
     counter(
         "flags_request_outcome_total",
-        &[("outcome", outcome), ("db_prep", "persons")],
+        &[("outcome", outcome), ("needs_persons", "true")],
     )
 }
 

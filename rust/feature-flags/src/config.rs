@@ -1880,6 +1880,21 @@ mod tests {
     }
 
     #[rstest::rstest]
+    #[case::zero(0, 3_000)]
+    #[case::in_range(1_500, 1_500)]
+    #[case::at_maximum(10_000, 10_000)]
+    #[case::above_maximum(10_001, 3_000)]
+    fn test_validate_and_fix_timeouts_resets_hypercache_s3_timeout(
+        #[case] configured_ms: u64,
+        #[case] expected_ms: u64,
+    ) {
+        let mut config = Config::default_test_config();
+        config.hypercache_s3_timeout_ms = configured_ms;
+        config.validate_and_fix_timeouts();
+        assert_eq!(config.hypercache_s3_timeout_ms, expected_ms);
+    }
+
+    #[rstest::rstest]
     #[case::fits(2500, 500, 4500, false)]
     #[case::budget_reaches_the_cap(2500, 2000, 4500, true)]
     #[case::request_timeout_within_the_reserve(2500, 500, 400, true)]

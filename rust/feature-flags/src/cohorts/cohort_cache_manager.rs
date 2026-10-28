@@ -236,7 +236,9 @@ impl From<CohortFetchError> for FlagError {
     fn from(value: CohortFetchError) -> Self {
         match value {
             CohortFetchError::DatabaseUnavailable => FlagError::DatabaseUnavailable,
-            CohortFetchError::QueryFailed(msg) => FlagError::CohortQueryFailed(msg),
+            CohortFetchError::QueryFailed(msg) => {
+                FlagError::CohortQueryFailed(Box::new(FlagError::internal(anyhow::anyhow!(msg))))
+            }
         }
     }
 }

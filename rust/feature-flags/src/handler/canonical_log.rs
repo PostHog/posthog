@@ -264,8 +264,9 @@ pub struct FlagsCanonicalLogLine {
     /// Which limit set the persons DB deadline. With `RequestTimeout`, a
     /// `persons_db_deadline_exceeded` on the same line can occur on a healthy persons DB.
     pub persons_db_deadline_bound: Option<PersonsDbDeadlineBound>,
-    /// Shared with the request outcome middleware. Set it on the tokio task: rayon threads get
-    /// detached marks.
+    /// Shared with the request outcome middleware. Mark it from the tokio task. A rayon thread's
+    /// canonical log gets its own `OutcomeMarks`, and `merge_rayon_delta` does not copy it back,
+    /// so a mark made there never reaches the middleware.
     pub outcome_marks: OutcomeMarks,
 
     /// Which evaluation strategy was used for this request.

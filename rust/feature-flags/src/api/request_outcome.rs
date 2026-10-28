@@ -56,22 +56,6 @@ impl Outcome {
     }
 }
 
-/// Whether the request needed person data, even when no persons DB call ran.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter)]
-pub(crate) enum DbPrep {
-    None,
-    Persons,
-}
-
-impl DbPrep {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::None => "none",
-            Self::Persons => "persons",
-        }
-    }
-}
-
 /// Clones share the marks: evaluation writes them, and [`record_request_outcome`] reads them.
 #[derive(Clone, Debug, Default)]
 pub struct OutcomeMarks(Arc<Marks>);
@@ -96,12 +80,9 @@ impl OutcomeMarks {
         }
     }
 
-    pub(crate) fn db_prep(&self) -> DbPrep {
-        if self.0.needs_persons.load(Ordering::Relaxed) {
-            DbPrep::Persons
-        } else {
-            DbPrep::None
-        }
+    /// Whether the request needed person data, even when no persons DB call ran.
+    pub(crate) fn needs_persons(&self) -> bool {
+        self.0.needs_persons.load(Ordering::Relaxed)
     }
 
     pub(crate) fn degraded(&self) -> bool {
@@ -115,7 +96,7 @@ struct PendingOutcome(Option<OutcomeMarks>);
 impl PendingOutcome {
     fn finish(mut self, status: StatusCode) {
         if let Some(marks) = self.0.take() {
-            record(Outcome::of_response(status, &marks), marks.db_prep());
+            counter(Outcome::of_response(status, &marks), marks.needs_persons()).increment(1);
         }
     }
 }
@@ -130,30 +111,24 @@ impl Drop for PendingOutcome {
             } else {
                 Outcome::Abandoned
             };
-            record(outcome, marks.db_prep());
+            counter(outcome, marks.needs_persons()).increment(1);
         }
     }
 }
 
-fn record(outcome: Outcome, db_prep: DbPrep) {
+fn counter(outcome: Outcome, needs_persons: bool) -> metrics::Counter {
     metrics::counter!(
         FLAG_REQUEST_OUTCOME_COUNTER,
         "outcome" => outcome.as_str(),
-        "db_prep" => db_prep.as_str()
+        "needs_persons" => if needs_persons { "true" } else { "false" }
     )
-    .increment(1);
 }
 
 /// A ratio alert over a series that never fired evaluates to nothing.
 pub fn precreate_request_outcome_counters() {
     for outcome in Outcome::iter() {
-        for db_prep in DbPrep::iter() {
-            metrics::counter!(
-                FLAG_REQUEST_OUTCOME_COUNTER,
-                "outcome" => outcome.as_str(),
-                "db_prep" => db_prep.as_str()
-            )
-            .increment(0);
+        for needs_persons in [false, true] {
+            counter(outcome, needs_persons).increment(0);
         }
     }
 }
@@ -198,6 +173,7 @@ mod tests {
         RateLimited,
         /// Needs person data and never finishes.
         Stalls,
+        Panics,
     }
 
     async fn evaluate(evaluation: Evaluation, marks: OutcomeMarks) -> StatusCode {
@@ -213,6 +189,7 @@ mod tests {
                 marks.mark_needs_persons();
                 std::future::pending().await
             }
+            Evaluation::Panics => panic!("evaluation panicked"),
         }
     }
 
@@ -258,19 +235,20 @@ mod tests {
                         .unwrap()
                 };
                 (key.name() == FLAG_REQUEST_OUTCOME_COUNTER)
-                    .then(|| (label("outcome"), label("db_prep"), count))
+                    .then(|| (label("outcome"), label("needs_persons"), count))
             })
             .collect()
     }
 
     #[rstest]
-    #[case::healthy("/flags", Evaluation::Healthy, Some(("ok", "none")))]
-    #[case::persons_db_failed("/flags", Evaluation::PersonsDbFailed, Some(("degraded", "persons")))]
-    #[case::rate_limited("/flags", Evaluation::RateLimited, Some(("rejected", "none")))]
-    #[case::timed_out("/flags", Evaluation::Stalls, Some(("error", "persons")))]
+    #[case::healthy("/flags", Evaluation::Healthy, Some(("ok", "false")))]
+    #[case::persons_db_failed("/flags", Evaluation::PersonsDbFailed, Some(("degraded", "true")))]
+    #[case::rate_limited("/flags", Evaluation::RateLimited, Some(("rejected", "false")))]
+    #[case::timed_out("/flags", Evaluation::Stalls, Some(("error", "true")))]
+    #[case::panicked("/flags", Evaluation::Panics, Some(("error", "false")))]
     #[case::not_a_flags_route("/flags/definitions", Evaluation::Healthy, None)]
     #[tokio::test(start_paused = true)]
-    async fn test_records_one_outcome_per_response(
+    async fn test_records_one_outcome_per_request(
         #[case] path: &str,
         #[case] evaluation: Evaluation,
         #[case] expected: Option<(&str, &str)>,
@@ -279,11 +257,13 @@ mod tests {
         let snapshotter = recorder.snapshotter();
         let _guard = metrics::set_default_local_recorder(&recorder);
 
-        app(evaluation).oneshot(request(path)).await.unwrap();
+        // Spawned, so a panic unwinds through a tokio task as it does in production.
+        let joined = tokio::spawn(app(evaluation).oneshot(request(path))).await;
+        assert_eq!(joined.is_err(), matches!(evaluation, Evaluation::Panics));
 
         let expected: Vec<_> = expected
             .into_iter()
-            .map(|(outcome, db_prep)| (outcome.to_string(), db_prep.to_string(), 1))
+            .map(|(outcome, needs_persons)| (outcome.to_string(), needs_persons.to_string(), 1))
             .collect();
         assert_eq!(recorded_outcomes(&snapshotter), expected);
     }
@@ -300,7 +280,7 @@ mod tests {
 
         assert_eq!(
             recorded_outcomes(&snapshotter),
-            vec![("abandoned".to_string(), "persons".to_string(), 1)]
+            vec![("abandoned".to_string(), "true".to_string(), 1)]
         );
     }
 }
