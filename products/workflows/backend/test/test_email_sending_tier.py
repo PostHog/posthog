@@ -15,6 +15,7 @@ from products.workflows.backend.management.commands.backfill_workflows_email_sen
 )
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.email_sending_tier import (
+    AccountTrust,
     SendingHistoryWindows,
     SesTenantState,
     TeamSendingHistory,
@@ -48,6 +49,10 @@ TIER_SETTINGS = {
     "WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS": 7,
     "WORKFLOWS_EMAIL_TIER_INACTIVITY_DECAY_DAYS": 30,
     "WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES": [],
+    "WORKFLOWS_EMAIL_TIER_TRUSTED_FLOOR_TIER": 2,
+    "WORKFLOWS_EMAIL_TIER_TRUSTED_MIN_ORG_AGE_DAYS": 90,
+    "WORKFLOWS_EMAIL_TIER_HIGH_TRUST_FLOOR_TIER": 3,
+    "WORKFLOWS_EMAIL_TIER_HIGH_TRUST_MIN_SCORE": 7,
 }
 
 
@@ -364,6 +369,47 @@ class TestEmailSendingTierDecision(SimpleTestCase):
         assert decision.new_tier == 0
         assert decision.reason == "tier_not_used_enough"
 
+    @parameterized.expand(
+        [
+            ("paying and established", True, 120, None, 5, False, 0, 2, "trusted_account"),
+            ("high billing trust score", True, 120, 7, 5, False, 0, 3, "trusted_account"),
+            ("never synced by billing", None, 120, 7, 5, False, 0, 0, "tier_not_used_enough"),
+            ("not paying", False, 120, 7, 5, False, 0, 0, "tier_not_used_enough"),
+            ("organization too new", True, 30, 7, 5, False, 0, 0, "tier_not_used_enough"),
+            ("no recent sends", True, 120, 7, 0, False, 0, 0, "tier_not_used_enough"),
+            ("demoted for its rates before", True, 120, 7, 5, True, 0, 0, "tier_not_used_enough"),
+            ("already above the floor", True, 120, None, 5, False, 3, 3, "tier_not_used_enough"),
+        ]
+    )
+    def test_trusted_account_floor(
+        self,
+        _name: str,
+        paying: bool | None,
+        org_age_days: int,
+        trust_score: int | None,
+        sent: int,
+        demoted_before: bool,
+        current_tier: int,
+        expected_tier: int,
+        expected_reason: str,
+    ) -> None:
+        now = timezone.now()
+        daily_sends = clean_days(1, sent) if sent else {}
+        decision = decide_tier(
+            history=history(sent=sent, daily_sends=daily_sends),
+            current_tier=current_tier,
+            tier_updated_at=now - timedelta(days=30),
+            suspended=False,
+            last_rate_demotion_at=now - timedelta(days=60) if demoted_before else None,
+            account_trust=AccountTrust(
+                has_active_subscription=paying,
+                organization_created_at=now - timedelta(days=org_age_days),
+                workflow_emails_trust_score=trust_score,
+            ),
+            now=now,
+        )
+        assert (decision.new_tier, decision.reason) == (expected_tier, expected_reason)
+
     def test_qualifying_tier_never_exceeds_the_table(self) -> None:
         used = clean_days(5, TIER_DAILY_CAPS[-1] * 100)
         assert highest_qualifying_tier(used) == len(TIER_DAILY_CAPS) - 1
@@ -428,6 +474,19 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         assert detail["context"] == {"reason": "clean_and_used"}
         assert (detail["trigger"] or {}).get("job_type") == expected_job_type
         assert [(c["field"], c["before"], c["after"]) for c in detail["changes"]] == [("email_sending_tier", 0, 1)]
+
+    def test_sweep_lifts_an_established_paying_account_to_the_trusted_floor(self) -> None:
+        self.organization.has_active_subscription = True
+        self.organization.created_at = timezone.now() - timedelta(days=120)
+        self.organization.customer_trust_scores = {"workflow_emails": 3}
+        self.organization.save()
+        self._config(email_sending_tier=0, email_sending_tier_updated_at=timezone.now() - timedelta(hours=1))
+
+        self._run({self.team.id: history(team_id=self.team.id, sent=5, daily_sends=clean_days(1, 5))})
+
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 2
+        entry = ActivityLog.objects.get(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
+        assert (entry.detail or {})["context"] == {"reason": "trusted_account"}
 
     def test_suspended_team_is_demoted_even_with_no_recent_sending(self) -> None:
         self._config(

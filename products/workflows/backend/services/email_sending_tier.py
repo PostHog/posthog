@@ -11,6 +11,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import Trigger
+from posthog.models.organization import Organization
 
 from products.workflows.backend.facade.contracts import TierDecision
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
@@ -31,6 +32,8 @@ HARD_BOUNCE_METRIC = "email_bounced_hard"
 # SES complaint events are recorded under this name (see the SES webhook handler in the email
 # worker), so a complaint rate reads `email_blocked`, not a metric called "complaint".
 COMPLAINT_METRIC = "email_blocked"
+
+WORKFLOW_EMAILS_TRUST_SCORE_KEY = "workflow_emails"
 
 # Decision reasons that count as a rate-driven demotion and therefore arm the demotion cooldown.
 RATE_DEMOTION_REASONS = frozenset({"rates_above_threshold", "workflow_auto_paused", "ses_reputation_high"})
@@ -105,6 +108,38 @@ class SesTenantState:
         return self.reputation_impact.strip().upper()
 
 
+@frozen
+class AccountTrust:
+    # None means Billing never synced the organization.
+    has_active_subscription: Optional[bool]
+    organization_created_at: Optional[datetime]
+    workflow_emails_trust_score: Optional[int] = None
+
+    @classmethod
+    def from_organization(cls, organization: Organization) -> "AccountTrust":
+        scores = organization.customer_trust_scores or {}
+        score = scores.get(WORKFLOW_EMAILS_TRUST_SCORE_KEY)
+        return cls(
+            has_active_subscription=organization.has_active_subscription,
+            organization_created_at=organization.created_at,
+            workflow_emails_trust_score=score if isinstance(score, int) else None,
+        )
+
+
+def trusted_floor_tier(trust: Optional[AccountTrust], *, now: datetime) -> int:
+    floor = settings.WORKFLOWS_EMAIL_TIER_TRUSTED_FLOOR_TIER
+    # An unknown subscription earns nothing: the floor grants allowance, so it must fail closed.
+    if floor <= MIN_EMAIL_SENDING_TIER or trust is None or trust.has_active_subscription is not True:
+        return MIN_EMAIL_SENDING_TIER
+    min_age = timedelta(days=settings.WORKFLOWS_EMAIL_TIER_TRUSTED_MIN_ORG_AGE_DAYS)
+    if trust.organization_created_at is None or now - trust.organization_created_at < min_age:
+        return MIN_EMAIL_SENDING_TIER
+    score = trust.workflow_emails_trust_score
+    if score is not None and score >= settings.WORKFLOWS_EMAIL_TIER_HIGH_TRUST_MIN_SCORE:
+        floor = max(floor, settings.WORKFLOWS_EMAIL_TIER_HIGH_TRUST_FLOOR_TIER)
+    return min(floor, max_email_sending_tier())
+
+
 def highest_qualifying_tier(daily_sends: dict[str, int], *, since: Optional[datetime] = None) -> int:
     """
     Highest tier the team's send volume has earned.
@@ -141,6 +176,7 @@ def decide_tier(
     recent_history: Optional[TeamSendingHistory] = None,
     tenant_state: Optional[SesTenantState] = None,
     last_rate_demotion_at: Optional[datetime] = None,
+    account_trust: Optional[AccountTrust] = None,
     now: Optional[datetime] = None,
     require_time_at_tier: bool = True,
     single_step: bool = True,
@@ -156,6 +192,9 @@ def decide_tier(
     `tenant_state` carries AWS's per-tenant verdict, which sees the FBL-correct complaint rate
     our internal metrics dilute (see SesTenantState). A paused tenant drops to the bottom, a
     HIGH reputation impact demotes, and any non-clean impact blocks promotion.
+
+    `account_trust` lifts an established paying account straight to its trusted floor (see
+    trusted_floor_tier), skipping the dwell and the use bar. The backfill omits it.
 
     `require_time_at_tier` and `single_step` are both off for the backfill, which reads a long
     history at once and must land an established sender on its real tier immediately instead of
@@ -253,6 +292,15 @@ def decide_tier(
             new_tier=current_tier,
             reason="ses_reputation_not_clean",
         )
+
+    # Only a team that sends now gets the floor. A dormant team then still decays below it, and a
+    # team that was ever rate-demoted climbs on its own sending only.
+    if history.sent > 0 and last_rate_demotion_at is None:
+        floor = trusted_floor_tier(account_trust, now=now)
+        if floor > current_tier:
+            return TierDecision(
+                team_id=history.team_id, previous_tier=current_tier, new_tier=floor, reason="trusted_account"
+            )
 
     if require_time_at_tier:
         anchor = tier_updated_at
@@ -457,12 +505,12 @@ def recompute_email_sending_tiers(
 
     # select_related bypasses TeamManager's defer, so without only() the join pulls every wide Team
     # column, including the deprecated taxonomy blobs, for every candidate. The decision reads only
-    # created_at from Team and the audit row reads name and organization, so restrict the load to
-    # those plus the config fields it uses.
+    # created_at from Team, the trusted floor reads the organization's billing fields, and the audit
+    # row reads name and organization, so restrict the load to those plus the config fields it uses.
     configs = {
         config.team_id: config
         for config in TeamWorkflowsConfig.objects.filter(team_id__in=candidate_ids)
-        .select_related("team")
+        .select_related("team__organization")
         .only(
             "email_sending_tier",
             "email_sending_tier_pinned",
@@ -474,6 +522,9 @@ def recompute_email_sending_tiers(
             "team__created_at",
             "team__name",
             "team__organization_id",
+            "team__organization__has_active_subscription",
+            "team__organization__created_at",
+            "team__organization__customer_trust_scores",
         )
     }
 
@@ -498,6 +549,7 @@ def recompute_email_sending_tiers(
                 reputation_impact=config.ses_tenant_reputation_impact,
             ),
             last_rate_demotion_at=config.email_sending_tier_demoted_at,
+            account_trust=AccountTrust.from_organization(config.team.organization),
         )
         if not decision.changed or apply_tier_decision(
             config, decision, trigger=trigger, user_id=user_id, was_impersonated=was_impersonated

@@ -41,6 +41,6 @@ outer form (no <form> of their own, which the browser would drop) and submit thr
     <p style="margin-top: 8px; color: #666; font-size: 12px;">
         Saving a tier writes <code>email_sending_tier</code> on the team's workflows config and stamps
         <code>email_sending_tier_updated_at</code>, which restarts the clock the promotion bar measures.
-        Recomputing applies the same rules the daily sweep uses and moves the team at most one tier.
+        Recomputing applies the same rules the daily sweep uses. It moves the team at most one tier, or straight to the trusted-account floor.
     </p>
 </div>
