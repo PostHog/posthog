@@ -413,7 +413,8 @@ class MCPCustomHarnessViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     pagination_class = None
 
     def safely_get_queryset(self, queryset: QuerySet[MCPCustomHarness]) -> QuerySet[MCPCustomHarness]:
-        return queryset.filter(team_id=self.team_id)
+        # Rows save under the parent team (`TeamScopedRootMixin.save()`), so a child environment filters on it too.
+        return queryset.filter(team_id=self.team.parent_team_id or self.team_id)
 
     def perform_create(self, serializer: BaseSerializer[Any]) -> None:
         super().perform_create(serializer)
