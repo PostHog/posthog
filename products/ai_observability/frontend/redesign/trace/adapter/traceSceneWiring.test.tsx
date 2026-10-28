@@ -11,7 +11,15 @@ import { initKeaTests } from '~/test/init'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
 import { TraceScene } from '../TraceScene'
-import { decodeIdSegment, makeEvent, makeNodeDetail, makeTrace, makeTraceResource } from './testFixtures'
+import {
+    decodeIdSegment,
+    makeEvaluationResult,
+    makeEvaluationResults,
+    makeEvent,
+    makeNodeDetail,
+    makeTrace,
+    makeTraceResource,
+} from './testFixtures'
 
 const FLAG = FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN
 const DATASETS_FLAG = FEATURE_FLAGS.LLM_ANALYTICS_DATASETS
@@ -42,7 +50,7 @@ const nodeMock = {
         return [200, nodeId === 'gen-2' ? answeredGeneration : makeNodeDetail({ id: nodeId })]
     },
 }
-const evaluationsMock = { [EVALUATIONS_URL]: () => [200, { results: [] }] }
+const evaluationsMock = { [EVALUATIONS_URL]: () => [200, makeEvaluationResults()] }
 
 const generation = makeEvent({
     id: 'gen-1',
@@ -105,6 +113,39 @@ describe('TraceScene', () => {
             fireEvent.mouseEnter(row)
 
             await waitFor(() => expect(nodeRequests).toContain('span-1'))
+        })
+
+        it('opens the failing step on its Evals tab from the evals chip', async () => {
+            useMocks({
+                get: {
+                    [EVALUATIONS_URL]: () => [
+                        200,
+                        makeEvaluationResults({
+                            results: [
+                                makeEvaluationResult({
+                                    evaluationName: 'Cites a source',
+                                    targetNodeId: 'gen-1',
+                                    outcome: 'fail',
+                                    label: 'False',
+                                }),
+                            ],
+                            summary: {
+                                passed: 0,
+                                failed: 1,
+                                unrated: 0,
+                                nodes: [{ nodeId: 'gen-1', outcome: 'fail' }],
+                            },
+                        }),
+                    ],
+                },
+            })
+            const { findByText, queryByText } = renderNewView()
+            const chip = await findByText('Evals 0/1 passed')
+            expect(queryByText('Cites a source')).toBeNull()
+
+            fireEvent.click(chip)
+
+            expect(await findByText('Cites a source')).toBeTruthy()
         })
 
         it.each([true, false])('offers add to dataset on the step only when datasets are on (%s)', async (enabled) => {
