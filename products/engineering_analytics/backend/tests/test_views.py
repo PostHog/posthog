@@ -31,6 +31,7 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     DEPOT_JOB_ATTEMPTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     TRUNK_QUARANTINED_TESTS_COLUMNS,
+    TRUNK_QUARANTINED_TESTS_V1_COLUMNS,
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
@@ -860,39 +861,58 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         )
         assert rows[0] == ("completed", None, None, "", "", 0, None)
 
-    def test_trunk_quarantined_tests_view_labels_runners_and_reconstructs_paths(self) -> None:
+    @parameterized.expand([("v1_shape", False), ("v2_shape", True)])
+    def test_trunk_quarantined_tests_view_labels_runners_and_reconstructs_paths(
+        self, _name: str, v2_shape: bool
+    ) -> None:
         # Trunk overloads `parent` per uploader, and ownership is resolved from the source_path and
-        # crate this view reads out of it, so getting either wrong unattributes the whole board.
+        # crate this view reads out of it, so getting either wrong unattributes the whole board. A
+        # table keeps the v1 shape until its source moves to the v2 API and resyncs.
         table_name = self._create_table(
             "trunkio_quarantinedtests",
-            TRUNK_QUARANTINED_TESTS_COLUMNS,
+            TRUNK_QUARANTINED_TESTS_COLUMNS if v2_shape else TRUNK_QUARANTINED_TESTS_V1_COLUMNS,
             [
                 _quarantined_row(
                     file="posthog/api/test/test_person.py",
                     name="test_merge",
                     classname="posthog.api.test.test_person.TestPerson",
                     parent="pytest",
+                    v2_shape=v2_shape,
                 ),
                 _quarantined_row(
                     file="",
                     name="k3s_integration",
                     classname="personhog-coordination",
                     parent="personhog-coordination::k3s_integration",
+                    v2_shape=v2_shape,
                 ),
-                _quarantined_row(file="src/cdp/cdp.test.ts", name="routes", classname="", parent="src/cdp/cdp.test.ts"),
+                _quarantined_row(
+                    file="src/cdp/cdp.test.ts",
+                    name="routes",
+                    classname="",
+                    parent="src/cdp/cdp.test.ts",
+                    v2_shape=v2_shape,
+                ),
             ],
         )
-        rows = self._select(
-            f"SELECT runner, nodeid, source_path, crate FROM ({trunk_quarantined_tests.build_query(table_name)}) AS q "
-            "ORDER BY runner"
-        )
+        query = trunk_quarantined_tests.build_query(table_name, v2_shape=v2_shape)
+        rows = self._select(f"SELECT runner, nodeid, source_path, crate, trunk_url FROM ({query}) AS q ORDER BY runner")
+
+        def url(name: str) -> str | None:
+            return (
+                f"https://app.trunk.io/example/flaky-tests/collections/collection/tests/case-{name}"
+                if v2_shape
+                else None
+            )
+
         assert rows == [
-            ("jest", "src/cdp/cdp.test.ts::routes", "src/cdp/cdp.test.ts", ""),
+            ("jest", "src/cdp/cdp.test.ts::routes", "src/cdp/cdp.test.ts", "", url("routes")),
             (
                 "pytest",
                 "posthog/api/test/test_person.py::TestPerson::test_merge",
                 "posthog/api/test/test_person.py",
                 "",
+                url("test_merge"),
             ),
-            ("rust", "personhog-coordination::k3s_integration", "", "personhog-coordination"),
+            ("rust", "personhog-coordination::k3s_integration", "", "personhog-coordination", url("k3s_integration")),
         ]
