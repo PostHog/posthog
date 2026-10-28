@@ -653,6 +653,9 @@ _SPREAD_READ_TABLE_CLUSTERS: dict[LazyComputationTable, str] = {
 }
 
 _REPLICAS_PER_SHARD_CACHE: TTLCache = TTLCache(maxsize=8, ttl=300)
+# Outlives the TTL cache, so a failed lookup still knows the topology of this process's last
+# good lookup instead of guessing a quorum that may not cover every replica.
+_LAST_KNOWN_REPLICAS_PER_SHARD: dict[str, int] = {}
 
 
 @cached(cache=_REPLICAS_PER_SHARD_CACHE)
@@ -677,10 +680,20 @@ def _insert_quorum(table: LazyComputationTable, read_after_write: bool) -> str |
     try:
         replicas = _replicas_per_shard(cluster)
     except Exception:
+        last_known = _LAST_KNOWN_REPLICAS_PER_SHARD.get(cluster)
         logger.warning(
-            "lazy_computation.replica_count_lookup_failed", table=table.value, cluster=cluster, exc_info=True
+            "lazy_computation.replica_count_lookup_failed",
+            table=table.value,
+            cluster=cluster,
+            last_known_replicas=last_known,
+            exc_info=True,
         )
-        return PREAGGREGATION_INSERT_QUORUM
+        # With no known count, fail the INSERT: the caller then reads without precompute.
+        if last_known is None:
+            raise
+        replicas = last_known
+    if replicas >= 1:
+        _LAST_KNOWN_REPLICAS_PER_SHARD[cluster] = replicas
     if replicas < 1:
         return PREAGGREGATION_INSERT_QUORUM
     # With two replicas this equals "auto". With more, "auto" acknowledges a majority only,
