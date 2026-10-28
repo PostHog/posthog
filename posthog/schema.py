@@ -6294,6 +6294,12 @@ class HogQLQueryModifiers(BaseModel):
             " and the join would be a LEFT JOIN."
         ),
     )
+    optimizeCrossJoins: bool | None = Field(
+        default=None,
+        description=(
+            "Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints"
+        ),
+    )
     optimizeJoinedFilters: bool | None = None
     optimizeProjections: bool | None = None
     parserMode: ParserMode | None = Field(

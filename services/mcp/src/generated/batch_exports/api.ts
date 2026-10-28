@@ -610,6 +610,12 @@ export const BatchExportsCreateBody = () => zod
                         .describe(
                             'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
                         ),
+                    optimizeCrossJoins: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
+                        ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                     parserMode: zod
@@ -1353,6 +1359,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                         .describe(
                             'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
                         ),
+                    optimizeCrossJoins: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
+                        ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                     parserMode: zod
@@ -1827,6 +1839,12 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                         .describe(
                             'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
                         ),
+                    optimizeCrossJoins: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
+                        ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                     parserMode: zod
@@ -2128,6 +2146,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
                     .optional()
                     .describe(
                         'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
+                    ),
+                optimizeCrossJoins: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
                     ),
                 optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                 optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
