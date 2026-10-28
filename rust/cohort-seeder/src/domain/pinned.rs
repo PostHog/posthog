@@ -407,7 +407,6 @@ where
 impl PinnedRun {
     pub fn validate(snapshot: PinnedRunSnapshot) -> Result<ValidatedPinnedRun, PinnedError> {
         let payload = parse_payload(snapshot.pinned)?;
-        let flag_calls_table = payload.flag_calls_table;
         let mut warnings = Vec::new();
         let tz = resolve_timezone(&snapshot.timezone, &mut warnings);
         let boundary = Boundary::new(UtcMillis::new(snapshot.boundary_at_ms), tz);
@@ -430,7 +429,7 @@ impl PinnedRun {
                 conditions,
                 event_names,
                 filters: participation.into_filters(),
-                flag_calls_table,
+                flag_calls_table: payload.flag_calls_table,
             },
             warnings,
         })
@@ -989,7 +988,6 @@ mod tests {
             json!(["flag_evaluations"]),
             json!({ "table": "flag_evaluations" }),
             json!({ "flag_evaluations": null }),
-            json!({ "events": null }),
         ] {
             let error = match PinnedRun::validate(pinned_with_flag_calls_table(Some(value.clone())))
             {

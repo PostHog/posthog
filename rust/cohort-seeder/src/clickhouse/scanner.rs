@@ -278,10 +278,9 @@ impl ChunkScanner {
             ChunkAccumulator::new(run.team_id, &run.filters, active).map_err(ScanError::from)?;
         let mut volume = ScanVolume::default();
         let mut summary = FoldSummary::default();
-        let wide = ChunkProjection::FullColumns;
         for query in queries {
             let projection = if kind == ScanKind::BehavioralCompare {
-                &wide
+                &ChunkProjection::FullColumns
             } else {
                 &query.projection
             };
@@ -928,6 +927,7 @@ mod tests {
 
     use super::super::sql::MAX_GET_QUERY_BYTES;
     use super::*;
+    use crate::domain::pinned::test_runs::{run_with, RunLeaf};
     use crate::domain::{
         plan_days, BandSpec, BlobSource, Boundary, ClaimEpoch, ColumnPlan, ConditionHash,
         EventNameSet, Lookback, PlanCaps, PropertiesOutcome, PropertiesSource, RunId, SChunkMs,
@@ -1537,21 +1537,28 @@ mod tests {
     const FLAG_CALL_HASH: &str = "flagcall00000000";
     /// This instant falls on day 2, so a day-1 chunk sits inside a window of a week or more.
     const NOW_MS: i64 = 200_000_000;
+    /// This instant falls on day 101, so a day-1 chunk sits past the `flag_evaluations` TTL.
+    const PAST_TTL_MS: i64 = 101 * 86_400_000;
+
+    fn pageview_leaf() -> RunLeaf<'static> {
+        use crate::domain::row_filter::test_catalog::event_is;
+
+        RunLeaf {
+            cohort_id: 1,
+            hash: PAGEVIEW_HASH,
+            event: "$pageview",
+            body: event_is("$pageview"),
+        }
+    }
 
     fn mixed_run(window_days: u32) -> PinnedRun {
-        use crate::domain::pinned::test_runs::{run_with, RunLeaf};
-        use crate::domain::row_filter::test_catalog::{event_and_property, event_is};
+        use crate::domain::row_filter::test_catalog::event_and_property;
 
         run_with(
             ScanTable::FlagEvaluations,
             window_days,
             &[
-                RunLeaf {
-                    cohort_id: 1,
-                    hash: PAGEVIEW_HASH,
-                    event: "$pageview",
-                    body: event_is("$pageview"),
-                },
+                pageview_leaf(),
                 RunLeaf {
                     cohort_id: 1,
                     hash: FLAG_CALL_HASH,
@@ -1591,6 +1598,21 @@ mod tests {
             .await
     }
 
+    fn scanned_of(result: Result<ScannedChunk, Halted<ClaimedChunk, ScanError>>) -> ScannedChunk {
+        match result {
+            Ok(scanned) => scanned,
+            failed => panic!("{:?}", failure_of(failed)),
+        }
+    }
+
+    fn tile_counts(scanned: &ScannedChunk) -> Vec<(Uuid, ConditionHash, u32)> {
+        scanned
+            .tiles()
+            .iter()
+            .map(|tile| (tile.person_id(), tile.condition_hash(), tile.count()))
+            .collect()
+    }
+
     fn failure_of(result: Result<ScannedChunk, Halted<ClaimedChunk, ScanError>>) -> ScanError {
         use crate::domain::HaltReason;
 
@@ -1618,7 +1640,7 @@ mod tests {
         );
         let run = mixed_run(120);
 
-        let error = failure_of(scan_day_one(&scanner, &run, || 101 * 86_400_000).await);
+        let error = failure_of(scan_day_one(&scanner, &run, || PAST_TTL_MS).await);
 
         assert!(
             matches!(error, ScanError::PastRetention { .. }),
@@ -1751,19 +1773,12 @@ mod tests {
             let client = mixed_chunk_database("seeder_scanner_mixed_chunk").await;
             let run = mixed_run(7);
 
-            let scanned = match scan_day_one(&scanner(client, false), &run, || NOW_MS).await {
-                Ok(scanned) => scanned,
-                failed => panic!("{:?}", failure_of(failed)),
-            };
+            let scanned = scanned_of(scan_day_one(&scanner(client, false), &run, || NOW_MS).await);
 
             let flag_call = ConditionHash::parse(FLAG_CALL_HASH).unwrap();
             let pageview = ConditionHash::parse(PAGEVIEW_HASH).unwrap();
             assert_eq!(
-                scanned
-                    .tiles()
-                    .iter()
-                    .map(|tile| (tile.person_id(), tile.condition_hash(), tile.count()))
-                    .collect::<Vec<_>>(),
+                tile_counts(&scanned),
                 vec![
                     (person(1), flag_call, 1),
                     (person(2), pageview, 1),
@@ -1774,36 +1789,14 @@ mod tests {
 
         #[tokio::test]
         async fn a_flag_evaluations_run_scans_an_events_only_chunk_past_the_ttl() {
-            use crate::domain::pinned::test_runs::{run_with, RunLeaf};
-            use crate::domain::row_filter::test_catalog::event_is;
-
             let client = mixed_chunk_database("seeder_scanner_events_past_ttl").await;
-            let run = run_with(
-                ScanTable::FlagEvaluations,
-                120,
-                &[RunLeaf {
-                    cohort_id: 1,
-                    hash: PAGEVIEW_HASH,
-                    event: "$pageview",
-                    body: event_is("$pageview"),
-                }],
-            );
+            let run = run_with(ScanTable::FlagEvaluations, 120, &[pageview_leaf()]);
 
             let scanned =
-                match scan_day_one(&scanner(client, false), &run, || 101 * 86_400_000).await {
-                    Ok(scanned) => scanned,
-                    failed => panic!("{:?}", failure_of(failed)),
-                };
+                scanned_of(scan_day_one(&scanner(client, false), &run, || PAST_TTL_MS).await);
 
             let pageview = ConditionHash::parse(PAGEVIEW_HASH).unwrap();
-            assert_eq!(
-                scanned
-                    .tiles()
-                    .iter()
-                    .map(|tile| (tile.person_id(), tile.condition_hash(), tile.count()))
-                    .collect::<Vec<_>>(),
-                vec![(person(2), pageview, 1)]
-            );
+            assert_eq!(tile_counts(&scanned), vec![(person(2), pageview, 1)]);
         }
 
         #[tokio::test]
@@ -1812,7 +1805,7 @@ mod tests {
             fn crosses_the_ttl() -> i64 {
                 match CALLS.fetch_add(1, Ordering::SeqCst) {
                     0 => NOW_MS,
-                    _ => 101 * 86_400_000,
+                    _ => PAST_TTL_MS,
                 }
             }
             let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
