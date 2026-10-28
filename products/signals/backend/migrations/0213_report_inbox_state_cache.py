@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("signals", "0211_agent_startup_failure"),
+        ("signals", "0212_legacy_monitoring_check_provenance"),
     ]
 
     operations = [
