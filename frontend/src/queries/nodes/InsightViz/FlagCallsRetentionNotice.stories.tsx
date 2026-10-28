@@ -13,4 +13,4 @@ export default meta
 
 type Story = StoryObj<typeof FlagCallsRetentionNotice>
 
-export const Default: Story = { args: { timezone: 'UTC' } }
+export const Default: Story = { args: { insightData: null } }
