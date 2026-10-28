@@ -490,6 +490,17 @@ class TransactionalEmailTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottl
     rate = "20000/hour"
 
 
+def require_transactional_email_api(team: Any) -> None:
+    if not posthoganalytics.feature_enabled(
+        TRANSACTIONAL_EMAIL_API_FLAG,
+        str(team.uuid),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    ):
+        raise NotFound()
+
+
 def transactional_email_throttles() -> list[BaseThrottle]:
     # Both send routes share these scopes, so a caller can't double its rate by using both.
     return [
@@ -528,14 +539,7 @@ class TransactionalEmailSendMixin:
     user_access_control: Any
 
     def _require_transactional_email_flag(self) -> None:
-        if not posthoganalytics.feature_enabled(
-            TRANSACTIONAL_EMAIL_API_FLAG,
-            str(self.team.uuid),
-            groups={"organization": str(self.team.organization_id)},
-            group_properties={"organization": {"id": str(self.team.organization_id)}},
-            send_feature_flag_events=False,
-        ):
-            raise NotFound()
+        require_transactional_email_api(self.team)
 
     def _queue_transactional_email(self, request: Any, template: MessageTemplateRow, *, route: str) -> Response:
         if template.transactional_hog_flow_id:
