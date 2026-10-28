@@ -9,6 +9,7 @@ from email.utils import parsedate_to_datetime
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
+from opentelemetry.instrumentation.utils import suppress_http_instrumentation
 from requests import PreparedRequest, Request, Response, Session
 from requests.auth import AuthBase
 from requests.exceptions import (
@@ -199,6 +200,7 @@ DEFAULT_RETRY_BACKOFF_MAX_SECONDS = 60.0
 # Ceiling on an offloaded response body, compressed or not, so a hostile redirect target can't
 # exhaust worker memory with an oversized object or a gzip bomb.
 MAX_PRESIGNED_RESPONSE_BYTES = 512 * 1024 * 1024
+_PRESIGNED_READ_CHUNK_BYTES = 1024 * 1024
 
 # Default network ports per scheme, used to compare a request URL's effective port against the
 # base origin's when host-pinning is enabled.
@@ -535,13 +537,14 @@ class RESTClient:
 
     def _fetch_presigned_redirect(self, url: str) -> Response:
         # The signed URL is its own credential, so the request is built outside the session to keep
-        # the API auth and session headers off it, and its URL stays out of logs and samples.
+        # the API auth and session headers off it, and its URL stays out of logs, samples and traces.
         # Errors name only `_safe_url(url)` and drop their cause, which embeds the signed URL.
         safe_url = _safe_url(url)
+        deadline = current_request_deadline()
         prepared = PreparedRequest()
         prepared.prepare(method="GET", url=url)
         try:
-            with redact_request_urls():
+            with redact_request_urls(), suppress_http_instrumentation():
                 response = self._send(prepared, stream=True)
                 try:
                     if not response.ok:
@@ -549,8 +552,18 @@ class RESTClient:
                         raise RESTClientRetryableError(
                             f"HTTP {response.status_code} fetching an offloaded response from {safe_url}"
                         )
+                    chunks: list[bytes] = []
+                    size = 0
                     # Raw bytes, so urllib3 can't inflate a `Content-Encoding: gzip` body past the cap.
-                    body = response.raw.read(MAX_PRESIGNED_RESPONSE_BYTES + 1, decode_content=False)
+                    for chunk in response.raw.stream(_PRESIGNED_READ_CHUNK_BYTES, decode_content=False):
+                        chunks.append(chunk)
+                        size += len(chunk)
+                        if size > MAX_PRESIGNED_RESPONSE_BYTES:
+                            break
+                        # Socket timeouts bound each read, not a body that keeps trickling in.
+                        if deadline is not None and _monotonic() > deadline:
+                            raise RESTClientRetryableError(f"Timed out reading an offloaded response from {safe_url}")
+                    body = b"".join(chunks)
                 finally:
                     response.close()
         except (RequestException, Urllib3HTTPError) as e:
