@@ -14,10 +14,12 @@ judge one, this module proves the shape of the update, from facts that the PR ca
   stays, never points a dependency at another package, and resolves every new version from the
   registry by integrity hash alone.
 
-What each new version is comes from pnpm, not from this module. A frozen install re-checks every
-locked version against the `minimumReleaseAge` and `trustPolicy` settings in `pnpm-workspace.yaml`,
-verifies each tarball against its integrity hash, and runs install scripts only for packages that
-`allowBuilds` names. The required CI checks run that install before a PR can merge.
+What each new version is comes from pnpm, not from this module, so the lockfile's
+`pnpm-workspace.yaml` must set `minimumReleaseAge` and `trustPolicy: no-downgrade`. pnpm then
+refuses a version below that release age, or one with less provenance than earlier releases, both
+when Renovate resolves the lockfile and when a frozen install reads it. The install also verifies
+each tarball against its integrity hash, and runs install scripts only for the dependencies that
+`allowBuilds` names.
 
 Python updates are out of scope: CI installs `uv.lock` with `uv sync --frozen`, which checks none
 of that, so a Renovate PR that touches a Python manifest or lockfile needs a human.
@@ -45,7 +47,8 @@ RENOVATE_HEAD_PREFIX = "renovate/"
 GITHUB_WEB_FLOW_LOGIN = "web-flow"
 
 PNPM_LOCKFILE = "pnpm-lock.yaml"
-_MANIFESTS = frozenset({"package.json", "pnpm-workspace.yaml"})
+PNPM_WORKSPACE = "pnpm-workspace.yaml"
+_MANIFESTS = frozenset({"package.json", PNPM_WORKSPACE})
 
 _NPM_DEPENDENCY_FIELDS = ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies")
 # Ranges only. A protocol (npm:, file:, git+, workspace:) or a URL redirects the install elsewhere.
@@ -170,6 +173,29 @@ def package_json_problems(path: str, base_text: str, head_text: str) -> list[str
         if field in base or field in head:
             problems.extend(_npm_range_map_problems(path, field, base.get(field, {}), head.get(field, {})))
     return problems
+
+
+def pnpm_policy_problems(workspace_path: str, base_text: str | None) -> list[str]:
+    """The workspace settings that make pnpm check each new version, read at the merge base.
+
+    ``minimumReleaseAgeStrict: false`` lets pnpm resolve a version below the release age, and
+    ``dangerouslyAllowAllBuilds`` runs the install scripts of every dependency.
+    ``pnpm_workspace_problems`` refuses a PR that changes any of them.
+    """
+    settings = yaml.safe_load(base_text) if base_text is not None else None
+    if (
+        isinstance(settings, dict)
+        and type(settings.get("minimumReleaseAge")) is int
+        and settings["minimumReleaseAge"] > 0
+        and settings.get("minimumReleaseAgeStrict") is not False
+        and settings.get("trustPolicy") == "no-downgrade"
+        and settings.get("dangerouslyAllowAllBuilds") is not True
+    ):
+        return []
+    return [
+        f"{workspace_path} does not make pnpm enforce a strict minimumReleaseAge, trustPolicy: no-downgrade "
+        "and its default refusal of dependency install scripts, so nothing checks the new versions."
+    ]
 
 
 def pnpm_workspace_problems(path: str, base_text: str, head_text: str) -> list[str]:
@@ -430,9 +456,9 @@ def _pnpm_reference_problems(path: str, base: Mapping[str, Any], head: Mapping[s
 
 
 def _manifest_problems(path: str, base_text: str, head_text: str) -> list[str]:
-    if PurePosixPath(path).name == "package.json":
-        return package_json_problems(path, base_text, head_text)
-    return pnpm_workspace_problems(path, base_text, head_text)
+    if PurePosixPath(path).name == PNPM_WORKSPACE:
+        return pnpm_workspace_problems(path, base_text, head_text)
+    return package_json_problems(path, base_text, head_text)
 
 
 def _changed_ranges(base: Mapping[str, Any], head: Mapping[str, Any]) -> set[tuple[str, str]]:
@@ -487,8 +513,10 @@ def verify_renovate_update(
         try:
             if PurePosixPath(path).name == PNPM_LOCKFILE:
                 found, lock_problems = pnpm_lock_versions(path, base_text, head_text)
+                workspace_path = str(PurePosixPath(path).with_name(PNPM_WORKSPACE))
                 locked.extend(found)
                 problems.extend(lock_problems)
+                problems.extend(pnpm_policy_problems(workspace_path, read_file(workspace_path, merge_base_sha)))
                 cleared.append(path)
                 continue
             manifest_problems = _manifest_problems(path, base_text, head_text)

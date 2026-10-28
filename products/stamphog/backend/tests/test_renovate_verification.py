@@ -17,11 +17,13 @@ from products.stamphog.backend.logic.renovate_verification import (
     manifest_changed_specifiers,
     package_json_problems,
     pnpm_lock_versions,
+    pnpm_policy_problems,
     verify_renovate_update,
 )
 
 REPO = "PostHog/posthog"
 HEAD = "b" * 40
+_PNPM_POLICY = "minimumReleaseAge: 10080\ntrustPolicy: no-downgrade\n"
 
 
 def _renovate_pr(**overrides: Any) -> dict[str, Any]:
@@ -106,6 +108,19 @@ class TestManifestProblems(SimpleTestCase):
         base = {"name": "app", "dependencies": {"left-pad": "^1.0.0"}}
         problems = package_json_problems("package.json", json.dumps(base), json.dumps(head | {"name": "app"}))
         assert (problems == []) if expected is None else (expected in problems[0])
+
+    @parameterized.expand(
+        [
+            ("enforced", _PNPM_POLICY, True),
+            ("no_workspace", None, False),
+            ("no_release_age", "trustPolicy: no-downgrade\n", False),
+            ("loose_release_age", _PNPM_POLICY + "minimumReleaseAgeStrict: false\n", False),
+            ("no_trust_policy", "minimumReleaseAge: 10080\n", False),
+            ("every_build_allowed", _PNPM_POLICY + "dangerouslyAllowAllBuilds: true\n", False),
+        ]
+    )
+    def test_pnpm_policy_problems(self, _name: str, workspace: str | None, enforced: bool) -> None:
+        assert (pnpm_policy_problems("pnpm-workspace.yaml", workspace) == []) is enforced
 
     def test_manifest_changed_specifiers_reads_named_catalogs(self) -> None:
         assert manifest_changed_specifiers(
@@ -292,6 +307,7 @@ class TestVerifyRenovateUpdate(SimpleTestCase):
             ),
             ("pnpm-lock.yaml", "base"): _pnpm_lock({"left-pad@1.0.0": {"resolution": {"integrity": "sha512-old"}}}),
             ("pnpm-lock.yaml", HEAD): _pnpm_lock({"left-pad@1.1.0": {"resolution": {"integrity": "sha512-new"}}}),
+            ("pnpm-workspace.yaml", "base"): _PNPM_POLICY,
         }
 
         result = verify_renovate_update(
