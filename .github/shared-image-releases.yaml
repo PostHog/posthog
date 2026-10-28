@@ -77,15 +77,28 @@ filters:
         - 'products/warehouse_sources/backend/sync_alerts/**'
         - 'products/warehouse_sources/backend/models/**'
         - products/warehouse_sources/backend/presentation/views/external_data_source/helpers.py
+        - products/warehouse_sources/backend/facade/source_inputs.py
+        - products/warehouse_sources/backend/logic/source_inputs.py
+        - products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py
+        - products/warehouse_sources/backend/temporal/data_imports/sources/common/registry.py
+        - 'products/warehouse_sources/backend/temporal/data_imports/sources/*/source.py'
         - 'posthog/temporal/alerts/**'
         - 'posthog/tasks/alerts/**'
         - 'posthog/hogql*/**'
         - 'posthog/clickhouse/**'
         - 'posthog/caching/**'
+        - 'posthog/query_cache/**'
         - 'posthog/api/services/**'
         - 'posthog/schema_migrations/**'
         - 'products/product_analytics/backend/models/**'
         - products/product_analytics/backend/facade/models.py
+        - products/product_analytics/backend/facade/queries.py
+        - 'products/product_analytics/backend/hogql_queries/trends/**'
+        - 'products/product_analytics/backend/hogql_queries/funnels/**'
+        - products/metrics/backend/hogql_queries/metrics_query_runner.py
+        - 'products/metrics/backend/facade/**'
+        - 'products/metrics/backend/*.py'
+        - products/metrics/backend/dashboard_import/promql_text.py
         - 'products/cdp/backend/models/**'
         - products/cdp/backend/facade/models.py
         - products/cdp/backend/internal_events.py
@@ -128,4 +141,4 @@ images:
             alerts-platform-evaluation:
                 repository: posthog-temporal-workers/alerts-platform-evaluation
                 filter: alertsPlatformEvaluation
-                bootstrapPolicyDigest: 5b6b1f59bb71807abe2eea45564d84a0fac86851b14cb5faa561e0de27ce6fcf
+                bootstrapPolicyDigest: cd03bf84d1f15710421e83d4cd0d5442e0a83715a0c7cdd6d99496fecc79bf39
