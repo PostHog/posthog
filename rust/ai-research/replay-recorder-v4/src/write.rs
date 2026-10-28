@@ -127,6 +127,7 @@ pub fn prepare_block(
     let content_key = image_content_key(team_key);
     let mut rewrite = UrlRewrite::new(
         &block.remote_urls,
+        &block.srcsets,
         block.session.team_id,
         key_month,
         team_key,
@@ -170,6 +171,8 @@ pub fn prepare_block(
             .map(|i| i.bytes.len() as u64)
             .sum::<u64>();
         counts.inline += sink.left_inline;
+        counter!("ai_research_v4_recorder_removed_images_total", "format" => "avif")
+            .increment(u64::from(sink.removed_avif));
         images.extend(
             sink.images
                 .into_iter()
@@ -683,12 +686,18 @@ mod tests {
             image_urls: Vec::new(),
             remote_urls: Vec::new(),
             url_limit: None,
+            srcsets: Vec::new(),
             captured_at_ms: None,
         }
     }
 
-    fn uri(bytes: &[u8]) -> String {
-        format!("data:image/png;base64,{}", STANDARD.encode(bytes))
+    /// PNG bytes: the signature, then `body`. The image scan takes only bytes of a raster format.
+    fn png(body: &[u8]) -> Vec<u8> {
+        [b"\x89PNG\r\n\x1a\n".as_slice(), body].concat()
+    }
+
+    fn uri(body: &[u8]) -> String {
+        format!("data:image/png;base64,{}", STANDARD.encode(png(body)))
     }
 
     /// The block's stored lines, after the inspector named its remote URLs.
@@ -702,6 +711,7 @@ mod tests {
         let found = inspection.finish();
         inspected.remote_urls = found.remote_urls;
         inspected.url_limit = found.url_limit;
+        inspected.srcsets = found.srcsets;
         inspected
             .remote_urls
             .extend(extra.iter().map(|url| (*url).to_owned()));
@@ -753,6 +763,22 @@ mod tests {
             .replace(r#""src""#, r#""\u0073rc""#)
             .replace(r#""srcset""#, r#""src\u0073et""#);
         assert_eq!(stored_lines(&escaped, &[]), lines);
+        // A browser reads backslashes after the scheme as slashes, so such a URL is replaced like its `https://` form.
+        for backslashed in [
+            r"https:\\user:secret@cdn.example.com/a.png",
+            r"https:/\user:secret@cdn.example.com/a.png",
+            "https:user:secret@cdn.example.com/a.png",
+        ] {
+            let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+                "attributes": [{"id": 99, "attributes": {"src": backslashed}}]}}])
+            .to_string();
+            let lines = stored_lines(&events, &[]);
+            assert!(
+                lines.contains(&crate::rewrite::declined_marker("credential"))
+                    && !lines.contains("secret"),
+                "{lines}"
+            );
+        }
         // The player loads the last of a repeated attribute, so the inspector names that one.
         for events in [
             format!(
@@ -775,6 +801,139 @@ mod tests {
                 .to_string();
         assert_eq!(stored_lines(&event, &[signed]), "");
         assert!(!stored_lines(&event, &[public]).is_empty());
+    }
+
+    #[test]
+    fn leaves_a_picture_only_the_sources_that_can_load() {
+        let (avif, webp, signed, fallback) = (
+            "https://cdn.example.com/a.avif",
+            "https://cdn.example.com/a.webp",
+            "https://bucket.s3.amazonaws.com/a.webp?X-Amz-Signature=abc123",
+            "https://cdn.example.com/a.png",
+        );
+        let source = |id: i64, attributes: serde_json::Value| json!({"type": 2, "tagName": "source", "attributes": attributes, "childNodes": [], "id": id});
+        let (bare, typeless) = (
+            "https://cdn.example.com/b.avif",
+            "https://cdn.example.com/c.webp",
+        );
+        // The scan leaves an SVG inline, so the browser can load it from the block. The fetcher stores a remote SVG.
+        let svg =
+            "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E";
+        let remote_svg = "https://cdn.example.com/a.svg";
+        let shared = "https://cdn.example.com/shared.webp";
+        let other_avif = format!(
+            "data:image/avif;base64,{}",
+            STANDARD.encode(b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1other")
+        );
+        // The dataset keeps no AVIF, so an inline one leaves the list too.
+        let inline_avif = format!(
+            "data:image/avif;base64,{}",
+            STANDARD.encode(b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1miaf")
+        );
+        let picture = json!({"type": 2, "tagName": "picture", "attributes": {}, "id": 2, "childNodes": [
+            source(6, json!({"type": "image/svg+xml", "srcset": format!("{svg} 1x")})),
+            source(7, json!({"type": "image/svg+xml", "srcset": format!("{remote_svg} 1x")})),
+            source(3, json!({"type": "image/avif", "srcset": format!("{avif} 1x, {inline_avif} 2x")})),
+            // A bare srcset equal to the img's src below: only the srcset empties.
+            source(8, json!({"type": "image/avif", "srcset": bare})),
+            // Values that read the same once their inline AVIFs leave merge their policies, so the WebP source keeps
+            // the shared candidate.
+            source(11, json!({"type": "image/avif", "srcset": format!("{shared} 1x, {inline_avif} 2x")})),
+            source(12, json!({"type": "image/webp", "srcset": format!("{shared} 1x, {other_avif} 2x")})),
+            // An empty type gives no hint, so the source keeps its candidate.
+            source(9, json!({"type": "", "srcset": format!("{typeless} 1x")})),
+            source(4, json!({"type": "image/webp", "srcset": format!("{signed} 2x, {webp} 1x")})),
+            {"type": 2, "tagName": "img", "attributes": {"src": fallback}, "childNodes": [], "id": 5},
+        ]});
+        let img = json!({"type": 2, "tagName": "img", "attributes": {"src": bare}, "childNodes": [], "id": 10});
+        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [picture, img]}}}]).to_string();
+
+        let block = block_of("kept", &events);
+        let mut inspector = replay_core_v4::inspect::session::SessionInspector::default();
+        let mut inspection = replay_core_v4::inspect::session::BlockInspection::default();
+        for message in &block.messages {
+            inspector.observe_message(&mut inspection, message);
+        }
+        // The fetcher stores no AVIF, so the AVIF source gets no fetch job.
+        assert!(!inspection.finish().image_urls.iter().any(|u| u == avif));
+
+        let lines = stored_lines(&events, &[]);
+        let reference = |url: &str| {
+            crate::urls::url_reference(
+                url,
+                7,
+                "2026-10",
+                &replay_core_v4::seal::image_url_key(&[6; 32]),
+            )
+            .unwrap()
+            .1
+        };
+        // The AVIF source has no candidate left and the declined one leaves the list, so the browser takes the WebP.
+        assert!(lines.contains(r#""srcset":"""#), "{lines}");
+        assert!(
+            lines.contains(&format!(r#""srcset":"{svg} 1x""#)),
+            "{lines}"
+        );
+        assert!(
+            lines.contains(&format!(r#""srcset":"{} 1x""#, reference(remote_svg))),
+            "{lines}"
+        );
+        assert!(
+            lines.contains(&format!(r#""srcset":"{} 1x""#, reference(webp))),
+            "{lines}"
+        );
+        assert!(lines.contains(&reference(fallback)), "{lines}");
+        assert!(
+            lines.contains(&format!(r#""srcset":"{} 1x""#, reference(shared))),
+            "{lines}"
+        );
+        assert!(
+            lines.contains(&format!(r#""src":"{}""#, reference(bare))),
+            "{lines}"
+        );
+        assert!(
+            lines.contains(&format!(r#""srcset":"{} 1x""#, reference(typeless))),
+            "{lines}"
+        );
+        assert!(
+            !lines.contains("a.avif")
+                && !lines.contains("ftypavif")
+                && !lines.contains("data:image/avif")
+                && !lines.contains("X-Amz-Signature")
+                && !lines.contains("declined"),
+            "{lines}"
+        );
+    }
+
+    #[test]
+    fn rebuilds_a_srcset_as_the_block_holds_it_after_escapes_are_written_again() {
+        // The `\/` escapes keep the PNG inline, and the writer then writes them as `/`.
+        let png = STANDARD.encode(png(&[0xff; 30]));
+        assert!(png.contains('/'));
+        let inline = format!("data:image/png;base64,{png}");
+        let events = format!(
+            r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[],"removes":[],"texts":[],"attributes":[{{"id":99,"attributes":{{"srcset":"{} 1x, https://10.0.0.7/a.png 2x"}}}}]}}}}]"#,
+            inline.replace('/', "\\/")
+        );
+        let lines = stored_lines(&events, &[]);
+        assert!(
+            lines.contains(&format!(r#""srcset":"{inline} 1x""#)),
+            "{lines}"
+        );
+        assert!(
+            !lines.contains("declined") && !lines.contains("10.0.0.7"),
+            "{lines}"
+        );
+
+        // A srcset key outside an image slot, here in a custom event, is no srcset of the DOM and stays as it is.
+        let custom = r#"[{"type":5,"timestamp":1,"data":{"tag":"app","payload":{"srcset":"https://cdn.example.com/a.png 1x, https://10.0.0.7/a.png 2x"}}}]"#;
+        let lines = stored_lines(custom, &[]);
+        assert!(
+            lines.contains(
+                r#""srcset":"https://cdn.example.com/a.png 1x, https://10.0.0.7/a.png 2x""#
+            ),
+            "{lines}"
+        );
     }
 
     #[test]
@@ -926,7 +1085,7 @@ mod tests {
         let old_ref = replay_core_v4::refs::image_ref(
             7,
             "2026-10",
-            &replay_core_v4::refs::reference_hash(&image_content_key(&[6; 32]), b"old"),
+            &replay_core_v4::refs::reference_hash(&image_content_key(&[6; 32]), &png(b"old")),
         );
         let object = object_key("2026-10-15", at());
         let mut sealed: Vec<SealedBlock> = blocks
@@ -946,7 +1105,7 @@ mod tests {
             sealed[0].counts,
             WriterCounts {
                 extracted: 2,
-                bytes: 6,
+                bytes: 2 * 8 + 6,
                 inline: 0,
                 ..sealed[0].counts
             }
@@ -1028,7 +1187,7 @@ mod tests {
         let sealed_image = &pack[row.byte_start as usize..=row.byte_end as usize];
         assert_eq!(
             open_frame(&[6; 32], Version::V4, &image_context, sealed_image).unwrap(),
-            b"new"
+            png(b"new")
         );
         // The team month key seals images, as the fetcher's, so a session key does not open them.
         assert!(open_frame(&[5; 32], Version::V4, &image_context, sealed_image).is_err());
