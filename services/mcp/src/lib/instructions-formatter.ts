@@ -75,7 +75,14 @@ export interface InstructionsContext {
      *  resolve. Carried as a field rather than derived from `tools`, which
      *  `buildExecCommandReference` drops on purpose. */
     docsSearchEnabled?: boolean | undefined
+    /** Whether the Replay Vision scan tools are advertised to this client. Same reason
+     *  as `docsSearchEnabled`: the line names three tools, and the reference drops `tools`. */
+    replayVisionEnabled?: boolean | undefined
 }
+
+const REPLAY_VISION_TOOLS = ['vision-scanners-inline-scan', 'vision-requests-create', 'vision-requests-get']
+const REPLAY_VISION =
+    'To learn what happened inside session recordings (what users did, saw, or struggled with), use Replay Vision instead of SQL over the replay tables. Call `vision-scanners-inline-scan` with `session_ids` and a `prompt` for sessions you already have, or `vision-requests-create` for up to 200 sessions and read the result with `vision-requests-get`. SQL over `session_replay_events` returns recording metadata only, such as duration, URLs and event counts; use it to find candidate sessions.'
 
 function businessKnowledgeSearchLine(execSyntax: boolean): string {
     const search = execSyntax
@@ -118,6 +125,14 @@ function notebookSqlVars(ctx: InstructionsContext): Record<string, string> {
  *  build a context without it (the CLI's `--agent-help`). */
 function docsSearchAvailable(ctx: InstructionsContext): boolean {
     return ctx.docsSearchEnabled ?? ctx.tools?.some(({ name }) => name === 'docs-search') ?? false
+}
+
+function replayVisionAvailable(ctx: InstructionsContext): boolean {
+    return (
+        ctx.replayVisionEnabled ??
+        REPLAY_VISION_TOOLS.every((tool) => ctx.tools?.some(({ name }) => name === tool)) ??
+        false
+    )
 }
 
 function envContextSections(ctx: InstructionsContext): string[] {
@@ -412,7 +427,12 @@ export class InstructionsFormatter {
             AGENT_FEEDBACK,
             EXAMPLES,
         ]
-        const renderCtx: InstructionsContext = { ...ctx, tools: undefined, docsSearchEnabled: docsSearchAvailable(ctx) }
+        const renderCtx: InstructionsContext = {
+            ...ctx,
+            tools: undefined,
+            docsSearchEnabled: docsSearchAvailable(ctx),
+            replayVisionEnabled: replayVisionAvailable(ctx),
+        }
         // Tool domains are temporarily omitted from the command reference while we
         // probe claude.ai's per-tool size cap (it silently drops oversized entries);
         // agents still discover domains at runtime via the `search` command, and
@@ -444,6 +464,7 @@ export class InstructionsFormatter {
             tool_domains: ctx.tools ? renderToolDomains(ctx.tools) : '',
             query_tools: ctx.queryTools ? buildQueryToolsBlock(ctx.queryTools) : '',
             entity_schema_discovery: ENTITY_SCHEMA_DISCOVERY.trim(),
+            replay_vision: replayVisionAvailable(ctx) ? REPLAY_VISION : '',
             extra_commands: opts.extraCommands ?? '',
             whats_new_check: docsSearchAvailable(ctx) ? WHATS_NEW_WITH_DOCS_SEARCH : WHATS_NEW_CHANGELOG_ONLY,
         }
@@ -451,6 +472,7 @@ export class InstructionsFormatter {
             .map((s) => s.trim())
             .filter((s) => s.length > 0)
             .join('\n\n')
-        return formatPrompt(body, vars)
+        // An empty placeholder on its own line would otherwise leave a double blank line.
+        return formatPrompt(body, vars).replace(/\n{3,}/g, '\n\n')
     }
 }
