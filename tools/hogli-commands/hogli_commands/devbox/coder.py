@@ -1610,6 +1610,12 @@ BUILD_POLL_INTERVAL = 3
 _BUILD_DONE_JOB_STATUSES = frozenset({"succeeded", "failed", "canceled"})
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class _FinishedBuild:
+    job_status: str
+    log_output: str
+
+
 class _CoderApi:
     """The Coder REST API, called as the user and on the deployment the Coder CLI is logged into.
 
@@ -1646,8 +1652,8 @@ class _CoderApi:
             ([o["value"] for o in p["options"]] for p in parameters if p["name"] == INSTANCE_TYPE_PARAMETER), []
         )
 
-    def start_on_instance_type(self, workspace_id: str, instance_type: str) -> tuple[str, str]:
-        """Start the workspace on ``instance_type`` and return the build's job status and log output."""
+    def start_on_instance_type(self, workspace_id: str, instance_type: str) -> _FinishedBuild:
+        """Start the workspace on ``instance_type`` and wait for the build to finish."""
         build = self.request(
             "POST",
             f"/workspaces/{workspace_id}/builds",
@@ -1663,7 +1669,7 @@ class _CoderApi:
             time.sleep(BUILD_POLL_INTERVAL)
             build = self.request("GET", f"/workspacebuilds/{build['id']}")
         logs = self.request("GET", f"/workspacebuilds/{build['id']}/logs")
-        return status, "".join(f"{log['output']}\n" for log in logs)
+        return _FinishedBuild(job_status=status, log_output="".join(f"{log['output']}\n" for log in logs))
 
 
 def run_with_capacity_fallback(name: str, build: Callable[[], None]) -> None:
@@ -1696,12 +1702,12 @@ def run_with_capacity_fallback(name: str, build: Callable[[], None]) -> None:
                 fg="yellow",
             )
         )
-        status, output = api.start_on_instance_type(workspace["id"], instance_type)
-        if status == "succeeded":
+        attempt = api.start_on_instance_type(workspace["id"], instance_type)
+        if attempt.job_status == "succeeded":
             return
-        if _CAPACITY_ERROR not in output:
+        if _CAPACITY_ERROR not in attempt.log_output:
             click.echo(click.style("Build failed. Full output:", fg="red"))
-            click.echo(output, nl=False)
+            click.echo(attempt.log_output, nl=False)
             raise SystemExit(1)
         failed_type = instance_type
     _fail(
