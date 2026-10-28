@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Collection, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -14,7 +15,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.warehouse_sources.backend.migration.crawl import crawl_migration, mark_migration_failed
 from products.warehouse_sources.backend.migration.fivetran.client import FIVETRAN_API_URL, FivetranAuthError
-from products.warehouse_sources.backend.migration.fivetran.planner import SourceMatchLike
+from products.warehouse_sources.backend.migration.fivetran.planner import TableMatchLike
 from products.warehouse_sources.backend.migration.types import Verdict
 from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.crawl_warehouse_migration import (
@@ -26,17 +27,24 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class _HubspotOnly:
-    class _Match:
-        source_type = ExternalDataSourceType.HUBSPOT
-        table_aliases: dict[str, str] = {}
-        config_keys: dict[str, str] = {}
-        notes: tuple[str, ...] = ()
-
-    def match_source(self, provider: str, vendor_service: str) -> SourceMatchLike | None:
-        return self._Match() if vendor_service == "hubspot" else None
+    def match_source(self, provider: str, vendor_service: str) -> ExternalDataSourceType | None:
+        return ExternalDataSourceType.HUBSPOT if vendor_service == "hubspot" else None
 
     def match_destination(self, provider: str, vendor_service: str) -> str | None:
         return None
+
+    def posthog_tables(self, source_type: ExternalDataSourceType) -> None:
+        return None
+
+    def match_tables(
+        self, provider: str, vendor_tables: Iterable[str], posthog_table_names: Collection[str]
+    ) -> tuple[TableMatchLike, ...]:
+        return ()
+
+    def prefill_config(
+        self, provider: str, source_type: ExternalDataSourceType, vendor_config: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        return {}
 
 
 def _ok(data: dict[str, Any]) -> dict[str, Any]:

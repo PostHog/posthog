@@ -1,3 +1,5 @@
+from collections.abc import Collection, Iterable, Mapping
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
@@ -8,9 +10,15 @@ from posthog.ph_client import feature_enabled_or_false
 
 from products.warehouse_sources.backend.migration.capabilities import source_capabilities
 from products.warehouse_sources.backend.migration.fivetran.client import FivetranClient, FivetranCredentials
-from products.warehouse_sources.backend.migration.fivetran.planner import CatalogLookup, PlannedItem, plan_items
+from products.warehouse_sources.backend.migration.fivetran.planner import (
+    CatalogLookup,
+    PlannedItem,
+    TableMatchLike,
+    plan_items,
+)
 from products.warehouse_sources.backend.migration.fivetran.snapshot import fetch_snapshot
 from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # A refresh must not touch an item that an apply has claimed or finished.
 _KEEP_ON_REFRESH = (
@@ -32,6 +40,19 @@ class _NoCatalog:
 
     def match_destination(self, provider: str, vendor_service: str) -> None:
         return None
+
+    def posthog_tables(self, source_type: ExternalDataSourceType) -> None:
+        return None
+
+    def match_tables(
+        self, provider: str, vendor_tables: Iterable[str], posthog_table_names: Collection[str]
+    ) -> tuple[TableMatchLike, ...]:
+        return ()
+
+    def prefill_config(
+        self, provider: str, source_type: ExternalDataSourceType, vendor_config: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        return {}
 
 
 PENDING_CATALOG: CatalogLookup = _NoCatalog()

@@ -145,6 +145,14 @@ class ProposedSchema:
     row_filters: tuple[ProposedRowFilter, ...] = ()
     # Names to try, in order, when the source does not discover a table called `name`.
     alternative_names: tuple[str, ...] = ()
+    # The Fivetran table this plan comes from, which apply's table overrides refer to.
+    vendor_table: str | None = None
+
+
+@frozen
+class TablePair:
+    vendor_table: str
+    posthog_table: str
 
 
 @frozen
@@ -169,6 +177,10 @@ class ItemProposal:
     destination: ProposedDestination | None
     # The connection is paused or manual in Fivetran, so every table starts with syncing off.
     start_paused: bool = False
+    # Tables a naming rule paired, which the user should confirm.
+    inferred_tables: tuple[TablePair, ...] = ()
+    # Fivetran tables with no PostHog table. The user can map one to a PostHog table at apply.
+    unmatched_tables: tuple[str, ...] = ()
 
     def to_json(self) -> dict[str, Any]:
         return _PROPOSAL_ADAPTER.dump_python(self, mode="json")
@@ -182,8 +194,6 @@ class ItemProposal:
 class SourceCapabilities:
     release_status: ReleaseStatus | None
     unreleased: bool
-    # None when the tables are known only once PostHog connects (databases, files, sources that need credentials to list them).
-    documented_tables: frozenset[str] | None
     supports_column_selection: bool
     supports_row_filters: bool
     # Table name to the only columns a row filter on it may use. A table not here accepts any column.
