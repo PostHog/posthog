@@ -8,6 +8,7 @@ import threading
 import faulthandler
 import collections.abc
 from collections import defaultdict
+from enum import StrEnum
 
 import structlog
 from temporalio import workflow
@@ -719,6 +720,29 @@ else:
 LOGGER = get_logger(__name__)
 
 
+class WorkerRole(StrEnum):
+    ALL = "all"
+    WORKFLOWS = "workflows"
+    ACTIVITIES = "activities"
+
+
+def registrations_for_role(
+    role: WorkerRole,
+    workflows: list[type[PostHogWorkflow]],
+    activities: list[typing.Callable[..., typing.Any]],
+) -> tuple[list[type[PostHogWorkflow]], list[typing.Callable[..., typing.Any]]]:
+    """Keeps the half of a task queue that this worker polls.
+
+    Temporal keeps workflow tasks and activity tasks apart even on one queue name, so a workflows
+    worker and an activities worker on the same queue split its work between them.
+    """
+    if role == WorkerRole.WORKFLOWS:
+        return workflows, []
+    if role == WorkerRole.ACTIVITIES:
+        return [], activities
+    return workflows, activities
+
+
 def apply_hogql_shadow_sample_rate_override() -> None:
     """Sets HogQL's cpp shadow parse rate for this worker from `HOGQL_PARSER_SHADOW_SAMPLE_RATE`.
 
@@ -803,6 +827,12 @@ class Command(BaseCommand):
             help="Maximum number of concurrent activity tasks for this worker",
         )
         parser.add_argument(
+            "--worker-role",
+            choices=[role.value for role in WorkerRole],
+            default=settings.TEMPORAL_WORKER_ROLE,
+            help="Poll only the workflow tasks or only the activity tasks of the task queue, or both",
+        )
+        parser.add_argument(
             "--use-pydantic-converter",
             action="store_true",
             default=settings.TEMPORAL_USE_PYDANTIC_CONVERTER,
@@ -869,6 +899,8 @@ class Command(BaseCommand):
             activities = list(ACTIVITIES_DICT[task_queue])
         except KeyError:
             raise ValueError(f'Task queue "{task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT')
+        worker_role = WorkerRole(options["worker_role"])
+        workflows, activities = registrations_for_role(worker_role, workflows, activities)
 
         # Data-import source modules import vendor SDKs (google-ads, etc.) at module scope, and those
         # SDKs register protobuf descriptors into a process-global pool that rejects a second
@@ -983,6 +1015,7 @@ class Command(BaseCommand):
                 port=temporal_port,
                 namespace=namespace,
                 task_queue=task_queue,
+                worker_role=worker_role.value,
                 graceful_shutdown_timeout_seconds=graceful_shutdown_timeout_seconds,
                 max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                 max_concurrent_activities=max_concurrent_activities,
