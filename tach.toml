@@ -495,6 +495,8 @@ depends_on = [
     "products.notifications",
     "products.signals",
     "products.warehouse_sources", "products.access_control",
+    # Facade-only: the built-in bot filter reads the bot user agent patterns.
+    "products.web_analytics",
 ]
 layer = "modules"
 
@@ -946,6 +948,8 @@ depends_on = [
     # SignalSourceConfig row, so onboarding has to ask it whether any scanner is emitting.
     "products.replay_vision",
     "products.skills",
+    # Facade-only: anomaly scoring counts an insight that an enabled subscription delivers as active.
+    "products.subscriptions",
     "products.surveys",
     "products.tasks",
     "products.warehouse_sources",

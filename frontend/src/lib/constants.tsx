@@ -315,6 +315,7 @@ export const FEATURE_FLAGS = {
     EMAIL_TEMPLATES_AI_FIRST_NEW: 'email-templates-ai-first-new', // owner: @mayteio #team-workflows
     EMOJI_RELATED_SEARCH: 'emoji-related-search', // owner: @pauldambra, gates the model search in `emojiSuggestionsLogic.ts` when the emoji picker finds no match
     ENGINEERING_ANALYTICS: 'engineering-analytics', // owner: #team-devex
+    ERROR_TRACKING_BUILT_IN_FILTERS: 'error-tracking-built-in-filters', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_ISSUE_CORRELATION: 'error-tracking-issue-correlation', // owner: @david #team-error-tracking
     ERROR_TRACKING_ISSUE_SPLITTING: 'error-tracking-issue-splitting', // owner: @david #team-error-tracking
     ERROR_TRACKING_NEW_WIZARD: 'error-tracking-new-wizard', // owner: @ablaszkiewicz #team-error-tracking
@@ -329,7 +330,6 @@ export const FEATURE_FLAGS = {
     EXPERIMENT_MULTIPLE_RECALCULATION_TIMES: 'experiment-multiple-recalculation-times', // owner: @jurajmajerik #team-experiments, gates the second daily recalculation time picker in environment settings
     EXPERIMENT_SETUP_CONTEXT: 'experiment-setup-context', // owner: @mp-hog #team-experiments, gates the experiment-setup-context MCP tool, its endpoint and the staff setup context drawer on the experiments list
     EXPERIMENT_WIZARD_REPLAY_VISION_CARD: 'experiment-wizard-replay-vision-card', // owner: #team-experiments multivariate=control,test, shows the create wizard's Replay Vision option as a card with a toggle instead of a checkbox; gate on === 'test'
-    EXPERIMENTS_DW_AA_TEST: 'experiments-dw-aa-test', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_EXCLUDED_VARIANTS: 'experiments-excluded-variants', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_FREEZE_EXPOSURE_AA_TEST: 'experiments-freeze-exposure-aa-test', // owner: @mp-hog #team-experiments multivariate=control,test, dogfood A/A used to validate the freeze-exposure lifecycle action
     EXPERIMENTS_RECALCULATION_RATE_LIMIT: 'experiment-metric-recalculation-rate-limit', // owner: @rodrigoi #team-experiments, five-minute window between manual metric reloads
@@ -372,7 +372,6 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_COMMUNITY_SKILLS: 'llm-analytics-community-skills', // owner: #team-ai-observability
     LLM_ANALYTICS_DATASETS: 'llm-analytics-datasets', // owner: #team-ai-observability #team-posthog-ai
     LLM_ANALYTICS_EVAL_SETTLING_STRATEGY: 'llm-analytics-eval-settling-strategy', // owner: #team-ai-observability
-    LLM_ANALYTICS_SYSTEM_ONE_EVALUATIONS: 'llm-analytics-system-one-evaluations', // owner: #team-ai-observability
     LLM_ANALYTICS_TAGS: 'llm-analytics-tags', // owner: #team-ai-observability
     LLM_ANALYTICS_TRACE_NAVIGATION: 'llm-analytics-trace-navigation', // owner: #team-ai-observability
     LLM_OBSERVABILITY_TRACE_SEARCH: 'llm-observability-trace-search', // owner: #team-ai-observability
@@ -499,12 +498,14 @@ export const FEATURE_FLAGS = {
     REPLAY_DEBUG_WITH_AI: 'replay-debug-with-ai', // owner: @clr182 #team-replay, player button that sends the recording JSON to PostHog AI
     REPLAY_EVENT_MATCH_SCOPE: 'replay-event-match-scope', // owner: @pauldambra #team-replay, shows the "Match the whole session / only during recording" filter select
     REPLAY_FILTERS_REDESIGN: 'replay-filters-redesign', // owner: @ksvat #team-replay
+    REPLAY_LAYOUT_SWITCHER: 'replay-layout-switcher', // owner: #team-replay
     REPLAY_NEGATIVE_EVENT_FILTERS: 'replay-negative-event-filters', // owner: @arnohillen #team-replay
     REPLAY_PLAYLIST_SURFACING_SCORE: 'replay-playlist-surfacing-score', // owner: #team-replay
     REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT: 'replay-recommended-recordings-filter-experiment', // owner: @arnohillen #team-replay multivariate=control,test
     REPLAY_TRIGGERS_V2: 'replay-triggers-v2', // owner: #team-replay
     REPLAY_UI_REDESIGN_2026: 'replay-ui-redesign-2026', // owner: #team-replay, New UI layout for replay
     REPLAY_VISION_SCANNER_DASHBOARD: 'replay-vision-scanner-dashboard', // owner: #team-replay, one-click dashboard offer on the scanner overview and its MCP tool
+    REPLAY_WATCH_LAYOUT: 'replay-watch-layout', // owner: #team-replay multivariate=control,compact,youtube,landing. The arm name is the layout; compare the variant string, a truthy check turns on for control too
     REVAMPED_PY_NOTEBOOKS: 'revamped-py-notebooks', // owner: #team-data-tools
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics
     REVIEW_HOG: 'review-hog', // owner: #team-devex, gates the Code review menu entry, scene, and API access
@@ -615,6 +616,7 @@ export const FEATURE_FLAGS = {
     WORKFLOW_CLASSIFY_ACTION: 'workflow-classify-action', // owner: #team-workflows
     WORKFLOW_OPT_OUT_OF_MESSAGES_ACTION: 'workflow-opt-out-of-messages-action', // owner: #team-workflows
     WORKFLOWS_AI_FIRST_NEW: 'workflows-ai-first-new', // owner: @mayteio #team-workflows
+    WORKFLOWS_BROADCAST_AUDIENCE_SUGGESTIONS: 'workflows-broadcast-audience-suggestions', // owner: @dmarchuk #team-workflows, AI audience ideas on the Broadcasts tab
     WORKFLOWS_COHORT_CONDITIONS: 'workflows-cohort-conditions', // owner: @meikelmosby #team-workflows
     WORKFLOWS_EMAIL_DOMAIN_AGENT_SETUP: 'workflows-email-domain-agent-setup', // owner: @silthus #team-workflows
     WORKFLOWS_EMAIL_DOMAIN_WIZARD: 'workflows-email-domain-wizard', // owner: @silthus #team-workflows
@@ -622,6 +624,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
     WORKFLOWS_LINEAR_VIEW: 'workflows-linear-view', // owner: #team-workflows
     WORKFLOWS_PUSH_NOTIFICATIONS: 'workflows-push-notifications', // owner: #team-workflows
+    WORKFLOWS_SENDING_TIER_REQUESTS: 'workflows-sending-tier-requests', // owner: @luke-belton #team-workflows, lets customers request a higher email sending tier
     WORKFLOWS_TILE_CANVAS: 'workflows-tile-canvas', // owner: #team-workflows
     WORKFLOWS_TRANSACTIONAL_EMAIL_API: 'workflows-transactional-email-api', // owner: @mayteio #team-workflows
     XAA_AUTHENTICATION: 'xaa-authentication', // owner: @reecejones #team-platform-features

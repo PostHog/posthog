@@ -12,6 +12,7 @@ import { DashboardWidgetItem } from '@posthog/products-dashboards/frontend/compo
 import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboards/frontend/widgets/constants'
 
 import { ApiError } from 'lib/api'
+import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
 import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -116,6 +117,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         effectiveBreakdownColors,
         dataColorThemeId,
         canEditDashboard,
+        copyGroupToDashboardLoading,
         widgetResultsByTileId,
         widgetRefreshStatus,
         scrollToBottomSignal,
@@ -140,6 +142,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         applyWidgetIssueMetadataChange,
         moveToDashboard,
         copyToDashboard,
+        copyGroupToDashboard,
+        changeTileGroupDisplay,
         setDashboardEditing,
         toggleTileGroup,
         selectTileGroupTab,
@@ -147,6 +151,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         moveTileToSection,
     } = useActions(dashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
+    // dashboard_tiles is empty because this selector covers a whole group, not one tile; the
+    // backend still rejects a destination that already has one of the group's tiles.
+    const { copyToDestinations } = useValues(
+        dashboardWidgetMenusLogic({ instanceKey: 'dashboard-groups', dashboardId: dashboard?.id, dashboard_tiles: [] })
+    )
     const { push } = useActions(router)
     const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({
         // Dashboard pages hide the survey suggestion in compact headers; notebook embeds also use this component and can show it.
@@ -256,6 +265,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const canEnterEditModeFromEdge =
         !!dashboard && canEditDashboard && !layoutEditMode && !isMobileView && isEditablePlacement
+
+    const onCopyGroupToDashboard = canEditDashboard && isEditablePlacement ? copyGroupToDashboard : undefined
+    const onChangeGroupDisplay = canEditDashboard && isEditablePlacement ? changeTileGroupDisplay : undefined
 
     const isLayoutZoomToggled = layoutEditMode && layoutZoom !== 1
 
@@ -828,6 +840,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             isDropTarget={dropTargetKey === section.key}
             collapsedTileGroupKeys={collapsedTileGroupKeys}
             onToggleTileGroup={toggleTileGroup}
+            copyToDestinations={copyToDestinations}
+            onCopyGroupToDashboard={onCopyGroupToDashboard}
+            copyLoading={copyGroupToDashboardLoading}
+            onChangeGroupDisplay={onChangeGroupDisplay}
         >
             {renderSectionGrid(section, index)}
         </DashboardTileSectionBand>
@@ -847,6 +863,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         sections={tileGroupSections}
                         activeSectionKey={tileGroupSections[activeTabIndex].key}
                         onSelect={selectTileGroupTab}
+                        copyToDestinations={copyToDestinations}
+                        onCopyGroupToDashboard={onCopyGroupToDashboard}
+                        copyLoading={copyGroupToDashboardLoading}
+                        onChangeGroupDisplay={onChangeGroupDisplay}
                     >
                         {renderSectionGrid(tileGroupSections[activeTabIndex], activeTabIndex)}
                     </DashboardTileGroupTabs>

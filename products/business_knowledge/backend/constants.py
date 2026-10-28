@@ -240,3 +240,12 @@ BK_DRILLDOWN_DEFAULT_RADIUS = 5
 # Hard cap on drill-down radius. radius=15 => up to 31 chunks ~= 50k chars;
 # bounds how much one read_data call can pull.
 BK_DRILLDOWN_MAX_RADIUS = 15
+
+# Chats run in parallel, but the request throttles skip session auth, so this caps billable runs per person.
+MAX_OPEN_RUNS_PER_OWNER = 3
+
+BK_MCP_SCOPE = "business_knowledge:read"
+# The PostHog MCP server reads /api/users/@me/ to start a session, so without user:read it never connects.
+# It reads the project to find its organization, and the business knowledge tools sit behind a flag
+# targeted by organization, so without project:read the search tool is hidden.
+BK_MCP_SCOPES = [BK_MCP_SCOPE, "user:read", "project:read"]

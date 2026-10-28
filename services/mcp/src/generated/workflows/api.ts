@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 29 enabled ops
+ * PostHog API - MCP 30 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -32,6 +32,12 @@ export const HogFlowsListQueryParams = () => zod.object({
     created_at: zod.iso.datetime({ offset: true }).optional(),
     created_by: zod.string().optional().describe('Filter to workflows created by the user with this uuid.'),
     id: zod.string().optional(),
+    latest_send_first: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last."
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     optimization_enabled: zod.boolean().optional().describe('Only workflows someone turned suggestions on for.'),
@@ -1353,6 +1359,29 @@ export const HogFlowsMetricsGlobalRetrieveQueryParams = () => zod.object({
             "Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d."
         ),
     before: zod.string().min(1).optional().describe("End of the window. Same format as 'after'. Defaults to now."),
+})
+
+/**
+ * Bounce/complaint rates for this project's workflow email over the last 30 days, computed on
+ * the fly from app metrics (a project-wide aggregate plus per-workflow rows, worst first,
+ * capped), together with the authoritative AWS SES tenant verdict — sending status and open
+ * reputation findings. Our rates are the per-workflow diagnosis; AWS judges and enforces.
+ */
+export const HogFlowsReputationRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const HogFlowsReputationRetrieveQueryParams = () => zod.object({
+    search: zod
+        .string()
+        .optional()
+        .describe(
+            'Case-insensitive workflow name filter. Applied before the worst-50 cap, so it finds workflows the unfiltered response cuts off.'
+        ),
 })
 
 /**

@@ -151,7 +151,7 @@ export const devLoginLogic = kea<devLoginLogicType>([
     listeners(({ actions }) => ({
         devLogin: async ({ email }) => {
             // Dynamic import to avoid a circular dependency: loginLogic statically imports this logic.
-            const { loginLogic, redirectAfterLogin } = await import('scenes/authentication/login/loginLogic')
+            const { loginLogic, redirectAfterLogin } = await import('scenes/authentication/auth/loginLogic')
             loginLogic.actions.clearGeneralError()
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
