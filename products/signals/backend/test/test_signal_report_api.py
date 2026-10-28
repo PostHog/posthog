@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from django.apps import apps
 from django.core.cache import cache
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -51,6 +51,7 @@ from products.signals.backend.artefact_schemas import (
     RankingModelResult,
     RankingScore,
     ReportLink,
+    SuggestedReviewers,
 )
 from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, ReportPriority
 from products.signals.backend.implementation_pr import (
@@ -76,6 +77,7 @@ from products.signals.backend.report_assignments import create_claim
 from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
 from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
+from products.signals.backend.scout_harness.profile.builders import _recent_reviewer_corrections
 from products.signals.backend.signal_metadata import REASSIGN_SIGNAL_ROW_CAP, ReportSignalMeta
 from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_IMPLEMENTATION,
@@ -3499,6 +3501,92 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
 
     def _state_url(self, report_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/{report_id}/state/"
+
+    @parameterized.expand([("wrong_assignee", True), ("analysis_wrong", False)])
+    def test_a_wrong_assignee_dismissal_also_removes_the_caller_with_a_reason(self, reason: str, removed: bool) -> None:
+        report = self._create_report()
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"user_uuid": str(self.user.uuid)}, {"github_login": "teammate"}]),
+        )
+
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps(
+                {"state": "suppressed", "dismissal_reason": reason, "dismissal_note": "The payments team owns this."}
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        latest = SignalReportArtefact.latest_content(
+            team_id=self.team.id, report_id=str(report.id), model=SuggestedReviewers
+        )
+        assert latest is not None
+        assert (str(self.user.uuid) in {entry.user_uuid for entry in latest.root}) == (not removed)
+        # Research reads the reviewer corrections, never the dismissal note, so the verdict has to land there.
+        corrections = _recent_reviewer_corrections(self.team)["corrections"]
+        assert [(row["removal_reason"], row["removal_reason_reviewers"]) for row in corrections] == (
+            [("wrong_area", [str(self.user.uuid)])] if removed else []
+        )
+
+    def test_a_bulk_wrong_assignee_dismissal_removes_the_caller_without_per_report_notes(self) -> None:
+        named = self._create_report()
+        unnamed = self._create_report()
+        for report, reviewers in (
+            (named, [{"user_uuid": str(self.user.uuid)}, {"github_login": "teammate"}]),
+            (unnamed, [{"github_login": "teammate"}]),
+        ):
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                content=json.dumps(reviewers),
+            )
+
+        with patch("products.signals.backend.views.forward_reviewer_correction_note") as forward:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/signals/reports/bulk-state/",
+                    data=json.dumps(
+                        {
+                            "ids": [str(named.id), str(unnamed.id)],
+                            "state": "suppressed",
+                            "dismissal_reason": "wrong_assignee",
+                        }
+                    ),
+                    content_type="application/json",
+                )
+
+        assert response.status_code == status.HTTP_200_OK
+        # Research gets one correction per report that named the caller. Scouts get the batch's one dismissal
+        # note, so a bulk request must not add a correction note per report on top of it.
+        assert [row["report_id"] for row in _recent_reviewer_corrections(self.team)["corrections"]] == [str(named.id)]
+        forward.assert_not_called()
+
+    def test_a_failed_wrong_assignee_removal_does_not_fail_the_committed_dismissal(self) -> None:
+        report = self._create_report()
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
+        )
+
+        with patch(
+            "products.signals.backend.views.remove_suggested_reviewer", side_effect=OperationalError("lock timeout")
+        ):
+            response = self.client.post(
+                self._state_url(str(report.id)),
+                data=json.dumps({"state": "suppressed", "dismissal_reason": "wrong_assignee"}),
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
 
     @parameterized.expand([("already_fixed",), ("fixed_outside_posthog",), ("pr_merged",)])
     def test_fixed_reason_cannot_snooze_a_report(self, reason):

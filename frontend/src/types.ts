@@ -6196,6 +6196,7 @@ export enum ActivityScope {
     CROSS_PROJECT_DASHBOARD = 'CrossProjectDashboard',
     REPLAY = 'Replay',
     REPLAY_SCANNER = 'ReplayScanner',
+    REPLAY_OBSERVATION = 'ReplayObservation',
     VISION_ALERT_CONFIGURATION = 'VisionAlertConfiguration',
     // TODO: doh! we don't need replay and recording
     RECORDING = 'recording',
