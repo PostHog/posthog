@@ -10,12 +10,15 @@ recorded as a failure on the report instead, so the team can see the gap and fix
 from __future__ import annotations
 
 import re
+import time
 from datetime import timedelta
 from typing import Any
 
+from django.db import models
 from django.utils import timezone
 
 import structlog
+from redis.exceptions import RedisError
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.dataclasses import frozen
@@ -29,9 +32,16 @@ from posthog.models.integration import (
     LinearIntegration,
     external_issue_url,
 )
+from posthog.redis import get_client
 
 from products.signals.backend.github_actor import github_mention_for_user
-from products.signals.backend.models import SignalReport, SignalReportTrackerIssue, SignalTeamConfig
+from products.signals.backend.implementation_pr import close_implementation_pr_for_report
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportMonitoringAttempt,
+    SignalReportTrackerIssue,
+    SignalTeamConfig,
+)
 from products.signals.backend.pull_request_body import BodyEditOutcome, edit_pull_request_body
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 
@@ -357,7 +367,11 @@ def _comment_before_close(tracker: SignalReportTrackerIssue, *, report_link: str
     not stop the close: an issue left open would grow the backlog this close exists to prevent,
     while a missing comment costs only the attribution.
     """
-    if tracker.provider != Integration.IntegrationKind.GITHUB or tracker.integration is None:
+    if (
+        tracker.provider != Integration.IntegrationKind.GITHUB
+        or tracker.integration is None
+        or tracker.close_comment_posted_at is not None
+    ):
         return
     context = tracker.external_context or {}
     try:
@@ -368,6 +382,8 @@ def _comment_before_close(tracker: SignalReportTrackerIssue, *, report_link: str
             int(context["number"]),
             _close_notice(report_link=report_link, actor_mention=actor_mention),
         )
+        tracker.close_comment_posted_at = timezone.now()
+        tracker.save(update_fields=["close_comment_posted_at", "updated_at"])
     except Exception:
         logger.warning("signals.tracker_issue_close_comment_failed", tracker_id=str(tracker.id), exc_info=True)
 
@@ -392,8 +408,13 @@ def _close_provider_issue(tracker: SignalReportTrackerIssue, *, completed: bool)
         raise ValueError(f"Unsupported tracker provider {tracker.provider}")
 
 
-def close_tracker_issue_for_report(
-    *, team_id: int, report_id: str, completed: bool = False, actor_user_id: int | None = None
+def _close_tracker_issue_for_report(
+    *,
+    team_id: int,
+    report_id: str,
+    completed: bool,
+    actor_user_id: int | None,
+    monitoring_attempt_id: str | None,
 ) -> bool:
     """Close the report's tracker issue once the report is dismissed or completed. Never raises.
 
@@ -401,6 +422,34 @@ def close_tracker_issue_for_report(
     open would grow a backlog of tracker issues that no pull request will ever answer.
     """
     try:
+        if monitoring_attempt_id is not None:
+            attempt = (
+                SignalReportMonitoringAttempt.objects.for_team(team_id)
+                .filter(
+                    id=monitoring_attempt_id,
+                    report_id=report_id,
+                    aggregation_state="passed",
+                    monitoring_started_at=models.F("report__monitoring_started_at"),
+                )
+                .filter(
+                    models.Q(report__status=SignalReport.Status.RESOLVED)
+                    | models.Q(
+                        report__status=SignalReport.Status.SUPPRESSED,
+                        report__status_before_suppression=SignalReport.Status.RESOLVED,
+                    )
+                )
+                .first()
+            )
+            if attempt is None:
+                return True
+            if attempt.close_pr_on_resolve:
+                close_implementation_pr_for_report(
+                    team_id,
+                    report_id,
+                    reason="resolved",
+                    actor_user_id=actor_user_id,
+                    comment_marker=f"<!-- monitoring-completion:{attempt.id} -->",
+                )
         tracker = (
             SignalReportTrackerIssue.objects.for_team(team_id)
             .select_related("integration")
@@ -423,3 +472,79 @@ def close_tracker_issue_for_report(
     except Exception:
         logger.warning("signals.tracker_issue_close_failed", report_id=report_id, team_id=team_id, exc_info=True)
         return False
+
+
+def close_tracker_issue_for_report(
+    *,
+    team_id: int,
+    report_id: str,
+    completed: bool = False,
+    actor_user_id: int | None = None,
+    monitoring_attempt_id: str | None = None,
+) -> bool:
+    lock = None
+    acquired = False
+    try:
+        lock = get_client().lock(f"signals:tracker-close:{team_id}:{report_id}", timeout=120)
+        acquired = lock.acquire(blocking=False)
+        if not acquired:
+            return False
+        return _close_tracker_issue_for_report(
+            team_id=team_id,
+            report_id=report_id,
+            completed=completed,
+            actor_user_id=actor_user_id,
+            monitoring_attempt_id=monitoring_attempt_id,
+        )
+    except RedisError:
+        logger.warning("signals.tracker_issue_close_lock_failed", report_id=report_id, team_id=team_id, exc_info=True)
+        return False
+    finally:
+        if acquired and lock is not None:
+            try:
+                lock.release()
+            except RedisError:
+                logger.warning("signals.tracker_issue_close_lock_release_failed", report_id=report_id, exc_info=True)
+
+
+def complete_monitoring_tracker_issues(*, deadline: float, limit: int = 100) -> None:
+    now = timezone.now()
+    due = models.Q(tracker_issue_close_next_attempt_at__isnull=True) | models.Q(
+        tracker_issue_close_next_attempt_at__lte=now
+    )
+    attempts = (
+        SignalReportMonitoringAttempt.objects.unscoped()
+        .filter(tracker_issue_close_requested_at__isnull=False, tracker_issue_close_processed_at__isnull=True)
+        .filter(due)
+        .order_by(
+            models.F("tracker_issue_close_next_attempt_at").asc(nulls_first=True),
+            "tracker_issue_close_requested_at",
+            "id",
+        )[:limit]
+    )
+    for attempt in attempts:
+        if time.monotonic() >= deadline:
+            break
+        claimed = (
+            SignalReportMonitoringAttempt.objects.for_team(attempt.team_id)
+            .filter(id=attempt.id, tracker_issue_close_processed_at__isnull=True)
+            .filter(due)
+            .update(tracker_issue_close_next_attempt_at=now + timedelta(minutes=5))
+        )
+        if not claimed:
+            continue
+        completed = close_tracker_issue_for_report(
+            team_id=attempt.team_id,
+            report_id=str(attempt.report_id),
+            completed=True,
+            monitoring_attempt_id=str(attempt.id),
+        )
+        pending = SignalReportTrackerIssue.objects.for_team(attempt.team_id).filter(
+            report_id=attempt.report_id,
+            status__in=[SignalReportTrackerIssue.Status.PENDING, SignalReportTrackerIssue.Status.CREATED],
+            closed_at__isnull=True,
+        )
+        if completed or not pending.exists():
+            SignalReportMonitoringAttempt.objects.for_team(attempt.team_id).filter(id=attempt.id).update(
+                tracker_issue_close_processed_at=timezone.now()
+            )

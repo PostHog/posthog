@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.utils import timezone
 
 from celery.exceptions import Retry
+from redis.exceptions import ConnectionError as RedisConnectionError
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.models import Team, User
@@ -19,7 +20,12 @@ from posthog.models.integration import (
     LinearIntegration,
 )
 
-from products.signals.backend.models import SignalReport, SignalReportTrackerIssue, SignalTeamConfig
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportMonitoringAttempt,
+    SignalReportTrackerIssue,
+    SignalTeamConfig,
+)
 from products.signals.backend.serializers import SignalTeamConfigSerializer
 from products.signals.backend.tasks import close_report_tracker_issue
 from products.signals.backend.tracker_issues import (
@@ -264,9 +270,33 @@ def test_link_pull_request_backs_off_when_the_body_changes_during_the_edit(team)
 
 
 @pytest.mark.django_db
-def test_close_tracker_issue_is_recorded_once(team):
+@pytest.mark.parametrize(
+    "delivery",
+    ["sequential", "overlapping", "monitoring", "reopened", "replaced_attempt", "archived", "manual", "provider_retry"],
+)
+def test_close_tracker_issue_is_recorded_once(team, delivery):
     integration = _connect_tracker(team, "github")
     report = _make_report(team)
+    attempt_id = None
+    if delivery in {"monitoring", "reopened", "replaced_attempt", "archived", "manual"}:
+        started_at = timezone.now() - timedelta(hours=1)
+        attempt = SignalReportMonitoringAttempt.objects.for_team(team.id).create(
+            team=team,
+            report=report,
+            monitoring_started_at=started_at,
+            aggregation_state="passed",
+            close_pr_on_resolve=delivery == "manual",
+        )
+        attempt_id = str(attempt.id)
+        SignalReport.objects.filter(id=report.id).update(
+            status=SignalReport.Status.READY if delivery == "reopened" else SignalReport.Status.RESOLVED,
+            monitoring_started_at=timezone.now() if delivery == "replaced_attempt" else started_at,
+        )
+        if delivery == "archived":
+            SignalReport.objects.filter(id=report.id).update(
+                status=SignalReport.Status.SUPPRESSED,
+                status_before_suppression=SignalReport.Status.RESOLVED,
+            )
     SignalReportTrackerIssue.all_teams.create(
         team=team,
         report=report,
@@ -276,11 +306,48 @@ def test_close_tracker_issue_is_recorded_once(team):
         external_context={"repository": "web", "number": 12},
     )
 
-    with patch.object(GitHubIntegration, "close_issue") as close_issue:
-        assert close_tracker_issue_for_report(team_id=team.id, report_id=str(report.id)) is True
+    def overlapping_close(*args: object, **kwargs: object) -> None:
         assert close_tracker_issue_for_report(team_id=team.id, report_id=str(report.id)) is False
 
-    close_issue.assert_called_once_with("web", 12, completed=False)
+    with (
+        patch.object(GitHubIntegration, "close_issue") as close_issue,
+        patch.object(GitHubIntegration, "comment_on_issue") as comment,
+        patch("products.signals.backend.tracker_issues.close_implementation_pr_for_report") as close_pr,
+    ):
+        if delivery == "overlapping":
+            close_issue.side_effect = overlapping_close
+        if delivery == "provider_retry":
+            close_issue.side_effect = [RuntimeError("Provider unavailable"), None]
+            assert close_tracker_issue_for_report(team_id=team.id, report_id=str(report.id)) is False
+        assert (
+            close_tracker_issue_for_report(
+                team_id=team.id,
+                report_id=str(report.id),
+                monitoring_attempt_id=attempt_id,
+                completed=attempt_id is not None,
+            )
+            is True
+        )
+        if delivery == "manual":
+            close_pr.assert_called_once_with(
+                team.id,
+                str(report.id),
+                reason="resolved",
+                actor_user_id=None,
+                comment_marker=f"<!-- monitoring-completion:{attempt_id} -->",
+            )
+        else:
+            close_pr.assert_not_called()
+        if delivery in {"reopened", "replaced_attempt"}:
+            close_issue.assert_not_called()
+            comment.assert_not_called()
+        else:
+            assert close_tracker_issue_for_report(team_id=team.id, report_id=str(report.id)) is False
+            if delivery == "provider_retry":
+                assert close_issue.call_count == 2
+            else:
+                close_issue.assert_called_once_with("web", 12, completed=attempt_id is not None)
+            comment.assert_called_once()
 
 
 @pytest.mark.django_db
@@ -339,7 +406,8 @@ def test_completed_report_closes_tracker_issue_as_completed(team):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("status", [SignalReportTrackerIssue.Status.PENDING, SignalReportTrackerIssue.Status.CREATED])
-def test_close_tracker_issue_task_retries_pending_or_failed_provider_close(team, status):
+@pytest.mark.parametrize("failure", ["provider", "redis"])
+def test_close_tracker_issue_task_retries_pending_or_failed_provider_close(team, status, failure):
     integration = _connect_tracker(team, "github")
     report = _make_report(team)
     SignalReportTrackerIssue.all_teams.create(
@@ -351,7 +419,13 @@ def test_close_tracker_issue_task_retries_pending_or_failed_provider_close(team,
         external_context={"repository": "web", "number": 12},
     )
 
-    with patch("products.signals.backend.tasks.close_tracker_issue_for_report", return_value=False):
+    with (
+        patch("products.signals.backend.tasks.close_tracker_issue_for_report", return_value=False)
+        if failure == "provider"
+        else patch(
+            "products.signals.backend.tracker_issues.get_client", side_effect=RedisConnectionError("Unavailable")
+        )
+    ):
         with pytest.raises(Retry):
             close_report_tracker_issue.apply(
                 kwargs={"report_id": str(report.id), "team_id": team.id, "completed": False},
