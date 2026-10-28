@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -88,12 +89,14 @@ class TestReplayVisionBillingUsage(APIBaseTest):
         assert result == []
 
     def test_scanner_monthly_credits_sum_enabled_paid_scanners_per_team(self) -> None:
-        def scanner(team_id: int, estimate: int | None, **kwargs) -> None:
+        def scanner(
+            team_id: int, estimate: int | None, model: str = ScannerModel.GEMINI_3_8_FLASH, **kwargs: Any
+        ) -> None:
             ReplayScanner.objects.create(
                 team_id=team_id,
                 name=f"scanner-{uuid4()}",
                 scanner_type=ScannerType.MONITOR,
-                model=kwargs.pop("model", ScannerModel.GEMINI_3_8_FLASH),
+                model=model,
                 estimated_monthly_observations=estimate,
                 **kwargs,
             )
@@ -109,9 +112,10 @@ class TestReplayVisionBillingUsage(APIBaseTest):
         scanner(self.team.id, None, enabled=True)
         scanner(other_team.id, 10, enabled=True)
 
-        assert get_replay_vision_scanner_monthly_credits_by_team() == sorted(
-            [(self.team.id, 1500 + 200 + 300), (other_team.id, 150)]
-        )
+        assert dict(get_replay_vision_scanner_monthly_credits_by_team()) == {
+            self.team.id: 1500 + 200 + 300,
+            other_team.id: 150,
+        }
 
     def test_unknown_model_bills_at_highest_known_price(self) -> None:
         assert observation_credits_for_model("gemini-99-ultra") == _FALLBACK_CREDITS

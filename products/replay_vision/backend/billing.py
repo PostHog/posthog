@@ -146,7 +146,7 @@ def get_replay_vision_scanner_monthly_credits_by_team() -> list[tuple[int, int]]
     totals: defaultdict[int, int] = defaultdict(int)
     for team_id, model, estimate, credit_limit in rows:
         totals[team_id] += projected_monthly_credits(model, estimate, credit_limit) or 0
-    return sorted(totals.items())
+    return list(totals.items())
 
 
 def get_replay_vision_credits_by_team(begin: datetime, end: datetime) -> list[tuple[int, int]]:
