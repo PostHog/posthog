@@ -8,6 +8,7 @@ import botocore.exceptions
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    _EREMOTEIO,
     TransientObjectStoreError,
     is_invalid_version_race,
     is_missing_scan_file_race,
@@ -103,6 +104,14 @@ class TestIsTransientObjectStoreError:
             (
                 "s3_service_unavailable_ebusy",
                 OSError(errno.EBUSY, "Service Unavailable"),
+                True,
+            ),
+            (
+                # A non-AWS S3-compatible provider's own wording for the same InternalError/500
+                # response s3fs always maps to this errno (see s3fs/errors.py::translate_boto_error) -
+                # the message needle above only catches AWS's fixed text, so this must match by errno.
+                "s3_compatible_internal_error_non_aws_wording_eremoteio",
+                OSError(_EREMOTEIO, "Please contact the server administrator, oss@service.aliyun.com"),
                 True,
             ),
             (
