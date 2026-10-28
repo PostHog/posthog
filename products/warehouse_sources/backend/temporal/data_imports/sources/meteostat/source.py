@@ -174,6 +174,7 @@ class MeteostatSource(ResumableSource[MeteostatSourceConfig, MeteostatResumeConf
                     ),
                     SourceFieldInputConfig(
                         name="station_ids",
+                        sync_setting=True,
                         label="Weather station IDs",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -183,6 +184,7 @@ class MeteostatSource(ResumableSource[MeteostatSourceConfig, MeteostatResumeConf
                     ),
                     SourceFieldInputConfig(
                         name="locations",
+                        sync_setting=True,
                         label="Locations",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=False,
@@ -196,6 +198,7 @@ class MeteostatSource(ResumableSource[MeteostatSourceConfig, MeteostatResumeConf
                     ),
                     SourceFieldSelectConfig(
                         name="units",
+                        sync_setting=True,
                         label="Unit system",
                         required=True,
                         defaultValue="metric",
@@ -205,6 +208,7 @@ class MeteostatSource(ResumableSource[MeteostatSourceConfig, MeteostatResumeConf
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

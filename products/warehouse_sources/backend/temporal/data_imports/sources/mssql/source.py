@@ -64,6 +64,16 @@ _CONNECTION_TIMED_OUT_ERROR = (
 
 _GENERIC_CONNECTION_ERROR = "Could not connect to MS SQL. Please check all connection details are valid."
 
+# SQL Server error 1105 in tempdb. tempdb is shared across sessions, so a concurrent workload that
+# filled it can release it; scoped to tempdb so a customer database genuinely out of disk isn't matched.
+_TEMPDB_ALLOCATION_FAILED_ERROR = "in database 'tempdb' because the '"
+_TEMPDB_ALLOCATION_FAILED_EXHAUSTED_MESSAGE = (
+    "Your SQL Server's tempdb ran out of space while sorting rows for this sync (SQL Server error "
+    "1105), and it was still out of space after every retry. tempdb is shared across all sessions on "
+    "your server, so another workload may be holding the space — check tempdb's free space and "
+    "autogrowth settings. This sync is still enabled and will run again on its next schedule."
+)
+
 MSSQLErrors = {
     # SQL Server error 18456 is an authentication failure (wrong username/password, or the login is
     # disabled), not a problem with the database field. Surface the same wording the sibling SQL
@@ -147,6 +157,12 @@ class MSSQLSource(
             # and then sent nothing, so the next attempt, which continues from the last
             # checkpoint where the read has one, can succeed.
             MSSQL_ROW_READ_TIMEOUT_ERROR,
+            _TEMPDB_ALLOCATION_FAILED_ERROR,
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            _TEMPDB_ALLOCATION_FAILED_ERROR: _TEMPDB_ALLOCATION_FAILED_EXHAUSTED_MESSAGE,
         }
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
@@ -353,6 +369,7 @@ class MSSQLSource(
                     ),
                     SourceFieldInputConfig(
                         name="schema",
+                        sync_setting=True,
                         label="Schema",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

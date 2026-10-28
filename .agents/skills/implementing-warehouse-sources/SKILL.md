@@ -108,7 +108,7 @@ Follow this order. Each step maps to TODOs in `source.template`.
 3. **Pick the base class** (see above) and rename the class / `source_type` return.
 4. **Define `get_source_config`** — name, **category** (required — see "Source category & keywords"), label, caption, docsUrl, iconPath, fields, and optional `keywords`. Use appropriate field types (see below). Also set the vendor API version metadata class attributes — see "Vendor API version metadata". When the source is released, also set `codebase_detection`, as described in "Codebase detection".
 5. **Register** the source — add an import line to `products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py` and include it in `__all__`. (The `@SourceRegistry.register` decorator on the class handles runtime registration.)
-6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/<your_source>.py` (one generated module per source; the package `__init__.py` is hand-written and never regenerated). **Do not edit generated modules by hand.** Every time you change `get_source_config.fields`, re-run the generator.
+6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/<your_source>.py` (one generated module per source; the package `__init__.py` is hand-written and never regenerated). **Do not edit generated modules by hand.** Every time you change `get_source_config.fields`, re-run the generator. Then regenerate the field classification audit with `DEBUG=1 python manage.py generate_source_field_classification`. A test fails when `field_classification.csv` is out of date. If the CSV conflicts in a rebase, regenerate it. Do not merge it by hand.
 7. **Swap the generic `Config` type** in `source.py` for the generated `{Source}SourceConfig` class.
 8. **Implement**: `validate_credentials`, `get_schemas`, `source_for_pipeline` (plus `get_resumable_source_manager` / `get_webhook_source_manager` as needed).
 9. **Split transport logic.** Put API client, paginator, row normalization, and `SourceResponse` assembly in `{source}.py`. Keep endpoint catalog/incremental fields/primary keys/partition defaults in `settings.py`.
@@ -384,6 +384,37 @@ Guidelines:
 - Multiple auth methods → `SourceFieldSelectConfig` with child `fields` per option.
 - Optional toggles → `SourceFieldSwitchGroupConfig`.
 - Confidential fields must use `SourceFieldInputConfigType.PASSWORD`. The serializer derives sensitive vs nonsensitive keys automatically from the field definitions — you do not need to maintain an allow-list elsewhere.
+
+### Connection fields vs sync settings
+
+Each top-level key in a source's `job_inputs` has one kind. The kind decides where the value is stored. `sources/common/job_input_classification.py` resolves it.
+
+- **Connection** (the default): a value needed to authenticate or reach the third party. Examples are API keys, tokens, passwords, credential IDs (`aws_access_key_id`, `key_id`), host, port, user, database name, account, tenant or project ids, region, base URLs, the SSH tunnel, TLS certificates and keys, auth-method selects and OAuth `*_integration_id` pointers. Connection values move to an `Integration` row for the source, so do not read them from the model field directly. Use `SourceInputsStore` (below).
+- **Sync setting**: a value that only chooses what or how to sync. Examples are table or schema selection, a table prefix, start dates, file patterns and formats, delimiters, `repositories` and filters. Set `sync_setting=True` on the field. The flag exists on `SourceFieldInputConfig`, `SourceFieldSelectConfig`, `SourceFieldSwitchGroupConfig` and `SourceFieldOauthAccountSelectConfig`. It is valid only on top-level fields. It does not appear in the API payload or the generated types.
+- **Runtime**: state the server writes, not the user. Keys that start with `cdc_` are runtime for every source. For other server-written keys, set `runtime_job_input_keys` on the source class (see `FileUploadSource`).
+
+Rules:
+
+- When you are not sure, keep the default (connection). A setting stored as a connection field still works. A credential marked as a sync setting stays in plain source config.
+- A field in `connection_host_fields` must stay a connection field. The invariant test fails otherwise.
+- Never set `sync_setting=True` on a field that is `secret=True`, a password or a file upload. The invariant test fails otherwise.
+- Every new source and every field change needs the audit CSV regenerated (step 6 of the workflow).
+
+#### Reading and writing `job_inputs`
+
+Read and write a source's `job_inputs` only through `SourceInputsStore` (`products/warehouse_sources/backend/logic/source_inputs.py`). Code outside the product, and code in its presentation layer, imports it from `facade/source_inputs.py`. The store lets the connection fields move to their own storage without a change to your code.
+
+- `SourceInputsStore.load(source)` gives all inputs as a new dict. Use it before `parse_config`.
+- `SourceInputsStore.load_many(sources)` gives the inputs of many sources, keyed by source id. Use it on list paths.
+- `SourceInputsStore.load_settings(source)` gives only the sync settings and runtime keys. It never gives a connection field. Use it for reads such as `schema` or `cdc_*` keys on hot paths.
+- `SourceInputsStore.save(source, inputs)` replaces all inputs and saves them. Use it for a credential write, for example a refreshed token.
+- `SourceInputsStore.assign(source, inputs)` sets the inputs without a save. Use it when you save the model yourself in the same write.
+- `SourceInputsStore.create(inputs=..., **fields)` creates a source.
+- `SourceInputsStore.update_runtime(source, updates, remove=...)` sets or removes runtime keys and saves. It raises `ValueError` for a key that is not a runtime key.
+- In async code, use `aload` and `asave`.
+- `load` raises `UnreadableSourceInputsError` when the stored value is not a mapping. Catch it where the old code accepted a bad value.
+
+The semgrep rule `warehouse-source-inputs-go-through-store` blocks `source.job_inputs` and `job_inputs=` on `ExternalDataSource` outside the store. Tests and migrations can still set the field directly.
 
 ## Implementing `source_for_pipeline`
 

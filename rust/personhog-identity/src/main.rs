@@ -461,9 +461,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max_send = config.grpc_max_send_message_size;
     let max_recv = config.grpc_max_recv_message_size;
     let max_concurrent_requests = config.max_concurrent_requests;
+    let load_shed_wait = config.load_shed_wait();
+    let load_shed_max_waiters = if config.load_shed_max_waiters == 0 {
+        max_concurrent_requests
+    } else {
+        config.load_shed_max_waiters
+    };
     if max_concurrent_requests > 0 {
         tracing::info!(
             limit = max_concurrent_requests,
+            wait_ms = load_shed_wait.as_millis() as u64,
+            max_waiters = load_shed_max_waiters,
             "gRPC load shedding enabled"
         );
     }
@@ -501,7 +509,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // retrying the shed on another saturated pod.
             .layer(
                 GrpcLoadShedLayer::new(max_concurrent_requests)
-                    .with_code(tonic::Code::ResourceExhausted),
+                    .with_code(tonic::Code::ResourceExhausted)
+                    .with_wait(load_shed_wait, load_shed_max_waiters),
             )
             .add_service(
                 PersonHogIdentityServer::new(service)

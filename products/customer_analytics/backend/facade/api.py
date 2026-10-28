@@ -5473,6 +5473,25 @@ def update_customer_task(
     return _to_customer_task_view(task, fresh_user_access_control)
 
 
+def bulk_update_customer_tasks(
+    *,
+    team: Team,
+    task_ids: list[UUID],
+    input: contracts.UpdateCustomerTaskInput,
+    archived: bool | None,
+    actor: "User | None",
+    user_access_control: "UserAccessControl",
+) -> int | None:
+    return _customer_tasks_logic.bulk_update_customer_tasks(
+        team=team,
+        task_ids=task_ids,
+        input=input,
+        archived=archived,
+        actor=actor,
+        user_access_control=user_access_control,
+    )
+
+
 def archive_customer_task(
     *,
     team_id: int,

@@ -202,6 +202,7 @@ class SignalReportSummaryWorkflowInputs:
     requested_implementation_user_id: int | None = None
     requested_implementation_task_id: str | None = None
     requested_after_run_count: int | None = None
+    signal_id: str | None = None
 
 
 @dataclass

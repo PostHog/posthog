@@ -4,6 +4,7 @@ const SAMPLE_RATE = 0.05
 
 export type BootPhase =
     | 'entry'
+    | 'app_context_loaded'
     | 'app_modules_loaded'
     | 'css_ready'
     | 'app_booted'
@@ -15,6 +16,7 @@ export type BootPhase =
 export interface BootContext {
     scene?: string
     logged_in?: boolean
+    deferred_app_context?: boolean
 }
 
 const phaseTimes: Partial<Record<BootPhase, number>> = {}

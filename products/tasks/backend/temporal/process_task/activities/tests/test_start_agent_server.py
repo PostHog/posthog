@@ -947,10 +947,20 @@ def test_agent_shadow_skips_filesystem_snapshot(mocker) -> None:
     )
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.config.snapshot_restored = True
-    sandbox.config.snapshot_kind = "filesystem"
+    sandbox.config.resume_snapshot_external_id = None
 
     assert _launch_agent_shadow(_context(agent_shadow_enabled=True), sandbox) is False
     sandbox.execute.assert_not_called()
+
+
+def test_agent_shadow_allows_directory_snapshot(mocker) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.config.snapshot_restored = True
+    sandbox.config.resume_snapshot_external_id = "im-dir"
+    sandbox.agent_server_health_url.return_value = "http://127.0.0.1:8080/health"
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    assert _launch_agent_shadow(_context(agent_shadow_enabled=True), sandbox) is True
 
 
 def test_agent_shadow_result_is_allowlisted(mocker) -> None:

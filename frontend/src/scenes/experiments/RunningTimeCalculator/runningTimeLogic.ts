@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -9,7 +10,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { experimentsConfigLogic } from '~/scenes/settings/environment/experimentsConfigLogic'
 import { ConversionRateInputType, Experiment } from '~/types'
 
-import { isLaunched } from 'products/experiments/frontend/experimentStatus'
+import { isExperimentExposureFrozen, isLaunched } from 'products/experiments/frontend/experimentStatus'
 import {
     experimentsCalculateRunningTimeCreate,
     experimentsRunningTimeTargetRetrieve,
@@ -22,15 +23,18 @@ import type {
 import type { CachedNewExperimentQueryResponse } from '../../../queries/schema/schema-general'
 import { experimentLogic, saveExperimentUpdate } from '../experimentLogic'
 import { experimentMetricsLogic } from '../experimentMetricsLogic'
+import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 import { modalsLogic } from '../modalsLogic'
 import { getFlagVariants, metricResults, isExperimentConflictError, toConcurrencyPayload } from '../utils'
 import type { MetricWithResult } from '../utils'
 import {
     ManualCalculatorMetricType,
     calculateCurrentExposures,
+    buildRunningTimeOutlook,
     calculateDaysElapsed,
-    calculateExposureRate,
+    daysFromToday,
     rescaleSampleSize,
+    RunningTimeOutlook,
 } from './calculations'
 
 export interface RunningTimeLogicProps {
@@ -48,6 +52,14 @@ export interface RunningTimeConfig {
 export interface ManualPreview {
     sampleSize: number | null
     runningTime: number | null
+}
+
+// The metric the automatic estimate is sized from.
+export interface EstimateMetric {
+    name: string
+    // The experiment has more than one primary metric, and the estimate reads the first.
+    isFirstOfSeveral: boolean
+    hasOtherMetrics: boolean
 }
 
 // The backend sizes the target for the saved minimum detectable effect. The settings rescale it for an edited one, so an
@@ -68,17 +80,22 @@ export interface runningTimeLogicValues {
     primaryMetricsResultsErrors: (unknown | null)[] // experimentMetricsLogic
     defaultMinimumDetectableEffect: number // experimentsConfigLogic
     isRunningTimeConfigModalOpen: boolean // modalsLogic
-    automaticCalculation: RunningTimeTargetApi | null
-    automaticCalculationInput: AutomaticTargetRequest | null
-    automaticCalculationLoading: boolean
+    automaticTarget: RunningTimeTargetApi | null
+    automaticTargetFailed: boolean
+    automaticTargetLoading: boolean
+    automaticTargetRequest: AutomaticTargetRequest | null
+    canIncludeMoreUsers: boolean
     config: RunningTimeConfig
     configOverrides: Partial<RunningTimeConfig> | null
     currentExposures: number | null
     dailyExposureRate: number | null
     editedMde: number | null
+    enteredMde: number | null
+    estimateMetric: EstimateMetric | null
     initialConfig: RunningTimeConfig
     isCalculating: boolean
     isComplete: boolean
+    isManualEstimate: boolean
     isManualMode: boolean
     isSaving: boolean
     manualFormPreview: ManualPreview
@@ -89,7 +106,9 @@ export interface runningTimeLogicValues {
     metricsWithResults: MetricWithResult[]
     mode: RunningTimeConfig['mode']
     numberOfVariants: number
+    outlook: RunningTimeOutlook | null
     remainingDays: number | null
+    selectedCheckpointKey: string | null
     targetEffect: number
     targetSampleSize: number | null
 }
@@ -105,22 +124,25 @@ export interface runningTimeLogicActions {
     closeRunningTimeConfigModal: () => {
         value: true
     } // modalsLogic
+    openRunningTimeConfigModal: () => {
+        value: true
+    } // modalsLogic
     cancel: () => {
         value: true
     }
-    loadAutomaticCalculation: (_: AutomaticTargetRequest) => AutomaticTargetRequest
-    loadAutomaticCalculationFailure: (
+    loadAutomaticTarget: (_: AutomaticTargetRequest) => AutomaticTargetRequest
+    loadAutomaticTargetFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadAutomaticCalculationSuccess: (
-        automaticCalculation: RunningTimeTargetApi | null,
+    loadAutomaticTargetSuccess: (
+        automaticTarget: RunningTimeTargetApi | null,
         payload?: AutomaticTargetRequest
     ) => {
-        automaticCalculation: RunningTimeTargetApi | null
+        automaticTarget: RunningTimeTargetApi | null
         payload?: AutomaticTargetRequest
     }
     loadManualPreview: (input: RunningTimeCalculationInputApi) => RunningTimeCalculationInputApi
@@ -153,6 +175,13 @@ export interface runningTimeLogicActions {
     save: () => {
         value: true
     }
+    selectCheckpoint: (
+        key: string,
+        effect: number
+    ) => {
+        effect: number
+        key: string
+    }
     setConfig: (config: Partial<RunningTimeConfig>) => {
         config: Partial<RunningTimeConfig>
     }
@@ -178,23 +207,20 @@ export interface runningTimeLogicMeta {
         ) => RunningTimeConfig
         mde: (config: RunningTimeConfig) => number
         editedMde: (configOverrides: Partial<RunningTimeConfig> | null) => number | null
-        targetEffect: (
-            editedMde: number | null,
-            automaticCalculation: RunningTimeTargetApi | null,
-            mde: number
-        ) => number
+        targetEffect: (editedMde: number | null, automaticTarget: RunningTimeTargetApi | null, mde: number) => number
         mode: (config: RunningTimeConfig) => RunningTimeConfig['mode']
         metricsWithResults: (
             experiment: Experiment,
             primaryMetricsResults: CachedNewExperimentQueryResponse[],
             primaryMetricsResultsErrors: unknown[]
         ) => MetricWithResult[]
+        isManualEstimate: (isManualMode: boolean, mode: 'automatic' | 'manual') => boolean
         currentExposures: (
-            isManualMode: boolean,
+            isManualEstimate: boolean,
             metricsWithResults: MetricWithResult[],
-            automaticCalculation: RunningTimeTargetApi | null
+            automaticTarget: RunningTimeTargetApi | null
         ) => number | null
-        automaticCalculationInput: (
+        automaticTargetRequest: (
             mode: 'automatic' | 'manual',
             metricsWithResults: MetricWithResult[]
         ) => AutomaticTargetRequest | null
@@ -203,29 +229,37 @@ export interface runningTimeLogicMeta {
             numberOfVariants: number
         ) => RunningTimeCalculationInputApi | null
         targetSampleSize: (
-            isManualMode: boolean,
+            isManualEstimate: boolean,
             targetEffect: number,
             experiment: Experiment,
-            automaticCalculationInput: AutomaticTargetRequest | null,
-            automaticCalculation: RunningTimeTargetApi | null
+            automaticTargetRequest: AutomaticTargetRequest | null,
+            automaticTarget: RunningTimeTargetApi | null
         ) => number | null
         dailyExposureRate: (
-            isManualMode: boolean,
+            isManualEstimate: boolean,
             experiment: Experiment,
-            currentExposures: number | null
+            automaticTarget: RunningTimeTargetApi | null
         ) => number | null
         remainingDays: (
             targetSampleSize: number | null,
             currentExposures: number | null,
             dailyExposureRate: number | null,
-            experiment: Experiment
+            experiment: Experiment,
+            isManualEstimate: boolean,
+            outlook: RunningTimeOutlook | null
         ) => number | null
+        outlook: (
+            isManualEstimate: boolean,
+            automaticTarget: RunningTimeTargetApi | null,
+            targetEffect: number,
+            defaultMinimumDetectableEffect: number,
+            enteredMde: number | null,
+            selectedCheckpointKey: string | null
+        ) => RunningTimeOutlook | null
+        canIncludeMoreUsers: (experiment: Experiment) => boolean
+        estimateMetric: (experiment: Experiment, metricsWithResults: MetricWithResult[]) => EstimateMetric | null
         isComplete: (currentExposures: number | null, targetSampleSize: number | null) => boolean
-        isCalculating: (
-            isManualMode: boolean,
-            isRecalculating: boolean,
-            automaticCalculationLoading: boolean
-        ) => boolean
+        isCalculating: (isManualEstimate: boolean, isRecalculating: boolean, automaticTargetLoading: boolean) => boolean
         manualFormPreview: (
             manualPreviewInput: RunningTimeCalculationInputApi | null,
             manualPreview: ManualPreview
@@ -262,13 +296,14 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 experimentLogic({ experimentId }),
                 ['setExperiment', 'setUnmodifiedExperiment'],
                 modalsLogic,
-                ['closeRunningTimeConfigModal'],
+                ['openRunningTimeConfigModal', 'closeRunningTimeConfigModal'],
             ],
         }
     }),
 
     actions({
         setConfig: (config: Partial<RunningTimeConfig>) => ({ config }),
+        selectCheckpoint: (key: string, effect: number) => ({ key, effect }),
         resetConfig: true,
         save: true,
         cancel: true,
@@ -281,6 +316,23 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             null as Partial<RunningTimeConfig> | null,
             {
                 setConfig: (state, { config }) => ({ ...state, ...config }),
+                selectCheckpoint: (state, { effect }) => ({ ...state, mde: effect }),
+                resetConfig: () => null,
+            },
+        ],
+        enteredMde: [
+            null as number | null,
+            {
+                setConfig: (state, { config }) => (config.mde === undefined ? state : config.mde),
+                resetConfig: () => null,
+            },
+        ],
+        // The row chosen with "Use". The slider and the input make the custom row the target again.
+        selectedCheckpointKey: [
+            null as string | null,
+            {
+                selectCheckpoint: (_, { key }) => key,
+                setConfig: (state, { config }) => (config.mde === undefined ? state : null),
                 resetConfig: () => null,
             },
         ],
@@ -290,14 +342,22 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 setSaving: (_, { saving }) => saving,
             },
         ],
+        automaticTargetFailed: [
+            false,
+            {
+                loadAutomaticTarget: () => false,
+                loadAutomaticTargetSuccess: () => false,
+                loadAutomaticTargetFailure: () => true,
+            },
+        ],
     }),
 
     loaders(({ values, props }) => ({
         // Automatic mode: the target the backend sizes from the primary metric's stored result and the flag's split.
-        automaticCalculation: [
+        automaticTarget: [
             null as RunningTimeTargetApi | null,
             {
-                loadAutomaticCalculation: async (_: AutomaticTargetRequest, breakpoint) => {
+                loadAutomaticTarget: async (_: AutomaticTargetRequest, breakpoint) => {
                     const experimentId = props.experiment.id
                     if (typeof experimentId !== 'number') {
                         return null
@@ -380,12 +440,12 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         // The effect the automatic target is sized for: an edited one, else the one the backend sized for. The backend's
         // can differ from `mde` before the team default loads, or when the saved effect isn't a positive number.
         targetEffect: [
-            (s) => [s.editedMde, s.automaticCalculation, s.mde],
-            (editedMde: number | null, automaticCalculation: RunningTimeTargetApi | null, mde: number): number =>
-                editedMde ?? automaticCalculation?.minimum_detectable_effect ?? mde,
+            (s) => [s.editedMde, s.automaticTarget, s.mde],
+            (editedMde: number | null, automaticTarget: RunningTimeTargetApi | null, mde: number): number =>
+                editedMde ?? automaticTarget?.minimum_detectable_effect ?? mde,
         ],
-        // A primitive, so that automaticCalculationInput stays stable when the experiment object is replaced (e.g.
-        // after persisting an estimate) but the mode is unchanged.
+        // A primitive, so that automaticTargetRequest stays stable when the experiment object is replaced (e.g. after
+        // persisting an estimate) but the mode is unchanged.
         mode: [(s) => [s.config], (config: RunningTimeConfig): RunningTimeConfig['mode'] => config.mode],
 
         // Primary metrics zipped with their results, so automatic mode always has a baseline to read.
@@ -398,10 +458,17 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             ) => (experiment ? metricResults(experiment)(results, errors, 'primary') : []),
         ],
 
+        // Switching a manual experiment to automatic in the settings previews the automatic estimate, so the manual one
+        // applies only while both the saved and the edited mode are manual.
+        isManualEstimate: [
+            (s) => [s.isManualMode, s.mode],
+            (isManualMode: boolean, mode: RunningTimeConfig['mode']): boolean => isManualMode && mode === 'manual',
+        ],
+
         currentExposures: [
-            (s) => [s.isManualMode, s.metricsWithResults, s.automaticCalculation],
+            (s) => [s.isManualEstimate, s.metricsWithResults, s.automaticTarget],
             (
-                isManualMode: boolean,
+                isManualEstimate: boolean,
                 results: {
                     displayIndex: number
                     error: any
@@ -409,18 +476,18 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                     metricIndex: number
                     result: any
                 }[],
-                automaticCalculation: RunningTimeTargetApi | null
+                automaticTarget: RunningTimeTargetApi | null
             ): number | null => {
                 // The backend counts the exposures the automatic target sizes, so a variant at 0% does not count.
-                if (!isManualMode && automaticCalculation?.current_sample_size != null) {
-                    return automaticCalculation.current_sample_size
+                if (!isManualEstimate && automaticTarget?.current_sample_size != null) {
+                    return automaticTarget.current_sample_size
                 }
                 return calculateCurrentExposures(results?.[0]?.result ?? null)
             },
         ],
 
         // Request for the automatic-mode target, or null when not applicable (manual mode / no results yet).
-        automaticCalculationInput: [
+        automaticTargetRequest: [
             (s) => [s.mode, s.metricsWithResults],
             (
                 mode: RunningTimeConfig['mode'],
@@ -472,59 +539,82 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         ],
 
         targetSampleSize: [
-            (s) => [s.isManualMode, s.targetEffect, s.experiment, s.automaticCalculationInput, s.automaticCalculation],
+            (s) => [s.isManualEstimate, s.targetEffect, s.experiment, s.automaticTargetRequest, s.automaticTarget],
             (
-                isManualMode: boolean,
+                isManualEstimate: boolean,
                 targetEffect: number,
                 experiment: Experiment,
                 automaticInput: AutomaticTargetRequest | null,
-                automaticCalculation: RunningTimeTargetApi | null
+                automaticTarget: RunningTimeTargetApi | null
             ): number | null => {
-                if (isManualMode) {
+                if (isManualEstimate) {
                     // Persisted by the save listener from the same backend calculation.
                     return experiment?.running_time_calculation?.recommended_sample_size ?? null
                 }
-                if (!automaticInput || !automaticCalculation?.recommended_sample_size) {
+                if (!automaticInput || !automaticTarget?.recommended_sample_size) {
                     return null
                 }
                 return rescaleSampleSize(
-                    automaticCalculation.recommended_sample_size,
-                    automaticCalculation.minimum_detectable_effect,
+                    automaticTarget.recommended_sample_size,
+                    automaticTarget.minimum_detectable_effect,
                     targetEffect
                 )
             },
         ],
 
         dailyExposureRate: [
-            (s) => [s.isManualMode, s.experiment, s.currentExposures],
-            (isManualMode: boolean, experiment: Experiment, currentExposures: number | null): number | null => {
-                if (isManualMode) {
+            (s) => [s.isManualEstimate, s.experiment, s.automaticTarget],
+            (
+                isManualEstimate: boolean,
+                experiment: Experiment,
+                automaticTarget: RunningTimeTargetApi | null
+            ): number | null => {
+                if (isManualEstimate) {
                     return experiment?.running_time_calculation?.exposure_estimate_config?.manualExposureRate ?? null
                 }
-
-                // Automatic mode: calculate from actual rate
-                const daysElapsed = calculateDaysElapsed(experiment?.start_date ?? null)
-                return calculateExposureRate(currentExposures, daysElapsed)
+                return automaticTarget?.outlook?.exposures_per_day ?? null
             },
         ],
 
         // Days until we reach target sample size
         remainingDays: [
-            (s) => [s.targetSampleSize, s.currentExposures, s.dailyExposureRate, s.experiment],
+            (s) => [
+                s.targetSampleSize,
+                s.currentExposures,
+                s.dailyExposureRate,
+                s.experiment,
+                s.isManualEstimate,
+                s.outlook,
+            ],
             (
                 target: number | null,
                 current: number | null,
                 rate: number | null,
-                experiment: Experiment
+                experiment: Experiment,
+                isManualEstimate: boolean,
+                outlook: RunningTimeOutlook | null
             ): number | null => {
                 if (!target || target <= 0 || !rate || rate <= 0) {
                     return null
                 }
+                // The automatic rate comes from the backend's outlook, which projects from the first 0.1 days on.
+                if (!isManualEstimate) {
+                    if (current !== null && current >= target) {
+                        return 0
+                    }
+                    if (!experiment?.start_date) {
+                        return Math.ceil(target / rate)
+                    }
+                    // The projection reaches the target `target / rate` days after launch, or at the checkpoint whose
+                    // effect the target took. Calendar days to that date keep the header, the table's date and its
+                    // "in N days" in step, also when the results end before today.
+                    return daysFromToday(experiment.start_date, outlook?.daysToTarget ?? target / rate)
+                }
 
-                // Need minimum data for automatic mode
+                // The manual estimate counts down from the exposures so far once there are a day and 100 of them.
                 const daysElapsed = calculateDaysElapsed(experiment?.start_date ?? null)
                 if (!daysElapsed || daysElapsed < 1 || !current || current < 100) {
-                    // Not enough data yet - show total estimated time if we have rate
+                    // Before that, the whole planned run.
                     if (rate > 0) {
                         return Math.ceil(target / rate)
                     }
@@ -539,6 +629,65 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 return Math.ceil(remaining / rate)
             },
         ],
+        // What the experiment can detect over time, for the automatic estimate.
+        outlook: [
+            (s) => [
+                s.isManualEstimate,
+                s.automaticTarget,
+                s.targetEffect,
+                s.defaultMinimumDetectableEffect,
+                s.enteredMde,
+                s.selectedCheckpointKey,
+            ],
+            (
+                isManualEstimate: boolean,
+                automaticTarget: RunningTimeTargetApi | null,
+                targetEffect: number,
+                defaultMinimumDetectableEffect: number,
+                enteredMde: number | null,
+                selectedCheckpointKey: string | null
+            ): RunningTimeOutlook | null =>
+                isManualEstimate
+                    ? null
+                    : buildRunningTimeOutlook({
+                          projection: automaticTarget?.outlook ?? null,
+                          currentSampleSize: automaticTarget?.current_sample_size ?? null,
+                          savedEffect: automaticTarget?.minimum_detectable_effect ?? null,
+                          savedSampleSize: automaticTarget?.recommended_sample_size ?? null,
+                          defaultEffect: defaultMinimumDetectableEffect,
+                          enteredEffect: enteredMde,
+                          selectedKey: selectedCheckpointKey,
+                          minimumDetectableEffect: targetEffect,
+                      }),
+        ],
+        canIncludeMoreUsers: [
+            (s) => [s.experiment],
+            (experiment: Experiment): boolean => {
+                // A group without conditions at 100% already includes every user.
+                const includesEveryone = (experiment?.feature_flag?.filters?.groups ?? []).some(
+                    (group) => !group.properties?.length && (group.rollout_percentage ?? 100) >= 100
+                )
+                return !includesEveryone && !isExperimentExposureFrozen(experiment)
+            },
+        ],
+        // The first primary metric in display order, which is the one the backend sizes the target from.
+        estimateMetric: [
+            (s) => [s.experiment, s.metricsWithResults],
+            (experiment: Experiment, metricsWithResults: MetricWithResult[]): EstimateMetric | null => {
+                const metric = metricsWithResults?.[0]?.metric
+                if (!metric) {
+                    return null
+                }
+                const secondaryCount =
+                    (experiment?.metrics_secondary?.length ?? 0) +
+                    (experiment?.saved_metrics ?? []).filter((saved) => saved.metadata?.type === 'secondary').length
+                return {
+                    name: metric.name || getDefaultMetricTitle(metric),
+                    isFirstOfSeveral: metricsWithResults.length > 1,
+                    hasOtherMetrics: metricsWithResults.length > 1 || secondaryCount > 0,
+                }
+            },
+        ],
         isComplete: [
             (s) => [s.currentExposures, s.targetSampleSize],
             (current: number | null, target: number | null): boolean =>
@@ -549,12 +698,12 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         // instead of flashing a pending state during the gap between the two. Manual mode has no async
         // estimate to wait on, so it never counts as calculating.
         isCalculating: [
-            (s) => [s.isManualMode, s.isRecalculating, s.automaticCalculationLoading],
-            (isManualMode: boolean, isRecalculating: boolean, automaticCalculationLoading: boolean): boolean => {
-                if (isManualMode) {
+            (s) => [s.isManualEstimate, s.isRecalculating, s.automaticTargetLoading],
+            (isManualEstimate: boolean, isRecalculating: boolean, automaticTargetLoading: boolean): boolean => {
+                if (isManualEstimate) {
                     return false
                 }
-                return isRecalculating || automaticCalculationLoading
+                return isRecalculating || automaticTargetLoading
             },
         ],
         manualFormPreview: [
@@ -567,10 +716,10 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
     subscriptions(({ actions }) => ({
         // kea-subscriptions fires on reference change. The recalc poll replaces the metric-results array every
         // tick, so these inputs get a fresh object reference even when their values are identical, which would
-        // re-fire the calculation POST on every poll. Skip the dispatch unless the value actually changed.
-        automaticCalculationInput: (input: AutomaticTargetRequest | null, oldInput: AutomaticTargetRequest | null) => {
+        // re-fire the request on every poll. Skip the dispatch unless the value actually changed.
+        automaticTargetRequest: (input: AutomaticTargetRequest | null, oldInput: AutomaticTargetRequest | null) => {
             if (input && !objectsEqual(input, oldInput)) {
-                actions.loadAutomaticCalculation(input)
+                actions.loadAutomaticTarget(input)
             }
         },
         manualPreviewInput: (
@@ -585,7 +734,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
 
     listeners(({ actions, values, props }) => ({
         // Persist the automatic estimate once the backend calculation lands and the selectors are fresh.
-        loadAutomaticCalculationSuccess: () => {
+        loadAutomaticTargetSuccess: () => {
             actions.persistRunningTimeEstimate()
         },
 
@@ -659,6 +808,8 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
 
         save: async () => {
             const { config, numberOfVariants, experiment, currentProjectId } = values
+            // Read before the save, which replaces the experiment and with it the initial config.
+            const previousMde = values.initialConfig.mde
 
             actions.setSaving(true)
             let saved = false
@@ -729,13 +880,31 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             if (!saved) {
                 return
             }
+            // pinned: analytics event name and properties.
+            posthog.capture('experiment running time settings saved', {
+                experiment_id: props.experiment.id,
+                mode: config.mode,
+                minimum_detectable_effect: config.mde,
+                previous_minimum_detectable_effect: previousMde,
+            })
             actions.closeRunningTimeConfigModal()
             actions.resetConfig()
             // The target on hand is sized for the previous effect. The backend sizes it for the saved one, and its
             // success persists the estimate.
-            if (config.mode === 'automatic' && values.automaticCalculationInput) {
-                actions.loadAutomaticCalculation(values.automaticCalculationInput)
+            if (config.mode === 'automatic' && values.automaticTargetRequest) {
+                actions.loadAutomaticTarget(values.automaticTargetRequest)
             }
+        },
+
+        openRunningTimeConfigModal: () => {
+            const { config, outlook } = values
+            // pinned: analytics event name and properties.
+            posthog.capture('experiment running time settings opened', {
+                experiment_id: props.experiment.id,
+                mode: config.mode,
+                out_of_reach: outlook?.isOutOfReach ?? null,
+                days_to_target: outlook ? Math.round(outlook.daysToTarget) : null,
+            })
         },
 
         cancel: () => {
