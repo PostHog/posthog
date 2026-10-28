@@ -62,6 +62,25 @@ class TestExtractTextFromMessages:
         assert expected_substring in result
         assert result != ""
 
+    @pytest.mark.parametrize(
+        ("block", "marker"),
+        [
+            pytest.param(
+                {"type": "image_url", "image_url": {"url": "phaiblob://v1/sha256/abc?mime=image%2Fjpeg"}},
+                "[image]",
+                id="offloaded_pointer",
+            ),
+            pytest.param(
+                {"type": "image", "source": {"type": "url", "url": "https://example.com/cat.jpg"}},
+                "[image: https://example.com/cat.jpg]",
+                id="remote_url",
+            ),
+        ],
+    )
+    def test_media_blocks_render_markers_not_payloads(self, block, marker):
+        messages = [{"role": "user", "content": [block, {"type": "text", "text": "What does this chart show?"}]}]
+        assert extract_text_from_messages(messages) == f"user: {marker} What does this chart show?"
+
     def test_mixed_content_blocks(self):
         messages = [
             {

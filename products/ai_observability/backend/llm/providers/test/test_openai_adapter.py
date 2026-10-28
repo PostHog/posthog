@@ -20,7 +20,7 @@ from products.ai_observability.backend.llm.errors import (
     StructuredOutputParseError,
 )
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
-from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest, OutputSchema
+from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest, ImagePart, OutputSchema
 
 
 class TestOpenAIRecommendedModels:
@@ -175,6 +175,37 @@ class TestOpenAIStreamOutputSchema:
             "json_schema": {"name": "verdict", "schema": schema, "strict": True},
         }
         assert "response_format" not in self._stream_kwargs(None)
+
+
+class TestOpenAIImageParts:
+    @pytest.mark.parametrize(
+        ("image", "expected_url"),
+        [
+            pytest.param(
+                ImagePart(mime_type="image/png", url="https://example.com/a.png"),
+                "https://example.com/a.png",
+                id="link",
+            ),
+            pytest.param(
+                ImagePart(mime_type="image/png", base64_data="aGk="), "data:image/png;base64,aGk=", id="inline"
+            ),
+        ],
+    )
+    def test_image_parts_are_sent_as_image_url_blocks(self, image: ImagePart, expected_url: str):
+        request = CompletionRequest(
+            model="gpt-4.1",
+            messages=[{"role": "user", "content": [image, {"type": "text", "text": "hi"}]}],
+            provider="openai",
+        )
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value.usage = None
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            OpenAIAdapter().complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
+
+        assert mock_client.chat.completions.create.call_args.kwargs["messages"][0]["content"] == [
+            {"type": "image_url", "image_url": {"url": expected_url}},
+            {"type": "text", "text": "hi"},
+        ]
 
 
 class TestOpenAIAdapterErrorMapping:

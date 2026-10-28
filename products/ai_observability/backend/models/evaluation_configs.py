@@ -30,6 +30,9 @@ class LLMJudgeConfig(BaseModel):
     judge_method: Literal["llm", "decision"] | None = Field(
         default=None, description="Judge method. Omit to keep the saved method; null restores automatic routing."
     )
+    include_media: bool | None = Field(
+        default=None, description="Set to false to judge text only. The judge sees the event's images by default."
+    )
 
     @field_validator("prompt")
     @classmethod

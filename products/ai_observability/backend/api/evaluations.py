@@ -126,6 +126,10 @@ logger = structlog.get_logger(__name__)
                         "nullable": True,
                         "description": "Judge method. Omit to keep the saved method; null restores automatic routing.",
                     },
+                    "include_media": {
+                        "type": "boolean",
+                        "description": "Set to false to judge text only. The judge sees the event's images by default.",
+                    },
                 },
                 "additionalProperties": False,
             },

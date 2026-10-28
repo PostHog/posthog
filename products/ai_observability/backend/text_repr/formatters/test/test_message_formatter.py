@@ -22,6 +22,42 @@ from ..message_formatter import (
     truncate_content,
 )
 
+MEDIA_BLOCK_CASES = [
+    pytest.param(
+        {"type": "image_url", "image_url": {"url": "phaiblob://v1/sha256/abc?mime=image%2Fjpeg"}},
+        "[image]",
+        id="openai_chat_offloaded_pointer",
+    ),
+    pytest.param(
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,aGVsbG8="}},
+        "[image]",
+        id="openai_chat_inline_base64",
+    ),
+    pytest.param(
+        {"type": "input_image", "image_url": "https://example.com/cat.jpg"},
+        "[image: https://example.com/cat.jpg]",
+        id="openai_responses_remote_url",
+    ),
+    pytest.param(
+        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "aGVsbG8="}},
+        "[image]",
+        id="anthropic_base64",
+    ),
+    pytest.param(
+        {"type": "image", "source": {"type": "url", "url": "https://example.com/cat.jpg"}},
+        "[image: https://example.com/cat.jpg]",
+        id="anthropic_url",
+    ),
+    pytest.param({"inline_data": {"mime_type": "image/png", "data": "aGVsbG8="}}, "[image]", id="gemini_inline"),
+    pytest.param({"inlineData": {"mimeType": "audio/wav", "data": "aGVsbG8="}}, "[audio]", id="gemini_camel_audio"),
+    pytest.param(
+        {"type": "input_audio", "input_audio": {"data": "aGVsbG8=", "format": "wav"}}, "[audio]", id="openai_audio"
+    ),
+    pytest.param(
+        {"type": "document", "source": {"type": "base64", "data": "aGVsbG8="}}, "[file]", id="anthropic_document"
+    ),
+]
+
 
 class TestTruncateContent:
     """Test content truncation with middle ellipsis."""
@@ -114,6 +150,14 @@ class TestSafeExtractText:
         assert "Text block" in result
         assert "Plain string" in result
         assert "Dict with text" in result
+
+    @pytest.mark.parametrize(("block", "marker"), MEDIA_BLOCK_CASES)
+    def test_media_blocks_render_markers_not_payloads(self, block, marker):
+        assert (
+            safe_extract_text([block, {"type": "text", "text": "What does this chart show?"}])
+            == f"{marker}\n\nWhat does this chart show?"
+        )
+        assert safe_extract_text([block]) == marker
 
     def test_fallback_for_unparseable(self):
         """Should return fallback for unparseable content."""
