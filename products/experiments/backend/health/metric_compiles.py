@@ -18,6 +18,7 @@ also after one of them is deleted or the reader loses access.
 import re
 import json
 import hashlib
+from collections.abc import Mapping
 from datetime import timedelta
 from enum import StrEnum
 from typing import Any
@@ -120,6 +121,7 @@ def _load_metric_compiles(experiment: Experiment, user: User | None) -> MetricCo
             case _Failure(kind=kind, message=message):
                 failures.append(
                     MetricCompileFailure(
+                        metric_id=calculation_config.metric_id,
                         name=calculation_metric_name(experiment, calculation_config),
                         role=calculation_config.role,
                         kind=kind,
@@ -136,13 +138,18 @@ def _load_metric_compiles(experiment: Experiment, user: User | None) -> MetricCo
     )
 
 
+def can_hold_evaluation_rules(definition: Mapping[str, Any]) -> bool:
+    """Whether a HogQL message about the query of a metric with `definition` can quote the team's evaluation rules."""
+    # The compile replaces each marker with the team's evaluation rules, so a HogQL message can quote them.
+    return mentions_evaluation_pass_markers(json.dumps(definition, default=str))
+
+
 def _can_hold_evaluation_rules(
     kind: ExperimentHealthMetricCompileErrorKind, calculation_config: MetricCalculationConfig
 ) -> bool:
-    # The compile replaces each marker with the team's evaluation rules, so a HogQL message can quote them. The query
-    # builder's own messages don't.
-    return kind != ExperimentHealthMetricCompileErrorKind.REJECTED and mentions_evaluation_pass_markers(
-        json.dumps(calculation_config.definition, default=str)
+    # The query builder's own messages don't quote the evaluation rules.
+    return kind != ExperimentHealthMetricCompileErrorKind.REJECTED and can_hold_evaluation_rules(
+        calculation_config.definition
     )
 
 
@@ -230,12 +237,16 @@ def _error_kind(error: Exception) -> ExperimentHealthMetricCompileErrorKind:
 _AVAILABLE_FIELDS = re.compile(r"\. Available fields: .*?\.(?= If |$)", re.DOTALL)
 
 
+def without_available_fields(message: str) -> str:
+    return _AVAILABLE_FIELDS.sub(".", message)
+
+
 def _error_message(error: Exception) -> str:
     if isinstance(error, ValidationError):
         return get_user_friendly_message(error) or str(error)
     if isinstance(error, pydantic.ValidationError):
         return _definition_message(error)
-    return _AVAILABLE_FIELDS.sub(".", str(error))
+    return without_available_fields(str(error))
 
 
 def _definition_message(error: pydantic.ValidationError) -> str:

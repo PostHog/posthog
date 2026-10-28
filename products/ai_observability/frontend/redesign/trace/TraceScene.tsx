@@ -19,6 +19,8 @@ type ReadyValues = Pick<
     | 'canViewInThread'
     | 'thread'
     | 'timeline'
+    | 'evalsChip'
+    | 'evalOutcomesByNode'
     | 'gitBranch'
 >
 
@@ -29,6 +31,7 @@ interface ReadyActions {
     setDetailTab: (tab: NodeDetailTab) => void
     viewInThread: () => void
     prefetchNode: (id: string) => void
+    showFailingEvals: () => void
 }
 
 function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewReadyProps | null {
@@ -37,7 +40,11 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
     }
     return {
         header: values.header,
-        summary: { ...values.summary, git: values.gitBranch },
+        summary: {
+            ...values.summary,
+            evals: values.evalsChip ? { chip: values.evalsChip, onClick: actions.showFailingEvals } : null,
+            git: values.gitBranch,
+        },
         mode: values.mode,
         onModeChange: actions.setMode,
         tree: values.tree,
@@ -56,6 +63,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
             : null,
         thread: values.thread,
         timeline: values.timeline,
+        evalOutcomes: values.evalOutcomesByNode,
     }
 }
 
@@ -78,6 +86,8 @@ export function TraceScene(): JSX.Element {
         canViewInThread,
         thread,
         timeline,
+        evalsChip,
+        evalOutcomesByNode,
         gitBranch,
     } = useValues(logic)
     const actions = useActions(logic)
@@ -97,6 +107,8 @@ export function TraceScene(): JSX.Element {
                       canViewInThread,
                       thread,
                       timeline,
+                      evalsChip,
+                      evalOutcomesByNode,
                       gitBranch,
                   },
                   actions

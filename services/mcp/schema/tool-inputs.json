@@ -729,6 +729,50 @@
                                             },
                                             "additionalProperties": {}
                                         },
+                                        "chart": {
+                                            "description": "Numbers to draw beside this finding when its query is not a TrendsQuery, such as SQL. Copy them from the result you got.",
+                                            "type": "object",
+                                            "properties": {
+                                                "type": {
+                                                    "type": "string",
+                                                    "enum": ["line", "bar"],
+                                                    "description": "`line` for values over time, `bar` for a value per label."
+                                                },
+                                                "labels": {
+                                                    "minItems": 1,
+                                                    "maxItems": 200,
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "string"
+                                                    },
+                                                    "description": "The x-axis labels in order, such as hours or referrers, written as the person should read them."
+                                                },
+                                                "series": {
+                                                    "minItems": 1,
+                                                    "maxItems": 6,
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "name": {
+                                                                "type": "string",
+                                                                "minLength": 1,
+                                                                "maxLength": 80
+                                                            },
+                                                            "values": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "number"
+                                                                },
+                                                                "description": "One value per label, in the same order."
+                                                            }
+                                                        },
+                                                        "required": ["name", "values"]
+                                                    }
+                                                }
+                                            },
+                                            "required": ["type", "labels", "series"]
+                                        },
                                         "url": {
                                             "description": "A link to the source when it is not a query, for example a commit, a pull request or a deploy.",
                                             "type": "string",

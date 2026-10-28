@@ -122,6 +122,7 @@ interface InsightMetaProps extends Pick<
     /** Called when the user mousedowns on the card meta (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
     tile?: DashboardTile
+    headerStatus?: JSX.Element
     insight: InsightModel
     refreshDisabledReason?: string
     areDetailsShown?: boolean
@@ -134,6 +135,7 @@ interface InsightMetaProps extends Pick<
 }
 
 export function InsightMeta({
+    headerStatus,
     tile,
     insight,
     ribbonColor,
@@ -482,6 +484,7 @@ export function InsightMeta({
         <>
             <CardMeta
                 compact={showCompactTile}
+                headerStatus={headerStatus}
                 ribbonColor={ribbonColor}
                 showEditingControls={showEditingControls}
                 showDetailsControls={showDetailsControls}
