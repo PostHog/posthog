@@ -50,7 +50,7 @@ def lock_insight_for_evaluation(*, team_id: int, insight_id: int) -> bool:
 
 
 def record_insight_view(*, insight_id: int, team_id: int | None, user_id: int | None) -> None:
-    InsightViewed.objects.update_or_create(
+    InsightViewed.objects.update_or_create(  # type: ignore[misc]  # nullable FKs; django-stubs drops None from *_id lookups
         insight_id=insight_id, team_id=team_id, user_id=user_id, defaults={"last_viewed_at": now()}
     )
 

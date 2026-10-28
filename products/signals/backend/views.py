@@ -186,7 +186,10 @@ from products.signals.backend.report_claims import (
     reports_with_active_claim,
     responsible_users,
 )
-from products.signals.backend.report_content_gates import organization_report_monitoring_enabled
+from products.signals.backend.report_content_gates import (
+    organization_inbox_cached_filters_enabled,
+    organization_report_monitoring_enabled,
+)
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerPayloadIndex,
@@ -258,6 +261,7 @@ from products.signals.backend.serializers import (
     SignalReportCheckReplacementSerializer,
     SignalReportCheckSerializer,
     SignalReportClaimSerializer,
+    SignalReportFilterQuerySerializer,
     SignalReportLeaveReviewersSerializer,
     SignalReportListQuerySerializer,
     SignalReportListSerializer,
@@ -265,6 +269,7 @@ from products.signals.backend.serializers import (
     SignalReportMetricRefreshResponseSerializer,
     SignalReportPriorityUpdateSerializer,
     SignalReportRefundSerializer,
+    SignalReportSectionCountsSerializer,
     SignalReportSerializer,
     SignalReportSourceMetadataRequestSerializer,
     SignalReportSourceMetadataResponseSerializer,
@@ -1241,6 +1246,294 @@ class SignalReportListPagination(LimitOffsetPagination):
         return paginated
 
 
+_SUGGESTED_REVIEWERS_PARAMETER = OpenApiParameter(
+    name="suggested_reviewers",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description=(
+        "Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers "
+        "include any of the given users."
+    ),
+)
+_PRIORITY_PARAMETER = OpenApiParameter(
+    name="priority",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description=(
+        "Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. "
+        "Reports without a priority assignment are excluded when this filter is set."
+    ),
+)
+_REPORT_LIST_PARAMETERS = [
+    OpenApiParameter(
+        name="status",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Comma-separated list of statuses to include. "
+            "Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. "
+            "Defaults to all statuses except suppressed."
+        ),
+    ),
+    OpenApiParameter(
+        name="include_all_statuses",
+        type=OpenApiTypes.BOOL,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "When true, the list includes reports in every status with no default exclusions applied — "
+            "currently that adds suppressed (dismissed) reports, which are otherwise hidden. Use it to "
+            "see the full inbox state (e.g. deduplicating before creating a report) and read each row's "
+            "status (plus dismissal_reason/dismissal_note on dismissed rows) before acting. Deleted "
+            "reports are terminal and never returned. Defaults to false, which keeps the existing "
+            "default exclusions. Ignored when an explicit 'status' filter is set — that filter alone "
+            "decides which statuses are returned."
+        ),
+    ),
+    OpenApiParameter(
+        name="unread",
+        type=OpenApiTypes.BOOL,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description="Filter by the current user's report read state.",
+    ),
+    OpenApiParameter(
+        name="search",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description="Case-insensitive substring match against report title and summary.",
+    ),
+    OpenApiParameter(
+        name="channel_id",
+        type=OpenApiTypes.UUID,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Narrow to reports assigned to one space (channel). Absent or empty means all "
+            "reports regardless of assignment."
+        ),
+    ),
+    OpenApiParameter(
+        name="source_product",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Comma-separated list of source products to include. Reports are kept if at least one of "
+            "their contributing signals comes from one of these products (e.g. error_tracking, session_replay)."
+        ),
+    ),
+    OpenApiParameter(
+        name="source_id",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Comma-separated list of source record ids. Reports are kept if at least one of their "
+            "contributing signals came from one of these records — e.g. pass a support ticket's UUID to "
+            "see what the inbox already found for that ticket. Requires exactly one source_product, "
+            "since a source id is only unique within its product."
+        ),
+    ),
+    OpenApiParameter(
+        name="scout",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). "
+            "Reports are kept if at least one of their contributing signals was authored by one of "
+            "these scouts. Combines with source_product as an AND."
+        ),
+    ),
+    OpenApiParameter(
+        name="scout_prefix",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Scout skill_name prefix (e.g. signals-scout-customer-analytics). Reports are kept if at "
+            "least one of their contributing signals was authored by a scout whose skill_name starts "
+            "with this prefix — new scouts in the family match without callers listing every name. "
+            "Combines with the other filters as an AND."
+        ),
+    ),
+    _SUGGESTED_REVIEWERS_PARAMETER,
+    OpenApiParameter(
+        name="actionability",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Comma-separated actionability judgments to include. Valid values: immediately_actionable, "
+            "requires_human_input, not_actionable. Reports without a judgment are excluded."
+        ),
+    ),
+    OpenApiParameter(
+        name="already_addressed",
+        type=OpenApiTypes.BOOL,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Filter by whether the latest actionability judgment says the issue is already being handled. "
+            "False also includes older reports where that judgment did not record a value."
+        ),
+    ),
+    OpenApiParameter(
+        name="view",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, "
+            "dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, "
+            "actionability, and implementation-PR filters. for_you holds the open, actionable reports that "
+            "wait for the requesting user's input, that they claimed, or that name them as a suggested "
+            "reviewer. needs_decision also includes failed reports without a judgment. "
+            "dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent "
+            "dismissed, merged, or whose pull request closed without merging; held_back holds the ones the "
+            "safety or actionability judge suppressed before anyone saw them. Each row's suppression_source "
+            "says which."
+        ),
+    ),
+    OpenApiParameter(
+        name="scope",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=("Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate."),
+    ),
+    OpenApiParameter(
+        name="teammate_uuid",
+        type=OpenApiTypes.UUID,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description="PostHog user UUID used when scope=teammate.",
+    ),
+    _PRIORITY_PARAMETER,
+    OpenApiParameter(
+        name="use_priority_preference",
+        type=OpenApiTypes.BOOL,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "When true and priority is omitted, include priorities at or above the requesting user's "
+            "personal PR-generation threshold, falling back to the project threshold."
+        ),
+    ),
+    OpenApiParameter(
+        name="sort",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when "
+            "ordering is supplied. recommended resolves per user to a ranker: the priority order, or "
+            "the open, action or fix outcome of the served ranking model with unscored and stale reports "
+            "in priority order after the scored ones. The response's ranker field names the one used."
+        ),
+    ),
+    OpenApiParameter(
+        name="ordering",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' "
+            "for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, "
+            f"priority, created_at, updated_at, id, {', '.join(PUBLIC_RANKING_ORDERING_HEADS)}. "
+            "Defaults to '-is_suggested_reviewer,status,-updated_at'. Each ranking_<outcome> field sorts by "
+            "the served ranking model's probability for that public outcome, with unscored reports last in "
+            "either direction. Read inbox-ranking-outcomes-list for what each outcome means. The ranking "
+            "fields need staff or the inbox model sort rollout: other users get a 400."
+        ),
+    ),
+    OpenApiParameter(
+        name="ranking_min_lift",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served "
+            "ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read "
+            "inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. "
+            "Needs staff or the inbox model sort rollout: other users get a 400."
+        ),
+    ),
+    OpenApiParameter(
+        name="ranking_min_probability",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served "
+            "ranking probability is at least the value for every named outcome. Outcomes: open, action, "
+            "fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports "
+            "never match. "
+            "Needs staff or the inbox model sort rollout: other users get a 400."
+        ),
+    ),
+    OpenApiParameter(
+        name="created_after",
+        type=OpenApiTypes.DATETIME,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description="ISO 8601 datetime. Keeps reports created at or after this time.",
+    ),
+    OpenApiParameter(
+        name="task_id",
+        type=OpenApiTypes.UUID,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description="Only reports associated with this task (via the report's task associations).",
+    ),
+    OpenApiParameter(
+        name="has_implementation_pr",
+        type=OpenApiTypes.BOOL,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Filter reports by whether an implementation pull request is attached. "
+            "'true' keeps only reports with a PR; 'false' keeps only those without. "
+            "Pair with count_only=true to return only the filtered total."
+        ),
+    ),
+    OpenApiParameter(
+        name="unclaimed",
+        type=OpenApiTypes.BOOL,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Filter by whether the report has no owner and no draft, open, or unknown PR. "
+            "Resolved reports are never unclaimed."
+        ),
+    ),
+    OpenApiParameter(
+        name="assignee",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        enum=["me", "mine"],
+        description=(
+            "'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or "
+            "the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, "
+            "claims by MCP agents acting for them, and claims by internal tasks they started."
+        ),
+    ),
+]
+# Section counts set the status and the implementation PR condition themselves, so they reject these.
+_SECTION_DEFINING_PARAMETERS = frozenset({"status", "has_implementation_pr", "include_all_statuses", "view"})
+_SECTION_COUNTS_PARAMETERS = [
+    parameter
+    for parameter in _REPORT_LIST_PARAMETERS
+    if parameter.name not in _SECTION_DEFINING_PARAMETERS | {"sort", "ordering"}
+]
+
+
 @extend_schema_view(
     destroy=extend_schema(
         summary="Delete a signal report",
@@ -1335,6 +1628,39 @@ class SignalReportViewSet(
             RankingOutcomesResponseSerializer({"status": status_value.value, "model": model, "outcomes": outcomes}).data
         )
 
+    @validated_request(
+        query_serializer=SignalReportFilterQuerySerializer,
+        responses={200: SignalReportSectionCountsSerializer},
+        parameters=_SECTION_COUNTS_PARAMETERS,
+        description=(
+            "Count the ready reports with and without an implementation pull request, in one query. "
+            "Accepts the list's filters, so each count matches a `count_only` list request with "
+            "`status=ready` and the matching `has_implementation_pr`. Rejects `status`, "
+            "`has_implementation_pr`, `include_all_statuses` and `view`, because the counts set those."
+        ),
+    )
+    @action(detail=False, methods=["get"], required_scopes=["task:read"], pagination_class=None)
+    @tracer.start_as_current_span("signals.reports.section_counts")
+    def section_counts(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        if trial_store_for_request(request, self.team_id) is not None:
+            raise exceptions.PermissionDenied("Private scout trials cannot read inbox section counts.")
+        rejected = sorted(name for name in _SECTION_DEFINING_PARAMETERS if name in request.query_params)
+        if rejected:
+            raise serializers.ValidationError(
+                dict.fromkeys(rejected, "Section counts set this condition, so they do not accept it.")
+            )
+        trace.get_current_span().set_attribute("signals.reports.list.cached_filters", self._inbox_cached_filters)
+        queryset = self.filter_queryset(self.get_queryset()).filter(status=SignalReport.Status.READY)
+        excluded = request.validated_query_data["exclude"]
+        if excluded:
+            queryset = queryset.exclude(id__in=excluded)
+        has_pr = self._implementation_pr_report_filter()
+        counts = queryset.order_by().aggregate(
+            pull_requests=Count("id", filter=has_pr),
+            reports=Count("id", filter=~has_pr),
+        )
+        return Response(SignalReportSectionCountsSerializer(counts).data)
+
     @extend_schema(request=ReportReadStateRequestSerializer, responses=ReportReadStateResponseSerializer)
     @action(detail=False, methods=["post"], required_scopes=["task:read"])
     def read_state(self, request, **kwargs):
@@ -1424,9 +1750,10 @@ class SignalReportViewSet(
             qs = self._apply_signal_report_priority_filter(qs)
         if self.action == "list":
             qs = self._annotate_signal_report_ranking(qs)
+        if self.action in {"list", "section_counts"}:
             qs = self._apply_signal_report_ranking_filters(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
-        if self.action != "bulk_state":
+        if self.action not in {"bulk_state", "section_counts"}:
             # `bulk_state` answers with one outcome per id, never a serialized report, and the list
             # ordering that reads this value does not apply to it either.
             qs = self._annotate_is_suggested_reviewer(qs)
@@ -1492,7 +1819,7 @@ class SignalReportViewSet(
     }
 
     # Actions that work on many reports at once, so per-row annotations are wasted work there.
-    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state"})
+    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state", "section_counts"})
 
     # Actions allowed to resolve a suppressed report by ID even without an explicit
     # `status` filter. These are the read/reopen paths the inbox's Dismissed tab needs:
@@ -1535,6 +1862,12 @@ class SignalReportViewSet(
     @cached_property
     def _report_monitoring_enabled(self) -> bool:
         return organization_report_monitoring_enabled(self.organization.id)
+
+    @cached_property
+    def _inbox_cached_filters(self) -> bool:
+        # Reads the cached report columns instead of the per-report authorship and PR-link
+        # subqueries. Behind a flag until the daily reconcile shows no drift.
+        return organization_inbox_cached_filters_enabled(self.organization.id)
 
     def _resolved_read_statuses(self) -> frozenset[str]:
         statuses = frozenset({SignalReport.Status.RESOLVED})
@@ -1605,7 +1938,7 @@ class SignalReportViewSet(
 
     def _apply_signal_report_listed_filter(self, queryset):
         # List-only: a report a scout kept out of the inbox stays reachable by id and by its other actions.
-        if self.action != "list" or self._bool_query_param("include_unlisted") is True:
+        if self.action not in {"list", "section_counts"} or self._bool_query_param("include_unlisted") is True:
             return queryset
         return queryset.filter(inbox_hidden_report_filter(self.team_id))
 
@@ -1692,7 +2025,9 @@ class SignalReportViewSet(
         report_ids_with_prefix = fetch_report_ids_for_scout_prefix(self.team, scout_prefix)
         return queryset.filter(id__in=report_ids_with_prefix)
 
-    def _implementation_pr_report_filter(self):
+    def _implementation_pr_report_filter(self) -> Q:
+        if self._inbox_cached_filters:
+            return Q(has_implementation_pr=True)
         return implementation_pr_report_filter(team_id=self.team.id)
 
     def _apply_signal_report_implementation_pr_filter(self, queryset):
@@ -1711,7 +2046,11 @@ class SignalReportViewSet(
         wants_unclaimed = self._bool_query_param("unclaimed")
         if wants_unclaimed is None:
             return queryset
-        has_review_pr = implementation_pr_report_filter(team_id=self.team.id, active_only=True)
+        has_review_pr = (
+            Q(has_active_implementation_pr=True)
+            if self._inbox_cached_filters
+            else implementation_pr_report_filter(team_id=self.team.id, active_only=True)
+        )
         is_unclaimed = (
             ~Q(status__in={SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING, SignalReport.Status.CLOSED})
             & ~reports_with_active_claim(team_id=self.team_id)
@@ -2501,283 +2840,7 @@ class SignalReportViewSet(
     @validated_request(
         query_serializer=SignalReportListQuerySerializer,
         responses={200: SignalReportListSerializer},
-        parameters=[
-            OpenApiParameter(
-                name="status",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Comma-separated list of statuses to include. "
-                    "Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. "
-                    "Defaults to all statuses except suppressed."
-                ),
-            ),
-            OpenApiParameter(
-                name="include_all_statuses",
-                type=OpenApiTypes.BOOL,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "When true, the list includes reports in every status with no default exclusions applied — "
-                    "currently that adds suppressed (dismissed) reports, which are otherwise hidden. Use it to "
-                    "see the full inbox state (e.g. deduplicating before creating a report) and read each row's "
-                    "status (plus dismissal_reason/dismissal_note on dismissed rows) before acting. Deleted "
-                    "reports are terminal and never returned. Defaults to false, which keeps the existing "
-                    "default exclusions. Ignored when an explicit 'status' filter is set — that filter alone "
-                    "decides which statuses are returned."
-                ),
-            ),
-            OpenApiParameter(
-                name="unread",
-                type=OpenApiTypes.BOOL,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Filter by the current user's report read state.",
-            ),
-            OpenApiParameter(
-                name="search",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Case-insensitive substring match against report title and summary.",
-            ),
-            OpenApiParameter(
-                name="channel_id",
-                type=OpenApiTypes.UUID,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Narrow to reports assigned to one space (channel). Absent or empty means all "
-                    "reports regardless of assignment."
-                ),
-            ),
-            OpenApiParameter(
-                name="source_product",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Comma-separated list of source products to include. Reports are kept if at least one of "
-                    "their contributing signals comes from one of these products (e.g. error_tracking, session_replay)."
-                ),
-            ),
-            OpenApiParameter(
-                name="source_id",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Comma-separated list of source record ids. Reports are kept if at least one of their "
-                    "contributing signals came from one of these records — e.g. pass a support ticket's UUID to "
-                    "see what the inbox already found for that ticket. Requires exactly one source_product, "
-                    "since a source id is only unique within its product."
-                ),
-            ),
-            OpenApiParameter(
-                name="scout",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). "
-                    "Reports are kept if at least one of their contributing signals was authored by one of "
-                    "these scouts. Combines with source_product as an AND."
-                ),
-            ),
-            OpenApiParameter(
-                name="scout_prefix",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Scout skill_name prefix (e.g. signals-scout-customer-analytics). Reports are kept if at "
-                    "least one of their contributing signals was authored by a scout whose skill_name starts "
-                    "with this prefix — new scouts in the family match without callers listing every name. "
-                    "Combines with the other filters as an AND."
-                ),
-            ),
-            OpenApiParameter(
-                name="suggested_reviewers",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers "
-                    "include any of the given users."
-                ),
-            ),
-            OpenApiParameter(
-                name="actionability",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Comma-separated actionability judgments to include. Valid values: immediately_actionable, "
-                    "requires_human_input, not_actionable. Reports without a judgment are excluded."
-                ),
-            ),
-            OpenApiParameter(
-                name="already_addressed",
-                type=OpenApiTypes.BOOL,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Filter by whether the latest actionability judgment says the issue is already being handled. "
-                    "False also includes older reports where that judgment did not record a value."
-                ),
-            ),
-            OpenApiParameter(
-                name="view",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, "
-                    "dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, "
-                    "actionability, and implementation-PR filters. for_you holds the open, actionable reports that "
-                    "wait for the requesting user's input, that they claimed, or that name them as a suggested "
-                    "reviewer. needs_decision also includes failed reports without a judgment. "
-                    "dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent "
-                    "dismissed, merged, or whose pull request closed without merging; held_back holds the ones the "
-                    "safety or actionability judge suppressed before anyone saw them. Each row's suppression_source "
-                    "says which."
-                ),
-            ),
-            OpenApiParameter(
-                name="scope",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=("Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate."),
-            ),
-            OpenApiParameter(
-                name="teammate_uuid",
-                type=OpenApiTypes.UUID,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="PostHog user UUID used when scope=teammate.",
-            ),
-            OpenApiParameter(
-                name="priority",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. "
-                    "Reports without a priority assignment are excluded when this filter is set."
-                ),
-            ),
-            OpenApiParameter(
-                name="use_priority_preference",
-                type=OpenApiTypes.BOOL,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "When true and priority is omitted, include priorities at or above the requesting user's "
-                    "personal PR-generation threshold, falling back to the project threshold."
-                ),
-            ),
-            OpenApiParameter(
-                name="sort",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when "
-                    "ordering is supplied. recommended resolves per user to a ranker: the priority order, or "
-                    "the open, action or fix outcome of the served ranking model with unscored and stale reports "
-                    "in priority order after the scored ones. The response's ranker field names the one used."
-                ),
-            ),
-            OpenApiParameter(
-                name="ordering",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' "
-                    "for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, "
-                    f"priority, created_at, updated_at, id, {', '.join(PUBLIC_RANKING_ORDERING_HEADS)}. "
-                    "Defaults to '-is_suggested_reviewer,status,-updated_at'. Each ranking_<outcome> field sorts by "
-                    "the served ranking model's probability for that public outcome, with unscored reports last in "
-                    "either direction. Read inbox-ranking-outcomes-list for what each outcome means. The ranking "
-                    "fields need staff or the inbox model sort rollout: other users get a 400."
-                ),
-            ),
-            OpenApiParameter(
-                name="ranking_min_lift",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served "
-                    "ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read "
-                    "inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. "
-                    "Needs staff or the inbox model sort rollout: other users get a 400."
-                ),
-            ),
-            OpenApiParameter(
-                name="ranking_min_probability",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served "
-                    "ranking probability is at least the value for every named outcome. Outcomes: open, action, "
-                    "fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports "
-                    "never match. "
-                    "Needs staff or the inbox model sort rollout: other users get a 400."
-                ),
-            ),
-            OpenApiParameter(
-                name="created_after",
-                type=OpenApiTypes.DATETIME,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="ISO 8601 datetime. Keeps reports created at or after this time.",
-            ),
-            OpenApiParameter(
-                name="task_id",
-                type=OpenApiTypes.UUID,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Only reports associated with this task (via the report's task associations).",
-            ),
-            OpenApiParameter(
-                name="has_implementation_pr",
-                type=OpenApiTypes.BOOL,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Filter reports by whether an implementation pull request is attached. "
-                    "'true' keeps only reports with a PR; 'false' keeps only those without. "
-                    "Pair with count_only=true to return only the filtered total."
-                ),
-            ),
-            OpenApiParameter(
-                name="unclaimed",
-                type=OpenApiTypes.BOOL,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Filter by whether the report has no owner and no draft, open, or unknown PR. "
-                    "Resolved reports are never unclaimed."
-                ),
-            ),
-            OpenApiParameter(
-                name="assignee",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                enum=["me", "mine"],
-                description=(
-                    "'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or "
-                    "the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, "
-                    "claims by MCP agents acting for them, and claims by internal tasks they started."
-                ),
-            ),
-        ],
+        parameters=_REPORT_LIST_PARAMETERS,
     )
     @tracer.start_as_current_span("signals.reports.list")
     def list(self, request: ValidatedRequest, *args, **kwargs):
@@ -2804,6 +2867,7 @@ class SignalReportViewSet(
         )
         list_span.set_attribute("signals.reports.list.count_only", count_only)
         list_span.set_attribute("signals.reports.list.include_source_metadata", include_source_metadata)
+        list_span.set_attribute("signals.reports.list.cached_filters", self._inbox_cached_filters)
 
         with tracer.start_as_current_span("signals.reports.list.queryset"):
             queryset = self.filter_queryset(self.get_queryset())

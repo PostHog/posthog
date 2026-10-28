@@ -339,7 +339,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .max(signalsReportsListQueryExcludeMax)
         .optional()
         .describe(
-            'Report ids to leave out of `results` and `count`, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.'
+            'Report ids to leave out of the results and counts, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.'
         ),
     has_implementation_pr: zod
         .boolean()

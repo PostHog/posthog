@@ -2254,7 +2254,34 @@ class SignalReportListSerializer(SignalReportSerializer):
         return inbox_merge_key(score, getattr(obj, "priority_sort_rank", None))
 
 
-class SignalReportListQuerySerializer(serializers.Serializer):
+class SignalReportSectionCountsSerializer(serializers.Serializer):
+    pull_requests = serializers.IntegerField(help_text="Ready reports with an implementation pull request.")
+    reports = serializers.IntegerField(help_text="Ready reports without an implementation pull request.")
+
+
+class SignalReportFilterQuerySerializer(serializers.Serializer):
+    exclude = RepeatedOrCommaSeparatedListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list,
+        max_length=100,
+        help_text=(
+            "Report ids to leave out of the results and counts, for example the reports a client already "
+            "shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100."
+        ),
+    )
+    include_unlisted = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Include reports kept out of the shared inbox. A report is kept out when the scout that "
+            "authored it turned off its `inbox` output destination. Defaults to false. Fetching a report "
+            "by id always works, whatever this value is."
+        ),
+    )
+
+
+class SignalReportListQuerySerializer(SignalReportFilterQuerySerializer):
     count_only = serializers.BooleanField(
         required=False,
         default=False,
@@ -2271,25 +2298,6 @@ class SignalReportListQuerySerializer(serializers.Serializer):
             "false to skip that lookup and get the page from Postgres only: rows then carry an empty "
             "`source_products` and a null `scout_name`. Load them after with `source_metadata`. "
             "Defaults to true."
-        ),
-    )
-    exclude = RepeatedOrCommaSeparatedListField(
-        child=serializers.UUIDField(),
-        required=False,
-        default=list,
-        max_length=100,
-        help_text=(
-            "Report ids to leave out of `results` and `count`, for example the reports a client already "
-            "shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100."
-        ),
-    )
-    include_unlisted = serializers.BooleanField(
-        required=False,
-        default=False,
-        help_text=(
-            "Include reports kept out of the shared inbox. A report is kept out when the scout that "
-            "authored it turned off its `inbox` output destination. Defaults to false. Fetching a report "
-            "by id always works, whatever this value is."
         ),
     )
 
