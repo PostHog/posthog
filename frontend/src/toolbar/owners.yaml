@@ -7,3 +7,18 @@ rules:
       owners: '@adboio'
     - match: '/web-vitals/'
       owners: team-web-analytics
+    - match:
+          - '/experiments/'
+      owners: team-experiments
+    - match:
+          - '/flags/'
+      owners: team-feature-flags
+    - match:
+          - '/bar/'
+          - '/debug/'
+          - '/shims/'
+          - '/vendor/'
+      owners: team-growth
+    - match:
+          - '/actions/'
+      owners: team-product-analytics

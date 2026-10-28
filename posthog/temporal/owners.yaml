@@ -35,3 +35,33 @@ rules:
       owners: team-billing
     - match: '/weekly_digest/'
       owners: team-growth
+    - match:
+          - '/tests/salesforce_enrichment/'
+          - '/tests/usage_report/'
+      owners: team-billing
+    - match:
+          - '/health_checks/'
+      owners: team-growth
+    - match:
+          - '/ingestion_acceptance_test/'
+          - '/tests/delete_persons/'
+          - '/tests/ingestion_acceptance_test/'
+      owners: team-ingestion
+    - match:
+          - '/tests/delete_teams/'
+      owners: team-platform-features
+    - match:
+          - '/tests/cleanup_property_definitions/'
+      owners: team-product-analytics
+    - match:
+          - '/tests/session_replay/count_playlist_items/'
+          - '/tests/session_replay/delete_recordings/'
+          - '/tests/session_replay/enforce_max_replay_retention/'
+          - '/tests/session_replay/rasterize_recording/'
+          - '/tests/session_replay/replay_count_metrics/'
+          - '/tests/session_replay/surfacing_score_export_sweep/'
+          - '/tests/session_replay/surfacing_scoring_sweep/'
+      owners: team-replay
+    - match:
+          - '/tests/warehouse_sources_queue_partition_management/'
+      owners: team-warehouse-sources

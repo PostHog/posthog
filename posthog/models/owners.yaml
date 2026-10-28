@@ -31,3 +31,23 @@ rules:
       owners: team-analytics-platform
     - match: '/web_preaggregated/'
       owners: team-web-analytics
+    - match:
+          - '/file_system/'
+      owners: platform-ux
+    - match:
+          - '/usage_report_events_preagg/'
+      owners: team-billing
+    - match:
+          - '/scoping/'
+      owners: team-devex
+    - match:
+          - '/distinct_id_usage/'
+          - '/tophog/'
+      owners: team-ingestion
+    - match:
+          - '/filters/test/'
+      owners: team-product-analytics
+    - match:
+          - '/exchange_rate/'
+          - '/person_group_membership/'
+      owners: team-web-analytics

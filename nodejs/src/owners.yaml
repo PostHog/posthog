@@ -15,3 +15,31 @@ rules:
       owners: ai-research
     - match: '/session-replay/recording-rasterizer/'
       owners: team-replay
+    - match:
+          - '/logs/metrics-rules/'
+          - '/logs/pipeline/'
+          - '/logs/retention/'
+          - '/logs/sampling/'
+          - '/logs/services/'
+          - '/logs/transformations/'
+      owners: team-apm
+    - match:
+          - '/common/usage-ingestion/'
+      owners: team-billing
+    - match:
+          - '/common/api/'
+          - '/common/config/'
+          - '/common/groups/'
+          - '/common/kafka/'
+          - '/common/outputs/'
+          - '/common/personhog/'
+          - '/common/persons/'
+          - '/common/tracing/'
+          - '/common/utils/event-ingestion-restrictions/'
+      owners: team-ingestion
+    - match:
+          - '/session-replay/recording-api/'
+      owners: team-replay
+    - match:
+          - '/messaging/'
+      owners: team-workflows
