@@ -30,9 +30,14 @@ const meta: Meta<typeof LemonSaveAsMenuContent> = {
         targets,
         onSelect: () => {},
     },
-    parameters: {
-        layout: 'centered',
-    },
+    // The menu opens leftwards from a right-aligned trigger, so the box keeps the whole menu inside the snapshot.
+    decorators: [
+        (Story) => (
+            <div className="flex h-[30rem] w-[22rem] items-start justify-end">
+                <Story />
+            </div>
+        ),
+    ],
 }
 
 export default meta

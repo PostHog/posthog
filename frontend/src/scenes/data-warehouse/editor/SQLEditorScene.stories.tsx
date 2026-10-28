@@ -255,6 +255,33 @@ export default meta
 type Story = StoryObj<{}>
 export const TopToolsPerServer: Story = {}
 
+// Leaves the save menu open so the snapshot shows the chooser.
+// The scene re-renders the toolbar while it loads, which can drop an early click, so this retries until the menu stays open.
+const openSaveMenu: Story['play'] = async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await waitFor(
+        async () => {
+            if (!body.queryByText('Save query as')) {
+                const trigger = canvasElement.querySelector<HTMLElement>('[data-attr="sql-editor-save-options-button"]')
+                expect(trigger).toBeTruthy()
+                await userEvent.click(trigger!)
+            }
+            expect(body.getByText('Save query as')).toBeVisible()
+        },
+        { timeout: 30000, interval: 1000 }
+    )
+}
+
+// Waits for the insight to load and show its unsaved edit before it opens the save menu.
+const openEditedInsightSaveMenu: Story['play'] = async (context) => {
+    const canvas = within(context.canvasElement)
+    await waitFor(
+        () => expect(canvas.getByRole('button', { name: 'Discard changes' })).toHaveAttribute('aria-disabled', 'false'),
+        { timeout: 30000 }
+    )
+    await openSaveMenu(context)
+}
+
 export const SaveAsFlowQuill: Story = {
     parameters: {
         featureFlags: [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER, FEATURE_FLAGS.TODAY_RAIL_NAV],
@@ -267,6 +294,7 @@ export const SaveAsFlowQuill: Story = {
             },
         },
     },
+    play: openSaveMenu,
 }
 
 export const CustomerImages: Story = {
@@ -507,6 +535,7 @@ export const EditedInsightSaveAsFlow: Story = {
         pageUrl: `${urls.sqlEditor({ insightShortId: DISCARD_INSIGHT.short_id })}#q=SELECT%202`,
         msw: { mocks: discardMocks },
     },
+    play: openEditedInsightSaveMenu,
 }
 
 export const EditedInsightSaveAsFlowQuill: Story = {
@@ -515,6 +544,7 @@ export const EditedInsightSaveAsFlowQuill: Story = {
         pageUrl: `${urls.sqlEditor({ insightShortId: DISCARD_INSIGHT.short_id })}#q=SELECT%202`,
         msw: { mocks: discardMocks },
     },
+    play: openEditedInsightSaveMenu,
 }
 
 export const EditedInsightLegacySaveMenu: Story = {
