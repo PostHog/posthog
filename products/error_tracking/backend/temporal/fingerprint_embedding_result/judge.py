@@ -14,6 +14,7 @@ compared against the previous one on live traffic.
 """
 
 import time
+import random
 import dataclasses
 from typing import Literal
 
@@ -36,6 +37,12 @@ JUDGE_MODEL: JudgeModel = JEEVES_MODEL
 JUDGE_PROMPT_VERSION = "v5"
 JUDGE_QUESTION_KEY = "same_issue"
 MAX_DOCUMENT_CHARS = 6000  # what the judge was evaluated with
+# Gateway rate limits (429) and upstream overload (529) clear within seconds, so they are retried
+# inside the judge timeout; anything else falls back to no merge at once.
+RETRYABLE_STATUS_CODES = frozenset({429, 529})
+RETRY_BACKOFF_SECONDS = (0.25, 0.5, 1.0)
+# A retry with less budget than this left would most likely time out.
+MIN_ATTEMPT_SECONDS = 1.0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -218,16 +225,30 @@ def ask_judge(
 ) -> JudgeVerdict:
     """Ask the judge model for P(same issue). Raises JudgeUnavailableError when it can't answer."""
     start = time.monotonic()
-    try:
-        client = build_system_one_client(
-            model=model, ai_product="error_tracking", team_id=team_id, timeout=timeout_seconds
-        )
-        result = client.decide(
-            state=judge_state(document, candidate_document),
-            questions={JUDGE_QUESTION_KEY: NoulQuestion(instructions=JUDGE_QUESTION)},
-        )
-    except (SystemOneNotConfigured, SystemOneRequestFailed) as err:
-        raise JudgeUnavailableError(str(err)) from err
+    remaining_seconds = timeout_seconds
+    for backoff in (*RETRY_BACKOFF_SECONDS, None):
+        try:
+            client = build_system_one_client(
+                model=model, ai_product="error_tracking", team_id=team_id, timeout=remaining_seconds
+            )
+            result = client.decide(
+                state=judge_state(document, candidate_document),
+                questions={JUDGE_QUESTION_KEY: NoulQuestion(instructions=JUDGE_QUESTION)},
+            )
+            break
+        except SystemOneNotConfigured as err:
+            raise JudgeUnavailableError(str(err)) from err
+        except SystemOneRequestFailed as err:
+            # Jitter spreads the retries of workers that were throttled together.
+            delay = backoff * random.uniform(1, 2) if backoff is not None else 0
+            remaining_seconds = timeout_seconds - (time.monotonic() - start) - delay
+            if (
+                backoff is None
+                or err.status_code not in RETRYABLE_STATUS_CODES
+                or remaining_seconds < MIN_ATTEMPT_SECONDS
+            ):
+                raise JudgeUnavailableError(str(err)) from err
+            time.sleep(delay)
     answer = result.answers.get(JUDGE_QUESTION_KEY)
     if not isinstance(answer, NoulAnswer):
         raise JudgeUnavailableError("Judge refused or gave no answer")
