@@ -82,6 +82,23 @@ playbook's steps. See **HogQL insights** in shared-patterns.md.
 
 If the user's question spans multiple kinds, run the playbooks in sequence.
 
+### Choose how you will show the findings
+
+Decide this now, before the investigation, because it changes which queries you keep.
+
+The findings go in a walkthrough when the chart is a `TrendsQuery` over time (not a box plot, 2D heatmap or scatter plot) and `posthog:explain-chart` exists in this session.
+It exists when `posthog:render-ui` lists `explain-chart` in its `tool_name`, or when `info explain-chart` works through `exec`.
+Without `render-ui`, only some hosts draw the walkthrough from `exec`, so Step 5 checks that it appeared and falls back to the written report when it did not.
+Otherwise the findings go in a written report.
+
+When it is a walkthrough:
+
+- Read the `explain-chart` schema now.
+- Add "Show the walkthrough (Step 5)" as the last item of your plan or to-do list.
+- Keep the `TrendsQuery` behind each finding, such as an event count with a breakdown or a property filter.
+  The walkthrough draws a `TrendsQuery` as a chart beside the finding, and any other query only as a link.
+  Use SQL for the findings that a `TrendsQuery` cannot express, and pass its numbers as the evidence's `chart` so they draw too.
+
 ## Step 2 — Common opening moves
 
 ### 2.1 Confirm the anomaly
@@ -128,13 +145,12 @@ in the control = strong hypothesis; moved too = expand the investigation. Skip w
 
 ## Step 5 — Write findings
 
-Show the findings as a walkthrough when the session can display one, and as a written report otherwise.
+Use the format you chose in Step 1: the walkthrough when `explain-chart` exists and the chart is a `TrendsQuery` over time, and the written report otherwise.
 
 ### The walkthrough
 
-Use it for a `TrendsQuery` over time, not a box plot, 2D heatmap or scatter plot, when the
-`posthog:render-ui` tool is available and its `tool_name` list includes `explain-chart`. It draws the chart with each moment highlighted and lets the
-user step through them. Map the investigation onto it:
+It draws the chart with each moment highlighted and lets the user step through them.
+Map the investigation onto it:
 
 - **Anomaly** → one chapter per moment, with `start` and `end` copied exactly from the
   chart's `days`. The app works out each chapter's numbers from the chart, so leave them out
@@ -143,13 +159,16 @@ user step through them. Map the investigation onto it:
 - **Evidence** → `evidence`, each finding with the `query` that produced it, or a `url`
   for a commit or a deploy. Pass the `TrendsQuery` you ran where you have one: the
   walkthrough draws it as a chart, while any other query only becomes a link.
+  For a finding from SQL, also pass `chart` with the numbers from its result: `line` over time or `bar` per label, the `labels`, and one `series` per line.
 - A **headline** of one sentence with no numbers sums up the whole chart.
   Wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in `**double asterisks**` so the walkthrough highlights it.
   Do the same in each `cause`.
 
 Call `posthog:explain-chart` first. It reports any chapter whose dates match no point on the
-chart, so fix those dates and call it again. Then call `posthog:render-ui` with `tool_name`
-`explain-chart` and the same input as `tool_input`.
+chart, so fix those dates and call it again.
+When its response says the user already sees the result, the walkthrough is on screen, and you are done.
+Otherwise call `posthog:render-ui` with `tool_name` `explain-chart` and the same input as `tool_input`.
+When `render-ui` does not exist either, the user sees nothing, so write the written report instead.
 
 Then reply in at most three short sentences: which chapter to look at first, one caveat
 about the data if the walkthrough cannot show it, and one offer from below. The walkthrough

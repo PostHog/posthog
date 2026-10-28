@@ -1,10 +1,13 @@
 import { useActions, useValues } from 'kea'
+import { type ReactNode } from 'react'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
+import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES, type AuthNotes } from 'scenes/authentication/shared/authScene/authNotes'
+import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { cliLiveLogic } from './cliLiveLogic'
@@ -14,82 +17,85 @@ export const scene: SceneExport = {
     logic: cliLiveLogic,
 }
 
+function CLILiveCard({
+    title,
+    sub,
+    notes = AUTH_NOTES.cliLive.default,
+    children,
+}: {
+    title: string
+    sub?: string
+    notes?: AuthNotes
+    children?: ReactNode
+}): JSX.Element {
+    return (
+        <AuthScene notes={notes}>
+            <AuthSceneCard>
+                <AuthCardTitle title={title} sub={sub} />
+                {children}
+            </AuthSceneCard>
+        </AuthScene>
+    )
+}
+
 export function CLILive(): JSX.Element {
     const { port, projects, projectsLoading, error, redirected, selectedProjectId } = useValues(cliLiveLogic)
     const { selectProject } = useActions(cliLiveLogic)
 
     if (!port) {
         return (
-            <BridgePage view="login">
-                <div className="text-center space-y-4">
-                    <h2>Missing port parameter</h2>
-                    <LemonBanner type="error">
-                        This page should be opened from the PostHog Live TUI. Please run <code>posthog-live</code> in
-                        your terminal.
-                    </LemonBanner>
-                </div>
-            </BridgePage>
+            <CLILiveCard title="Missing port parameter" notes={AUTH_NOTES.cliLive.error}>
+                <AuthBanner variant="danger">
+                    This page should be opened from the PostHog Live TUI. Please run <code>posthog-live</code> in your
+                    terminal.
+                </AuthBanner>
+            </CLILiveCard>
         )
     }
 
     if (redirected) {
         return (
-            <BridgePage view="login">
-                <div className="text-center space-y-4">
-                    <h2>Authorization complete</h2>
-                    <LemonBanner type="success">
-                        <div className="space-y-2">
-                            <p className="font-semibold">You can close this tab and return to your terminal.</p>
-                        </div>
-                    </LemonBanner>
-                </div>
-            </BridgePage>
+            <CLILiveCard title="Authorization complete" notes={AUTH_NOTES.cliLive.authorized}>
+                <AuthBanner variant="success">You can close this tab and return to your terminal.</AuthBanner>
+            </CLILiveCard>
         )
     }
 
     if (error) {
         return (
-            <BridgePage view="login">
-                <div className="text-center space-y-4">
-                    <h2>Authorization failed</h2>
-                    <LemonBanner type="error">{error}</LemonBanner>
-                </div>
-            </BridgePage>
+            <CLILiveCard title="Authorization failed" notes={AUTH_NOTES.cliLive.error}>
+                <AuthBanner variant="danger">{error}</AuthBanner>
+            </CLILiveCard>
         )
     }
 
     if (projectsLoading || projects.length === 1) {
         return (
-            <BridgePage view="login">
-                <div className="text-center space-y-4">
-                    <h2>Authorizing PostHog Live...</h2>
-                    <SpinnerOverlay />
+            <CLILiveCard title="Authorizing PostHog Live…">
+                <div className="flex justify-center">
+                    <Spinner className="text-2xl" />
                 </div>
-            </BridgePage>
+            </CLILiveCard>
         )
     }
 
     return (
-        <BridgePage view="login">
-            <div className="space-y-4">
-                <h2>Select a project</h2>
-                <p className="text-muted text-sm">Choose which project to stream live events from.</p>
-                <LemonSelect
-                    data-attr="cli-live-project-select"
-                    placeholder="Select a project"
-                    value={selectedProjectId}
-                    onChange={(value) => {
-                        if (value) {
-                            selectProject(value)
-                        }
-                    }}
-                    options={projects.map((project) => ({
-                        label: project.name,
-                        value: project.id,
-                    }))}
-                    fullWidth
-                />
-            </div>
-        </BridgePage>
+        <CLILiveCard title="Select a project" sub="Pick the project to stream live events from.">
+            <LemonSelect
+                data-attr="cli-live-project-select"
+                placeholder="Select a project"
+                value={selectedProjectId}
+                onChange={(value) => {
+                    if (value) {
+                        selectProject(value)
+                    }
+                }}
+                options={projects.map((project) => ({
+                    label: project.name,
+                    value: project.id,
+                }))}
+                fullWidth
+            />
+        </CLILiveCard>
     )
 }

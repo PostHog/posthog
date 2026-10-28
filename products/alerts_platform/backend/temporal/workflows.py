@@ -40,6 +40,7 @@ with workflow.unsafe.imports_passed_through():
     from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
     from products.alerts_platform.backend.delivery.thread_store import PENDING_CLAIM_TTL, ThreadBusy
     from products.alerts_platform.backend.facade.contracts import (
+        AlertBatchKey,
         AlertDeliveryRequest,
         AlertDemand,
         DemandDiscoveryInputs,
@@ -93,6 +94,10 @@ BUSY_RETRY_DELAY = dt.timedelta(seconds=20)
 # `workflow.deprecate_patch(NO_TRANSITION_EVENTS_PATCH)`: every newer run carries that marker.
 TRANSITION_EVENTS_PATCH = "alerts-platform-transition-events"
 NO_TRANSITION_EVENTS_PATCH = "alerts-platform-no-transition-events"
+# A dispatcher that started its page one child at a time replays that order. A dispatcher runs for
+# at most SOURCE_DISPATCH_TIMEOUT, so a deploy later the sequential branch can go and the check can
+# become `workflow.deprecate_patch(CONCURRENT_EVALUATION_STARTS_PATCH)`.
+CONCURRENT_EVALUATION_STARTS_PATCH = "alerts-platform-concurrent-evaluation-starts"
 # From the first busy result to the start of a later attempt. An attempt that starts this late
 # finds every claim the first one saw already stale, so a thread still held is a newer send's.
 BUSY_WAIT_LIMIT = PENDING_CLAIM_TTL + BUSY_RETRY_DELAY
@@ -455,40 +460,13 @@ class AlertsPlatformSourceDispatchWorkflow(PostHogWorkflow):
     async def run(self, inputs: SourceDispatchInputs) -> SourceDispatchReport:
         taken = inputs.batch_keys[:MAX_EVALUATIONS_PER_DISPATCH]
         remaining = inputs.batch_keys[MAX_EVALUATIONS_PER_DISPATCH:]
-        binding = SOURCE_BINDINGS.get(inputs.source)
 
-        started_ids: list[str] = []
-        already_running = 0
-        for key in taken:
-            evaluation_workflow_id = f"alerts-eval-{inputs.source.value}-{key.team_id}-{key.slot}"
-            try:
-                if binding is None:
-                    # No adapter yet. The key is not passed to the noop, and the probe path stays as is.
-                    await workflow.start_child_workflow(
-                        AlertsPlatformEvaluateWorkflow.run,
-                        AlertsPlatformInputs(),
-                        id=evaluation_workflow_id,
-                        task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
-                        parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                        execution_timeout=NOOP_EVALUATION_TIMEOUT,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                    )
-                else:
-                    await workflow.start_child_workflow(
-                        binding.workflow,
-                        SourceEvaluationInputs(source=inputs.source, cutoff=inputs.cutoff, batch_key=key),
-                        id=evaluation_workflow_id,
-                        task_queue=binding.task_queue,
-                        parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                        execution_timeout=binding.evaluation_timeout,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                    )
-            except WorkflowAlreadyStartedError:
-                # Skipping is how a slow evaluation blocks its own re-dispatch. Letting the error
-                # escape would fail this page, and the orchestrator awaits its pages, so the tick.
-                already_running += 1
-                continue
-            started_ids.append(evaluation_workflow_id)
+        if workflow.patched(CONCURRENT_EVALUATION_STARTS_PATCH):
+            outcomes = await asyncio.gather(*(self._start_evaluation(inputs, key) for key in taken))
+        else:
+            outcomes = [await self._start_evaluation(inputs, key) for key in taken]
+        started_ids = [workflow_id for workflow_id in outcomes if workflow_id is not None]
+        already_running = len(outcomes) - len(started_ids)
 
         if already_running:
             workflow.logger.info(
@@ -502,6 +480,38 @@ class AlertsPlatformSourceDispatchWorkflow(PostHogWorkflow):
             evaluation_workflow_ids=started_ids,
             already_running=already_running,
         )
+
+    async def _start_evaluation(self, inputs: SourceDispatchInputs, key: AlertBatchKey) -> str | None:
+        """The started evaluation's id, or None when that key's evaluation still runs from an earlier tick."""
+        evaluation_workflow_id = f"alerts-eval-{inputs.source.value}-{key.team_id}-{key.slot}"
+        binding = SOURCE_BINDINGS.get(inputs.source)
+        try:
+            if binding is None:
+                # No adapter yet. The key is not passed to the noop, and the probe path stays as is.
+                await workflow.start_child_workflow(
+                    AlertsPlatformEvaluateWorkflow.run,
+                    AlertsPlatformInputs(),
+                    id=evaluation_workflow_id,
+                    task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
+                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                    execution_timeout=NOOP_EVALUATION_TIMEOUT,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            else:
+                await workflow.start_child_workflow(
+                    binding.workflow,
+                    SourceEvaluationInputs(source=inputs.source, cutoff=inputs.cutoff, batch_key=key),
+                    id=evaluation_workflow_id,
+                    task_queue=binding.task_queue,
+                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                    execution_timeout=binding.evaluation_timeout,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+        except WorkflowAlreadyStartedError:
+            # Skipping is how a slow evaluation blocks its own re-dispatch. Letting the error
+            # escape would fail this page, and the orchestrator awaits its pages, so the tick.
+            return None
+        return evaluation_workflow_id
 
 
 @workflow.defn(name="alerts-platform-record-inventory")

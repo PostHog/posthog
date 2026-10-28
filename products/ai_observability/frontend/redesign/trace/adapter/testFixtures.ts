@@ -3,6 +3,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import type {
     TraceApi,
     TraceEvaluationResultApi,
+    TraceEvaluationResultsApi,
     TraceNodeApi,
     TraceNodeDetailApi,
     TraceNodeIOKeysApi,
@@ -133,9 +134,14 @@ export function makeEvaluationResult(overrides: Partial<TraceEvaluationResultApi
         targetNodeId: 'trace-1',
         outcome: 'pass',
         label: 'True',
+        score: null,
         reasoning: 'Direct answer.',
         timestamp: '2026-09-01T10:16:00Z',
         isBackfill: false,
         ...overrides,
     }
+}
+
+export function makeEvaluationResults(overrides: Partial<TraceEvaluationResultsApi> = {}): TraceEvaluationResultsApi {
+    return { results: [], summary: { passed: 0, failed: 0, unrated: 0, nodes: [] }, ...overrides }
 }

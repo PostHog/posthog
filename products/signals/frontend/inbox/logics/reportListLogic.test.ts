@@ -636,4 +636,55 @@ describe('reportListLogic', () => {
             expect(requestedIds).toEqual([['stale']])
         })
     })
+    describe('unassignMe', () => {
+        let requests: { method: string; body: unknown }[]
+        let logic: ReturnType<typeof reportListLogic.build>
+
+        beforeEach(async () => {
+            requests = []
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                    [REPORTS_URL]: { count: 1, next: null, previous: null, results: [makeReport('r1')] },
+                },
+                post: {
+                    '/api/projects/:team_id/signals/reports/:id/reviewers/me/': async ({ request }) => {
+                        requests.push({ method: 'POST', body: await request.json() })
+                        return [204, null]
+                    },
+                },
+                delete: {
+                    '/api/projects/:team_id/signals/reports/:id/reviewers/me/': () => {
+                        requests.push({ method: 'DELETE', body: null })
+                        return [204, null]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = reportListLogic({
+                sectionKey: 'needs-decision',
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
+            })
+            logic.mount()
+            logic.actions.ensureLoaded()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => logic.unmount())
+
+        // A dropped reason would remove you silently, so research would never learn why.
+        test.each([
+            ['with a reason', 'wrong_area' as const, 'POST'],
+            ['without a reason', undefined, 'DELETE'],
+        ])('%s', async (_case, reason, method) => {
+            logic.actions.unassignMe('r1', 'context_menu', reason)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requests).toHaveLength(1)
+            expect(requests[0].method).toEqual(method)
+            if (reason) {
+                expect(requests[0].body).toEqual({ removal_reason: reason })
+            }
+        })
+    })
 })

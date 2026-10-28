@@ -135,6 +135,9 @@ jobs:
                         - 'ee/migrations/**'
                         - 'posthog/management/commands/setup_test_environment.py'
                         - 'posthog/migrations/**'
+                        # A migration change makes the test job build Postgres from the Django
+                        # models, and the Jest integration tests read product tables too.
+                        - 'products/*/backend/migrations/**'
                         - 'posthog/plugins/**'
                         # Django reads this to decide which filter globals it accepts, and the only
                         # check that it still matches the runtime type is a jest test.

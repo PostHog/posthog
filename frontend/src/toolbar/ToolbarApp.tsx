@@ -12,7 +12,7 @@ import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ToolbarProps } from '~/types'
 
-import { TOOLBAR_ID } from './utils'
+import { TOOLBAR_ID, TOOLBAR_ROOT_ATTRIBUTE } from './utils'
 import { webVitalsToolbarLogic } from './web-vitals/webVitalsToolbarLogic'
 
 type HTMLElementWithShadowRoot = HTMLElement & { shadowRoot: ShadowRoot }
@@ -98,7 +98,13 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
 
     return (
         <>
-            <root.div id={TOOLBAR_ID} className="ph-no-capture" ref={shadowRef} onMouseDown={onMouseDown}>
+            <root.div
+                id={TOOLBAR_ID}
+                className="ph-no-capture"
+                ref={shadowRef}
+                onMouseDown={onMouseDown}
+                {...{ [TOOLBAR_ROOT_ATTRIBUTE]: '' }}
+            >
                 <div id="posthog-toolbar-styles" />
                 {didRender && (didLoadStyles || props.disableExternalStyles) ? <ToolbarContainer /> : null}
                 <ToastContainer autoClose={60000} transition={Slide} position="bottom-center" />

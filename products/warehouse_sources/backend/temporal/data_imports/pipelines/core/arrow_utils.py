@@ -497,6 +497,16 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
 INTERNAL_COLUMN_NAMES = frozenset({"_ph_debug", PARTITION_KEY, "_dlt_id", "_dlt_load_id"})
 
 
+def drop_internal_columns(table: pa.Table) -> pa.Table:
+    """Drop the columns the pipeline adds itself from a source batch.
+
+    A source can return them when it reads a table PostHog wrote, such as a Delta table in a bucket.
+    Kept, they would exist twice in the batch once the pipeline adds its own.
+    """
+    internal = [name for name in table.column_names if name in INTERNAL_COLUMN_NAMES]
+    return table.drop_columns(internal) if internal else table
+
+
 def _fold_column_name_for_match(name: str) -> str:
     try:
         return NamingConvention.normalize_identifier(name)

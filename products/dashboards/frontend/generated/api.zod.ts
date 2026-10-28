@@ -1908,6 +1908,16 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Copy a group of tiles and its settings to another dashboard.
+ */
+export const dashboardsCopyGroupCreateBodyGroupKeyMax = 100
+
+export const DashboardsCopyGroupCreateBody = /* @__PURE__ */ zod.object({
+    fromDashboardId: zod.number().describe('Dashboard id the group currently belongs to.'),
+    groupKey: zod.string().max(dashboardsCopyGroupCreateBodyGroupKeyMax).describe('Key of the tile group to copy.'),
+})
+
+/**
  * Copy an existing dashboard tile to another dashboard (insight, text card, or widget tile).
  */
 export const DashboardsCopyTileCreateBody = /* @__PURE__ */ zod.object({
