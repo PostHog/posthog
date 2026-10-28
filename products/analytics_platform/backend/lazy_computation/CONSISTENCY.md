@@ -70,7 +70,9 @@ GROUP BY cluster, shard_num
 ORDER BY cluster, shard_num
 ```
 
-The executor does not trust the snapshot either. For a table whose reads spread (`_SPREAD_READ_TABLE_CLUSTERS`), it reads this count from `system.clusters`, caches it per process for five minutes, and sets `insert_quorum` to it instead of `'auto'`. With two replicas that is the same as `'auto'`. With three or more, the INSERT waits for every replica, so a spread read stays exact, and `lazy_computation_full_replica_quorum_inserts_total` counts each such INSERT. The cost is write availability: one replica down fails these INSERTs until it recovers. If the lookup fails, the executor logs it and uses the last count this process read, which outlives the cache. A process that never read a count fails the INSERT instead of guessing, so the job fails and the caller reads without the precomputed rows.
+The executor does not trust the snapshot either. For a table whose reads spread (`_SPREAD_READ_TABLE_CLUSTERS`), it reads this count from `system.clusters` before every INSERT and sets `insert_quorum` to it instead of `'auto'`. The count is never cached, because a replica added to the cluster takes spread reads at once. With two replicas that is the same as `'auto'`. With three or more, the INSERT waits for every replica, so a spread read stays exact, and `lazy_computation_full_replica_quorum_inserts_total` counts each such INSERT. The cost is one small system-table query per INSERT, and write availability: one replica down fails these INSERTs until it recovers. If the lookup fails, or the cluster is missing, the INSERT fails instead of guessing a quorum, so the job fails and the caller reads without the precomputed rows.
+
+`select_sequential_consistency` cannot replace this: it needs `insert_quorum_parallel=0`, which serializes quorum INSERTs per table, and it fails a read on a stale replica instead of routing it elsewhere (see below).
 
 Sources:
 
