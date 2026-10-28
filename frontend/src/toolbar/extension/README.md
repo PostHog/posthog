@@ -28,7 +28,7 @@ Download the `toolbar-extension` artifact from the run to install that build wit
 
 After a rebuild, click the reload icon on the extension card, then close and open the side panel.
 
-### Firefox (128 or later)
+### Firefox (140 or later)
 
 1. Open `about:debugging#/runtime/this-firefox`.
 2. Click **Load Temporary Add-on** and select `frontend/dist/toolbar-extension/firefox/manifest.json`, or the Firefox zip from the artifact.
@@ -53,6 +53,22 @@ The manifest also lists `content.css` and its fonts in `web_accessible_resources
 Both browsers let the user take site access back from an extension.
 When the extension can't reach the PostHog host, the panel asks for access to it.
 When it can't reach the site, the panel asks the user to reload the page and try again.
+
+## Data collection
+
+Firefox shows the extension's data collection at install, from `data_collection_permissions` in the Firefox manifest (`buildToolbarExtensionManifest` in `frontend/toolbar-config.mjs`).
+The Chrome Web Store asks for the same facts in the item's privacy tab.
+Update both when the extension starts to send new data.
+
+| Category                             | What the extension sends                                                                                                                       | Where                     |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `browsingActivity` (required)        | The active tab's URL, when the panel connects the toolbar to a project and when it loads heatmap and web vitals data for the page.             | The user's PostHog host   |
+| `websiteContent` (required)          | Element selectors and text in a saved action, variant HTML in a saved experiment, and page screenshots in a saved heatmap or event screenshot. | The user's PostHog host   |
+| `technicalAndInteraction` (optional) | Usage events from the panel, such as the tools the user opens, with the user's PostHog distinct ID.                                            | PostHog's usage analytics |
+
+The panel sends usage events only when the user allows `technicalAndInteraction`.
+Firefox lets the user change this in the add-on's settings, and the panel checks it again each time it opens.
+The content script never sends usage events or logs, because it mounts the toolbar without `instrument`.
 
 ## How the page tools work
 

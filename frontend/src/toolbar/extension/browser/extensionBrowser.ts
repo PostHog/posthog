@@ -86,6 +86,8 @@ interface ExtensionBrowserApi {
     permissions: {
         contains: (permissions: ExtensionPermissions) => Promise<boolean>
         request: (permissions: ExtensionPermissions) => Promise<boolean>
+        // Firefox adds `data_collection`, and Chrome leaves it out.
+        getAll: () => Promise<ExtensionPermissions & { data_collection?: string[] }>
     }
     action: {
         onClicked: ExtensionEvent<() => void>
@@ -181,6 +183,16 @@ export async function hasHostPermission(uiHost: string): Promise<boolean> {
 /** Must run inside the click handler: browsers show the permission prompt only for a user gesture. */
 export async function requestHostPermission(url: string): Promise<boolean> {
     return await extensionBrowser.permissions.request(originPattern(url))
+}
+
+/**
+ * Firefox asks the user at install whether the extension may send usage data, from the manifest's
+ * `data_collection_permissions`. Chrome has no such choice, so usage data is allowed there.
+ */
+export async function canSendUsageData(): Promise<boolean> {
+    const { data_collection } = await extensionBrowser.permissions.getAll()
+    // pinned: Firefox data collection category, the manifest declares the same key
+    return !data_collection || data_collection.includes('technicalAndInteraction')
 }
 
 // pinned: extension message, the panel and an already injected content script must agree on it

@@ -14,6 +14,7 @@ import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 import { joinWithUiHost, safeFetch } from '~/toolbar/shared/utils'
 
 import {
+    canSendUsageData,
     getActiveTab,
     getStoredUiHost,
     hasHostPermission,
@@ -468,7 +469,14 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
         },
     })),
     afterMount(({ actions, cache }) => {
-        toolbarPosthogJS.opt_in_capturing()
+        void canSendUsageData().then((allowed) => {
+            // posthog-js keeps an earlier opt-in in localStorage, so a revoked choice needs an explicit opt-out.
+            if (allowed) {
+                toolbarPosthogJS.opt_in_capturing()
+            } else {
+                toolbarPosthogJS.opt_out_capturing()
+            }
+        })
         void getStoredUiHost().then((stored) => actions.setUiHost(canonicalizeUiHost(stored) ?? DEFAULT_UI_HOST))
         void getActiveTab().then(
             (tab) => actions.setTab(tab?.id ?? null, tab?.url ?? null),
