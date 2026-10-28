@@ -171,6 +171,28 @@ def invalidate_messages_cache(team_id: int, ticket_id: str) -> None:
         logger.warning("conversations_cache_delete_error", key=key)
 
 
+def invalidate_messages_caches(team_id: int, ticket_ids: list[str]) -> None:
+    """Invalidate the initial-load messages cache entries for several tickets in one call."""
+    keys = [get_messages_cache_key(team_id, ticket_id, None) for ticket_id in ticket_ids]
+    try:
+        cache.delete_many(keys)
+    except Exception:
+        logger.warning("conversations_cache_invalidate_error", keys=keys)
+
+
+def invalidate_tickets_caches(team_id: int, widget_session_ids: list[str]) -> None:
+    """Delete all status-filtered ticket cache variants for several widget sessions in one call."""
+    keys = [
+        get_tickets_cache_key(team_id, session_id, s)
+        for session_id in widget_session_ids
+        for s in _TICKETS_STATUS_VARIANTS
+    ]
+    try:
+        cache.delete_many(keys)
+    except Exception:
+        logger.warning("conversations_cache_invalidate_error", keys=keys)
+
+
 def invalidate_tickets_cache(team_id: int, widget_session_id: str) -> None:
     """Delete all status-filtered ticket cache variants for a widget session."""
     keys = [get_tickets_cache_key(team_id, widget_session_id, s) for s in _TICKETS_STATUS_VARIANTS]

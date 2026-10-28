@@ -50,7 +50,14 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership
-from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
+from posthog.models.activity_logging.activity_log import (
+    Change,
+    Detail,
+    LogActivityEntry,
+    Trigger,
+    bulk_log_activity,
+    log_activity,
+)
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
@@ -81,8 +88,8 @@ from products.conversations.backend.api.ticket_filters import (
 from products.conversations.backend.cache import (
     get_cached_unread_count,
     invalidate_identity_tickets_cache,
-    invalidate_messages_cache,
-    invalidate_tickets_cache,
+    invalidate_messages_caches,
+    invalidate_tickets_caches,
     invalidate_unread_count_cache,
     set_cached_unread_count,
 )
@@ -102,9 +109,9 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status, TicketMessageType
 from products.conversations.backend.person_lookup import _get_persons_by_email
-from products.conversations.backend.services.delivery import cancel_open_deliveries_for_ticket
+from products.conversations.backend.services.delivery import cancel_open_deliveries_for_tickets
 from products.conversations.backend.services.messages import ticket_message_type
-from products.conversations.backend.tasks.email import cancel_pending_email_replies_for_ticket
+from products.conversations.backend.tasks.email import cancel_pending_email_replies_for_tickets
 
 from .. import reply_dedupe
 
@@ -967,32 +974,21 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
     def _after_tickets_deleted(self, tickets: list[Ticket], report: Callable[[], object]) -> None:
         # The delete has committed. One failed step must not skip the others or fail the response.
         team_id = self.team_id
-
-        def run(steps: list[Callable[[], object]], context: dict[str, str]) -> None:
-            for step in steps:
-                try:
-                    step()
-                except Exception as e:
-                    capture_exception(e, context)
-
-        for ticket in tickets:
-            steps: list[Callable[[], object]] = [
-                partial(cancel_open_deliveries_for_ticket, team_id=team_id, ticket_id=ticket.id),
-                partial(cancel_pending_email_replies_for_ticket, team_id=team_id, ticket_id=ticket.id),
-                partial(invalidate_messages_cache, team_id, str(ticket.id)),
-            ]
-            if ticket.widget_session_id:
-                steps.append(partial(invalidate_tickets_cache, team_id, ticket.widget_session_id))
-            run(steps, {"ticket_id": str(ticket.id)})
-
-        run(
-            [
-                partial(invalidate_unread_count_cache, team_id),
-                partial(invalidate_identity_tickets_cache, team_id),
-                report,
-            ],
-            {"team_id": str(team_id)},
-        )
+        ticket_ids = [ticket.id for ticket in tickets]
+        steps: list[Callable[[], object]] = [
+            partial(cancel_open_deliveries_for_tickets, team_id=team_id, ticket_ids=ticket_ids),
+            partial(cancel_pending_email_replies_for_tickets, team_id=team_id, ticket_ids=ticket_ids),
+            partial(invalidate_messages_caches, team_id, [str(ticket_id) for ticket_id in ticket_ids]),
+            partial(invalidate_tickets_caches, team_id, [t.widget_session_id for t in tickets if t.widget_session_id]),
+            partial(invalidate_unread_count_cache, team_id),
+            partial(invalidate_identity_tickets_cache, team_id),
+            report,
+        ]
+        for step in steps:
+            try:
+                step()
+            except Exception as e:
+                capture_exception(e, {"ticket_ids": [str(ticket_id) for ticket_id in ticket_ids]})
 
     @extend_schema(
         request=BulkDeleteTicketsRequestSerializer,
@@ -1021,17 +1017,21 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             Ticket.objects.filter(team_id=self.team_id, id__in=[t.id for t in tickets]).update(
                 deleted_at=now, deleted_by=request.user, updated_at=now
             )
-            for ticket in tickets:
-                log_activity(
-                    organization_id=self.organization.id,
-                    team_id=self.team_id,
-                    user=request.user,
-                    was_impersonated=is_impersonated(request),
-                    item_id=str(ticket.id),
-                    scope="Ticket",
-                    activity="deleted",
-                    detail=Detail(name=f"Ticket #{ticket.ticket_number}"),
-                )
+            bulk_log_activity(
+                [
+                    LogActivityEntry(
+                        organization_id=self.organization.id,
+                        team_id=self.team_id,
+                        user=request.user,
+                        was_impersonated=is_impersonated(request),
+                        item_id=str(ticket.id),
+                        scope="Ticket",
+                        activity="deleted",
+                        detail=Detail(name=f"Ticket #{ticket.ticket_number}"),
+                    )
+                    for ticket in tickets
+                ]
+            )
 
         if tickets:
             transaction.on_commit(

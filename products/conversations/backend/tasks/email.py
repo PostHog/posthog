@@ -1,6 +1,7 @@
 """Email outbox send, retry, and periodic flush."""
 
 import html as html_mod
+from collections.abc import Sequence
 from datetime import timedelta
 from email.utils import formataddr
 from uuid import UUID
@@ -85,8 +86,8 @@ def _mark_outbox_failed(outbox: EmailOutboxMessage, error: str) -> None:
     _set_comment_delivery_status(outbox.team_id, outbox.comment_id, "failed")
 
 
-def cancel_pending_email_replies_for_ticket(*, team_id: int, ticket_id: UUID | str) -> None:
-    """Stop queued replies for a ticket that was just soft-deleted.
+def cancel_pending_email_replies_for_tickets(*, team_id: int, ticket_ids: Sequence[UUID | str]) -> None:
+    """Stop queued replies for tickets that were just soft-deleted.
 
     Rows under an active send lease are left alone. Their worker checks the delete
     right before it sends, and it owns the final status of the row.
@@ -95,7 +96,7 @@ def cancel_pending_email_replies_for_ticket(*, team_id: int, ticket_id: UUID | s
     with transaction.atomic():
         pending = list(
             EmailOutboxMessage.objects.select_for_update(skip_locked=True)
-            .filter(team_id=team_id, ticket_id=ticket_id, status=EmailOutboxMessage.Status.PENDING)
+            .filter(team_id=team_id, ticket_id__in=ticket_ids, status=EmailOutboxMessage.Status.PENDING)
             .filter(models.Q(locked_until__isnull=True) | models.Q(locked_until__lte=now))
             .only("id", "comment_id")
         )
