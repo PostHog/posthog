@@ -5,7 +5,7 @@
 - `logic/launch.py`: creates the writer task.
 - `logic/pull_requests.py`: opens a draft docs pull request, or comments a joined request's source on the open one.
 - `receivers.py`: calls `logic/pull_requests.py` when a writer run finishes.
-- `management/commands/knowledge_writer_pr_smoke_test.py`: drives the pull request path against a scratch repository.
+- `management/commands/knowledge_writer_pr_smoke.py`: drives the pull request path against a scratch repository.
 
 ## Smoke test against a scratch repository
 
@@ -22,7 +22,7 @@ Then:
 export KNOWLEDGE_WRITER_TEAM_ID=<team id>
 export KNOWLEDGE_WRITER_USER_ID=<user id>
 export KNOWLEDGE_WRITER_DOCS_REPOSITORY=<you>/posthog.com
-flox activate -- python manage.py knowledge_writer_pr_smoke_test \
+flox activate -- python manage.py knowledge_writer_pr_smoke \
   --repo <you>/posthog.com --team-id <team id> [--installation-id <installation id>]
 ```
 
@@ -41,7 +41,7 @@ On a Coder workspace `SITE_URL` is the public URL, which the sandbox and self-ca
 Turn the `knowledge-writer-agent-launch` flag on at 100% for the team; otherwise intake runs in shadow mode and the command stops. Pick two merged pull requests whose change the section's docs lack, so the agent has something to write. Then:
 
 ```bash
-flox activate -- python manage.py knowledge_writer_pr_smoke_test \
+flox activate -- python manage.py knowledge_writer_pr_smoke \
   --repo <you>/posthog.com --team-id <team id> \
   --with-agent <merged pull request url> <merged pull request url>
 ```
