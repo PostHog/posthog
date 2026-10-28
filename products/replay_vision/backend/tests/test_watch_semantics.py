@@ -13,7 +13,13 @@ from parameterized import parameterized
 
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_anchor_similarity import ReplayObservationAnchorSimilarity
-from products.replay_vision.backend.models.replay_scanner import PromptValence, ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner import (
+    PromptValence,
+    ReplayScanner,
+    ScannerModel,
+    ScannerOrigin,
+    ScannerType,
+)
 from products.replay_vision.backend.models.replay_scanner_semantics import (
     ReplayScannerFeedGroup,
     ReplayScannerSearchTheme,
@@ -77,10 +83,15 @@ class TestAssignSemantics(BaseTest):
         feed_group_cache.clear()
         self.scanner = self._scanner(ScannerType.SUMMARIZER)
 
-    def _scanner(self, scanner_type: str, valence: str = "", name: str = "checkout") -> ReplayScanner:
-        return ReplayScanner.objects.create(
+    def _scanner(
+        self, scanner_type: str, valence: str = "", name: str = "checkout", origin: str = ScannerOrigin.CONFIGURED
+    ) -> ReplayScanner:
+        inline = origin == ScannerOrigin.INLINE
+        return ReplayScanner.all_origins.create(
             team=self.team,
-            name=name,
+            name="" if inline else name,
+            origin=origin,
+            inline_key=name if inline else "",
             scanner_type=scanner_type,
             prompt_valence=valence,
             scanner_config={"prompt": "What happened at checkout?"},
@@ -113,7 +124,9 @@ class TestAssignSemantics(BaseTest):
     def _counts(self, model: type[ReplayScannerFeedGroup] | type[ReplayScannerSearchTheme]) -> list[int]:
         return sorted(model.objects.for_team(self.team.id).values_list("member_count", flat=True))
 
-    def test_close_observations_share_a_group_and_a_theme_and_a_redelivery_counts_once(self) -> None:
+    @parameterized.expand([(ScannerOrigin.CONFIGURED,), (ScannerOrigin.INLINE,)])
+    def test_close_observations_share_a_group_and_a_theme_and_a_redelivery_counts_once(self, origin: str) -> None:
+        self.scanner = self._scanner(ScannerType.SUMMARIZER, name="refunds", origin=origin)
         first, close, far = self._observation(), self._observation(), self._observation()
         routine = self._observation(category="routine")
 
