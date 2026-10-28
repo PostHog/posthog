@@ -2,12 +2,11 @@ import { defineCommand } from '@/core/command'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { Prompts, Spinner } from '@/core/prompts'
-import { checkApiKey, checkHost, checkProjectId, posthogFile, saveCredentials } from '@/posthog/credentials'
-import { PENDING_LOGIN_FILE, startDeviceLogin, waitForApproval, type PendingLogin } from '@/posthog/device-auth'
+import { checkApiKey, checkHost, checkProjectId } from '@/posthog/credentials'
+import type { PendingLogin } from '@/posthog/device-auth'
+import { completeLogin, readPendingLogin, saveLogin, startLogin, type LoggedIn } from '@/posthog/login'
 
 const REGIONS = { us: 'https://us.posthog.com', eu: 'https://eu.posthog.com' } as const
-
-const REUSE_MARGIN_MS = 60_000
 
 type LoginResult =
     | {
@@ -30,14 +29,6 @@ function nextCommand(scopes: readonly string[]): string {
     return canQuery ? 'hog query run "select event, count() from events group by event"' : 'hog --help'
 }
 
-async function readPending(ctx: Context): Promise<PendingLogin | undefined> {
-    try {
-        return JSON.parse(await ctx.runtime.readFile(posthogFile(ctx.runtime, PENDING_LOGIN_FILE))) as PendingLogin
-    } catch {
-        return undefined
-    }
-}
-
 function pendingResult(pending: PendingLogin): LoginResult {
     return {
         status: 'pending',
@@ -50,41 +41,28 @@ function pendingResult(pending: PendingLogin): LoginResult {
     }
 }
 
+function loggedInResult(loggedIn: LoggedIn): LoginResult {
+    const { host, projectId, credentialsPath, scopes } = loggedIn
+    return { status: 'logged_in', host, projectId, credentialsPath, next: nextCommand(scopes) }
+}
+
 async function finish(ctx: Context, pending: PendingLogin, spinner?: Spinner): Promise<LoginResult> {
-    const pendingPath = posthogFile(ctx.runtime, PENDING_LOGIN_FILE)
-    let approval
+    let loggedIn
     try {
-        approval = await waitForApproval(ctx.runtime, pending)
+        loggedIn = await completeLogin(ctx.runtime, pending)
     } catch (error) {
         spinner?.error("The login didn't finish")
-        if (error instanceof HogError && error.code !== 'network_error') {
-            await ctx.runtime.removeFile(pendingPath)
-        }
         throw error
     }
-    const credentialsPath = await saveCredentials(ctx.runtime, {
-        apiKey: approval.apiKey,
-        projectId: approval.projectId,
-        host: pending.host,
-    })
-    await ctx.runtime.removeFile(pendingPath)
     spinner?.stop('Approved')
-    return {
-        status: 'logged_in',
-        host: pending.host,
-        projectId: approval.projectId,
-        credentialsPath,
-        next: nextCommand(approval.scopes),
-    }
+    return loggedInResult(loggedIn)
 }
 
 async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
     const host = await prompts.text('PostHog host', { initialValue: REGIONS.us, validate: checkHost })
     const projectId = await prompts.text('Project ID, the number in your project URL', { validate: checkProjectId })
     const apiKey = await prompts.password('Personal API key', { validate: checkApiKey })
-    const normalizedHost = host.replace(/\/+$/, '')
-    const credentialsPath = await saveCredentials(ctx.runtime, { apiKey, projectId, host: normalizedHost })
-    return { status: 'logged_in', host: normalizedHost, projectId, credentialsPath, next: nextCommand([]) }
+    return loggedInResult(await saveLogin(ctx.runtime, { apiKey, projectId, host: host.replace(/\/+$/, '') }))
 }
 
 export default defineCommand({
@@ -114,7 +92,7 @@ export default defineCommand({
         const prompts = ctx.prompts
 
         if (options.wait) {
-            const pending = await readPending(ctx)
+            const pending = await readPendingLogin(ctx.runtime)
             if (!pending) {
                 throw new HogError(
                     'no_pending_login',
@@ -164,13 +142,7 @@ export default defineCommand({
             host = REGIONS[choice]
         }
 
-        // Retrying agents get the same code back, so the link they already shared keeps working.
-        const existing = await readPending(ctx)
-        const pending =
-            existing?.host === host && existing.expiresAt - ctx.runtime.now() > REUSE_MARGIN_MS
-                ? existing
-                : await startDeviceLogin(ctx.runtime, host)
-        await ctx.runtime.writePrivateFile(posthogFile(ctx.runtime, PENDING_LOGIN_FILE), JSON.stringify(pending))
+        const pending = await startLogin(ctx.runtime, host)
 
         if (!prompts) {
             return pendingResult(pending)

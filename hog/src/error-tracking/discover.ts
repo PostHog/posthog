@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 
 import type { ArtifactKind } from '@/core/config'
 import { HogError } from '@/core/errors'
@@ -114,12 +114,22 @@ function rootFiles(root: Root, cwd: string): { path: string; isFile: boolean; fi
     }
     const files: string[] = []
     walk(path, files)
-    const globs = (root.ignore ?? []).map((pattern) => new Bun.Glob(pattern))
-    return {
-        path,
-        isFile: false,
-        files: files.filter((file) => !globs.some((glob) => glob.match(relative(path, file)))),
+    return { path, isFile: false, files: files.filter((file) => !isIgnored(root, path, file)) }
+}
+
+const compiledGlobs = new WeakMap<Root, Bun.Glob[]>()
+
+export function isIgnored(root: Root, folder: string, file: string): boolean {
+    const within = relative(folder, file)
+    if (!root.ignore?.length || within.startsWith('..') || isAbsolute(within)) {
+        return false
     }
+    let globs = compiledGlobs.get(root)
+    if (!globs) {
+        globs = root.ignore.map((pattern) => new Bun.Glob(pattern))
+        compiledGlobs.set(root, globs)
+    }
+    return globs.some((glob) => glob.match(within))
 }
 
 export function listFiles(roots: readonly Root[], cwd: string): string[] {
