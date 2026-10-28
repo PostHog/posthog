@@ -19,7 +19,7 @@ export type IndexFileStore = {
 }
 
 export type IndexWatermarkWriter = {
-    write(ownedOffsets: readonly TopicPartitionOffset[], nowMs: number): Promise<void>
+    write(ownedOffsets: readonly TopicPartitionOffset[], nowMs: number): Promise<{ filesBehind: boolean }>
 }
 
 export interface IndexBatcherOptions {
@@ -53,6 +53,7 @@ export class IndexBatcher {
     private bufferedBytes = 0
     private pendingOffsets = new Map<string, TopicPartitionOffset>()
     private readonly storedOffsets = new Map<string, TopicPartitionOffset>()
+    private watermarkFilesBehind = false
     /** Partitions revoked since their last message. A flush that started before the revocation must not store their offsets. */
     private readonly revoked = new Set<string>()
     private lastFlushMs: number
@@ -133,8 +134,9 @@ export class IndexBatcher {
         if (this.rowCount >= this.options.maxRows || this.bufferedBytes >= this.options.maxBytes) {
             return true
         }
-        // Offsets of messages that gave no rows also flush on the interval, so they do not replay forever.
-        const hasPending = this.rowCount > 0 || this.pendingOffsets.size > 0
+        // Offsets of messages that gave no rows also flush on the interval, so they do not replay forever. Watermark files
+        // that the last flush left behind do too, so that the latest value reaches them while the topic is idle.
+        const hasPending = this.rowCount > 0 || this.pendingOffsets.size > 0 || this.watermarkFilesBehind
         return hasPending && nowMs - this.lastFlushMs >= this.options.flushIntervalMs
     }
 
@@ -154,7 +156,8 @@ export class IndexBatcher {
         heartbeats?.unref()
         try {
             await this.writeTaken(nowMs)
-            await this.watermarkFiles.write([...this.storedOffsets.values()], Date.now())
+            const { filesBehind } = await this.watermarkFiles.write([...this.storedOffsets.values()], Date.now())
+            this.watermarkFilesBehind = filesBehind
         } finally {
             if (heartbeats) {
                 clearInterval(heartbeats)

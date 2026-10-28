@@ -43,24 +43,30 @@ export class IndexWatermarkFiles {
 
     /**
      * `ownedOffsets` holds the last stored offset of each partition that the consumer still owns. Never throws, so a
-     * failed write cannot fail the flush that called it.
+     * failed write cannot fail the flush that called it. `filesBehind` is true when a failed write or the rewrite interval
+     * kept the latest value out of a file.
      */
-    public async write(ownedOffsets: readonly TopicPartitionOffset[], nowMs: number): Promise<void> {
+    public async write(
+        ownedOffsets: readonly TopicPartitionOffset[],
+        nowMs: number
+    ): Promise<{ filesBehind: boolean }> {
         // Rows that are not in S3 yet hold the watermark down, because the batcher stores their offsets only after it writes them.
         const capturedAtMs = new Map<string, number>()
         for (const row of this.watermark.snapshot(nowMs)) {
             capturedAtMs.set(dataKey(row.topic, row.partition, row.data), row.capturedAtMs)
         }
-        const writes: Promise<void>[] = []
+        const writes: Promise<boolean>[] = []
+        let skippedForInterval = false
         for (const { topic, partition, offset } of ownedOffsets) {
             for (const index of ['blocks', 'images'] as const) {
                 const completeUpToCaptureMs = capturedAtMs.get(dataKey(topic, partition, INDEX_CAPTURED_DATA[index]))
                 const key = watermarkFileKey(index, partition)
                 const lastWrittenAtMs = this.lastWrittenAtMs.get(key)
-                if (
-                    completeUpToCaptureMs === undefined ||
-                    (lastWrittenAtMs !== undefined && nowMs - lastWrittenAtMs < WATERMARK_FILE_INTERVAL_MS)
-                ) {
+                if (completeUpToCaptureMs === undefined) {
+                    continue
+                }
+                if (lastWrittenAtMs !== undefined && nowMs - lastWrittenAtMs < WATERMARK_FILE_INTERVAL_MS) {
+                    skippedForInterval = true
                     continue
                 }
                 writes.push(
@@ -73,10 +79,11 @@ export class IndexWatermarkFiles {
                 )
             }
         }
-        await Promise.all(writes)
+        const written = await Promise.all(writes)
+        return { filesBehind: skippedForInterval || written.includes(false) }
     }
 
-    private async put(index: V4Index, key: string, nowMs: number, file: IndexWatermarkFile): Promise<void> {
+    private async put(index: V4Index, key: string, nowMs: number, file: IndexWatermarkFile): Promise<boolean> {
         try {
             await this.s3Client.send(
                 new PutObjectCommand({
@@ -90,9 +97,10 @@ export class IndexWatermarkFiles {
         } catch (error) {
             V4ParquetSinkMetrics.incWatermarkWrite(index, 'failed')
             logger.warn('🪶', 'ai_research_v4_parquet_watermark_write_failed', { key, error: String(error) })
-            return
+            return false
         }
         this.lastWrittenAtMs.set(key, nowMs)
         V4ParquetSinkMetrics.incWatermarkWrite(index, 'written')
+        return true
     }
 }

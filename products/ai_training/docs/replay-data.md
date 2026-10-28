@@ -587,6 +587,7 @@ The sink writes the files only after a flush wrote its index files and stored it
 A row that the sink holds but has not written keeps the value at or below its capture time.
 The sink rewrites each file at most once every `WATERMARK_FILE_INTERVAL_MS` (`index-watermark-files.ts`), with a plain PUT that replaces the file.
 A failed write does not fail the flush. The sink counts it in `ai_research_v4_parquet_sink_watermark_writes_total`, logs it, and tries again on the next flush.
+When a failed write or the rewrite interval keeps the latest value out of a file, the sink flushes again after the flush interval even if no rows arrive, so the file gets that value while the topic is idle.
 S3 expires a file 30 days after its last write, as it does every object in the bucket.
 
 To learn how far an index is complete, a reader:
