@@ -1,4 +1,3 @@
-import { IconInfo } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -31,17 +30,11 @@ export function getLemonSaveAsTargetMenuItems({ targets, onSelect }: SaveAsMenuP
                 </span>
             ),
             onClick: () => onSelect(target.id),
-            disabledReason: target.disabledReason,
+            // The label already shows the disabled reason, so the tooltip keeps only the help text.
+            disabled: !!target.disabledReason,
             tooltip: target.helpText,
+            tooltipDocLink: target.docsUrl,
             'data-attr': target.dataAttr,
-            sideAction: {
-                icon: <IconInfo />,
-                to: target.docsUrl,
-                targetBlank: true,
-                tooltip: target.helpText,
-                'aria-label': `Learn more about ${target.label.toLowerCase()}`,
-                'data-attr': `sql-editor-save-as-${target.id}-help`,
-            },
         }
     })
 }
