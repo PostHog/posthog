@@ -98,15 +98,6 @@
     AND team_id = 99999
   '''
 # ---
-# name: TestRawSessionsModel.test_autocapture_does_not_set_attribution_when_pageview_present
-  '''
-  
-  select *
-  from raw_sessions_v3_v
-  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
-    AND team_id = 99999
-  '''
-# ---
 # name: TestRawSessionsModel.test_autocapture_does_set_attribution_when_only_event
   '''
   
@@ -302,6 +293,42 @@
   '''
 # ---
 # name: TestRawSessionsModel.test_max_inserted_at
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_non_pageview_event_does_not_set_attribution_when_pageview_present_0_autocapture_first
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_non_pageview_event_does_not_set_attribution_when_pageview_present_1_pageleave_first
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_non_pageview_event_does_not_set_attribution_when_pageview_present_2_custom_event_first
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_non_pageview_event_does_not_set_attribution_when_pageview_present_3_pageview_inserted_before_earlier_event
   '''
   
   select *

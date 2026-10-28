@@ -534,32 +534,52 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         assert result[0]["entry_has_gclid"] is expected_has_gclid
         assert result[0]["entry_has_fbclid"] is expected_has_fbclid
 
-    def test_autocapture_does_not_set_attribution_when_pageview_present(self):
+    @parameterized.expand(
+        [
+            ("autocapture_first", "$autocapture", False),
+            ("pageleave_first", "$pageleave", False),
+            ("custom_event_first", "$feature_flag_called", False),
+            ("pageview_inserted_before_earlier_event", "$autocapture", True),
+        ]
+    )
+    def test_non_pageview_event_does_not_set_attribution_when_pageview_present(
+        self, _name, first_event, insert_pageview_first
+    ):
         distinct_id = create_distinct_id()
         session_id = create_session_id()
 
-        _create_event(
-            team=self.team,
-            event="$autocapture",
-            distinct_id=distinct_id,
-            properties={
-                "$session_id": session_id,
-                "$current_url": "/1",
-                "utm_source": "source1",
-            },
-            timestamp="2024-03-08",
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id=distinct_id,
-            properties={
-                "$session_id": session_id,
-                "$current_url": "/2",
-                "utm_source": "source2",
-            },
-            timestamp="2024-03-09",
-        )
+        def create_first_event() -> None:
+            _create_event(
+                team=self.team,
+                event=first_event,
+                distinct_id=distinct_id,
+                properties={
+                    "$session_id": session_id,
+                    "$current_url": "/1",
+                    "utm_source": "source1",
+                },
+                timestamp="2024-03-08",
+            )
+
+        def create_pageview() -> None:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                properties={
+                    "$session_id": session_id,
+                    "$current_url": "/2",
+                    "utm_source": "source2",
+                },
+                timestamp="2024-03-09",
+            )
+
+        if insert_pageview_first:
+            create_pageview()
+            create_first_event()
+        else:
+            create_first_event()
+            create_pageview()
 
         result = self.select_by_session_id(session_id)
 
