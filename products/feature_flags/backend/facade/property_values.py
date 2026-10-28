@@ -1,8 +1,5 @@
 from typing import TYPE_CHECKING
 
-from django.db.models import CharField, Q, Value
-from django.db.models.functions import Cast, Concat
-
 from products.access_control.backend.facade.api import (
     every_member_has_resource_access,
     object_ids_restricted_from_any_member,
@@ -38,15 +35,7 @@ def get_flag_property_values(team: "Team", key: str) -> list[bool | str] | None:
 
 
 def _visible_flag(team: "Team", key: str) -> tuple[FeatureFlag, set[str]] | None:
-    tombstoned_key = Concat(Value(f"{key}:deleted:"), Cast("id", output_field=CharField()))
-    flag = (
-        FeatureFlag.objects_including_soft_deleted.filter(
-            Q(key=key) | Q(deleted=True, key=tombstoned_key), team__project_id=team.project_id
-        )
-        .order_by("deleted")
-        .only("team_id", "filters", "updated_at")
-        .first()
-    )
+    flag = _find_flag(team, key)
     # Suggestions are cached per team, not per user, so a flag hidden from any member is never served.
     if flag is None or not every_member_has_resource_access(
         team_id=flag.team_id, resource="feature_flag", required_level="viewer"
@@ -58,3 +47,15 @@ def _visible_flag(team: "Team", key: str) -> tuple[FeatureFlag, set[str]] | None
     if str(flag.id) in hidden_flag_ids:
         return None
     return flag, hidden_flag_ids
+
+
+def _find_flag(team: "Team", key: str) -> FeatureFlag | None:
+    # `filters` stays deferred, so the cache revision never loads it and values load it once on a cache miss.
+    flags = FeatureFlag.objects_including_soft_deleted.filter(team__project_id=team.project_id).only(
+        "team_id", "key", "deleted", "updated_at"
+    )
+    flag = flags.filter(key=key).order_by("deleted").first()
+    if flag is not None:
+        return flag
+    tombstoned = flags.filter(deleted=True, key__startswith=f"{key}:deleted:")
+    return next((flag for flag in tombstoned if flag.key_without_tombstone() == key), None)
