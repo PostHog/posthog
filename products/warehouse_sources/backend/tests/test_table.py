@@ -267,6 +267,15 @@ class TestWarehouseReadErrorClassification:
                 "isn't in your files any more",
             ),
             (
+                ServerException(
+                    "DB::Exception: The table structure cannot be extracted from a Parquet format file: "
+                    "std::exception. Code: 1001, type: Azure::Storage::StorageException, e.what() = 404 "
+                    "The specified blob does not exist.",
+                    code=636,
+                ),
+                "doesn't exist in the container",
+            ),
+            (
                 ServerException("DB::Exception: A failure shape nobody has classified yet.", code=999),
                 None,
             ),
