@@ -668,7 +668,6 @@ class TestMSSQLSourceRetryableErrors:
             "(1105, b\"Could not allocate space for object 'dbo.SORT temporary run storage:  "
             "140760200970240' in database 'tempdb' because the 'PRIMARY' filegroup is full due to "
             'lack of storage space or database files reaching the maximum allowed size.")',
-            # Different object/filegroup names must still match the stable substring around tempdb.
             "Could not allocate space for object 'dbo.sysobjvalues' in database 'tempdb' because the "
             "'SECONDARY' filegroup is full due to lack of storage space or database files reaching "
             "the maximum allowed size.",
@@ -679,9 +678,6 @@ class TestMSSQLSourceRetryableErrors:
         assert any(pattern in error_msg for pattern in retryable), error_msg
 
     def test_tempdb_storage_exhausted_is_not_non_retryable(self):
-        # A table/view genuinely out of space in a customer database stays uncategorized (captured,
-        # then retried by Temporal's own policy) rather than disabling the sync outright — tempdb is
-        # shared across sessions, so a competing workload can release the space on its own.
         error_msg = (
             "Could not allocate space for object 'dbo.sysobjvalues' in database 'tempdb' because the "
             "'PRIMARY' filegroup is full due to lack of storage space."
