@@ -1,15 +1,20 @@
 import type { BeforeSendFn } from 'posthog-js'
 
-const MARKER = 'metricVariables'
+const MARKERS = ['metricVariables', 'bi_filter']
 const LOGIN_URL_WITH_PARAMS = /^(?:https?:\/\/[^/?#]+)?\/login(?:\/[^?#]*)?[?#]/
 const EMBEDDED_LOGIN_URL_WITH_PARAMS = /["'](?:https?:\/\/[^/?#]+)?\/login(?:\/[^?#]*)?[?#]/
 // The options requests of dashboard variables carry queries and selected values, and return query results.
 const VARIABLE_OPTIONS_PATH = '/metrics/variable_options'
 const NETWORK_PLUGIN = 'rrweb/network@1'
 
-/** URLs for login or metric variables keep only their paths. Other text that holds their query data is dropped. */
+function holdsFilterData(text: string): boolean {
+    return MARKERS.some((marker) => text.includes(marker))
+}
+
+/** A URL that holds login data, metric variables or BI selections keeps only its path, so the queries, options and
+ * selected values of the variables stay out of analytics. Other text that holds them is dropped. */
 export function redactMetricVariableUrl(text: string): string {
-    if (!text.includes(MARKER) && !LOGIN_URL_WITH_PARAMS.test(text) && !EMBEDDED_LOGIN_URL_WITH_PARAMS.test(text)) {
+    if (!holdsFilterData(text) && !LOGIN_URL_WITH_PARAMS.test(text) && !EMBEDDED_LOGIN_URL_WITH_PARAMS.test(text)) {
         return text
     }
     if (text.startsWith('/') || /^https?:\/\/\S+$/.test(text)) {
@@ -63,8 +68,8 @@ function holdsVariableData(request: unknown): boolean {
     }
     const { name, requestBody, responseBody } = request as Record<string, unknown>
     return (
-        (typeof name === 'string' && (name.includes(VARIABLE_OPTIONS_PATH) || name.includes(MARKER))) ||
-        [requestBody, responseBody].some((body) => typeof body === 'string' && body.includes(MARKER))
+        (typeof name === 'string' && (name.includes(VARIABLE_OPTIONS_PATH) || holdsFilterData(name))) ||
+        [requestBody, responseBody].some((body) => typeof body === 'string' && holdsFilterData(body))
     )
 }
 

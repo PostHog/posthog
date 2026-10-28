@@ -4,14 +4,12 @@ import json
 import hashlib
 from dataclasses import replace
 from datetime import datetime
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 import structlog
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.workload import Workload
-from posthog.dataclasses import frozen
 
 from products.signals.backend.report_check_evaluation import evaluate_check_value
 from products.signals.backend.report_check_evidence import (
@@ -20,6 +18,7 @@ from products.signals.backend.report_check_evidence import (
     MetricEvidence,
     qualify_metric_evidence,
 )
+from products.signals.backend.report_check_final_candidates import FinalCheck
 from products.signals.backend.report_check_timing import monitoring_metric_query
 from products.signals.backend.report_checks import (
     MetricThresholdConfig,
@@ -30,19 +29,7 @@ from products.signals.backend.report_checks import (
 from products.signals.backend.report_metric_refresh import MetricQueryBudgetExhausted, measure_metric
 from products.signals.backend.report_monitoring_results import MonitoringEvaluation
 
-if TYPE_CHECKING:
-    from products.signals.backend.models import SignalReportCheck
-
 logger = structlog.get_logger(__name__)
-
-
-@frozen
-class FinalMetricCheck:
-    check: SignalReportCheck
-    attempt_id: UUID
-    definition_version: str
-    window_start: datetime
-    window_end: datetime
 
 
 def metric_evidence_source(config: MetricThresholdConfig) -> EvidenceSource:
@@ -72,7 +59,7 @@ def metric_evidence_source(config: MetricThresholdConfig) -> EvidenceSource:
 
 
 def evaluate_final_metric(
-    member: FinalMetricCheck, *, submission_id: UUID, evaluated_at: datetime, deadline: float
+    member: FinalCheck, *, submission_id: UUID, evaluated_at: datetime, deadline: float
 ) -> MonitoringEvaluation:
     check = member.check
     evaluation = MonitoringEvaluation(

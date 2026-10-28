@@ -2,7 +2,15 @@ import type { Decorator } from '@storybook/react'
 
 import type { TraceNodeApi, TraceNodeStatsApi, TraceTimelineRowApi } from '../../generated/api.schemas'
 import { SampleNodeDetail, SampleTraceFixture } from './sampleFixtures/sampleTraceFixture'
-import { ConversationTurn, EvalResult, MessagePart, NodeProperties, ThreadMessage } from './types'
+import {
+    ConversationTurn,
+    EvalResult,
+    EvalRollupOutcome,
+    EvalsChipData,
+    MessagePart,
+    NodeProperties,
+    ThreadMessage,
+} from './types'
 
 export const FIXTURE_STATS: TraceNodeStatsApi = {
     costUsd: 0.0021,
@@ -340,6 +348,11 @@ export const FIXTURE_EVALS: EvalResult[] = [
         target: null,
     },
 ]
+
+/** The roll-up of `FIXTURE_EVALS`: three passes, one fail, and the unrated and skipped runs. */
+export const FIXTURE_EVALS_CHIP: EvalsChipData = { passed: 3, graded: 4, unrated: 2 }
+
+export const FIXTURE_EVAL_OUTCOMES: Record<string, EvalRollupOutcome> = { 'gen-answer': 'fail' }
 
 export const FIXTURE_TRACE_EVALS: EvalResult[] = FIXTURE_EVALS.map((result) => ({
     ...result,

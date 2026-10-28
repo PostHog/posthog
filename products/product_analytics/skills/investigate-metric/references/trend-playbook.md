@@ -44,3 +44,7 @@ timing, plausible mechanism, and user overlap before treating as the cause.
 Run `posthog:query-lifecycle` on the same event. If the drop is concentrated in one
 status (new users didn't arrive, dormant users didn't resurrect), the user mix changed
 rather than per-user behavior.
+
+## Next
+
+Return to SKILL.md for Step 4 (cross-check) and Step 5 (write findings), in the format you chose in Step 1.

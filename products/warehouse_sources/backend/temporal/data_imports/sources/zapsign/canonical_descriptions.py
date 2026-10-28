@@ -62,4 +62,36 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "geo_longitude": "Longitude captured at signature time, when geolocation is required.",
         },
     },
+    "audit_trail": {
+        "description": "One activity in a document's audit trail, such as a view, a reading confirmation or a signature.",
+        "docs_url": "https://docs.zapsign.com.br/zapsign-api/english/documentos/document-audit-trail",
+        "columns": {
+            "_documents_token": "Token of the document the activity belongs to.",
+            "time": "When the activity happened.",
+            "user": "Email of the person who did the activity.",
+            "event": "Name of the activity, in the language of the account.",
+            "description": "Full text of the activity as it appears in the audit trail.",
+        },
+    },
+    "users": {
+        "description": "A user of the ZapSign organization, with their permission level.",
+        "docs_url": "https://docs.zapsign.com.br/zapsign-api/english/account/list-account-users",
+        "columns": {
+            "first_name": "User's first name.",
+            "last_name": "User's last name.",
+            "email": "User's email address. Documents reference their creator by this email.",
+            "email_verified": "Whether the user has verified their email address.",
+            "user_group": "Permission level of the user in the organization (e.g. owner).",
+        },
+    },
+    "signer_verifications": {
+        "description": "Identity verification attempts of one signer, with the status and failure reason of each step.",
+        "docs_url": "https://docs.zapsign.com.br/zapsign-api/english/signer-verification-details",
+        "columns": {
+            "_signers_token": "Token of the signer the verification attempts belong to.",
+            "token": "Token of the signer.",
+            "selfie_validation_type": "Verification method configured for the signer (e.g. identity-verification-global).",
+            "validations": "Each verification step with its type, status, failure reason and creation time.",
+        },
+    },
 }

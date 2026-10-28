@@ -1,9 +1,10 @@
 import json
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse
+from django.utils.cache import patch_cache_control
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import ensure_csrf_cookie
 
@@ -11,7 +12,9 @@ from posthog.auth_entry_experiment import LoginEntryExperiment
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.models.instance_setting import get_instance_setting
-from posthog.utils import render_template
+from posthog.models.user import User
+from posthog.templatetags.posthog_filters import TolerantJSONEncoder
+from posthog.utils import add_user_app_context, feature_flag_bootstrap, render_template
 from posthog.views import login_required
 
 APP_POSTHOG_HOST = "app.posthog.com"
@@ -187,3 +190,20 @@ def home_with_region_redirect(request: HttpRequest, *args: Any, **kwargs: Any) -
     if region_redirect is not None:
         return region_redirect
     return _login_required_render_home(request, *args, **kwargs)
+
+
+def app_context(request: HttpRequest) -> JsonResponse:
+    """The signed-in user's part of the app context, for an app page rendered without it."""
+    if not request.user.is_authenticated:
+        return JsonResponse({"detail": "Authentication credentials were not provided."}, status=401)
+    posthog_app_context: dict[str, Any] = {}
+    add_user_app_context(request, posthog_app_context)
+    response = JsonResponse(
+        {
+            "app_context": posthog_app_context,
+            "feature_flags": feature_flag_bootstrap(cast(User, request.user), posthog_app_context["current_user"]),
+        },
+        encoder=TolerantJSONEncoder,
+    )
+    patch_cache_control(response, no_store=True)
+    return response

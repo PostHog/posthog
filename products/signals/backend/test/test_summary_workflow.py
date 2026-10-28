@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 import pytest
 from unittest.mock import patch
 
+from django.db import OperationalError
+
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from temporalio import activity
@@ -23,6 +25,7 @@ from products.signals.backend.models import SignalReport
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.startup_failure import RESEARCH_STARTUP_FAILURE, ResearchStartupFailure
 from products.signals.backend.temporal.agentic.report import (
     RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE,
     RunAgenticReportInput,
@@ -38,6 +41,7 @@ from products.signals.backend.temporal.summary import (
     MarkReportInProgressInput,
     MarkReportPendingInput,
     MarkReportReadyInput,
+    NotifyResearchStartupFailureInput,
     PublishReportCompletedInput,
     ReportHasAssignedSignalsInput,
     ResetReportToPotentialInput,
@@ -189,6 +193,8 @@ class _Recorder:
         research_metrics: list[dict[str, object]] | None = None,
         checks_snapshot: dict[str, str] | None = None,
         selected_repository: str | None = "owner/repo",
+        spend_failures: int = 0,
+        spend_owner_available: bool = True,
         research_errors: list[Exception] | None = None,
     ) -> None:
         self.gate_answers = gate_answers or {}
@@ -202,8 +208,11 @@ class _Recorder:
         self.selected_repository = selected_repository
         self.research_errors = list(research_errors or [])
         self.failure_error_types: list[str | None] = []
+        self.failure_startups: list[ResearchStartupFailure | None] = []
+        self.startup_notice_attempts = 0
         self.gate_checks: list[str] = []
         self.fetches = 0
+        self.claimed_before_fetch: list[bool] = []
         self.assigned_signal_checks = 0
         self.failure_reasons: list[str | None] = []
         self.marks_in_progress = 0
@@ -211,6 +220,8 @@ class _Recorder:
         self.repo_selections = 0
         self.researches = 0
         self.spend_publications = 0
+        self.spend_failures = spend_failures
+        self.spend_owner_available = spend_owner_available
         self.reverts = 0
         self.resets = 0
         self.failures = 0
@@ -260,12 +271,19 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     async def fake_fetch(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
         signals = recorder.fetch_results[min(recorder.fetches, len(recorder.fetch_results) - 1)]
         recorder.fetches += 1
+        recorder.claimed_before_fetch.append(recorder.marks_in_progress > 0)
         return FetchSignalsForReportOutput(signals=signals)
 
     @activity.defn(name="report_has_assigned_signals_activity")
     async def fake_has_assigned_signals(input: ReportHasAssignedSignalsInput) -> bool:
         recorder.assigned_signal_checks += 1
         return recorder.has_assigned_signals
+
+    @activity.defn(name="report_spend_owner_activity")
+    async def fake_spend_owner(input: SignalReportSummaryWorkflowInputs) -> str | None:
+        if not recorder.spend_owner_available:
+            return None
+        return input.report_id
 
     @activity.defn(name="mark_report_in_progress_activity")
     async def fake_mark_in_progress(input: MarkReportInProgressInput) -> None:
@@ -313,9 +331,15 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     async def fake_publish(input: PublishReportCompletedInput) -> None:
         return None
 
+    @activity.defn(name="check_report_task_settlement_activity")
+    async def fake_task_settlement(input: SignalReportSummaryWorkflowInputs) -> None:
+        return None
+
     @activity.defn(name="publish_report_spend_activity")
     async def fake_publish_spend(input: SignalReportSummaryWorkflowInputs) -> None:
         recorder.spend_publications += 1
+        if recorder.spend_publications <= recorder.spend_failures:
+            raise OperationalError("Transient accounting failure")
 
     @activity.defn(name="revert_report_to_candidate_activity")
     async def fake_revert(input: RevertReportToCandidateInput) -> None:
@@ -330,6 +354,15 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
         recorder.failures += 1
         recorder.failure_reasons.append(input.failure_reason)
         recorder.failure_error_types.append(input.error_type)
+        recorder.failure_startups.append(input.startup_failure)
+
+    @activity.defn(name="notify_research_startup_failure_activity")
+    async def fake_startup_notification(input: NotifyResearchStartupFailureInput) -> None:
+        assert recorder.failures == 1
+        assert input.failure == recorder.failure_startups[0]
+        recorder.startup_notice_attempts += 1
+        if recorder.startup_notice_attempts == 1:
+            raise OperationalError("Notification temporarily unavailable")
 
     # The production self-driving worker runs with the pydantic data converter; the default converter
     # mangles the enum/pydantic payloads these activities exchange (RepoSelectionResult,
@@ -344,6 +377,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
                 fake_fetch,
                 fake_has_assigned_signals,
                 fake_mark_in_progress,
+                fake_spend_owner,
                 fake_safety,
                 fake_select_repo,
                 fake_research,
@@ -351,9 +385,11 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
                 fake_mark_ready,
                 fake_publish,
                 fake_publish_spend,
+                fake_task_settlement,
                 fake_revert,
                 fake_reset,
                 fake_failed,
+                fake_startup_notification,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -394,12 +430,13 @@ async def test_pre_research_gate_reverts_report_and_skips_research():
 
 
 @pytest.mark.asyncio
-async def test_open_gates_let_the_run_flow_through():
-    recorder = _Recorder(gate_answers={})
+@pytest.mark.parametrize("spend_failures", [0, 3])
+async def test_open_gates_let_the_run_flow_through(spend_failures: int) -> None:
+    recorder = _Recorder(gate_answers={}, spend_failures=spend_failures)
     await _run_summary_workflow(recorder)
     assert recorder.gate_checks == ["summary_entry", "pre_repo_selection", "pre_research"]
     assert recorder.researches == 1
-    assert recorder.spend_publications == 1
+    assert recorder.spend_publications == spend_failures + 1
     assert recorder.reverts == 0
     assert recorder.failures == 0
 
@@ -444,6 +481,34 @@ async def test_research_does_not_retry_other_activity_errors(research_error: Exc
     assert recorder.failures == 1
     assert recorder.failure_reasons == ["agentic_activity_error"]
     assert recorder.failure_error_types == [error_type]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("requires_action,attempts", [(True, 1), (False, 2)])
+async def test_research_startup_retry_policy_and_failure_details_survive_temporal(requires_action: bool, attempts: int):
+    payload = {
+        "failure": {
+            "provider": "claude",
+            "phase": "sdk_initialization",
+            "reason": "proxy_invalid" if requires_action else None,
+            "retryability": "requires_action" if requires_action else "unknown",
+        },
+        "task_id": str(uuid.uuid4()),
+        "run_id": str(uuid.uuid4()),
+        "repository": "example/research",
+    }
+    error = ApplicationError(
+        "Research could not start", payload, type=RESEARCH_STARTUP_FAILURE, non_retryable=requires_action
+    )
+    recorder = _Recorder(research_errors=[error, error])
+    with pytest.raises(WorkflowFailureError):
+        await _run_summary_workflow(recorder)
+    assert recorder.researches == attempts
+    assert recorder.failures == 1
+    assert recorder.failure_startups[0] is not None
+    assert str(recorder.failure_startups[0].run_id) == payload["run_id"]
+    assert recorder.failure_startups[0].failure.retryability == ("requires_action" if requires_action else "unknown")
+    assert recorder.startup_notice_attempts == 2
 
 
 @pytest.mark.asyncio
@@ -494,10 +559,21 @@ async def test_no_repository_keeps_report_content_and_logs_the_blocker():
 
 
 @pytest.mark.asyncio
+async def test_summary_without_an_open_spend_owner_makes_no_paid_calls():
+    recorder = _Recorder(spend_owner_available=False)
+    await _run_summary_workflow(recorder)
+    assert recorder.fetches == 0
+    assert recorder.safety_checks == 0
+    assert recorder.researches == 0
+    assert recorder.spend_publications == 0
+
+
+@pytest.mark.asyncio
 async def test_empty_first_fetch_is_retried_and_run_proceeds():
     recorder = _Recorder(fetch_results=[[], [], [_signal_data()]])
     await _run_summary_workflow(recorder)
     assert recorder.fetches == 3
+    assert all(recorder.claimed_before_fetch)
     assert recorder.researches == 1
     assert recorder.spend_publications == 1
     assert recorder.failures == 0
@@ -510,8 +586,8 @@ async def test_persistently_empty_fetch_leaves_report_for_repromotion_when_signa
     await _run_summary_workflow(recorder)
     assert recorder.fetches == 1 + EMPTY_FETCH_RETRY_ATTEMPTS
     assert recorder.assigned_signal_checks == 1
-    # Neither researched nor failed: the report stays where it is and grouping re-promotes it.
-    assert recorder.marks_in_progress == 0
+    assert recorder.marks_in_progress == 1
+    assert recorder.reverts == 1
     assert recorder.researches == 0
     assert recorder.failures == 0
 
