@@ -45,6 +45,7 @@ from products.signals.backend.models import (
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
+    RESEARCH_JSON_RETRY_PROMPT,
     ActionabilityAssessment,
     ActionabilityChoice,
     ActionabilityUpdate,
@@ -2045,7 +2046,8 @@ async def test_run_multi_turn_research_survives_a_failed_supersede_turn(supersed
         "supersede": supersede_outcome,
     }
 
-    async def fake_send_followup(message, model, *, label="", validation_context=None):
+    async def fake_send_followup(message, model, *, label="", validation_context=None, json_retry_prompt=None):
+        assert json_retry_prompt == RESEARCH_JSON_RETRY_PROMPT
         outcome = by_label[label]
         if isinstance(outcome, Exception):
             raise outcome
@@ -2139,7 +2141,8 @@ async def test_run_multi_turn_research_only_asks_about_the_pr_when_actionable(ac
     }
     asked_labels: list[str] = []
 
-    async def fake_send_followup(message, model, *, label="", validation_context=None):
+    async def fake_send_followup(message, model, *, label="", validation_context=None, json_retry_prompt=None):
+        assert json_retry_prompt == RESEARCH_JSON_RETRY_PROMPT
         asked_labels.append(label)
         return by_label[label]
 
