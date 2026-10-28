@@ -5,8 +5,10 @@ binary on first use. The SDK downloads it once per call with no retry and no rea
 so a flaky network fails the test or hangs it until the job timeout. This module downloads the binaries
 with timeouts and retries into a per-SDK-version cache directory, under a file lock so
 parallel pytest processes download each binary once. It then passes the cached path to
-the SDK as `*_existing_path`. If the download still fails, the SDK falls back to its own
-download, so offline runs behave as they did before.
+the SDK as `*_existing_path`. If every attempt fails, the test fails with
+`TemporalServerDownloadError` instead of falling back to the SDK download, because that
+download can hang until the job timeout. A binary that the SDK downloaded earlier still
+works without network access.
 """
 
 from __future__ import annotations
@@ -44,8 +46,12 @@ REQUEST_TIMEOUT = (10, 60)
 DOWNLOAD_DEADLINE_SECONDS = 180
 # Longer than ATTEMPTS full downloads, so a waiting process outlasts the lock holder's retries.
 LOCK_TIMEOUT_SECONDS = 1200
-# Once one process gives up, the others fall back to the SDK at once instead of repeating the retries.
+# Once one process gives up, the others fail at once instead of repeating the retries.
 FAILURE_MEMORY_SECONDS = 600
+
+
+class TemporalServerDownloadError(RuntimeError):
+    pass
 
 
 @frozen
@@ -123,7 +129,8 @@ def _sdk_cached_binary(binary: ServerBinary) -> Path:
     return Path(tempfile.gettempdir()) / f"{binary.file_name}-sdk-python-{temporalio.service.__version__}"
 
 
-# Cached per process, so a process that cannot download retries once in total, not once per test.
+# Cached per process, so later tests skip the lock once the binary is in place. A raised error is not
+# cached, so the failure marker is what stops each later test from repeating the retries.
 @functools.cache
 def ensure_binary(binary: ServerBinary) -> Path | None:
     platform_params = _platform_params()
@@ -141,21 +148,35 @@ def ensure_binary(binary: ServerBinary) -> Path | None:
         with FileLock(f"{dest}.lock", timeout=LOCK_TIMEOUT_SECONDS):
             if dest.is_file():
                 return dest
-            if failed_marker.is_file() and time.time() - failed_marker.stat().st_mtime < FAILURE_MEMORY_SECONDS:
-                return None
-            for attempt in range(1, ATTEMPTS + 1):
-                try:
-                    _download(binary, platform_params, dest)
-                    failed_marker.unlink(missing_ok=True)
-                    return dest
-                except (requests.RequestException, tarfile.TarError, EOFError, OSError, ValueError, KeyError) as error:
-                    logger.warning("Temporal %s download attempt %d failed: %s", binary.artifact, attempt, error)
-                    if attempt < ATTEMPTS:
-                        time.sleep(2**attempt)
-            failed_marker.touch()
+            recently_failed = (
+                failed_marker.is_file() and time.time() - failed_marker.stat().st_mtime < FAILURE_MEMORY_SECONDS
+            )
+            if not recently_failed:
+                for attempt in range(1, ATTEMPTS + 1):
+                    try:
+                        _download(binary, platform_params, dest)
+                        failed_marker.unlink(missing_ok=True)
+                        return dest
+                    except (
+                        requests.RequestException,
+                        tarfile.TarError,
+                        EOFError,
+                        OSError,
+                        ValueError,
+                        KeyError,
+                    ) as error:
+                        logger.warning("Temporal %s download attempt %d failed: %s", binary.artifact, attempt, error)
+                        if attempt < ATTEMPTS:
+                            time.sleep(2**attempt)
+                failed_marker.touch()
     except Exception:
+        # A broken cache directory or lock is not a network failure, so the SDK can still try its own download.
         logger.warning("Could not cache the Temporal %s binary", binary.artifact, exc_info=True)
-    return None
+        return None
+    # The SDK's own download has no read timeout, so a fallback to it after failed retries can hang the job.
+    raise TemporalServerDownloadError(
+        f"Could not download the Temporal {binary.artifact} binary from {DOWNLOAD_BASE_URL} after {ATTEMPTS} attempts"
+    )
 
 
 def _with_cached_binary(
