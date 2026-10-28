@@ -39,7 +39,10 @@ export function QuillContextUsage(): JSX.Element | null {
                 render={
                     <span
                         tabIndex={0}
-                        className="flex items-center gap-1 text-xs tabular-nums whitespace-nowrap text-muted-foreground"
+                        className={cn(
+                            'flex items-center gap-1 text-xs tabular-nums whitespace-nowrap text-muted-foreground',
+                            (percentage === null || percentage < 80) && '@max-[359px]/composer:hidden'
+                        )}
                         data-attr="max-sandbox-context-usage"
                     >
                         {percentage !== null && (

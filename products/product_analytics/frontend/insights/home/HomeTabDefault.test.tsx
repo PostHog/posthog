@@ -15,6 +15,7 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import trendsNumber from '~/mocks/fixtures/api/projects/team_id/insights/trendsNumber.json'
+import { useMocks } from '~/mocks/jest'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { performQuery } from '~/queries/query'
 import type { DataNode } from '~/queries/schema/schema-general'
@@ -235,5 +236,19 @@ describe('HomeTabDefault query reuse', () => {
                 within(screen.getByLabelText('Sessions', { selector: 'button' })).getByText('10')
             ).toBeInTheDocument()
         )
+    })
+
+    it('runs live queries once warehouse detection finds data for a project without events', async () => {
+        useMocks({ get: { '/api/projects/:team_id/external_data_sources/exists/': { exists: true } } })
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: false, is_demo: false })
+        const { container } = render(<HomeTabDefault />)
+
+        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(14))
+        await waitFor(() =>
+            expect(
+                within(screen.getByLabelText('Active users', { selector: 'button' })).getByText('10')
+            ).toBeInTheDocument()
+        )
+        expect(container.querySelector('[data-attr="insight-sample-data-tag"]')).toBeNull()
     })
 })

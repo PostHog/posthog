@@ -24,7 +24,7 @@ type Params = z.infer<typeof schema>
 type Result = ExplainChartData & { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: string }
 
 const RENDERED_NOTE =
-    'The person sees the walkthrough rendered inline: the chart, every chapter, each cause and each piece of evidence. Do not write any of that again in any form, not as a recap, a bullet list or a summary of the moments. Your whole reply is at most three short sentences: which chapter to start with, one caveat the walkthrough cannot show if there is one, and one next step you offer. If the person says the walkthrough did not load, give the findings in text.'
+    'The person sees the chart explanation rendered inline: the chart, every chapter, each cause and each piece of evidence. Do not write any of that again in any form, not as a recap, a bullet list or a summary of the moments. Keep your reply short: which chapter to start with, only what the chart explanation cannot hold (a caveat about the data, a linked fix, a decision that is still open), and one next step you offer. If the person says the explanation did not load, give the findings in text.'
 
 // The markers sit on one value over time. These displays draw that as they are.
 const TIME_SERIES_DISPLAYS = new Set([
@@ -36,7 +36,7 @@ const TIME_SERIES_DISPLAYS = new Set([
     'ActionsStackedBar',
 ])
 
-// These show a total over the range, so the walkthrough draws the line behind it. Any other display is refused.
+// These show a total over the range, so the explanation draws the line behind it. Any other display is refused.
 const TOTAL_DISPLAYS = new Set([
     'Auto',
     'BoldNumber',
@@ -55,7 +55,7 @@ const NOT_TRENDS = 'This tool only explains trends charts. For other kinds, writ
 const NOT_OVER_TIME =
     'This tool explains a trends chart that shows one value over time, and this chart does not. Write the explanation in the chat instead.'
 
-// The walkthrough redraws evidence through `query-trends`, whose schema is narrower than a TrendsQuery's, so evidence
+// The explanation redraws evidence through `query-trends`, whose schema is narrower than a TrendsQuery's, so evidence
 // it would refuse keeps its link and no chart.
 const redrawSchema = GENERATED_TOOLS['query-trends']!().schema
 
@@ -124,7 +124,7 @@ function describeResult(
     warnings: unknown[]
 ): string {
     const name = chart.insightName ?? series.label ?? 'the chart'
-    const lines = [`The walkthrough of "${name}" has ${chapters.length} chapters.`]
+    const lines = [`The explanation of "${name}" has ${chapters.length} chapters.`]
     if (warnings.length) {
         lines.push(`The query came with warnings the person should hear about: ${warningMessages(warnings).join(' ')}`)
     }
@@ -176,6 +176,7 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
                 text: item.text,
                 url: item.query ? `${baseUrl}${newInsightPath(item.query)}` : (item.url ?? null),
                 query: item.query && redrawSchema.safeParse(item.query).success ? item.query : null,
+                chart: item.chart ?? null,
             })),
         }
     })
