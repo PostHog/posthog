@@ -1,5 +1,6 @@
 import Redis from 'ioredis'
 import { register } from 'prom-client'
+import { setTimeout as delay } from 'timers/promises'
 
 import { defaultConfig } from '~/common/config/config'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
@@ -7,8 +8,11 @@ import * as redisDb from '~/common/utils/db/redis'
 import { createRedisClient } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
+import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { IdempotencyKeys, createIdempotencyValkeyPool } from './idempotency-keys'
+
+const HOUR_MS = 60 * 60 * 1000
 
 describe('IdempotencyKeys', () => {
     // Alerts read this counter, so an outcome that stops being counted silences them.
@@ -62,6 +66,143 @@ describe('IdempotencyKeys', () => {
         await keys.markQueued(1, key, 'request-a', 'run-1')
 
         expect(await keys.reserve(1, key, 'request-a', 'run-2')).toEqual({ status: 'replayed', invocationId: 'run-1' })
+    })
+
+    it('records the run once the store recovers from an outage that outlasts the inline attempts', async () => {
+        await keys.reserve(1, key, 'request-a', 'run-1')
+        const failedBefore = await operations('test', 'mark_queued', 'failed')
+        const useClient = valkey.useClient
+        const outage = jest.spyOn(valkey, 'useClient').mockRejectedValue(new Error('connection lost'))
+        try {
+            await keys.markQueued(1, key, 'request-a', 'run-1')
+            expect(await operations('test', 'mark_queued', 'failed')).toEqual(failedBefore + 1)
+            const inlineAttempts = outage.mock.calls.length
+            await waitForExpect(() => expect(outage.mock.calls.length).toBeGreaterThan(inlineAttempts))
+            outage.mockImplementation(useClient)
+
+            await waitForExpect(async () =>
+                expect(await keys.reserve(1, key, 'request-a', 'run-2')).toEqual({
+                    status: 'replayed',
+                    invocationId: 'run-1',
+                })
+            )
+        } finally {
+            outage.mockRestore()
+        }
+    })
+
+    it('keeps the replay window of the run when the store recovers hours later', async () => {
+        await keys.reserve(1, key, 'request-a', 'run-1')
+        const useClient = valkey.useClient
+        const outage = jest.spyOn(valkey, 'useClient').mockRejectedValue(new Error('connection lost'))
+        const realNow = Date.now
+        const clock = jest.spyOn(Date, 'now')
+        try {
+            await keys.markQueued(1, key, 'request-a', 'run-1')
+            clock.mockImplementation(() => realNow() + 12 * HOUR_MS)
+            outage.mockImplementation(useClient)
+
+            await waitForExpect(async () =>
+                expect(await keys.reserve(1, key, 'request-a', 'run-2')).toEqual({
+                    status: 'replayed',
+                    invocationId: 'run-1',
+                })
+            )
+            const ttlSeconds = await valkey.useClient({ name: 'test-ttl' }, (client) =>
+                client.ttl(keys['redisKey'](1, key))
+            )
+            expect(ttlSeconds).toBeGreaterThan((12 * HOUR_MS) / 1000 - 60)
+            expect(ttlSeconds).toBeLessThanOrEqual((12 * HOUR_MS) / 1000)
+        } finally {
+            outage.mockRestore()
+            clock.mockRestore()
+        }
+    })
+
+    it('records a retry whose completion fails while the earlier completion of its key is still writing', async () => {
+        await keys.reserve(1, key, 'request-a', 'run-1')
+        const useClient = valkey.useClient
+        const connectionLost = new Error('connection lost')
+        let endSlowWrite!: () => void
+        const slowWrite = new Promise<void>((resolve) => (endSlowWrite = resolve))
+        const store = jest
+            .spyOn(valkey, 'useClient')
+            .mockRejectedValueOnce(connectionLost)
+            .mockRejectedValueOnce(connectionLost)
+            .mockImplementationOnce(async (...args) => {
+                await slowWrite
+                return useClient(...args)
+            })
+            .mockImplementationOnce(useClient)
+            .mockImplementationOnce(useClient)
+            .mockRejectedValueOnce(connectionLost)
+            .mockRejectedValueOnce(connectionLost)
+            .mockImplementation(useClient)
+        try {
+            await keys.markQueued(1, key, 'request-a', 'run-1')
+            await waitForExpect(() => expect(store.mock.calls.length).toEqual(3))
+            // The pending hold of run-1 expires, and a retry of the request reserves the key again.
+            await valkey.useClient({ name: 'test-expire' }, (client) => client.del(keys['redisKey'](1, key)))
+            expect(await keys.reserve(1, key, 'request-a', 'run-2')).toEqual({ status: 'reserved' })
+            await keys.markQueued(1, key, 'request-a', 'run-2')
+            endSlowWrite()
+
+            await waitForExpect(async () =>
+                expect(await keys.reserve(1, key, 'request-a', 'run-3')).toEqual({
+                    status: 'replayed',
+                    invocationId: 'run-2',
+                })
+            )
+        } finally {
+            store.mockRestore()
+        }
+    })
+
+    it('records the reserved run when a retry that queued without a reservation also fails to complete', async () => {
+        expect(await keys.reserve(1, key, 'request-a', 'run-1')).toEqual({ status: 'reserved' })
+        const useClient = valkey.useClient
+        const outage = jest.spyOn(valkey, 'useClient').mockRejectedValue(new Error('connection lost'))
+        try {
+            await keys.markQueued(1, key, 'request-a', 'run-1')
+            // The webhook route queues a retry without a reservation when the store is unavailable.
+            expect(await keys.reserve(1, key, 'request-a', 'run-2')).toEqual({ status: 'unavailable' })
+            await keys.markQueued(1, key, 'request-a', 'run-2')
+            // The store recovers before the pending hold of run-1 expires.
+            outage.mockImplementation(useClient)
+
+            await waitForExpect(async () =>
+                expect(await keys.reserve(1, key, 'request-a', 'run-3')).toEqual({
+                    status: 'replayed',
+                    invocationId: 'run-1',
+                })
+            )
+        } finally {
+            outage.mockRestore()
+        }
+    })
+
+    it('sends one store call at a time while failed completions wait for the store', async () => {
+        let inFlight = 0
+        let maxInFlight = 0
+        const outage = jest.spyOn(valkey, 'useClient').mockImplementation(async () => {
+            inFlight++
+            maxInFlight = Math.max(maxInFlight, inFlight)
+            await delay(50)
+            inFlight--
+            throw new Error('connection lost')
+        })
+        try {
+            await Promise.all(
+                Array.from({ length: 20 }, (_, i) => keys.markQueued(1, `${key}-${i}`, 'request-a', `run-${i}`))
+            )
+            maxInFlight = 0
+            const inlineAttempts = outage.mock.calls.length
+            await waitForExpect(() => expect(outage.mock.calls.length).toBeGreaterThanOrEqual(inlineAttempts + 2))
+
+            expect(maxInFlight).toEqual(1)
+        } finally {
+            outage.mockRestore()
+        }
     })
 
     it('reports the store as unavailable when it is not configured', async () => {

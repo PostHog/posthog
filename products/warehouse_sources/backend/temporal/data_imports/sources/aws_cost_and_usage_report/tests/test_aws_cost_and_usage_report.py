@@ -2,7 +2,7 @@ import io
 import gzip
 import datetime as dt
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import unquote
 
 import pytest
@@ -80,7 +80,12 @@ def s3_error(code: str, status: int, headers: Mapping[str, str] | None = None) -
     )
 
 
-def parquet_file(rows: list[dict[str, Any]]) -> ScriptedResponse:
+ParquetCompression = Literal["gzip", "bz2", "brotli", "lz4", "zstd", "snappy", "none"]
+
+
+def parquet_file(
+    rows: list[dict[str, Any]], compression: ParquetCompression | dict[str, ParquetCompression] = "snappy"
+) -> ScriptedResponse:
     table = pa.table(
         {
             "identity_line_item_id": [row["id"] for row in rows],
@@ -89,7 +94,7 @@ def parquet_file(rows: list[dict[str, Any]]) -> ScriptedResponse:
         }
     )
     buffer = io.BytesIO()
-    pq.write_table(table, buffer)
+    pq.write_table(table, buffer, compression=compression)
     return ScriptedResponse(body=buffer.getvalue(), headers={"Content-Type": "application/octet-stream"})
 
 
@@ -307,6 +312,29 @@ class TestSync:
         download = next(request for request in result.requests if unquote(request.path).endswith(".parquet"))
         assert download.headers["if-unmodified-since"] == manifest_written
         assert str(result.raised).startswith("AWS Cost and Usage Report request failed: DeliveryInProgress")
+
+    def test_a_parquet_file_with_a_brotli_column_stops_the_run_before_any_row_is_yielded(self) -> None:
+        key = f"{BASE}/data/BILLING_PERIOD=2024-03/my-export-00001.snappy.parquet"
+        result = SourceDriver(AwsCostAndUsageReportSource(), config()).run(
+            "cost_and_usage",
+            s3(
+                {f"{BASE}/data/": [listing(prefixes=[f"{BASE}/data/BILLING_PERIOD=2024-03/"])]},
+                {
+                    f"{BASE}/metadata/BILLING_PERIOD=2024-03/my-export-Manifest.json": ScriptedResponse(
+                        json={"dataFiles": [key]}
+                    ),
+                    key: parquet_file(
+                        [{"id": "x", "cost": 1.0, "tags": None}], compression={"line_item_unblended_cost": "brotli"}
+                    ),
+                },
+            ),
+        )
+
+        assert str(result.raised).startswith("AWS Cost and Usage Report request failed: UnsupportedCompression")
+        assert table_rows(result.items) == []
+        assert any(
+            str(result.raised).startswith(prefix) for prefix in AwsCostAndUsageReportSource().get_non_retryable_errors()
+        )
 
     def test_a_run_mixing_parquet_and_csv_periods_yields_arrow_tables_only(self) -> None:
         march = f"{BASE}/data/BILLING_PERIOD=2024-03/my-export-00001.csv.gz"

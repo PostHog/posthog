@@ -2,14 +2,15 @@
 
 Framework-free values this product hands to its consumers. The alerting vocabulary every source
 shares lives in `products.alerts_platform.backend.facade.contracts`; what stays here is what only
-an insight alert means.
+an insight alert means, and the hooks other sources use to reach this product's destinations.
 """
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Final
+from typing import Any, Final, Protocol
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -139,6 +140,15 @@ class AlertInternalEventsNotDelivered(Exception):
     """The broker did not take every event, so the caller retries."""
 
 
+class AlertEmailRecipientResolver(Protocol):
+    """The email addresses one alert reaches besides its destinations, for a source that registers one.
+
+    The source applies its own access rules, so every address it returns may read what the alert says.
+    """
+
+    def __call__(self, *, team_id: int, alert_id: str) -> Collection[str]: ...
+
+
 @frozen
 class MovedAlertRuntime:
     """Where an alert the platform owns stands, in the insight alert's terms."""
@@ -174,6 +184,14 @@ class MovedAlertCheck:
     value: float | None
     state: AlertState
     error_message: str | None
+    # Names a failed check's reason, for the reasons the history shows by their code.
+    error_code: str | None = None
+    # A detector check's own output, as production keeps it on its check. Empty for a threshold check.
+    anomaly_scores: tuple[float | None, ...] = ()
+    triggered_points: tuple[int, ...] = ()
+    triggered_dates: tuple[str, ...] = ()
+    interval: str | None = None
+    triggered_metadata: dict[str, Any] | None = None
 
 
 @frozen

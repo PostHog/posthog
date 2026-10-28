@@ -268,13 +268,27 @@ CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES: dict[int, int] = dict(
 # Temporal has a limitation where a worker can only listen to a single queue.
 # To avoid running multiple workers, when running locally (DEBUG=True), we use a single queue for all tasks.
 # In production (DEBUG=False), we use separate queues for each worker type.
-def _set_temporal_task_queue(task_queue: str) -> str:
-    if DEBUG:
-        return "development-task-queue"
+# Self-hosted stacks that run one temporal-django-worker (hobby) opt into the same collapse with
+# TEMPORAL_USE_SINGLE_TASK_QUEUE, so every workflow is scheduled on the queue that worker polls
+# instead of on queues nothing services.
+TEMPORAL_USE_SINGLE_TASK_QUEUE: bool = get_from_env("TEMPORAL_USE_SINGLE_TASK_QUEUE", False, type_cast=str_to_bool)
+default_task_queue = os.getenv("TEMPORAL_TASK_QUEUE", "general-purpose-task-queue")
+
+
+# Use for queues that stay separate even in local development. A single-worker stack has no
+# second worker to poll them, so it still collapses them.
+def _set_isolated_temporal_task_queue(task_queue: str) -> str:
+    if TEMPORAL_USE_SINGLE_TASK_QUEUE and not DEBUG:
+        return default_task_queue
     return task_queue
 
 
-default_task_queue = os.getenv("TEMPORAL_TASK_QUEUE", "general-purpose-task-queue")
+def _set_temporal_task_queue(task_queue: str) -> str:
+    if DEBUG:
+        return "development-task-queue"
+    return _set_isolated_temporal_task_queue(task_queue)
+
+
 TEMPORAL_TASK_QUEUE: str = _set_temporal_task_queue(default_task_queue)
 DATA_WAREHOUSE_TASK_QUEUE = _set_temporal_task_queue("data-warehouse-task-queue")
 DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE = _set_temporal_task_queue("data-warehouse-cdp-producer-task-queue")
@@ -321,6 +335,12 @@ DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS: float = get_from_env(
 # variable rather than the worker's command-line flag.
 DATA_WAREHOUSE_IMPORT_RIDE_OUT_MAX_SECONDS: float = get_from_env(
     "DATA_WAREHOUSE_IMPORT_RIDE_OUT_MAX_SECONDS", 3600.0, type_cast=float
+)
+# At a worker shutdown an import keeps running this long before any hand-off check sees the shutdown.
+# Many imports that run at the signal finish in this time, and a hand-off would restart them on
+# another worker. 0 hands off at once. The import uses at most half the graceful shutdown timeout.
+DATA_WAREHOUSE_IMPORT_SHUTDOWN_GRACE_SECONDS: float = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_SHUTDOWN_GRACE_SECONDS", 60.0, type_cast=float
 )
 # Restore unfinished append runs only after all extract and load workers have this implementation.
 DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED: bool = get_from_env(
@@ -372,14 +392,16 @@ TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED: bool = get_from_env(
 STAMPHOG_TASK_QUEUE = _set_temporal_task_queue("stamphog-task-queue")
 TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
 BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
-# Keep aggregation separate even when local development combines the other queues.
-USAGE_REPORT_AGGREGATION_TASK_QUEUE = f"{BILLING_TASK_QUEUE}-usage-report-aggregation"
+# A dedicated worker deployment polls this queue, so aggregation does not share a process with quota limiting.
+USAGE_REPORT_AGGREGATION_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue-usage-report-aggregation")
 VIDEO_EXPORT_TASK_QUEUE = _set_temporal_task_queue("video-export-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
 # Keep the smoke fleets separate in local development as well as deployed environments.
-ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE = "alerts-platform-shared-orchestration-task-queue"
-ALERTS_PLATFORM_EVALUATION_TASK_QUEUE = "alerts-platform-evaluation-task-queue"
-ALERTS_PLATFORM_DELIVERY_TASK_QUEUE = "alerts-platform-delivery-task-queue"
+ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE = _set_isolated_temporal_task_queue(
+    "alerts-platform-shared-orchestration-task-queue"
+)
+ALERTS_PLATFORM_EVALUATION_TASK_QUEUE = _set_isolated_temporal_task_queue("alerts-platform-evaluation-task-queue")
+ALERTS_PLATFORM_DELIVERY_TASK_QUEUE = _set_isolated_temporal_task_queue("alerts-platform-delivery-task-queue")
 # The platform's parallel insight checks allowed to run at once, across every team. A pool of its
 # own, so the parallel run never takes a slot from `ALERTS_MAX_INFLIGHT_EVALUATIONS`.
 ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS: int = get_from_env(
@@ -388,6 +410,35 @@ ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS: int = get_from_env(
 if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS <= 0:
     raise ImproperlyConfigured(
         "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS must be a positive integer, or no platform insight check starts"
+    )
+# Insight batch keys the platform starts per tick, across every team. A key is one team's checks due
+# in one slot. With a tick a minute, 60 times this must cover the keys due per hour, or hourly alerts
+# fall behind their cadence. The pool above bounds concurrent queries, not this. A key that finds the
+# pool full polls for a slot within its tick, so a high value costs waiting runs rather than load.
+# The default is never below the pool size, so a larger pool is never left idle. Discovery returns
+# every key in one activity result, so the cap keeps it at the 1000 keys the other sources use.
+ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK: int = get_from_env(
+    "ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK", max(200, ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS), type_cast=int
+)
+if not 0 < ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK <= 1000:
+    raise ImproperlyConfigured("ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK must be between 1 and 1000")
+# Chart renders for platform insight firings allowed to run at once, across every worker. A render
+# blocks a worker thread for up to 90 seconds, so this keeps renders from taking the slots that
+# planning and recording need.
+ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS: int = get_from_env(
+    "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS", 3, type_cast=int
+)
+if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS must be a positive integer, or no platform insight chart renders"
+    )
+# Billing batch keys the platform starts per tick, across every team. A key is one team's due alerts
+# and makes one billing service call, so this bounds the platform's load on that service. With a tick
+# a minute, 60 times this must cover the keys due per hour, or hourly alerts fall behind their cadence.
+ALERTS_PLATFORM_BILLING_KEYS_PER_TICK: int = get_from_env("ALERTS_PLATFORM_BILLING_KEYS_PER_TICK", 5, type_cast=int)
+if ALERTS_PLATFORM_BILLING_KEYS_PER_TICK <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_BILLING_KEYS_PER_TICK must be a positive integer, or no platform billing check starts"
     )
 # The platform's parallel logs batches allowed to run at once, across every team. A batch runs its
 # cohort queries one after another, so this bounds the parallel run's concurrent logs queries.

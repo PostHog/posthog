@@ -31,6 +31,8 @@ from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDat
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     build_function_call,
+    compression_for_url_pattern,
+    is_azure_blob_url,
 )
 from posthog.hogql.escape_sql import (
     backquote_clickhouse_identifier,
@@ -102,9 +104,8 @@ ExtractErrors = {
     "Could not list objects in bucket": "Access was denied to the provided bucket. Check that the provided credentials can list this bucket (s3:ListBucket), then try again.",
     "file is empty": "The provided file contains no data",
     "The specified key does not exist": "The provided file doesn't exist in the bucket",
-    "Cannot extract table structure from CSV format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
-    "Cannot extract table structure from Parquet format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
-    "Cannot extract table structure from JSONEachRow format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
+    # ClickHouse names the format in this message (CSV, CSVWithNames, Parquet, ...), so match the shared tail.
+    "there are no files with provided path in S3 or all files are empty": "No files match your Files URL pattern, or all the matching files are empty. Check the folder path and wildcards, then try again.",
     "Bucket or key name are invalid in S3 URI": "The provided file or bucket doesn't exist",
     "S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'": "The provided bucket doesn't exist",
     "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
@@ -185,6 +186,15 @@ type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrosp
 # Internal plumbing columns added during sync, hidden from the HogQL catalog (see hogql_definition)
 # and never user-facing.
 HIDDEN_COLUMNS: frozenset[str] = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debug", PARTITION_KEY})
+
+# Capture bookkeeping that a history table carries next to `valid_from`, `valid_to` and `_ph_deleted`,
+# which already tell a reader when a version held and whether it is a delete. The names mirror the
+# constants in `cdc/batcher.py`, which this module does not import because that pulls in pyarrow.
+HISTORY_HIDDEN_COLUMNS: frozenset[str] = frozenset({"_ph_cdc_op", "_ph_cdc_seq", "_ph_cdc_timestamp", "_ph_deleted_at"})
+# Set in `options` when the sync registers a table as a schema's history table. Column names cannot
+# tell the two apart, because a source table can have its own `valid_from` and `valid_to` columns.
+HISTORY_TABLE_OPTION = "history_table"
+
 
 # Characters that carry quoting meaning once a column name is written into SQL. The structure
 # builder escapes them already, so this is a second layer: it keeps such a name out of the other
@@ -281,7 +291,7 @@ _CHDB_SUBPROCESS_PROXY_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
 # redirects by default, so a URL that passes validation can send chdb to an internal address. The
 # ClickHouse cluster checks every hop against remote_url_allow_hosts. chdb has no such list, so it
 # follows no redirect, and a URL that needs one fails over to the cluster.
-_CHDB_GUARD_SETTINGS: dict[str, str | int] = {"s3_max_redirects": 0}
+_CHDB_GUARD_SETTINGS: dict[str, str | int] = {"s3_max_redirects": 0, "s3_retry_attempts": 0}
 
 
 def run_chdb_query(query: str, timeout: float = CHDB_QUERY_TIMEOUT_SECONDS) -> str:
@@ -602,6 +612,19 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             prefix = ""
         return self.name[len(prefix) :]
 
+    @property
+    def is_history_table(self) -> bool:
+        return (self.options or {}).get(HISTORY_TABLE_OPTION) is True
+
+    def mark_as_history_table(self) -> None:
+        self.options = {**(self.options or {}), HISTORY_TABLE_OPTION: True}
+
+    def hidden_columns(self) -> frozenset[str]:
+        """The plumbing columns to keep out of the catalog for this table."""
+        if self.is_history_table:
+            return HIDDEN_COLUMNS | HISTORY_HIDDEN_COLUMNS
+        return HIDDEN_COLUMNS
+
     def get_user_facing_columns(self) -> list[dict[str, Any]]:
         """Synced columns as `[{name, data_type, is_nullable}]`, skipping internal plumbing columns.
 
@@ -617,9 +640,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         `get_hogql_column_name_mapping(self.table_name_without_prefix())` directly.
         """
         hogql_by_raw = get_hogql_column_name_mapping(self.table_name_without_prefix())
+        hidden = self.hidden_columns()
         result: list[dict[str, Any]] = []
         for name, definition in (self.columns or {}).items():
-            if name in HIDDEN_COLUMNS:
+            if name in hidden:
                 continue
             if isinstance(definition, dict):
                 clickhouse_type = definition.get("clickhouse") or definition.get("hogql") or ""
@@ -745,13 +769,35 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         URL the team supplied, so its Delta reads go to the cluster, which checks every hop against
         remote_url_allow_hosts. A table without a credential reads a URL that PostHog built.
         """
+        # chdb's Azure client ignores the egress proxy and connects directly.
+        if is_azure_blob_url(self.url_pattern):
+            return False
         return read_format != DataWarehouseTableFormat.Delta or self.credential_id is None
 
+    def _chdb_compression(self, read_format: str) -> str | None:
+        compression = compression_for_url_pattern(self.url_pattern)
+        # A wrong codec fails a Parquet read, which falls back to the cluster, but a CSV or JSON read
+        # can infer a wrong schema instead.
+        if compression is None and read_format == DataWarehouseTableFormat.Parquet:
+            return "none"
+        return compression
+
     def _describe_with_chdb(
-        self, s3_table_func: str, placeholder_context: HogQLContext, describe_settings: dict[str, str | int]
+        self, read_format: str, compression: str, describe_settings: dict[str, str | int]
     ) -> list[tuple[str, ...]] | None:
         """The DESCRIBE rows read by the embedded engine, or None when it cannot answer and
         ClickHouse has to."""
+        placeholder_context = HogQLContext(team_id=self.team.pk)
+        s3_table_func = build_function_call(
+            url=self.url_pattern,
+            queryable_folder=self.queryable_folder,
+            format=read_format,
+            access_key=self.credential.access_key if self.credential else None,
+            access_secret=self.credential.access_secret if self.credential else None,
+            context=placeholder_context,
+            table_size_mib=0,
+            compression=compression,
+        )
         try:
             quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
             # chdb doesn't support parameterized queries
@@ -782,9 +828,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
         )
+        chdb_compression = self._chdb_compression(describe_format)
         # chdb hangs in CI during tests
-        if not TEST and self._chdb_may_read(describe_format):
-            result = self._describe_with_chdb(s3_table_func, placeholder_context, describe_settings)
+        if not TEST and chdb_compression is not None and self._chdb_may_read(describe_format):
+            result = self._describe_with_chdb(describe_format, chdb_compression, describe_settings)
 
         if result is None:
             tag_queries(
@@ -892,7 +939,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         """
         return self.size_in_s3_mib is None or self.size_in_s3_mib < S3_CLUSTER_TABLE_SIZE_MIB
 
-    def _count_with_chdb(self) -> int | None:
+    def _count_with_chdb(self, compression: str) -> int | None:
         """The row count read by the embedded engine, or None when it cannot answer and ClickHouse
         has to."""
         placeholder_context = HogQLContext(team_id=self.team.pk)
@@ -904,6 +951,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             access_secret=self.credential.access_secret if self.credential else None,
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
+            compression=compression,
         )
         try:
             quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
@@ -922,9 +970,15 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         return int(rows[0][0]) if rows else None
 
     def get_count(self, safe_expose_ch_error=True) -> int:
+        chdb_compression = self._chdb_compression(self.format)
         # chdb hangs in CI during tests
-        if not TEST and self._count_fits_the_chdb_budget() and self._chdb_may_read(self.format):
-            chdb_count = self._count_with_chdb()
+        if (
+            not TEST
+            and chdb_compression is not None
+            and self._count_fits_the_chdb_budget()
+            and self._chdb_may_read(self.format)
+        ):
+            chdb_count = self._count_with_chdb(chdb_compression)
             if chdb_count is not None:
                 return chdb_count
 
@@ -1032,6 +1086,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             DIRECT_TRINO_SCHEMA_OPTION,
             DIRECT_TRINO_TABLE_OPTION,
         )
+        from products.warehouse_sources.backend.logic.source_inputs import (  # noqa: PLC0415 - the store imports this model package
+            SourceInputsStore,
+        )
 
         columns = self.columns or {}
 
@@ -1056,7 +1113,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             postgres_schema = (
                 self.options.get(DIRECT_POSTGRES_SCHEMA_OPTION)
                 if isinstance(self.options.get(DIRECT_POSTGRES_SCHEMA_OPTION), str)
-                else (self.external_data_source.job_inputs or {}).get("schema", "public")
+                else SourceInputsStore.load_settings(self.external_data_source).get("schema", "public")
             )
             postgres_table_name = (
                 self.options.get(DIRECT_POSTGRES_TABLE_OPTION)
@@ -1075,7 +1132,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             )
 
         if self.external_data_source and self.external_data_source.is_direct_mysql:
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             mysql_schema = (
                 self.options.get(DIRECT_MYSQL_SCHEMA_OPTION)
                 if isinstance(self.options.get(DIRECT_MYSQL_SCHEMA_OPTION), str)
@@ -1096,7 +1153,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             )
 
         if self.external_data_source and self.external_data_source.is_direct_snowflake:
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             snowflake_catalog = (
                 self.options.get(DIRECT_SNOWFLAKE_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_SNOWFLAKE_CATALOG_OPTION), str)
@@ -1125,7 +1182,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         if self.external_data_source and self.external_data_source.is_direct_redshift:
             # Redshift is a Postgres fork and reuses DirectPostgresTable's schema-qualified,
             # double-quoted table-reference rendering (see DirectRedshiftTable).
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             redshift_catalog = (
                 self.options.get(DIRECT_REDSHIFT_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_REDSHIFT_CATALOG_OPTION), str)
@@ -1158,7 +1215,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             and self.external_data_source.is_direct_query
             and self.external_data_source.direct_engine == "motherduck"
         ):
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             motherduck_database = (
                 self.options.get(DIRECT_MOTHERDUCK_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_MOTHERDUCK_CATALOG_OPTION), str)
@@ -1190,7 +1247,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             and self.external_data_source.is_direct_query
             and (self.external_data_source.direct_engine == "trino" or is_managed_trino_table)
         ):
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             trino_catalog = (
                 self.options.get(DIRECT_TRINO_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_TRINO_CATALOG_OPTION), str)
@@ -1226,7 +1283,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             and self.external_data_source.is_direct_query
             and self.external_data_source.direct_engine == "clickhouse"
         ):
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             # Every direct-ClickHouse table is discovered from the source's single configured
             # database, so the live source config is authoritative. Prefer it over the per-table
             # option, which can be stale — e.g. stored as "default" when the source was first synced
@@ -1270,6 +1327,11 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             if fields.get(PARTITION_KEY):
                 del fields[PARTITION_KEY]
                 fields = {**fields, **default_fields}
+            # Hidden rather than removed, so a saved query that names one of these still resolves.
+            if self.is_history_table:
+                for name in HISTORY_HIDDEN_COLUMNS:
+                    if (field := fields.get(name)) is not None:
+                        fields[name] = field.model_copy(update={"hidden": True})
 
         table_def = HogQLDataWarehouseTable(
             name=self.name,
@@ -1283,6 +1345,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             table_id=str(self.id),
             external_data_source_id=str(self.external_data_source_id) if self.external_data_source_id else None,
             source_type=self.external_data_source.source_type if self.external_data_source else None,
+            is_history_table=self.is_history_table,
         )
 
         # Must resolve an unset option the same way _describe_settings does, by sending no setting.

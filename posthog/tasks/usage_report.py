@@ -6,7 +6,7 @@ import base64
 import logging
 import dataclasses
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union
 
@@ -327,6 +327,9 @@ class UsageReportCounters:
     node_events_count_in_period: int
     node_mcp_events_count_in_period: int
     python_mcp_events_count_in_period: int
+    rust_mcp_events_count_in_period: int
+    go_mcp_events_count_in_period: int
+    ruby_mcp_events_count_in_period: int
 
     # MCP usage overlaps billable event and per-SDK totals.
     mcp_tool_call_events_count_in_period: int
@@ -360,6 +363,8 @@ class UsageReportCounters:
     dotnet_events_count_in_period: int
     elixir_events_count_in_period: int
     unity_events_count_in_period: int
+    godot_events_count_in_period: int
+    unreal_events_count_in_period: int
     roblox_events_count_in_period: int
     rust_events_count_in_period: int
     active_hog_destinations_in_period: int
@@ -1020,6 +1025,9 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         ("posthog-node", None, "node_events"),
         ("posthog-node-mcp", None, "node_mcp_events"),
         ("posthog-python-mcp", None, "python_mcp_events"),
+        ("posthog-rs-mcp", None, "rust_mcp_events"),
+        ("posthog-go-mcp", None, "go_mcp_events"),
+        ("posthog-ruby-mcp", None, "ruby_mcp_events"),
         ("posthog-edge", None, "edge_events"),
         ("posthog-convex", None, "convex_events"),
         ("posthog-android", None, "android_events"),
@@ -1041,6 +1049,8 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         ("posthog-aspnetcore", None, "dotnet_events"),
         ("posthog-elixir", None, "elixir_events"),
         ("posthog-unity", None, "unity_events"),
+        ("posthog-godot", None, "godot_events"),
+        ("posthog-unreal", None, "unreal_events"),
         ("posthog-roblox", None, "roblox_events"),
         ("posthog-rs", None, "rust_events"),
     )
@@ -1090,6 +1100,9 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "node_events": {},
             "node_mcp_events": {},
             "python_mcp_events": {},
+            "rust_mcp_events": {},
+            "go_mcp_events": {},
+            "ruby_mcp_events": {},
             "openclaw_events": {},
             "opencode_events": {},
             "posthog_pi_events": {},
@@ -1111,6 +1124,8 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "dotnet_events": {},
             "elixir_events": {},
             "unity_events": {},
+            "godot_events": {},
+            "unreal_events": {},
             "roblox_events": {},
             "rust_events": {},
         }
@@ -2088,6 +2103,23 @@ def get_signals_credited_refund_credits_for_org(
     allow posthog → products.signals but not ee → products.signals.
     """
     return credited_refund_credits_for_org(organization_id, begin, end)
+
+
+def get_self_driving_credits_used_in_period_for_orgs(
+    organization_ids: Collection[str], begin: datetime, end: datetime
+) -> dict[str, int]:
+    """Live self-driving credits used in `[begin, end)` for each org, from one read. Orgs with no usage are absent."""
+    if not organization_ids:
+        return {}
+    rows = get_signals_billing_credits_by_team(begin, end, organization_ids=list(organization_ids))
+    if not rows:
+        return {}
+    team_orgs = dict(Team.objects.filter(id__in=[team_id for team_id, _ in rows]).values_list("id", "organization_id"))
+    totals: dict[str, int] = defaultdict(int)
+    for team_id, credits in rows:
+        if (organization_id := team_orgs.get(team_id)) is not None:
+            totals[str(organization_id)] += credits
+    return dict(totals)
 
 
 def get_self_driving_credits_used_in_period_for_org(
@@ -3076,6 +3108,9 @@ def _get_all_usage_data(
         "teams_with_node_events_count_in_period": all_metrics["node_events"],
         "teams_with_node_mcp_events_count_in_period": all_metrics["node_mcp_events"],
         "teams_with_python_mcp_events_count_in_period": all_metrics["python_mcp_events"],
+        "teams_with_rust_mcp_events_count_in_period": all_metrics["rust_mcp_events"],
+        "teams_with_go_mcp_events_count_in_period": all_metrics["go_mcp_events"],
+        "teams_with_ruby_mcp_events_count_in_period": all_metrics["ruby_mcp_events"],
         "teams_with_mcp_tool_call_events_count_in_period": all_metrics["mcp_tool_call_events"],
         "teams_with_mcp_missing_capability_events_count_in_period": all_metrics["mcp_missing_capability_events"],
         "teams_with_mcp_initialize_events_count_in_period": all_metrics["mcp_initialize_events"],
@@ -3105,6 +3140,8 @@ def _get_all_usage_data(
         "teams_with_dotnet_events_count_in_period": all_metrics["dotnet_events"],
         "teams_with_elixir_events_count_in_period": all_metrics["elixir_events"],
         "teams_with_unity_events_count_in_period": all_metrics["unity_events"],
+        "teams_with_godot_events_count_in_period": all_metrics["godot_events"],
+        "teams_with_unreal_events_count_in_period": all_metrics["unreal_events"],
         "teams_with_roblox_events_count_in_period": all_metrics["roblox_events"],
         "teams_with_rust_events_count_in_period": all_metrics["rust_events"],
         "teams_with_heatmap_count_in_period": get_teams_with_heatmap_count_in_period(period_start, period_end),
@@ -3457,6 +3494,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         node_events_count_in_period=all_data["teams_with_node_events_count_in_period"].get(team.id, 0),
         node_mcp_events_count_in_period=all_data["teams_with_node_mcp_events_count_in_period"].get(team.id, 0),
         python_mcp_events_count_in_period=all_data["teams_with_python_mcp_events_count_in_period"].get(team.id, 0),
+        rust_mcp_events_count_in_period=all_data["teams_with_rust_mcp_events_count_in_period"].get(team.id, 0),
+        go_mcp_events_count_in_period=all_data["teams_with_go_mcp_events_count_in_period"].get(team.id, 0),
+        ruby_mcp_events_count_in_period=all_data["teams_with_ruby_mcp_events_count_in_period"].get(team.id, 0),
         mcp_tool_call_events_count_in_period=all_data["teams_with_mcp_tool_call_events_count_in_period"].get(
             team.id, 0
         ),
@@ -3506,6 +3546,8 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         dotnet_events_count_in_period=all_data["teams_with_dotnet_events_count_in_period"].get(team.id, 0),
         elixir_events_count_in_period=all_data["teams_with_elixir_events_count_in_period"].get(team.id, 0),
         unity_events_count_in_period=all_data["teams_with_unity_events_count_in_period"].get(team.id, 0),
+        godot_events_count_in_period=all_data["teams_with_godot_events_count_in_period"].get(team.id, 0),
+        unreal_events_count_in_period=all_data["teams_with_unreal_events_count_in_period"].get(team.id, 0),
         roblox_events_count_in_period=all_data["teams_with_roblox_events_count_in_period"].get(team.id, 0),
         rust_events_count_in_period=all_data["teams_with_rust_events_count_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),

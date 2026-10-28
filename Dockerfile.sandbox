@@ -72,7 +72,7 @@ RUN corepack enable
 
 # --- Rarely changes: prebuilt binaries ---
 COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /uvx /usr/local/bin/
-COPY --from=clickhouse/clickhouse-server:26.9.13.15 /usr/bin/clickhouse /usr/local/bin/clickhouse
+COPY --from=ghcr.io/posthog/clickhouse-posthog:26.9.5.2-posthog-aca5bdabb92f /usr/bin/clickhouse /usr/local/bin/clickhouse
 RUN ln -s clickhouse /usr/local/bin/clickhouse-client
 
 RUN ARCH=$(dpkg --print-architecture) && \

@@ -154,4 +154,56 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "avatar_url": "URL to the badge image.",
         },
     },
+    "SpaceMembers": {
+        "description": "Members of each Space, one row per Space and member.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "space_id": "The ID of the Space the member belongs to.",
+            "id": "The member's integer ID.",
+            "email": "The member's email address.",
+            "member_type": "The member's type: 'full' (belongs to the Network) or 'limited' (belongs only to specific spaces).",
+        },
+    },
+    "PlanMembers": {
+        "description": "Members with access through each Plan, one row per Plan and member.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "plan_id": "The ID of the Plan that gives the member access.",
+            "id": "The member's integer ID.",
+            "email": "The member's email address.",
+        },
+    },
+    "MemberTags": {
+        "description": "Tags assigned to each member, one row per member and tag.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "member_id": "The ID of the member the tag is assigned to.",
+            "id": "The tag's integer ID.",
+            "title": "The title of the tag.",
+            "custom_field_id": "The ID of the custom field this tag belongs to.",
+        },
+    },
+    "MemberBadges": {
+        "description": "Badges awarded to each member, one row per member and badge.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "member_id": "The ID of the member the badge is awarded to.",
+            "id": "The badge's integer ID.",
+            "title": "The title of the badge.",
+            "custom_field_id": "The ID of the custom field this badge belongs to.",
+        },
+    },
+    "EventRsvps": {
+        "description": "Member RSVPs to Events.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "event_id": "The ID of the Event the RSVP is for.",
+            "id": "The RSVP's integer ID.",
+            "updated": "The date and time the RSVP was last updated.",
+            "status": "The RSVP status: yes, maybe, or no.",
+            "event": "The Event being RSVPed to.",
+            "member": "The member who set the RSVP.",
+            "event_instance": "The specific occurrence of a recurring Event.",
+        },
+    },
 }

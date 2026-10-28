@@ -1479,6 +1479,10 @@ class ExternalDataSourceType(LabeledStrEnum):
     CLOUDFLARER2 = "CloudflareR2", "CloudflareR2"
     PARTICLE = "Particle", "Particle"
     FILEUPLOAD = "FileUpload", "FileUpload"
+    DRIPIFY = "Dripify", "Dripify"
+    AWSS3TABLES = "AwsS3Tables", "AwsS3Tables"
+    BEACONS = "Beacons", "Beacons"
+    WOOPAYMENTS = "WooPayments", "WooPayments"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:

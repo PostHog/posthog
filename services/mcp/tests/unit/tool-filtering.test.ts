@@ -1096,13 +1096,14 @@ describe('Tool Filtering - Feature Flags', () => {
         const allFlags = getRequiredFeatureFlags()
         const branchFlags = [
             'scout-trials',
-            'self-optimising-workflows',
             'business-knowledge-github-repos',
             'signals-report-checks-replace',
             'inbox-report-actions-mcp',
+            'signals-reviewer-exclusions-mcp',
             'cross-project-dashboards',
             'warehouse-suggestions',
             'scouts-tool-access',
+            'workflows-sending-tier-requests',
             'replay-vision-scanner-dashboard',
             'metrics-dashboard-import',
             'managed-warehouse-trino-query',
@@ -1112,6 +1113,10 @@ describe('Tool Filtering - Feature Flags', () => {
             'logs-agent-tools',
             'workflows-transactional-email-api',
             'activity-summary',
+            'anomalies-search',
+            'workflows-email-domain-agent-setup',
+            'feature-flag-rules-v2-mcp',
+            'investigate-insight',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1136,7 +1141,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'field-notes',
                 'mcp-analytics-intent-routing',
                 'metrics',
-                'endpoints-ai-materialization-fix',
                 'engineering-analytics',
                 'web-analytics-path-cleaning-suggestions',
                 'stamphog',
@@ -1154,6 +1158,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
                 'workflows-mcp-onboarding',
+                'aeo-citation-tracking',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')

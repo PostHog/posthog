@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 import pydantic
@@ -31,9 +31,19 @@ from posthog.temporal.common.client import async_connect
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.activity_summary import read as activity_summary_read
 from products.signals.backend.activity_summary.read import (
-    ActivitySummaryFocusArea as ActivitySummaryFocusArea,
+    ActivitySummaryTheme as ActivitySummaryTheme,
     ActivitySummaryVersionView as ActivitySummaryVersionView,
     ActivitySummaryView as ActivitySummaryView,
+)
+from products.signals.backend.anomaly_scores import search as anomaly_search
+from products.signals.backend.anomaly_scores.search import (
+    AnomalyDashboardNotFound as AnomalyDashboardNotFound,
+    AnomalyGroupBy as AnomalyGroupBy,
+    AnomalyHistoryFilters as AnomalyHistoryFilters,
+    AnomalyInsightHistory as AnomalyInsightHistory,
+    AnomalyInterval as AnomalyInterval,
+    AnomalySearchFilters as AnomalySearchFilters,
+    AnomalySearchResult as AnomalySearchResult,
 )
 from products.signals.backend.artefact_schemas import (
     # Re-exported so the Slack mention handler can label the task it starts from a report's
@@ -107,7 +117,8 @@ from products.signals.backend.scout_harness.workflow_runs import (
     start_workflow_scout_run as start_workflow_scout_run,
 )
 from products.signals.backend.signal_metadata import SourceSliceSignalStats, fetch_signal_stats_for_source_slice
-from products.signals.backend.spend import signal_id_for
+from products.signals.backend.spend import complete_signal_pipeline, finalized_signal_ids, signal_id_for
+from products.signals.backend.spend_billing import system_source_exempt
 
 # Re-exported for external products (tasks presentation catches it around facade create_task).
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded as ReportTaskCapExceeded
@@ -219,6 +230,18 @@ def list_activity_summary_versions(
 ) -> list[ActivitySummaryVersionView] | None:
     """The user's own summary versions, newest first, or None when the flag payload does not enroll the team."""
     return activity_summary_read.list_versions(team, user_id, limit=limit, version=version)
+
+
+def search_anomalies(*, team: Team, user: User, filters: AnomalySearchFilters, now: datetime) -> AnomalySearchResult:
+    """The anomaly rate of each scored insight series the user can read, most anomalous first."""
+    return anomaly_search.search(team, user, filters, now)
+
+
+def get_anomaly_insight_history(
+    *, team: Team, user: User, filters: AnomalyHistoryFilters, now: datetime
+) -> AnomalyInsightHistory | None:
+    """Every scored series of one insight with its buckets, or None when the user cannot read the insight."""
+    return anomaly_search.insight_history(team, user, filters, now)
 
 
 @frozen
@@ -566,20 +589,33 @@ def waiting_reports(team_id: int, limit: int = 3) -> WaitingReports:
     )
 
 
+def _enabled_source_configs() -> QuerySet[SignalSourceConfig]:
+    return (
+        SignalSourceConfig.objects.filter(enabled=True)
+        # Retired: rows outlive the feature until the cleanup migration runs, and counting one marks
+        # onboarding complete on a source that emits nothing.
+        .exclude(source_product="session_replay", source_type="session_analysis_cluster")
+    )
+
+
 def has_enabled_source(team_id: int) -> bool:
     """True once the team has at least one enabled signal source — i.e. there's something to respond to.
 
     Replay Vision is checked separately because it has no config row to find: each scanner's own
     `emits_signals` flag authorizes it (see `SignalSourceConfig.is_source_enabled`)."""
-    if (
-        SignalSourceConfig.objects.filter(team_id=team_id, enabled=True)
-        # Retired: rows outlive the feature until the cleanup migration runs, and counting one marks
-        # onboarding complete on a source that emits nothing.
-        .exclude(source_product="session_replay", source_type="session_analysis_cluster")
-        .exists()
-    ):
+    if _enabled_source_configs().filter(team_id=team_id).exists():
         return True
     return _has_emitting_replay_scanner(team_id)
+
+
+def team_ids_with_enabled_source() -> set[int]:
+    """Every team that `has_enabled_source` is true for, in two queries."""
+    from products.replay_vision.backend.facade.api import (
+        team_ids_with_signal_emitting_scanner,  # noqa: PLC0415 — keeps the Replay Vision stack off this import path
+    )
+
+    with_config = set(_enabled_source_configs().values_list("team_id", flat=True))
+    return with_config | team_ids_with_signal_emitting_scanner()
 
 
 def organization_acted_on_report(organization_id: "str | uuid.UUID") -> bool:
@@ -830,12 +866,20 @@ async def emit_signal(
 
     organization = await database_sync_to_async(lambda: team.organization)()
     if not organization.is_ai_data_processing_approved:
+        if signal_id:
+            await database_sync_to_async(complete_signal_pipeline)(
+                team_id=team.id, signal_id=signal_id, billing_exempt=system_source_exempt(source_product)
+            )
         return
 
     is_enabled = await database_sync_to_async(SignalSourceConfig.is_source_enabled, thread_sensitive=False)(
         team.id, source_product, source_type
     )
     if not is_enabled:
+        if signal_id:
+            await database_sync_to_async(complete_signal_pipeline)(
+                team_id=team.id, signal_id=signal_id, billing_exempt=system_source_exempt(source_product)
+            )
         return
 
     description_tokens = _token_count(description)
@@ -867,30 +911,36 @@ async def emit_signal(
     # that don't go through the data-source pipeline still have a top-of-funnel event. The gap to
     # `signal_emitted` surfaces Temporal/dispatch failures, once the steering gate below is
     # subtracted: started - signal_data_source_filtered - emitted = failures.
-    try:
-        posthoganalytics.capture(
-            event="signal_emission_started",
-            distinct_id=str(team.uuid),
-            properties={
-                **_telemetry_props_from_extra(extra),
-                "source_product": source_product,
-                "source_type": source_type,
-                "source_id": source_id,
-            },
-            groups=groups(organization, team),
-        )
-    except Exception:
-        # Swallow the exception, to avoid breaking the flow over failed analytics event
-        logger.exception(
-            "Failed to capture signal_emission_started event",
-            source_product=source_product,
-            source_type=source_type,
-            source_id=source_id,
-        )
+    def capture_emission_event(event: str, properties: dict[str, Any] | None = None) -> None:
+        try:
+            posthoganalytics.capture(
+                event=event,
+                distinct_id=str(team.uuid),
+                properties={
+                    **_telemetry_props_from_extra(extra),
+                    "source_product": source_product,
+                    "source_type": source_type,
+                    "source_id": source_id,
+                    **(properties or {}),
+                },
+                groups=groups(organization, team),
+            )
+        except Exception:
+            # Swallow the exception, to avoid breaking the flow over failed analytics event
+            logger.exception(
+                f"Failed to capture {event} event",
+                source_product=source_product,
+                source_type=source_type,
+                source_id=source_id,
+            )
+
+    capture_emission_event("signal_emission_started")
 
     signal_id = signal_id or signal_id_for(
         team_id=team.id, source_product=source_product, source_type=source_type, idempotency_key=idempotency_key
     )
+    if await database_sync_to_async(finalized_signal_ids)(team_id=team.id, signal_ids=[signal_id]):
+        return
 
     # Below the started event on purpose: a filtered signal then has a top-of-funnel event to be
     # counted against, so a steering drop reads apart from a dispatch failure rather than as one.
@@ -910,6 +960,9 @@ async def emit_signal(
             weight=weight,
             extra=extra or {},
         ):
+            await database_sync_to_async(complete_signal_pipeline, thread_sensitive=False)(
+                team_id=team.id, signal_id=signal_id, billing_exempt=system_source_exempt(source_product)
+            )
             return
 
     client = await async_connect()
@@ -962,30 +1015,14 @@ async def emit_signal(
     except temporalio.exceptions.WorkflowAlreadyStartedError:
         if emitter_idempotency_key is None:
             raise
+        # A repeated idempotency key is a deliberate dedupe, so label it rather than leave it to
+        # read as a dispatch failure in started - filtered - emitted.
+        capture_emission_event("signal_data_source_filtered", {"filter_reason": "duplicate_emission"})
         return
 
     # Fire the analytics event only after the signal is definitively queued so
     # Temporal/connection failures don't inflate the "signals emitted" metric.
-    try:
-        posthoganalytics.capture(
-            event="signal_emitted",
-            distinct_id=str(team.uuid),
-            properties={
-                **_telemetry_props_from_extra(extra),
-                "source_product": source_product,
-                "source_type": source_type,
-                "source_id": source_id,
-            },
-            groups=groups(organization, team),
-        )
-    except Exception:
-        # Swallow the exception, to avoid breaking the flow over failed analytics event
-        logger.exception(
-            "Failed to capture signal_emitted event",
-            source_product=source_product,
-            source_type=source_type,
-            source_id=source_id,
-        )
+    capture_emission_event("signal_emitted")
 
 
 def forward_report_discussion_note(
@@ -1741,3 +1778,27 @@ def disable_scout_for_product(*, team_id: int, skill_name: str, source_product: 
         .delete()
     )
     return deleted > 0
+
+
+def notify_report_task_push(
+    *,
+    team_id: int,
+    task_id: str,
+    run_id: str,
+    kind: str,
+    pull_request_url: str | None = None,
+    on_enqueued: Callable[[], None] | None = None,
+) -> bool:
+    from products.signals.backend.inbox_push_notifications import (
+        notify_report_task_update,  # noqa: PLC0415 — keep the sender off the facade import path
+    )
+    from products.tasks.backend.models import TaskRun  # noqa: PLC0415 — legacy task storage shared with signals
+
+    task_run = TaskRun.objects.filter(team_id=team_id, task_id=task_id, id=run_id).select_related("task").first()
+    return (
+        notify_report_task_update(
+            task_run=task_run, kind=kind, pull_request_url=pull_request_url, on_enqueued=on_enqueued
+        )
+        if task_run is not None
+        else False
+    )

@@ -20,6 +20,7 @@ from products.experiments.backend.health.checks.flag_change_findings import flag
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.checks.flag_variants import flag_variants_mismatch
 from products.experiments.backend.health.checks.forced_variant import forced_variant_release_condition
+from products.experiments.backend.health.checks.metric_cannot_compile import metric_cannot_compile
 from products.experiments.backend.health.checks.metric_event_not_ingested import metric_event_not_ingested
 from products.experiments.backend.health.checks.multiple_variants import multiple_variants_share
 from products.experiments.backend.health.checks.new_flag_no_traffic import new_flag_no_traffic
@@ -90,6 +91,11 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         run=metric_event_not_ingested,
     ),
     HealthCheck(
+        key=ExperimentHealthCheckKey.METRIC_CANNOT_COMPILE,
+        name="Metric queries",
+        run=metric_cannot_compile,
+    ),
+    HealthCheck(
         key=ExperimentHealthCheckKey.EXPOSURE_CRITERIA_CANNOT_MATCH,
         name="Exposure criteria",
         run=exposure_criteria_cannot_match,
@@ -102,7 +108,8 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
 )
 
 # The exposure query runs these on its answer. They must not include the checks above: the exposure answer
-# is cached for a day, and a flag edit would not clear their findings.
+# is cached for a day, and a flag edit would not clear their findings. `srm` reads the verdict of
+# `split_changed_mid_run`, which only a split edit can change, and the split is part of the exposure query's cache key.
 EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     HealthCheck(
         key=ExperimentHealthCheckKey.ZERO_EXPOSURES,

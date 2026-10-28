@@ -26,6 +26,8 @@ from uuid import UUID
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.utils import timezone
 
+from posthog.uuidt import UUIDT
+
 # Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
 from products.warehouse_sources.backend.file_uploads import (
     FILE_FORMAT_READ_HINTS,
@@ -47,10 +49,7 @@ from products.warehouse_sources.backend.models.external_data_job import (
 )
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema as _ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as _ExternalDataSource
-from products.warehouse_sources.backend.models.table import (
-    HIDDEN_COLUMNS,
-    DataWarehouseTable as _DataWarehouseTable,
-)
+from products.warehouse_sources.backend.models.table import DataWarehouseTable as _DataWarehouseTable
 
 # Framework-free helper transforms — re-exported as the public helper surface.
 from products.warehouse_sources.backend.models.util import (
@@ -84,6 +83,7 @@ __all__ = [
     "list_revenue_source_settings",
     "get_schema",
     "list_schemas_for_source",
+    "list_imported_schema_snapshots",
     "source_locations_for_tables",
     "get_table",
     "get_queryable_table",
@@ -92,6 +92,7 @@ __all__ = [
     "discard_backing_table",
     "record_table_row_count",
     "allowed_table_ids",
+    "denied_table_ids",
     "all_queryable_tables",
     "all_queryable_table_columns",
     "list_tables_for_source",
@@ -378,6 +379,21 @@ def list_schemas_for_source(source_id: UUID, team_id: int) -> list[contracts.Ext
     return [_to_schema(s) for s in qs]
 
 
+def list_imported_schema_snapshots(team_id: int) -> list[contracts.ImportedSchemaSnapshot]:
+    rows = _ExternalDataSchema.objects.filter(
+        team_id=team_id,
+        deleted=False,
+        source__deleted=False,
+        source__team_id=team_id,
+        source__access_method="warehouse",
+        table__deleted=False,
+        table__team_id=team_id,
+    ).values_list("id", "table__queryable_folder")
+    return [
+        contracts.ImportedSchemaSnapshot(schema_id=schema_id, queryable_folder=folder) for schema_id, folder in rows
+    ]
+
+
 def source_locations_for_tables(team_id: int, table_ids: Collection[UUID]) -> dict[UUID, contracts.TableSourceLocation]:
     """Where each of these tables is administered. One query, and tables with no schema are absent."""
     if not table_ids:
@@ -511,11 +527,49 @@ def _resolve_allowed_table_ids(
     candidates = _DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id)
     if ids is not None:
         candidates = candidates.filter(id__in=ids)
-    tables = list(
+    return _allowed_tables(_tables_for_access_check(candidates), user_access_control, required_level)
+
+
+def denied_table_ids(team_id: int, user_access_control: "UserAccessControl") -> frozenset[UUID]:
+    """Every table this caller may not view.
+
+    Unlike :func:`allowed_table_ids`, this covers soft-deleted tables and tables of a soft-deleted
+    source, for surfaces that list those rows.
+    """
+    if user_access_control.is_organization_admin:
+        return frozenset()
+    candidates = _DataWarehouseTable.raw_objects.filter(team_id=team_id)
+    if user_access_control.has_resource_access("warehouse_table") and user_access_control.has_resource_access(
+        "external_data_source"
+    ):
+        # With access to both resources, only a rule on a table or on its source can deny the table,
+        # so the tables those rules name are the only candidates.
+        blocked = user_access_control.blocked_resource_ids_by_scope
+        # A rule's resource_id is free text, and one malformed id must not break the id__in lookup.
+        table_ids = [UUID(i) for i in blocked.get("warehouse_table", ()) if UUIDT.is_valid_uuid(i)]
+        source_ids = [UUID(i) for i in blocked.get("external_data_source", ()) if UUIDT.is_valid_uuid(i)]
+        if not table_ids and not source_ids:
+            return frozenset()
+        candidates = candidates.filter(Q(id__in=table_ids) | Q(external_data_source_id__in=source_ids))
+    tables = _tables_for_access_check(candidates)
+    allowed = _allowed_tables(tables, user_access_control, "viewer")
+    return frozenset(table.id for table in tables if table.id not in allowed)
+
+
+def _tables_for_access_check(candidates: QuerySet[_DataWarehouseTable]) -> list[_DataWarehouseTable]:
+    return list(
         candidates.select_related("external_data_source").only(
             "id", "created_by_id", "external_data_source_id", "external_data_source__id"
         )
     )
+
+
+def _allowed_tables(
+    tables: list[_DataWarehouseTable],
+    user_access_control: "UserAccessControl",
+    required_level: "AccessControlLevel",
+) -> frozenset[UUID]:
+    """The ids among ``tables`` this caller may reach. A table resolves through its source."""
     sources = {
         table.external_data_source_id: table.external_data_source
         for table in tables
@@ -553,6 +607,7 @@ def all_queryable_table_columns(team_id: int, table_ids: Collection[UUID] | None
             "id",
             "name",
             "columns",
+            "options",
             "external_data_source_id",
             "external_data_source__id",
             "external_data_source__prefix",
@@ -571,10 +626,11 @@ def _hogql_visible_columns(table: _DataWarehouseTable) -> dict[str, str]:
     # The same raw -> visible mapping DataWarehouseTable.get_user_facing_columns applies, keeping
     # the stored type rather than the cleaned one so a consumer still reads any Nullable() wrapper.
     hogql_by_raw = get_hogql_column_name_mapping(table.table_name_without_prefix())
+    hidden = table.hidden_columns()
     return {
         hogql_by_raw.get(name, name): type_
         for name, entry in (table.columns or {}).items()
-        if name not in HIDDEN_COLUMNS and (type_ := _clickhouse_column_type(entry)) is not None
+        if name not in hidden and (type_ := _clickhouse_column_type(entry)) is not None
     }
 
 

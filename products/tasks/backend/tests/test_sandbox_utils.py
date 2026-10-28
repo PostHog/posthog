@@ -20,13 +20,22 @@ from products.tasks.backend.exceptions import (
     GitHubRateLimitedError,
     ProcessTaskTransientError,
 )
+from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.utils import (
     READONLY_SANDBOX_GITHUB_PERMISSIONS,
     can_mint_readonly_github_token,
+    forget_cached_github_tokens,
     get_readonly_github_token,
     get_sandbox_api_url,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_tasks_cache(settings):
+    settings.TASKS_REDIS_URL = ""
+    settings.CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+    get_tasks_cache().clear()
 
 
 @pytest.mark.parametrize(
@@ -44,6 +53,8 @@ def test_get_sandbox_api_url(sandbox_api_url: str | None, expected: str) -> None
 
 def _team_integration(*, unavailable: bool = False, mint_raises: bool = False) -> MagicMock:
     github = MagicMock(spec=GitHubIntegration)
+    github.github_installation_id = "INSTALL"
+    github.mint_scoped_installation_token.return_value = "ghs_readonly"
     github.installation_unavailable.return_value = unavailable
     github.account_name_needs_heal.return_value = False
     github.organization.return_value = "Acme"
@@ -319,6 +330,40 @@ async def test_github_token_failure_maps_to_run_error(
         assert raised.value is error
     if isinstance(raised.value, GitHubRateLimitedError):
         assert raised.value.next_retry_delay == timedelta(seconds=30)
+
+
+def test_readonly_token_is_still_minted_when_the_cache_fails():
+    integration = _team_integration()
+    broken_cache = MagicMock()
+    broken_cache.get.side_effect = ConnectionError("redis down")
+    broken_cache.set.side_effect = ConnectionError("redis down")
+    with (
+        patch(
+            "products.tasks.backend.temporal.process_task.utils.resolve_readonly_github_integration",
+            return_value=integration,
+        ),
+        patch("products.tasks.backend.temporal.process_task.utils.get_tasks_cache", return_value=broken_cache),
+    ):
+        token = get_readonly_github_token(1, repositories=["acme/api"])
+
+    assert token == "ghs_readonly"
+    integration.mint_scoped_installation_token.assert_called_once()
+
+
+def test_readonly_token_is_reused_until_forgotten():
+    integration = _team_integration()
+    integration.mint_scoped_installation_token.side_effect = ["ghs_ro_1", "ghs_ro_2"]
+    with patch(
+        "products.tasks.backend.temporal.process_task.utils.resolve_readonly_github_integration",
+        return_value=integration,
+    ):
+        first = [get_readonly_github_token(1, repositories=["acme/api"]) for _ in range(2)]
+        forget_cached_github_tokens(integration, ["acme/api"])
+        second = get_readonly_github_token(1, repositories=["acme/api"])
+
+    assert first == ["ghs_ro_1", "ghs_ro_1"]
+    assert second == "ghs_ro_2"
+    assert integration.mint_scoped_installation_token.call_count == 2
 
 
 @pytest.mark.parametrize(

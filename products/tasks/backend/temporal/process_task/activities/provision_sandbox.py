@@ -18,6 +18,7 @@ from temporalio import activity
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.models.github_integration_base import GitHubIntegrationError
+from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
@@ -64,6 +65,7 @@ from products.tasks.backend.logic.services.sandbox import (
     needs_full_history,
     parse_requested_sandbox_template,
     pinned_agent_version,
+    redact_sandbox_command,
     sandbox_repo_path,
     workload_for_origin_product,
 )
@@ -91,11 +93,16 @@ from products.tasks.backend.temporal.process_task.activities.get_pr_context impo
 from products.tasks.backend.temporal.process_task.organization import check_organization_execution
 from products.tasks.backend.temporal.process_task.sandbox_connection import persist_sandbox_connection
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
+    apply_github_credentials_to_sandbox,
     replace_sandbox_credentials,
+    sandbox_credential_lock,
     set_git_remote_token,
 )
 from products.tasks.backend.temporal.process_task.utils import (
+    PrAuthorshipMode,
+    forget_cached_github_tokens,
     get_git_identity_env_vars,
+    get_pr_authorship_mode,
     get_readonly_github_token,
     get_sandbox_api_url,
     get_sandbox_github_token,
@@ -103,8 +110,11 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_otel_env_vars,
     get_sandbox_snapshot_metadata,
     get_task_run_credential_user,
+    installation_confirms_repository_denied,
     mcp_exec_skills_env_vars,
     parse_run_state,
+    resolve_installation_github_integration,
+    resolve_readonly_github_integration,
     run_gateway_env_vars,
 )
 
@@ -113,6 +123,7 @@ from .get_task_processing_context import TaskProcessingContext
 logger = logging.getLogger(__name__)
 SANDBOX_CREATION_CANCELLATION_WAIT_SECONDS = 10
 SANDBOX_CREATION_HEARTBEAT_SECONDS = 1
+REPOSITORY_CLONE_RETRY_DELAYS_SECONDS = (1, 2, 16, 32, 64)
 
 NETWORK_RESTRICTED_AGENT_ENV = {
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
@@ -1149,6 +1160,12 @@ async def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) 
     raise cancellation
 
 
+def _redact_clone_output(output: str, github_token: str | None) -> str:
+    if github_token:
+        output = output.replace(github_token, "<redacted>")
+    return redact_sandbox_command(output)[:500]
+
+
 @activity.defn
 @asyncify
 @posthoganalytics.scoped(fresh=True, capture_exceptions=False)
@@ -1164,6 +1181,20 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
     ):
         log_with_activity_context(f"Cloning {input.repository} into sandbox", run_id=ctx.run_id)
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
+        github_token = input.github_token
+        if github_token and activity.info().attempt > 1:
+            github_token = _reresolve_sandbox_github_token(ctx, input.repository)
+            if not github_token:
+                raise RepositoryCloneError(
+                    f"Could not refresh the GitHub token before retrying the clone of {input.repository}",
+                    {
+                        "repository": input.repository,
+                        "sandbox_id": input.sandbox_id,
+                        "attempt": activity.info().attempt,
+                    },
+                    cause=RuntimeError("GitHub token refresh returned no token"),
+                    next_retry_delay=_clone_retry_delay(activity.info().attempt),
+                )
 
         state = parse_run_state(ctx.state)
         is_resume = bool(state.resume_from_run_id or state.same_run_resume)
@@ -1176,7 +1207,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
         ) as clone_timer:
             clone_result = sandbox.clone_repository(
                 input.repository,
-                github_token=input.github_token,
+                github_token=github_token,
                 shallow=input.shallow_clone,
                 branch=ctx.branch if is_resume else None,
                 blobless=blobless_clone,
@@ -1190,37 +1221,76 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                 )
                 clone_result = sandbox.clone_repository(
                     input.repository,
-                    github_token=input.github_token,
+                    github_token=github_token,
                     shallow=input.shallow_clone,
                     branch=None,
                     blobless=blobless_clone,
                 )
 
-            if _is_repository_access_denied_clone_error(clone_result):
-                raise RepositoryAccessError(
-                    f"Could not clone {input.repository}: GitHub denied access. Check that the PostHog "
-                    "GitHub app is installed on this repository's account and can read this repository.",
-                    {
-                        "repository": input.repository,
-                        "sandbox_id": input.sandbox_id,
-                        "exit_code": clone_result.exit_code,
-                        "has_github_token": bool(input.github_token),
+            if clone_result.exit_code != 0:
+                stderr = _redact_clone_output(clone_result.stderr, github_token)
+                stdout = _redact_clone_output(clone_result.stdout, github_token)
+                execution_error = _redact_clone_output(clone_result.error, github_token) if clone_result.error else None
+                error_context = {
+                    "repository": input.repository,
+                    "sandbox_id": input.sandbox_id,
+                    "exit_code": clone_result.exit_code,
+                    "has_github_token": bool(github_token),
+                    "stderr": stderr,
+                    "stdout": stdout,
+                    "error": execution_error,
+                }
+                logger.warning(
+                    "repository_clone_failed",
+                    extra={
+                        **ctx.to_log_context(),
+                        **error_context,
+                        "blobless_clone": blobless_clone,
+                        "shallow_clone": input.shallow_clone,
                     },
                 )
+                retry_delay = _clone_retry_delay(activity.info().attempt)
+                if _is_repository_access_denied_clone_error(clone_result):
+                    installation = _installation_behind_sandbox_token(ctx) if github_token else None
+                    if installation is not None and not installation_confirms_repository_denied(
+                        installation, input.repository
+                    ):
+                        _log_repository_clone_denied(ctx, input.repository, stderr, confirmed=False)
+                        forget_cached_github_tokens(installation, ctx.repositories)
+                        raise RepositoryCloneError(
+                            f"Could not clone {input.repository}: GitHub denied the sandbox token although the "
+                            "installation can read the repository",
+                            error_context,
+                            cause=RuntimeError(stderr[:200] or "GitHub denied access"),
+                            next_retry_delay=retry_delay,
+                        )
+                    _log_repository_clone_denied(ctx, input.repository, stderr, confirmed=True)
+                    raise RepositoryAccessError(
+                        f"Could not clone {input.repository}: GitHub denied access. Check that the PostHog "
+                        "GitHub app is installed on this repository's account and can read this repository.",
+                        error_context,
+                    )
 
-            if clone_result.exit_code != 0:
-                error_output = clone_result.stderr or clone_result.stdout or clone_result.error or "No output captured"
+                error_output = stderr or stdout or execution_error or "No output captured"
                 raise RepositoryCloneError(
                     f"Could not clone {input.repository} (git exited with code {clone_result.exit_code})",
-                    {
-                        "repository": input.repository,
-                        "sandbox_id": input.sandbox_id,
-                        "exit_code": clone_result.exit_code,
-                        "stderr": clone_result.stderr[:500],
-                        "stdout": clone_result.stdout[:500],
-                        "error": clone_result.error,
-                    },
+                    error_context,
                     cause=RuntimeError(error_output[:200]),
+                    next_retry_delay=retry_delay,
+                )
+
+        if github_token != input.github_token:
+            with sandbox_credential_lock(sandbox.id) as acquired:
+                applied = acquired and apply_github_credentials_to_sandbox(sandbox, [input.repository], github_token)
+            if not applied:
+                logger.warning(
+                    "refreshed_github_token_not_applied",
+                    extra={
+                        "run_id": ctx.run_id,
+                        "repository": input.repository,
+                        "sandbox_id": sandbox.id,
+                        "lock_acquired": acquired,
+                    },
                 )
 
         # A fresh single-repository run checks its requested branch out in the next
@@ -1233,6 +1303,39 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
         return CloneRepositoryInSandboxOutput(clone_ms=clone_timer.elapsed_ms)
 
 
+def _clone_retry_delay(attempt: int) -> timedelta | None:
+    if attempt <= len(REPOSITORY_CLONE_RETRY_DELAYS_SECONDS):
+        return timedelta(seconds=REPOSITORY_CLONE_RETRY_DELAYS_SECONDS[attempt - 1])
+    return None
+
+
+def _log_repository_clone_denied(ctx: TaskProcessingContext, repository: str, stderr: str, *, confirmed: bool) -> None:
+    log_with_activity_context(
+        "repository_clone_denied",
+        run_id=ctx.run_id,
+        repository=repository,
+        origin_product=ctx.origin_product,
+        denial_confirmed=confirmed,
+        stderr=stderr,
+    )
+
+
+def _reresolve_sandbox_github_token(ctx: TaskProcessingContext, repository: str) -> str:
+    task = _load_task(ctx)
+    actor_user = get_task_run_credential_user(task, ctx.state)
+    return _resolve_sandbox_github_token(ctx, task=task, actor_user=actor_user, repository=repository, has_repo=True)
+
+
+def _installation_behind_sandbox_token(ctx: TaskProcessingContext) -> GitHubIntegration | None:
+    if ctx.github_read_access:
+        return resolve_readonly_github_integration(ctx.team_id)
+    if ctx.github_integration_id is None:
+        return None
+    if get_pr_authorship_mode(_load_task(ctx), ctx.state) != PrAuthorshipMode.BOT:
+        return None
+    return resolve_installation_github_integration(ctx.github_integration_id)
+
+
 def _is_repository_access_denied_clone_error(result: ExecutionResult) -> bool:
     if result.exit_code == 0:
         return False
@@ -1240,11 +1343,8 @@ def _is_repository_access_denied_clone_error(result: ExecutionResult) -> bool:
     # Git asks for a username when GitHub answers 401, which is how GitHub hides a private
     # repository from a request without a usable token.
     output = f"{result.stdout}\n{result.stderr}".casefold()
-    return (
-        "could not read username" in output
-        or "authentication failed for" in output
-        or "remote: repository not found" in output
-    )
+    # A repository-not-found response can be transient, so leave it to the bounded clone retry policy.
+    return "could not read username" in output or "authentication failed for" in output
 
 
 def _is_missing_remote_branch_clone_error(result: ExecutionResult) -> bool:

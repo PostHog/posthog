@@ -9,7 +9,7 @@ delivery.
 
 from typing import Any
 
-from posthog.api.query_access_check import blocked_access_for_user
+from posthog.api.query_access_check import denied_query_resources
 from posthog.constants import AvailableFeature
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -89,7 +89,7 @@ def delivered_queries(instance: Subscription | None, attrs: dict[str, Any]) -> l
     return []
 
 
-def blocked_access_for_subscription(
+def denied_resources_in_subscription(
     *,
     user: User,
     team: Team,
@@ -108,4 +108,4 @@ def blocked_access_for_subscription(
         return []
     if user_access_control.is_organization_admin:
         return []
-    return blocked_access_for_user(user, team, delivered_queries(_subscription(team.id, subscription_id), attrs))
+    return denied_query_resources(user, team, delivered_queries(_subscription(team.id, subscription_id), attrs))

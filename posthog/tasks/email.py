@@ -43,7 +43,8 @@ from posthog.models import (
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
-from posthog.models.comment.utils import DESKTOP_COMMENT_SCOPES, build_comment_item_url
+from posthog.models.comment.comment import OBSERVATION_COMMENT_SCOPES
+from posthog.models.comment.utils import DESKTOP_COMMENT_SCOPES, OBSERVATION_NOTE_PLACEHOLDER, build_comment_item_url
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.organization_notification_lock import (
     GovernedSetting,
@@ -1269,7 +1270,7 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     return delivered
 
 
-def _filter_members_by_external_data_source_access(
+def filter_members_by_external_data_source_access(
     memberships: list[OrganizationMembership], team: Team
 ) -> list[OrganizationMembership]:
     """Drop members who cannot view destinations, which `ExternalDataDestinationViewSet` gates on `external_data_source`.
@@ -1312,7 +1313,7 @@ def send_warehouse_destination_paused(
     memberships_to_email = get_members_to_notify_for_pipeline_error(
         team, failure_rate=1.0, pipeline_id=f"warehouse_destination:{destination_id}"
     )
-    memberships_to_email = _filter_members_by_external_data_source_access(memberships_to_email, team)
+    memberships_to_email = filter_members_by_external_data_source_access(memberships_to_email, team)
     if not memberships_to_email:
         return
 
@@ -2139,7 +2140,10 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
             template_name="discussions_mentioned",
             template_context={
                 "commenter": commenter,
-                "content": comment.content,
+                # The email is sent later than the access check on the mention, so it never carries an observation note.
+                "content": OBSERVATION_NOTE_PLACEHOLDER
+                if comment.scope in OBSERVATION_COMMENT_SCOPES
+                else comment.content,
                 "team": team,
                 "href": href,
             },

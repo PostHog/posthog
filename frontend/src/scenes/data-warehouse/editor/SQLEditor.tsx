@@ -56,6 +56,7 @@ import { outputPaneLogic } from './outputPaneLogic'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryWindow } from './QueryWindow'
 import { QuillSQLEditorSceneActions } from './QuillSQLEditorSceneActions'
+import { SaveAsMetricModal } from './SaveAsMetricModal'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
 import { useUpdateEditingView } from './useUpdateEditingView'
@@ -377,6 +378,7 @@ export function SQLEditor({
                                             </div>
                                         </BindLogic>
                                     )}
+                                    <SaveAsMetricModal />
                                     {showFullSceneModals ? (
                                         <>
                                             <MaterializationModal tabId={tabId || ''} />

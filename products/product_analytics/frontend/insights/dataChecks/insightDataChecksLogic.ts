@@ -321,6 +321,7 @@ const FORCED_REFRESHES: (RefreshType | undefined)[] = ['force_async', 'force_blo
 // A full check stops its queries after 60 seconds on the server, which leaves the rest for a wait for server slots.
 const DATA_CHECKS_TIMEOUT_MS = 120_000
 const LABEL_OPEN_MS = 2500
+const CHECK_DELAY_MS = 500
 const YIELDED_TO_CHART = 'yielded to chart'
 
 function isEventsOrActionsNode(node: Node): boolean {
@@ -576,10 +577,12 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
     listeners(({ actions, values, cache }) => ({
         // The chart can load more than once for one query, and the answer for that query is already on its way.
         // One run at a time: a run for an older query keeps its queries on the server until it ends.
-        checkData: () => {
+        // The chart starts to load on the render after its query changes, so a check that starts at once gives way to it.
+        checkData: async (_, breakpoint) => {
+            await breakpoint(CHECK_DELAY_MS)
             const query = values.checkedQuery
             const isWanted = values.checkAgainRequested || query !== values.requestedQuery
-            if (query && isWanted && !values.dataChecksRunLoading) {
+            if (query && isWanted && !values.dataChecksRunLoading && !values.insightDataLoading) {
                 actions.loadDataChecks(query)
             }
         },
@@ -597,17 +600,13 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                     ? dataChecksRun.result.checks.filter(isFinding).map((check) => check.key)
                     : [],
             })
-            if (!values.insightDataLoading) {
-                actions.checkData()
-            }
+            actions.checkData()
             await breakpoint(LABEL_OPEN_MS)
             actions.closeLabel()
         },
         // The flags can arrive after the chart has loaded.
         setFeatureFlags: () => {
-            if (!values.insightDataLoading) {
-                actions.checkData()
-            }
+            actions.checkData()
         },
         // The queue has one slot, so a check in flight would hold back the chart. The check runs again after the chart.
         loadData: ({ pollOnly }) => {
@@ -701,11 +700,9 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
     })),
     // Also on mount, because the chart can finish loading before this logic mounts. A change such as the chart
     // type can reuse the chart's result, so no chart load follows it.
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions }) => ({
         checkedQuery: () => {
-            if (!values.insightDataLoading) {
-                actions.checkData()
-            }
+            actions.checkData()
         },
     })),
 ])

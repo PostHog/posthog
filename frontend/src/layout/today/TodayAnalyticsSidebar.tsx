@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { Fragment, useMemo } from 'react'
 
 import { IconBell, IconBox, IconList, IconNotification, IconPerson, IconPinFilled } from '@posthog/icons'
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
@@ -20,6 +21,51 @@ import { TodayAnalyticsSection, todayAnalyticsLogic } from './todayAnalyticsLogi
 import { TodayPaneRow } from './TodayPaneRow'
 import { TodayPaneSearchList } from './TodayPaneSearchList'
 import { TodayPaneSection } from './TodayPaneSection'
+import { TodayExplainerPreview, productPreview } from './todayPreviewCards'
+import { TodayPreviewTrigger } from './TodayPreviewTrigger'
+
+// Module constants, so the shared hover card gets the same payload on every render.
+const EXPLAINERS = {
+    all: {
+        kind: 'explainer',
+        label: 'View all',
+        icon: <IconList />,
+        description:
+            'Browse every canvas, dashboard, notebook, and insight your project shares. Filter by type, creator, or collection.',
+        example: 'Find the retention dashboard a teammate made last month.',
+    },
+    mine: {
+        kind: 'explainer',
+        label: 'My work',
+        icon: <IconPerson />,
+        description: 'See everything you created, including work you have not shared with your project yet.',
+        example: 'Pick up a draft insight you started yesterday.',
+    },
+    collections: {
+        kind: 'explainer',
+        label: 'Collections',
+        icon: <IconBox />,
+        description:
+            'Keep related analytics together where your team can find it. Pin a collection to show it in this sidebar.',
+        example: 'Keep all the growth team’s dashboards and insights in one collection.',
+    },
+    alerts: {
+        kind: 'explainer',
+        label: 'Alerts',
+        icon: <IconBell />,
+        description: 'Watch the metrics in your insights and get a notification when a value crosses a threshold.',
+        example: 'Get an email when daily signups drop below 100.',
+        docsHref: 'https://posthog.com/docs/alerts',
+    },
+    subscriptions: {
+        kind: 'explainer',
+        label: 'Subscriptions',
+        icon: <IconNotification />,
+        description:
+            'Get insights and dashboards delivered on a schedule by email or Slack. Manage the subscriptions you have set up.',
+        example: 'Send the weekly activation dashboard to your team every Monday.',
+    },
+} satisfies Record<string, TodayExplainerPreview>
 
 /** The Analytics sub-nav: the ways to browse, pinned collections, recently viewed items, PostHog's own analytics, and what to keep an eye on. */
 export function TodayAnalyticsSidebar(): JSX.Element {
@@ -35,6 +81,10 @@ export function TodayAnalyticsSidebar(): JSX.Element {
             ? analyticsListFiltersFromUrl(searchParams)
             : null
     const openFolder = path === urls.analyticsList() ? (listFilters?.folder ?? null) : null
+    const fromPostHogPreviews = useMemo(
+        () => new Map(fromPostHog.map((product) => [product.key, productPreview(product.label, product.item)])),
+        [fromPostHog]
+    )
 
     return (
         <div className="TodayPane group/colorful-product-icons colorful-product-icons-true" data-quill>
@@ -54,30 +104,36 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                     onToggle={() => toggleSection('browse')}
                     dataAttr="analytics-section-browse"
                 >
-                    <TodayPaneRow
-                        value="browse:all"
-                        label="View all"
-                        icon={<IconList />}
-                        to={urls.analyticsList()}
-                        active={path === urls.analyticsList() && openFolder === null}
-                        dataAttr="analytics-sidebar-browse"
-                    />
-                    <TodayPaneRow
-                        value="browse:mine"
-                        label="My work"
-                        icon={<IconPerson />}
-                        to={urls.analyticsMine()}
-                        active={path === urls.analyticsMine()}
-                        dataAttr="analytics-sidebar-browse"
-                    />
-                    <TodayPaneRow
-                        value="browse:spaces"
-                        label="Collections"
-                        icon={<IconBox />}
-                        to={urls.analyticsSpaces()}
-                        active={path === urls.analyticsSpaces()}
-                        dataAttr="analytics-sidebar-browse"
-                    />
+                    <TodayPreviewTrigger payload={EXPLAINERS.all}>
+                        <TodayPaneRow
+                            value="browse:all"
+                            label="View all"
+                            icon={<IconList />}
+                            to={urls.analyticsList()}
+                            active={path === urls.analyticsList() && openFolder === null}
+                            dataAttr="analytics-sidebar-browse"
+                        />
+                    </TodayPreviewTrigger>
+                    <TodayPreviewTrigger payload={EXPLAINERS.mine}>
+                        <TodayPaneRow
+                            value="browse:mine"
+                            label="My work"
+                            icon={<IconPerson />}
+                            to={urls.analyticsMine()}
+                            active={path === urls.analyticsMine()}
+                            dataAttr="analytics-sidebar-browse"
+                        />
+                    </TodayPreviewTrigger>
+                    <TodayPreviewTrigger payload={EXPLAINERS.collections}>
+                        <TodayPaneRow
+                            value="browse:spaces"
+                            label="Collections"
+                            icon={<IconBox />}
+                            to={urls.analyticsSpaces()}
+                            active={path === urls.analyticsSpaces()}
+                            dataAttr="analytics-sidebar-browse"
+                        />
+                    </TodayPreviewTrigger>
                     {pinnedSpaces.map((space) => (
                         <TodayPaneRow
                             key={space.path}
@@ -150,9 +206,8 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                     >
                         {fromPostHog.map((product) => {
                             const productPath = product.href.split(/[?#]/)[0]
-                            return (
+                            const row = (
                                 <TodayPaneRow
-                                    key={product.key}
                                     value={`by-posthog:${product.key}`}
                                     label={product.label}
                                     icon={iconForType(
@@ -163,6 +218,14 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                                     active={path === productPath || path.startsWith(`${productPath}/`)}
                                     dataAttr="analytics-sidebar-by-posthog"
                                 />
+                            )
+                            const preview = fromPostHogPreviews.get(product.key)
+                            return preview?.description ? (
+                                <TodayPreviewTrigger key={product.key} payload={preview}>
+                                    {row}
+                                </TodayPreviewTrigger>
+                            ) : (
+                                <Fragment key={product.key}>{row}</Fragment>
                             )
                         })}
                     </TodayPaneSection>
@@ -176,22 +239,26 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                     divider
                     dataAttr="analytics-section-monitor"
                 >
-                    <TodayPaneRow
-                        value="monitor:alerts"
-                        label="Alerts"
-                        icon={<IconBell />}
-                        to={urls.alerts()}
-                        active={path === urls.alerts()}
-                        dataAttr="analytics-sidebar-monitor"
-                    />
-                    <TodayPaneRow
-                        value="monitor:subscriptions"
-                        label="Subscriptions"
-                        icon={<IconNotification />}
-                        to={`${urls.subscriptions()}?tab=mine`}
-                        active={path === urls.subscriptions()}
-                        dataAttr="analytics-sidebar-monitor"
-                    />
+                    <TodayPreviewTrigger payload={EXPLAINERS.alerts}>
+                        <TodayPaneRow
+                            value="monitor:alerts"
+                            label="Alerts"
+                            icon={<IconBell />}
+                            to={urls.alerts()}
+                            active={path === urls.alerts()}
+                            dataAttr="analytics-sidebar-monitor"
+                        />
+                    </TodayPreviewTrigger>
+                    <TodayPreviewTrigger payload={EXPLAINERS.subscriptions}>
+                        <TodayPaneRow
+                            value="monitor:subscriptions"
+                            label="Subscriptions"
+                            icon={<IconNotification />}
+                            to={`${urls.subscriptions()}?tab=mine`}
+                            active={path === urls.subscriptions()}
+                            dataAttr="analytics-sidebar-monitor"
+                        />
+                    </TodayPreviewTrigger>
                 </TodayPaneSection>
             </TodayPaneSearchList>
         </div>

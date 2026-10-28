@@ -952,6 +952,50 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         # Check that new invite uses its own level
         self.assertEqual(new_invite["level"], OrganizationMembership.Level.MEMBER)
 
+    @parameterized.expand(
+        [
+            ("combine_above_level", True, OrganizationMembership.Level.ADMIN, False),
+            ("combine_above_project_access", True, OrganizationMembership.Level.MEMBER, True),
+            ("replace_above_level", False, OrganizationMembership.Level.ADMIN, False),
+            ("replace_above_project_access", False, OrganizationMembership.Level.MEMBER, True),
+        ]
+    )
+    def test_member_reinvite_keeps_pending_invite_above_their_grant(
+        self, _name: str, combine: bool, existing_level: OrganizationMembership.Level, with_private_access: bool
+    ) -> None:
+        owner = self._create_user("owner@posthog.com", level=OrganizationMembership.Level.OWNER)
+        member = self._create_user("member@posthog.com")
+        email = "x@posthog.com"
+        private_access: list[dict[str, int | str]] = []
+        if with_private_access:
+            private_team = Team.objects.create(organization=self.organization, name="Private Team")
+            AccessControl.objects.create(
+                team=private_team, access_level="none", resource="project", resource_id=str(private_team.id)
+            )
+            private_access = [{"id": private_team.id, "level": "admin"}]
+        existing_invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email=email,
+            level=existing_level,
+            private_project_access=private_access,
+            created_by=owner,
+        )
+        self.client.force_login(member)
+
+        response = self.client.post(
+            "/api/organizations/@current/invites/",
+            {"target_email": email, "level": OrganizationMembership.Level.MEMBER, "combine_pending_invites": combine},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["level"], OrganizationMembership.Level.MEMBER)
+        self.assertEqual(response.json()["private_project_access"], [])
+        self.assertTrue(
+            OrganizationInvite.objects.filter(
+                id=existing_invite.id, level=existing_level, private_project_access=private_access, created_by=owner
+            ).exists()
+        )
+
     def test_member_cannot_invite_admin(self):
         # Create a member user
         member_user = self._create_user("member@posthog.com")
@@ -1803,6 +1847,8 @@ class TestOnboardingSkipAPI(APIBaseTest):
             [c.kwargs["properties"] for c in skip_calls],
             [{"step_at_skip": "mcp", "reason": "later", "flow_variant": "simple"}],
         )
+        self.assertEqual(skip_calls[0].kwargs["groups"]["project"], str(self.team.uuid))
+        self.assertEqual(skip_calls[0].kwargs["groups"]["organization"], str(self.organization.id))
 
     def test_skip_rejects_invalid_reason(self):
         response = self.client.post(self._skip_url(), {"reason": "nope"})

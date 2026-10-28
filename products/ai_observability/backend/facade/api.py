@@ -1,6 +1,8 @@
 from collections.abc import Sequence
 from datetime import date, datetime
 
+from posthog.schema import HogQLPropertyFilter
+
 from posthog.models import Team, User
 
 from ..logic.evaluations.evaluation_metas import load_evaluation_meta, load_evaluation_metas
@@ -171,11 +173,26 @@ def _to_node_detail(node_id: str, event: NodeEvent) -> contracts.TraceNodeDetail
     )
 
 
-def get_evaluation_pass_filters(team_id: int) -> contracts.EvaluationPassFilters:
-    """Grade `$ai_evaluation` events with the same rules the evaluation UI applies: boolean polarity, the numeric
-    or categorical passing rule, and no skipped, N/A or sentiment runs. The conditions change when an evaluation's
-    output config changes, so a caller that stores them rebuilds them on `evaluation_output_changed`."""
-    return build_evaluation_pass_filters(team_id)
+def resolve_evaluation_pass_markers[P](properties: list[P], team_id: int) -> list[P]:
+    """Replace each evaluation pass marker with the team's current condition."""
+    markers = {contracts.EVALUATION_GRADED_MARKER, contracts.EVALUATION_PASSED_MARKER}
+    if not any(isinstance(prop, HogQLPropertyFilter) and prop.key in markers for prop in properties):
+        return properties
+    filters = build_evaluation_pass_filters(team_id)
+    conditions = {
+        contracts.EVALUATION_GRADED_MARKER: filters.graded,
+        contracts.EVALUATION_PASSED_MARKER: filters.passed,
+    }
+    return [
+        prop.model_copy(update={"key": conditions[prop.key]})
+        if isinstance(prop, HogQLPropertyFilter) and prop.key in conditions
+        else prop
+        for prop in properties
+    ]
+
+
+def mentions_evaluation_pass_markers(text: str) -> bool:
+    return contracts.EVALUATION_GRADED_MARKER in text or contracts.EVALUATION_PASSED_MARKER in text
 
 
 def get_trace_evaluation_results(team: Team, user: User | None, trace_id: str) -> contracts.TraceEvaluationResults:
@@ -208,7 +225,7 @@ def _to_evaluation_result(result: EvaluationResult) -> contracts.TraceEvaluation
 
 
 def evaluations_period(team: Team, date_from: date | datetime | None, date_to: date | datetime | None) -> PeriodBounds:
-    """Raises `InvalidPeriodError` for a period that is empty, longer than 90 days or out of range."""
+    """Raises `InvalidPeriodError` for a period that is empty, longer than 91 days or out of range."""
     return PeriodBounds.from_request(date_from, date_to, team.timezone_info)
 
 

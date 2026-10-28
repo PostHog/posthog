@@ -79,7 +79,11 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
-from products.alerts_platform.backend.facade.temporal import create_alerts_platform_tick_schedule
+from products.alerts_platform.backend.facade.temporal import (
+    create_alerts_platform_expired_holds_schedule,
+    create_alerts_platform_inventory_schedule,
+    create_alerts_platform_tick_schedule,
+)
 from products.autoresearch.backend.facade.temporal import create_autoresearch_daily_schedule
 from products.billing_alerts.backend.temporal.schedule import create_schedule_due_billing_alert_checks_schedule
 from products.business_knowledge.backend.temporal.schedule import (
@@ -991,6 +995,8 @@ schedules = [
     create_heatmap_page_history_schedule,
     create_data_catalog_weekly_digest_schedule,
     create_alerts_platform_tick_schedule,
+    create_alerts_platform_inventory_schedule,
+    create_alerts_platform_expired_holds_schedule,
     create_logs_alert_check_schedule,
     disable_logs_volume_tick_schedule,
     create_schedule_due_alert_checks_schedule,
