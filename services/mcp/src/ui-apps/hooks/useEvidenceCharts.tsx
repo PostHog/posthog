@@ -3,12 +3,15 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { Button, Text } from '@posthog/quill'
 
+import type { StoryEvidence } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
 import type { StoryEvidenceCharts } from 'products/product_analytics/mcp/apps/explainChart/ExplainChartView'
+import { StoryEvidenceChart } from 'products/product_analytics/mcp/apps/explainChart/StoryEvidenceChart'
 import { isSeriesNamedIn } from 'products/product_analytics/mcp/apps/explainChart/storyNamedSeries'
 
 import { capture } from '../analytics/posthog'
 import { loadRenderUiData } from '../apps/render-ui-data'
 import { AppLoadingState } from '../components/AppLoadingState'
+import { useMcpChartTheme } from '../components/charts/theme'
 import { TrendsVisualizer } from '../components/TrendsVisualizer'
 import type { TrendsQuery, TrendsResult, TrendsResultItem } from '../components/types'
 import { getSeriesLabel } from '../components/utils'
@@ -26,7 +29,12 @@ function isTrendsQuery(query: Record<string, unknown>): boolean {
     return query.kind === 'TrendsQuery' || (query.kind === undefined && Array.isArray(query.series))
 }
 
+function trendsQueryOf(item: StoryEvidence): Record<string, unknown> | null {
+    return item.query && isTrendsQuery(item.query) ? item.query : null
+}
+
 export function useEvidenceCharts(app: App | null, chartClassName: string): StoryEvidenceCharts | undefined {
+    const theme = useMcpChartTheme()
     const [charts, setCharts] = useState<Record<string, EvidenceChart>>({})
     const requested = useRef(new Set<string>())
 
@@ -67,7 +75,13 @@ export function useEvidenceCharts(app: App | null, chartClassName: string): Stor
     )
 
     const prefetch = useCallback(
-        (queries: Record<string, unknown>[]): void => queries.filter(isTrendsQuery).forEach(load),
+        (items: StoryEvidence[]): void =>
+            items.forEach((item) => {
+                const query = trendsQueryOf(item)
+                if (query && !item.chart) {
+                    load(query)
+                }
+            }),
         [load]
     )
 
@@ -76,15 +90,33 @@ export function useEvidenceCharts(app: App | null, chartClassName: string): Stor
             return undefined
         }
         return {
-            canShow: isTrendsQuery,
+            canShow: (item) => !!item.chart || !!trendsQueryOf(item),
             prefetch,
-            onShow: (query) => {
+            onShow: (item) => {
+                const query = item.chart ? null : trendsQueryOf(item)
                 capture('mcp_ui_app_explain_chart_evidence_chart_shown', {
-                    was_loaded: charts[JSON.stringify(query)]?.status === 'ready',
+                    was_loaded: !query || charts[JSON.stringify(query)]?.status === 'ready',
+                    inline: !!item.chart,
                 })
-                load(query)
+                if (query) {
+                    load(query)
+                }
             },
-            render: (query, text) => {
+            render: (item) => {
+                if (item.chart) {
+                    return (
+                        <StoryEvidenceChart
+                            key={JSON.stringify(item.chart)}
+                            chart={item.chart}
+                            theme={theme}
+                            className={chartClassName}
+                        />
+                    )
+                }
+                const query = trendsQueryOf(item)
+                if (!query) {
+                    return null
+                }
                 const chart = charts[JSON.stringify(query)]
                 if (chart?.status === 'ready') {
                     return (
@@ -92,8 +124,8 @@ export function useEvidenceCharts(app: App | null, chartClassName: string): Stor
                             key={JSON.stringify(query)}
                             query={chart.query}
                             results={chart.results}
-                            highlightedSeries={chart.results.flatMap((item, index) =>
-                                isSeriesNamedIn(seriesNames(item, index), text) ? [index] : []
+                            highlightedSeries={chart.results.flatMap((result, index) =>
+                                isSeriesNamedIn(seriesNames(result, index), item.text) ? [index] : []
                             )}
                             showControls={false}
                             showTitle={false}
@@ -125,5 +157,5 @@ export function useEvidenceCharts(app: App | null, chartClassName: string): Stor
                 )
             },
         }
-    }, [app, chartClassName, charts, load, prefetch])
+    }, [app, chartClassName, charts, load, prefetch, theme])
 }

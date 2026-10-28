@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { ExplainChartInputSchema } from '@/schema/tool-inputs'
 import { explainChartHandler } from '@/tools/insights/explainChart'
 import { findStoryRange, lastBucketInProgress } from '@/tools/insights/storyRanges'
 import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
@@ -131,6 +132,12 @@ describe('explain-chart', () => {
         })
     })
 
+    const hitRate = {
+        type: 'line' as const,
+        labels: ['20:00', '21:00'],
+        series: [{ name: 'hit rate', values: [0.9, 0.55] }],
+    }
+
     it('keeps a chart only for evidence that query-trends can draw again', async () => {
         const series = [{ kind: 'EventsNode', event: 'signed_up' }]
         const drawable = {
@@ -156,15 +163,39 @@ describe('explain-chart', () => {
                     evidence: [
                         { text: 'Chrome sent most of it.', query: drawable },
                         { text: 'Safari stayed flat.', query: linkOnly },
+                        {
+                            text: 'The hit rate fell.',
+                            query: { kind: 'HogQLQuery', query: 'SELECT 1' },
+                            chart: hitRate,
+                        },
                     ],
                 },
             ],
         })
 
-        expect(result.chapters[0]!.evidence.map((item) => [item.query !== null, item.url !== null])).toEqual([
-            [true, true],
-            [false, true],
+        expect(
+            result.chapters[0]!.evidence.map((item) => [item.query !== null, item.chart ?? null, item.url !== null])
+        ).toEqual([
+            [true, null, true],
+            [false, null, true],
+            [false, hitRate, true],
         ])
+    })
+
+    it('refuses a chart whose series do not have one value per label', () => {
+        const parsed = ExplainChartInputSchema.safeParse({
+            insightId: 'abc12345',
+            headline: 'One day stands out.',
+            chapters: [
+                {
+                    title: 'A spike on October 2',
+                    start: '2026-10-02',
+                    evidence: [{ text: 'The hit rate fell.', chart: { ...hitRate, labels: ['20:00'] } }],
+                },
+            ],
+        })
+
+        expect(parsed.success).toBe(false)
     })
 
     it.each([
