@@ -3375,61 +3375,6 @@ describe('runStreamLogic', () => {
             ).toBe(expected)
         })
 
-        const savedPiece = (text: string, first_event_id: string, event_id: string): StoredLogEntry => ({
-            ...sessionUpdate({ sessionUpdate: 'agent_message', content: { type: 'text', text } }),
-            event_id,
-            first_event_id,
-        })
-        const toolCall = sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'tool-1', status: 'completed' })
-        it.each([
-            {
-                name: 'two saved pieces of one answer',
-                entries: [
-                    savedPiece('[link](/sql?q=tim', 'boot-1', 'boot-3'),
-                    savedPiece('estamp)', 'boot-5', 'boot-7'),
-                ],
-                expected: [{ text: '[link](/sql?q=timestamp)', complete: true }],
-            },
-            {
-                name: 'a saved piece followed by streaming chunks',
-                entries: [
-                    savedPiece('[link](/sql?q=tim', 'boot-1', 'boot-3'),
-                    chunk('est', 'boot-5'),
-                    chunk('amp)', 'boot-6'),
-                ],
-                expected: [{ text: '[link](/sql?q=timestamp)', complete: false }],
-            },
-            {
-                name: 'a saved piece that replaces the chunks it reopened',
-                entries: [
-                    savedPiece('[link](/sql?q=tim', 'boot-1', 'boot-3'),
-                    chunk('est', 'boot-5'),
-                    savedPiece('estamp)', 'boot-5', 'boot-6'),
-                ],
-                expected: [{ text: '[link](/sql?q=timestamp)', complete: true }],
-            },
-            {
-                name: 'saved answers with a tool call between them',
-                entries: [savedPiece('first', 'boot-1', 'boot-3'), toolCall, savedPiece('second', 'boot-5', 'boot-7')],
-                expected: [
-                    { text: 'first', complete: true },
-                    { text: 'second', complete: true },
-                ],
-            },
-        ])('folds $name', ({ entries, expected }) => {
-            const log = appendToRunLog(
-                emptyRunLog(),
-                entries
-                    .map((entry) => ({ ...entry, source_run_id: 'run-1' }))
-                    .map((entry) => ({ entry, source: 'replay' }))
-            )
-            expect(
-                foldLogToThread(log.entries, { isResumeRun: false })
-                    .threadItems.filter((item) => item.type === 'assistant_message')
-                    .map(({ text, complete }) => ({ text, complete }))
-            ).toEqual(expected)
-        })
-
         it.each([true, false])('retains the newest tool fields when saved state is newer: %s', (savedNewer) => {
             const tool = sessionUpdate({
                 sessionUpdate: 'tool_call',

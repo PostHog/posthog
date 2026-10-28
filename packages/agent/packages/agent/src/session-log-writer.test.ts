@@ -438,6 +438,15 @@ describe("SessionLogWriter", () => {
         label: "an unrecognized server diagnostic",
         wireMessages: [{ method: "_posthog/some_new_diagnostic", params: {} }],
       },
+      {
+        label: "a session usage update",
+        wireMessages: [
+          {
+            method: "session/update",
+            params: { update: { sessionUpdate: "usage_update", used: 1 } },
+          },
+        ],
+      },
     ])(
       "keeps a streamed message whole across an interleaved $label",
       async ({ wireMessages }) => {
@@ -454,6 +463,20 @@ describe("SessionLogWriter", () => {
         label: "a conversation event",
         wireMessages: [
           { method: "_posthog/progress", params: { label: "Cloning" } },
+        ],
+      },
+      {
+        label: "a thought chunk",
+        wireMessages: [
+          {
+            method: "session/update",
+            params: {
+              update: {
+                sessionUpdate: "agent_thought_chunk",
+                content: { type: "text", text: "Checking" },
+              },
+            },
+          },
         ],
       },
       {
@@ -638,14 +661,14 @@ describe("SessionLogWriter", () => {
       // Now a non-chunk event arrives, triggering natural coalescing
       logWriter.appendRawLine(
         sessionId,
-        makeSessionUpdate("usage_update", { used: 100 }),
+        makeSessionUpdate("tool_call", { toolCallId: "tc1" }),
       );
 
       await logWriter.flush(sessionId);
 
       expect(mockAppendLog).toHaveBeenCalledTimes(1);
       const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
-      expect(entries).toHaveLength(2); // coalesced agent_message + usage_update
+      expect(entries).toHaveLength(2); // coalesced agent_message + tool_call
       const coalesced = entries[0].notification;
       expect(coalesced.params?.update).toEqual({
         sessionUpdate: "agent_message",
