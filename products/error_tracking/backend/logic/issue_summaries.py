@@ -401,22 +401,12 @@ def generate_issue_summary_from_event(
     Does nothing when a summary is already stored. A stored summary refreshes through the read path.
     `load_event_properties` runs only after every check passes, so a blocked attempt reads no event.
     """
-    generation = _SummaryGeneration(
-        trigger=IssueSummaryTrigger.WRITE,
-        due=first_summary_due,
-        budget_key=f"{ISSUE_SUMMARY_WRITE_BUDGET_KEY_PREFIX}:{team_id}",
-        budget=ISSUE_SUMMARY_WRITE_BUDGET,
-        build_inputs=lambda team, _timings: build_issue_summary_inputs_from_event(
-            team, issue_id, load_event_properties(team)
-        ),
-    )
-    timings = IssueSummaryTimings()
-    return _generate_and_report(
+    return _generate_in_workflow(
         team_id,
         issue_id,
-        generation.trigger,
-        timings,
-        lambda: _get_or_generate_counted(team_id, issue_id, generation, timings),
+        IssueSummaryTrigger.WRITE,
+        first_summary_due,
+        lambda team, _timings: build_issue_summary_inputs_from_event(team, issue_id, load_event_properties(team)),
     )
 
 
@@ -427,20 +417,38 @@ def refresh_issue_summary_on_reopen(
 
     `load_event_properties` loads the reopening event. It is the latest event, because ClickHouse may not have it yet.
     """
-    generation = _SummaryGeneration(
-        trigger=IssueSummaryTrigger.REOPEN,
-        due=refresh_due,
-        budget_key=f"{ISSUE_SUMMARY_WRITE_BUDGET_KEY_PREFIX}:{team_id}",
-        budget=ISSUE_SUMMARY_WRITE_BUDGET,
-        build_inputs=lambda team, timings: build_issue_summary_inputs(
+    return _generate_in_workflow(
+        team_id,
+        issue_id,
+        IssueSummaryTrigger.REOPEN,
+        refresh_due,
+        lambda team, timings: build_issue_summary_inputs(
             team, issue_id, timings, latest_event_properties=load_event_properties(team)
         ),
+    )
+
+
+def _generate_in_workflow(
+    team_id: int,
+    issue_id: UUID | str,
+    trigger: IssueSummaryTrigger,
+    due: DueCheck,
+    build_inputs: Callable[[Team, IssueSummaryTimings], IssueSummaryInputs | IssueSummaryOutcome],
+) -> IssueSummaryResult:
+    generation = _SummaryGeneration(
+        trigger=trigger,
+        due=due,
+        budget_key=f"{ISSUE_SUMMARY_WRITE_BUDGET_KEY_PREFIX}:{team_id}",
+        budget=ISSUE_SUMMARY_WRITE_BUDGET,
+        build_inputs=build_inputs,
+        # A workflow attempt that leaves no summary must not stop the next read from generating at once.
+        releases_claim=True,
     )
     timings = IssueSummaryTimings()
     return _generate_and_report(
         team_id,
         issue_id,
-        generation.trigger,
+        trigger,
         timings,
         lambda: _get_or_generate_counted(team_id, issue_id, generation, timings),
     )
@@ -506,6 +514,7 @@ def get_or_generate_issue_summary(
         budget_key=f"{ISSUE_SUMMARY_BUDGET_KEY_PREFIX}:{team_id}",
         budget=ISSUE_SUMMARY_BUDGET,
         build_inputs=lambda team, inputs_timings: build_issue_summary_inputs(team, issue_id, inputs_timings),
+        releases_claim=False,
     )
     return _get_or_generate_counted(team_id, issue_id, generation, timings or IssueSummaryTimings())
 
@@ -519,6 +528,8 @@ class _SummaryGeneration:
     budget_key: str
     budget: Budget
     build_inputs: Callable[[Team, IssueSummaryTimings], IssueSummaryInputs | IssueSummaryOutcome]
+    # Delete the claim when no summary came of the attempt, instead of writing the outcome to the lock.
+    releases_claim: bool
 
     @property
     def fails_closed(self) -> bool:
@@ -559,15 +570,12 @@ def _get_or_generate(
     if (held := _claim_generation(team_id, issue_id, claim, fails_closed=generation.fails_closed)) is not None:
         return IssueSummaryResult(outcome=held, summary=stored)
 
-    # A workflow attempt that leaves no summary deletes its claim instead of writing its outcome to the lock.
-    # The next read then generates at once, so the write budget or a workflow failure never blocks a read.
-    release = generation.trigger != IssueSummaryTrigger.READ
     try:
         result = _generate_claimed(team_id, issue_id, generation, timings)
     except Exception:
-        _settle_claim(team_id, issue_id, claim, IssueSummaryOutcome.UNEXPECTED_ERROR, release=release)
+        _settle_claim(team_id, issue_id, claim, IssueSummaryOutcome.UNEXPECTED_ERROR, release=generation.releases_claim)
         raise
-    _settle_claim(team_id, issue_id, claim, result.outcome, release=release)
+    _settle_claim(team_id, issue_id, claim, result.outcome, release=generation.releases_claim)
     return result
 
 

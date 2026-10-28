@@ -45,6 +45,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueSummary,
     sync_issues_to_clickhouse,
 )
+from products.error_tracking.backend.temporal.lifecycle import summary_worker
 from products.error_tracking.backend.temporal.lifecycle.issue_created import activities as issue_created_activities
 from products.error_tracking.backend.temporal.lifecycle.issue_created.activities import (
     generate_issue_created_summary_activity,
@@ -447,8 +448,11 @@ class TestIssueSummaryGeneration(BaseTest):
 
     @parameterized.expand(
         [
-            (f"{entry}_{name}", entry, offset, expected)
-            for entry in ("creation", "reopen")
+            (f"{entry}_{name}", generate, offset, expected)
+            for entry, generate in (
+                ("creation", lambda test: test._generate_on_creation()),
+                ("reopen", lambda test: test._refresh_on_reopen()),
+            )
             for name, offset, expected in (
                 ("own_team_drained", 0, IssueSummaryOutcome.RATE_LIMITED),
                 ("other_team_drained", 1, IssueSummaryOutcome.GENERATED),
@@ -456,12 +460,11 @@ class TestIssueSummaryGeneration(BaseTest):
         ]
     )
     def test_write_budget_is_per_team_and_never_holds_a_read(
-        self, _name: str, entry: str, drained_team_offset: int, expected: IssueSummaryOutcome
+        self, _name: str, generate: Any, drained_team_offset: int, expected: IssueSummaryOutcome
     ) -> None:
         self._drain_write_budget(self.team.id + drained_team_offset)
 
-        generate = self._generate_on_creation if entry == "creation" else self._refresh_on_reopen
-        assert generate() == expected
+        assert generate(self) == expected
         read = get_or_generate_issue_summary(self.team.id, self.issue.id)
 
         assert read.summary is not None
@@ -469,8 +472,19 @@ class TestIssueSummaryGeneration(BaseTest):
 
     @parameterized.expand(
         [
-            (f"{workflow}_{name}", workflow, flags_off, arrange, expected)
-            for workflow in ("created", "reopened")
+            (f"{workflow}_{name}", activities, run_activity, flags_off, arrange, expected)
+            for workflow, activities, run_activity in (
+                (
+                    "created",
+                    issue_created_activities,
+                    lambda test: generate_issue_created_summary_activity(test._issue_created_inputs()),
+                ),
+                (
+                    "reopened",
+                    issue_reopened_activities,
+                    lambda test: generate_issue_reopened_summary_activity(test._issue_reopened_inputs()),
+                ),
+            )
             for name, flags_off, arrange, expected in (
                 ("on_write_flag_off", {ISSUE_SUMMARY_ON_WRITE_FLAG}, None, IssueSummaryOutcome.DISABLED),
                 ("read_flag_off", {ISSUE_SUMMARY_FLAG}, None, IssueSummaryOutcome.DISABLED),
@@ -486,49 +500,60 @@ class TestIssueSummaryGeneration(BaseTest):
         ]
     )
     def test_lifecycle_summary_activity_fails_closed(
-        self, _name: str, workflow: str, flags_off: set[str], arrange: Any, expected: IssueSummaryOutcome
+        self,
+        _name: str,
+        activities: Any,
+        run_activity: Any,
+        flags_off: set[str],
+        arrange: Any,
+        expected: IssueSummaryOutcome,
     ) -> None:
         self.enterContext(
             patch.object(
                 team_flags, "feature_enabled_or_false", side_effect=lambda flag, *_, **__: flag not in flags_off
             )
         )
-        activities = issue_created_activities if workflow == "created" else issue_reopened_activities
         fetch = self.enterContext(patch.object(activities, "fetch_event_properties", return_value={"$lib": "web"}))
         capture = MagicMock()
         self.enterContext(patch.object(issue_summaries, "ph_background_capture", return_value=capture))
         if arrange is not None:
             arrange(self)
 
-        if workflow == "created":
-            outcome = generate_issue_created_summary_activity(self._issue_created_inputs())
-        else:
-            outcome = generate_issue_reopened_summary_activity(self._issue_reopened_inputs())
+        outcome = run_activity(self)
 
         assert outcome == expected.value
         assert self.llm_calls == (1 if expected == IssueSummaryOutcome.GENERATED else 0)
         assert fetch.called is (expected == IssueSummaryOutcome.GENERATED)
         assert capture.called is (ISSUE_SUMMARY_ON_WRITE_FLAG not in flags_off)
 
-    def test_issue_created_activity_skips_while_worker_summary_slots_are_full(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "created",
+                issue_created_activities,
+                lambda test: generate_issue_created_summary_activity(test._issue_created_inputs()),
+            ),
+            (
+                "reopened",
+                issue_reopened_activities,
+                lambda test: generate_issue_reopened_summary_activity(test._issue_reopened_inputs()),
+            ),
+        ]
+    )
+    def test_lifecycle_summary_activity_skips_while_worker_summary_slots_are_full(
+        self, _name: str, activities: Any, run_activity: Any
+    ) -> None:
         self.enterContext(patch.object(team_flags, "feature_enabled_or_false", return_value=True))
-        self.enterContext(
-            patch.object(issue_created_activities, "fetch_event_properties", return_value={"$lib": "web"})
-        )
+        self.enterContext(patch.object(activities, "fetch_event_properties", return_value={"$lib": "web"}))
         slots = threading.BoundedSemaphore(1)
-        self.enterContext(patch.object(issue_created_activities, "ISSUE_SUMMARY_WORKER_SLOTS", slots))
+        self.enterContext(patch.object(summary_worker, "ISSUE_SUMMARY_WORKER_SLOTS", slots))
 
         slots.acquire()
-        assert (
-            generate_issue_created_summary_activity(self._issue_created_inputs())
-            == IssueSummaryOutcome.RATE_LIMITED.value
-        )
+        assert run_activity(self) == IssueSummaryOutcome.RATE_LIMITED.value
         assert self.llm_calls == 0
 
         slots.release()
-        assert (
-            generate_issue_created_summary_activity(self._issue_created_inputs()) == IssueSummaryOutcome.GENERATED.value
-        )
+        assert run_activity(self) == IssueSummaryOutcome.GENERATED.value
         assert slots.acquire(blocking=False)
 
     def _drain_write_budget(self, team_id: int) -> None:

@@ -2,7 +2,6 @@ import json
 import asyncio
 
 from temporalio import workflow
-from temporalio.exceptions import ActivityError
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -17,10 +16,8 @@ from products.error_tracking.backend.temporal.lifecycle.policies import (
     ALERT_DISPATCH_PATCH,
     ALERT_DISPATCH_RETRY_POLICY,
     ALERT_DISPATCH_SCHEDULE_TO_CLOSE_TIMEOUT,
-    SUMMARY_RETRY_POLICY,
-    SUMMARY_SCHEDULE_TO_CLOSE_TIMEOUT,
-    SUMMARY_START_TO_CLOSE_TIMEOUT,
 )
+from products.error_tracking.backend.temporal.lifecycle.summary_activity import execute_summary_activity
 
 WORKFLOW_NAME = "error-tracking-issue-reopened"
 SUMMARY_ON_REOPEN_PATCH = "error-tracking-summary-on-reopen-activity"
@@ -51,7 +48,18 @@ async def run_issue_reopened_side_effects(inputs: IssueReopenedWorkflowInputs) -
     )
     # Patched for the same reason. The alert and the emit activities do not wait for the summary.
     # The workflow awaits it before it completes, because a task left unawaited is dropped when the workflow returns.
-    summary = asyncio.create_task(_refresh_summary(inputs)) if workflow.patched(SUMMARY_ON_REOPEN_PATCH) else None
+    summary = (
+        asyncio.create_task(
+            execute_summary_activity(
+                "generate_issue_reopened_summary_activity",
+                inputs,
+                fail_open_counter="error_tracking_issue_reopened_summary_fail_open",
+                description="Issue-reopened side effects whose summary activity failed",
+            )
+        )
+        if workflow.patched(SUMMARY_ON_REOPEN_PATCH)
+        else None
+    )
     try:
         await workflow.execute_activity(
             "emit_issue_reopened_internal_event_activity",
@@ -70,27 +78,6 @@ async def run_issue_reopened_side_effects(inputs: IssueReopenedWorkflowInputs) -
             await dispatch
         if summary is not None:
             await summary
-
-
-async def _refresh_summary(inputs: IssueReopenedWorkflowInputs) -> None:
-    try:
-        await workflow.execute_activity(
-            "generate_issue_reopened_summary_activity",
-            inputs,
-            schedule_to_close_timeout=SUMMARY_SCHEDULE_TO_CLOSE_TIMEOUT,
-            start_to_close_timeout=SUMMARY_START_TO_CLOSE_TIMEOUT,
-            retry_policy=SUMMARY_RETRY_POLICY,
-        )
-    except ActivityError:
-        workflow.logger.warning("Issue summary refresh failed; a read refreshes it instead")
-        (
-            workflow.metric_meter()
-            .create_counter(
-                "error_tracking_issue_reopened_summary_fail_open",
-                "Issue-reopened side effects whose summary activity failed",
-            )
-            .add(1)
-        )
 
 
 @workflow.defn(name=WORKFLOW_NAME)

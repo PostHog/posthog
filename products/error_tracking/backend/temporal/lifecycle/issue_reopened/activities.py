@@ -13,6 +13,7 @@ from products.error_tracking.backend.temporal.lifecycle.side_effects import (
     emit_issue_lifecycle_signal,
     produce_issue_lifecycle_internal_event,
 )
+from products.error_tracking.backend.temporal.lifecycle.summary_worker import generate_summary_on_worker
 
 if TYPE_CHECKING:
     from products.error_tracking.backend.logic.issue_summaries import IssueSummaryOutcome
@@ -55,17 +56,18 @@ async def emit_issue_reopened_signal_activity(inputs: IssueReopenedWorkflowInput
 def _refresh_issue_reopened_summary(inputs: IssueReopenedWorkflowInputs) -> "IssueSummaryOutcome":
     # issue_summaries imports the lifecycle rendering module, whose package imports this module.
     from products.error_tracking.backend.logic.issue_summaries import (  # noqa: PLC0415
-        IssueSummaryOutcome,
-        issue_summaries_on_write_enabled,
+        IssueSummaryTrigger,
         refresh_issue_summary_on_reopen,
     )
 
-    # Checked outside the generator, which reports every attempt as an event, so a team without the flag sends none.
-    if not issue_summaries_on_write_enabled(inputs.team_id):
-        return IssueSummaryOutcome.DISABLED
-    return refresh_issue_summary_on_reopen(
-        inputs.team_id, inputs.issue_id, lambda team: fetch_event_properties(team, inputs)
-    ).outcome
+    return generate_summary_on_worker(
+        inputs.team_id,
+        inputs.issue_id,
+        IssueSummaryTrigger.REOPEN,
+        lambda: refresh_issue_summary_on_reopen(
+            inputs.team_id, inputs.issue_id, lambda team: fetch_event_properties(team, inputs)
+        ),
+    )
 
 
 @activity.defn
