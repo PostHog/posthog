@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 
 import { IconCopy, IconDownload, IconOpenSidebar, IconShare, IconTrash } from '@posthog/icons'
 
-import { SceneMenuBarStarItem } from 'lib/components/Scenes/SceneMenuBarStarItem'
+import { SceneMenuBarPinItem } from 'lib/components/Scenes/SceneMenuBarPinItem'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -105,7 +105,7 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
                     <IconCopy />
                     Duplicate
                 </SceneMenuBarItem>
-                <SceneMenuBarStarItem dataAttrKey={RESOURCE_TYPE} />
+                <SceneMenuBarPinItem dataAttrKey={RESOURCE_TYPE} />
                 <SceneMenuBarSeparator />
                 <SceneMenuBarCheckboxItem
                     checked={showHistory}

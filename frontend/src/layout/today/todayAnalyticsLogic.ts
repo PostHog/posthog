@@ -20,7 +20,7 @@ import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 // pinned: persisted section ids and the `section` property of `analytics section toggled`.
-export type TodayAnalyticsSection = 'starred' | 'recents' | 'monitor' | 'by-posthog'
+export type TodayAnalyticsSection = 'pinned' | 'recents' | 'monitor' | 'by-posthog'
 
 export const DEFAULT_COLLAPSED_SECTIONS: TodayAnalyticsSection[] = []
 

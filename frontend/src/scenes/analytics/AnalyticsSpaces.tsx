@@ -34,10 +34,10 @@ import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
 import { TodayAnalyticsNewFolderDialog } from '~/layout/today/TodayAnalyticsNewFolderDialog'
 
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
+import { AnalyticsPinButton } from './AnalyticsPinButton'
 import { AnalyticsSearchInput } from './AnalyticsSearchInput'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { AnalyticsSpace, analyticsSpacesLogic } from './analyticsSpacesLogic'
-import { AnalyticsStarButton } from './AnalyticsStarButton'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
 import { ANALYTICS_TYPES } from './analyticsUtils'
 
@@ -88,7 +88,7 @@ function SpaceRow({ space }: { space: AnalyticsSpace }): JSX.Element {
             </ItemMedia>
             <ItemContent className="min-w-0 gap-0.5">
                 <ItemTitle className="truncate">
-                    {/* The link's pseudo-element covers the row, so the whole row opens the space while the star stays its own control. */}
+                    {/* The link's pseudo-element covers the row, so the whole row opens the space while the pin stays its own control. */}
                     <LinkPrimitive
                         to={urls.analyticsList({ folder: space.path })}
                         className="text-foreground after:absolute after:inset-0 after:content-['']"
@@ -108,7 +108,7 @@ function SpaceRow({ space }: { space: AnalyticsSpace }): JSX.Element {
             </ItemContent>
             <SpaceCounts space={space} className="hidden shrink-0 @3xl/analytics:flex" />
             <ItemActions className="relative z-10 shrink-0 self-center">
-                <AnalyticsStarButton
+                <AnalyticsPinButton
                     target={{ type: 'folder', ref: space.path, name: space.name }}
                     size="icon"
                     // pinned: tracking API, do not rename.

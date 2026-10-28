@@ -116,7 +116,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                     disabledReasons={captureDisabledReasons}
                 />
             )}
-            {/* The Today layout stars insights per person instead, so the project-wide favorite would read as a duplicate. */}
+            {/* The Today layout pins insights per person instead, so the project-wide favorite would read as a duplicate. */}
             {!todayRailNav && (
                 <SceneFavorite
                     dataAttrKey={RESOURCE_TYPE}

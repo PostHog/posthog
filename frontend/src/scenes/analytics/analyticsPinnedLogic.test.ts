@@ -4,9 +4,9 @@ import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectT
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { analyticsStarredLogic } from './analyticsStarredLogic'
+import { analyticsPinnedLogic } from './analyticsPinnedLogic'
 
-describe('analyticsStarredLogic', () => {
+describe('analyticsPinnedLogic', () => {
     let requests: string[]
 
     beforeEach(() => {
@@ -33,21 +33,21 @@ describe('analyticsStarredLogic', () => {
         initKeaTests()
     })
 
-    it('keeps only analytics items and collections, and unstars an item whatever subtype it was starred as', async () => {
-        const logic = analyticsStarredLogic()
+    it('keeps only analytics items and collections, and unpins an item whatever subtype it was pinned as', async () => {
+        const logic = analyticsPinnedLogic()
         logic.mount()
         await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
 
-        expect(logic.values.starredAnalytics.map((starred) => starred.key)).toEqual([
+        expect(logic.values.pinnedAnalytics.map((pinned) => pinned.key)).toEqual([
             'folder:Growth',
             'insight:abc123',
             'dashboard:7',
         ])
 
         await expectLogic(logic, () =>
-            logic.actions.toggleStarred({ type: 'insight', ref: 'abc123', name: 'Signups' })
-        ).toDispatchActions(['deleteShortcutSuccess'])
+            logic.actions.togglePinned({ type: 'insight', ref: 'abc123', name: 'Signups' })
+        ).toDispatchActions(projectTreeDataLogic, ['deleteShortcutSuccess'])
         expect(requests).toEqual(['delete sc-insight'])
-        expect(logic.values.starredAnalytics.map((starred) => starred.key)).toEqual(['folder:Growth', 'dashboard:7'])
+        expect(logic.values.pinnedAnalytics.map((pinned) => pinned.key)).toEqual(['folder:Growth', 'dashboard:7'])
     })
 })

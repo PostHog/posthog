@@ -25,7 +25,7 @@ import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
 import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { SceneMenuBarAddToNotebook } from 'lib/components/Scenes/SceneMenuBarAddToNotebook'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
-import { SceneMenuBarStarItem } from 'lib/components/Scenes/SceneMenuBarStarItem'
+import { SceneMenuBarPinItem } from 'lib/components/Scenes/SceneMenuBarPinItem'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -196,7 +196,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
         isSavedInsight /* add-to-dashboard, add-to-notebook, subscribe, alerts, share */
     const showMetadataMenu = true // tags + activity always shown
     const showStateMenu = isSavedInsight // favorite + view-source toggle
-    // The Today layout stars insights per person instead, so the project-wide favorite would read as a duplicate.
+    // The Today layout pins insights per person instead, so the project-wide favorite would read as a duplicate.
     const showFavorite = !featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
     const showStaffMenu = canShowDebugPanel
 
@@ -411,7 +411,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                             Edit in SQL editor
                         </SceneMenuBarItem>
                     )}
-                    <SceneMenuBarStarItem dataAttrKey={RESOURCE_TYPE} />
+                    <SceneMenuBarPinItem dataAttrKey={RESOURCE_TYPE} />
                     {showStateMenu && (
                         <>
                             <SceneMenuBarSeparator />

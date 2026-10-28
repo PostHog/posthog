@@ -38,9 +38,9 @@ import type { AnalyticsFeedQuery } from './analyticsFeed'
 import { AnalyticsFolderDropTarget } from './AnalyticsFolderDropTarget'
 import type { FolderRow } from './analyticsListLogic'
 import { AnalyticsOwner } from './AnalyticsOwner'
+import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
 import { analyticsShareLogic } from './analyticsShareLogic'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
-import { AnalyticsStarMenuItem } from './AnalyticsStarMenuItem'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
 import {
     ANALYTICS_DRAG_SCOPE,
@@ -182,9 +182,9 @@ function ItemMenuCell({ item }: { item: AnalyticsItem }): JSX.Element {
                 <IconEllipsis />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-56">
-                <AnalyticsStarMenuItem
+                <AnalyticsPinMenuItem
                     target={{ type: item.type, ref: item.id, name: item.name, href: item.href }}
-                    dataAttr="analytics-list-row-star"
+                    dataAttr="analytics-list-row-pin"
                 />
                 <DropdownMenuItem
                     onClick={() => openShareToSpace({ type: item.type, ref: item.id, name: item.name })}
@@ -227,9 +227,9 @@ function FolderMenuCell({ folder }: { folder: FolderRow }): JSX.Element | null {
                     Open folder
                 </DropdownMenuItem>
                 {isSpacePath(folder.path) && (
-                    <AnalyticsStarMenuItem
+                    <AnalyticsPinMenuItem
                         target={{ type: 'folder', ref: folder.path, name: folder.name }}
-                        dataAttr="analytics-list-folder-star"
+                        dataAttr="analytics-list-folder-pin"
                     />
                 )}
                 <DropdownMenuItem
