@@ -167,6 +167,11 @@ describe('addUtmTagsToEmail', () => {
             expected: '<a href="https://example.com/p?a=1&amp;ph_workflow_run=run-1">x</a>',
         },
         {
+            case: 'replaces a percent-encoded run id of an earlier send',
+            html: '<a href="https://example.com/p?%70h_workflow_run=old-run&amp;a=%zz">x</a>',
+            expected: '<a href="https://example.com/p?a=%zz&amp;ph_workflow_run=run-1">x</a>',
+        },
+        {
             case: 'replaces every run id of earlier sends and keeps a hash route',
             html: '<a href="https://example.com/?ph_workflow_run=a&amp;ph_workflow_run=b#/p?ph_workflow_run=x">x</a>',
             expected: '<a href="https://example.com/?ph_workflow_run=run-1#/p?ph_workflow_run=x">x</a>',

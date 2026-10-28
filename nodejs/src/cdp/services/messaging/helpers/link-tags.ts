@@ -11,7 +11,16 @@ export const hasSesNoTrack = (openingTag: string): boolean => SES_NO_TRACK_ATTR_
 export const isNeverClickTracked = (openingTag: string): boolean =>
     hasClickTrackingOptOut(openingTag) || hasSesNoTrack(openingTag)
 
-const isWorkflowRunParam = (param: string): boolean => param.split('=')[0] === WORKFLOW_RUN_PARAM
+const paramName = (param: string): string => {
+    const name = param.split('=')[0]
+    try {
+        return decodeURIComponent(name)
+    } catch {
+        return name
+    }
+}
+
+const isWorkflowRunParam = (param: string): boolean => paramName(param) === WORKFLOW_RUN_PARAM
 
 export const removeWorkflowRunTag = (url: string): string => {
     const hashIndex = url.indexOf('#')
