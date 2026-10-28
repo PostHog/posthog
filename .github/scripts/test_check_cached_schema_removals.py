@@ -89,6 +89,18 @@ def schema(**definitions: Any) -> dict[str, Any]:
             id="renamed-recursive-model",
         ),
         pytest.param(
+            schema(
+                Modifiers={"properties": {"a": {"$ref": "#/definitions/Old"}, "b": {"$ref": "#/definitions/Old"}}},
+                Old={"properties": {"kept": {}, "gone": {}}},
+            ),
+            schema(
+                Modifiers={"properties": {"a": {"$ref": "#/definitions/New"}, "b": {"$ref": "#/definitions/New"}}},
+                New={"properties": {"kept": {}}},
+            ),
+            ["`Modifiers` at `a`: property `gone`"],
+            id="renamed-model-reached-twice-is-reported-once",
+        ),
+        pytest.param(
             schema(Modifiers={"properties": {"inner": {"properties": {"kept": {}}}}}),
             schema(Modifiers={"properties": {"inner": {"anyOf": [{"properties": {"kept": {}}}, {"type": "null"}]}}}),
             [],

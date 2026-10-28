@@ -24,7 +24,7 @@ import sys
 import json
 import uuid
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
@@ -95,7 +95,6 @@ def referenced_definitions(node: Any) -> Iterator[str]:
 
 
 def allowed_values(node: dict[str, Any]) -> list[Any] | None:
-    # The schema generator writes a type with a single allowed value as `const`, not a one-item `enum`.
     if isinstance(node.get("enum"), list):
         return node["enum"]
     if "const" in node:
@@ -138,15 +137,9 @@ class RefPair:
 class SchemaPair:
     base_definitions: dict[str, Any]
     head_definitions: dict[str, Any]
+    compared: set[RefPair] = field(default_factory=set)
 
-    def removed_fields(
-        self,
-        model: str,
-        base: Any,
-        head: Any,
-        location: str,
-        followed: frozenset[RefPair] = frozenset(),
-    ) -> Iterator[Removal]:
+    def removed_fields(self, model: str, base: Any, head: Any, location: str) -> Iterator[Removal]:
         base = without_null(base)
         head = without_null(head)
         base_ref = reference_name(base)
@@ -155,9 +148,9 @@ class SchemaPair:
             return
         if base_ref is not None and head_ref is not None:
             ref_pair = RefPair(base=base_ref, head=head_ref)
-            if ref_pair in followed:
+            if ref_pair in self.compared:
                 return
-            followed = followed | {ref_pair}
+            self.compared.add(ref_pair)
         if base_ref is not None or head_ref is not None:
             base = self.base_definitions.get(base_ref) if base_ref is not None else base
             head = self.head_definitions.get(head_ref) if head_ref is not None else head
@@ -180,11 +173,9 @@ class SchemaPair:
                     if name not in head_properties:
                         yield Removal(model=model, location=location, kind="property", name=name)
                     else:
-                        yield from self.removed_fields(
-                            model, base_property, head_properties[name], child_location, followed
-                        )
+                        yield from self.removed_fields(model, base_property, head_properties[name], child_location)
             elif isinstance(base_value, dict):
-                yield from self.removed_fields(model, base_value, head_value, location, followed)
+                yield from self.removed_fields(model, base_value, head_value, location)
 
 
 def find_removals(base_schema: dict[str, Any], head_schema: dict[str, Any]) -> list[Removal]:
