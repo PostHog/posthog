@@ -4555,7 +4555,11 @@ def list_calendar_sync_statuses(team_id: int) -> list[contracts.CalendarSyncStat
     )
 
     statuses = []
-    for integration in Integration.objects.filter(team_id=team_id, kind="google-calendar").order_by("id"):
+    for integration in (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .filter(team_id=team_id, kind="google-calendar")
+        .order_by("id")
+    ):
         config = integration.config or {}
         last_synced_at = _parse_datetime(config.get(LAST_SYNCED_AT_CONFIG_KEY))
         started_at = _parse_datetime(config.get(SYNC_STARTED_AT_CONFIG_KEY))
@@ -4614,7 +4618,8 @@ def trigger_calendar_sync(
     flight; the workflow id is deterministic per integration), or None when the
     integration doesn't exist for this team (→ 404)."""
     integration = (
-        Integration.objects.only("id", "kind", "created_by_id")
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .only("id", "kind", "created_by_id")
         .filter(id=integration_id, team_id=team_id, kind=Integration.IntegrationKind.GOOGLE_CALENDAR)
         .first()
     )
@@ -4656,7 +4661,8 @@ def trigger_google_account_backfill(
     has_management_access: bool,
 ) -> str | None:
     integration = (
-        Integration.objects.only("id")
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .only("id")
         .filter(id=integration_id, team_id=team_id, kind=Integration.IntegrationKind.GOOGLE_CALENDAR)
         .first()
     )
@@ -5582,7 +5588,11 @@ def _to_event_stream_view(stream: EventStream) -> contracts.EventStreamView:
 def _validate_slack_integration(team_id: int, integration_id: int | None) -> None:
     if integration_id is None:
         return
-    if not Integration.objects.filter(team_id=team_id, id=integration_id, kind="slack").exists():
+    if (
+        not Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .filter(team_id=team_id, id=integration_id, kind="slack")
+        .exists()
+    ):
         raise EventStreamValidationError("Slack integration not found for this team.")
 
 

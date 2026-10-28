@@ -20,7 +20,9 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         domain = options["domain"].lower()
-        in_use = Integration.objects.filter(kind="email", config__domain=domain)
+        in_use = Integration.objects.with_auth(Integration.AuthType.VERIFIED_DOMAIN).filter(
+            kind="email", config__domain=domain
+        )
         if in_use.exists():
             team_ids = sorted(in_use.values_list("team_id", flat=True))
             raise CommandError(

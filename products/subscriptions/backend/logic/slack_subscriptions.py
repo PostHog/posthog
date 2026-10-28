@@ -393,7 +393,7 @@ def _blocks_for_asset(asset: ExportedAsset, resource_url: str, *, include_insigh
 
 def get_slack_integration_for_team(team_id: int) -> Integration | None:
     """Get Slack integration for a team. Returns None if not found."""
-    return Integration.objects.filter(team_id=team_id, kind="slack").first()
+    return Integration.objects.with_auth(Integration.AuthType.OAUTH).filter(team_id=team_id, kind="slack").first()
 
 
 def send_slack_subscription_report(

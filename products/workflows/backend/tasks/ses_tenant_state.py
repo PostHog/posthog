@@ -36,7 +36,8 @@ def reconcile_ses_tenant_states() -> None:
     logic dedupes against stored state, so overlap with webhook-triggered syncs is harmless.
     """
     team_ids = (
-        Integration.objects.filter(kind="email", config__provider="ses")
+        Integration.objects.with_auth(Integration.AuthType.VERIFIED_DOMAIN)
+        .filter(kind="email", config__provider="ses")
         .values_list("team_id", flat=True)
         .distinct()
         .order_by("team_id")

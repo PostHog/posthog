@@ -127,7 +127,11 @@ def _log_credential(team: Team, source_id: str) -> _LogCredential | None:
         return _LogCredential(token=credential.personal_access_token, installation_id=None)
     if credential.integration_id is None:
         return None
-    integration = Integration.objects.filter(team_id=team.pk, id=credential.integration_id, kind="github").first()
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.APP)
+        .filter(team_id=team.pk, id=credential.integration_id, kind="github")
+        .first()
+    )
     if integration is None:
         return None
     github = GitHubIntegration(integration, source=_EGRESS_SOURCE, priority=Priority.NORMAL)

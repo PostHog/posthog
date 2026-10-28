@@ -74,8 +74,10 @@ def update_calendar_sync_config(
     integration_id: int, team_id: int, updates: dict[str, object], removals: tuple[str, ...] = ()
 ) -> None:
     with transaction.atomic():
-        integration = Integration.objects.select_for_update().get(
-            id=integration_id, team_id=team_id, kind="google-calendar"
+        integration = (
+            Integration.objects.with_auth(Integration.AuthType.OAUTH)
+            .select_for_update()
+            .get(id=integration_id, team_id=team_id, kind="google-calendar")
         )
         config = dict(integration.config or {})
         config.update(updates)
@@ -122,7 +124,9 @@ def sync_calendar_integration(integration_id: int, team_id: int) -> CalendarSync
     incremental via the stored syncToken. A stale token (HTTP 410) drops the cursor
     and re-lists the whole window in the same run.
     """
-    integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="google-calendar")
+    integration = Integration.objects.with_auth(Integration.AuthType.OAUTH).get(
+        id=integration_id, team_id=team_id, kind="google-calendar"
+    )
     team = integration.team
     counts = CalendarSyncCounts()
     try:
@@ -162,7 +166,9 @@ def sync_calendar_integration_backfill_page(
     if start_at >= end_at:
         raise CalendarSyncError("Calendar backfill start must be before its end")
 
-    integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="google-calendar")
+    integration = Integration.objects.with_auth(Integration.AuthType.OAUTH).get(
+        id=integration_id, team_id=team_id, kind="google-calendar"
+    )
     access_token = _get_fresh_access_token(integration)
     mark_calendar_sync_started(integration_id, team_id)
     params: dict[str, Any] = {

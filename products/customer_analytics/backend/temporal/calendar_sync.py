@@ -121,7 +121,12 @@ def _collect_calendar_integrations() -> list[CalendarSyncInput]:
 
     now = timezone.now()
     due: list[tuple[datetime, int, int]] = []
-    for integration in Integration.objects.filter(kind="google-calendar").only("id", "team_id", "config").iterator():
+    for integration in (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .filter(kind="google-calendar")
+        .only("id", "team_id", "config")
+        .iterator()
+    ):
         config = integration.config or {}
         last_sync = _calendar_config_datetime(config.get(LAST_SYNCED_AT_CONFIG_KEY))
         attempted = _calendar_config_datetime(config.get(SYNC_ATTEMPTED_AT_CONFIG_KEY))

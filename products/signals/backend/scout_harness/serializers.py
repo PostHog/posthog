@@ -3057,11 +3057,15 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
 
     integration_id = slack["integration_id"]
     # nosemgrep: environment-model-scoped-by-project -- scout configs are project-level, so a Slack integration from any environment of the project is valid
-    integration = Integration.objects.filter(
-        id=integration_id,
-        team__project_id=project_id,
-        kind=Integration.IntegrationKind.SLACK,
-    ).first()
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .filter(
+            id=integration_id,
+            team__project_id=project_id,
+            kind=Integration.IntegrationKind.SLACK,
+        )
+        .first()
+    )
     if integration is None:
         raise serializers.ValidationError(
             {"slack": {"integration_id": "No Slack integration with this ID exists on this project."}}

@@ -215,7 +215,8 @@ def verified_email_domains(*, team_id: int) -> list[str]:
     return list(
         dict.fromkeys(
             domain
-            for domain in Integration.objects.filter(team_id=team_id, kind="email", config__verified=True)
+            for domain in Integration.objects.with_auth(Integration.AuthType.VERIFIED_DOMAIN)
+            .filter(team_id=team_id, kind="email", config__verified=True)
             .order_by("id")
             .values_list("config__domain", flat=True)
             if domain
@@ -227,7 +228,8 @@ def email_domain_sharers(*, team_id: int, domains: Collection[str]) -> dict[str,
     """For each domain, the other projects that also send from it."""
     sharers: dict[str, set[int]] = {domain: set() for domain in domains}
     for domain, sharer_id in (
-        Integration.objects.filter(kind="email", config__verified=True, config__domain__in=list(domains))
+        Integration.objects.with_auth(Integration.AuthType.VERIFIED_DOMAIN)
+        .filter(kind="email", config__verified=True, config__domain__in=list(domains))
         .exclude(team_id=team_id)
         .values_list("config__domain", "team_id")
     ):

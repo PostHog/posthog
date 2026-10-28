@@ -18,7 +18,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration
+from posthog.models.integration import ANY, POSTHOG_CONNECT_KIND, Integration
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -94,7 +94,11 @@ def _validate_not_posthog_connection(integration_ids: list[int], context: dict) 
     get_team = context.get("get_team")
     if get_team is None or not integration_ids:
         return
-    if Integration.objects.filter(team_id=get_team().id, id__in=integration_ids, kind=POSTHOG_CONNECT_KIND).exists():
+    if (
+        Integration.objects.with_auth(ANY)
+        .filter(team_id=get_team().id, id__in=integration_ids, kind=POSTHOG_CONNECT_KIND)
+        .exists()
+    ):
         raise serializers.ValidationError(
             {"input": "A PostHog connection can't be used as a function input. Choose a different integration."}
         )
@@ -152,7 +156,9 @@ def _validate_email_sender_override(from_value: dict, context: dict) -> None:
     domain_cache: dict[int, str] = shared_cache if isinstance(shared_cache, dict) else {}
     missing_ids = [integration_id for integration_id in integration_ids if integration_id not in domain_cache]
     if missing_ids:
-        for integration in Integration.objects.filter(team_id=get_team().id, id__in=missing_ids, kind="email"):
+        for integration in Integration.objects.with_auth(Integration.AuthType.VERIFIED_DOMAIN).filter(
+            team_id=get_team().id, id__in=missing_ids, kind="email"
+        ):
             config = integration.config or {}
             domain_cache[integration.id] = (config.get("domain") or (config.get("email") or "").split("@")[-1]).lower()
         for integration_id in missing_ids:

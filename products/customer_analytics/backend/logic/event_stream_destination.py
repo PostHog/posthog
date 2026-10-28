@@ -180,7 +180,11 @@ def send_test_slack_message(*, team_id: int, stream_id: str, user: "User") -> st
         return None
     if not (stream.slack_integration_id and stream.slack_channel_id):
         raise EventStreamTestMessageError("Save a Slack workspace and channel before sending a test message.")
-    integration = Integration.objects.filter(team_id=team_id, id=stream.slack_integration_id, kind="slack").first()
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .filter(team_id=team_id, id=stream.slack_integration_id, kind="slack")
+        .first()
+    )
     if integration is None:
         raise EventStreamTestMessageError("The stream's Slack workspace is no longer connected.")
 

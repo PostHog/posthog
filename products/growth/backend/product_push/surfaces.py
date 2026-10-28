@@ -13,14 +13,14 @@ import uuid
 from collections.abc import Callable
 from functools import partial
 
-from posthog.models.integration import Integration
+from posthog.models.integration import DEFAULT, Integration
 from posthog.schema_enums import ProductKey
 
 OrganizationId = str | uuid.UUID
 
 
 def organization_has_integration(organization_id: OrganizationId, kind: str) -> bool:
-    return Integration.objects.filter(team__organization_id=organization_id, kind=kind).exists()
+    return Integration.objects.with_auth(DEFAULT).filter(team__organization_id=organization_id, kind=kind).exists()
 
 
 def organization_accepted_desktop_beta_terms(organization_id: OrganizationId) -> bool:

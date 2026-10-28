@@ -207,7 +207,9 @@ def get_github_integration_for_repo(repo: Repo):
     """Get GitHub integration for the repo's team."""
     from posthog.models.integration import GitHubIntegration, Integration
 
-    integration = Integration.objects.filter(team_id=repo.team_id, kind="github").first()
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.APP).filter(team_id=repo.team_id, kind="github").first()
+    )
 
     if not integration:
         raise errors.GitHubIntegrationNotFoundError(f"No GitHub integration found for team {repo.team_id}")

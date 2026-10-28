@@ -188,7 +188,9 @@ def build_routing_context(team_id: int) -> RoutingContext | None:
 
     Raises ``RoutingUnavailable`` when a registry could not be read.
     """
-    integration = Integration.objects.filter(team_id=team_id, kind="slack").first()
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH).filter(team_id=team_id, kind="slack").first()
+    )
     if integration is None:
         logger.info("stamphog_routing_no_slack_integration", team_id=team_id)
         return None

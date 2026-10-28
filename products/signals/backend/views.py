@@ -6653,11 +6653,15 @@ class SignalUserAutonomyConfigView(APIView):
                     raise serializers.ValidationError(
                         {"slack_notification_integration_id": "Unknown Slack integration for this user."}
                     )
-                candidate = Integration.objects.filter(
-                    pk=integration_id,
-                    kind="slack",
-                    team_id=current_team_id,
-                ).first()
+                candidate = (
+                    Integration.objects.with_auth(Integration.AuthType.OAUTH)
+                    .filter(
+                        pk=integration_id,
+                        kind="slack",
+                        team_id=current_team_id,
+                    )
+                    .first()
+                )
                 if candidate is None:
                     raise serializers.ValidationError(
                         {"slack_notification_integration_id": "Unknown Slack integration for this user."}

@@ -179,7 +179,8 @@ def _actor_lacks_write_permission(integration: Integration, job: contracts.GitHu
 def link_reference(job: contracts.GitHubExternalReferenceJob) -> bool:
     owner, repository = job.repository_full_name.split("/", 1)
     integration = (
-        Integration.objects.filter(
+        Integration.objects.with_auth(Integration.AuthType.APP)
+        .filter(
             team_id=job.team_id,
             kind=Integration.IntegrationKind.GITHUB.value,
             integration_id=job.installation_id,

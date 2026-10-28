@@ -72,9 +72,8 @@ def _installation_id(owner: str, organization_ids: Collection[str]) -> str | Non
     """The PostHog GitHub App installation on the repository owner, in one of these organizations."""
     # nosemgrep: github-installation-first-team -- only the installation id is read; the newest row wins over one left from an earlier install
     integration = (
-        Integration.objects.filter(
-            kind="github", config__account__name__iexact=owner, team__organization_id__in=organization_ids
-        )
+        Integration.objects.with_auth(Integration.AuthType.APP)
+        .filter(kind="github", config__account__name__iexact=owner, team__organization_id__in=organization_ids)
         .order_by("-id")
         .only("integration_id")
         .first()
@@ -162,9 +161,11 @@ class SlackThread:
 
 
 def post_in_thread(thread: SlackThread, message: str) -> None:
-    integration = Integration.objects.filter(
-        id=thread.integration_id, team_id=thread.integration_team_id, kind="slack"
-    ).first()
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .filter(id=thread.integration_id, team_id=thread.integration_team_id, kind="slack")
+        .first()
+    )
     if integration is None:
         logger.warning("slack_command_reply_integration_missing", integration_id=thread.integration_id)
         return

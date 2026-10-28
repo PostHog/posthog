@@ -141,7 +141,11 @@ class EmailTemplateSenderSerializer(serializers.Serializer):
         integration_id = data.get("integrationId")
         if integration_id is None:
             raise serializers.ValidationError({"integrationId": "Choose an email sender."})
-        if not Integration.objects.filter(team_id=self.context["team_id"], kind="email", id=integration_id).exists():
+        if (
+            not Integration.objects.with_auth(Integration.AuthType.VERIFIED_DOMAIN)
+            .filter(team_id=self.context["team_id"], kind="email", id=integration_id)
+            .exists()
+        ):
             raise serializers.ValidationError({"integrationId": "No email sender with this ID in this project."})
         return data
 

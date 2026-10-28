@@ -126,7 +126,8 @@ def sender_address_error(team_id: int, sender: dict[str, Any]) -> str | None:
     if integration_id is None:
         return None
     config = (
-        Integration.objects.filter(team_id=team_id, kind="email", id=integration_id)
+        Integration.objects.with_auth(Integration.AuthType.VERIFIED_DOMAIN)
+        .filter(team_id=team_id, kind="email", id=integration_id)
         .values_list("config", flat=True)
         .first()
         or {}

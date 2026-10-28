@@ -8,6 +8,7 @@ import requests
 
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import (
+    DEFAULT,
     GitHubIntegration,
     GitHubIntegrationError,
     GitLabIntegration,
@@ -200,7 +201,7 @@ def _get_issue_and_integration(
     if issue is None:
         raise ErrorTrackingExternalReferenceValidationError("Issue does not belong to this team.")
 
-    integration = Integration.objects.filter(id=integration_id, team_id=team_id).first()
+    integration = Integration.objects.with_auth(DEFAULT).filter(id=integration_id, team_id=team_id).first()
     if integration is None:
         raise ErrorTrackingExternalReferenceValidationError("Integration does not belong to this team.")
 
@@ -303,7 +304,7 @@ def search_external_issues(
     Each result is ``{id, title, url, external_context}`` where ``external_context`` is the
     exact payload to persist when the user selects it.
     """
-    integration = Integration.objects.filter(id=integration_id, team_id=team_id).first()
+    integration = Integration.objects.with_auth(DEFAULT).filter(id=integration_id, team_id=team_id).first()
     if integration is None:
         raise ErrorTrackingExternalReferenceValidationError("Integration does not belong to this team.")
 

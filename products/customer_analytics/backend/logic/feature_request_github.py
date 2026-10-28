@@ -182,7 +182,11 @@ def _integration(
 ) -> Integration:
     if integration_id is None:
         raise FeatureRequestValidationError("integration_id", "Reconnect the GitHub integration before resuming sync.")
-    integration = Integration.objects.filter(id=integration_id, team_id=team_id, kind="github").first()
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.APP)
+        .filter(id=integration_id, team_id=team_id, kind="github")
+        .first()
+    )
     if (
         integration is None
         or not integration.integration_id

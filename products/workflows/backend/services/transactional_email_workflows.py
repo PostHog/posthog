@@ -111,7 +111,13 @@ def resolve_transactional_email_sender(team_id: int, requested_id: int | None) -
         .values_list("default_email_integration_id", flat=True)
         .first()
     )
-    sender = Integration.objects.filter(team_id=team_id, kind="email", id=sender_id).first() if sender_id else None
+    sender = (
+        Integration.objects.with_auth(Integration.AuthType.VERIFIED_DOMAIN)
+        .filter(team_id=team_id, kind="email", id=sender_id)
+        .first()
+        if sender_id
+        else None
+    )
     if sender is None or not sender.config.get("verified"):
         raise TransactionalEmailSenderUnavailable()
     return sender.id

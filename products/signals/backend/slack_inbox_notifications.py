@@ -258,7 +258,7 @@ def _own_target_configs_by_user(team_id: int, user_ids: set[int]) -> dict[int, S
 
 def _get_team_slack_integration(team_id: int) -> Integration | None:
     # Standard `slack` kind (not `slack-posthog-code`), matching the per-user path.
-    return Integration.objects.filter(team_id=team_id, kind="slack").first()
+    return Integration.objects.with_auth(Integration.AuthType.OAUTH).filter(team_id=team_id, kind="slack").first()
 
 
 def _team_notification_channel(team_id: int) -> str | None:

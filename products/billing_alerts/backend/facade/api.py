@@ -183,11 +183,15 @@ def destinations_for_alerts(alerts: list[BillingAlertConfiguration]) -> dict[str
 
 
 def slack_integration_belongs_to_team(*, integration_id: int, team_id: int) -> bool:
-    return Integration.objects.filter(
-        id=integration_id,
-        team_id=team_id,
-        kind=Integration.IntegrationKind.SLACK,
-    ).exists()
+    return (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .filter(
+            id=integration_id,
+            team_id=team_id,
+            kind=Integration.IntegrationKind.SLACK,
+        )
+        .exists()
+    )
 
 
 def _raise_if_billing_alert_already_has_this_destination_type(

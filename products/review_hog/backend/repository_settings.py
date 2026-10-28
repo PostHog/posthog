@@ -98,7 +98,10 @@ class ProjectRepositories:
 
     def integrations(self) -> list[Integration]:
         return list(
-            Integration.objects.filter(team_id=self.team_id, kind="github").select_related("created_by").order_by("id")
+            Integration.objects.with_auth(Integration.AuthType.APP)
+            .filter(team_id=self.team_id, kind="github")
+            .select_related("created_by")
+            .order_by("id")
         )
 
     def integration_for(self, installation_id: str) -> Integration:

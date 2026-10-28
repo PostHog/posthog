@@ -1,4 +1,4 @@
-from posthog.models.integration import Integration
+from posthog.models.integration import DEFAULT, Integration
 
 # Firebase identifies an app by its project_id, APNs by its bundle_id. Kept in step with
 # nodejs/src/messaging/push-subscriptions/push-subscriptions.service.ts, which resolves the same
@@ -16,8 +16,10 @@ def build_push_config(team_id: int) -> dict[str, list[str]]:
     Always present, including as an empty list. An SDK cannot tell an unconfigured project from an
     older server that never sends the key, so absent has to keep meaning "attempt the registration".
     """
-    integrations = Integration.objects.filter(team_id=team_id, kind__in=list(PUSH_APP_ID_CONFIG_KEYS)).only(
-        "kind", "config"
+    integrations = (
+        Integration.objects.with_auth(DEFAULT)
+        .filter(team_id=team_id, kind__in=list(PUSH_APP_ID_CONFIG_KEYS))
+        .only("kind", "config")
     )
     # config is a JSONField, so an identifier can be any JSON value. Anything but a non-empty string is
     # unusable as an app_id, and letting one through would raise inside the set or the sort — which

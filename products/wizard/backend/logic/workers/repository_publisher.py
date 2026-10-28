@@ -217,7 +217,11 @@ def _commit_staged_changes(
 
 
 def _github_integration(team_id: int, integration_id: int, source: str) -> GitHubIntegration:
-    integration = Integration.objects.filter(team_id=team_id, id=integration_id, kind="github").first()
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.APP)
+        .filter(team_id=team_id, id=integration_id, kind="github")
+        .first()
+    )
     if integration is None:
         raise RepositoryPublishingError("GitHub integration is unavailable.")
     return GitHubIntegration(integration, source=source, priority=Priority.CRITICAL)
@@ -302,7 +306,11 @@ def create_pull_request(
     base_branch: str | None = None,
 ) -> RepositoryPullRequest:
     repository_name = _repository_parts(repository)
-    integration = Integration.objects.filter(team_id=team_id, id=integration_id, kind="github").first()
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.APP)
+        .filter(team_id=team_id, id=integration_id, kind="github")
+        .first()
+    )
     if integration is None:
         raise RepositoryPublishingError("GitHub integration is unavailable.")
 

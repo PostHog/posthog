@@ -616,7 +616,11 @@ def _ilike_pattern(term: str) -> str:
 def _integration_for(team_id: int, integration_id: int | None) -> Integration | None:
     if integration_id is None:
         return None
-    return Integration.objects.filter(id=integration_id, team_id=team_id, kind="github").first()
+    return (
+        Integration.objects.with_auth(Integration.AuthType.APP)
+        .filter(id=integration_id, team_id=team_id, kind="github")
+        .first()
+    )
 
 
 def _repo_names(value: object) -> list[str]:

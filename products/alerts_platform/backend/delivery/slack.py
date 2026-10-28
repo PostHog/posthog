@@ -9,7 +9,7 @@ from typing import Any, Final
 
 from slack_sdk.errors import SlackApiError
 
-from posthog.models.integration import SLACK_INTEGRATION_KINDS, Integration, SlackIntegration
+from posthog.models.integration import DEFAULT, SLACK_INTEGRATION_KINDS, Integration, SlackIntegration
 from posthog.slack.channels import (
     MAX_SECTION_CHARS,
     SlackButton,
@@ -178,9 +178,11 @@ class SlackTransport:
     def _integration(self, *, team_id: int, workspace_id: int) -> Integration:
         # Scoped by team as well as by id. The destination names an integration, and nothing
         # between the destination and here checks that it still belongs to the sending team.
-        integration = Integration.objects.filter(
-            id=workspace_id, team_id=team_id, kind__in=SLACK_INTEGRATION_KINDS
-        ).first()
+        integration = (
+            Integration.objects.with_auth(DEFAULT)
+            .filter(id=workspace_id, team_id=team_id, kind__in=SLACK_INTEGRATION_KINDS)
+            .first()
+        )
         if integration is None:
             raise DeliveryError("The Slack workspace for this alert is not connected.")
         return integration

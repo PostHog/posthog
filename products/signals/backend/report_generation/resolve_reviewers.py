@@ -1147,9 +1147,9 @@ def _candidate_user_ids_for_org_and_logins(org_id: str, logins_lower: frozenset[
     )
     candidates.update(
         _filter_github_login_field_lc(
-            Integration.objects.filter(kind="github", created_by_id__in=mid_sq).exclude(
-                config__connecting_user_github_login=None
-            ),
+            Integration.objects.with_auth(Integration.AuthType.APP)
+            .filter(kind="github", created_by_id__in=mid_sq)
+            .exclude(config__connecting_user_github_login=None),
             "config__connecting_user_github_login",
             logins_lower,
         ).values_list("created_by_id", flat=True)
@@ -1188,7 +1188,8 @@ def _github_identity_prefetches() -> tuple[Prefetch, ...]:
         Prefetch("social_auth", UserSocialAuth.objects.filter(provider="github")),
         Prefetch(
             "integration_set",
-            Integration.objects.filter(kind="github")
+            Integration.objects.with_auth(Integration.AuthType.APP)
+            .filter(kind="github")
             .exclude(config__connecting_user_github_login=None)
             .only("config", "id", "created_by_id"),
             to_attr="_prefetched_github_integrations",

@@ -892,11 +892,13 @@ def list_email_threads_for_account_matching(
         integration_ids.add(int(integration_id))
 
     integration_owner_ids = dict(
-        Integration.objects.filter(
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .filter(
             team_id=team_id,
             id__in=integration_ids,
             kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
-        ).values_list("id", "created_by_id")
+        )
+        .values_list("id", "created_by_id")
     )
     matching_threads: list[EmailThreadForAccountMatching] = []
     for thread in thread_page:

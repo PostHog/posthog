@@ -63,7 +63,9 @@ class Workspace:
 
 def open_workspace(team_id: int) -> Workspace | None:
     """The project's Slack workspace, or None when the project has no Slack integration."""
-    integration = Integration.objects.filter(team_id=team_id, kind="slack").first()
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH).filter(team_id=team_id, kind="slack").first()
+    )
     if integration is None:
         logger.info("visual_review.team_post_no_slack_integration", team_id=team_id)
         return None

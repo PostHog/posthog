@@ -1443,7 +1443,11 @@ class AlertCreateDestinationSerializer(serializers.Serializer):
         # The runtime refuses another team's integration anyway, so without this the destination
         # is created and then silently never posts.
         team = self.context["get_team"]()
-        if not Integration.objects.filter(team=team, id=attrs["slack_workspace_id"], kind="slack").exists():
+        if (
+            not Integration.objects.with_auth(Integration.AuthType.OAUTH)
+            .filter(team=team, id=attrs["slack_workspace_id"], kind="slack")
+            .exists()
+        ):
             raise ValidationError({"slack_workspace_id": "Connect this Slack workspace to PostHog first."})
         return attrs
 

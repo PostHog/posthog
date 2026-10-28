@@ -24,7 +24,11 @@ class ConfigIncomplete(Exception):
 
 
 def import_from_customerio(team_id: int, app_api_key: str | None, created_by_id: int | None) -> dict[str, Any]:
-    integration = Integration.objects.filter(team_id=team_id, kind="customerio-app").first()
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.API_KEY)
+        .filter(team_id=team_id, kind="customerio-app")
+        .first()
+    )
     api_key = app_api_key or (integration.sensitive_config.get("app_api_key") if integration else None)
 
     if not api_key:
@@ -34,7 +38,7 @@ def import_from_customerio(team_id: int, app_api_key: str | None, created_by_id:
         raise ConfigConflict("Integration already exists. Delete it first to use a different key.")
 
     if not integration:
-        integration = Integration.objects.create(
+        integration = Integration.objects.with_auth(Integration.AuthType.API_KEY).create(
             team_id=team_id,
             kind="customerio-app",
             sensitive_config={"app_api_key": api_key},
@@ -106,7 +110,7 @@ def sync_config_state(team_id: int) -> dict[str, Any]:
 
 
 def remove_app_config(team_id: int) -> None:
-    Integration.objects.filter(team_id=team_id, kind="customerio-app").delete()
+    Integration.objects.with_auth(Integration.AuthType.API_KEY).filter(team_id=team_id, kind="customerio-app").delete()
     try:
         config = OptOutSyncConfig.objects.get(team_id=team_id)
         config.app_integration = None
@@ -119,7 +123,11 @@ def remove_app_config(team_id: int) -> None:
 def save_webhook_config(
     team_id: int, signing_secret: str | None, enabled: bool, created_by_id: int | None
 ) -> SavedConfig:
-    integration = Integration.objects.filter(team_id=team_id, kind="customerio-webhook").first()
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.WEBHOOK_SECRET)
+        .filter(team_id=team_id, kind="customerio-webhook")
+        .first()
+    )
 
     if integration and signing_secret:
         raise ConfigConflict("Integration already exists. Delete it first to use a different secret.")
@@ -128,7 +136,7 @@ def save_webhook_config(
         raise ConfigIncomplete("Webhook signing secret is required to enable sync.")
 
     if not integration and signing_secret:
-        integration = Integration.objects.create(
+        integration = Integration.objects.with_auth(Integration.AuthType.WEBHOOK_SECRET).create(
             team_id=team_id,
             kind="customerio-webhook",
             sensitive_config={"webhook_signing_secret": signing_secret},
@@ -148,7 +156,9 @@ def save_webhook_config(
 
 
 def remove_webhook_config(team_id: int) -> None:
-    Integration.objects.filter(team_id=team_id, kind="customerio-webhook").delete()
+    Integration.objects.with_auth(Integration.AuthType.WEBHOOK_SECRET).filter(
+        team_id=team_id, kind="customerio-webhook"
+    ).delete()
     try:
         config = OptOutSyncConfig.objects.get(team_id=team_id)
         config.webhook_integration = None
@@ -162,7 +172,11 @@ def save_track_config(
     team_id: int, site_id: str | None, api_key: str | None, region: str, enabled: bool, created_by_id: int | None
 ) -> SavedConfig:
     has_new_creds = bool(site_id and api_key)
-    integration = Integration.objects.filter(team_id=team_id, kind="customerio-track").first()
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.API_KEY)
+        .filter(team_id=team_id, kind="customerio-track")
+        .first()
+    )
 
     if integration and has_new_creds:
         raise ConfigConflict("Integration already exists. Delete it first to use different credentials.")
@@ -171,7 +185,7 @@ def save_track_config(
         raise ConfigIncomplete("Site ID and API key are required to enable outbound sync.")
 
     if not integration and has_new_creds:
-        integration = Integration.objects.create(
+        integration = Integration.objects.with_auth(Integration.AuthType.API_KEY).create(
             team_id=team_id,
             kind="customerio-track",
             sensitive_config={"site_id": site_id, "api_key": api_key},
@@ -194,7 +208,9 @@ def save_track_config(
 
 
 def remove_track_config(team_id: int) -> None:
-    Integration.objects.filter(team_id=team_id, kind="customerio-track").delete()
+    Integration.objects.with_auth(Integration.AuthType.API_KEY).filter(
+        team_id=team_id, kind="customerio-track"
+    ).delete()
     try:
         config = OptOutSyncConfig.objects.get(team_id=team_id)
         config.track_integration = None

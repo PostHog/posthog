@@ -211,7 +211,9 @@ def _fetch_pr_metadata(input: ResolveThreadsInput, token: str, installation_id: 
 def _run_github(team_id: int, integration_row_id: int) -> GitHubIntegration:
     """The run-pinned installation, rebuilt from its row so every call mints a fresh token."""
     return GitHubIntegration(
-        Integration.objects.get(id=integration_row_id, team_id=team_id), source="review_hog", priority=Priority.NORMAL
+        Integration.objects.with_auth(Integration.AuthType.APP).get(id=integration_row_id, team_id=team_id),
+        source="review_hog",
+        priority=Priority.NORMAL,
     )
 
 

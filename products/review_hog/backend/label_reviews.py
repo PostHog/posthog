@@ -198,7 +198,8 @@ class LabelReview:
             return
         team_id = owner.team_id
         integration = (
-            Integration.objects.filter(team_id=team_id, kind="github", integration_id=self.installation_id)
+            Integration.objects.with_auth(Integration.AuthType.APP)
+            .filter(team_id=team_id, kind="github", integration_id=self.installation_id)
             .order_by("id")
             .first()
         )

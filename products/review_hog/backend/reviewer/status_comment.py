@@ -489,7 +489,9 @@ def _auth_from_row(team_id: int, integration_row_id: int) -> tuple[str, str | No
     revocation surfaces there and is swallowed like any other status-comment failure.
     """
     github = GitHubIntegration(
-        Integration.objects.get(id=integration_row_id, team_id=team_id), source="review_hog", priority=Priority.CRITICAL
+        Integration.objects.with_auth(Integration.AuthType.APP).get(id=integration_row_id, team_id=team_id),
+        source="review_hog",
+        priority=Priority.CRITICAL,
     )
     return github.get_access_token(), github.github_installation_id
 

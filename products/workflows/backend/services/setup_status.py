@@ -33,7 +33,9 @@ def email_sending_paused(team: Team) -> bool:
 
 def get_setup_steps(team: Team) -> tuple[SetupStep, ...]:
     done = {
-        SetupStepKey.CHANNEL: Integration.objects.filter(team_id=team.id, kind="email").exists(),
+        SetupStepKey.CHANNEL: Integration.objects.with_auth(Integration.AuthType.VERIFIED_DOMAIN)
+        .filter(team_id=team.id, kind="email")
+        .exists(),
         SetupStepKey.DOMAIN: has_verified_email_sender(team),
         SetupStepKey.OPT_OUTS: len(list_categories(team.id)) > 0,
         SetupStepKey.SENDING_RULES: _frequency_cap_set(team),

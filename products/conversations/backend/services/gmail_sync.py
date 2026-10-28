@@ -70,7 +70,8 @@ def integration_has_gmail_scope(integration: Integration) -> bool:
 
 def can_sync_gmail_integration(integration_id: int, team_id: int) -> bool:
     integration = (
-        Integration.objects.select_related("created_by")
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .select_related("created_by")
         .filter(id=integration_id, team_id=team_id, kind="google-calendar")
         .first()
     )
@@ -81,10 +82,14 @@ def can_sync_gmail_integration(integration_id: int, team_id: int) -> bool:
 
 
 def sync_gmail_integration(integration_id: int, team_id: int) -> None:
-    integration = Integration.objects.select_related("team", "created_by").get(
-        id=integration_id,
-        team_id=team_id,
-        kind="google-calendar",
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .select_related("team", "created_by")
+        .get(
+            id=integration_id,
+            team_id=team_id,
+            kind="google-calendar",
+        )
     )
     if not integration_has_gmail_scope(integration) or not _has_active_owner(integration):
         return
@@ -127,10 +132,14 @@ def sync_gmail_backfill_batch(
     end_at: datetime,
     page_token: str | None = None,
 ) -> tuple[str | None, int]:
-    integration = Integration.objects.select_related("team", "created_by").get(
-        id=integration_id,
-        team_id=team_id,
-        kind="google-calendar",
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .select_related("team", "created_by")
+        .get(
+            id=integration_id,
+            team_id=team_id,
+            kind="google-calendar",
+        )
     )
     if not integration_has_gmail_scope(integration) or not _has_active_owner(integration):
         raise GmailSyncError(f"Integration {integration.id} cannot sync Gmail")

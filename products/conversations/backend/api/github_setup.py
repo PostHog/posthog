@@ -33,7 +33,11 @@ class GithubStatusView(APIView):
         integration_id = settings_dict.get("github_integration_id")
         integration_info = None
         if integration_id:
-            integration = Integration.objects.filter(id=integration_id, team=team, kind="github").first()
+            integration = (
+                Integration.objects.with_auth(Integration.AuthType.APP)
+                .filter(id=integration_id, team=team, kind="github")
+                .first()
+            )
             if integration:
                 account = integration.config.get("account", {})
                 integration_info = {
@@ -64,7 +68,9 @@ class GithubConnectView(APIView):
             return Response({"error": "integration_id is required"}, status=400)
 
         try:
-            integration = Integration.objects.get(id=integration_id, team=team, kind="github")
+            integration = Integration.objects.with_auth(Integration.AuthType.APP).get(
+                id=integration_id, team=team, kind="github"
+            )
         except Integration.DoesNotExist:
             return Response({"error": "GitHub integration not found"}, status=404)
 
@@ -113,7 +119,9 @@ class GithubReposView(APIView):
             return Response({"error": "GitHub not connected"}, status=400)
 
         try:
-            integration = Integration.objects.get(id=integration_id, team=team, kind="github")
+            integration = Integration.objects.with_auth(Integration.AuthType.APP).get(
+                id=integration_id, team=team, kind="github"
+            )
         except Integration.DoesNotExist:
             return Response({"error": "GitHub integration not found"}, status=404)
 

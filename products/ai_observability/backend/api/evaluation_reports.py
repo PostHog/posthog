@@ -331,9 +331,9 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             # are Slack integrations are valid. Prevents cross-team reuse of integration ids
             # and rejects non-Slack kinds that happen to share an id.
             owned = set(
-                Integration.objects.filter(
-                    team_id=team.id, kind=Integration.IntegrationKind.SLACK, id__in=slack_ids_to_verify
-                ).values_list("id", flat=True)
+                Integration.objects.with_auth(Integration.AuthType.OAUTH)
+                .filter(team_id=team.id, kind=Integration.IntegrationKind.SLACK, id__in=slack_ids_to_verify)
+                .values_list("id", flat=True)
             )
             missing = slack_ids_to_verify - owned
             if missing:

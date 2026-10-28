@@ -106,7 +106,8 @@ def candidate_team_ids(ref: SubjectRef) -> tuple[int, ...]:
         case PullRequestRef():
             return tuple(
                 dict.fromkeys(
-                    Integration.objects.filter(kind="github", integration_id=ref.installation_id)
+                    Integration.objects.with_auth(Integration.AuthType.APP)
+                    .filter(kind="github", integration_id=ref.installation_id)
                     .order_by("id")
                     .values_list("team_id", flat=True)
                 )

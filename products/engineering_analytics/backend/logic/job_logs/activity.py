@@ -93,7 +93,9 @@ def _resolve_credentials(team_id: int, integration_id: int) -> tuple[str, str, s
     """Return ``(github_access_token, installation_id, log_ingest_token)``. ``log_ingest_token`` is
     the owning team's project API token — the OTLP Bearer that routes emitted logs to that team's Logs.
     """
-    integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="github")
+    integration = Integration.objects.with_auth(Integration.AuthType.APP).get(
+        id=integration_id, team_id=team_id, kind="github"
+    )
     github = GitHubIntegration(integration, source="job_logs", priority=Priority.BATCH)
     if github.access_token_expired():
         github.refresh_access_token()

@@ -21,7 +21,7 @@ from posthog.auth import is_mcp_request
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
-from posthog.models.integration import Integration, is_supported_external_issue_provider
+from posthog.models.integration import DEFAULT, Integration, is_supported_external_issue_provider
 
 from products.signals.backend import contracts
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
@@ -398,7 +398,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         help_text="Project-level instructions for agents implementing signal reports. Other agent roles do not receive them. Blank uses project instructions only.",
     )
     issue_tracking_integration = TeamScopedPrimaryKeyRelatedField(
-        queryset=Integration.objects.all(),
+        queryset=Integration.objects.with_auth(DEFAULT).all(),
         required=False,
         allow_null=True,
         help_text=(

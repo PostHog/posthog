@@ -234,9 +234,9 @@ def seed_home_canvas(canvas: Canvas, *, user: User, channel_id: UUID) -> None:
         value={
             # They are reading the checklist inside the desktop app.
             "download-desktop": True,
-            "connect-github": Integration.objects.filter(
-                team_id=canvas.team_id, kind=Integration.IntegrationKind.GITHUB
-            ).exists(),
+            "connect-github": Integration.objects.with_auth(Integration.AuthType.APP)
+            .filter(team_id=canvas.team_id, kind=Integration.IntegrationKind.GITHUB)
+            .exists(),
         },
     )
     layout = default_layout()

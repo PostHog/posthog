@@ -29,7 +29,11 @@ def _fetcher_for_credential(
         return GitHubFilesFetcher.from_token(credential.personal_access_token, priority=priority)
     if credential.integration_id is None:
         return None
-    integration = Integration.objects.filter(team_id=team_id, id=credential.integration_id, kind="github").first()
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.APP)
+        .filter(team_id=team_id, id=credential.integration_id, kind="github")
+        .first()
+    )
     if integration is None:
         return None
     github = GitHubIntegration(integration, source=EGRESS_SOURCE, priority=priority)

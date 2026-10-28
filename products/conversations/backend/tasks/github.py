@@ -403,7 +403,9 @@ def create_github_issue(
         return None
 
     try:
-        integration = Integration.objects.get(id=integration_id, team=team, kind="github")
+        integration = Integration.objects.with_auth(Integration.AuthType.APP).get(
+            id=integration_id, team=team, kind="github"
+        )
     except Integration.DoesNotExist:
         logger.warning("github_create_issue_integration_not_found", integration_id=integration_id)
         return None

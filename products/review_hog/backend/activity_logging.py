@@ -33,7 +33,8 @@ def _organization_id_for_team(team_id: int) -> UUID | None:
 def installation_account_name(installation_id: str) -> str:
     """The GitHub account of an installation, as the core GitHub integration stores it."""
     name = (
-        Integration.objects.filter(kind="github", integration_id=installation_id)
+        Integration.objects.with_auth(Integration.AuthType.APP)
+        .filter(kind="github", integration_id=installation_id)
         .values_list("config__account__name", flat=True)
         .first()
     )

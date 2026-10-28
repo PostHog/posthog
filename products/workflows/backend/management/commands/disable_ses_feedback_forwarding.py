@@ -18,7 +18,9 @@ THROTTLE_BACKOFF_SECONDS = [2, 4, 8, 16, 32, 64]
 
 
 def ses_email_domains(domains: list[str]) -> list[str]:
-    query = Integration.objects.filter(kind="email", config__provider="ses")
+    query = Integration.objects.with_auth(Integration.AuthType.VERIFIED_DOMAIN).filter(
+        kind="email", config__provider="ses"
+    )
     if domains:
         query = query.filter(config__domain__in=domains)
     return sorted({domain for domain in query.values_list("config__domain", flat=True) if domain})

@@ -303,7 +303,9 @@ class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 return Response({"found": True, "url": outcome.url})
 
         # Try with assigned GitHub integration (private repos).
-        integration = Integration.objects.filter(team_id=self.team.id, kind="github").first()
+        integration = (
+            Integration.objects.with_auth(Integration.AuthType.APP).filter(team_id=self.team.id, kind="github").first()
+        )
 
         if integration:
             github = GitHubIntegration(integration, source="error_tracking", priority=Priority.NORMAL)
@@ -357,7 +359,9 @@ class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 return Response({"found": True, "url": url})
 
         # Try with team GitLab integrations (private repos and self-hosted).
-        integrations = Integration.objects.filter(team_id=self.team.id, kind="gitlab")
+        integrations = Integration.objects.with_auth(Integration.AuthType.ACCESS_TOKEN).filter(
+            team_id=self.team.id, kind="gitlab"
+        )
 
         if not integrations:
             return Response({"found": False})

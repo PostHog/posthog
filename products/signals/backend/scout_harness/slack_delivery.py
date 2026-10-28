@@ -200,11 +200,15 @@ def _prettify_scout_name(skill_name: str) -> str:
 
 def _slack_integration_for_project(*, integration_id: int, project_id: int) -> Integration:
     # nosemgrep: environment-model-scoped-by-project -- scout configs are project-level, so a Slack integration from any environment of the project is valid
-    integration = Integration.objects.filter(
-        id=integration_id,
-        team__project_id=project_id,
-        kind=Integration.IntegrationKind.SLACK,
-    ).first()
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .filter(
+            id=integration_id,
+            team__project_id=project_id,
+            kind=Integration.IntegrationKind.SLACK,
+        )
+        .first()
+    )
     if integration is None:
         raise ScoutSlackPermanentDeliveryError(
             "The configured Slack integration no longer exists on this project",

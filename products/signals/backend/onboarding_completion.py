@@ -92,7 +92,11 @@ class InboxOnboardingReconciler:
     def has_repository(self) -> bool:
         failure: Exception | None = None
         retry_after = 0
-        for integration in Integration.objects.filter(team_id=self.team_id, kind="github").order_by("id"):
+        for integration in (
+            Integration.objects.with_auth(Integration.AuthType.APP)
+            .filter(team_id=self.team_id, kind="github")
+            .order_by("id")
+        ):
             github = GitHubIntegration(integration, source="signals_onboarding", priority=self.priority)
             try:
                 repositories, _ = github.list_repositories(per_page=1)

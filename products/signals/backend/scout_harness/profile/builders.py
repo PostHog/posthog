@@ -44,7 +44,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.integration import Integration
+from posthog.models.integration import DEFAULT, Integration
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -242,7 +242,7 @@ def _integrations(team: Team) -> list[dict[str, Any]]:
     Only the kind + creation timestamp — `Integration.config` and `Integration.sensitive_config`
     can hold tokens or workspace details we don't want to surface to the agent.
     """
-    rows = Integration.objects.filter(team=team).order_by("kind", "id")
+    rows = Integration.objects.with_auth(DEFAULT).filter(team=team).order_by("kind", "id")
     return [
         {
             "kind": row.kind,

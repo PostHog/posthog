@@ -61,7 +61,8 @@ class InstallationGitHub:
         """
         # nosemgrep: github-installation-first-team -- any of the given projects serves, see the docstring
         integration = (
-            Integration.objects.filter(kind="github", integration_id=installation_id, team_id__in=team_ids)
+            Integration.objects.with_auth(Integration.AuthType.APP)
+            .filter(kind="github", integration_id=installation_id, team_id__in=team_ids)
             .order_by("id")
             .first()
         )

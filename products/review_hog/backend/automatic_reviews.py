@@ -46,9 +46,11 @@ def observe_dispatch(outcome: AuthoredPRReviewOutcome) -> None:
 
 def connector_user_id(*, team_id: int, installation_id: str) -> int | None:
     """The active member who connected the installation to the project. Bot pull requests run as them."""
-    creator_ids = Integration.objects.filter(
-        team_id=team_id, kind="github", integration_id=installation_id, created_by__isnull=False
-    ).values_list("created_by_id", flat=True)
+    creator_ids = (
+        Integration.objects.with_auth(Integration.AuthType.APP)
+        .filter(team_id=team_id, kind="github", integration_id=installation_id, created_by__isnull=False)
+        .values_list("created_by_id", flat=True)
+    )
     for creator_id in creator_ids:
         if is_active_member(team_id=team_id, user_id=creator_id):
             return creator_id
@@ -75,9 +77,11 @@ def plan_automatic_review(
     if owner is None:
         return AutomaticDispatch(outcome="repository_not_added")
     team_id = owner.team_id
-    has_integration = Integration.objects.filter(
-        team_id=team_id, kind="github", integration_id=owner.installation_id
-    ).exists()
+    has_integration = (
+        Integration.objects.with_auth(Integration.AuthType.APP)
+        .filter(team_id=team_id, kind="github", integration_id=owner.installation_id)
+        .exists()
+    )
     if not has_integration:
         logger.warning(
             "Team %s has no GitHub integration for installation %s; skipping automatic review of %s",

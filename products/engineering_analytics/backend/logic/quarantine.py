@@ -510,7 +510,7 @@ def _resolve_write_target(
             "connect it as a GitHub source to quarantine there."
         )
 
-    integration_row = Integration.objects.filter(team=team, kind="github").first()
+    integration_row = Integration.objects.with_auth(Integration.AuthType.APP).filter(team=team, kind="github").first()
     if integration_row is None:
         raise QuarantineWriteError("Connect a GitHub integration with write access to quarantine tests from here.")
     github = GitHubIntegration(integration_row, source="ci_quarantine", priority=Priority.CRITICAL)
