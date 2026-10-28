@@ -321,6 +321,7 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/profiling-slow-api-endpoints` — an endpoint, list, picker, or scene is slow, a p95 latency number needs explaining, or a Postgres query plan needs checking against production rather than a local database
 - `/placing-product-frontend-code` — adding a frontend file or directory for a product, or deciding between `products/<name>/frontend/` and `frontend/src/scenes/<name>/`
+- `/building-the-toolbar`: any change under `frontend/src/toolbar/`, floating toolbar or extension. Build and check both, and keep them in sync
 - [`products/conversations/skills/organizing-conversations-code/SKILL.md`](products/conversations/skills/organizing-conversations-code/SKILL.md) — adding, moving, renaming, or reviewing files under `products/conversations/`
 - `/integrating-with-posthog-ai` — making a product surface work with PostHog AI: injecting scene context or custom instructions, reacting to the agent's tool calls, or rendering your product's tool cards in a thread
 - `/sending-notifications` — adding notification support
