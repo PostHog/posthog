@@ -10,6 +10,7 @@ import {
     buildSections,
     emptyRemoteSlots,
     pickDisplayedQuery,
+    resultsSettled,
 } from './commandKSections'
 import { RESULTS_LIMIT } from './commandKSources'
 
@@ -260,6 +261,48 @@ describe('buildSections', () => {
 
         expect(sections.map((section) => section.key)).toEqual(['best-matches'])
         expect(sections[0].rows).toMatchObject([{ kind: 'item', section: 'persons', item: { id: 'person-1' } }])
+    })
+
+    test.each(['results', 'accounts'] as const)('waits for both ranked sources when %s loads first', (firstSource) => {
+        const account: SearchItem = {
+            id: 'account-1',
+            name: 'Test organization',
+            category: 'accounts',
+            href: '/customer_analytics/accounts/account-1',
+        }
+        const remote = emptyRemoteSlots()
+        const current = query({
+            remoteQueries: { results: 'atlas.example.org', accounts: 'atlas.example.org' },
+            localQuery: 'atlas.example.org',
+        })
+        const shown = query({ remoteQueries: { results: 'old' }, localQuery: 'old' })
+        remote.results.cache.old = []
+        remote[firstSource].cache['atlas.example.org'] = firstSource === 'accounts' ? [account] : []
+        const sectionsInput = input('search', { remote, ...current })
+
+        expect(sectionKinds(buildSections(sectionsInput))).toEqual([['results', ['skeleton', 'skeleton', 'skeleton']]])
+        expect(resultsSettled(current, remote)).toBe(false)
+        expect(pickDisplayedQuery(current, shown, remote)).toEqual({ query: shown, stale: true })
+
+        remote.results.cache['atlas.example.org'] = []
+        remote.accounts.cache['atlas.example.org'] = [account]
+        const sections = buildSections(sectionsInput)
+        expect(resultsSettled(current, remote)).toBe(true)
+        expect(pickDisplayedQuery(current, shown, remote)).toEqual({ query: current, stale: false })
+        expect(sections.map((section) => section.key)).toEqual(['best-matches'])
+        expect(sections[0].rows).toMatchObject([{ kind: 'item', section: 'accounts', item: account }])
+    })
+
+    it('shows saved objects when the Accounts request settles empty', () => {
+        const remote = emptyRemoteSlots()
+        remote.results.cache.billing = [{ ...dashboard('a', '1'), rankKey: [-1, 0, 0, 0, -1, 0, 2, 0, 0] }]
+        remote.accounts.cache.billing = []
+        const current = query({ remoteQueries: { results: 'billing', accounts: 'billing' }, localQuery: 'billing' })
+
+        expect(resultsSettled(current, remote)).toBe(true)
+        expect(sectionKinds(buildSections(input('search', { remote, ...current })))).toEqual([
+            ['best-matches', ['item']],
+        ])
     })
 
     test.each([

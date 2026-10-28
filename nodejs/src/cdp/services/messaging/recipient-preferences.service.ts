@@ -48,7 +48,12 @@ export class RecipientPreferencesService {
         action: HogFlowAction
     ): Promise<boolean> {
         const messageAction = this.asMessageAction(action)
-        if (!this.frequencyCap || !messageAction || messageAction.config.message_category_type === 'transactional') {
+        if (
+            !this.frequencyCap ||
+            !messageAction ||
+            messageAction.config.message_category_type === 'transactional' ||
+            (messageAction.type === 'function_email' && messageAction.config.skip_frequency_cap === true)
+        ) {
             return false
         }
         try {

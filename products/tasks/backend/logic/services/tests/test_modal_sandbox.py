@@ -104,6 +104,7 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxWorkload,
     health_check_timeout_seconds,
 )
+from products.tasks.backend.logic.services.startup_failure import AgentServerStartupError
 
 
 def _agent_server_launch_command(mock_execute: Any) -> str:
@@ -1046,15 +1047,35 @@ class TestModalSandboxAgentServer:
                     run_id="run-456",
                 )
 
-    def test_start_agent_server_raises_on_health_check_failure(self, mock_sandbox: Any):
+    @pytest.mark.parametrize("structured", [False, True])
+    def test_start_agent_server_raises_on_health_check_failure(self, mock_sandbox: Any, structured: bool):
+        payload = (
+            json.dumps(
+                {
+                    "hasSession": False,
+                    "readiness": "failed",
+                    "runId": "run-456",
+                    "startupFailure": {
+                        "provider": "claude",
+                        "phase": "sdk_initialization",
+                        "reason": "proxy_invalid",
+                        "retryability": "requires_action",
+                    },
+                }
+            )
+            + "\n"
+            if structured
+            else ""
+        )
+
         def execute(command: str, timeout_seconds: int | None = None) -> ExecutionResult:
             if "./node_modules/.bin/agent-server" in command:
-                return ExecutionResult(stdout="__posthog_agent_health_ms=120000", stderr="", exit_code=1)
+                return ExecutionResult(stdout=payload + "__posthog_agent_health_ms=120000", stderr="", exit_code=1)
             return ExecutionResult(stdout="", stderr="", exit_code=0)
 
         mock_sandbox.execute = MagicMock(side_effect=execute)
         with patch.object(mock_sandbox, "_diagnose_startup_failure", return_value={"failure_reason": "not ready"}):
-            with pytest.raises(SandboxExecutionError, match="Agent-server failed to start") as error:
+            with pytest.raises(AgentServerStartupError if structured else SandboxExecutionError) as error:
                 mock_sandbox.start_agent_server(
                     repository="posthog/posthog",
                     task_id="task-123",
@@ -1062,6 +1083,7 @@ class TestModalSandboxAgentServer:
                 )
 
         assert error.value.context["health_poll_ms"] == 120000
+        assert isinstance(error.value.context["start_and_health_ms"], int)
         assert mock_sandbox.supports_combined_agent_server_start_and_health() is True
 
     @pytest.mark.parametrize(
@@ -1086,6 +1108,7 @@ class TestModalSandboxAgentServer:
         assert mock_sandbox.execute.call_count == 1
 
     def test_start_agent_server_skips_relaunch_when_already_healthy(self, mock_sandbox: Any):
+        before_launch = MagicMock()
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout=_preflight_stdout(reused=True), stderr="", exit_code=0, error=None)
         )
@@ -1101,9 +1124,11 @@ class TestModalSandboxAgentServer:
                 run_id="run-456",
                 mode="background",
                 allowed_domains=["example.com"],
+                before_launch=before_launch,
             )
 
         assert health_ms == 0
+        before_launch.assert_not_called()
         wait_for_ready.assert_not_called()
         mock_free.assert_not_called()
         commands = [call.args[0] for call in mock_sandbox.execute.call_args_list]

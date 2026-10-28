@@ -4485,7 +4485,8 @@ class AssistantPathsFilter(BaseModel):
             " values are event names. `hogql` - custom HogQL expression defined in"
             " `pathsHogQLExpression`. Path values come from evaluating the expression."
             " You can combine multiple types. If not specified, all events are included"
-            " without type filtering."
+            " without type filtering. Paths never include `$feature_flag_called`"
+            " events, whichever types are set."
         ),
     )
     localPathCleaningFilters: list[AssistantPathCleaningFilter] | None = Field(
@@ -6239,6 +6240,13 @@ class HogQLQueryModifiers(BaseModel):
     inCohortVia: InCohortVia | None = None
     inlineCohortCalculation: InlineCohortCalculation | None = None
     materializationMode: MaterializationMode | None = None
+    materializeRepeatedCTEs: bool | None = Field(
+        default=None,
+        description=(
+            "Reuse eligible bounded event aggregates within one query execution. When"
+            " unset, the server may enable it via the cloud feature flag."
+        ),
+    )
     materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | None = None
     mergeFederatedAggregateJoins: bool | None = Field(
         default=None,

@@ -881,11 +881,10 @@ export const ReplayFiltersTab = ({
                                         size="small"
                                         icon={<IconSparkles className="text-ai" />}
                                         data-attr="replay-save-filters-as-scanner"
-                                        tooltip="Create a Replay vision scanner that keeps watching sessions matching these filters. The date range does not carry over, so the scanner watches sessions from now on."
-                                        disabledReason={
+                                        tooltip={
                                             scannerHandoff.narrowsSessions
-                                                ? undefined
-                                                : 'Add an event or property filter. A date range and pinned sessions do not carry over to a scanner.'
+                                                ? 'Create a Replay vision scanner. It watches new session recordings that match these filters for you. The date range does not carry over, so it starts from now.'
+                                                : 'Create a Replay vision scanner. It watches every new session recording for you. Add a filter to watch only some of them. A date range and pinned sessions do not carry over.'
                                         }
                                         onClick={() => {
                                             void addProductIntentForCrossSell({

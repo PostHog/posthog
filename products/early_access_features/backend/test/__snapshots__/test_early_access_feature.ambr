@@ -32,15 +32,14 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
-         "posthog_integration"."repository_cache",
-         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
   FROM "posthog_integration"
-  WHERE ("posthog_integration"."kind" = 'vercel'
-         AND (("posthog_integration"."config" -> 'auth_type') IS NULL
-              OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb)
+  WHERE (("posthog_integration"."kind" = 'vercel'
+          AND (("posthog_integration"."config" -> 'auth_type') IS NULL
+               OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb
+               OR ("posthog_integration"."config" -> 'auth_type') = '"oauth"'::jsonb))
          AND NOT ("posthog_integration"."config" ? 'warehouse_source_type')
          AND "posthog_integration"."team_id" = 99999)
   ORDER BY "posthog_integration"."created_at" ASC,
@@ -286,15 +285,14 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
-         "posthog_integration"."repository_cache",
-         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
   FROM "posthog_integration"
-  WHERE ("posthog_integration"."kind" = 'vercel'
-         AND (("posthog_integration"."config" -> 'auth_type') IS NULL
-              OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb)
+  WHERE (("posthog_integration"."kind" = 'vercel'
+          AND (("posthog_integration"."config" -> 'auth_type') IS NULL
+               OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb
+               OR ("posthog_integration"."config" -> 'auth_type') = '"oauth"'::jsonb))
          AND NOT ("posthog_integration"."config" ? 'warehouse_source_type')
          AND "posthog_integration"."team_id" = 99999)
   ORDER BY "posthog_integration"."created_at" ASC,
@@ -456,15 +454,14 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
-         "posthog_integration"."repository_cache",
-         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
   FROM "posthog_integration"
-  WHERE ("posthog_integration"."kind" = 'vercel'
-         AND (("posthog_integration"."config" -> 'auth_type') IS NULL
-              OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb)
+  WHERE (("posthog_integration"."kind" = 'vercel'
+          AND (("posthog_integration"."config" -> 'auth_type') IS NULL
+               OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb
+               OR ("posthog_integration"."config" -> 'auth_type') = '"oauth"'::jsonb))
          AND NOT ("posthog_integration"."config" ? 'warehouse_source_type')
          AND "posthog_integration"."team_id" = 99999)
   ORDER BY "posthog_integration"."created_at" ASC,
@@ -887,15 +884,14 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
-         "posthog_integration"."repository_cache",
-         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
   FROM "posthog_integration"
-  WHERE ("posthog_integration"."kind" = 'vercel'
-         AND (("posthog_integration"."config" -> 'auth_type') IS NULL
-              OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb)
+  WHERE (("posthog_integration"."kind" = 'vercel'
+          AND (("posthog_integration"."config" -> 'auth_type') IS NULL
+               OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb
+               OR ("posthog_integration"."config" -> 'auth_type') = '"oauth"'::jsonb))
          AND NOT ("posthog_integration"."config" ? 'warehouse_source_type')
          AND "posthog_integration"."team_id" = 99999)
   ORDER BY "posthog_integration"."created_at" ASC,
@@ -1122,15 +1118,14 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
-         "posthog_integration"."repository_cache",
-         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
   FROM "posthog_integration"
-  WHERE ("posthog_integration"."kind" = 'vercel'
-         AND (("posthog_integration"."config" -> 'auth_type') IS NULL
-              OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb)
+  WHERE (("posthog_integration"."kind" = 'vercel'
+          AND (("posthog_integration"."config" -> 'auth_type') IS NULL
+               OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb
+               OR ("posthog_integration"."config" -> 'auth_type') = '"oauth"'::jsonb))
          AND NOT ("posthog_integration"."config" ? 'warehouse_source_type')
          AND "posthog_integration"."team_id" = 99999)
   ORDER BY "posthog_integration"."created_at" ASC,

@@ -3,7 +3,8 @@
 The default auth type of each warehouse source credential kind, keyed by kind. A row stores its auth
 type only when it is not the default, so a change to an existing value needs a data migration. See
 `sources/common/credential_auth_type.py` for the derivation. A kind in the integrations catalogue, such
-as `stripe`, keeps the default of the catalogue.
+as `stripe`, keeps the default of the catalogue. The file is append-only: a removed kind keeps its
+entry.
 """
 
 from collections.abc import Mapping

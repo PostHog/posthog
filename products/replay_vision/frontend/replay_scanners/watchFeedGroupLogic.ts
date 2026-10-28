@@ -7,7 +7,7 @@ import { visionScannersObservationsList } from '../generated/api'
 import type { ReplayObservationApi } from '../generated/api.schemas'
 
 export interface WatchFeedGroupLogicProps {
-    /** The card's observation. The backend resolves its duplicate group from it. */
+    /** The card's observation. The backend resolves its feed group from it. */
     observationId: string
     scannerId: string
     dateFrom: string
@@ -57,7 +57,7 @@ export type watchFeedGroupLogicType = MakeLogicType<
 /** How many of the group's other sessions the card lists before it links to the full list. */
 export const WATCH_GROUP_PREVIEW_SIZE = 5
 
-/** The other sessions in a feed card's duplicate group, loaded the first time the card expands. */
+/** The other sessions in a feed card's feed group, loaded the first time the card expands. */
 export const watchFeedGroupLogic = kea<watchFeedGroupLogicType>([
     path((key) => ['products', 'replay_vision', 'frontend', 'replay_scanners', 'watchFeedGroupLogic', key]),
     props({} as WatchFeedGroupLogicProps),

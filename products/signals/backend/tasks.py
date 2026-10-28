@@ -40,6 +40,7 @@ from products.signals.backend.implementation_dispatch_tasks import (
     sweep_implementation_dispatches as sweep_implementation_dispatches,
 )
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
+from products.signals.backend.implementation_pr_cache import refresh_implementation_pr_cache_for_links
 from products.signals.backend.inbox_push_notifications import notify_pull_request_ready, notify_report_visible
 from products.signals.backend.inbox_summary import github_datetime, sync_pull_request_participants
 from products.signals.backend.models import (
@@ -61,6 +62,7 @@ from products.signals.backend.report_generation.repo_activity import (
     rebuild_repository_activity,
     repository_activity_needs_rebuild,
 )
+from products.signals.backend.report_inbox_state import reconcile_report_inbox_state, teams_with_reports
 from products.signals.backend.reviewer_pr_assignment import deliver_pull_request_assignment
 from products.signals.backend.reviewer_pr_ready import open_pull_request_ready_for_review
 from products.signals.backend.scout_harness.background_bands import refresh_background_bands
@@ -91,6 +93,23 @@ from products.signals.backend.tracker_issues import close_tracker_issue_for_repo
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
+
+
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@with_team_scope()
+def refresh_report_implementation_pr_cache(
+    team_id: int,
+    report_ids: list[str] | None = None,
+    pull_request_ids: list[str] | None = None,
+    task_ids: list[str] | None = None,
+) -> None:
+    """Retry a cached PR flag refresh that failed after its link write committed."""
+    refresh_implementation_pr_cache_for_links(
+        team_id=team_id,
+        report_ids=report_ids or [],
+        pull_request_ids=pull_request_ids or [],
+        task_ids=task_ids or [],
+    )
 
 
 @shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
@@ -1243,6 +1262,24 @@ def refresh_signal_scout_background_bands() -> None:
     """
     outcome = refresh_background_bands()
     logger.info("signals_scout background bands refreshed", written=outcome.written, removed=outcome.removed)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.reconcile_report_inbox_state_cache",
+    ignore_result=True,
+    max_retries=0,
+)
+@skip_team_scope_audit
+def reconcile_report_inbox_state_cache() -> None:
+    """Daily: correct cached implementation PR flags that drifted from the link tables, and count the drift."""
+    corrected = failed = 0
+    for team_id in teams_with_reports():
+        try:
+            corrected += reconcile_report_inbox_state(team_id)
+        except Exception as error:
+            failed += 1
+            capture_exception(error, {"team_id": team_id})
+    logger.info("signals report inbox state reconciled", implementation_pr=corrected, failed_teams=failed)
 
 
 @shared_task(
