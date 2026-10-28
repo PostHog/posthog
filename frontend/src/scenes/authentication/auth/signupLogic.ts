@@ -9,6 +9,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
+import { getReferralFollowUp } from 'lib/components/SignupReferralSource'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { splitFullName } from 'lib/utils/strings'
@@ -487,14 +488,16 @@ export const signupLogic = kea<signupLogicType>([
                 try {
                     const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
 
+                    // An answer typed into a follow-up that a later referral source edit hid again must not be sent
+                    const followUp = getReferralFollowUp(payload.referral_source ?? '')
                     const signupData: Record<string, any> = {
                         email: values.signupEmail,
                         ...splitFullName(payload.name),
                         organization_name: payload.organization_name?.trim() || undefined,
                         role_at_organization: payload.role_at_organization,
                         referral_source: payload.referral_source,
-                        referral_source_ai_prompt: payload.referral_source_ai_prompt,
-                        referral_source_influencer: payload.referral_source_influencer,
+                        referral_source_ai_prompt: followUp === 'ai' ? payload.referral_source_ai_prompt : '',
+                        referral_source_influencer: followUp === 'influencer' ? payload.referral_source_influencer : '',
                         next_url: nextUrl ?? undefined,
                     }
 

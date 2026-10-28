@@ -75,17 +75,18 @@ const AI_REFERRAL_PATTERNS = [
 const AI_REFERRAL_PATTERN = new RegExp(`\\b(${AI_REFERRAL_PATTERNS.join('|')})\\b`, 'i')
 
 // Used to trigger the influencer prompt when the user mentions a social network or creator channel. This is a simple heuristic and can be adjusted as needed.
+// Longer triggers allow the word to continue (\w*) so the field does not close mid-word
+// ("Insta" → "Instag" → "Instagram") and plurals match. One-or-two-letter abbreviations
+// stay exact words so "max" or "ignore" do not match.
 const SOCIAL_REFERRAL_PATTERNS = [
     // Social networks
-    'instagram',
-    'insta',
+    'insta\\w*',
     'ig',
-    'tik ?tok',
-    'you ?tube',
-    'you ?tuber',
+    'tik ?tok\\w*',
+    'you ?tub\\w*',
     'yt',
     'twitter',
-    'tweet',
+    'tweet\\w*',
     'x',
     'x.com',
     'linked ?in',
@@ -94,9 +95,9 @@ const SOCIAL_REFERRAL_PATTERNS = [
     'threads',
     'blue ?sky',
     'mastodon',
-    'reddit',
+    'reddit\\w*',
     'twitch',
-    'snap ?chat',
+    'snap ?chat\\w*',
     'discord',
     'telegram',
     'whats ?app',
@@ -104,27 +105,38 @@ const SOCIAL_REFERRAL_PATTERNS = [
     'weibo',
     'pinterest',
     'social ?media',
-    'social ?network',
+    'social ?network\\w*',
     // Creator channels
-    'influencer',
-    'creator',
-    'content ?creator',
-    'streamer',
-    'blogger',
-    'vlogger',
-    'podcast',
-    'podcaster',
-    'news ?letter',
+    'influencer\\w*',
+    'creator\\w*',
+    'content ?creator\\w*',
+    'streamer\\w*',
+    'blogger\\w*',
+    'vlogger\\w*',
+    'podcast\\w*',
+    'news ?letter\\w*',
     'substack',
 ]
 const SOCIAL_REFERRAL_PATTERN = new RegExp(`\\b(${SOCIAL_REFERRAL_PATTERNS.join('|')})\\b`, 'i')
 
-// At most one follow-up shows at a time. When both patterns match, the AI prompt wins.
+// 'chat' also names social features ("Twitch chat", "Discord chat"), so it does not count
+// toward the AI tie-break when a social trigger is present. Any other AI trigger still wins.
+const AI_TIEBREAK_PATTERN = new RegExp(
+    `\\b(${AI_REFERRAL_PATTERNS.filter((pattern) => pattern !== 'chat').join('|')})\\b`,
+    'i'
+)
+
+// At most one follow-up shows at a time
 export function getReferralFollowUp(referralSource: string): 'ai' | 'influencer' | null {
-    if (AI_REFERRAL_PATTERN.test(referralSource)) {
+    const matchesAi = AI_REFERRAL_PATTERN.test(referralSource)
+    const matchesSocial = SOCIAL_REFERRAL_PATTERN.test(referralSource)
+    if (matchesAi && matchesSocial) {
+        return AI_TIEBREAK_PATTERN.test(referralSource) ? 'ai' : 'influencer'
+    }
+    if (matchesAi) {
         return 'ai'
     }
-    if (SOCIAL_REFERRAL_PATTERN.test(referralSource)) {
+    if (matchesSocial) {
         return 'influencer'
     }
     return null
@@ -163,7 +175,8 @@ export default function SignupReferralSource({ disabled }: { disabled: boolean }
                                         className="ph-ignore-input"
                                         data-attr="signup-referral-source-ai-prompt"
                                         placeholder="e.g. Product analytics tool with error tracking"
-                                        disabled={disabled}
+                                        // Also disabled while collapsed, to keep the hidden input out of the tab order
+                                        disabled={disabled || followUp !== 'ai'}
                                     />
                                 </LemonField>
                             </AnimatedCollapsible>
@@ -178,7 +191,8 @@ export default function SignupReferralSource({ disabled }: { disabled: boolean }
                                         className="ph-ignore-input"
                                         data-attr="signup-referral-source-influencer"
                                         placeholder="e.g. a YouTube channel, or an X account"
-                                        disabled={disabled}
+                                        // Also disabled while collapsed, to keep the hidden input out of the tab order
+                                        disabled={disabled || followUp !== 'influencer'}
                                     />
                                 </LemonField>
                             </AnimatedCollapsible>

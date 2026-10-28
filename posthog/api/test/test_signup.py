@@ -399,6 +399,32 @@ class TestSignupAPI(APIBaseTest):
         self.assertTrue(User.objects.filter(email="social+alias@posthog.com").exists())
 
     @pytest.mark.skip_on_multitenancy
+    @patch("posthoganalytics.capture")
+    def test_social_signup_passes_referral_fields_through(self, mock_capture):
+        session = self.client.session
+        session["backend"] = "google-oauth2"
+        session["email"] = "social.referral@posthog.com"
+        session["user_name"] = "Social User"
+        session.save()
+
+        response = self.client.post(
+            "/api/social_signup/",
+            {
+                "first_name": "Social",
+                "organization_name": "Social Org",
+                "referral_source": "a TikTok influencer",
+                "referral_source_influencer": "The Hedgehog Dev channel",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        signup_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "user signed up"]
+        self.assertEqual(len(signup_calls), 1)
+        event_props = signup_calls[0].kwargs["properties"]
+        self.assertEqual(event_props["referral_source"], "a TikTok influencer")
+        self.assertEqual(event_props["referral_source_influencer"], "The Hedgehog Dev channel")
+
+    @pytest.mark.skip_on_multitenancy
     def test_signup_normalizes_email_to_lowercase(self):
         """Test that new signups normalize email addresses to lowercase."""
         unique_id = uuid.uuid4().hex[:8]

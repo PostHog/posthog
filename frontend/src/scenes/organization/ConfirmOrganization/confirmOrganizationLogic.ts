@@ -4,6 +4,7 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { getReferralFollowUp } from 'lib/components/SignupReferralSource'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { readPendingOAuthConnection } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
@@ -165,6 +166,8 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
             },
 
             submit: async (formValues) => {
+                // An answer typed into a follow-up that a later referral source edit hid again must not be sent
+                const followUp = getReferralFollowUp(formValues.referral_source ?? '')
                 try {
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     await api.create('api/social_signup/', {
@@ -172,6 +175,9 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
                         // Trim rather than reject: surrounding whitespace is still a good signup
                         first_name: formValues.first_name?.trim(),
                         organization_name: formValues.organization_name?.trim(),
+                        referral_source_ai_prompt: followUp === 'ai' ? formValues.referral_source_ai_prompt : '',
+                        referral_source_influencer:
+                            followUp === 'influencer' ? formValues.referral_source_influencer : '',
                     })
                 } catch (error: any) {
                     const attr = error.attr as keyof ConfirmOrganizationFormValues | undefined

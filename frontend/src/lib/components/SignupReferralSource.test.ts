@@ -13,6 +13,12 @@ describe('signup referral source follow-up triggers', () => {
         ['an influencer', 'influencer'],
         // When both patterns match, the AI prompt wins
         ['an AI influencer on YouTube', 'ai'],
+        // Except when 'chat' is the only AI trigger: it also names social features
+        ['Discord chat', 'influencer'],
+        ['Twitch chat', 'influencer'],
+        // Prefix triggers keep matching while the word is typed out, and plurals match
+        ['Instag', 'influencer'],
+        ['influencers', 'influencer'],
         // "max" must not match the bare "x" pattern inside a word
         ['my friend max', null],
     ] as const)('"%s" → %s', (input, followUp) => {

@@ -291,14 +291,15 @@ describe('signupLogic — name handling', () => {
         expect(signupRequestBody?.last_name).toBe('van Der Berg')
     })
 
-    it('sends the referral source and its follow-up answers in the signup payload', async () => {
+    it('sends only the follow-up answer whose question is shown for the referral source', async () => {
         await advanceToOnboardingPanel()
         logic.actions.setSignupPanelOnboardingValues({
             name: 'John Smith',
             organization_name: 'Hogflix',
             role_at_organization: 'engineer',
             referral_source: 'A YouTube video',
-            referral_source_ai_prompt: '',
+            // A stale answer from before the referral source was edited away from an AI mention
+            referral_source_ai_prompt: 'best analytics tool',
             referral_source_influencer: 'The Hedgehog Dev channel',
         })
         logic.actions.submitSignupPanelOnboarding()
