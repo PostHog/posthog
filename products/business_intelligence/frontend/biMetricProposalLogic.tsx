@@ -62,12 +62,16 @@ export const biMetricProposalLogic = kea<biMetricProposalLogicType>([
             const snapshot = props.snapshot
             const config = props.config
             let submission: Promise<void> | null = null
+            let formClosed = false
             let cancelConfirmation: (() => void) | undefined
             LemonDialog.openForm({
                 title: 'Propose as catalog metric',
                 description:
                     'Saves this query with the date window and filters from its last run. Shelves and worksheet history are not part of the metric. If the name already exists, you can confirm an overwrite. Changes go through catalog review.',
-                onAfterClose: () => cancelConfirmation?.(),
+                onAfterClose: () => {
+                    formClosed = true
+                    cancelConfirmation?.()
+                },
                 shouldAwaitSubmit: true,
                 primaryButtonProps: { children: 'Propose metric' },
                 initialValues: { name: '', display_name: props.name, description: '', unit: '' },
@@ -97,6 +101,9 @@ export const biMetricProposalLogic = kea<biMetricProposalLogicType>([
                         !value?.trim() ? 'Add a description' : validateMetricDescription(value.trim()),
                 },
                 onSubmit: async (fields) => {
+                    if (formClosed) {
+                        return
+                    }
                     if (submission) {
                         return submission
                     }
@@ -110,6 +117,10 @@ export const biMetricProposalLogic = kea<biMetricProposalLogicType>([
                             definition: { kind: NodeKind.HogQLQuery, query: snapshot },
                         }
                         const created = await createMetricAsUser(request, false).catch(async (error) => {
+                            if (formClosed) {
+                                canceled = true
+                                throw error
+                            }
                             const existing = existingMetricFromNameConflict(error)
                             if (!existing) {
                                 throw error
@@ -123,7 +134,7 @@ export const biMetricProposalLogic = kea<biMetricProposalLogicType>([
                                 })
                             })
                             cancelConfirmation = undefined
-                            if (!confirmed) {
+                            if (!confirmed || formClosed) {
                                 canceled = true
                                 throw error
                             }

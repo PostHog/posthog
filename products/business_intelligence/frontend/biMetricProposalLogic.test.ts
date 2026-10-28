@@ -76,7 +76,7 @@ it.each(['overwrite', 'cancel', 'navigate'] as const)(
                 expect(requests).toHaveLength(1)
                 confirm.mockImplementation((dialog) => dialog.onOverwrite())
                 await form.onSubmit(fields)
-                expect(requests).toHaveLength(3)
+                expect(requests).toHaveLength(choice === 'navigate' ? 1 : 3)
             }
             expect(confirm).toHaveBeenCalledWith(
                 expect.objectContaining({ existing: { name: 'purchases', status: 'approved' } })
@@ -87,6 +87,53 @@ it.each(['overwrite', 'cancel', 'navigate'] as const)(
         }
     }
 )
+
+it('does not open an overwrite prompt when a conflict arrives after the form closes', async () => {
+    initKeaTests()
+    let releaseRequest!: () => void
+    const pending = new Promise<void>((resolve) => {
+        releaseRequest = resolve
+    })
+    const create = jest.fn(async () => {
+        await pending
+        return [
+            409,
+            {
+                code: 'metric_name_taken',
+                detail: 'Name already exists',
+                extra: { existing_metric: { name: 'purchases', status: 'approved' } },
+            },
+        ]
+    })
+    useMocks({ post: { '/api/projects/:team_id/data_catalog/metrics/': create } })
+    const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => '')
+    const open = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => undefined)
+    const confirm = jest.spyOn(overwriteDialog, 'openOverwriteMetricDialog')
+    const logic = biMetricProposalLogic({
+        tabId: 'closed-proposal',
+        name: 'Purchases',
+        config: DEFAULT_BI_CONFIG,
+        snapshot: 'SELECT 7',
+    })
+    const unmount = logic.mount()
+    try {
+        logic.actions.proposeMetric()
+        const form = open.mock.calls[0][0]
+        const submission = form.onSubmit({
+            ...form.initialValues,
+            name: 'purchases',
+            description: 'Completed purchases.',
+        })
+        form.onAfterClose?.()
+        releaseRequest()
+        await expect(submission).rejects.toBeDefined()
+        expect(create).toHaveBeenCalledTimes(1)
+        expect(confirm).not.toHaveBeenCalled()
+        expect(toast).not.toHaveBeenCalled()
+    } finally {
+        unmount()
+    }
+})
 
 it('shows a failed proposal and allows retrying the same form', async () => {
     initKeaTests()
