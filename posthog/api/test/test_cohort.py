@@ -113,7 +113,7 @@ _PAGEVIEW_CRITERION = {**_FLAG_CALLED_ANY_FLAG_CRITERION, "key": "$pageview"}
 _FLAG_CALLED_PAST_RETENTION_CRITERION = {**_FLAG_CALLED_CRITERION, "time_value": 180}
 _FLAG_CALLED_UNRESOLVABLE_CRITERION = {
     **_FLAG_CALLED_CRITERION,
-    "event_filters": [_FLAG_KEY_FILTER, {"key": "$window_id = 'w'", "type": "hogql"}],
+    "event_filters": [_FLAG_KEY_FILTER, {"key": "goe_0.properties.plan = 'pro'", "type": "hogql"}],
 }
 _HIDDEN_EVENT_REFUSAL = "its data is moving"
 _FLAG_CALL_TYPE_REFUSAL = "can use this event"
@@ -4902,6 +4902,13 @@ email@example.org,
                 _HIDDEN_EVENT_REFUSAL,
             ),
             (
+                "any_flag_in_flag_evaluations_only_mode",
+                [_FLAG_CALLED_ANY_FLAG_CRITERION],
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                True,
+                None,
+            ),
+            (
                 "sequence_event",
                 [
                     {
@@ -4965,7 +4972,12 @@ email@example.org,
         with self._flag_calls_rewrite(rewrite_enabled):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/cohorts",
-                data={"name": "flag callers", "filters": {"properties": {"type": "OR", "values": criteria}}},
+                data={
+                    "name": "flag callers",
+                    # A cohort that filters out test accounts is a batch cohort.
+                    # The realtime block refuses only realtime cohorts.
+                    "filters": {"properties": {"type": "OR", "values": criteria}, "filterTestAccounts": True},
+                },
             )
 
         created = Cohort.objects.filter(team=self.team, name="flag callers").exists()

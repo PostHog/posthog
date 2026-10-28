@@ -965,32 +965,25 @@ def _flat_properties(filters: object) -> list[Property]:
     return parse_property_group_data(filters["properties"]).flat
 
 
-def _behavioral_event_names(prop: Property) -> Iterator[object]:
-    if prop.type != "behavioral":
-        return
-    if prop.event_type == "events":
-        yield prop.key
-    if prop.seq_event_type == "events":
-        yield prop.seq_event
-
-
 def _hidden_event_references(properties: Iterable[Property]) -> Iterator[tuple[str, Property]]:
     for prop in properties:
-        for event in _behavioral_event_names(prop):
-            if event in EVENTS_HIDDEN_IN_QUERY_BUILDERS:
+        if prop.type != "behavioral":
+            continue
+        for event_type, event in ((prop.event_type, prop.key), (prop.seq_event_type, prop.seq_event)):
+            if event_type == "events" and event in EVENTS_HIDDEN_IN_QUERY_BUILDERS:
                 yield str(event), prop
 
 
-# products/cohorts/frontend/criteria/flagCallCriterionProblem.ts copies the type, window and flag key rules for the
-# cohort move notice. A change to these rules needs the same change there.
+# products/cohorts/frontend/criteria/flagCallCriterionProblem.ts copies the type and window rules for the cohort move
+# notice. A change to these rules needs the same change there.
 
 # The criterion types whose flag calls both the batch calculation and the realtime backfill read from flag_evaluations.
 _FLAG_CALL_CRITERION_TYPES = frozenset(
     {BehavioralPropertyType.PERFORMED_EVENT, BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE}
 )
-# The batch calculation reads flag_evaluations only for a window that starts after UTC midnight
-# FLAG_EVALUATIONS_COMPLETE_DAYS back. It starts a window at midnight in the team's timezone. That midnight can fall
-# on the previous UTC day. So a window of N days reads flag_evaluations at every hour only when N + 1 days fit.
+# flag_evaluations holds every flag call only from UTC midnight FLAG_EVALUATIONS_COMPLETE_DAYS back. The batch
+# calculation starts a window at midnight in the team's timezone. That midnight can fall on the previous UTC day. So a
+# window of N days reads every flag call in it at every hour only when N + 1 days fit.
 _MAX_FLAG_CALL_LOOKBACK_HOURS = (FLAG_EVALUATIONS_COMPLETE_DAYS - 1) * 24
 _RELATIVE_DATE_UNIT_MAX_HOURS = {"h": 1, "d": 24, "w": 7 * 24, "m": 31 * 24}
 _RELATIVE_DATE_PATTERN = re.compile(r"-(\d+)([hdwm])")
@@ -1056,7 +1049,8 @@ def _batch_flag_call_reads(criteria: Sequence[Property], team: Team) -> FlagCall
 
     The batch calculation keeps the flag_evaluations swap only when the whole rewritten query resolves. So one
     criterion that reads a field flag_evaluations lacks sends every flag-call criterion in the cohort to events, and
-    the criteria compile together.
+    the criteria compile together. On an organization whose flag calls are only in flag_evaluations, that criterion
+    makes the whole query fail to compile instead.
     """
     # The query reads the same events scans with or without negation. A cohort can't negate every criterion.
     values = [{**prop.to_dict(), "negation": False} for prop in criteria]
@@ -1066,10 +1060,12 @@ def _batch_flag_call_reads(criteria: Sequence[Property], team: Team) -> FlagCall
         return None
 
 
-def _flag_call_criterion_keys(properties: Iterable[Property]) -> Iterator[str]:
-    for event, prop in _hidden_event_references(properties):
-        if event == FLAG_EVALUATIONS_SOURCE_EVENT:
-            yield _criteria_key(prop.to_dict())
+def _flag_call_criterion_counts(properties: Iterable[Property]) -> collections.Counter[str]:
+    return collections.Counter(
+        _criteria_key(prop.to_dict())
+        for event, prop in _hidden_event_references(properties)
+        if event == FLAG_EVALUATIONS_SOURCE_EVENT
+    )
 
 
 def added_unsupported_hidden_event_reference(
@@ -1088,9 +1084,7 @@ def added_unsupported_hidden_event_reference(
     if added:
         return next(iter(added))
 
-    if collections.Counter(_flag_call_criterion_keys(new_properties)) == collections.Counter(
-        _flag_call_criterion_keys(existing_properties)
-    ):
+    if _flag_call_criterion_counts(new_properties) == _flag_call_criterion_counts(existing_properties):
         return None
     new_flag_calls = [prop for event, prop in new_references if event == FLAG_EVALUATIONS_SOURCE_EVENT]
     existing_flag_calls = [prop for event, prop in existing_references if event == FLAG_EVALUATIONS_SOURCE_EVENT]
@@ -1931,9 +1925,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             return None
         instance = cast(Optional[Cohort], self.instance)
         was_realtime = instance is not None and not instance.is_static and instance.cohort_type == CohortType.REALTIME
-        added = collections.Counter(_flag_call_criterion_keys(new_properties))
+        added = _flag_call_criterion_counts(new_properties)
         if was_realtime:
-            added -= collections.Counter(_flag_call_criterion_keys(existing_properties))
+            added -= _flag_call_criterion_counts(existing_properties)
         if not added:
             return None
         return HiddenEventRefusal(event=FLAG_EVALUATIONS_SOURCE_EVENT, reason=_FLAG_CALL_REALTIME_REASON)
