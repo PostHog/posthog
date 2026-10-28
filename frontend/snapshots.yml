@@ -6882,6 +6882,22 @@ snapshots:
         hash: v1.k794b7964.4d9cb89cf4df116ff3e473c6484b641d675a0ea9c42f05bf132ae946b8fb5ca8.7gZROaPmb_dBk2rRnqWl_FEMGXi-hHVdsl42uYiZE44
     products-business-intelligence-comparison-summary--table--light:
         hash: v1.k794b7964.2476db083ec4c26dd53dab30351f38104c63d9578cd30eae620b60e8cc22a438.plfjAxTsZmL_nRDwhmqufs8yWeTX0wXrr0u5Is8_RUw
+    products-business-intelligence-dashboard-filter-bar--active--dark:
+        hash: v1.k794b7964.bb6d728290bfcbe4f44c55861165e8a8fd4cdfa854d01ddd22557595d9392ab7.9QnB2QMMrSzzYAU8JOmq0Rzmlw6tdZTmI9Manf6rZec
+    products-business-intelligence-dashboard-filter-bar--active--light:
+        hash: v1.k794b7964.2452162ce2d7e6fe8aec954aa863db7acb2809d3d8c48ad7017ae38b515291ba.XFGlvuZJD6jkMT0LgqLrZO6sK98AL6zmQ0Yqr79pBPs
+    products-business-intelligence-dashboard-filter-bar--long-label--dark:
+        hash: v1.k794b7964.56f7648f9fe0eaf4498beb167c7b2e0021fa5e6fefac31aa3e20d8d2045d028b.HUsQ39LTdyCAopEKwJI4dF4FgkqOleXraSeZQcc0H7k
+    products-business-intelligence-dashboard-filter-bar--long-label--light:
+        hash: v1.k794b7964.f1a8f2002e0f35caac691b719c62e3824e96b96cde6006bf06c2cdd92180d159.R7V7YeSOPm3HK_x09e-0hK8oJFkQ16ODA43wCUW1xso
+    products-business-intelligence-dashboard-filter-bar--no-related-worksheets--dark:
+        hash: v1.k794b7964.bb6d728290bfcbe4f44c55861165e8a8fd4cdfa854d01ddd22557595d9392ab7.osUoVBdIX20XbgRt37eL3vCVSakCf5SQ1mB_4lyqaP4
+    products-business-intelligence-dashboard-filter-bar--no-related-worksheets--light:
+        hash: v1.k794b7964.2452162ce2d7e6fe8aec954aa863db7acb2809d3d8c48ad7017ae38b515291ba.3z328n_ZiUnKO5NZn9-RqWXuRDs_iD7ygC6On9hOVFo
+    products-business-intelligence-dashboard-filter-bar--quill--dark:
+        hash: v1.k794b7964.685e595b2d82e74d28e617318f7ab37134911236fe466774afd1d226973032c8.W4MK1HnWdy6MWAiwx5r9tbBjfoDjCeHmfEBHofnhsYc
+    products-business-intelligence-dashboard-filter-bar--quill--light:
+        hash: v1.k794b7964.c62c158d76af1654b660d3d06e658d279edbc27a2c4887574d2c94206ce8eca7.1bXevOAdN31g-PzyVyWxCY5d8UwJKMv5T2FJ6Sv12K8
     products-business-intelligence-pivot-table--multiple-measures-and-hierarchies--dark:
         hash: v1.k794b7964.26ebc58171eb340426f9fe220739132bca02f59b8489cb5a0b8a6411f99bb34d.oNv5X9sNKiPmhC_sE607b5P0yHAJju-hcC7higWxX9g
     products-business-intelligence-pivot-table--multiple-measures-and-hierarchies--light:
@@ -16878,6 +16894,42 @@ snapshots:
         hash: v1.k794b7964.70e51d3fec2423e3f206a1f632545c683aa8f8a735cc0821c341f7cee593c6a0.cw2jI_P0--u-15-_tVum1o2kaUNfzGnK4o26sfpDfgs
     scenes-other-toolbar--web-vitals-dark--light:
         hash: v1.k794b7964.3c566aecd79bbe202c1bcf6af7b246d76e554f0730c62b4dff4bad3108dec363.C7lmKRFw4Yayu7T32zX6UwODbv2qqfLYPQHhM8-vzVU
+    scenes-other-toolbar-extension--actions--dark:
+        hash: v1.k794b7964.47c97a9638417b1f05291ee7c26258e29f0538b7aa9b240ca9a42124e4f69031.ipAMvyWBifJCU7w2cHpwNexJ16akcTr2n-T9q8rqF8E
+    scenes-other-toolbar-extension--actions--light:
+        hash: v1.k794b7964.1f668e8bc1678e763755c0f5fa57095fed97bff884c43269db70606fbd72e6e2.-Jabtw4BHGCfRtzWC0si_6PLzG4i485L3C9rG4-DCjE
+    scenes-other-toolbar-extension--events--dark:
+        hash: v1.k794b7964.6951e40266854f9186ecd9e129694a71a4cd2b8292434a19adb320e4d939ef79.UqE6cLf5i95heKK0ueDxFmZtoIunyKj2asiFeRy-BzA
+    scenes-other-toolbar-extension--events--light:
+        hash: v1.k794b7964.5aab0502ebffb4e3aaccd7068180c126f99e10168611932d0c96fd0f7574a247.aeeY5VObbfHz3EbIYneGxHRmx0fHoHKbrFFyB_JU3PY
+    scenes-other-toolbar-extension--experiments--dark:
+        hash: v1.k794b7964.b00d3139e5a2ba88542fbef3797a72de6808e6ded3faa667a7c873a3e8ce8d26.byvlPPPXZNZ6GpC3DM94D4vrWKlOZDnhBluUSmZBZqw
+    scenes-other-toolbar-extension--experiments--light:
+        hash: v1.k794b7964.e3115faf60178e70f22fd5b94f08714a513b660762bf3101f2a8f77ddc760d94.-SbW7x9Bz73JOswYlwvgx4vkamQtdx3Cxzgq8ZWPHkw
+    scenes-other-toolbar-extension--feature-flags--dark:
+        hash: v1.k794b7964.cbed94c6ab2310c5981ae51f686b4e72e2f089a6b0f241781b7f501e698b3e49.HpMZUPuzhYkRGMyh4ACxT9Yxtl1Pxv_O5rR4C9tnyBc
+    scenes-other-toolbar-extension--feature-flags--light:
+        hash: v1.k794b7964.6d3760a66d6dd9016bc0479ecb0e32d1910acbc1997df7772c9255223ae27a34.YMqjcAbIJSwc0YHOPlZHqMq4T9yNbeP4Ujb6isEJrP4
+    scenes-other-toolbar-extension--heatmap--dark:
+        hash: v1.k794b7964.9e90ae389acba7acc5c8feec155491b537ba3baaa347eb0b5330ffb12499d4fb.VUffPogQJoMuKDMRtEnuNNJGtmtcbFY9djuyg2QUMv4
+    scenes-other-toolbar-extension--heatmap--light:
+        hash: v1.k794b7964.c208dda39564a36ae2df7160c95fc2d1c678c837f116c476e8c280aa21cead7b.a7tgkHiw-B6z6B5GtiU5xJA6ShzG5BtGcJohH-Efbf4
+    scenes-other-toolbar-extension--home--dark:
+        hash: v1.k794b7964.83bb52fa616a926259ed466d52ee44bfbb076e41e486aaa2101b88fcf1073fa9.KVpR75JkFzZxvH4RezINchlhG83HTJVnDh8KuYP45y0
+    scenes-other-toolbar-extension--home--light:
+        hash: v1.k794b7964.5aaf3bfe058525aab8bf9cee279529a387a8320bcb49442903c219ab56bc6708.Gl3k1xR9fmum6gj8kwBk80HsbmOcCRgx8khaN3aqjHg
+    scenes-other-toolbar-extension--inspect--dark:
+        hash: v1.k794b7964.f523aa26fdd35a0f804300387caaef4f6bb3afe031dbfab0ca3f59f081e8b841.fl-FLu4PPNA0mXO3E0ooB38y1JGyUKJSARFXQr5loHE
+    scenes-other-toolbar-extension--inspect--light:
+        hash: v1.k794b7964.9080f397105a58badfbedf57fd0d9431a1199168d322be392526f54908389332.ezL_ylAVnS0jm43jSNudSvDq2UsrHLCXe3TasTwzqqw
+    scenes-other-toolbar-extension--more--dark:
+        hash: v1.k794b7964.7fc0cdc145f2aafdb6e85bddbdd1da8c03833df98d07a84a9ad2ea19853da2b9.miuZD5EGMeFPM-ZZW0T20YDVJURjse-35EFK1dlV8tI
+    scenes-other-toolbar-extension--more--light:
+        hash: v1.k794b7964.4390e6d302ece40cc0434daeb0a348820fd0320928562977b3d92e2d26e7ffdf.eQWNMIp7D-sclUMAkcncr7MkVFLQkZLDnMPH60jFvvM
+    scenes-other-toolbar-extension--web-vitals--dark:
+        hash: v1.k794b7964.d11f7d8f53eb47cb215236d5f3e5575b7f927c9ccc86d69ef332bd0d32a92b78.nLsLJd4XpYfs9nmWheR8f4FRfOGynhwT06OtMbAN8gk
+    scenes-other-toolbar-extension--web-vitals--light:
+        hash: v1.k794b7964.359b0bb9673b02483ba075c403627a50b464f8ab5dacbedf55edc3d62a340721.N5zZFfSviHABKxfqoSFeY-qOhODsfCFqxL3_TPEZwE0
     scenes-other-toolbarlaunch--default--dark:
         hash: v1.k794b7964.e40308bf4cd225c11272879842feec6c42e817868081bc9e38ac7395dc37a2fd.0UqNVZGTldUPnS_tl6Auj2I_LjYTRPYffIPGWzA6-mc
     scenes-other-toolbarlaunch--default--light:
