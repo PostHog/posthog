@@ -521,6 +521,10 @@ def _decide(
     if alert is None:
         # The production alert is gone, so this copy can never be compared again.
         return _skipped(check, snapshot, now=now, disable=True)
+    if _ai_detector_not_copied(check, alert):
+        # Before the refresh, which would write the AI detector onto the copy and opt it in. The
+        # copy is switched off, because it would otherwise skip on its stale schedule every tick.
+        return _skipped(check, snapshot, now=now, disable=True)
     # Before any skip, because a skip advances the check by the copy's schedule.
     check = _following(check, alert)
     if not alert.enabled or alert.insight.deleted or not is_evaluated_on_the_platform(alert):
@@ -598,6 +602,18 @@ def _decide(
         firing=(alert, result.breaches or []),
         check_detail=detector_detail(result) if alert.detector_config else None,
     )
+
+
+def _ai_detector_not_copied(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> bool:
+    """Whether a parallel-run copy made without the AI detector would now run one.
+
+    A check reads the alert's live detector, so an alert switched to the AI detector after the
+    backfill copied it would make a model call the project pays for twice. The backfill copies
+    AI detector alerts only on request, and a copy it made that way stores the AI detector.
+    """
+    if check.owned_by_platform or not is_llm_detector_config(alert.detector_config):
+        return False
+    return not is_llm_detector_config(check.condition.get("detector"))
 
 
 def _following(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> PlatformAlertCheckInput:
