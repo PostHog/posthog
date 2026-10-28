@@ -805,7 +805,11 @@ mod tests {
             "https://cdn.example.com/a.png",
         );
         let source = |id: i64, attributes: serde_json::Value| json!({"type": 2, "tagName": "source", "attributes": attributes, "childNodes": [], "id": id});
+        // The scan leaves an SVG inline, so the browser can load it from the block.
+        let svg =
+            "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E";
         let picture = json!({"type": 2, "tagName": "picture", "attributes": {}, "id": 2, "childNodes": [
+            source(6, json!({"type": "image/svg+xml", "srcset": format!("{svg} 1x")})),
             source(3, json!({"type": "image/avif", "srcset": format!("{avif} 1x")})),
             source(4, json!({"type": "image/webp", "srcset": format!("{signed} 2x, {webp} 1x")})),
             {"type": 2, "tagName": "img", "attributes": {"src": fallback}, "childNodes": [], "id": 5},
@@ -834,6 +838,10 @@ mod tests {
         };
         // The AVIF source has no candidate left and the declined one leaves the list, so the browser takes the WebP.
         assert!(lines.contains(r#""srcset":"""#), "{lines}");
+        assert!(
+            lines.contains(&format!(r#""srcset":"{svg} 1x""#)),
+            "{lines}"
+        );
         assert!(
             lines.contains(&format!(r#""srcset":"{} 1x""#, reference(webp))),
             "{lines}"

@@ -2,9 +2,10 @@
 //! policy declines becomes a marker that names the reason, so that no credential, signature or private host stays in
 //! the block. The inspector names the URLs: those in image slots, CSS included.
 //!
-//! A srcset is rebuilt instead: a declined candidate leaves the list, and a picture source of a type the fetcher does
-//! not store gets an empty srcset. A browser skips a source with no candidates, so it falls back to a source or an img
-//! that can load, where a marker in the list would show a broken image.
+//! A srcset is rebuilt instead: a declined candidate leaves the list, and so does each remote candidate of a picture
+//! source whose type the fetcher does not store. An inline image, such as an SVG data URI, stays. A browser skips a
+//! source with no candidates, so it falls back to a source or an img that can load, where a marker in the list would
+//! show a broken image.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -313,9 +314,6 @@ fn rebuilt_srcset(
             }
             _ => removed = true,
         }
-    }
-    if srcset.unfetched_type {
-        return Some((String::new(), "emptied", covers));
     }
     if !removed {
         return None;
