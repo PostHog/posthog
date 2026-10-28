@@ -58,7 +58,7 @@ class TrunkIoSource(ResumableSource[TrunkIoSourceConfig, TrunkIoResumeConfig]):
     codebase_detection = detect(env=("^TRUNK_API_TOKEN$", "^TRUNK_ORG_URL_SLUG$"), npm=("@trunkio/launcher",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    api_docs_url = "https://docs.trunk.io/flaky-tests/api"
+    api_docs_url = "https://docs.trunk.io/flaky-tests/reference/api-reference"
 
     supported_versions = (TRUNK_IO_API_VERSION_V1, TRUNK_IO_API_VERSION_V2)
     default_version = TRUNK_IO_API_VERSION_V2
@@ -105,10 +105,7 @@ class TrunkIoSource(ResumableSource[TrunkIoSourceConfig, TrunkIoResumeConfig]):
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        # Every version keeps the repository-scoped v1 tables, and v2 accepts the same token, so
-        # the v1 probe holds for both pins.
-        repo = TrunkRepo(host=config.repo_host, owner=config.repo_owner, name=config.repo_name)
-        return validate_trunk_io_credentials(config.api_token, config.org_url_slug, repo)
+        return validate_trunk_io_credentials(config.api_token)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TrunkIoResumeConfig]:
         return ResumableSourceManager[TrunkIoResumeConfig](inputs, TrunkIoResumeConfig)
@@ -125,20 +122,11 @@ class TrunkIoSource(ResumableSource[TrunkIoSourceConfig, TrunkIoResumeConfig]):
             raise ValueError(f"Unknown Trunk.io endpoint: {endpoint}")
 
         if endpoint == "UnhealthyTests":
-            items = unhealthy_tests(config.api_token, repo, config.org_url_slug, resumable_source_manager)
+            items = unhealthy_tests(config.api_token, resumable_source_manager)
         elif endpoint == "QuarantinedTests":
-            items = quarantined_tests(config.api_token, repo, config.org_url_slug, resumable_source_manager)
+            items = quarantined_tests(config.api_token, resumable_source_manager)
         elif endpoint == "FailingTests":
-            items = failing_tests(
-                config.api_token,
-                repo,
-                config.org_url_slug,
-                resumable_source_manager,
-                should_use_incremental_field=inputs.should_use_incremental_field,
-                db_incremental_field_last_value=inputs.db_incremental_field_last_value
-                if inputs.should_use_incremental_field
-                else None,
-            )
+            items = failing_tests(config.api_token, resumable_source_manager)
         elif endpoint == MERGE_QUEUE_PULL_REQUESTS:
             target_branch = (config.merge_queue_target_branch or "").strip()
             if not target_branch:
@@ -172,7 +160,7 @@ class TrunkIoSource(ResumableSource[TrunkIoSourceConfig, TrunkIoResumeConfig]):
             name=ExternalDataSourceType.TRUNKIO,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Trunk.io (Trunk Technologies, Inc.)",
-            caption="""Enter a Trunk.io API token to sync flaky test and merge queue data for a single repository.
+            caption="""Enter a Trunk.io API token to sync flaky test data across your test collections, and merge queue data for a single repository.
 
 Supported tables:
 - `UnhealthyTests`
@@ -180,9 +168,9 @@ Supported tables:
 - `FailingTests`
 - `MergeQueuePullRequests` (needs a merge queue target branch below)
 - `TestCollections`
-- `Tests` (tests in your test collections)
+- `Tests` (every test in your test collections)
 
-Create an API token in the Trunk app under Settings > Organization > General > API.
+Create an API key in the Trunk app under Settings > Developer > API Keys.
 """,
             docsUrl="https://posthog.com/docs/cdp/sources/trunk-io",
             iconPath="/static/services/trunk_io.png",

@@ -8,38 +8,23 @@ BASE_URL = "https://api.trunk.io/v1"
 # The v2 spec lists full `/v2/...` paths against the bare origin.
 V2_BASE_URL = "https://api.trunk.io"
 
-# Trunk's list endpoints all paginate the same way: a `page_query: {page_size, page_token}`
-# object nested in the POST body (not a top-level query/json param), capped at 100 rows/page.
-PAGE_SIZE = 100
-
-# `list-unhealthy-tests` requires a single `status` filter per call, so the "unhealthy tests"
-# table is built by walking both statuses and merging the results.
-UNHEALTHY_STATUSES = ("FLAKY", "BROKEN")
-
-# `list-failing-tests` enforces a <=7 day start_time/end_time window per call, so a full sync
-# walks forward in fixed windows. There is no per-row "modified since" field, so this default
-# lookback bounds the first sync's backfill depth; later syncs continue from the last
-# completed window (see `synced_through` below) instead of re-walking from this point again.
-FAILING_TESTS_WINDOW_DAYS = 7
-FAILING_TESTS_DEFAULT_LOOKBACK_DAYS = 30
-
-# The Merge Queue API is a separate surface from Flaky Tests: `/listPullRequests` paginates with
-# top-level `cursor`/`take` body params rather than the nested `page_query` object, and it is
-# scoped to one merge queue, i.e. one target branch.
+# The Merge Queue API is still served from v1: `/listPullRequests` paginates with top-level
+# `cursor`/`take` body params, and it is scoped to one merge queue, i.e. one target branch.
 MERGE_QUEUE_PAGE_SIZE = 100
 
 MERGE_QUEUE_PULL_REQUESTS = "MergeQueuePullRequests"
 
-# v2 is a separate, test-collection-scoped API rather than a successor to the repository-scoped
-# v1 endpoints: test ids differ between the two, and v1 is still served for orgs that have not
-# moved to collections. So a v2 pin keeps every v1 table on its v1 wire and adds the collection
-# tables on top.
+# The flaky-test tables read `GET /v2/tests` across every test collection in the organization,
+# because Trunk retires the repository-scoped v1 list endpoints once an org moves to collections.
+# A v1 pin only hides the two tables that have no v1 name.
 TEST_COLLECTIONS = "TestCollections"
 TESTS = "Tests"
 
 # `GET /v2/test-collections` and `GET /v2/tests` both take `limit` (max 100) and `cursor` query
 # params and return `{data, nextCursor, hasMore}`.
 V2_PAGE_SIZE = 100
+
+TEST_METRICS_PARAMS: dict[str, str] = {"include": "metrics", "period": "7d"}
 
 V1_ENDPOINTS = (
     "UnhealthyTests",
@@ -63,9 +48,9 @@ def endpoints_for_version(api_version: str) -> tuple[str, ...]:
 
 
 DESCRIPTIONS: dict[str, str] = {
-    "UnhealthyTests": "Tests Trunk currently considers flaky or broken, combining both status filters.",
-    "QuarantinedTests": "Tests currently quarantined (failures suppressed) in this repository.",
-    "FailingTests": "Distinct tests that failed at least once within a given time window.",
+    "UnhealthyTests": "Tests Trunk currently considers flaky or broken, with their metrics over the last 7 days.",
+    "QuarantinedTests": "Tests currently quarantined (failures suppressed), with their metrics over the last 7 days.",
+    "FailingTests": "Tests that failed at least once in the last 7 days, most recent failure first.",
     MERGE_QUEUE_PULL_REQUESTS: "Pull requests submitted to the merge queue for one target branch, with queue state and priority.",
     TEST_COLLECTIONS: "Test collections in the organization, with test counts and quarantine settings.",
     TESTS: "Tests across every test collection in the organization, with current status and quarantine state.",
@@ -73,9 +58,7 @@ DESCRIPTIONS: dict[str, str] = {
 
 PRIMARY_KEYS: dict[str, list[str]] = {
     "UnhealthyTests": ["id"],
-    # Quarantined tests carry no stable id (`test_case_id` is explicitly documented as
-    # unstable), so the natural key is the tuple that identifies the test case itself.
-    "QuarantinedTests": ["name", "parent", "file", "classname", "variant"],
+    "QuarantinedTests": ["id"],
     "FailingTests": ["id"],
     MERGE_QUEUE_PULL_REQUESTS: ["id"],
     TEST_COLLECTIONS: ["id"],
@@ -86,8 +69,8 @@ PRIMARY_KEYS: dict[str, list[str]] = {
 # in time the row's endpoint is covered up to, so the pipeline's incremental watermark advances
 # without depending on the order rows arrive in:
 #
-# - `FailingTests` has a server-side `start_time`/`end_time` filter capped at 7 days, so each row
-#   is stamped with the end of the window it was fetched in as the sync walks forward.
+# - `FailingTests` has no server-side time filter, only a fixed 7-day metrics window, so every row
+#   in a run is stamped with the run's start time and the merge on `id` keeps the latest metrics.
 # - `MergeQueuePullRequests` has a server-side `since` filter on conclusion time but no documented
 #   ordering, so every row in a run is stamped with the run's start time. The next run re-reads
 #   from there, which overlaps by one run's duration rather than risking a gap; the overlap is

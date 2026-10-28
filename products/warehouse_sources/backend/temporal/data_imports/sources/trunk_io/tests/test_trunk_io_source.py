@@ -1,5 +1,3 @@
-from unittest.mock import patch
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
@@ -25,21 +23,6 @@ class TestTrunkIoSource:
     def test_lists_tables_without_credentials(self):
         # get_schemas is a static endpoint catalog with no I/O, so it must be safe for public docs.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_validate_credentials_delegates_with_repo(self):
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.source.validate_trunk_io_credentials"
-        ) as mock_validate:
-            mock_validate.return_value = (True, None)
-            result = self.source.validate_credentials(self.config, self.team_id)
-
-        assert result == (True, None)
-        (api_token, org_url_slug, repo), _ = mock_validate.call_args.args, mock_validate.call_args.kwargs
-        assert api_token == "test-token"
-        assert org_url_slug == "my-org"
-        assert repo.host == "github.com"
-        assert repo.owner == "my-org"
-        assert repo.name == "my-repo"
 
     def test_new_sources_default_to_v2(self):
         assert self.source.supported_versions == ("v1", "v2")
@@ -82,13 +65,13 @@ class TestTrunkIoSource:
 
     @parameterized.expand(
         [
-            ("UnhealthyTests", "/v1/flaky-tests/list-unhealthy-tests", "v1"),
-            ("QuarantinedTests", "/v1/flaky-tests/list-quarantined-tests", "v1"),
-            ("FailingTests", "/v1/flaky-tests/list-failing-tests", "v1"),
+            ("UnhealthyTests", "/v2/tests", "v1"),
+            ("QuarantinedTests", "/v2/tests", "v1"),
+            ("FailingTests", "/v2/tests", "v1"),
             ("MergeQueuePullRequests", "/v1/listPullRequests", "v1"),
-            ("UnhealthyTests", "/v1/flaky-tests/list-unhealthy-tests", "v2"),
-            ("QuarantinedTests", "/v1/flaky-tests/list-quarantined-tests", "v2"),
-            ("FailingTests", "/v1/flaky-tests/list-failing-tests", "v2"),
+            ("UnhealthyTests", "/v2/tests", "v2"),
+            ("QuarantinedTests", "/v2/tests", "v2"),
+            ("FailingTests", "/v2/tests", "v2"),
             ("MergeQueuePullRequests", "/v1/listPullRequests", "v2"),
             ("TestCollections", "/v2/test-collections", "v2"),
             ("Tests", "/v2/tests", "v2"),
@@ -121,7 +104,7 @@ class TestTrunkIoSource:
     @parameterized.expand(
         [
             ("UnhealthyTests", ["id"]),
-            ("QuarantinedTests", ["name", "parent", "file", "classname", "variant"]),
+            ("QuarantinedTests", ["id"]),
             ("FailingTests", ["id"]),
             ("MergeQueuePullRequests", ["id"]),
             ("TestCollections", ["id"]),

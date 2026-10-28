@@ -2407,10 +2407,8 @@ export interface TrunkQuarantinedTestApi {
     file: string
     /** Owning team slug from the repository's ownership files, or 'unowned' when the test's file cannot be placed or no team claims its path. */
     owner_team: string
-    /** Trunk's current health verdict on the test, e.g. 'FLAKY' or 'BROKEN'. */
+    /** Trunk's current health verdict on the test, e.g. 'flaky' or 'broken'. */
     status: string
-    /** How the quarantine was applied in Trunk, e.g. 'AUTO_QUARANTINE'. */
-    quarantine_setting: string
     /** When Trunk quarantined the test. */
     quarantined_at: string
     /** Whole days since the quarantine started. */
@@ -2418,7 +2416,7 @@ export interface TrunkQuarantinedTestApi {
     /** True once age_days exceeds ttl_days: the quarantine has outlived the TTL. */
     overdue: boolean
     /**
-     * The Trunk app's page for this test; null when the connected source has no organization slug or the row carries no test case id.
+     * The Trunk app's page for this test; null when Trunk returned no URL for it.
      * @nullable
      */
     trunk_url: string | null
