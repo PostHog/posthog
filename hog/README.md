@@ -46,10 +46,6 @@ Then, once the commands above work:
 - [ ] Callers: the SDKs, build plugins and scripts that run `posthog-cli` with its arguments. Move them to hog, or give hog a `posthog-cli` entry point that translates the arguments.
 - [ ] Distribution: a binary for each platform, macOS signing and notarization, the npm package, the Homebrew formula, `hog update`, and CI on Linux and Windows.
 
-Smaller follow-ups, none of them blocking:
-
-- [ ] `hog error-tracking upload --include-source`: write ZIP64, so a binary that names more than 65,533 source files keeps its sources. hog uploads it without sources and warns.
-
 Not planned:
 
 - `posthog-cli exp query editor`, the interactive query editor in the terminal. hog won't port it.

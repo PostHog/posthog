@@ -128,8 +128,19 @@ function readZip(zip: Buffer): ZipEntry[] {
     if (end < 0 || end + 22 > zip.length) {
         throw unreadable('no end of central directory')
     }
-    const count = zip.readUInt16LE(end + 10)
+    let count = zip.readUInt16LE(end + 10)
     let offset = zip.readUInt32LE(end + 16)
+    // An archive with more than 65,535 entries keeps the real count in the ZIP64 record, which the
+    // locator just before the end record points at.
+    const locator = end - 20
+    if (locator >= 0 && zip.readUInt32LE(locator) === 0x07064b50) {
+        const record = Number(zip.readBigUInt64LE(locator + 8))
+        if (record + 56 > zip.length || zip.readUInt32LE(record) !== 0x06064b50) {
+            throw unreadable('the ZIP64 end of central directory is out of bounds')
+        }
+        count = Number(zip.readBigUInt64LE(record + 32))
+        offset = Number(zip.readBigUInt64LE(record + 48))
+    }
     let total = 0
     const entries: ZipEntry[] = []
     for (let index = 0; index < count; index++) {

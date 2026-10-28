@@ -9,7 +9,6 @@ import type { ZipWriter } from './zip'
 // manifest from DWARF path to zip path. posthog-cli's dsym/source_bundle.rs.
 
 const MAX_SOURCE_FILE_BYTES = 64 * 1024 * 1024
-const MAX_ZIP_ENTRIES = 0xffff
 
 export interface SourceBundle {
     manifest: Map<string, string>
@@ -164,13 +163,5 @@ export function sourceStep(
         return undefined
     }
     const bundle = collectSources(paths, warnings)
-    // The sources, the manifest and the binary must fit a zip without ZIP64. posthog-cli's zip
-    // crate switches to ZIP64 there, which hog doesn't write, so it uploads the binary alone.
-    if (bundle.contents.size + 2 > MAX_ZIP_ENTRIES) {
-        warnings.push(
-            `The binary names ${bundle.contents.size} source files, more than one upload can hold, so hog uploads it without sources.`
-        )
-        return undefined
-    }
     return (zip) => addSources(zip, bundle)
 }
