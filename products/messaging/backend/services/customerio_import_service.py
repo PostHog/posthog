@@ -3,6 +3,7 @@ import csv
 import json
 import time
 import logging
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -45,6 +46,26 @@ class _ImportedSuppression:
     diagnostic: str | None
 
 
+@frozen
+class SuppressionPage:
+    suppression_type: str
+    # How many entries c.io returned, including any without a usable address.
+    entries: int
+    addresses: dict[str, _ImportedSuppression]
+    # The offset of the next page in the same suppression list.
+    next_offset: int
+    is_last: bool
+
+
+@frozen
+class GlobalUnsubscribePage:
+    # How many customers c.io returned, including any without an email address.
+    customers: int
+    emails: tuple[str, ...]
+    # The cursor of the next page, or None on the last page.
+    next_start: str | None
+
+
 class CustomerIOImportService:
     def __init__(self, team_id: int, api_key: Optional[str], created_by_id: Optional[int]):
         self.team_id = team_id
@@ -65,6 +86,17 @@ class CustomerIOImportService:
             "errors": [],
             "details": "",
         }
+
+    def connect(self) -> bool:
+        """Find the region the App API key belongs to and keep a client for it. Returns False for an invalid key."""
+        if not self.api_key:
+            return False
+        for region in ("us", "eu"):
+            self.client = CustomerIOClient(self.api_key, region=region)
+            if self.client.validate_credentials():
+                return True
+        self.client = None
+        return False
 
     def import_api_data(self) -> dict[str, Any]:
         """Import categories, globally unsubscribed users and suppressed addresses via API"""
@@ -92,7 +124,7 @@ class CustomerIOImportService:
             topics = self.client.get_subscription_topics()
 
             self.progress["topics_found"] = len(topics)
-            self._import_categories(topics)
+            self.import_categories(topics)
 
             # Step 3: Import addresses Customer.io's email provider suppressed. They go before the global
             # unsubscribes because those can run to hundreds of pages, past the request timeout, and each page
@@ -325,7 +357,7 @@ class CustomerIOImportService:
 
         return preferences_count
 
-    def _import_categories(self, topics: list[dict[str, Any]]) -> None:
+    def import_categories(self, topics: list[dict[str, Any]]) -> None:
         """Import Customer.io topics as message categories"""
         for topic in topics:
             try:
@@ -371,52 +403,35 @@ class CustomerIOImportService:
         if not self.client:
             return
 
-        start = None
         batch_num = 0
         total_processed = 0
-        global_opt_out_ids = [ALL_MESSAGE_PREFERENCE_CATEGORY_ID]
+        pages = self.fetch_global_unsubscribe_pages(start=None)
 
         while True:
             batch_num += 1
             self.progress["current_batch"] = batch_num
 
             try:
-                # Fetch batch of globally unsubscribed customers
-                response = self.client.get_globally_unsubscribed_customers(limit=1000, start=start)
-                identifiers = response.get("identifiers", [])
-
-                if not identifiers:
+                page = next(pages, None)
+                if page is None:
                     break
 
-                self.progress["customers_in_current_batch"] = len(identifiers)
+                self.progress["customers_in_current_batch"] = page.customers
                 self.progress["details"] = (
-                    f"Processing batch {batch_num} of globally unsubscribed users ({len(identifiers)} users)..."
+                    f"Processing batch {batch_num} of globally unsubscribed users ({page.customers} users)..."
                 )
+                # Add to our global set of processed users
+                self.all_processed_users.update(page.emails)
 
-                # Collect emails for this batch
-                emails_to_process = []
-                for customer_info in identifiers:
-                    email = customer_info.get("email")
-                    if email:
-                        emails_to_process.append(email)
-                        # Add to our global set of processed users
-                        self.all_processed_users.add(email)
-
-                if emails_to_process:
+                if page.emails:
                     # Bulk update: opt out these users from all marketing
-                    self._bulk_update_all_preferences(emails_to_process, global_opt_out_ids)
+                    self._bulk_update_all_preferences(list(page.emails), [ALL_MESSAGE_PREFERENCE_CATEGORY_ID])
 
-                    batch_processed = len(emails_to_process)
+                    batch_processed = len(page.emails)
                     total_processed += batch_processed
                     self.progress["globally_unsubscribed_count"] += batch_processed
                     self.progress["customers_processed"] += batch_processed
-                    self.progress["preferences_updated"] += batch_processed * len(global_opt_out_ids)
-
-                # Check for next page
-                next_cursor = response.get("next")
-                if not next_cursor or next_cursor == "":
-                    break
-                start = next_cursor
+                    self.progress["preferences_updated"] += batch_processed
 
             except Exception as e:
                 self.progress["errors"].append(
@@ -425,6 +440,28 @@ class CustomerIOImportService:
                 break
 
         self.progress["details"] = f"Processed {total_processed} globally unsubscribed users"
+
+    def fetch_global_unsubscribe_pages(self, start: str | None) -> Iterator[GlobalUnsubscribePage]:
+        """Page through c.io's globally unsubscribed customers, starting at the `start` cursor.
+
+        The caller writes each page, so it decides what a failed write does to the rest of the import.
+        """
+        assert self.client is not None
+        while True:
+            response = self.client.get_globally_unsubscribed_customers(limit=1000, start=start)
+            identifiers = response.get("identifiers", [])
+            if not identifiers:
+                return
+
+            next_cursor = response.get("next") or None
+            yield GlobalUnsubscribePage(
+                customers=len(identifiers),
+                emails=tuple(email for customer in identifiers if (email := customer.get("email"))),
+                next_start=next_cursor,
+            )
+            if not next_cursor:
+                return
+            start = next_cursor
 
     def _import_suppressions(self) -> None:
         """Add Customer.io's bounced, invalid and spam-reported addresses to the suppression list.
@@ -435,28 +472,50 @@ class CustomerIOImportService:
         if not self.client:
             return
 
-        # bulk_create skips the save() that moves a child environment's rows to its parent project.
-        team_id = resolve_effective_team_id(self.team_id)
-        for suppression_type, (source, reason) in CUSTOMERIO_SUPPRESSION_TYPES.items():
-            offset = 0
+        for suppression_type in CUSTOMERIO_SUPPRESSION_TYPES:
+            pages = self.fetch_suppression_pages(suppression_type, offset=0)
             while True:
                 try:
-                    page = self.client.get_suppressions(suppression_type, limit=SUPPRESSION_PAGE_SIZE, offset=offset)
+                    page = next(pages, None)
                 except Exception as e:
                     self.progress["errors"].append(f"Error importing Customer.io {suppression_type}: {str(e)[:200]}")
                     break
-
-                imported = {
-                    email.strip().lower(): _imported_suppression(entry)
-                    for entry in page
-                    if isinstance(entry, dict) and isinstance(email := entry.get("email"), str) and "@" in email
-                }
-                if imported:
-                    self.progress["suppressions_imported"] += self._add_suppressions(team_id, imported, source, reason)
-                if len(page) < SUPPRESSION_PAGE_SIZE:
+                if page is None:
                     break
-                offset += len(page)
-                time.sleep(SUPPRESSION_PAGE_DELAY_SECONDS)
+                self.progress["suppressions_imported"] += self.save_suppression_page(page)
+
+    def fetch_suppression_pages(self, suppression_type: str, offset: int) -> Iterator[SuppressionPage]:
+        """Page through one c.io suppression list, starting at `offset`.
+
+        The caller saves each page with `save_suppression_page`, so it decides what a failed request does to the
+        rest of the import.
+        """
+        assert self.client is not None
+        while True:
+            entries = self.client.get_suppressions(suppression_type, limit=SUPPRESSION_PAGE_SIZE, offset=offset)
+            offset += len(entries)
+            yield SuppressionPage(
+                suppression_type=suppression_type,
+                entries=len(entries),
+                addresses={
+                    email.strip().lower(): _imported_suppression(entry)
+                    for entry in entries
+                    if isinstance(entry, dict) and isinstance(email := entry.get("email"), str) and "@" in email
+                },
+                next_offset=offset,
+                is_last=len(entries) < SUPPRESSION_PAGE_SIZE,
+            )
+            if len(entries) < SUPPRESSION_PAGE_SIZE:
+                return
+            time.sleep(SUPPRESSION_PAGE_DELAY_SECONDS)
+
+    def save_suppression_page(self, page: SuppressionPage) -> int:
+        """Suppress the page's addresses and return how many new rows it added."""
+        if not page.addresses:
+            return 0
+        source, reason = CUSTOMERIO_SUPPRESSION_TYPES[page.suppression_type]
+        # bulk_create skips the save() that moves a child environment's rows to its parent project.
+        return self._add_suppressions(resolve_effective_team_id(self.team_id), page.addresses, source, reason)
 
     def _add_suppressions(
         self, team_id: int, imported: dict[str, _ImportedSuppression], source: SuppressionSource, reason: str
@@ -506,50 +565,51 @@ class CustomerIOImportService:
     def _bulk_update_all_preferences(self, emails: list[str], category_ids: list[str]) -> None:
         """Bulk update preferences to opt out users from ALL categories"""
         try:
-            with transaction.atomic():
-                # Fetch existing preferences
-                existing_prefs = {
-                    pref.identifier: pref
-                    for pref in MessageRecipientPreference.objects.filter(team_id=self.team_id, identifier__in=emails)
-                }
-
-                to_create = []
-                to_update = []
-
-                for email in emails:
-                    if email in existing_prefs:
-                        # Update existing preference
-                        pref = existing_prefs[email]
-                        for category_id in category_ids:
-                            pref.preferences[str(category_id)] = PreferenceStatus.OPTED_OUT.value
-                        to_update.append(pref)
-                    else:
-                        # Create new preference with all categories opted out
-                        preferences_dict = {
-                            str(category_id): PreferenceStatus.OPTED_OUT.value for category_id in category_ids
-                        }
-                        to_create.append(
-                            MessageRecipientPreference(
-                                team_id=self.team_id,
-                                identifier=email,
-                                preferences=preferences_dict,
-                            )
-                        )
-
-                # Bulk operations
-                if to_create:
-                    MessageRecipientPreference.objects.bulk_create(to_create, batch_size=500)
-
-                if to_update:
-                    MessageRecipientPreference.objects.bulk_update(
-                        to_update, ["preferences", "updated_at"], batch_size=500
-                    )
-
+            self.save_opt_outs(emails, category_ids)
         except Exception as e:
             logger.exception(f"Error bulk updating all preferences: {e}")
             # Don't fall back to individual updates - it would make performance worse
             # Instead, record the batch failure and continue
             self.progress["errors"].append(f"Failed to update batch of {len(emails)} users: {str(e)[:200]}")
+
+    def save_opt_outs(self, emails: list[str], category_ids: list[str]) -> None:
+        """Opt the recipients out of the categories, keeping their other preferences."""
+        with transaction.atomic():
+            # Fetch existing preferences
+            existing_prefs = {
+                pref.identifier: pref
+                for pref in MessageRecipientPreference.objects.filter(team_id=self.team_id, identifier__in=emails)
+            }
+
+            to_create = []
+            to_update = []
+
+            for email in emails:
+                if email in existing_prefs:
+                    # Update existing preference
+                    pref = existing_prefs[email]
+                    for category_id in category_ids:
+                        pref.preferences[str(category_id)] = PreferenceStatus.OPTED_OUT.value
+                    to_update.append(pref)
+                else:
+                    # Create new preference with all categories opted out
+                    preferences_dict = {
+                        str(category_id): PreferenceStatus.OPTED_OUT.value for category_id in category_ids
+                    }
+                    to_create.append(
+                        MessageRecipientPreference(
+                            team_id=self.team_id,
+                            identifier=email,
+                            preferences=preferences_dict,
+                        )
+                    )
+
+            # Bulk operations
+            if to_create:
+                MessageRecipientPreference.objects.bulk_create(to_create, batch_size=500)
+
+            if to_update:
+                MessageRecipientPreference.objects.bulk_update(to_update, ["preferences", "updated_at"], batch_size=500)
 
     def _load_topic_mapping(self) -> None:
         """Load topic mapping from existing categories"""
