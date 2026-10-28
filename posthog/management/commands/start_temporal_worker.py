@@ -361,8 +361,9 @@ from products.wizard.backend.facade.temporal import (
     WORKFLOWS as WIZARD_WORKFLOWS,
 )
 
-# When adding modules to a queue, also add their paths to that fleet's filter in the
-# check_temporal_worker_changes step of .github/workflows/container-images-cd.yml
+# When adding modules to a queue, also add their paths to that fleet's filter: the
+# check_temporal_worker_changes step of .github/workflows/container-images-cd.yml, or
+# .github/shared-image-releases.yaml for fleets published through their own channel
 _task_queue_specs = [
     (
         settings.SYNC_BATCH_EXPORTS_TASK_QUEUE,
