@@ -6,6 +6,7 @@ import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { safeClickhouseString } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
+import type { InternalLogsProducer } from '~/logs/internal-logs-producer'
 
 import {
     CyclotronJobInvocationHogFlow,
@@ -74,12 +75,16 @@ export class HogFunctionMonitoringService {
 
     private appMetricsAggregator: AppMetricsAggregator
 
-    constructor(private outputs: IngestionOutputs<MonitoringOutput>) {
+    constructor(
+        private outputs: IngestionOutputs<MonitoringOutput>,
+        private internalLogsProducer?: InternalLogsProducer
+    ) {
         this.appMetricsAggregator = new AppMetricsAggregator(outputs)
     }
 
-    // Required by ResultSink. This sink holds nothing of its own: it writes through the shared
-    // Kafka outputs, which the server disconnects separately on shutdown.
+    // Required by ResultSink. This sink writes through the shared Kafka outputs, which the server
+    // disconnects separately on shutdown. Internal logs still queued or in flight are dropped, and
+    // `log_entries` still has every row.
     async stop(): Promise<void> {
         return Promise.resolve()
     }
@@ -89,6 +94,9 @@ export class HogFunctionMonitoringService {
         const messages = [...this.queuedLogMessages]
         this.queuedLogMessages = []
         hogFunctionMonitoringPendingMessages.set(0)
+
+        // Not awaited, so a slow capture-logs cannot hold up the Kafka flush. The producer caps its own requests.
+        void this.internalLogsProducer?.flush()
 
         await Promise.all([
             this.appMetricsAggregator.flush().catch((error) => {
@@ -162,6 +170,8 @@ export class HogFunctionMonitoringService {
             this.queuedLogMessages.push(logEntry)
         })
         hogFunctionMonitoringPendingMessages.set(this.queuedLogMessages.length)
+
+        this.internalLogsProducer?.enqueue(source, logEntries)
     }
 
     queueInvocationResults(results: CyclotronJobInvocationResult[]): void {
