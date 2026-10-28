@@ -1,7 +1,7 @@
 import re
 import json
 import datetime as dt
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from typing import Any, Optional
 
 import requests
@@ -33,6 +33,9 @@ MAX_INDEX_PAGES = 100
 # Default LinkedIn Marketing API version header. Callers pass a resolved version through the
 # source's version dispatch; this default backs the legacy `v1` pin and credential-probe paths.
 API_VERSION = "202508"
+# Creative `metadata` (which holds the landing page URL) exists from 202610, and LinkedIn returns it
+# only on the single-creative GET. Batch get and the finders ignore it.
+CREATIVE_METADATA_MIN_API_VERSION = "202610"
 
 # `q=analytics` silently truncates a response at 15k elements. With DAILY granularity an element
 # is one (day × active pivot value), so a window of N days over an account with P active pivot
@@ -185,6 +188,41 @@ class LinkedinAdsClient:
             page_size=CREATIVES_PAGE_SIZE,
         )
 
+    def supports_creative_metadata(self) -> bool:
+        return self.api_version >= CREATIVE_METADATA_MIN_API_VERSION
+
+    def get_creative_landing_page(self, account_id: str, creative_urn: str) -> str | None:
+        """The landing page URL of one creative, from its `metadata`. Needs a 202610+ API version.
+
+        Returns None when LinkedIn has no landing page for the creative, or rejects the lookup with a
+        4xx (for example a removed creative). One creative must not fail the whole table, and a 404
+        here must not surface as the account-level "not found" error.
+        """
+        account_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Accounts]
+        creatives_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Creatives]
+        try:
+            response = self._send(
+                lambda: self.client.get(
+                    resource_path=f"/{account_endpoint}/{{account_id}}/{creatives_endpoint}/{{creative_urn}}",
+                    path_keys={"account_id": account_id, "creative_urn": creative_urn},
+                    query_params={"fields": "metadata"},
+                    access_token=self.access_token,
+                    version_string=self.api_version,
+                )
+            )
+        except LinkedinAdsApiError as e:
+            logger.warning(
+                "linkedin_ads.creative_metadata_lookup_failed",
+                creative=creative_urn,
+                api_status_code=e.api_status_code,
+            )
+            return None
+
+        entity = response.entity if isinstance(response.entity, dict) else {}
+        metadata = entity.get("metadata")
+        landing_page = metadata.get("landingPage") if isinstance(metadata, dict) else None
+        return landing_page if isinstance(landing_page, str) and landing_page else None
+
     def get_conversions(self, account_id: str) -> Generator[tuple[list[dict[str, Any]], None]]:
         """Conversion rules defined on the ad account. `q=account` paginates with Rest.li index
         parameters (`start`/`count`) rather than the pageToken envelope the ad entity finders use,
@@ -233,7 +271,8 @@ class LinkedinAdsClient:
             )
             return
 
-        chunk_days = ANALYTICS_INITIAL_CHUNK_DAYS
+        max_chunk_days = RESOURCE_SCHEMAS[resource].get("max_window_days", ANALYTICS_INITIAL_CHUNK_DAYS)
+        chunk_days = max_chunk_days
         chunk_start = dt.date.fromisoformat(date_start)
         end_date = dt.date.fromisoformat(date_end)
         while chunk_start <= end_date:
@@ -266,8 +305,8 @@ class LinkedinAdsClient:
 
             # Plenty of headroom left: widen the next window so a sparse range doesn't keep paying
             # for a window we shrank to fit an earlier dense spike.
-            if not capped and len(elements) < ANALYTICS_GROW_THRESHOLD and chunk_days < ANALYTICS_INITIAL_CHUNK_DAYS:
-                chunk_days = min(ANALYTICS_INITIAL_CHUNK_DAYS, chunk_days * 2)
+            if not capped and len(elements) < ANALYTICS_GROW_THRESHOLD and chunk_days < max_chunk_days:
+                chunk_days = min(max_chunk_days, chunk_days * 2)
 
     def get_data_by_resource(
         self,
@@ -317,8 +356,8 @@ class LinkedinAdsClient:
         wait=_retry_wait,
         reraise=True,
     )
-    def _call_finder(self, resource_path: str, finder: str, params: dict[str, Any]) -> Any:
-        """Call the Restli finder with bounded retries on transient transport and 5xx/429 errors.
+    def _send(self, request: Callable[[], Any]) -> Any:
+        """Send a Restli request with bounded retries on transient transport and 5xx/429 errors.
 
         LinkedIn's edge occasionally drops TLS connections mid-handshake (SSLEOFError) or
         returns 504s; those surface here as `requests.ConnectionError` / `requests.Timeout`
@@ -334,13 +373,7 @@ class LinkedinAdsClient:
         429s stay retryable and honour the Retry-After header when present.
         """
         try:
-            response = self.client.finder(
-                resource_path=resource_path,
-                finder_name=finder,
-                access_token=self.access_token,
-                query_params=params,
-                version_string=self.api_version,
-            )
+            response = request()
         except ResponseFormattingError as e:
             # The Restli client parses the body as JSON before returning, so a non-JSON response
             # (an empty payload or an HTML error page from a 5xx gateway/proxy) raises here as a
@@ -366,6 +399,17 @@ class LinkedinAdsClient:
             )
 
         return response
+
+    def _call_finder(self, resource_path: str, finder: str, params: dict[str, Any]) -> Any:
+        return self._send(
+            lambda: self.client.finder(
+                resource_path=resource_path,
+                finder_name=finder,
+                access_token=self.access_token,
+                query_params=params,
+                version_string=self.api_version,
+            )
+        )
 
     def _make_request(
         self, endpoint: LinkedinAdsResource, finder: str, extra_params: dict | None = None, path: str | None = None
