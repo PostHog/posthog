@@ -97,6 +97,7 @@ class InsightContext:
         """Execute query and format results."""
         effective_query = await self._get_effective_query()
         query_schema = self._format_query_schema(effective_query)
+        effective_query_schema = self._format_effective_query_schema(effective_query)
 
         try:
             results = await execute_and_format_query(
@@ -127,6 +128,7 @@ class InsightContext:
             insight_description=self.description,
             query_schema=query_schema,
             is_saved_query=self.saved_query is not None,
+            effective_query_schema=effective_query_schema,
             results=results,
             insight_url=self.insight_url,
         )
@@ -149,6 +151,27 @@ class InsightContext:
             # query_patch edits the stored query, so show it with its wrapper instead of the unwrapped query.
             return json.dumps(self.saved_query, separators=(",", ":"))
         return effective_query.model_dump_json(exclude_none=True)
+
+    def _format_effective_query_schema(
+        self, effective_query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
+    ) -> str | None:
+        """The query that produced the results, when dashboard filters or variables make it differ from the saved query."""
+        if self.saved_query is None:
+            return None
+        try:
+            saved_query = validate_assistant_query(self.saved_query.get("source") or self.saved_query)
+        except Exception:
+            saved_query = None
+        if saved_query is not None and self._comparable(saved_query) == self._comparable(effective_query):
+            return None
+        return effective_query.model_dump_json(exclude_none=True)
+
+    @staticmethod
+    def _comparable(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> dict[str, Any]:
+        # The frontend fills in schema defaults and a version that saved queries often omit.
+        dumped = query.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
+        dumped.pop("version", None)
+        return dumped
 
     async def _get_effective_query(self):
         """Apply dashboard filters/overrides if provided."""

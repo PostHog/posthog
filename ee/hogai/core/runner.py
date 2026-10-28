@@ -602,6 +602,7 @@ class BaseAgentRunner(ABC):
             )
 
             resume_value = self._resume_payload
+            decided_payloads = [self._resume_payload] if self._resume_payload else []
             if self._resume_payload and self._resume_payload.get("action") in ("approve", "reject"):
                 proposal_id = self._resume_payload.get("proposal_id")
                 approval_interrupt = next(
@@ -628,8 +629,7 @@ class BaseAgentRunner(ABC):
                         for pending in task.interrupts
                         if (pending_id := pending_approval_proposal_id(pending.value))
                     }
-                    for rejection in rejections.values():
-                        await self._update_approval_decision_status(rejection)
+                    decided_payloads = list(rejections.values())
                     resume_value = rejections
                 else:
                     # A scalar resume targets the next interrupt, which may belong to a different approval card.
@@ -646,7 +646,7 @@ class BaseAgentRunner(ABC):
                     # The interrupt() call will return this payload value
 
                     # Update approval_decisions status if this is an approval/rejection response
-                    await self._update_approval_decision_status(self._resume_payload)
+                    await self._update_approval_decision_status(*decided_payloads)
 
                     # If there's a new message alongside the resume (user sent message while approval pending),
                     # include it in the state update so the agent sees it as a proper HumanMessage
@@ -809,25 +809,29 @@ class BaseAgentRunner(ABC):
         }
         await self._conversation.asave(update_fields=["approval_decisions"])
 
-    async def _update_approval_decision_status(self, resume_payload: dict[str, Any]) -> None:
+    async def _update_approval_decision_status(self, *resume_payloads: dict[str, Any]) -> None:
         """
         Update the approval_decisions status when user approves or rejects.
         """
-        action = resume_payload.get("action")
-        proposal_id = resume_payload.get("proposal_id")
+        updated = False
+        for resume_payload in resume_payloads:
+            action = resume_payload.get("action")
+            proposal_id = resume_payload.get("proposal_id")
 
-        if not action or not proposal_id:
-            return
+            if not action or not proposal_id:
+                continue
 
-        if proposal_id not in self._conversation.approval_decisions:
-            return
+            if proposal_id not in self._conversation.approval_decisions:
+                continue
 
-        status = "approved" if action == "approve" else "rejected" if action == "reject" else None
-        if not status:
-            return
+            status = "approved" if action == "approve" else "rejected" if action == "reject" else None
+            if not status:
+                continue
 
-        self._conversation.approval_decisions[proposal_id]["decision_status"] = status
-        await self._conversation.asave(update_fields=["approval_decisions"])
+            self._conversation.approval_decisions[proposal_id]["decision_status"] = status
+            updated = True
+        if updated:
+            await self._conversation.asave(update_fields=["approval_decisions"])
 
     def _pending_proposal_ids(self, keep: set[str]) -> list[str]:
         return [

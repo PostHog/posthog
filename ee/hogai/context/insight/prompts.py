@@ -24,6 +24,13 @@ Query schema:
 {{{query_schema}}}
 ```
 {{/query_schema}}
+{{#effective_query_schema}}
+
+Query that produced the results below, with dashboard filters and variables applied (not a query_patch target):
+```json
+{{{effective_query_schema}}}
+```
+{{/effective_query_schema}}
 {{#results}}
 
 {{{results}}}

@@ -156,6 +156,7 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             query_patch=json.dumps([{"op": "replace", "path": interval_path, "value": "week"}]),
         )
         await insight.arefresh_from_db()
+        assert insight.query is not None
         self.assertEqual(insight.query["source"]["interval"], "week")
 
     async def test_saved_update_rejects_changes_after_approval_preview(self):

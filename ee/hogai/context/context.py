@@ -30,6 +30,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.notebooks.backend.facade import api as notebooks_facade
 from products.notebooks.backend.facade.widgets import reusable_widget_catalog_context
 from products.product_analytics.backend.facade.models import Insight
@@ -186,6 +187,17 @@ class AssistantContextManager(AssistantContextMixin):
         )
 
     @database_sync_to_async
+    def _get_viewable_saved_queries(self, short_ids: list[str]) -> dict[str, Any]:
+        # The ids come from the client, so apply the same viewer check as reading an insight.
+        user_access_control = UserAccessControl(
+            user=self._user, team=self._team, organization_id=str(self._team.organization_id)
+        )
+        insights = user_access_control.filter_queryset_by_access_level(
+            Insight.objects.filter(team=self._team, short_id__in=short_ids, deleted=False)
+        )
+        return dict(insights.values_list("short_id", "query"))
+
+    @database_sync_to_async
     def check_has_audit_logs_access(self) -> bool:
         """
         Check if the user has access to the audit logs tool.
@@ -262,12 +274,7 @@ class AssistantContextManager(AssistantContextMixin):
 
                 # Build DashboardInsightContext models for this dashboard
                 insights_data: list[DashboardInsightContext] = []
-                saved_queries = {
-                    short_id: query
-                    async for short_id, query in Insight.objects.filter(
-                        team=self._team, short_id__in=[insight.id for insight in dashboard.insights], deleted=False
-                    ).values_list("short_id", "query")
-                }
+                saved_queries = await self._get_viewable_saved_queries([insight.id for insight in dashboard.insights])
                 for insight in dashboard.insights:
                     filters_override = (
                         insight.filtersOverride.model_dump(mode="json") if insight.filtersOverride else None
