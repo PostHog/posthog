@@ -15,12 +15,6 @@ and for "explain this chart" or "walk me through this" when the user names no ch
 Don't load this skill for plain "what is X?" questions — only when there's a chart or an
 observed change to explain.
 
-## Plan first
-
-Make a short plan before you query.
-The steps below are a guide: use the ones that fit the question, in the order that suits it.
-One part is fixed. When the user gave you a trends insight over time, the plan ends with the `posthog:explain-chart` call (Step 5).
-
 ## Tools
 
 Targets PostHog MCP v2. Typed query tools accept the query body directly — pass
