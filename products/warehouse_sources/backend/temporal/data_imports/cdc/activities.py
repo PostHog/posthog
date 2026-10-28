@@ -400,10 +400,10 @@ class CDCExtractActivity:
             if not enriched_table.num_rows:
                 continue
 
-            # Without the engine position, writing would name, order, and clean up files by
-            # customer data — cleanup can then delete unconsumed files (see errors.py).
+            # The batcher refuses a source column of this name, so only a capture bug gets here. Writing
+            # without the engine position could make cleanup delete unconsumed files (see errors.py).
             if not has_engine_seq(enriched_table):
-                raise CDCReservedColumnError(f"Table {table_name} reached the buffer without the engine position")
+                raise RuntimeError(f"Table {table_name} reached the buffer without the engine position")
             self._write_buffer_file(schema, table_name, enriched_table)
 
         if events_extracted:
@@ -622,8 +622,8 @@ class CDCExtractActivity:
 
         for schema in self.cdc_schemas:
             if is_history_table_mode(schema.cdc_table_mode):
-                # A taken name fails this table's own import. Capture only needs the names to refuse, and
-                # a name is only taken when the table would get the new naming.
+                # A taken name fails this table's own import. Capture then refuses only the names every
+                # history table reserves, so the source's other tables keep syncing.
                 self.history_naming_by_table[schema.name] = history_naming_unless_taken(schema) or HISTORY_NAMING
             enabled = schema.enabled_columns
             # `None` = sync all; `[]` = retain PKs + incremental only. Match the

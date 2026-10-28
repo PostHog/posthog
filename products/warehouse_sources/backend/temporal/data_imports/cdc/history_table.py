@@ -108,14 +108,13 @@ def history_naming(schema: ExternalDataSchema) -> HistoryNaming:
 def new_history_names_taken(
     source: ExternalDataSource, history_schema_names: Iterable[str], synced_schema_names: Iterable[str]
 ) -> list[str]:
-    """The schemas of a new source whose `_history` table would take the catalog name of a synced schema."""
-    if new_history_naming() != HISTORY_NAMING:
-        return []
+    """The schemas of a new source whose history table would take the catalog name of a synced schema."""
+    naming = new_history_naming()
     taken = {build_table_name(source, name) for name in synced_schema_names}
     return sorted(
         name
         for name in history_schema_names
-        if build_table_name(source, companion_resource_name(name, HISTORY_NAMING)) in taken
+        if build_table_name(source, companion_resource_name(name, naming)) in taken
     )
 
 
