@@ -75,6 +75,7 @@ import {
     emptyRemoteSlots,
     isSelectable,
     pickDisplayedQuery,
+    rankableSettings,
     resultsSettled,
     themeSearchItem,
 } from './commandKSections'
@@ -724,9 +725,10 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     remote,
                     ...displayed.query,
                     stale: displayed.stale,
-                    personsFirst:
-                        !!displayed.query.remoteQueries.persons?.includes('@') &&
-                        featureFlags[FEATURE_FLAGS.COMMAND_K_PERSONS_FIRST_FOR_EMAIL] === 'test',
+                    personsFirst: !!displayed.query.remoteQueries.persons?.includes('@'),
+                    settingsInResults:
+                        rankableSettings(local, displayed.query.localQuery).length > 0 &&
+                        featureFlags[FEATURE_FLAGS.COMMAND_K_SETTINGS_IN_RESULTS] === 'test',
                 }),
         ],
         selectableRows: [

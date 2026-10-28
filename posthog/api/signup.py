@@ -34,7 +34,12 @@ from posthog.api.webauthn import (
 from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import EmailValidationHelper, reject_plus_addressed_email, validate_display_name
+from posthog.helpers.email_utils import (
+    EmailLookupHandler,
+    EmailValidationHelper,
+    reject_plus_addressed_email,
+    validate_display_name,
+)
 from posthog.helpers.oauth_pending_connection import (
     apply_connector_signup_onboarding_skip,
     read_pending_oauth_connection,
@@ -452,9 +457,13 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
             # Mirror SignupSerializer.validate_email. Without this the form clears the email step,
             # the user fills in the rest, and only then hits the rejection on submit.
             reject_plus_addressed_email(email)
-            email_exists = EmailValidationHelper.user_exists_with_stripped_alias(
-                email
-            ) or EmailValidationHelper.user_exists_with_gmail_canonical(email)
+            email_exists = (
+                EmailValidationHelper.user_exists_with_stripped_alias(email)
+                or EmailValidationHelper.user_exists_with_gmail_canonical(email)
+                # The alias checks only see active accounts, but the email column is unique across
+                # all of them, so a deactivated account would otherwise fail signup at the last step
+                or EmailLookupHandler.get_user_by_email(email, is_active=None) is not None
+            )
         if email_exists:
             return response.Response(
                 {
@@ -913,9 +922,15 @@ def lookup_invite_for_saml(email: str, saml_relay_state: str) -> Optional[Organi
         organization_id=config.organization_id, user__email__iexact=email
     ).exists():
         return None
+    # An email can hold more than one pending invite in an organization, so use the unexpired one with the
+    # highest level. An expired invite fails the same validation as a duplicate membership above.
     return (
-        OrganizationInvite.objects.filter(target_email__iexact=email, organization_id=config.organization_id)
-        .order_by("-created_at")
+        OrganizationInvite.objects.filter(
+            target_email__iexact=email,
+            organization_id=config.organization_id,
+            created_at__gt=timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
+        )
+        .order_by("-level", "-created_at")
         .first()
     )
 
@@ -1036,9 +1051,19 @@ def process_social_domain_jit_provisioning_signup(
                 _refuse_blocked_sso_join(strategy, backend, email, user)
             if not user:
                 try:
-                    invite: OrganizationInvite = OrganizationInvite.objects.get(
-                        target_email__iexact=email, organization=domain_instance.organization
+                    # An email can hold more than one pending invite in an organization, so accept
+                    # the one with the highest level.
+                    invite = (
+                        OrganizationInvite.objects.filter(
+                            target_email__iexact=email,
+                            organization=domain_instance.organization,
+                            created_at__gt=timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
+                        )
+                        .order_by("-level", "-created_at")
+                        .first()
                     )
+                    if invite is None:
+                        raise OrganizationInvite.DoesNotExist()
                     invite.validate(user=None, email=email)
                     # Capture before invite.use() deletes the invite row.
                     is_delegation = bool(getattr(invite, "is_setup_delegation", False))

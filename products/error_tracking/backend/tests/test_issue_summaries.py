@@ -1,6 +1,7 @@
 import json
 import signal
 import socket
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -27,8 +28,11 @@ from products.error_tracking.backend.logic import issue_summaries, team_flags
 from products.error_tracking.backend.logic.issue_summaries import (
     IssueSummaryInputs,
     IssueSummaryOutcome,
+    IssueSummaryTimings,
     build_issue_summary_inputs,
+    build_issue_summary_inputs_from_event,
     compute_input_hash,
+    generate_issue_summary_from_event,
     get_or_generate_issue_summary,
     parse_summary_response,
 )
@@ -130,9 +134,14 @@ class TestIssueSummaryGeneration(BaseTest):
         self.decide = MagicMock(return_value=_category_result("own_code"))
         self.enterContext(patch.object(team_flags, "feature_enabled_or_false", return_value=True))
         self.enterContext(patch.object(issue_summaries, "resolve_ai_gateway_config", return_value=MagicMock()))
-        self.enterContext(patch.object(issue_summaries, "build_openai_client", return_value=self.client_mock))
+        self.build_client = self.enterContext(
+            patch.object(issue_summaries, "build_openai_client", return_value=self.client_mock)
+        )
         self.build_inputs = self.enterContext(
             patch.object(issue_summaries, "build_issue_summary_inputs", side_effect=lambda *_: self.inputs)
+        )
+        self.enterContext(
+            patch.object(issue_summaries, "build_issue_summary_inputs_from_event", side_effect=lambda *_: self.inputs)
         )
         self.enterContext(patch.object(issue_summaries.ml_inference, "decide_when_available", self.decide))
 
@@ -179,6 +188,7 @@ class TestIssueSummaryGeneration(BaseTest):
         assert request["extra_headers"] == {"X-PostHog-Privacy-Mode": "true"}
         assert request["response_format"]["json_schema"]["strict"] is True
         assert self.decide.call_args.args[0].privacy_mode is True
+        assert self.build_client.call_args.kwargs["properties"]["issue_id"] == str(self.issue.id)
 
     @parameterized.expand(
         [
@@ -192,6 +202,33 @@ class TestIssueSummaryGeneration(BaseTest):
         result = get_or_generate_issue_summary(self.team.id, self.issue.id)
 
         assert result.outcome == IssueSummaryOutcome.GENERATED
+
+    @parameterized.expand(
+        [
+            ("generated", None, IssueSummaryOutcome.GENERATED, {"queue_ms", "total_ms", "inputs_ms", "model_ms"}),
+            (
+                "unexpected_error",
+                OperationalError("db"),
+                IssueSummaryOutcome.UNEXPECTED_ERROR,
+                {"queue_ms", "total_ms"},
+            ),
+        ]
+    )
+    def test_task_reports_outcome_and_stage_timings(
+        self, _name: str, error: Exception | None, outcome: IssueSummaryOutcome, stages: set[str]
+    ) -> None:
+        capture = MagicMock()
+        self.enterContext(patch.object(issue_summaries, "ph_background_capture", return_value=capture))
+        if error is not None:
+            self.enterContext(patch.object(issue_summaries, "get_issue_summary", side_effect=error))
+
+        with time_machine.travel(NOW, tick=False), self.assertRaises(type(error)) if error else nullcontext():
+            issue_summaries.run_issue_summary_task(self.team.id, self.issue.id, NOW.timestamp() - 2)
+
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["outcome"] == outcome.value
+        assert properties["queue_ms"] == 2000
+        assert stages <= {key for key in properties if key.endswith("_ms")}
 
     @property
     def _budget_key(self) -> str:
@@ -318,6 +355,48 @@ class TestIssueSummaryGeneration(BaseTest):
         assert shown is not None
         assert (shown.generated_at, shown.checked_at) == (result.summary.generated_at, result.summary.checked_at)
 
+    def _generate_on_creation(
+        self, budget_key: str | None = None, budget: Budget = issue_summaries.ISSUE_SUMMARY_BUDGET
+    ) -> IssueSummaryOutcome:
+        return generate_issue_summary_from_event(
+            self.team.id,
+            self.issue.id,
+            {},
+            budget_key=budget_key or self._budget_key,
+            budget=budget,
+        ).outcome
+
+    def test_generation_on_creation_runs_once_and_keeps_a_stored_summary(self) -> None:
+        with time_machine.travel(NOW, tick=False):
+            assert self._generate_on_creation() == IssueSummaryOutcome.GENERATED
+        self._release_lock()
+        self.inputs = IssueSummaryInputs(prompt="Exception: TypeError", input_hash="hash-2")
+
+        with time_machine.travel(NOW + timedelta(hours=25), tick=False):
+            assert self._generate_on_creation() == IssueSummaryOutcome.FRESH
+        assert self.llm_calls == 1
+        stored = issue_summaries.get_issue_summary(self.team.id, self.issue.id)
+        assert stored is not None and stored.input_hash == "hash-1"
+
+    def test_generation_on_creation_reports_outcome_and_stage_timings(self) -> None:
+        capture = MagicMock()
+        self.enterContext(patch.object(issue_summaries, "ph_background_capture", return_value=capture))
+
+        assert self._generate_on_creation() == IssueSummaryOutcome.GENERATED
+
+        assert capture.call_args.kwargs["event"] == issue_summaries.ISSUE_SUMMARY_TASK_EVENT
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["outcome"] == IssueSummaryOutcome.GENERATED.value
+        assert {"total_ms", "inputs_ms", "model_ms"} <= properties.keys()
+
+    def test_generation_on_creation_spends_the_budget_its_caller_passes(self) -> None:
+        creation_key = f"{self._budget_key}:on-creation"
+        tiny = Budget(burst=1, per_hour=1)
+        consume(creation_key, tiny)
+
+        assert self._generate_on_creation(budget_key=creation_key, budget=tiny) == IssueSummaryOutcome.RATE_LIMITED
+        assert self.llm_calls == 0
+
     def test_merge_keeps_target_summary_and_deletes_source_summary(self) -> None:
         source = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=source, fingerprint="fp-source")
@@ -334,6 +413,7 @@ class TestIssueSummaryGeneration(BaseTest):
     def _start(self) -> tuple[bool, bool]:
         with patch.object(issue_summaries.generate_error_tracking_issue_summary, "apply_async") as apply_async:
             started = summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id, user=self.user)
+        self.publish_call = apply_async.call_args
         return started, apply_async.called
 
     @parameterized.expand(
@@ -353,8 +433,13 @@ class TestIssueSummaryGeneration(BaseTest):
         if lock_value is not None:
             issue_summaries.get_client().set(self._lock_key, lock_value, ex=60)
 
-        with patch.object(team_flags, "feature_enabled_or_false", return_value=flag):
+        with (
+            patch.object(team_flags, "feature_enabled_or_false", return_value=flag),
+            time_machine.travel(NOW, tick=False),
+        ):
             assert self._start() == (started, queued)
+        if queued:
+            assert self.publish_call.kwargs["kwargs"] == {"queued_at": NOW.timestamp()}
 
     def test_start_generation_queues_when_redis_is_down(self) -> None:
         with patch.object(issue_summaries, "get_client", side_effect=RedisError("down")):
@@ -585,9 +670,11 @@ class TestIssueSummaryInputs(ClickhouseTestMixin, BaseTest):
             )
         flush_persons_and_events()
 
-        inputs = build_issue_summary_inputs(self.team, issue.id)
+        timings = IssueSummaryTimings()
+        inputs = build_issue_summary_inputs(self.team, issue.id, timings)
 
         assert isinstance(inputs, IssueSummaryInputs)
+        assert {"latest_event_ms", "first_event_ms", "aggregates_ms"} <= timings.ms.keys()
         assert "Exception: TypeError: Cannot read properties of undefined" in inputs.prompt
         assert "\ndispatch in react-dom.js\n[in-app] addToCart in cart.ts line 42" in inputs.prompt
         assert "Handled: no" in inputs.prompt
@@ -598,7 +685,55 @@ class TestIssueSummaryInputs(ClickhouseTestMixin, BaseTest):
         assert inputs.prompt.count("</issue>") == 1
         assert inputs.input_hash == compute_input_hash(fingerprints=["fp-1"], latest_release="1.2.0", occurrences=2)
 
+    @time_machine.travel(NOW, tick=False)
+    def test_event_in_hand_matches_clickhouse_hash_for_a_one_event_issue(self) -> None:
+        issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
+        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp-1")
+        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=self.team.pk)
+        properties: dict[str, object] = {
+            "$exception_fingerprint": "fp-1",
+            "$exception_issue_id": str(issue.id),
+            "$exception_release": {"version": "2.0.0"},
+            "$session_id": "01890000-0000-7000-8000-000000000001",
+            "$exception_list": [
+                {
+                    "type": "TypeError",
+                    "value": "Cannot read properties of undefined",
+                    "stacktrace": {
+                        "type": "resolved",
+                        "frames": [{"resolved_name": "addToCart", "source": "cart.ts", "line": 42, "in_app": True}],
+                    },
+                }
+            ],
+        }
+        _create_event(
+            distinct_id="user-1",
+            event="$exception",
+            team=self.team,
+            timestamp=NOW - timedelta(minutes=5),
+            properties=properties,
+        )
+        flush_persons_and_events()
+
+        from_clickhouse = build_issue_summary_inputs(self.team, issue.id, IssueSummaryTimings())
+        from_event = build_issue_summary_inputs_from_event(self.team, issue.id, properties)
+
+        assert isinstance(from_clickhouse, IssueSummaryInputs)
+        assert isinstance(from_event, IssueSummaryInputs)
+        assert from_event.input_hash == from_clickhouse.input_hash
+        assert "Impact in range: 1 occurrences, 1 users, 1 sessions" in from_event.prompt
+
+        without_session = {key: value for key, value in properties.items() if key != "$session_id"}
+        from_sessionless_event = build_issue_summary_inputs_from_event(self.team, issue.id, without_session)
+        assert isinstance(from_sessionless_event, IssueSummaryInputs)
+        assert "Impact in range: 1 occurrences, 1 users, 0 sessions" in from_sessionless_event.prompt
+
     def test_issue_without_exception_events_has_no_inputs(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
 
-        assert build_issue_summary_inputs(self.team, issue.id) == IssueSummaryOutcome.NO_EXCEPTION
+        assert (
+            build_issue_summary_inputs(self.team, issue.id, IssueSummaryTimings()) == IssueSummaryOutcome.NO_EXCEPTION
+        )
+        assert build_issue_summary_inputs_from_event(self.team, issue.id, {"$lib": "web"}) == (
+            IssueSummaryOutcome.NO_EXCEPTION
+        )

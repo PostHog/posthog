@@ -146,6 +146,16 @@ export namespace Schemas {
          * @nullable
          */
       prompt_version: number | null;
+      /**
+         * Sentiment of the sentences that name the brand: 'positive', 'neutral' or 'negative'. Null until scored, and when the answer never names the brand.
+         * @nullable
+         */
+      brand_sentiment?: string | null;
+      /**
+         * Classifier confidence (0-1) in 'brand_sentiment'. Null when 'brand_sentiment' is null.
+         * @nullable
+         */
+      brand_sentiment_score?: number | null;
     }
 
     export interface AEOPromptDailyEngineStats {
@@ -157,8 +167,34 @@ export namespace Schemas {
       checks: number;
       /** Checks that day whose answer cited a target domain. */
       cited: number;
+      /** Checks that day whose answer names the brand. Checks whose answer names the brand (the registrable name of a target domain, case ignored). A cited check always counts as mentioned. */
+      mentioned: number;
       /** Checks that day where the engine did not answer. */
       failed: number;
+    }
+
+    export interface AEOPromptEngineDomainShare {
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      engine: string;
+      /** One of the most cited domains across all engines in the window. */
+      domain: string;
+      /** This engine's answered checks in the last 30 days that cited the domain. */
+      checks_citing: number;
+      /** This engine's answered checks in the last 30 days. */
+      checks: number;
+    }
+
+    export interface AEOPromptEngineSentiment {
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      engine: string;
+      /** Answers in the last 30 days whose brand sentences read positive. */
+      positive: number;
+      /** Answers in the last 30 days whose brand sentences read neutral. */
+      neutral: number;
+      /** Answers in the last 30 days whose brand sentences read negative. */
+      negative: number;
+      /** Answers in the last 30 days that name the brand but have no sentiment yet. */
+      unscored: number;
     }
 
     export interface AEOPromptEngineStats {
@@ -167,12 +203,19 @@ export namespace Schemas {
          * @nullable
          */
       readonly citation_rate: number | null;
+      /**
+         * Share (0-1) of answered checks whose answer names the brand. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly mention_rate: number | null;
       /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
       engine: string;
       /** Checks of the prompt on this engine, failed ones included. */
       checks: number;
       /** Checks whose answer cited a target domain. */
       cited: number;
+      /** Checks whose answer names the brand (the registrable name of a target domain, case ignored). A cited check always counts as mentioned. */
+      mentioned: number;
       /** Checks where the engine did not answer. */
       failed: number;
       /** When the engine first ran the prompt. */
@@ -190,13 +233,28 @@ export namespace Schemas {
       skipped: number;
     }
 
+    export interface AEOPromptSearchWord {
+      /** A word from the web searches, lower-cased, common English words left out. */
+      word: string;
+      /** How many searches used the word, weighted by how often each search ran. */
+      count: number;
+    }
+
     export interface AEOPromptStats {
       /** Totals per answer engine over the prompt's whole history. */
       engines: AEOPromptEngineStats[];
       /** Counts per day and engine from 'daily_from' to 'daily_to' (30 days). Days and engines without a check are left out. */
       daily: AEOPromptDailyEngineStats[];
+      /** One row per engine and per domain for the 10 most cited domains of the last 30 days: how many of the engine's answers cited the domain. Shows which sources the engines agree on. */
+      consensus: AEOPromptEngineDomainShare[];
+      /** Brand sentiment of the answers in the last 30 days, one row per engine. Only the sentences that name the brand are scored. */
+      sentiment: AEOPromptEngineSentiment[];
+      /** Most used words across the web searches the engines ran in the last 30 days, at most 20. Only engines that report their searches contribute. */
+      top_words: AEOPromptSearchWord[];
       /** Checks of the prompt across all engines, failed ones included. */
       total_checks: number;
+      /** Lower-cased brand names, derived from the project's target domains. An answer that contains one of them as a word counts as a mention. */
+      brand_names: string[];
       /** First day of the daily series, in the project's timezone. */
       daily_from: string;
       /** Last day of the daily series (today), in the project's timezone. */
@@ -7365,6 +7423,19 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ExperimentWarehouseNativeExposureConfigResponse = { [key: string]: unknown } | null;
+
+    export interface ExperimentWarehouseNativeExposureConfig {
+      /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
+      connection_id: string;
+      kind?: 'ExperimentWarehouseNativeExposureConfig';
+      /** Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies the experiment's date range and multiple-variant handling. */
+      query: string;
+      response?: ExperimentWarehouseNativeExposureConfigResponse;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
     export type MultipleVariantHandling = typeof MultipleVariantHandling[keyof typeof MultipleVariantHandling];
 
 
@@ -7415,6 +7486,32 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ExperimentWarehouseNativeMathType = typeof ExperimentWarehouseNativeMathType[keyof typeof ExperimentWarehouseNativeMathType];
+
+
+    export const ExperimentWarehouseNativeMathType = {
+      Total: 'total',
+      Sum: 'sum',
+    } as const;
+
+    export type ExperimentWarehouseNativeNodeResponse = { [key: string]: unknown } | null;
+
+    export interface ExperimentWarehouseNativeNode {
+      /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
+      connection_id: string;
+      custom_name?: string | null;
+      kind?: 'ExperimentWarehouseNativeNode';
+      /** How to aggregate the rows per entity. Defaults to `total` (row count). */
+      math?: ExperimentWarehouseNativeMathType | null;
+      /** The numeric column `math` reads. Required when `math` is `sum`. One SQL relation can serve several metrics, each reading a different column. */
+      math_property?: string | null;
+      /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure. */
+      query: string;
+      response?: ExperimentWarehouseNativeNodeResponse;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
     export type ExperimentMeanMetricResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentMeanMetric {
@@ -7432,7 +7529,7 @@ export namespace Schemas {
       name?: string | null;
       response?: ExperimentMeanMetricResponse;
       sharedMetricId?: number | null;
-      source: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      source: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode;
       /** When set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types. */
       threshold?: number | null;
       /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
@@ -7495,7 +7592,7 @@ export namespace Schemas {
       breakdownFilter?: BreakdownFilter | null;
       conversion_window?: number | null;
       conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
-      denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode;
       denominator_outlier_handling?: ExperimentMetricOutlierHandling | null;
       fingerprint?: string | null;
       goal?: ExperimentMetricGoal | null;
@@ -7503,7 +7600,7 @@ export namespace Schemas {
       kind?: 'ExperimentMetric';
       metric_type: ExperimentRatioMetricMetricType;
       name?: string | null;
-      numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode;
       numerator_outlier_handling?: ExperimentMetricOutlierHandling | null;
       response?: ExperimentRatioMetricResponse;
       sharedMetricId?: number | null;
@@ -7650,55 +7747,16 @@ export namespace Schemas {
       variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[];
     }
 
-    export type ExperimentSignificanceCode = typeof ExperimentSignificanceCode[keyof typeof ExperimentSignificanceCode];
-
-
-    export const ExperimentSignificanceCode = {
-      Significant: 'significant',
-      NotEnoughExposure: 'not_enough_exposure',
-      LowWinProbability: 'low_win_probability',
-      HighLoss: 'high_loss',
-      HighPValue: 'high_p_value',
-    } as const;
-
-    export interface ExperimentVariantTrendsBaseStats {
-      absolute_exposure: number;
-      count: number;
-      exposure: number;
-      key: string;
-    }
-
-    export interface ExperimentVariantFunnelsBaseStats {
-      failure_count: number;
-      key: string;
-      success_count: number;
-    }
-
-    export type ExperimentQueryResponseCredibleIntervals = {[key: string]: number[]} | null;
-
-    export type ExperimentQueryResponseInsight = { [key: string]: unknown }[] | null;
-
-    export type ExperimentQueryResponseProbability = {[key: string]: number} | null;
-
     export interface ExperimentQueryResponse {
       baseline?: ExperimentStatsBaseValidated | null;
       /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
       breakdown_results?: ExperimentBreakdownResult[] | null;
       clickhouse_sql?: string | null;
-      credible_intervals?: ExperimentQueryResponseCredibleIntervals;
       hogql?: string | null;
-      insight?: ExperimentQueryResponseInsight;
       /** Whether exposures were served from the precomputation system */
       is_precomputed?: boolean | null;
       kind?: 'ExperimentQuery';
-      metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | null;
-      p_value?: number | null;
-      probability?: ExperimentQueryResponseProbability;
-      significance_code?: ExperimentSignificanceCode | null;
-      significant?: boolean | null;
-      stats_version?: number | null;
       variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null;
-      variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[] | null;
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -7719,7 +7777,7 @@ export namespace Schemas {
 
     export interface ExperimentActorsQuery {
       /** Exposure configuration for filtering events. Defines when users were first exposed to the experiment. */
-      exposureConfig?: ExperimentEventExposureConfig | ActionsNode | null;
+      exposureConfig?: ExperimentEventExposureConfig | ActionsNode | ExperimentWarehouseNativeExposureConfig | null;
       /** Feature flag key for breakdown filtering. */
       featureFlagKey?: string | null;
       /** Index of the step for which we want to get actors for, per experiment variant. Positive for converted persons, negative for dropped off persons. */
@@ -13648,7 +13706,7 @@ export namespace Schemas {
     export interface AnomalySearchResponse {
       /** Whether anomaly scoring covers this project. */
       scoring_enabled: boolean;
-      /** Insights that scoring watches: saved trends insights on a dashboard or viewed in the last 30 days. */
+      /** Active insights that scoring checks: saved trends insights that a person viewed, that sit on a dashboard someone opened, or that were edited in the active window (90 days by default), or that have an enabled alert or subscription. */
       watched_insights: number;
       /** Insights with at least one scored bucket in the range. Results cover only these insights. */
       insights_scored_in_range: number;
@@ -14044,6 +14102,14 @@ export namespace Schemas {
       created: string | null;
     }
 
+    export interface AssignWarehouseSuggestion {
+      /**
+         * ID of the user to assign. They must be able to accept the suggestion: edit access to the view or table, and to the data catalog for certify and deprecate suggestions. Null removes the assignee. The assignee gets a notification unless they assign themselves.
+         * @nullable
+         */
+      assignee_id: number | null;
+    }
+
     /**
      * * `user` - user
      * * `role` - role
@@ -14283,6 +14349,83 @@ export namespace Schemas {
       TimeDecay: 'time_decay',
       PositionBased: 'position_based',
     } as const;
+
+    /**
+     * * `not_yet` - Not Yet
+     * * `regulars` - Regulars
+     * * `lapsed` - Lapsed
+     */
+    export type AudienceSuggestionKindEnum = typeof AudienceSuggestionKindEnum[keyof typeof AudienceSuggestionKindEnum];
+
+
+    export const AudienceSuggestionKindEnum = {
+      NotYet: 'not_yet',
+      Regulars: 'regulars',
+      Lapsed: 'lapsed',
+    } as const;
+
+    export interface AudienceSuggestion {
+      /** Opaque id of this suggestion, valid while the suggestions stay cached. */
+      id: string;
+      /** Suggested audience name, written by AI from the project's events. */
+      name: string;
+      /** Who the people are and what to tell them. Used as the cohort description and the email brief. */
+      description: string;
+      /** One sentence on why the audience is worth a broadcast. */
+      reason: string;
+      /** not_yet: did event in the window but not missing_event. regulars: did event at least min_count times in the window. lapsed: did event in the last 90 days but not in the window.
+       *
+       * * `not_yet` - Not Yet
+       * * `regulars` - Regulars
+       * * `lapsed` - Lapsed */
+      kind: AudienceSuggestionKindEnum;
+      /** The project event the audience is built on. */
+      event: string;
+      /**
+         * For not_yet: the event the audience has not done yet. Null otherwise.
+         * @nullable
+         */
+      missing_event: string | null;
+      /** The time window in days. */
+      window_days: number;
+      /**
+         * For regulars: how many times the event must happen in the window.
+         * @nullable
+         */
+      min_count: number | null;
+      /** People in the audience with an email address, counted when the suggestion was made. */
+      reachable_count: number;
+      /** The audience's cohort filters, in the cohorts endpoint's `filters` format. Saved as a static cohort. */
+      cohort_filters: unknown;
+    }
+
+    /**
+     * * `ready` - Ready
+     * * `generating` - Generating
+     * * `ai_not_approved` - Ai Not Approved
+     * * `unavailable` - Unavailable
+     */
+    export type DataSuggestionsStatusEnum = typeof DataSuggestionsStatusEnum[keyof typeof DataSuggestionsStatusEnum];
+
+
+    export const DataSuggestionsStatusEnum = {
+      Ready: 'ready',
+      Generating: 'generating',
+      AiNotApproved: 'ai_not_approved',
+      Unavailable: 'unavailable',
+    } as const;
+
+    export interface AudienceSuggestionsResponse {
+      /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
+       *
+       * * `ready` - Ready
+       * * `generating` - Generating
+       * * `ai_not_approved` - Ai Not Approved
+       * * `unavailable` - Unavailable */
+      status: DataSuggestionsStatusEnum;
+      /** Up to 3 suggested broadcast audiences. */
+      suggestions: AudienceSuggestion[];
+    }
 
     export interface AuditActorServiceAccount {
       /** Service account id. */
@@ -20125,6 +20268,15 @@ export namespace Schemas {
       DeviceId: 'device_id',
     } as const;
 
+    export interface BugherdTaskSignalExtra {
+      status: string | null;
+      priority: string | null;
+      site: string | null;
+      url: string | null;
+      tag_names: unknown[];
+      created_at: string | null;
+    }
+
     export interface BugsnagErrorSignalExtra {
       severity: string | null;
       status: string | null;
@@ -20147,6 +20299,18 @@ export namespace Schemas {
       Building: 'building',
       Ready: 'ready',
       Failed: 'failed',
+    } as const;
+
+    /**
+     * * `client` - Client
+     * * `server` - Server
+     */
+    export type BuiltInFilterEvaluationEnum = typeof BuiltInFilterEvaluationEnum[keyof typeof BuiltInFilterEvaluationEnum];
+
+
+    export const BuiltInFilterEvaluationEnum = {
+      Client: 'client',
+      Server: 'server',
     } as const;
 
     /**
@@ -24396,6 +24560,13 @@ export namespace Schemas {
       readonly elements_chain: string;
     }
 
+    export interface ClickupTaskSignalExtra {
+      status_name: string | null;
+      status_type: string | null;
+      url: string | null;
+      date_created: string | null;
+    }
+
     export interface DiffCluster {
       x: number;
       y: number;
@@ -27129,6 +27300,16 @@ export namespace Schemas {
       Number2: 2,
     } as const;
 
+    export interface CopyDashboardGroupRequest {
+      /** Dashboard id the group currently belongs to. */
+      fromDashboardId: number;
+      /**
+         * Key of the tile group to copy.
+         * @maxLength 100
+         */
+      groupKey: string;
+    }
+
     export interface CopyDashboardTemplate {
       /** UUID of a team-scoped template in the same organization. Global and feature-flag templates cannot be copied with this endpoint. */
       source_template_id: string;
@@ -28881,6 +29062,54 @@ export namespace Schemas {
       readonly results: readonly CustomerTaskActivity[];
     }
 
+    export interface CustomerTaskBulkPatch {
+      /**
+         * UUID of a visible account, or null to remove the account link.
+         * @nullable
+         */
+      account_id?: string | null;
+      /**
+         * Replacement assignee ID, or null to unassign.
+         * @nullable
+         */
+      assigned_to_id?: number | null;
+      /**
+         * Replacement ISO 8601 deadline, or null to clear it.
+         * @nullable
+         */
+      due_at?: string | null;
+      /** Replacement task status.
+       *
+       * * `open` - Open
+       * * `in_progress` - In progress
+       * * `completed` - Completed
+       * * `canceled` - Canceled */
+      status?: CustomerTaskStatusEnum;
+      /** Archive tasks when true, or restore them when false. */
+      archived?: boolean;
+    }
+
+    export interface CustomerTaskBulkUpdate {
+      /**
+         * UUIDs of up to 100 tasks to update together.
+         * @minItems 1
+         * @maxItems 100
+         */
+      task_ids: string[];
+      /** Changes to apply to every selected task. */
+      updates: CustomerTaskBulkPatch;
+    }
+
+    export interface CustomerTaskBulkUpdateError {
+      /** Reason the batch could not be updated. */
+      readonly detail: string;
+    }
+
+    export interface CustomerTaskBulkUpdateResult {
+      /** Number of tasks changed by this batch. */
+      readonly updated_count: number;
+    }
+
     export interface CustomerTaskCreate {
       /**
          * UUID of a visible account, or null for an accountless task.
@@ -28940,16 +29169,6 @@ export namespace Schemas {
          */
       account_id?: string | null;
       /**
-         * Replacement task name.
-         * @maxLength 400
-         */
-      name: string;
-      /**
-         * Replacement description, or null to clear it.
-         * @nullable
-         */
-      description?: string | null;
-      /**
          * Replacement assignee ID, or null to unassign.
          * @nullable
          */
@@ -28966,6 +29185,16 @@ export namespace Schemas {
        * * `completed` - Completed
        * * `canceled` - Canceled */
       status?: CustomerTaskStatusEnum;
+      /**
+         * Replacement task name.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Replacement description, or null to clear it.
+         * @nullable
+         */
+      description?: string | null;
     }
 
     export type DashboardFilters = { [key: string]: unknown };
@@ -29256,7 +29485,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly name: string | null;
-      /** Description of the dashboard. */
+      /** Short note for people who open the dashboard. Say what it shows in one or two sentences, about 30 words. Leave it empty when the name already says it. Do not write how it was built or changed. */
       readonly description: string;
       /** Whether the dashboard is pinned to the top of the list. */
       readonly pinned: boolean;
@@ -31456,22 +31685,6 @@ export namespace Schemas {
       /** Make new suggestions even when the cached ones are still valid. */
       refresh?: boolean;
     }
-
-    /**
-     * * `ready` - Ready
-     * * `generating` - Generating
-     * * `ai_not_approved` - Ai Not Approved
-     * * `unavailable` - Unavailable
-     */
-    export type DataSuggestionsStatusEnum = typeof DataSuggestionsStatusEnum[keyof typeof DataSuggestionsStatusEnum];
-
-
-    export const DataSuggestionsStatusEnum = {
-      Ready: 'ready',
-      Generating: 'generating',
-      AiNotApproved: 'ai_not_approved',
-      Unavailable: 'unavailable',
-    } as const;
 
     export interface DataSuggestionsResponse {
       /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
@@ -33820,6 +34033,7 @@ export namespace Schemas {
      * * `AwsS3Tables` - AwsS3Tables
      * * `Beacons` - Beacons
      * * `WooPayments` - WooPayments
+     * * `Soniox` - Soniox
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -35236,6 +35450,7 @@ export namespace Schemas {
       AwsS3Tables: 'AwsS3Tables',
       Beacons: 'Beacons',
       WooPayments: 'WooPayments',
+      Soniox: 'Soniox',
     } as const;
 
     /**
@@ -36665,7 +36880,8 @@ export namespace Schemas {
        * * `Dripify` - Dripify
        * * `AwsS3Tables` - AwsS3Tables
        * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments */
+       * * `WooPayments` - WooPayments
+       * * `Soniox` - Soniox */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -37757,6 +37973,13 @@ export namespace Schemas {
     export interface DestinationConnectionTestResponse {
       /** The steps of the connection test, in order. The test stops at the first failed step. */
       steps: DestinationConnectionTestStep[];
+    }
+
+    export interface DetectableEffectCheckpoint {
+      /** The week mark, in whole weeks since launch. */
+      weeks_since_launch: number;
+      /** The smallest relative change, as a percentage, that the exposures by this week mark can detect. */
+      detectable_effect: number;
     }
 
     export interface DevUserUsage {
@@ -39636,7 +39859,8 @@ export namespace Schemas {
        * * `Dripify` - Dripify
        * * `AwsS3Tables` - AwsS3Tables
        * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments */
+       * * `WooPayments` - WooPayments
+       * * `Soniox` - Soniox */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -41300,7 +41524,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `flag_off` - AI drafts are not enabled for this project
      * * `ai_not_approved` - The organization has not approved AI data processing
      * * `gateway_unconfigured` - The AI gateway is not configured
      * * `rate_limited` - The project used its hourly AI drafts
@@ -41312,7 +41535,6 @@ export namespace Schemas {
 
 
     export const EmailDraftFallbackReasonEnum = {
-      FlagOff: 'flag_off',
       AiNotApproved: 'ai_not_approved',
       GatewayUnconfigured: 'gateway_unconfigured',
       RateLimited: 'rate_limited',
@@ -41337,7 +41559,6 @@ export namespace Schemas {
       generated_by: EmailDraftOriginEnum;
       /** Why the template was used instead of a model draft. Null for a model draft.
        *
-       * * `flag_off` - AI drafts are not enabled for this project
        * * `ai_not_approved` - The organization has not approved AI data processing
        * * `gateway_unconfigured` - The AI gateway is not configured
        * * `rate_limited` - The project used its hourly AI drafts
@@ -41837,6 +42058,62 @@ export namespace Schemas {
       error_message: string;
     }
 
+    /**
+     * * `good` - Good
+     * * `warning` - Warning
+     * * `serious` - Serious
+     * * `critical` - Critical
+     */
+    export type HealthStatusEnum = typeof HealthStatusEnum[keyof typeof HealthStatusEnum];
+
+
+    export const HealthStatusEnum = {
+      Good: 'good',
+      Warning: 'warning',
+      Serious: 'serious',
+      Critical: 'critical',
+    } as const;
+
+    export interface HealthRow {
+      /**
+         * Requests per second over the window.
+         * @nullable
+         */
+      request_rate: number | null;
+      /**
+         * Share of requests with an error status, 0 to 1.
+         * @nullable
+         */
+      error_rate: number | null;
+      /**
+         * 95th percentile request duration in milliseconds.
+         * @nullable
+         */
+      p95_ms: number | null;
+      /** Requests counted in the window. */
+      span_count: number;
+      /** Requests with an error status in the window. */
+      error_count: number;
+    }
+
+    export interface EndpointHealth {
+      /** The service.name resource attribute. */
+      service_name: string;
+      /** The entry span name, for example the HTTP route or the job name. */
+      endpoint: string;
+      /** The environment the row was computed for. */
+      environment: string;
+      /** Health band from the error rate.
+       *
+       * * `good` - Good
+       * * `warning` - Warning
+       * * `serious` - Serious
+       * * `critical` - Critical */
+      status: HealthStatusEnum;
+      /** The health row every surface renders. */
+      health: HealthRow;
+    }
+
     export interface EndpointLastExecutionTimesRequest {
       names: string[];
     }
@@ -42179,6 +42456,22 @@ export namespace Schemas {
       version_updated_at: string | null;
       /** User who created this version. */
       readonly version_created_by: UserBasic | null;
+    }
+
+    export interface EndpointsHealthResponse {
+      /** One row per service and endpoint, worst status first. */
+      results: EndpointHealth[];
+      /** The environment the rows were computed for. */
+      environment: string;
+      /**
+         * The service filter applied, if any.
+         * @nullable
+         */
+      service: string | null;
+      /** Start of the window used. */
+      date_from: string;
+      /** End of the window used. */
+      date_to: string;
     }
 
     export type EndpointsUsageOverviewItemKey = typeof EndpointsUsageOverviewItemKey[keyof typeof EndpointsUsageOverviewItemKey];
@@ -42768,6 +43061,27 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+    }
+
+    export interface ErrorTrackingBuiltInFilter {
+      /** Stable identifier of the built-in filter, for example `web_crawlers`. */
+      readonly key: string;
+      /** Display name of the built-in filter. */
+      readonly name: string;
+      /** One sentence on which exceptions the filter drops. */
+      readonly description: string;
+      /** Where the filter runs. `client` filters also run in the web SDK, which drops matching exceptions before it sends them. `server` filters run only during ingestion.
+       *
+       * * `client` - Client
+       * * `server` - Server */
+      readonly evaluation: BuiltInFilterEvaluationEnum;
+      /** Whether the filter drops exceptions for this project. */
+      readonly enabled: boolean;
+      /**
+         * Set when ingestion turned the filter off because it failed on an event. Turning the filter on again resets it.
+         * @nullable
+         */
+      readonly disabled_reason: string | null;
     }
 
     export interface ErrorTrackingBypassRule {
@@ -43778,6 +44092,8 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingIssuesListQueryRequest {
+      /** Only include issues first seen strictly after this ISO timestamp or relative date, such as -24h or -7d. Independent of dateRange, which filters occurrences. */
+      firstSeenAfter?: string;
       /** Date range for issue aggregates. Defaults to the last 7 days. */
       dateRange?: ErrorTrackingDateRange;
       /** Filter by issue status. Defaults to active.
@@ -47017,6 +47333,7 @@ export namespace Schemas {
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_cannot_compile` - Metric Cannot Compile
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
@@ -47040,6 +47357,7 @@ export namespace Schemas {
       MultipleVariantsShare: 'multiple_variants_share',
       NoMetric: 'no_metric',
       MetricEventNotIngested: 'metric_event_not_ingested',
+      MetricCannotCompile: 'metric_cannot_compile',
       ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
       Srm: 'srm',
       ZeroExposures: 'zero_exposures',
@@ -47106,6 +47424,7 @@ export namespace Schemas {
        * * `multiple_variants_share` - Multiple Variants Share
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `metric_cannot_compile` - Metric Cannot Compile
        * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
        * * `srm` - Sample Ratio Mismatch
        * * `zero_exposures` - Zero Exposures
@@ -47154,6 +47473,7 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_cannot_compile` - Metric Cannot Compile
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
@@ -47175,6 +47495,7 @@ export namespace Schemas {
       NewFlagNoTraffic: 'new_flag_no_traffic',
       NoMetric: 'no_metric',
       MetricEventNotIngested: 'metric_event_not_ingested',
+      MetricCannotCompile: 'metric_cannot_compile',
       ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
       EarlySignificance: 'early_significance',
       ZeroExposures: 'zero_exposures',
@@ -47212,6 +47533,7 @@ export namespace Schemas {
        * * `new_flag_no_traffic` - New Flag No Traffic
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `metric_cannot_compile` - Metric Cannot Compile
        * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
        * * `early_significance` - Early Significance
        * * `zero_exposures` - Zero Exposures
@@ -47481,9 +47803,9 @@ export namespace Schemas {
     }
 
     export interface ExperimentExposureCriteria {
-      /** Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. */
+      /** Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. Warehouse-native activation has no defined semantics yet, so only events and actions apply here. */
       activation_config?: ExperimentEventExposureConfig | ActionsNode | null;
-      exposure_config?: ExperimentEventExposureConfig | ActionsNode | null;
+      exposure_config?: ExperimentEventExposureConfig | ActionsNode | ExperimentWarehouseNativeExposureConfig | null;
       filterTestAccounts?: boolean | null;
       multiple_variant_handling?: MultipleVariantHandling | null;
     }
@@ -47897,6 +48219,54 @@ export namespace Schemas {
       activation: string | null;
     }
 
+    /**
+     * * `rejected` - Rejected
+     * * `syntax` - Syntax
+     * * `query` - Query
+     * * `definition` - Definition
+     */
+    export type ExperimentHealthMetricCompileErrorKindEnum = typeof ExperimentHealthMetricCompileErrorKindEnum[keyof typeof ExperimentHealthMetricCompileErrorKindEnum];
+
+
+    export const ExperimentHealthMetricCompileErrorKindEnum = {
+      Rejected: 'rejected',
+      Syntax: 'syntax',
+      Query: 'query',
+      Definition: 'definition',
+    } as const;
+
+    export interface ExperimentHealthInputsMetricCompileFailure {
+      /** The metric's name as the experiment shows it. */
+      name: string;
+      /** 'primary' or 'secondary'. */
+      role: string;
+      /** Who rejected the query: 'rejected' is a validation of the query builder, 'syntax' and 'query' come from HogQL, 'definition' means the stored definition doesn't parse into a metric.
+       *
+       * * `rejected` - Rejected
+       * * `syntax` - Syntax
+       * * `query` - Query
+       * * `definition` - Definition */
+      kind: ExperimentHealthMetricCompileErrorKindEnum;
+      /**
+         * The compiler's message, without the list of a scope's fields. Null when it can hold the evaluation rules that the AI evaluation markers keep out of the browser.
+         * @nullable
+         */
+      message: string | null;
+    }
+
+    export interface ExperimentHealthInputsMetricCompiles {
+      /** The metrics that the experiment calculates, one per uuid. */
+      metric_count: number;
+      /** The metrics whose compile raised an error that names no problem of the metric, such as a defect. */
+      unknown_count: number;
+      /** The metrics that read a warehouse table or view that the reader may not query, so they aren't checked. */
+      no_access_count: number;
+      /** Whether the exposure query alone doesn't compile. Every metric then fails for that reason, so no failure is listed. */
+      exposure_query_fails: boolean;
+      /** The metrics whose query doesn't compile, with the compiler's message. */
+      failures: ExperimentHealthInputsMetricCompileFailure[];
+    }
+
     export interface ExperimentHealthInputsFlagChange {
       /** The kind of change. A bucketing change is a change of a setting that decides the variant draw.
        *
@@ -48290,10 +48660,17 @@ export namespace Schemas {
          * @nullable
          */
       flag_called_during_run: boolean | null;
+      /**
+         * Whether PostHog has recorded a call of the flag after the end. The flag state check reads it on an ended experiment whose flag is still active with multiple variants. False only after 3 days without a recorded call. Null before the end, before those 3 days are over, or when the organization's flag calls can't be read.
+         * @nullable
+         */
+      flag_called_after_end: boolean | null;
       /** The events the exposure criteria count. Null when the stored exposure criteria don't parse. */
       exposure_events: ExperimentHealthInputsExposureEvents | null;
       /** Whether the project has received each event that the metrics and the exposure criteria name, by event name. A name that ingestion keeps no record of is absent. */
       events_received: ExperimentHealthInputsEventsReceived;
+      /** The compile of each metric's query without running it, as the reader, which the metric queries check reads. A metric that compiles is cached per reader for a day, and a failing metric compiles again on every request. Null when the compile itself failed. */
+      metric_compiles: ExperimentHealthInputsMetricCompiles | null;
       /** The changes of the flag since launch that can move exposed people. Null when the experiment is not running, is archived, its flag is missing or deleted, or the read failed. */
       flag_history: ExperimentHealthInputsFlagHistory | null;
       /** Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the experiment is launched and some but not all release conditions pin a variant that has a share of the split and is not excluded from the analysis. The release-condition check needs it when such an override was removed after launch.
@@ -52586,7 +52963,8 @@ export namespace Schemas {
        * * `Dripify` - Dripify
        * * `AwsS3Tables` - AwsS3Tables
        * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments */
+       * * `WooPayments` - WooPayments
+       * * `Soniox` - Soniox */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -54036,7 +54414,8 @@ export namespace Schemas {
        * * `Dripify` - Dripify
        * * `AwsS3Tables` - AwsS3Tables
        * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments */
+       * * `WooPayments` - WooPayments
+       * * `Soniox` - Soniox */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -54117,6 +54496,11 @@ export namespace Schemas {
          * @nullable
          */
       latest_error: string | null;
+    }
+
+    export interface ExternalDataSourceExists {
+      /** Whether the project has any accessible external data sources. */
+      exists: boolean;
     }
 
     export interface ExternalDataSourceRevenueAnalyticsConfig {
@@ -54649,6 +55033,15 @@ export namespace Schemas {
       is_multivariate: boolean;
     }
 
+    export interface FeatureFlagSetActiveRequest {
+      /**
+         * The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2, optional otherwise. When sent, the change is refused with 409 if anyone else changed the flag after that version. Null is the same as leaving it out.
+         * @minimum 0
+         * @nullable
+         */
+      version?: number | null;
+    }
+
     export interface FeatureFlagSetReleaseConditionRolloutRequest {
       /**
          * Zero-based position of the release condition in `filters.groups`, counted from the read that produced `version`.
@@ -54712,7 +55105,7 @@ export namespace Schemas {
          */
       reason_description?: string | null;
       /**
-         * The index of the condition that matched, if applicable
+         * The index of the condition that matched, if applicable. For a flag with config version 2, the zero-based index of the rule in `filters.rules` that decided the result, or null when no rule decided it.
          * @nullable
          */
       condition_index: number | null;
@@ -54725,8 +55118,10 @@ export namespace Schemas {
          * @nullable
          */
       evaluation_distinct_id: string | null;
-      /** Detailed analysis of each condition in the feature flag */
+      /** Detailed analysis of each condition in the feature flag. Always empty for a flag with config version 2, which `conditions_unavailable_reason` then explains. */
       conditions: FeatureFlagConditionAnalysis[];
+      /** Present only when `conditions` is empty because the evaluated config has no per-condition analysis. An empty list then does not mean the flag has no conditions or rules. */
+      conditions_unavailable_reason?: string;
     }
 
     export type FeatureFlagVersionResponseFilters = { [key: string]: unknown };
@@ -57683,44 +58078,6 @@ export namespace Schemas {
       snoozed: HealthIssueCounts;
     }
 
-    export interface HealthRow {
-      /**
-         * Requests per second over the window.
-         * @nullable
-         */
-      request_rate: number | null;
-      /**
-         * Share of requests with an error status, 0 to 1.
-         * @nullable
-         */
-      error_rate: number | null;
-      /**
-         * 95th percentile request duration in milliseconds.
-         * @nullable
-         */
-      p95_ms: number | null;
-      /** Requests counted in the window. */
-      span_count: number;
-      /** Requests with an error status in the window. */
-      error_count: number;
-    }
-
-    /**
-     * * `good` - Good
-     * * `warning` - Warning
-     * * `serious` - Serious
-     * * `critical` - Critical
-     */
-    export type HealthStatusEnum = typeof HealthStatusEnum[keyof typeof HealthStatusEnum];
-
-
-    export const HealthStatusEnum = {
-      Good: 'good',
-      Warning: 'warning',
-      Serious: 'serious',
-      Critical: 'critical',
-    } as const;
-
     export interface HeatmapCapturePage {
       /** A page URL that currently sends heatmap data. */
       url: string;
@@ -58188,6 +58545,11 @@ export namespace Schemas {
       score: number;
       /** Name of the highlight source that found the item, for example alerts. */
       source: string;
+      /**
+         * Product that declares the source, for example feature_flags. Null for items stored before this field existed and for sources that no product declares any more.
+         * @nullable
+         */
+      product?: string | null;
     }
 
     /**
@@ -63419,6 +63781,77 @@ export namespace Schemas {
     }
 
     /**
+     * * `customerio` - Customer.io
+     */
+    export type ImportProviderKeyEnum = typeof ImportProviderKeyEnum[keyof typeof ImportProviderKeyEnum];
+
+
+    export const ImportProviderKeyEnum = {
+      Customerio: 'customerio',
+    } as const;
+
+    export interface ImportStepOption {
+      /** Step key to send in `steps` when starting an import, for example `suppressions`. */
+      key: string;
+      /** Display name of the step. */
+      label: string;
+      /** What the step imports and where it lands in PostHog. */
+      description: string;
+    }
+
+    export interface ImportProviderOption {
+      /** Provider key to send when starting an import.
+       *
+       * * `customerio` - Customer.io */
+      key: ImportProviderKeyEnum;
+      /** Display name of the provider. */
+      label: string;
+      /** What the provider can import, in the order the steps run. */
+      steps: ImportStepOption[];
+    }
+
+    /**
+     * * `pending` - Not started
+     * * `running` - Importing
+     * * `completed` - Imported
+     * * `failed` - Failed
+     */
+    export type ImportStepStatusEnum = typeof ImportStepStatusEnum[keyof typeof ImportStepStatusEnum];
+
+
+    export const ImportStepStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface ImportStepProgress {
+      /** Step key, for example `suppressions`. */
+      key: string;
+      /** Display name of the step. */
+      label: string;
+      /** `pending` until the step starts, `running` while it imports or waits to retry, then `completed` or `failed`.
+       *
+       * * `pending` - Not started
+       * * `running` - Importing
+       * * `completed` - Imported
+       * * `failed` - Failed */
+      status: ImportStepStatusEnum;
+      /** How many records the step read from the provider so far. */
+      processed: number;
+      /** How many records the step added or updated in PostHog so far. Records that already existed and need no change may not count. */
+      imported: number;
+      /** Problems with single records that did not fail the step. */
+      warnings: string[];
+      /**
+         * The error from the step's most recent failed attempt. A running step retries after an error; a failed step stopped.
+         * @nullable
+         */
+      last_error: string | null;
+    }
+
+    /**
      * * `signals` - Signals
      * * `scouts` - Scouts
      * * `github` - GitHub
@@ -64577,6 +65010,16 @@ export namespace Schemas {
       Insight: 'insight',
     } as const;
 
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type InsightPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type InsightPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
     export interface InsightPlatformAlertSourceConfig {
       /** The insight the alert checks. It cannot change through this API. */
       insight_id: number;
@@ -64621,6 +65064,10 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       cooldown_minutes: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: InsightPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: InsightPlatformAlertConfigurationEditAnnotations;
     }
 
     /**
@@ -66942,6 +67389,13 @@ export namespace Schemas {
      * * `posthog-convex` - posthog-convex
      * * `posthog-rails` - posthog-rails
      * * `posthog-aspnetcore` - posthog-aspnetcore
+     * * `posthog-rs` - posthog-rs
+     * * `posthog-rs-mcp` - posthog-rs-mcp
+     * * `posthog-godot` - posthog-godot
+     * * `posthog-unreal` - posthog-unreal
+     * * `posthog-go-mcp` - posthog-go-mcp
+     * * `posthog-ruby-mcp` - posthog-ruby-mcp
+     * * `js` - js
      */
     export type LibEnum = typeof LibEnum[keyof typeof LibEnum];
 
@@ -66969,6 +67423,13 @@ export namespace Schemas {
       PosthogConvex: 'posthog-convex',
       PosthogRails: 'posthog-rails',
       PosthogAspnetcore: 'posthog-aspnetcore',
+      PosthogRs: 'posthog-rs',
+      PosthogRsMcp: 'posthog-rs-mcp',
+      PosthogGodot: 'posthog-godot',
+      PosthogUnreal: 'posthog-unreal',
+      PosthogGoMcp: 'posthog-go-mcp',
+      PosthogRubyMcp: 'posthog-ruby-mcp',
+      Js: 'js',
     } as const;
 
     /**
@@ -68592,6 +69053,16 @@ export namespace Schemas {
       Logs: 'logs',
     } as const;
 
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type LogsPlatformAlertConfigurationCreateLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type LogsPlatformAlertConfigurationCreateAnnotations = {[key: string]: string};
+
     export interface LogsPlatformAlertSourceConfig {
       /** The logs the alert counts: severityLevels, serviceNames, or a filterGroup of property filters. An enabled alert needs at least one. */
       filters: LogsAlertFilters;
@@ -68636,6 +69107,10 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: LogsPlatformAlertConfigurationCreateLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: LogsPlatformAlertConfigurationCreateAnnotations;
     }
 
     /**
@@ -68647,6 +69122,16 @@ export namespace Schemas {
     export const LogsPlatformAlertConfigurationEditSourceKind = {
       Logs: 'logs',
     } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type LogsPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type LogsPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
 
     /**
      * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
@@ -68685,6 +69170,10 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       cooldown_minutes: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: LogsPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: LogsPlatformAlertConfigurationEditAnnotations;
     }
 
     export interface LogsRetentionRule {
@@ -73305,6 +73794,7 @@ export namespace Schemas {
      * * `error_tracking` - ERROR_TRACKING
      * * `customer_analytics` - CUSTOMER_ANALYTICS
      * * `ticket` - TICKET
+     * * `replay_observation` - REPLAY_OBSERVATION
      */
     export type NotificationEventSourceTypeEnum = typeof NotificationEventSourceTypeEnum[keyof typeof NotificationEventSourceTypeEnum];
 
@@ -73320,6 +73810,7 @@ export namespace Schemas {
       ErrorTracking: 'error_tracking',
       CustomerAnalytics: 'customer_analytics',
       Ticket: 'ticket',
+      ReplayObservation: 'replay_observation',
     } as const;
 
     export interface NotificationEvent {
@@ -77213,6 +77704,8 @@ export namespace Schemas {
     /**
      * * `logs` - Logs
      * * `insight` - Insight
+     * * `warehouse_source` - Warehouse source
+     * * `warehouse_destination` - Warehouse destination
      */
     export type PlatformAlertConfigurationSourceKindEnum = typeof PlatformAlertConfigurationSourceKindEnum[keyof typeof PlatformAlertConfigurationSourceKindEnum];
 
@@ -77220,6 +77713,8 @@ export namespace Schemas {
     export const PlatformAlertConfigurationSourceKindEnum = {
       Logs: 'logs',
       Insight: 'insight',
+      WarehouseSource: 'warehouse_source',
+      WarehouseDestination: 'warehouse_destination',
     } as const;
 
     /**
@@ -77290,6 +77785,16 @@ export namespace Schemas {
      */
     export type PlatformAlertConfigurationSourceConfig = { [key: string]: unknown };
 
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type PlatformAlertConfigurationLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type PlatformAlertConfigurationAnnotations = {[key: string]: string};
+
     export interface PlatformAlertConfiguration {
       /** Unique identifier of the alert configuration. */
       readonly id: string;
@@ -77300,7 +77805,9 @@ export namespace Schemas {
       /** Product whose data the alert evaluates.
        *
        * * `logs` - Logs
-       * * `insight` - Insight */
+       * * `insight` - Insight
+       * * `warehouse_source` - Warehouse source
+       * * `warehouse_destination` - Warehouse destination */
       readonly source_kind: PlatformAlertConfigurationSourceKindEnum;
       /** Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key. */
       readonly source_config: PlatformAlertConfigurationSourceConfig;
@@ -77365,6 +77872,10 @@ export namespace Schemas {
       readonly updated_at: string;
       /** Runtime state for each result group of this configuration. */
       readonly alerts: readonly PlatformAlert[];
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      readonly labels: PlatformAlertConfigurationLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      readonly annotations: PlatformAlertConfigurationAnnotations;
     }
 
     export interface PaginatedPlatformAlertConfigurationList {
@@ -79459,6 +79970,8 @@ export namespace Schemas {
       agent: string | null;
       /** @nullable */
       claimed_at: string | null;
+      /** The person who answers for the claim: the user for a user claim, the user an MCP agent acts for, or the user who started an internal task. Null when no person stands behind the claim. */
+      responsible_user: _User | null;
     }
 
     /**
@@ -79653,6 +80166,8 @@ export namespace Schemas {
        * * `closed` - Closed
        * * `merged` - Merged */
       readonly implementation_pr_state: SignalReportAssignmentPrStateEnum | null;
+      /** Who or what suppressed the step, with the same values as the report's `suppression_source`. Null unless the step is suppressed. */
+      readonly suppression_source: SignalReportSuppressionSourceEnum | null;
     }
 
     export interface ReportPlan {
@@ -79752,6 +80267,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly repo_slug: string | null;
+      /** Whether this is a scout self-improvement report. Most update a team-owned skill in the skills store, but reports with a selected repository can still produce a pull request. */
+      readonly is_self_improvement_report: boolean;
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
@@ -79807,7 +80324,7 @@ export namespace Schemas {
       readonly channel_id: string | null;
       /** The served ranking model's predictions from the latest ranking score artefact. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
       readonly ranking: ReportRanking;
-      /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps scans the project's report links. */
+      /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps costs several queries per report. */
       readonly plan: ReportPlan | null;
       /**
          * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's outcome (open, action or fix), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
@@ -82777,6 +83294,7 @@ export namespace Schemas {
      * * `source_sync` - Source sync
      * * `fastest_schedule` - Fastest schedule
      * * `read_rate` - Read rate
+     * * `consumer_refresh` - Consumer refresh
      * * `savings` - Savings
      */
     export type WarehouseSuggestionRefreshIntervalBasisEnum = typeof WarehouseSuggestionRefreshIntervalBasisEnum[keyof typeof WarehouseSuggestionRefreshIntervalBasisEnum];
@@ -82786,6 +83304,7 @@ export namespace Schemas {
       SourceSync: 'source_sync',
       FastestSchedule: 'fastest_schedule',
       ReadRate: 'read_rate',
+      ConsumerRefresh: 'consumer_refresh',
       Savings: 'savings',
     } as const;
 
@@ -82799,11 +83318,12 @@ export namespace Schemas {
        * * `full` - Full
        * * `incremental` - Incremental */
       refresh_mode: WarehouseSuggestionRefreshModeEnum;
-      /** Why the interval is not shorter. source_sync: the view's sources sync no faster. fastest_schedule: PostHog refreshes views no more often. read_rate: people read the view no more often. savings: a shorter interval would cost more than it saves. Null on suggestions made before this was recorded.
+      /** Why the interval is not shorter. source_sync: the view's sources sync no faster. fastest_schedule: PostHog refreshes views no more often. read_rate: people read the view no more often. consumer_refresh: the materialized views that read it refresh no more often. savings: a shorter interval would cost more than it saves. Null on suggestions made before this was recorded.
        *
        * * `source_sync` - Source sync
        * * `fastest_schedule` - Fastest schedule
        * * `read_rate` - Read rate
+       * * `consumer_refresh` - Consumer refresh
        * * `savings` - Savings */
       refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasisEnum | null;
       /** Name of the view to materialize. */
@@ -82830,6 +83350,8 @@ export namespace Schemas {
       unique_key?: string[];
       /** How far before the last refresh's highest incremental_key value each refresh reads again, in seconds. The last incremental_key value is always read again. */
       lookback_seconds?: number;
+      /** How many materialized views compute this view again on every refresh, because it is not stored. 0 when the saving comes only from people's reads. */
+      recomputed_by_views?: number;
     }
 
     export interface WarehouseSuggestionUnmaterializePayload {
@@ -82958,6 +83480,8 @@ export namespace Schemas {
       created_asset: WarehouseSuggestionCreatedAsset;
       /** Who accepted or dismissed this suggestion. Null while it is open. */
       reviewed_by: WarehouseSuggestionReviewer | null;
+      /** Who should accept or dismiss this suggestion. When a view's suggestion is first shown, it goes to the person who created the view, if they can accept it. Null when nobody is assigned. */
+      assignee: WarehouseSuggestionReviewer | null;
       /** What the suggestion proposes: certify, deprecate, materialize or unmaterialize the subject. unmaterialize turns a rarely read materialized view back into a plain view computed on read.
        *
        * * `certify` - Certify
@@ -85014,16 +85538,6 @@ export namespace Schemas {
          */
       account_id?: string | null;
       /**
-         * Replacement task name.
-         * @maxLength 400
-         */
-      name?: string;
-      /**
-         * Replacement description, or null to clear it.
-         * @nullable
-         */
-      description?: string | null;
-      /**
          * Replacement assignee ID, or null to unassign.
          * @nullable
          */
@@ -85040,6 +85554,16 @@ export namespace Schemas {
        * * `completed` - Completed
        * * `canceled` - Canceled */
       status?: CustomerTaskStatusEnum;
+      /**
+         * Replacement task name.
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * Replacement description, or null to clear it.
+         * @nullable
+         */
+      description?: string | null;
     }
 
     export interface PatchedDashboardTemplate {
@@ -85883,6 +86407,11 @@ export namespace Schemas {
       filters?: PropertyGroupFilterValue | null;
       /** User or role to assign matching issues to. */
       assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
+    }
+
+    export interface PatchedErrorTrackingBuiltInFilterUpdateRequest {
+      /** `true` drops matching exceptions for this project. `false` stops dropping them. */
+      enabled?: boolean;
     }
 
     /**
@@ -87827,6 +88356,16 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type PatchedInsightPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type PatchedInsightPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
+    /**
      * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
      */
     export interface PatchedInsightPlatformAlertConfigurationEdit {
@@ -87863,6 +88402,10 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: PatchedInsightPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: PatchedInsightPlatformAlertConfigurationEditAnnotations;
     }
 
     export interface PatchedInsightVariable {
@@ -88239,6 +88782,16 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type PatchedLogsPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type PatchedLogsPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
+    /**
      * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
      */
     export interface PatchedLogsPlatformAlertConfigurationEdit {
@@ -88275,6 +88828,10 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: PatchedLogsPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: PatchedLogsPlatformAlertConfigurationEditAnnotations;
     }
 
     export interface PatchedLogsRetentionRule {
@@ -89006,7 +89563,165 @@ export namespace Schemas {
       homepage?: PinnedSceneTab | null;
     }
 
-    export type PatchedPlatformAlertConfigurationEdit = PatchedInsightPlatformAlertConfigurationEdit | PatchedLogsPlatformAlertConfigurationEdit;
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type PatchedWarehouseDestinationPlatformAlertConfigurationEditSourceKind = typeof PatchedWarehouseDestinationPlatformAlertConfigurationEditSourceKind[keyof typeof PatchedWarehouseDestinationPlatformAlertConfigurationEditSourceKind];
+
+
+    export const PatchedWarehouseDestinationPlatformAlertConfigurationEditSourceKind = {
+      WarehouseDestination: 'warehouse_destination',
+    } as const;
+
+    export interface WarehouseDestinationAlertConfig {
+      /**
+         * Warehouse destinations the alert watches. Empty watches every destination in the project, including destinations added later. The grouping must be by_result_labels with keys [destination_id].
+         * @maxItems 100
+         */
+      destination_ids?: string[];
+      /** Whether project members who get data pipeline error emails also get an email when this alert fires or resolves. */
+      email_project_members?: boolean;
+    }
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type PatchedWarehouseDestinationPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type PatchedWarehouseDestinationPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface PatchedWarehouseDestinationPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: PatchedWarehouseDestinationPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled?: boolean;
+      /** Settings for a warehouse_destination alert. The bound the alert is evaluated against is under condition. */
+      source_config?: WarehouseDestinationAlertConfig;
+      /** How the alert splits its results into instances. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: PatchedWarehouseDestinationPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: PatchedWarehouseDestinationPlatformAlertConfigurationEditAnnotations;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type PatchedWarehouseSourcePlatformAlertConfigurationEditSourceKind = typeof PatchedWarehouseSourcePlatformAlertConfigurationEditSourceKind[keyof typeof PatchedWarehouseSourcePlatformAlertConfigurationEditSourceKind];
+
+
+    export const PatchedWarehouseSourcePlatformAlertConfigurationEditSourceKind = {
+      WarehouseSource: 'warehouse_source',
+    } as const;
+
+    export type WarehouseAlertGroupByEnum = typeof WarehouseAlertGroupByEnum[keyof typeof WarehouseAlertGroupByEnum];
+
+
+    export const WarehouseAlertGroupByEnum = {
+      Schema: 'schema',
+      Source: 'source',
+    } as const;
+
+    export interface WarehouseSourceAlertConfig {
+      /**
+         * Warehouse sources the alert watches. Empty watches every source in the project, including sources added later.
+         * @maxItems 100
+         */
+      source_ids?: string[];
+      /** schema keeps one alert instance, and sends one message, per failing table. source keeps one per source, whatever number of its tables fail. The grouping must be by_result_labels with keys [schema_id] or [source_id] to match. */
+      group_by?: WarehouseAlertGroupByEnum;
+      /** Whether a table that stops syncing at the project's billing limit also fires the alert. */
+      include_billing_limits?: boolean;
+      /** Whether project members who get data pipeline error emails also get an email when this alert fires or resolves. */
+      email_project_members?: boolean;
+    }
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type PatchedWarehouseSourcePlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type PatchedWarehouseSourcePlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface PatchedWarehouseSourcePlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: PatchedWarehouseSourcePlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled?: boolean;
+      /** Settings for a warehouse_source alert. The bound the alert is evaluated against is under condition. */
+      source_config?: WarehouseSourceAlertConfig;
+      /** How the alert splits its results into instances. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: PatchedWarehouseSourcePlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: PatchedWarehouseSourcePlatformAlertConfigurationEditAnnotations;
+    }
+
+    export type PatchedPlatformAlertConfigurationEdit = PatchedInsightPlatformAlertConfigurationEdit | PatchedLogsPlatformAlertConfigurationEdit | PatchedWarehouseDestinationPlatformAlertConfigurationEdit | PatchedWarehouseSourcePlatformAlertConfigurationEdit;
 
     /**
      * Request body for PATCH /api/users/@me/product_intro_seen.
@@ -94123,9 +94838,261 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate;
+    /**
+     * Product whose data the alert evaluates. It cannot change after the create.
+     */
+    export type WarehouseDestinationPlatformAlertConfigurationCreateSourceKind = typeof WarehouseDestinationPlatformAlertConfigurationCreateSourceKind[keyof typeof WarehouseDestinationPlatformAlertConfigurationCreateSourceKind];
 
-    export type PlatformAlertConfigurationEdit = InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit;
+
+    export const WarehouseDestinationPlatformAlertConfigurationCreateSourceKind = {
+      WarehouseDestination: 'warehouse_destination',
+    } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type WarehouseDestinationPlatformAlertConfigurationCreateLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type WarehouseDestinationPlatformAlertConfigurationCreateAnnotations = {[key: string]: string};
+
+    /**
+     * The settings of a new alert. Every one but source_config has a default, which is stored.
+     */
+    export interface WarehouseDestinationPlatformAlertConfigurationCreate {
+      /** Product whose data the alert evaluates. It cannot change after the create. */
+      source_kind: WarehouseDestinationPlatformAlertConfigurationCreateSourceKind;
+      /**
+         * Human-readable name of the alert. Defaults to 'Untitled alert'.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. Defaults to true. */
+      enabled?: boolean;
+      /** Settings for a warehouse_destination alert. The bound the alert is evaluated against is under condition. */
+      source_config: WarehouseDestinationAlertConfig;
+      /** How the alert splits its results into instances. Defaults to mode single. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert. Defaults to 0.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: WarehouseDestinationPlatformAlertConfigurationCreateLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: WarehouseDestinationPlatformAlertConfigurationCreateAnnotations;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change after the create.
+     */
+    export type WarehouseSourcePlatformAlertConfigurationCreateSourceKind = typeof WarehouseSourcePlatformAlertConfigurationCreateSourceKind[keyof typeof WarehouseSourcePlatformAlertConfigurationCreateSourceKind];
+
+
+    export const WarehouseSourcePlatformAlertConfigurationCreateSourceKind = {
+      WarehouseSource: 'warehouse_source',
+    } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type WarehouseSourcePlatformAlertConfigurationCreateLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type WarehouseSourcePlatformAlertConfigurationCreateAnnotations = {[key: string]: string};
+
+    /**
+     * The settings of a new alert. Every one but source_config has a default, which is stored.
+     */
+    export interface WarehouseSourcePlatformAlertConfigurationCreate {
+      /** Product whose data the alert evaluates. It cannot change after the create. */
+      source_kind: WarehouseSourcePlatformAlertConfigurationCreateSourceKind;
+      /**
+         * Human-readable name of the alert. Defaults to 'Untitled alert'.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. Defaults to true. */
+      enabled?: boolean;
+      /** Settings for a warehouse_source alert. The bound the alert is evaluated against is under condition. */
+      source_config: WarehouseSourceAlertConfig;
+      /** How the alert splits its results into instances. Defaults to mode single. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert. Defaults to 0.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: WarehouseSourcePlatformAlertConfigurationCreateLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: WarehouseSourcePlatformAlertConfigurationCreateAnnotations;
+    }
+
+    export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate | WarehouseDestinationPlatformAlertConfigurationCreate | WarehouseSourcePlatformAlertConfigurationCreate;
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type WarehouseDestinationPlatformAlertConfigurationEditSourceKind = typeof WarehouseDestinationPlatformAlertConfigurationEditSourceKind[keyof typeof WarehouseDestinationPlatformAlertConfigurationEditSourceKind];
+
+
+    export const WarehouseDestinationPlatformAlertConfigurationEditSourceKind = {
+      WarehouseDestination: 'warehouse_destination',
+    } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type WarehouseDestinationPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type WarehouseDestinationPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface WarehouseDestinationPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: WarehouseDestinationPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled: boolean;
+      /** Settings for a warehouse_destination alert. The bound the alert is evaluated against is under condition. */
+      source_config: WarehouseDestinationAlertConfig;
+      /** How the alert splits its results into instances. */
+      grouping: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: WarehouseDestinationPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: WarehouseDestinationPlatformAlertConfigurationEditAnnotations;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type WarehouseSourcePlatformAlertConfigurationEditSourceKind = typeof WarehouseSourcePlatformAlertConfigurationEditSourceKind[keyof typeof WarehouseSourcePlatformAlertConfigurationEditSourceKind];
+
+
+    export const WarehouseSourcePlatformAlertConfigurationEditSourceKind = {
+      WarehouseSource: 'warehouse_source',
+    } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type WarehouseSourcePlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type WarehouseSourcePlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface WarehouseSourcePlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: WarehouseSourcePlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled: boolean;
+      /** Settings for a warehouse_source alert. The bound the alert is evaluated against is under condition. */
+      source_config: WarehouseSourceAlertConfig;
+      /** How the alert splits its results into instances. */
+      grouping: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: WarehouseSourcePlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: WarehouseSourcePlatformAlertConfigurationEditAnnotations;
+    }
+
+    export type PlatformAlertConfigurationEdit = InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit | WarehouseDestinationPlatformAlertConfigurationEdit | WarehouseSourcePlatformAlertConfigurationEdit;
 
     export interface PlatformAlertGroupSnooze {
       /**
@@ -96548,6 +97515,13 @@ export namespace Schemas {
       /** GitHub logins on the report after the human edit (lowercased). */
       after: string[];
       /**
+         * Why the editor removed reviewers: wrong_area, already_covered, unavailable, or other.
+         * @nullable
+         */
+      removal_reason?: string | null;
+      /** The removed identities that `removal_reason` applies to. */
+      removal_reason_reviewers?: string[];
+      /**
          * ISO-8601 timestamp of the edit.
          * @nullable
          */
@@ -97273,6 +98247,52 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    /**
+     * * `queued` - Waiting to start
+     * * `running` - Importing
+     * * `completed` - Imported
+     * * `failed` - Failed
+     */
+    export type ProviderImportStatusEnum = typeof ProviderImportStatusEnum[keyof typeof ProviderImportStatusEnum];
+
+
+    export const ProviderImportStatusEnum = {
+      Queued: 'queued',
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface ProviderImportRun {
+      /** Import run ID. */
+      id: string;
+      /** The provider the run imports from.
+       *
+       * * `customerio` - Customer.io */
+      provider: ImportProviderKeyEnum;
+      /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
+       *
+       * * `queued` - Waiting to start
+       * * `running` - Importing
+       * * `completed` - Imported
+       * * `failed` - Failed */
+      status: ProviderImportStatusEnum;
+      /** Progress of each selected step, in run order. */
+      steps: ImportStepProgress[];
+      /** When the run was requested. */
+      created_at: string;
+      /**
+         * When the first step started.
+         * @nullable
+         */
+      started_at: string | null;
+      /**
+         * When the last step ended.
+         * @nullable
+         */
+      finished_at: string | null;
+    }
+
     export interface ProvisionWarehouseRequest {
       /** Name for the new database */
       database_name: string;
@@ -97753,6 +98773,31 @@ export namespace Schemas {
     export interface PulsePins {
       /** Numbers the person keeps at the start of the key numbers, in order. Suggestions fill the free places. Only the first 4 distinct keys are kept. At most 20 entries. */
       pins: PulsePin[];
+    }
+
+    export interface PushTokenSubscription {
+      /**
+         * The person's distinct ID in this project.
+         * @maxLength 200
+         */
+      distinct_id: string;
+      /**
+         * The APNs device token or FCM registration token of one device.
+         * @maxLength 4096
+         */
+      device_token: string;
+    }
+
+    export interface PushTokenImportRequest {
+      /** Up to 1000 devices to register on this push channel. List a person once per device. */
+      subscriptions: PushTokenSubscription[];
+    }
+
+    export interface PushTokenImportResponse {
+      /** Number of devices stored on their person. */
+      imported: number;
+      /** Distinct IDs with at least one device that was not stored. Send those rows again. */
+      failed_distinct_ids: string[];
     }
 
     export interface QualtricsFeedbackSignalExtra {
@@ -98636,31 +99681,16 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export type QueryResponseAlternative19CredibleIntervals = {[key: string]: number[]} | null;
-
-    export type QueryResponseAlternative19Insight = { [key: string]: unknown }[] | null;
-
-    export type QueryResponseAlternative19Probability = {[key: string]: number} | null;
-
     export interface QueryResponseAlternative19 {
       baseline?: ExperimentStatsBaseValidated | null;
       /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
       breakdown_results?: ExperimentBreakdownResult[] | null;
       clickhouse_sql?: string | null;
-      credible_intervals?: QueryResponseAlternative19CredibleIntervals;
       hogql?: string | null;
-      insight?: QueryResponseAlternative19Insight;
       /** Whether exposures were served from the precomputation system */
       is_precomputed?: boolean | null;
       kind?: 'ExperimentQuery';
-      metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | null;
-      p_value?: number | null;
-      probability?: QueryResponseAlternative19Probability;
-      significance_code?: ExperimentSignificanceCode | null;
-      significant?: boolean | null;
-      stats_version?: number | null;
       variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null;
-      variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[] | null;
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -102047,6 +103077,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly repo_slug: string | null;
+      /** Whether this is a scout self-improvement report. Most update a team-owned skill in the skills store, but reports with a selected repository can still produce a pull request. */
+      readonly is_self_improvement_report: boolean;
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
@@ -102102,7 +103134,7 @@ export namespace Schemas {
       readonly channel_id: string | null;
       /** The served ranking model's predictions from the latest ranking score artefact. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
       readonly ranking: ReportRanking;
-      /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps scans the project's report links. */
+      /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps costs several queries per report. */
       readonly plan: ReportPlan | null;
     }
 
@@ -102460,6 +103492,20 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface WrikeTaskSignalExtra {
+      status: string | null;
+      importance: string | null;
+      permalink: string | null;
+      created_date: string | null;
+    }
+
+    export interface TrelloCardSignalExtra {
+      url: string | null;
+      id_board: string | null;
+      id_list: string | null;
+      created_at: string | null;
+    }
+
     export interface SentryIssueSignalExtra {
       level: string | null;
       status: string | null;
@@ -102648,7 +103694,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -103212,20 +104258,6 @@ export namespace Schemas {
          */
       agent_response?: string;
     }
-
-    /**
-     * * `accepted` - accepted
-     * * `target_finished` - target_finished
-     * * `rejected` - rejected
-     */
-    export type ResultEnum = typeof ResultEnum[keyof typeof ResultEnum];
-
-
-    export const ResultEnum = {
-      Accepted: 'accepted',
-      TargetFinished: 'target_finished',
-      Rejected: 'rejected',
-    } as const;
 
     export interface ResultReceipt {
       /** Accepted item UUID. */
@@ -104989,6 +106021,22 @@ export namespace Schemas {
       detail: string;
     }
 
+    /**
+     * * `wrong_area` - Not their area
+     * * `already_covered` - Someone else is on it
+     * * `unavailable` - No bandwidth
+     * * `other` - Other
+     */
+    export type ReviewerRemovalReasonEnum = typeof ReviewerRemovalReasonEnum[keyof typeof ReviewerRemovalReasonEnum];
+
+
+    export const ReviewerRemovalReasonEnum = {
+      WrongArea: 'wrong_area',
+      AlreadyCovered: 'already_covered',
+      Unavailable: 'unavailable',
+      Other: 'other',
+    } as const;
+
     export interface RevokeOtherSessionsResponse {
       /** Number of other login sessions that were revoked. */
       revoked_count: number;
@@ -105067,7 +106115,7 @@ export namespace Schemas {
       number_of_samples: number;
       /** Sum of the metric values across the control group (for funnels, the numerator/conversions). */
       sum: number;
-      /** Sum of squared metric values. Required for ratio/retention variance. */
+      /** Sum of squared metric values. Mean metrics read their variance from it, and ratio/retention metrics need it. Without it, a mean metric's variance is approximated from the baseline value. */
       sum_squares?: number;
       /**
          * Sum of the denominator values. Required for ratio/retention metrics.
@@ -105106,8 +106154,9 @@ export namespace Schemas {
          */
       minimum_detectable_effect: number;
       /**
-         * Total number of variants including control (default 2).
+         * Total number of variants including control (default 2, at most 100).
          * @minimum 2
+         * @maximum 100
          */
       number_of_variants?: number;
       /**
@@ -105122,7 +106171,7 @@ export namespace Schemas {
          */
       baseline_value?: number | null;
       /**
-         * Pre-computed variance for ratio/retention metrics. Provide this or baseline_stats when metric_type is ratio/retention and baseline_value is given directly.
+         * Pre-computed variance per user. Provide this or baseline_stats when metric_type is ratio/retention and baseline_value is given directly. When given, it replaces the variance the calculator derives for any metric type, including p(1-p) for funnels.
          * @nullable
          */
       variance?: number | null;
@@ -105154,6 +106203,42 @@ export namespace Schemas {
          * @nullable
          */
       recommended_running_time_days: number | null;
+    }
+
+    /**
+     * What the experiment can detect over time, at its exposure rate so far.
+     */
+    export interface RunningTimeOutlook {
+      /** Days since the experiment launched, with fractions. */
+      days_since_launch: number;
+      /** Exposures that count toward the target, per day from launch to the end of the window the current results cover. */
+      exposures_per_day: number;
+      /** The smallest relative change, as a percentage, that the exposures so far can detect. */
+      detectable_effect_now: number;
+      /** Up to three week marks after today, out of weeks 1, 2, 4, 6, 8, 12, 16, 26 and 52, with the change each can detect at the exposure rate so far. */
+      upcoming_checkpoints: DetectableEffectCheckpoint[];
+      /** The smallest relative change, as a percentage, that the experiment can detect within four weeks from today. A target for a smaller change is out of reach. */
+      reachable_effect: number;
+    }
+
+    /**
+     * The target sample of the experiment's running time estimate.
+     */
+    export interface RunningTimeTarget {
+      /** The relative change, as a percentage, that the target sample is sized to detect. */
+      minimum_detectable_effect: number;
+      /**
+         * Exposures needed across the analyzed variants, so that the comparison of each variant with the control can detect the minimum detectable effect at the analysis's confidence level and 80% power. In manual running time mode, the saved target. Otherwise sized from the first primary metric's current result, with the variance the analysis uses and the flag's traffic split. Null when no result can size it yet. The variances come from the result and don't depend on the effect, so the sample scales with 1 / effect²: the target for another effect is recommended_sample_size × (minimum_detectable_effect / effect)².
+         * @nullable
+         */
+      recommended_sample_size: number | null;
+      /**
+         * Exposures so far that count toward the target: the control's and those of the variants that get traffic. A variant at 0% does not count. Null in manual mode, and when no result can size the target.
+         * @nullable
+         */
+      current_sample_size: number | null;
+      /** What the experiment can detect over time, on the same curve the target is sized on. Null in manual mode, before launch, when the current results cover less than 0.1 days, and when no result can size the target. */
+      outlook: RunningTimeOutlook | null;
     }
 
     /**
@@ -107846,7 +108931,14 @@ export namespace Schemas {
        * * `posthog-edge` - posthog-edge
        * * `posthog-convex` - posthog-convex
        * * `posthog-rails` - posthog-rails
-       * * `posthog-aspnetcore` - posthog-aspnetcore */
+       * * `posthog-aspnetcore` - posthog-aspnetcore
+       * * `posthog-rs` - posthog-rs
+       * * `posthog-rs-mcp` - posthog-rs-mcp
+       * * `posthog-godot` - posthog-godot
+       * * `posthog-unreal` - posthog-unreal
+       * * `posthog-go-mcp` - posthog-go-mcp
+       * * `posthog-ruby-mcp` - posthog-ruby-mcp
+       * * `js` - js */
       lib: LibEnum;
       /** Human-readable SDK name matching the SDK Health UI (e.g. 'Python', 'Node.js', 'Web', 'iOS'). */
       readable_name: string;
@@ -108066,7 +109158,7 @@ export namespace Schemas {
     /**
      * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
      */
-    export type SendTransactionalEmailMessageData = {[key: string]: unknown};
+    export type SendEmailMessageData = {[key: string]: unknown};
 
     export interface TransactionalEmailIdentifiers {
       /**
@@ -108076,6 +109168,27 @@ export namespace Schemas {
          */
       distinct_id?: string | null;
     }
+
+    export interface SendEmailTemplate {
+      /** ID of the email template to send. The template must be made transactional first. */
+      id: string;
+    }
+
+    export interface SendEmail {
+      /** Email address of the recipient. */
+      to: string;
+      /** Who the email is for, used to attribute engagement events. */
+      identifiers?: TransactionalEmailIdentifiers;
+      /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
+      message_data?: SendEmailMessageData;
+      /** The transactional email template to send. */
+      template: SendEmailTemplate;
+    }
+
+    /**
+     * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
+     */
+    export type SendTransactionalEmailMessageData = {[key: string]: unknown};
 
     export interface SendTransactionalEmail {
       /** Email address of the recipient. */
@@ -108110,6 +109223,22 @@ export namespace Schemas {
          * @maxItems 1000
          */
       policies?: ToolPolicyEntry[];
+    }
+
+    export interface ServiceEdge {
+      /** The calling service. */
+      caller: string;
+      /** The called service. */
+      callee: string;
+      /** Calls from the caller into the callee in the sampled traces. */
+      calls: number;
+      /** Calls with an error status on the callee span. */
+      error_count: number;
+      /**
+         * 95th percentile duration of the callee span, in ms.
+         * @nullable
+         */
+      p95_ms: number | null;
     }
 
     export interface ServiceHealth {
@@ -108386,6 +109515,19 @@ export namespace Schemas {
       truncated: boolean;
       /** Caveats about this result. */
       notes: string[];
+    }
+
+    export interface ServiceMapResponse {
+      /** One edge per calling and called service, most calls first. */
+      edges: ServiceEdge[];
+      /** Traces sampled to build the map. */
+      trace_count: number;
+      /** The environment the map was built for. */
+      environment: string;
+      /** Start of the window used. */
+      date_from: string;
+      /** End of the window used. */
+      date_to: string;
     }
 
     export interface ServicesHealthResponse {
@@ -108693,6 +109835,18 @@ export namespace Schemas {
          * @maxItems 10
          */
       targets?: SuggestedReviewerEntryWrite[];
+      /** Why the people in `targets` are removed. Remove action only. 'wrong_area': the work should not be on them, because it is outside their area, they moved off it, or someone else owns it. 'already_covered': another reviewer already covers the report. 'unavailable': they do not have bandwidth right now. The last two say nothing about ownership. 'other': explain in removal_note. Research and scouts read the reason when they pick reviewers for later reports.
+       *
+       * * `wrong_area` - Not their area
+       * * `already_covered` - Someone else is on it
+       * * `unavailable` - No bandwidth
+       * * `other` - Other */
+      removal_reason?: ReviewerRemovalReasonEnum;
+      /**
+         * Optional context for the removal, such as the area the person does not work on. Remove action only.
+         * @maxLength 500
+         */
+      removal_note?: string;
     }
 
     /**
@@ -108750,7 +109904,7 @@ export namespace Schemas {
        * * `resolved` - resolved
        * * `monitoring` - monitoring */
       state: SignalReportStateEnum;
-      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. 'wrong_assignee' is accepted from older clients, but a report sent to the wrong person still holds work: remove the person from the report's reviewers with a removal_reason instead of suppressing it. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
        * * `already_fixed` - Already fixed
        * * `report_unclear` - Report is unclear to me
@@ -108916,6 +110070,21 @@ export namespace Schemas {
       sentiment: SignalReportFeedbackSentimentEnum | null;
       /** The current user's saved note, or an empty string. */
       note: string;
+    }
+
+    export interface SignalReportLeaveReviewers {
+      /** Why the user steps off. 'wrong_area': the work should not be on them, for example they moved off the area or left the team. 'already_covered': someone else is on it. 'unavailable': they do not have bandwidth right now. 'other': explain in removal_note. Research reads the reason when it picks reviewers for later reports.
+       *
+       * * `wrong_area` - Not their area
+       * * `already_covered` - Someone else is on it
+       * * `unavailable` - No bandwidth
+       * * `other` - Other */
+      removal_reason?: ReviewerRemovalReasonEnum;
+      /**
+         * The user's own words for why, such as "I'm not on the payments team any more". Scouts read it when they route later reports.
+         * @maxLength 500
+         */
+      removal_note?: string;
     }
 
     export interface SignalReportMergeRequest {
@@ -109103,7 +110272,7 @@ export namespace Schemas {
        * * `resolved` - resolved
        * * `monitoring` - monitoring */
       state: SignalReportStateEnum;
-      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. 'wrong_assignee' is accepted from older clients, but a report sent to the wrong person still holds work: remove the person from the report's reviewers with a removal_reason instead of suppressing it. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
        * * `already_fixed` - Already fixed
        * * `report_unclear` - Report is unclear to me
@@ -111817,7 +112986,8 @@ export namespace Schemas {
        * * `Dripify` - Dripify
        * * `AwsS3Tables` - AwsS3Tables
        * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments */
+       * * `WooPayments` - WooPayments
+       * * `Soniox` - Soniox */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -113298,7 +114468,8 @@ export namespace Schemas {
        * * `Dripify` - Dripify
        * * `AwsS3Tables` - AwsS3Tables
        * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments */
+       * * `WooPayments` - WooPayments
+       * * `Soniox` - Soniox */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -114746,7 +115917,8 @@ export namespace Schemas {
        * * `Dripify` - Dripify
        * * `AwsS3Tables` - AwsS3Tables
        * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments */
+       * * `WooPayments` - WooPayments
+       * * `Soniox` - Soniox */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -115336,6 +116508,21 @@ export namespace Schemas {
       readonly app_not_installed: boolean;
       /** Populated only on the discovery path when the caller can reach MORE than one installation of this App: nothing was bound, and the user must pick which installation to connect. The frontend re-runs the authorize flow and calls back with the chosen installation_id, which the explicit path verifies. Empty whenever a bind happened (or nothing was found). */
       readonly installations: readonly StamphogDiscoveredInstallation[];
+    }
+
+    export interface StartProviderImport {
+      /** The provider to import from.
+       *
+       * * `customerio` - Customer.io */
+      provider: ImportProviderKeyEnum;
+      /**
+         * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
+         * @minItems 1
+         * @items.maxLength 64
+         */
+      steps: string[];
+      /** The provider's API key. For Customer.io, an App API key. Leave it out to reuse the stored key. */
+      api_key?: string;
     }
 
     export interface StartTrainingRequest {
@@ -117926,84 +119113,6 @@ export namespace Schemas {
       artifacts: TaskRunLivingArtifactResponse[];
     }
 
-    /**
-     * One peer agent run visible to the requesting run (agent peer messaging).
-     */
-    export interface TaskRunPeer {
-      /** The peer run's id — the address send_agent_message targets. */
-      run_id: string;
-      /** Id of the peer run's parent task. */
-      task_id: string;
-      /** Title of the peer run's parent task. */
-      task_title: string;
-      /**
-         * Email of the user whose task the peer run belongs to.
-         * @nullable
-         */
-      created_by_email: string | null;
-      /** Agent runtime of the peer run's task (e.g. 'pi'). */
-      runtime: string;
-      /**
-         * Model the peer run was started with, when recorded.
-         * @nullable
-         */
-      model: string | null;
-      /**
-         * Repository the peer run works on, or null for repo-less (channel-mode) runs.
-         * @nullable
-         */
-      repository: string | null;
-      /**
-         * Current stage of the peer run (e.g. 'build').
-         * @nullable
-         */
-      stage: string | null;
-      /** Run status: 'in_progress' or 'queued' (only these are listed). */
-      status: string;
-      /** Whether the peer accepts messages right now. Only in-progress runs are sendable; a queued run is listed but its workflow may not exist yet. Never infer sendability from status labels. */
-      sendable: boolean;
-      /**
-         * ISO-8601 timestamp of the peer run's last update.
-         * @nullable
-         */
-      updated_at: string | null;
-    }
-
-    export interface TaskRunPeerMessageRequest {
-      /**
-         * Plain-text message body (max 16000 chars). Delivered to the peer below a server-composed provenance envelope; send short summaries, never raw file dumps — use artifact_ids for files.
-         * @maxLength 16000
-         */
-      content: string;
-      /**
-         * Manifest ids of artifacts on the SENDING run to share (max 10). Each is copied into the target run's own artifact storage; the receiver gets an immutable snapshot.
-         * @maxItems 10
-         * @items.maxLength 128
-         */
-      artifact_ids?: string[];
-    }
-
-    export interface TaskRunPeerMessageResponse {
-      /** Send outcome: 'accepted' (queued for delivery — not a delivery confirmation), 'target_finished' (the peer's workflow is gone), or 'rejected' (throttled or invalid).
-       *
-       * * `accepted` - accepted
-       * * `target_finished` - target_finished
-       * * `rejected` - rejected */
-      result: ResultEnum;
-      /** Human-readable explanation of the result. */
-      detail: string;
-      /**
-         * Id of the recorded peer message, when one was created for this send.
-         * @nullable
-         */
-      message_id?: string | null;
-    }
-
-    export interface TaskRunPeersResponse {
-      /** Active agent runs the requesting run may message, most recently updated first. */
-      peers: TaskRunPeer[];
-    }
-
     export interface TaskRunPostHogReference {
       /**
          * Fallback display name for the referenced object.
@@ -118853,7 +119962,7 @@ export namespace Schemas {
       readonly email_sending_suspended_at: string | null;
       /** Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended. */
       readonly email_sending_suspension_reason: string;
-      /** The project's sending tier, what it allows, and how much of it has been used; null when the caller lacks project-wide workflow access. */
+      /** The project's sending tier, what it allows, and how much of it has been used; null when the caller lacks project-wide workflow access. Tiers grow on their own as the project builds a clean sending record. */
       readonly sending_allowance: EmailSendingAllowance | null;
     }
 
@@ -120838,6 +121947,108 @@ export namespace Schemas {
       readonly period_end: string;
       /** One entry per UTC day from `period_start` through today, in order, zero-filled for days without spend. */
       readonly days: readonly VisionSpendDay[];
+    }
+
+    /**
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams
+     * * `discord` - discord
+     * * `pagerduty` - pagerduty
+     */
+    export type WarehouseAlertDestinationTypeEnum = typeof WarehouseAlertDestinationTypeEnum[keyof typeof WarehouseAlertDestinationTypeEnum];
+
+
+    export const WarehouseAlertDestinationTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+      Teams: 'teams',
+      Discord: 'discord',
+      Pagerduty: 'pagerduty',
+    } as const;
+
+    export interface WarehouseAlertCreateDestination {
+      /** Notification destination type.
+       *
+       * * `slack` - slack
+       * * `webhook` - webhook
+       * * `teams` - teams
+       * * `discord` - discord
+       * * `pagerduty` - pagerduty */
+      type: WarehouseAlertDestinationTypeEnum;
+      /** Integration ID for the Slack workspace. Required when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Required when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable channel name for display. */
+      slack_channel_name?: string;
+      /** HTTPS endpoint to post to. Required for webhook, teams and discord. */
+      webhook_url?: string;
+      /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. */
+      pagerduty_routing_key?: string;
+      /** Severity PagerDuty records on the incident. Used when type=pagerduty.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region of the account. Used when type=pagerduty.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
+    }
+
+    export interface WarehouseAlertDeleteDestination {
+      /**
+         * HogFunction IDs of one destination, as the list endpoint returns them. They are deleted together.
+         * @minItems 1
+         * @maxItems 100
+         */
+      hog_function_ids: string[];
+    }
+
+    export interface WarehouseAlertDestination {
+      /** HogFunction IDs that make up this destination, one per alert event kind it handles. Send them all to the delete endpoint to remove the destination. */
+      hog_function_ids: string[];
+      /** Notification destination type.
+       *
+       * * `slack` - slack
+       * * `webhook` - webhook
+       * * `teams` - teams
+       * * `discord` - discord
+       * * `pagerduty` - pagerduty */
+      type: WarehouseAlertDestinationTypeEnum;
+      /** Whether every HogFunction of the destination is enabled, so it notifies for every event kind. */
+      enabled: boolean;
+      /** Integration ID of the Slack workspace. Set when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Set when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable Slack channel name. Set when type=slack. */
+      slack_channel_name?: string;
+      /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
+      webhook_url?: string;
+      /** PagerDuty integration key reduced to its last four characters. */
+      pagerduty_routing_key?: string;
+      /** Severity of the PagerDuty incident.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region the events go to.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
+    }
+
+    export interface WarehouseAlertDestinationCreated {
+      /** HogFunction IDs created for the destination, one per event kind. */
+      hog_function_ids: string[];
     }
 
     export interface WarehouseConnection {
@@ -124738,6 +125949,23 @@ export namespace Schemas {
     }
 
     /**
+     * Event attributes. Keys are whatever the instrumentation set.
+     */
+    export type _SpanEventAttributes = {[key: string]: string};
+
+    export interface _SpanEvent {
+      /** Event name, for example `exception`. */
+      name: string;
+      /**
+         * When the event occurred. Null when the SDK did not set a time.
+         * @nullable
+         */
+      timestamp: string | null;
+      /** Event attributes. Keys are whatever the instrumentation set. */
+      attributes: _SpanEventAttributes;
+    }
+
+    /**
      * * `exact` - exact
      * * `is_not` - is_not
      * * `icontains` - icontains
@@ -124981,7 +126209,7 @@ export namespace Schemas {
     export type _TraceSpanResourceAttributes = {[key: string]: string};
 
     /**
-     * A span in a single trace. The trace action adds self time, which the list does not compute.
+     * A span in a single trace. The trace action adds self time and span events, which the list does not return.
      */
     export interface _TraceSpan {
       /** Span's own UUID. */
@@ -125020,6 +126248,8 @@ export namespace Schemas {
       resource_attributes: _TraceSpanResourceAttributes;
       /** Span duration minus the time spent in its children, in nanoseconds. */
       self_time_nano: number;
+      /** OpenTelemetry span events, earliest first. Omitted when `excludeAttributes` is true. */
+      events?: _SpanEvent[];
     }
 
     export interface _TracingAggregationQueryBody {
@@ -125511,7 +126741,7 @@ export namespace Schemas {
     export interface _TracingTraceRequest {
       /** Date range for the query. Omit it to search all retained spans for this trace. */
       dateRange?: _TracingDateRange;
-      /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
+      /** Omit the per-span attributes, resource attributes and events from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
       /**
          * Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0.
@@ -127179,6 +128409,7 @@ export namespace Schemas {
      * * `EarlyAccessFeature` - EarlyAccessFeature
      * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
      * * `ReplayScanner` - ReplayScanner
+     * * `ReplayObservation` - ReplayObservation
      * * `VisionAlertConfiguration` - VisionAlertConfiguration
      * * `Comment` - Comment
      * * `Team` - Team
@@ -127296,6 +128527,7 @@ export namespace Schemas {
       EarlyAccessFeature: 'EarlyAccessFeature',
       SessionRecordingPlaylist: 'SessionRecordingPlaylist',
       ReplayScanner: 'ReplayScanner',
+      ReplayObservation: 'ReplayObservation',
       VisionAlertConfiguration: 'VisionAlertConfiguration',
       Comment: 'Comment',
       Team: 'Team',
@@ -127399,6 +128631,7 @@ export namespace Schemas {
      * * `EarlyAccessFeature` - EarlyAccessFeature
      * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
      * * `ReplayScanner` - ReplayScanner
+     * * `ReplayObservation` - ReplayObservation
      * * `VisionAlertConfiguration` - VisionAlertConfiguration
      * * `Comment` - Comment
      * * `Team` - Team
@@ -127504,6 +128737,7 @@ export namespace Schemas {
       EarlyAccessFeature: 'EarlyAccessFeature',
       SessionRecordingPlaylist: 'SessionRecordingPlaylist',
       ReplayScanner: 'ReplayScanner',
+      ReplayObservation: 'ReplayObservation',
       VisionAlertConfiguration: 'VisionAlertConfiguration',
       Comment: 'Comment',
       Team: 'Team',
@@ -128170,6 +129404,46 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ApmEndpointsListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string;
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
+     * @minLength 1
+     * @maxLength 200
+     */
+    environment?: string;
+    /**
+     * Only list the endpoints of this service.
+     * @minLength 1
+     * @maxLength 400
+     */
+    service?: string;
+    };
+
+    export type ApmServiceMapListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string;
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
+     * @minLength 1
+     * @maxLength 200
+     */
+    environment?: string;
     };
 
     export type ApmServicesListParams = {
@@ -129713,6 +130987,18 @@ export namespace Schemas {
 
 
     export const DashboardsDestroyFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsCopyGroupCreateParams = {
+    format?: DashboardsCopyGroupCreateFormat;
+    };
+
+    export type DashboardsCopyGroupCreateFormat = typeof DashboardsCopyGroupCreateFormat[keyof typeof DashboardsCopyGroupCreateFormat];
+
+
+    export const DashboardsCopyGroupCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -132745,6 +134031,25 @@ export namespace Schemas {
     page?: number;
     };
 
+    export type ExperimentsRunningTimeTargetRetrieveParams = {
+    /**
+     * The running time mode to size the target for. Defaults to the experiment's saved mode. 'automatic' sizes it from the results, also for an experiment saved in manual mode.
+     *
+     * * `automatic` - Sized from the results
+     * * `manual` - Saved from a baseline the user entered
+     * @minLength 1
+     */
+    mode?: ExperimentsRunningTimeTargetRetrieveMode;
+    };
+
+    export type ExperimentsRunningTimeTargetRetrieveMode = typeof ExperimentsRunningTimeTargetRetrieveMode[keyof typeof ExperimentsRunningTimeTargetRetrieveMode];
+
+
+    export const ExperimentsRunningTimeTargetRetrieveMode = {
+      Automatic: 'automatic',
+      Manual: 'manual',
+    } as const;
+
     export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**
      * Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array.
@@ -133401,6 +134706,19 @@ export namespace Schemas {
     recursive?: boolean;
     };
 
+    export type FileSystemFrequentListParams = {
+    /**
+     * Maximum number of frequently viewed items to return.
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
     export type FileSystemSearchRetrieveParams = {
     /**
      * Maximum number of results to return, best first.
@@ -133818,6 +135136,10 @@ export namespace Schemas {
      */
     created_by?: string;
     id?: string;
+    /**
+     * Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last.
+     */
+    latest_send_first?: boolean;
     /**
      * Number of results to return per page.
      */
@@ -138231,7 +139553,7 @@ export namespace Schemas {
      */
     already_addressed?: boolean;
     /**
-     * Use 'me' to return reports claimed by the current user, task, or MCP agent.
+     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, claims by MCP agents acting for them, and claims by internal tasks they started.
      */
     assignee?: SignalsReportsListAssignee;
     /**
@@ -138358,6 +139680,7 @@ export namespace Schemas {
 
     export const SignalsReportsListAssignee = {
       Me: 'me',
+      Mine: 'mine',
     } as const;
 
     export type SignalsReportPrChecksParams = {
@@ -138433,7 +139756,7 @@ export namespace Schemas {
 
     export type SignalsReportsAvailableReviewersRetrieveParams = {
     /**
-     * Case-insensitive filter on name or email.
+     * Case-insensitive filter on name or email. Use search to find members outside the first 100 results.
      */
     query?: string;
     };
@@ -141015,6 +142338,10 @@ export namespace Schemas {
 
     export type WarehouseSuggestionsListParams = {
     /**
+     * Only return suggestions assigned to the user with this ID.
+     */
+    assignee_id?: number;
+    /**
      * Only return suggestions of this kind.
      *
      * * `certify` - Certify
@@ -141071,6 +142398,10 @@ export namespace Schemas {
     } as const;
 
     export type WarehouseTablesListParams = {
+    /**
+     * Include table columns. Disable for lightweight table existence or name lookups.
+     */
+    include_columns?: boolean;
     /**
      * Number of results to return per page.
      */

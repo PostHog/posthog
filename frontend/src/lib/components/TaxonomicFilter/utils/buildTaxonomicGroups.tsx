@@ -16,6 +16,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { fuzzyEventSearchEnabled } from 'lib/components/TaxonomicFilter/utils/fuzzyEventSearch'
 import { hiddenEventNames } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import { withKeywordShortcuts } from 'lib/components/TaxonomicFilter/utils/keywordShortcuts'
 import {
@@ -212,8 +213,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
         allowNonCapturedEvents,
     } = ctx
     const { id: teamId } = currentTeam
-    const fuzzyEventSearch =
-        !!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_FUZZY_EVENT_SEARCH] && !allowNonCapturedEvents
+    const fuzzyEventSearch = fuzzyEventSearchEnabled(featureFlags, allowNonCapturedEvents)
     const { excludedProperties, propertyAllowList, showNumericalPropsOnly } = propertyFilters
     // Opt the cohort picker into the trimmed `?basic=true` payload (drops the
     // query/groups/last_error_message/experiment_set fields the picker never reads;

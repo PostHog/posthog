@@ -4,9 +4,9 @@ import posthog from 'posthog-js'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
-import { sanitizeDashboard } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 
+import { sanitizeDashboard } from './dashboardEvents'
 import { dashboardLogic } from './dashboardLogic'
 
 interface DashboardZoomControlProps {

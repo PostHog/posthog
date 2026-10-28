@@ -6,6 +6,7 @@ from collections.abc import Generator, Iterable, Iterator
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -98,6 +99,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     UNFILTERED_COUNT_CLIENT_DEADLINE_SECONDS,
     XMIN_PROJECTED_COLUMN,
     JsonAsStringLoader,
+    LenientTextLoader,
     NetworkAsStringLoader,
     PostgresDiscoveredSchema,
     PostgresImplementation,
@@ -439,6 +441,18 @@ class TestPostgresSourceNonRetryableErrors:
             # it accepts connections once recovery completes — so unlike the permanent
             # hot-standby-disabled refusal it must stay out of NonRetryableErrors.
             'connection failed: connection to server at "127.0.0.1", port 5432 failed: FATAL:  the database system is not yet accepting connections DETAIL:  Consistent recovery state has not been yet reached.',
+            # A connect that timed out on every in-process attempt. The same schema often syncs again
+            # on the next run with no change to the source.
+            "ConnectionTimeout: connection timeout expired",
+            # A pooler wake timeout on one address and connect timeouts on the others. Both are
+            # temporary, so the timeout lines must not disable the sync either.
+            'OperationalError: connection failed: connection to server at "198.51.100.7", port 5432 failed: '
+            "FATAL:  Failed to connect to database: authentication did not complete within 5000ms\n"
+            "Multiple connection attempts failed. All failures were:\n"
+            "- host: 'db.example.com', port: '5432', hostaddr: '198.51.100.8': connection timeout expired",
+            # Supavisor blocks a project for a short time after failed sign-ins from any client, so the
+            # block alone does not prove that this source's credentials are wrong.
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  (ECIRCUITBREAKER) too many authentication failures, new connections are temporarily blocked',
         ],
     )
     def test_transient_connection_errors_are_retryable(self, source, error_msg):
@@ -487,10 +501,6 @@ class TestPostgresSourceNonRetryableErrors:
             # hit a plan limit. Account-level state only the customer can lift, so retrying re-hits
             # the same refusal — must not keep retrying. Host/port are invented, not a real value.
             'connection failed: connection to server at "db.example.com", port 5432 failed: Your account has restrictions: planLimitReached. Please contact your provider to resolve account restrictions.',
-            # Supabase/Supavisor trips its circuit breaker after repeated bad credentials. The block
-            # stays until the failing attempts stop, so it's permanent until the customer fixes the
-            # credentials — distinct from the transient credential-fetch variant of the same code.
-            'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  (ECIRCUITBREAKER) too many authentication failures, new connections are temporarily blocked',
             # The target database has datallowconn off, or a managed provider paused/suspended it
             # (SQLSTATE 57P03). Permanent until the customer restores it, so it must not keep retrying.
             # Distinct from the transient "not yet accepting connections" startup refusal above (which
@@ -557,21 +567,6 @@ class TestPostgresSourceNonRetryableErrors:
         ]
         assert matches and matches[0] is not None
         assert "reactivate the branch" in matches[0].lower()
-
-    def test_connect_timeout_surfaces_actionable_message(self, source):
-        # A persistently timing-out connect stays non-retryable, but must surface firewall/reachability
-        # guidance rather than the bare "connection timeout expired" driver text. Mirror the finalizer's
-        # first-match selection (external_data_job.py) so a future reorder that shadows it with an
-        # earlier None-valued timeout key is caught.
-        error_msg = "connection timeout expired"
-        matches = [
-            friendly
-            for pattern, friendly in source.get_non_retryable_errors().items()
-            if error_message_matches(error_msg, [pattern])
-        ]
-        assert matches, "connect timeout must be classified non-retryable"
-        assert matches[0] is not None, "connect timeout must surface an actionable message, not raw driver text"
-        assert "firewall" in matches[0].lower()
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -770,6 +765,15 @@ class TestPostgresSourceNonRetryableErrors:
             (
                 "canceling statement due to user request",
                 "canceled",
+            ),
+            (
+                "ConnectionTimeout: connection timeout expired",
+                "timed out",
+            ),
+            (
+                'OperationalError: connection failed: connection to server at "db.example.com" (10.0.0.1), port 5432 failed: '
+                "FATAL:  (ECIRCUITBREAKER) too many authentication failures, new connections are temporarily blocked",
+                "blocked new connections",
             ),
             (
                 "restart transaction: TransactionRetryWithProtoRefreshError: ReadWithinUncertaintyIntervalError: "
@@ -1161,39 +1165,23 @@ class TestPostgresSourceNonRetryableErrors:
         assert friendly, "PAM authentication failure should surface an actionable message"
         assert "credentials" in friendly[0]
 
-    def test_circuit_breaker_too_many_auth_failures_is_non_retryable(self, source):
-        # Supavisor's "(ECIRCUITBREAKER)" code also covers a distinct, transient pooler-bookkeeping
-        # condition ("failed to retrieve database credentials", see postgres.py's
-        # `_CONNECTION_DROPPED_ERROR_SUBSTRINGS`) — confirm that variant does NOT trip this key, so
-        # the two "(ECIRCUITBREAKER)" wordings can't be confused for each other.
-        non_retryable = source.get_non_retryable_errors()
-        pooler_bookkeeping_msg = (
-            'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
-            "FATAL:  (ECIRCUITBREAKER) failed to retrieve database credentials after multiple "
-            "attempts, new connections are temporarily blocked"
-        )
-        assert not any(pattern in pooler_bookkeeping_msg for pattern in non_retryable), (
-            "the transient pooler-bookkeeping ECIRCUITBREAKER wording must stay retryable"
-        )
-
-        auth_failure_msg = (
-            'connection failed: connection to server at "18.176.230.146", port 5432 failed: '
-            "FATAL:  (ECIRCUITBREAKER) too many authentication failures, new connections are "
-            "temporarily blocked"
-        )
-        assert "too many authentication failures" in non_retryable
-        assert any(pattern in auth_failure_msg for pattern in non_retryable)
-
-    def test_circuit_breaker_too_many_auth_failures_returns_friendly_message(self, source):
-        non_retryable = source.get_non_retryable_errors()
+    def test_circuit_breaker_with_a_rejected_password_still_stops_the_sync(self, source):
+        # The block itself stays retryable, but a rejected password reported on another address
+        # must still stop the sync and point the customer at the credentials.
         error_msg = (
-            'connection failed: connection to server at "18.176.230.146", port 5432 failed: '
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
             "FATAL:  (ECIRCUITBREAKER) too many authentication failures, new connections are "
-            "temporarily blocked"
+            "temporarily blocked\nMultiple connection attempts failed. All failures were:\n"
+            "- host: 'db.example.com', port: '5432', hostaddr: '10.0.0.2': connection failed: "
+            'FATAL:  password authentication failed for user "postgres"'
         )
-        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
-        assert friendly, "the auth-failure circuit breaker should surface an actionable message"
-        assert "credentials" in friendly[0]
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches and matches[0] is not None
+        assert "password" in matches[0].lower()
 
     def test_supavisor_enotfound_tenant_user_uses_new_key(self, source):
         # The older tenant/user patterns don't cover the newer "(ENOTFOUND) tenant/user" wording,
@@ -1511,6 +1499,8 @@ class TestPostgresSourceNonRetryableErrors:
             'InvalidTextRepresentation: invalid input syntax for type integer: "1.5"',
             'invalid input syntax for type bigint: "2026-04-26T20:58:57.557000"',
             'InvalidTextRepresentation: invalid input syntax for type bigint: "2026-04-26T20:58:57.557000"',
+            'invalid input syntax for type boolean: "2"',
+            'InvalidTextRepresentation: invalid input syntax for type boolean: "2"',
         ],
     )
     def test_non_integer_incremental_cursor_errors_are_non_retryable(self, source, error_msg):
@@ -5667,6 +5657,11 @@ class TestValidateCredentialsErrorMapping:
                 "The database rejected the username or password. Check the user and password for this source and try again.",
             ),
             (
+                'connection failed: connection to server at "203.0.113.20", port 5432 failed: '
+                "FATAL:  password authentication failed",
+                "The database rejected the username or password. Check the user and password for this source and try again.",
+            ),
+            (
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 'FATAL:  PAM authentication failed for user "example_user"',
                 "The database rejected the username or password. Check the user and password for this source and try again.",
@@ -5744,6 +5739,14 @@ class TestValidateCredentialsErrorMapping:
                 "through an SSH tunnel, which can't carry that information to Neon. Update the "
                 "host to the hostname your database provider gave you, or connect directly instead "
                 "of through an SSH tunnel, then try again.",
+            ),
+            # A truncated certificate authority. Host and temp path are invented, not real values.
+            (
+                'connection failed: connection to server at "203.0.113.7", port 5432 failed: could not read '
+                'root certificate file "/tmp/source-tls-xxxxxxxx/ca.crt": bad end line',
+                "The certificate authority you configured isn't a valid PEM certificate. Paste the complete "
+                "certificate (including the BEGIN/END lines), or remove it and turn off certificate "
+                "verification instead.",
             ),
             # Unmapped errors fall back to the generic message.
             (
@@ -8611,6 +8614,27 @@ class TestNetworkAsStringLoader:
 
     def test_none_returns_none(self, loader):
         assert loader.load(None) is None
+
+
+class TestLenientTextLoader:
+    @pytest.mark.parametrize(
+        "encoding,data,expected",
+        [
+            (None, b"plain text", "plain text"),
+            (None, "café 日本".encode(), "café 日本"),
+            (None, b"\xff\xd8\xffbinary", "\ufffd\ufffd\ufffdbinary"),
+            (None, memoryview(b"ok\xfe"), "ok\ufffd"),
+            (None, None, None),
+            ("utf-8", b"ok\xff", "ok\ufffd"),
+            ("iso8859-1", "café".encode("latin-1"), "café"),
+            ("ascii", b"caf\xc3\xa9\xff", "café\ufffd"),
+        ],
+    )
+    def test_load(self, encoding, data, expected):
+        context = (
+            SimpleNamespace(connection=SimpleNamespace(info=SimpleNamespace(encoding=encoding))) if encoding else None
+        )
+        assert LenientTextLoader(oid=25, context=context).load(data) == expected
 
 
 class TestSSLRequiredAfterDate:

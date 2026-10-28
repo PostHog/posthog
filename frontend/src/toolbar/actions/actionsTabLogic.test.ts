@@ -109,6 +109,7 @@ describe('actionsTabLogic form submission', () => {
         })
             .delay(0)
             .toDispatchActions(['submitActionForm', 'submitActionFormFailure'])
+            .toNotHaveDispatchedActions(['submitActionFormSuccess'])
     })
 
     it('handles error response when json parsing fails', async () => {
@@ -128,6 +129,7 @@ describe('actionsTabLogic form submission', () => {
         })
             .delay(0)
             .toDispatchActions(['submitActionForm', 'submitActionFormFailure'])
+            .toNotHaveDispatchedActions(['submitActionFormSuccess'])
     })
 
     it('sets creation_context when automatic action creation is enabled', async () => {
