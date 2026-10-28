@@ -34,10 +34,12 @@ One view of everything scheduled to send, across broadcasts and workflows, inste
 The one noun for an automated sequence of steps that a trigger starts.
 Messaging workflow and automation are views derived from its steps, and loop from the product that created it.
 None of them is a separate object type.
+A broadcast or a transactional email is not a workflow.
 _Avoid_: Journey, Campaign, Flow
 
 **Messaging workflow**:
 A workflow with an email, SMS or push step.
+A Slack step does not make a workflow a messaging workflow.
 
 **Automation**:
 A workflow with no email, SMS or push step.
