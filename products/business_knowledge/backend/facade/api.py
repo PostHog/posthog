@@ -1,6 +1,5 @@
 from uuid import UUID
 
-from products.business_knowledge.backend import logic
 from products.business_knowledge.backend.facade.contracts import KnowledgeHit
 from products.business_knowledge.backend.models import KnowledgeGapSuggestion, KnowledgeLearningRun
 
@@ -17,6 +16,8 @@ def purge_ticket_derived_rows(*, team_id: int, ticket_id: UUID) -> None:
 
 def search_knowledge(*, team_id: int, query: str, limit: int = 5) -> list[KnowledgeHit]:
     """Keyword search over the team's knowledge, best match first."""
+    from products.business_knowledge.backend import logic  # noqa: PLC0415 — keeps LLM clients off django.setup()
+
     return [
         KnowledgeHit(
             document_title=result.document_title,
