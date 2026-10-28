@@ -515,6 +515,7 @@ depends_on = [
     "products.warehouse_sources", "products.access_control",
     # Facade-only: the built-in bot filter reads the bot user agent patterns.
     "products.web_analytics",
+    "products.integrations",
 ]
 layer = "modules"
 
@@ -607,6 +608,7 @@ depends_on = [
     "products.workflows", "products.access_control",
     # Evaluations and taggers compile Hog through products.cdp.backend.validation and filters.
     "products.cdp",
+    "products.integrations",
 ]
 layer = "modules"
 
@@ -641,6 +643,7 @@ depends_on = [
     "posthog",
     "products.alerts",
     "products.cdp",
+    "products.integrations",
 ]
 layer = "modules"
 
@@ -713,6 +716,7 @@ depends_on = [
     # Presentation-only: the template design action wraps HTML through
     # products.cdp.backend.presentation.hog_functions.
     "products.cdp",
+    "products.integrations",
 ]
 layer = "modules"
 
@@ -922,6 +926,7 @@ depends_on = [
     # hosted Stamphog reviews and registers the toggle resolver hook.
     "products.stamphog",
     "products.tasks",
+    "products.integrations",
 ]
 layer = "modules"
 
@@ -972,6 +977,7 @@ depends_on = [
     "products.tasks",
     "products.warehouse_sources",
     "products.workflows", "products.business_knowledge", "products.access_control",
+    "products.integrations",
 ]
 layer = "modules"
 
@@ -985,6 +991,7 @@ depends_on = [
     # Facade-only: authenticated scout runs read their pinned skill variant.
     "products.signals",
     "products.ai_observability", "products.access_control",
+    "products.integrations",
 ]
 layer = "modules"
 
@@ -1048,6 +1055,7 @@ depends_on = [
     "products.product_analytics",
     "products.warehouse_sources",
     "products.workflows", "products.access_control",
+    "products.integrations",
 ]
 layer = "modules"
 
@@ -1116,6 +1124,7 @@ depends_on = [
     "products.webmcp",
     # Object access checks on canvases served as contracts (via the access_control facade).
     "products.access_control",
+    "products.integrations",
 ]
 layer = "modules"
 
@@ -1138,6 +1147,7 @@ layer = "modules"
 path = "products.visual_review"
 depends_on = [
     "posthog",
+    "products.integrations",
 ]
 layer = "modules"
 
@@ -1197,6 +1207,7 @@ depends_on = [
     "products.replay_vision",
     # Facade-only: workflows declares its Today highlight sources against the Today facade contract.
     "products.today",
+    "products.integrations",
 ]
 layer = "modules"
 
@@ -1502,7 +1513,7 @@ from = [
 
 [[modules]]
 path = "products.business_knowledge"
-depends_on = ["posthog", "ee", "products.access_control", "products.tasks"]
+depends_on = ["posthog", "ee", "products.access_control", "products.tasks", "products.integrations"]
 layer = "modules"
 
 [[interfaces]]
@@ -1531,7 +1542,7 @@ from = [
 
 [[modules]]
 path = "products.wizard"
-depends_on = ["posthog", "products.event_definitions", "products.security", "products.tasks", "products.warehouse_sources"]
+depends_on = ["posthog", "products.event_definitions", "products.security", "products.tasks", "products.warehouse_sources", "products.integrations"]
 layer = "modules"
 
 [[interfaces]]
@@ -1557,7 +1568,7 @@ from = [
 
 [[modules]]
 path = "products.engineering_analytics"
-depends_on = ["posthog", "products.data_modeling", "products.warehouse_sources", "products.signals", "products.access_control"]
+depends_on = ["posthog", "products.data_modeling", "products.warehouse_sources", "products.signals", "products.access_control", "products.integrations"]
 layer = "modules"
 
 [[interfaces]]
@@ -1599,7 +1610,7 @@ from = [
 
 [[modules]]
 path = "products.stamphog"
-depends_on = ["posthog", "products.tasks"]
+depends_on = ["posthog", "products.tasks", "products.integrations"]
 layer = "modules"
 
 [[interfaces]]
@@ -1726,7 +1737,7 @@ layer = "modules"
 
 [[modules]]
 path = "products.alerts_platform"
-depends_on = ["posthog", "products.access_control", "products.notifications"]
+depends_on = ["posthog", "products.access_control", "products.notifications", "products.integrations"]
 layer = "modules"
 
 [[interfaces]]
@@ -1833,6 +1844,7 @@ depends_on = [
     "products.security",
     "products.stamphog",
     "products.tasks",
+    "products.integrations",
 ]
 layer = "modules"
 
