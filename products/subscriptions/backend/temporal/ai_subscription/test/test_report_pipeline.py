@@ -512,48 +512,70 @@ async def test_synthesis_prompt_carries_the_failure_marker(
     assert "{{{" not in system_message  # no placeholder left unrendered
 
 
-_UNKNOWN_PLACEHOLDER_FIX = (
-    " Use only `{{date_range}}`, `{{compare_date_range}}`, `{{window_start}}` or `{{window_end}}` for the "
-    "report window, outside quotes. The report fills in the dates when it runs."
-)
-
-
 @pytest.mark.parametrize(
-    "hogql,found",
+    "hogql,error_message",
     [
         pytest.param(
             "SELECT count() FROM events WHERE timestamp >= toDateTime('{{D-2}} 00:00:00', 'UTC')",
-            "`{{D-2}}`",
+            (
+                "The query uses `{{D-2}}`, which the report doesn't fill in. Use only `{{date_range}}`, "
+                "`{{compare_date_range}}`, `{{window_start}}` or `{{window_end}}` for the report window, outside "
+                "quotes. The report fills in the dates when it runs."
+            ),
             id="double_brace_in_date",
         ),
         pytest.param(
             "SELECT count() FROM events WHERE timestamp >= toDateTime('{D-1} 00:00:00','UTC')",
-            "`{D-1}`",
+            (
+                "The query uses `{D-1}`, which the report doesn't fill in. Use only `{{date_range}}`, "
+                "`{{compare_date_range}}`, `{{window_start}}` or `{{window_end}}` for the report window, outside "
+                "quotes. The report fills in the dates when it runs."
+            ),
             id="single_brace_in_date",
         ),
         pytest.param(
             "SELECT count() FROM events WHERE timestamp >= toDateTime('<prior_day_start>', 'UTC')",
-            "`<prior_day_start>`",
+            (
+                "The query uses `<prior_day_start>`, which the report doesn't fill in. Use only `{{date_range}}`, "
+                "`{{compare_date_range}}`, `{{window_start}}` or `{{window_end}}` for the report window, outside "
+                "quotes. The report fills in the dates when it runs."
+            ),
             id="angle_brackets_in_date",
         ),
         pytest.param(
             "SELECT count() FROM events WHERE timestamp >= toDateTime\n    ('{D-1} 00:00:00', 'UTC')",
-            "`{D-1}`",
+            (
+                "The query uses `{D-1}`, which the report doesn't fill in. Use only `{{date_range}}`, "
+                "`{{compare_date_range}}`, `{{window_start}}` or `{{window_end}}` for the report window, outside "
+                "quotes. The report fills in the dates when it runs."
+            ),
             id="whitespace_before_parenthesis",
         ),
         pytest.param(
             "SELECT count() FROM events WHERE day = toDate('{{utc_report_yesterday}}') AND {{date_range}}",
-            "`{{utc_report_yesterday}}`",
+            (
+                "The query uses `{{utc_report_yesterday}}`, which the report doesn't fill in. Use only `{{date_range}}`, "
+                "`{{compare_date_range}}`, `{{window_start}}` or `{{window_end}}` for the report window, outside "
+                "quotes. The report fills in the dates when it runs."
+            ),
             id="unknown_next_to_known",
         ),
         pytest.param(
             "SELECT count() FROM events WHERE timestamp >= toDateTime('{{D-1}}') AND timestamp < toDate('{D-1}')",
-            "`{{D-1}}`, `{D-1}`",
+            (
+                "The query uses `{{D-1}}`, `{D-1}`, which the report doesn't fill in. Use only `{{date_range}}`, "
+                "`{{compare_date_range}}`, `{{window_start}}` or `{{window_end}}` for the report window, outside "
+                "quotes. The report fills in the dates when it runs."
+            ),
             id="double_and_single_brace_with_one_name",
         ),
         pytest.param(
             "SELECT count() FROM events WHERE timestamp >= {{yesterday_start}}",
-            "`{{yesterday_start}}`",
+            (
+                "The query uses `{{yesterday_start}}`, which the report doesn't fill in. Use only `{{date_range}}`, "
+                "`{{compare_date_range}}`, `{{window_start}}` or `{{window_end}}` for the report window, outside "
+                "quotes. The report fills in the dates when it runs."
+            ),
             id="double_brace_outside_quotes",
         ),
     ],
@@ -561,7 +583,7 @@ _UNKNOWN_PLACEHOLDER_FIX = (
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
 @patch(f"{_RP}.AssistantQueryExecutor")
 async def test_run_steps_sends_an_invented_placeholder_to_the_fixer_without_running_it(
-    mock_executor_cls: MagicMock, mock_fix: AsyncMock, hogql: str, found: str
+    mock_executor_cls: MagicMock, mock_fix: AsyncMock, hogql: str, error_message: str
 ) -> None:
     mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
         return_value=FormattedQueryResult(formatted="formatted table", fallback_used=False, response=_RESPONSE)
@@ -577,9 +599,7 @@ async def test_run_steps_sends_an_invented_placeholder_to_the_fixer_without_runn
     execution = await _run_steps(spec, MagicMock(), MagicMock(), window, None, charts_enabled_for_team=True)
 
     assert mock_fix.await_args is not None
-    assert mock_fix.await_args.kwargs["error_message"] == (
-        f"The query uses {found}, which the report doesn't fill in.{_UNKNOWN_PLACEHOLDER_FIX}"
-    )
+    assert mock_fix.await_args.kwargs["error_message"] == error_message
     (executed,) = [
         call.args[0].query for call in mock_executor_cls.return_value.arun_format_and_capture.await_args_list
     ]
