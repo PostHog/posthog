@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { DataModelingJobStatus, DataModelingNode } from '~/types'
 
 import { LineageGraph } from '../lineage/LineageGraph'
+import { LineageGraphNode, nodesWithHubs } from '../lineage/lineageHiddenNodes'
 import { LineageNodeState } from '../lineage/LineageNode'
 import { lineageNodeUrl } from '../lineage/lineageNodeUrl'
 import { LineageTypeFilter } from '../lineage/LineageTypeFilter'
@@ -46,22 +47,21 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
     } = useActions(nodeDetailSceneLogic({ id }))
 
     // The current node's freshest status/run come from its materialization jobs, not the graph payload
-    const nodes = useMemo((): DataModelingNode[] => {
+    const nodes = useMemo((): LineageGraphNode[] => {
         if (!lineageGraph) {
             return []
         }
-        return lineageGraph.nodes
-            .filter((node) => lineageVisibleNodeIds.has(node.id))
-            .map((node) =>
-                node.id === lineageGraph.currentNodeId
-                    ? {
-                          ...node,
-                          last_run_at: effectiveLastRunAt ?? node.last_run_at,
-                          last_run_status: (effectiveLastRunStatus as DataModelingJobStatus) ?? node.last_run_status,
-                      }
-                    : node
-            )
-    }, [lineageGraph, lineageVisibleNodeIds, effectiveLastRunAt, effectiveLastRunStatus])
+        const hubNodeIds = lineageHiddenNodeBridging?.hubNodeIds ?? new Set<string>()
+        return nodesWithHubs(lineageGraph.nodes, lineageVisibleNodeIds, hubNodeIds).map((node) =>
+            node.id === lineageGraph.currentNodeId
+                ? {
+                      ...node,
+                      last_run_at: effectiveLastRunAt ?? node.last_run_at,
+                      last_run_status: (effectiveLastRunStatus as DataModelingJobStatus) ?? node.last_run_status,
+                  }
+                : node
+        )
+    }, [lineageGraph, lineageVisibleNodeIds, lineageHiddenNodeBridging, effectiveLastRunAt, effectiveLastRunStatus])
     const edges = lineageHiddenNodeBridging?.edges ?? []
     const nodeState = useCallback(
         (node: DataModelingNode): LineageNodeState => ({

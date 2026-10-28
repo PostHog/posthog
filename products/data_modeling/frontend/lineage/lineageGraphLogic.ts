@@ -1,16 +1,16 @@
 import { MarkerType, Position, type Edge as ReactFlowEdge, type Node as ReactFlowNode } from '@xyflow/react'
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 
-import { DataModelingNode } from '~/types'
-
 import { ElkDirection, NodeHandle, getFormattedNodes } from './autolayout'
-import { LineageEdge } from './lineageHiddenNodes'
+import { LineageEdge, LineageGraphNode } from './lineageHiddenNodes'
 import { LineageNodeData, LineageVariant } from './LineageNode'
 
 const NODE_SIZES: Record<LineageVariant, { width: number; height: number }> = {
     full: { width: 200, height: 90 },
     canvas: { width: 180, height: 120 },
 }
+
+const COLLAPSED_NODE_SIZE = { width: 40, height: 24 }
 
 const NODE_GAP = 60
 
@@ -26,7 +26,7 @@ export interface LineageGraphLayout {
 }
 
 export interface LineageGraphLogicProps {
-    nodes: DataModelingNode[]
+    nodes: LineageGraphNode[]
     edges: LineageEdge[]
     variant: LineageVariant
     direction: ElkDirection
@@ -41,7 +41,7 @@ function handlesForDirection(nodeId: string, direction: ElkDirection): NodeHandl
 }
 
 export function initialLineageGraphLayout(
-    nodes: DataModelingNode[],
+    nodes: LineageGraphNode[],
     edges: LineageEdge[],
     variant: LineageVariant,
     direction: ElkDirection
@@ -53,8 +53,7 @@ export function initialLineageGraphLayout(
         type: 'lineage',
         position:
             direction === 'DOWN' ? { x: 0, y: index * (height + NODE_GAP) } : { x: index * (width + NODE_GAP), y: 0 },
-        width,
-        height,
+        ...(node.collapsed ? COLLAPSED_NODE_SIZE : { width, height }),
         data: {
             node,
             variant,
@@ -81,7 +80,7 @@ export function initialLineageGraphLayout(
 // Layout depends only on the graph's structure — per-node state/callbacks are decorated onto the
 // laid-out nodes at render time, so caller-supplied inline callbacks never retrigger the ELK pass.
 async function layoutGraph(
-    nodes: DataModelingNode[],
+    nodes: LineageGraphNode[],
     edges: LineageEdge[],
     variant: LineageVariant,
     direction: ElkDirection

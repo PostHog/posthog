@@ -33,6 +33,7 @@ export function ModelsLineageTab(): JSX.Element {
         searchFocusRequest,
         focusNodeIds,
         visibleNodes,
+        graphNodes,
         visibleEdges,
         hiddenDownstreamCounts,
         isFiltered,
@@ -134,7 +135,7 @@ export function ModelsLineageTab(): JSX.Element {
                     />
                 )}
                 <LineageGraph
-                    nodes={visibleNodes}
+                    nodes={graphNodes}
                     edges={visibleEdges}
                     focusNodeIds={focusNodeIds}
                     searchFocusRequest={searchFocusRequest}

@@ -36,6 +36,7 @@ import { servingSuspension } from 'products/data_modeling/frontend/suspension'
 import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
 import { ElkDirection, NodeHandle } from './autolayout'
+import { HIDDEN_DOWNSTREAM_COUNT_CAP, LineageGraphNode } from './lineageHiddenNodes'
 import { NODE_TYPE_TAG_SETTINGS, statusBackgroundClass } from './nodeStyles'
 import { NodeTypeTag } from './NodeTypeTag'
 
@@ -55,7 +56,8 @@ export type LineageNodeShape = Pick<
     | 'user_tag'
     | 'suspended'
     | 'lineage_issue'
->
+> &
+    Pick<LineageGraphNode, 'collapsed'>
 
 export interface LineageNodeState {
     isCurrent?: boolean
@@ -210,11 +212,69 @@ function MetadataBar({ node }: { node: LineageNodeShape }): JSX.Element {
     )
 }
 
-function HiddenDownstreamTag({ count }: { count: number }): JSX.Element {
+function NodeHandles({ handles }: { handles: NodeHandle[] }): JSX.Element {
     return (
-        <Tooltip title={`${pluralize(count, 'hidden model')} downstream`}>
+        <>
+            {handles.map((handle) => (
+                <Handle
+                    key={handle.id}
+                    id={handle.id}
+                    type={handle.type}
+                    position={handle.position ?? (handle.type === 'target' ? Position.Left : Position.Right)}
+                    className="opacity-0"
+                    isConnectable={false}
+                />
+            ))}
+        </>
+    )
+}
+
+function CollapsedLineageNode({ data }: { data: LineageNodeData }): JSX.Element {
+    const { node, state, callbacks } = data
+    const description = `Hidden ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}: ${node.name}`
+    return (
+        <Tooltip title={description}>
+            <div
+                className={clsx(
+                    'relative flex h-full w-full items-center justify-center rounded-full border border-dashed bg-bg-light text-secondary pointer-events-auto',
+                    data.draggable && 'cursor-grab active:cursor-grabbing',
+                    !data.draggable && callbacks.onClick && 'cursor-pointer',
+                    state.isSelected && 'border-link ring-2 ring-link/40',
+                    state.isDimmed && 'opacity-30'
+                )}
+                onClick={callbacks.onClick}
+                data-attr="lineage-collapsed-node"
+            >
+                {callbacks.onClick && (
+                    <button
+                        type="button"
+                        className="absolute inset-0 pointer-events-none rounded-full focus-visible:ring-2 focus-visible:ring-link/40"
+                        onClick={(event) => {
+                            event.stopPropagation()
+                            callbacks.onClick?.(event)
+                        }}
+                        aria-label={description}
+                    />
+                )}
+                <NodeHandles handles={data.handles} />
+                <span aria-hidden="true">⋯</span>
+            </div>
+        </Tooltip>
+    )
+}
+
+function HiddenDownstreamTag({ count }: { count: number }): JSX.Element {
+    const overCap = count > HIDDEN_DOWNSTREAM_COUNT_CAP
+    return (
+        <Tooltip
+            title={
+                overCap
+                    ? `More than ${HIDDEN_DOWNSTREAM_COUNT_CAP} hidden models downstream`
+                    : `${pluralize(count, 'hidden model')} downstream`
+            }
+        >
             <span className="text-[10px] text-secondary whitespace-nowrap px-1 rounded border border-dashed">
-                +{count} hidden
+                {overCap ? `${HIDDEN_DOWNSTREAM_COUNT_CAP}+` : `+${count}`} hidden
             </span>
         </Tooltip>
     )
@@ -301,16 +361,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                         state.loading === 'focus' ? `color-mix(in srgb, ${color} 60%, transparent)` : undefined,
                 }}
             >
-                {data.handles.map((handle) => (
-                    <Handle
-                        key={handle.id}
-                        id={handle.id}
-                        type={handle.type}
-                        position={handle.position ?? (handle.type === 'target' ? Position.Left : Position.Right)}
-                        className="opacity-0"
-                        isConnectable={false}
-                    />
-                ))}
+                <NodeHandles handles={data.handles} />
                 <div className="flex flex-1 flex-col justify-center gap-2 px-3">
                     {state.loading === 'focus' ? (
                         <div className="opacity-70">
@@ -337,6 +388,10 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                 </div>
             </div>
         )
+    }
+
+    if (node.collapsed) {
+        return <CollapsedLineageNode data={data} />
     }
 
     const stop = (fn?: () => void) => (e: React.MouseEvent) => {
@@ -388,16 +443,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                     aria-label={ariaLabel}
                 />
             )}
-            {data.handles.map((handle) => (
-                <Handle
-                    key={handle.id}
-                    id={handle.id}
-                    type={handle.type}
-                    position={handle.position ?? (handle.type === 'target' ? Position.Left : Position.Right)}
-                    className="opacity-0"
-                    isConnectable={false}
-                />
-            ))}
+            <NodeHandles handles={data.handles} />
 
             {showRunArrows && node.upstream_count > 0 && callbacks.onRunUpstream && (
                 <RunArrow direction="upstream" layoutDirection={direction} onClick={stop(callbacks.onRunUpstream)} />

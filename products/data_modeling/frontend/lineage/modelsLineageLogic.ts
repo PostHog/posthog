@@ -6,7 +6,13 @@ import { DataModelingEdge, DataModelingNode, DataModelingNodeType } from '~/type
 
 import { NodeTypeEnumApi } from '../generated/api.schemas'
 import { lineageDataLogic } from './lineageDataLogic'
-import { HiddenNodeBridging, LineageEdge, bridgeHiddenNodes } from './lineageHiddenNodes'
+import {
+    HiddenNodeBridging,
+    LineageEdge,
+    LineageGraphNode,
+    bridgeHiddenNodes,
+    nodesWithHubs,
+} from './lineageHiddenNodes'
 import {
     ParsedLineageSearch,
     matchNodesByName,
@@ -53,6 +59,7 @@ export interface modelsLineageLogicValues {
     scopedNodes: DataModelingNode[]
     visibleNodes: DataModelingNode[]
     hiddenNodeBridging: HiddenNodeBridging
+    graphNodes: LineageGraphNode[]
     visibleEdges: LineageEdge[]
     hiddenDownstreamCounts: Map<string, number>
     isFiltered: boolean
@@ -357,6 +364,18 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
                 scopedNodes: DataModelingNode[],
                 visibleNodes: DataModelingNode[]
             ): HiddenNodeBridging => bridgeHiddenNodes(edges, nodeIds(scopedNodes), nodeIds(visibleNodes)),
+        ],
+
+        graphNodes: [
+            (s) => [s.scopedNodes, s.visibleNodes, s.hiddenNodeBridging],
+            (
+                scopedNodes: DataModelingNode[],
+                visibleNodes: DataModelingNode[],
+                hiddenNodeBridging: HiddenNodeBridging
+            ): LineageGraphNode[] =>
+                hiddenNodeBridging.hubNodeIds.size === 0
+                    ? visibleNodes
+                    : nodesWithHubs(scopedNodes, nodeIds(visibleNodes), hiddenNodeBridging.hubNodeIds),
         ],
 
         visibleEdges: [

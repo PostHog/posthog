@@ -1,6 +1,6 @@
 import { DataModelingEdge } from '~/types'
 
-import { bridgeHiddenNodes } from './lineageHiddenNodes'
+import { HIDDEN_DOWNSTREAM_COUNT_CAP, bridgeHiddenNodes } from './lineageHiddenNodes'
 
 const edge = (source_id: string, target_id: string): DataModelingEdge => ({
     id: `${source_id}>${target_id}`,
@@ -51,6 +51,31 @@ describe('bridgeHiddenNodes', () => {
             expectedCounts: { v: 3 },
         },
         {
+            name: 'keeps hidden hubs as nodes instead of multiplying edges through them',
+            edges: [
+                edge('a1', 'h1'),
+                edge('a2', 'h1'),
+                edge('a3', 'h1'),
+                edge('h1', 'h2'),
+                edge('h2', 'b1'),
+                edge('h2', 'b2'),
+                edge('h2', 'b3'),
+            ],
+            scope: ['a1', 'a2', 'a3', 'h1', 'h2', 'b1', 'b2', 'b3'],
+            visible: ['a1', 'a2', 'a3', 'b1', 'b2', 'b3'],
+            expectedEdges: ['a1>h1', 'a2>h1', 'a3>h1', 'h1>h2', 'h2>b1', 'h2>b2', 'h2>b3'],
+            expectedCounts: {},
+            expectedHubs: ['h1', 'h2'],
+        },
+        {
+            name: 'caps the hidden count past the display limit',
+            edges: Array.from({ length: HIDDEN_DOWNSTREAM_COUNT_CAP + 5 }, (_, index) => edge('v', `m${index}`)),
+            scope: ['v', ...Array.from({ length: HIDDEN_DOWNSTREAM_COUNT_CAP + 5 }, (_, index) => `m${index}`)],
+            visible: ['v'],
+            expectedEdges: [],
+            expectedCounts: { v: HIDDEN_DOWNSTREAM_COUNT_CAP + 1 },
+        },
+        {
             name: 'does not walk through a node outside the scope',
             edges: [edge('a', 'out'), edge('out', 'b')],
             scope: ['a', 'b'],
@@ -58,7 +83,7 @@ describe('bridgeHiddenNodes', () => {
             expectedEdges: [],
             expectedCounts: {},
         },
-    ])('$name', ({ edges, scope, visible, expectedEdges, expectedCounts }) => {
+    ])('$name', ({ edges, scope, visible, expectedEdges, expectedCounts, expectedHubs = [] }) => {
         const bridging = bridgeHiddenNodes(edges, new Set(scope), new Set(visible))
 
         const renderedEdges = bridging.edges.map(
@@ -66,5 +91,6 @@ describe('bridgeHiddenNodes', () => {
         )
         expect(renderedEdges.sort()).toEqual(expectedEdges)
         expect(Object.fromEntries(bridging.hiddenDownstreamCounts)).toEqual(expectedCounts)
+        expect([...bridging.hubNodeIds].sort()).toEqual(expectedHubs)
     })
 })
