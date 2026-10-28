@@ -359,16 +359,23 @@ export const supabaseAuthEmailsLogic = kea<supabaseAuthEmailsLogicType>([
         // Opening the setup refreshes every count, and a remap only fetches the template it adds.
         loadSendCounts: ({ refresh }) => {
             const mapped = new Set(Object.values(values.settings?.templates ?? {}))
+            const latestSendCountRequest: Record<string, number> = (cache.latestSendCountRequest ??= {})
             for (const template of values.transactionalTemplates ?? []) {
                 if (!mapped.has(template.id) || (!refresh && template.id in values.sendCounts)) {
                     continue
                 }
+                const requestId = (latestSendCountRequest[template.id] ?? 0) + 1
+                latestSendCountRequest[template.id] = requestId
                 void hogFlowsMetricsTotalsRetrieve(
                     String(values.currentTeamIdStrict),
                     template.transactional_hog_flow_id as string,
                     { after: '-30d', breakdown_by: 'name', name: 'email_sent' }
                 )
-                    .then((response) => actions.setSendCount(template.id, response.totals.email_sent ?? 0))
+                    .then((response) => {
+                        if (latestSendCountRequest[template.id] === requestId) {
+                            actions.setSendCount(template.id, response.totals.email_sent ?? 0)
+                        }
+                    })
                     .catch(() => null)
             }
         },
