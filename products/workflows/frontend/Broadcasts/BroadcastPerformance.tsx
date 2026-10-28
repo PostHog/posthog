@@ -1,16 +1,68 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
+import { urls } from 'scenes/urls'
 
 import { EmailLinksTable } from '../Workflows/EmailLinksTable'
-import { BroadcastPerformanceLogicProps, broadcastPerformanceLogic } from './broadcastPerformanceLogic'
+import {
+    BroadcastEmailSkips,
+    BroadcastPerformanceLogicProps,
+    BroadcastPerformanceStats,
+    broadcastPerformanceLogic,
+} from './broadcastPerformanceLogic'
 import { BroadcastSendActivity } from './BroadcastSendActivity'
 
 function share(part: number, whole: number): string {
     return whole > 0 ? percentage(part / whole, 1) : '-'
+}
+
+const EMAIL_SKIP_LABELS: Record<keyof BroadcastEmailSkips, string> = {
+    frequencyCapped: 'already got the most marketing messages your frequency cap allows',
+    missingRecipient: 'have no email address',
+    bouncePrevented: 'have an address that would bounce',
+    suppressed: 'are on the suppression list',
+    suspended: 'were skipped because email sending is suspended for this project',
+    paused: 'were skipped because sending is paused for this broadcast',
+}
+
+function SkippedEmailsBanner({ stats }: { stats: BroadcastPerformanceStats }): JSX.Element | null {
+    const reasons = (Object.keys(EMAIL_SKIP_LABELS) as (keyof BroadcastEmailSkips)[]).filter(
+        (reason) => stats.emailSkips[reason] > 0
+    )
+    if (reasons.length === 0) {
+        return null
+    }
+    const skipped = reasons.reduce((total, reason) => total + stats.emailSkips[reason], 0)
+    return (
+        <LemonBanner type={stats.sent === 0 ? 'warning' : 'info'}>
+            <p className="mb-1">
+                {stats.sent === 0
+                    ? `No emails went out. All ${humanFriendlyNumber(skipped)} sends were skipped:`
+                    : `${humanFriendlyNumber(skipped)} sends were skipped:`}
+            </p>
+            <ul className="list-disc pl-4 mb-0">
+                {reasons.map((reason) => (
+                    <li key={reason}>
+                        {humanFriendlyNumber(stats.emailSkips[reason])} {EMAIL_SKIP_LABELS[reason]}
+                        {reason === 'frequencyCapped' ? (
+                            <>
+                                {'. '}
+                                <Link
+                                    to={urls.settings('environment-workflows', 'workflows-frequency-cap')}
+                                    data-attr="broadcast-skipped-frequency-cap-settings"
+                                >
+                                    Change the frequency cap
+                                </Link>
+                            </>
+                        ) : null}
+                    </li>
+                ))}
+            </ul>
+        </LemonBanner>
+    )
 }
 
 export function BroadcastPerformance({
@@ -72,6 +124,8 @@ export function BroadcastPerformance({
                     </div>
                 ))}
             </div>
+
+            <SkippedEmailsBanner stats={stats} />
 
             {trackingOff ? (
                 <LemonBanner type="info">

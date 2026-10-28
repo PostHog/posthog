@@ -16,6 +16,25 @@ export interface BroadcastPerformanceLogicProps {
     channel?: BroadcastChannel
 }
 
+/** Email sends the worker skipped before they reached the email provider, by reason. */
+export interface BroadcastEmailSkips {
+    frequencyCapped: number
+    missingRecipient: number
+    bouncePrevented: number
+    suppressed: number
+    suspended: number
+    paused: number
+}
+
+const NO_EMAIL_SKIPS: BroadcastEmailSkips = {
+    frequencyCapped: 0,
+    missingRecipient: 0,
+    bouncePrevented: 0,
+    suppressed: 0,
+    suspended: 0,
+    paused: 0,
+}
+
 export interface BroadcastPerformanceStats {
     sent: number
     delivered: number
@@ -31,6 +50,7 @@ export interface BroadcastPerformanceStats {
     converted: number
     /** Push only: people with no device registered for the app. */
     skipped: number
+    emailSkips: BroadcastEmailSkips
 }
 
 const TOTALS_METRICS = [
@@ -42,6 +62,12 @@ const TOTALS_METRICS = [
     'email_blocked',
     'email_failed',
     'email_untracked',
+    'message_frequency_capped',
+    'email_missing_recipient',
+    'email_bounce_prevented',
+    'email_suppressed',
+    'email_suspended',
+    'email_paused',
     'push_sent',
     'push_skipped',
     'push_failed',
@@ -238,6 +264,7 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
                         converted: totals.conversion ?? 0,
                         skipped: totals.push_skipped ?? 0,
                         unsubscribed: 0,
+                        emailSkips: NO_EMAIL_SKIPS,
                     }
                 }
                 const sent = totals.email_sent ?? 0
@@ -254,6 +281,14 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
                     trackedSends: Math.max(sent - (totals.email_untracked ?? 0), 0),
                     converted: totals.conversion ?? 0,
                     skipped: 0,
+                    emailSkips: {
+                        frequencyCapped: totals.message_frequency_capped ?? 0,
+                        missingRecipient: totals.email_missing_recipient ?? 0,
+                        bouncePrevented: totals.email_bounce_prevented ?? 0,
+                        suppressed: totals.email_suppressed ?? 0,
+                        suspended: totals.email_suspended ?? 0,
+                        paused: totals.email_paused ?? 0,
+                    },
                 }
             },
         ],
