@@ -426,6 +426,35 @@ export const MessagingProviderImportsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Send a Supabase project's auth emails through transactional email templates.
+ * @summary Update the Supabase auth email settings
+ */
+export const messagingSupabaseAuthEmailsSettingsPartialUpdateBodySupabaseUrlMax = 200
+
+export const messagingSupabaseAuthEmailsSettingsPartialUpdateBodyHookSecretMax = 500
+
+export const MessagingSupabaseAuthEmailsSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    supabase_url: zod
+        .string()
+        .max(messagingSupabaseAuthEmailsSettingsPartialUpdateBodySupabaseUrlMax)
+        .optional()
+        .describe('The Supabase project URL, such as https:\/\/abcdefgh.supabase.co.'),
+    hook_secret: zod
+        .string()
+        .max(messagingSupabaseAuthEmailsSettingsPartialUpdateBodyHookSecretMax)
+        .optional()
+        .describe(
+            'The Send Email Hook secret from Supabase, starting with v1,whsec_. Leave it out to keep the stored secret.'
+        ),
+    templates: zod
+        .record(zod.string(), zod.uuid())
+        .optional()
+        .describe(
+            'Supabase email action type to transactional message template id. Replaces the whole mapping. Valid action types: signup, invite, magiclink, email, recovery, email_change, reauthentication, password_changed_notification, email_changed_notification, phone_changed_notification, identity_linked_notification, identity_unlinked_notification, mfa_factor_enrolled_notification, mfa_factor_unenrolled_notification.'
+        ),
+})
+
+/**
  * Manually suppress an email address so no workflow sends to it.
  * @summary Manually add an email address to the suppression list
  */
