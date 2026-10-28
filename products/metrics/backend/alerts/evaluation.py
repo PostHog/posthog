@@ -15,7 +15,8 @@ the same decisions. The platform records the outcomes in its own activity.
 import json
 import math
 import time
-from collections.abc import Sequence
+import operator
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Final
 
@@ -84,6 +85,16 @@ MIN_QUERY_SECONDS: Final = 2
 CHECKPOINT_QUERY_SECONDS: Final = 5
 
 _UNEXPECTED_ERROR: Final = "Alert check failed unexpectedly. PostHog has been notified."
+_INVALID_CONFIG: Final = "The alert's configuration is no longer valid. Edit the alert to fix it."
+
+_COMPARE: Final[dict[str, Callable[[float, float], bool]]] = {
+    ">": operator.gt,
+    ">=": operator.ge,
+    "<": operator.lt,
+    "<=": operator.le,
+    "==": operator.eq,
+    "!=": operator.ne,
+}
 
 Decision = tuple[PlatformAlertOutcome, AlertDeliveryRequest | None]
 
@@ -93,13 +104,6 @@ class _Sample:
     labels: dict[str, str]
     # None for a sample that is not a number, such as the result of 0/0.
     value: float | None
-
-
-class _CheckFailed(Exception):
-    def __init__(self, message: str, *, transient: bool) -> None:
-        super().__init__(message)
-        self.message = message
-        self.transient = transient
 
 
 def evaluate_metrics_alert_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatchEvaluation:
@@ -130,11 +134,7 @@ def evaluate_metrics_alert_batch(team_id: int, slot: str, cutoff: datetime) -> S
                 muted=_in_quiet_hours(check, cutoff, team.timezone),
             )
         )
-    left_out = len(checks) - len(decided)
-    if left_out:
-        logger.warning("Metrics alert checks left due past the query budget", team_id=team_id, left_out=left_out)
-        safe_record(increment_checks_deferred, SOURCE.value, left_out)
-    evaluation = _collect(decided, team_id=team_id, slot=slot, omitted=left_out)
+    evaluation = _collect(decided, team_id=team_id, slot=slot, past_budget=len(checks) - len(decided))
     safe_record(record_batch_duration, SOURCE.value, int((time.monotonic() - started_at) * 1000))
     return evaluation
 
@@ -162,13 +162,17 @@ def _evaluate(
 ) -> Decision:
     started_at = time.monotonic()
     try:
-        config = _config(check)
+        config = MetricsAlertConfig.model_validate(check.source_config)
+    except ValidationError:
+        # Saved through the same model, so this is a config an older version accepted.
+        return _failed(check, _INVALID_CONFIG, transient=False, now=now, muted=muted)
+    try:
         samples = _query(team, config.query, at=at, timeout_seconds=query_seconds)
-    except _CheckFailed as error:
-        return _failed(check, error, now=now, muted=muted)
+    except PromQLQueryError as error:
+        return _failed(check, str(error), transient=error.transient, now=now, muted=muted)
     except Exception:
         logger.exception("Failed to evaluate a metrics alert", check_id=str(check.id))
-        return _failed(check, _CheckFailed(_UNEXPECTED_ERROR, transient=True), now=now, muted=muted)
+        return _failed(check, _UNEXPECTED_ERROR, transient=True, now=now, muted=muted)
     duration_ms = int((time.monotonic() - started_at) * 1000)
 
     observations, unknown = _observations(check, config.condition, samples)
@@ -202,28 +206,15 @@ def _evaluate(
     return recorded, _request(check, recorded, moves, sends_messages=sends_messages)
 
 
-def _config(check: PlatformAlertCheckInput) -> MetricsAlertConfig:
-    try:
-        return MetricsAlertConfig.model_validate(check.source_config)
-    except ValidationError as error:
-        # Saved through the same model, so this is a config an older version accepted.
-        raise _CheckFailed(
-            "The alert's configuration is no longer valid. Edit the alert to fix it.", transient=False
-        ) from error
-
-
 def _query(team: Team, expr: str, *, at: datetime, timeout_seconds: float) -> list[_Sample]:
     """The series one PromQL instant query returns at `at`."""
-    try:
-        payload = snuffle_payload(
-            team,
-            "POST",
-            "/api/v1/query",
-            data={"query": expr, "time": str(at.timestamp()), "timeout": f"{int(timeout_seconds)}s"},
-            timeout=timeout_seconds,
-        )
-    except PromQLQueryError as error:
-        raise _CheckFailed(str(error), transient=error.transient) from error
+    payload = snuffle_payload(
+        team,
+        "POST",
+        "/api/v1/query",
+        data={"query": expr, "time": str(at.timestamp()), "timeout": f"{int(timeout_seconds)}s"},
+        timeout=timeout_seconds,
+    )
 
     data = payload.get("data") or {}
     result_type = data.get("resultType")
@@ -231,9 +222,7 @@ def _query(team: Team, expr: str, *, at: datetime, timeout_seconds: float) -> li
     if result_type == "scalar":
         return [_Sample(labels={}, value=_number(result[1]))] if result else []
     if result_type != "vector":
-        raise _CheckFailed(
-            f"A metrics alert query must return an instant vector or a scalar, not a {result_type}.", transient=False
-        )
+        raise PromQLQueryError(f"A metrics alert query must return an instant vector or a scalar, not a {result_type}.")
     samples: list[_Sample] = []
     for series in result or []:
         labels = {str(key): str(value) for key, value in (series.get("metric") or {}).items()}
@@ -255,34 +244,22 @@ def _breached(condition: MetricsAlertCondition, value: float | None) -> bool | N
     """Whether a sample breaches, or None when its value reaches no verdict."""
     if condition.kind == "present":
         return True
-    if value is None or condition.threshold is None:
+    # The config model requires both for a threshold condition.
+    if value is None or condition.operator is None or condition.threshold is None:
         return None
-    threshold = condition.threshold
-    match condition.operator:
-        case ">":
-            return value > threshold
-        case ">=":
-            return value >= threshold
-        case "<":
-            return value < threshold
-        case "<=":
-            return value <= threshold
-        case "==":
-            return value == threshold
-        case "!=":
-            return value != threshold
-    return None
+    return _COMPARE[condition.operator](value, condition.threshold)
 
 
 def _observations(
     check: PlatformAlertCheckInput, condition: MetricsAlertCondition, samples: Sequence[_Sample]
 ) -> tuple[list[GroupObservation], set[str]]:
     """One observation per sample, and the keys of the groups no sample reached a verdict for."""
+    by_labels = check.grouping.mode == GroupingMode.BY_RESULT_LABELS
     observations: list[GroupObservation] = []
     unknown: set[str] = set()
     for sample in samples:
-        labels = _group_labels(check, sample.labels)
-        key = grouping_key_of(labels) if check.grouping.mode == GroupingMode.BY_RESULT_LABELS else ""
+        labels = {key: sample.labels.get(key, "") for key in check.grouping.keys} if by_labels else sample.labels
+        key = _grouping_key_of(labels) if by_labels else ""
         breached = _breached(condition, sample.value)
         if breached is None:
             unknown.add(key)
@@ -294,13 +271,7 @@ def _observations(
     return observations, unknown - {observation.grouping_key for observation in observations}
 
 
-def _group_labels(check: PlatformAlertCheckInput, labels: dict[str, str]) -> dict[str, str]:
-    if check.grouping.mode == GroupingMode.BY_RESULT_LABELS:
-        return {key: labels.get(key, "") for key in check.grouping.keys}
-    return labels
-
-
-def grouping_key_of(labels: dict[str, str]) -> str:
+def _grouping_key_of(labels: dict[str, str]) -> str:
     """The instance key for one group's label values."""
     return bounded_grouping_key(json.dumps(labels, sort_keys=True, separators=(",", ":")))
 
@@ -320,14 +291,12 @@ def _snapshot(check: PlatformAlertCheckInput, instance: InstanceCheckState) -> A
     )
 
 
-def _failed(check: PlatformAlertCheckInput, error: _CheckFailed, *, now: datetime, muted: bool) -> Decision:
+def _failed(check: PlatformAlertCheckInput, message: str, *, transient: bool, now: datetime, muted: bool) -> Decision:
     """A check that reached no verdict. The machine counts it toward BROKEN unless it is transient."""
     snapshot = _snapshot(check, check.instance())
     outcome = evaluate_alert_check(
         snapshot,
-        CheckInput(
-            threshold_breached=False, error_message=error.message, is_transient_error=error.transient, muted=muted
-        ),
+        CheckInput(threshold_breached=False, error_message=message, is_transient_error=transient, muted=muted),
         now,
         policy=POLICY,
     )
@@ -397,8 +366,8 @@ def _request(
     )
 
 
-def _collect(decided: Sequence[Decision], *, team_id: int, slot: str, omitted: int) -> SourceBatchEvaluation:
-    """The batch, held to one payload. A check that does not fit keeps its due time for a later tick."""
+def _collect(decided: Sequence[Decision], *, team_id: int, slot: str, past_budget: int) -> SourceBatchEvaluation:
+    """The batch, held to one payload. A check past the query budget or the payload keeps its due time."""
     outcomes: list[PlatformAlertOutcome] = []
     deliveries: list[AlertDeliveryRequest] = []
     deferred = 0
@@ -412,9 +381,9 @@ def _collect(decided: Sequence[Decision], *, team_id: int, slot: str, omitted: i
         outcomes.append(outcome)
         if delivery is not None:
             deliveries.append(delivery)
-    if deferred:
+    if past_budget or deferred:
         logger.warning(
-            "Deferred metrics alert checks over the batch payload budget", team_id=team_id, slot=slot, deferred=deferred
+            "Deferred metrics alert checks", team_id=team_id, slot=slot, past_budget=past_budget, over_payload=deferred
         )
-        safe_record(increment_checks_deferred, SOURCE.value, deferred)
-    return SourceBatchEvaluation(outcomes=tuple(outcomes), deliveries=tuple(deliveries), omitted=omitted + deferred)
+        safe_record(increment_checks_deferred, SOURCE.value, past_budget + deferred)
+    return SourceBatchEvaluation(outcomes=tuple(outcomes), deliveries=tuple(deliveries), omitted=past_budget + deferred)
