@@ -111,25 +111,25 @@ export function checkHost(host: string): string | undefined {
 }
 
 function validate(raw: RawCredentials, host: string): Credentials {
-    const keyProblem = checkApiKey(raw.apiKey)
-    if (keyProblem) {
+    const keyError = checkApiKey(raw.apiKey)
+    if (keyError) {
         throw new HogError(
             'invalid_credentials',
-            keyProblem,
+            keyError,
             'Create a personal API key in PostHog under Settings > Personal API keys.'
         )
     }
-    const projectProblem = checkProjectId(raw.projectId)
-    if (projectProblem) {
+    const projectError = checkProjectId(raw.projectId)
+    if (projectError) {
         throw new HogError(
             'invalid_credentials',
-            projectProblem,
+            projectError,
             'Use the number in your project URL, like the 2 in https://us.posthog.com/project/2.'
         )
     }
-    const hostProblem = checkHost(host)
-    if (hostProblem) {
-        throw new HogError('invalid_credentials', hostProblem)
+    const hostError = checkHost(host)
+    if (hostError) {
+        throw new HogError('invalid_credentials', hostError)
     }
     return { apiKey: raw.apiKey, projectId: raw.projectId, host }
 }

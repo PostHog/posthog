@@ -1,4 +1,5 @@
-import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname } from 'node:path'
 
@@ -29,13 +30,15 @@ export interface Runtime {
     prompts: Prompts
 }
 
+const BROWSER_LAUNCH_MS = 1000
+
 function browserCommand(url: string): string[] {
     switch (process.platform) {
         case 'darwin':
             return ['open', url]
         case 'win32':
-            // The empty string is the window title `start` expects before the URL.
-            return ['cmd', '/c', 'start', '""', url]
+            // Not `cmd /c start`: cmd treats the `&` in a URL's query string as a command separator.
+            return ['rundll32', 'url.dll,FileProtocolHandler', url]
         default:
             return ['xdg-open', url]
     }
@@ -65,21 +68,32 @@ export function processRuntime(): Runtime {
             }
         },
         readFile: (path) => readFile(path, 'utf8'),
-        // A rename is atomic, so a crash never leaves a half-written file, and the mode is set
-        // before the contents land.
+        // A rename is atomic, so a crash never leaves a half-written file. The temporary name is
+        // random and `wx` refuses an existing path, so nobody can plant a symlink there first.
         writePrivateFile: async (path, contents) => {
             await mkdir(dirname(path), { recursive: true, mode: 0o700 })
-            const temporary = `${path}.${process.pid}.tmp`
-            await writeFile(temporary, contents, { mode: 0o600 })
-            await chmod(temporary, 0o600)
-            await rename(temporary, path)
+            const temporary = `${path}.${randomUUID()}.tmp`
+            try {
+                await writeFile(temporary, contents, { mode: 0o600, flag: 'wx' })
+                await rename(temporary, path)
+            } catch (error) {
+                await rm(temporary, { force: true })
+                throw error
+            }
         },
         removeFile: (path) => rm(path, { force: true }),
         readStdin: () => new Response(Bun.stdin.stream()).text(),
         openUrl: async (url) => {
+            if (!URL.canParse(url) || !['http:', 'https:'].includes(new URL(url).protocol)) {
+                return false
+            }
             try {
                 const child = Bun.spawn(browserCommand(url), { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' })
-                return (await child.exited) === 0
+                child.unref()
+                // Some openers, like xdg-open, stay attached to the browser they start. Waiting for
+                // them to exit would hold up polling, so hog only waits long enough to see a failed launch.
+                const code = await Promise.race([child.exited, Bun.sleep(BROWSER_LAUNCH_MS).then(() => undefined)])
+                return code === undefined || code === 0
             } catch {
                 return false
             }
