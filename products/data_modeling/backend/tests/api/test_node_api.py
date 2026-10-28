@@ -1085,6 +1085,14 @@ class TestNodeObjectVisibility(WarehouseAccessControlTestMixin):
 
         self.assertNotIn(str(archived_node.id), self._listed_nodes())
 
+    def test_a_live_table_keeps_its_node_when_a_denied_archived_table_shares_its_name(self):
+        archived_table = DataWarehouseTable.objects.create(name="ledger", team=self.team, deleted=True)
+        DataWarehouseTable.objects.create(name="ledger", team=self.team)
+        ledger_node = table_node(self.team, self.dag, "ledger", {"origin": "warehouse"})
+        self._deny("warehouse_table", archived_table.id)
+
+        self.assertIn(str(ledger_node.id), self._listed_nodes())
+
     def test_a_denied_view_drops_the_edges_that_touch_it(self):
         self._deny("warehouse_view", self.accounts_query.id)
 

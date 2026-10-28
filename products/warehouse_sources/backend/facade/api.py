@@ -451,27 +451,32 @@ def all_queryable_table_names(team_id: int) -> dict[UUID, str]:
     return dict(rows.values_list("id", "name"))
 
 
-def all_queryable_table_keys(team_id: int, *, including: Collection[UUID] = ()) -> dict[UUID, contracts.TableNames]:
-    """Every queryable table of this team, by id, under both the names it answers to. One query,
-    or two with ``including``.
+def all_queryable_table_keys(team_id: int) -> dict[UUID, contracts.TableNames]:
+    """Every queryable table of this team, by id, under both the names it answers to. One query.
 
     A caller matching what a query read against what a person may reach has to know both spellings.
-    ``including`` adds those tables whatever their state, for a caller that also matches names
-    against soft-deleted tables.
     """
+    return _table_keys(_DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id))
+
+
+def table_keys(team_id: int, table_ids: Collection[UUID]) -> dict[UUID, contracts.TableNames]:
+    """These tables of this team, by id, under both names, whatever their state. One query."""
+    if not table_ids:
+        return {}
+    return _table_keys(_DataWarehouseTable.raw_objects.filter(team_id=team_id, id__in=table_ids))
+
+
+def _table_keys(queryset: QuerySet[_DataWarehouseTable]) -> dict[UUID, contracts.TableNames]:
     from posthog.hogql.database.database import (  # noqa: PLC0415 -- keeps HogQL off this module's import path
         get_data_warehouse_table_name,
     )
 
-    tables = list(_table_keys_queryset(_DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id)))
-    if including:
-        tables += list(_table_keys_queryset(_DataWarehouseTable.raw_objects.filter(team_id=team_id, id__in=including)))
     return {
         table.id: contracts.TableNames(
             row_name=table.name,
             queryable_key=get_data_warehouse_table_name(table.external_data_source, table.name),
         )
-        for table in tables
+        for table in _table_keys_queryset(queryset)
     }
 
 

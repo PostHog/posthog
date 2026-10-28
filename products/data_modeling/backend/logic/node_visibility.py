@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
-from products.warehouse_sources.backend.facade.api import all_queryable_table_keys, denied_table_ids
+from products.warehouse_sources.backend.facade.api import all_queryable_table_keys, denied_table_ids, table_keys
 
 from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from ..models.edge import Edge
@@ -13,6 +13,7 @@ from ..models.node import Node, NodeType
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
+    from products.warehouse_sources.backend.facade.contracts import TableNames
 
 _ORIGIN_POSTHOG = "posthog"
 
@@ -111,19 +112,32 @@ def _tables_matching_names(
 ) -> dict[str, set[UUID]]:
     """Table ids each unmarked table node could name, under either spelling of the table name.
 
-    An exact match wins, and a case-insensitive one is the fallback, the same order HogQL resolves a
-    table name in.
+    A live table wins over a soft-deleted one that shares its name, because HogQL resolves the live
+    table. Within each, an exact match wins over a case-insensitive one, the order HogQL resolves a
+    table name in. The deny set covers soft-deleted tables, so a denied one is a last resort.
     """
+    live = all_queryable_table_keys(team_id)
+    archived = table_keys(team_id, denied_tables - live.keys())
+    lookups = [_name_index(live), _name_index(archived)]
+    return {node_id: _first_match(name, lookups) for node_id, name in unresolved_table_names.items()}
+
+
+def _name_index(tables: dict[UUID, "TableNames"]) -> tuple[dict[str, set[UUID]], dict[str, set[UUID]]]:
     exact: dict[str, set[UUID]] = defaultdict(set)
     folded: dict[str, set[UUID]] = defaultdict(set)
-    # The denied set covers soft-deleted tables, so their names join the queryable ones.
-    for table_id, names in all_queryable_table_keys(team_id, including=denied_tables).items():
+    for table_id, names in tables.items():
         for name in (names.row_name, names.queryable_key):
             exact[name].add(table_id)
             folded[name.lower()].add(table_id)
-    return {
-        node_id: exact.get(name) or folded.get(name.lower(), set()) for node_id, name in unresolved_table_names.items()
-    }
+    return exact, folded
+
+
+def _first_match(name: str, lookups: list[tuple[dict[str, set[UUID]], dict[str, set[UUID]]]]) -> set[UUID]:
+    for exact, folded in lookups:
+        matched = exact.get(name) or folded.get(name.lower())
+        if matched:
+            return matched
+    return set()
 
 
 def _metrics_fed_by(team_id: int, hidden: set[str]) -> set[str]:
