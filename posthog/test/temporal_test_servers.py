@@ -32,7 +32,7 @@ from typing import Any
 
 import requests
 import temporalio.service
-from filelock import FileLock
+from filelock import FileLock, Timeout
 from temporalio.testing import WorkflowEnvironment
 
 from posthog.dataclasses import frozen
@@ -171,6 +171,11 @@ def ensure_binary(binary: ServerBinary) -> Path | None:
                         if attempt < ATTEMPTS:
                             time.sleep(2**attempt)
                 failed_marker.write_text(_RUN_ID)
+    except Timeout as error:
+        # Another process held the lock past every retry it could make, so the network is likely down for this one too.
+        raise TemporalServerDownloadError(
+            f"Timed out waiting for another process to download the Temporal {binary.artifact} binary"
+        ) from error
     except Exception:
         # A broken cache directory or lock is not a network failure, so the SDK can still try its own download.
         logger.warning("Could not cache the Temporal %s binary", binary.artifact, exc_info=True)
@@ -215,3 +220,9 @@ def install() -> None:
     WorkflowEnvironment.start_local = classmethod(  # type: ignore[method-assign,assignment]  # ty: ignore[invalid-assignment]
         _with_cached_binary(start_local, DEV_SERVER, "dev_server")
     )
+    # Downloading now, before any test runs, keeps these requests out of a test's mocked HTTP session.
+    for binary in (TEST_SERVER, DEV_SERVER):
+        try:
+            ensure_binary(binary)
+        except TemporalServerDownloadError:
+            logger.warning("Could not download the Temporal %s binary before tests", binary.artifact, exc_info=True)
