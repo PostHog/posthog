@@ -93,6 +93,7 @@ CONCLUSIONS = {
     IdeaOutcome.LOST: "lost",
     IdeaOutcome.FLAT: "inconclusive",
     IdeaOutcome.HARMED: "stopped_early",
+    IdeaOutcome.DROPPED: "stopped_early",
 }
 
 

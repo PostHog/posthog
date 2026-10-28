@@ -3,11 +3,15 @@ from datetime import datetime, timedelta
 
 from django.utils import timezone
 
+from scipy.stats import chisquare
+
 from posthog.dataclasses import frozen
 
 from ..facade.enums import IdeaOutcome
 
 MIN_SAMPLES_PER_VARIANT = 50
+SPLIT_P_VALUE = 0.001
+MAX_MIXED_SHARE = 0.1
 
 
 @frozen
@@ -50,7 +54,7 @@ def verdict(
 ) -> Verdict:
     results = evidence.get("results") or {}
     exposures: dict = results.get("exposures") or {}
-    tests = sorted(set(results.get("variants") or exposures) - {"control"})
+    tests = sorted(key for key in set(results.get("variants") or exposures) - {"control"} if not key.startswith("$"))
     started = evidence.get("start_date")
     facts = {"exposures": exposures, "start_date": started}
     if not started:
@@ -90,6 +94,24 @@ def verdict(
     if smallest < MIN_SAMPLES_PER_VARIANT:
         return waiting(
             "", f"Collecting data: {smallest} of {MIN_SAMPLES_PER_VARIANT} people in the smallest group.", facts
+        )
+    arms = ["control", *tests]
+    counts = [float(exposures.get(key, 0)) for key in arms]
+    if len(counts) > 1 and chisquare(counts).pvalue < SPLIT_P_VALUE:
+        split = ", ".join(f"{key} {int(count)}" for key, count in zip(arms, counts))
+        return decided(
+            IdeaOutcome.DROPPED,
+            "control",
+            f"The variants got uneven traffic ({split}). The change may be broken. Check the build before you try it again.",
+            facts,
+        )
+    mixed = float(exposures.get("$multiple", 0))
+    if mixed > MAX_MIXED_SHARE * sum(float(value) for value in exposures.values()):
+        return decided(
+            IdeaOutcome.DROPPED,
+            "control",
+            f"{int(mixed)} people saw more than one variant, so the result is not reliable. The flag code may read the variant too early. Check the build before you try it again.",
+            facts,
         )
     if harmed:
         return decided(IdeaOutcome.HARMED, "control", f"{', '.join(sorted(set(harmed)))} got worse.", facts)

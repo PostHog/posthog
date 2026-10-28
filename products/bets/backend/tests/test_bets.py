@@ -34,14 +34,19 @@ ENOUGH = MIN_SAMPLES_PER_VARIANT
 
 
 def evidence(
-    primary: list[float] | None, *, significant: bool = True, guard: list[float] | None = None, days: int = 3
+    primary: list[float] | None,
+    *,
+    significant: bool = True,
+    guard: list[float] | None = None,
+    days: int = 3,
+    exposures: dict | None = None,
 ) -> dict:
     variant = {"key": "test", "significant": significant, "credible_interval": primary} if primary else {"key": "test"}
     return {
         "start_date": (timezone.now() - timedelta(days=days)).isoformat(),
         "results": {
             "variants": ["control", "test"],
-            "exposures": {"control": ENOUGH, "test": ENOUGH},
+            "exposures": exposures or {"control": ENOUGH, "test": ENOUGH},
             "metric_sample_counts": [{"control": ENOUGH, "test": ENOUGH}],
             "primary_metrics_results": [{"name": "1. Share rate", "variant_results": [variant]}],
             "secondary_metrics_results": [
@@ -75,6 +80,24 @@ class TestVerdict(SimpleTestCase):
                 IdeaOutcome.HARMED,
             ),
             ("the_clock_starts_at_the_first_exposure", evidence([0.05, 0.2]), "increase", None, 1),
+            (
+                "uneven_traffic_split_drops_the_idea",
+                evidence([0.05, 0.2], exposures={"control": 1000, "test": 800}),
+                "increase",
+                IdeaOutcome.DROPPED,
+            ),
+            (
+                "many_people_in_both_variants_drops_the_idea",
+                evidence([0.05, 0.2], exposures={"control": 1000, "test": 1000, "$multiple": 400}),
+                "increase",
+                IdeaOutcome.DROPPED,
+            ),
+            (
+                "normal_noise_in_the_split_still_decides",
+                evidence([0.05, 0.2], exposures={"control": 1000, "test": 960}),
+                "increase",
+                IdeaOutcome.WON,
+            ),
         ]
     )
     def test_outcome(

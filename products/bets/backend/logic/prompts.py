@@ -77,6 +77,7 @@ Idea: {work.title}
 {work.summary}
 
 1. Implement the change in the repository behind the feature flag `{work.flag_key}`. Users without the flag see today's behavior. Keep the diff small and add focused tests.
+   If people can see the change around sign-up or login, turn on "Persist flag across authentication steps" (ensure_experience_continuity) for the flag, so each person keeps one variant.
 2. Open one pull request. Mention the flag key and the experiment in its description.
 3. In PostHog, create an experiment that uses the feature flag `{work.flag_key}` with a control and a test variant. Use the bet's primary metric as the experiment's primary metric, and each guardrail as a secondary metric.
 4. Launch the experiment. Nobody is exposed until the pull request is merged and deployed, so launching now is safe.
