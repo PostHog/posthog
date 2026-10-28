@@ -237,6 +237,7 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
                         trackedSends: pushSent,
                         converted: totals.conversion ?? 0,
                         skipped: totals.push_skipped ?? 0,
+                        unsubscribed: 0,
                     }
                 }
                 const sent = totals.email_sent ?? 0
