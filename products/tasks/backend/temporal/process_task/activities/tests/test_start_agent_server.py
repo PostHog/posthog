@@ -27,7 +27,6 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     _ensure_repository_on_disk,
     _include_personal_mcp_for_task,
     _invoke_start_agent_server,
-    _is_agent_shadow_enabled,
     _launch_agent_shadow,
     _LaunchParams,
     _network_enforcement_observation,
@@ -40,6 +39,7 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     launch_agent_server,
     start_agent_server,
 )
+from products.tasks.backend.temporal.process_task.utils import UserMcpServerConfigs
 
 
 @pytest.fixture(autouse=True)
@@ -88,6 +88,7 @@ def _context(
     use_modal_network_allowlist: bool = False,
     claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway",
     codex_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway",
+    agent_shadow_enabled: bool = False,
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -107,6 +108,7 @@ def _context(
         use_modal_network_allowlist=use_modal_network_allowlist,
         claude_model_access=claude_model_access,
         codex_model_access=codex_model_access,
+        agent_shadow_enabled=agent_shadow_enabled,
         _branch=branch,
     )
 
@@ -497,7 +499,6 @@ async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, a
             task_run_session_token=None,
             codex_run_token=None,
             event_ingest_url=None,
-            event_ingest_keep_stream_open=False,
         ),
     )
     mocker.patch(
@@ -578,7 +579,6 @@ async def test_await_agent_server_ready_records_failed_relaunch(
             task_run_session_token=None,
             codex_run_token=None,
             event_ingest_url=None,
-            event_ingest_keep_stream_open=False,
         ),
     )
     mocker.patch("products.tasks.backend.exceptions.capture_exception")
@@ -744,7 +744,7 @@ def _mock_prepare_launch_dependencies(mocker) -> None:
     mocker.patch(f"{prefix}.create_oauth_access_token_for_run", return_value="access-token")
     mocker.patch(f"{prefix}.TaskRun.objects.filter").return_value.first.return_value = mocker.Mock()
     mocker.patch(f"{prefix}.get_sandbox_ph_mcp_configs", return_value=[])
-    mocker.patch(f"{prefix}.get_user_mcp_server_configs", return_value=[])
+    mocker.patch(f"{prefix}.get_user_mcp_server_configs", return_value=UserMcpServerConfigs(configs=[]))
     mocker.patch(f"{prefix}.get_imported_mcp_server_configs", return_value=[])
     mocker.patch(f"{prefix}.get_relayed_mcp_server_names", return_value=[])
     mocker.patch(f"{prefix}.emit_agent_log")
@@ -872,7 +872,6 @@ def test_subscription_compatibility_is_checked_before_launch(mocker, access, exi
         task_run_session_token=None,
         codex_run_token=None,
         event_ingest_url=None,
-        event_ingest_keep_stream_open=False,
     )
     context = _context(claude_model_access=access)
     if access == "own-subscription" and exit_code != 0:
@@ -885,43 +884,13 @@ def test_subscription_compatibility_is_checked_before_launch(mocker, access, exi
         assert sandbox.start_agent_server.call_args.kwargs["claude_model_access"] == access
 
 
-def test_agent_shadow_flag_uses_server_side_organization_targeting(mocker) -> None:
-    feature_enabled = mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.posthoganalytics.feature_enabled",
-        return_value=True,
-    )
-
-    assert _is_agent_shadow_enabled(_context()) is True
-    feature_enabled.assert_called_once_with(
-        "agent-server-shadow-observer",
-        distinct_id="distinct-id",
-        groups={"organization": "organization-id"},
-        group_properties={"organization": {"id": "organization-id"}},
-        only_evaluate_locally=False,
-        send_feature_flag_events=False,
-    )
-
-
-def test_agent_shadow_flag_fails_closed(mocker) -> None:
-    mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.posthoganalytics.feature_enabled",
-        side_effect=RuntimeError("unavailable"),
-    )
-
-    assert _is_agent_shadow_enabled(_context()) is False
-
-
 def test_agent_shadow_launches_without_credentials(mocker) -> None:
-    mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server._is_agent_shadow_enabled",
-        return_value=True,
-    )
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.config.snapshot_restored = False
     sandbox.agent_server_health_url.return_value = "http://127.0.0.1:8080/health"
     sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
 
-    assert _launch_agent_shadow(_context(), sandbox) is True
+    assert _launch_agent_shadow(_context(agent_shadow_enabled=True), sandbox) is True
     command = sandbox.execute.call_args.args[0]
     assert "/usr/local/bin/agent-shadow" in command
     assert "/usr/bin/env -i /usr/bin/setsid /usr/local/bin/agent-shadow" in command
@@ -931,16 +900,12 @@ def test_agent_shadow_launches_without_credentials(mocker) -> None:
 
 
 def test_agent_shadow_launch_guards_on_marker_not_its_own_command_line(mocker) -> None:
-    mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server._is_agent_shadow_enabled",
-        return_value=True,
-    )
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.config.snapshot_restored = False
     sandbox.agent_server_health_url.return_value = "http://127.0.0.1:8080/health"
     sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
 
-    assert _launch_agent_shadow(_context(), sandbox) is True
+    assert _launch_agent_shadow(_context(agent_shadow_enabled=True), sandbox) is True
     command = sandbox.execute.call_args.args[0]
     assert "pgrep" not in command
     assert "/tmp/agent-shadow-launched" in command
@@ -951,31 +916,28 @@ def test_agent_shadow_launch_recovers_prior_attempt_from_marker(mocker) -> None:
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.current_activity_attempt",
         return_value=2,
     )
-    feature_enabled = mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server._is_agent_shadow_enabled",
-        return_value=False,
-    )
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.config.snapshot_restored = False
     sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
 
-    assert _launch_agent_shadow(_context(), sandbox) is True
+    assert _launch_agent_shadow(_context(agent_shadow_enabled=False), sandbox) is True
     assert "head -c 128 /tmp/agent-shadow-launched" in sandbox.execute.call_args.args[0]
-    feature_enabled.assert_not_called()
 
 
-@pytest.mark.parametrize("exit_code,launched", [(0, True), (1, False)])
-def test_agent_shadow_launch_fails_closed_on_nonzero_exit(mocker, exit_code, launched) -> None:
-    mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server._is_agent_shadow_enabled",
-        return_value=True,
-    )
+@pytest.mark.parametrize(
+    "agent_shadow_enabled,exit_code,launched,executed",
+    [(True, 0, True, True), (True, 1, False, True), (False, 0, False, False)],
+)
+def test_agent_shadow_launch_fails_closed_on_nonzero_exit(
+    mocker, agent_shadow_enabled: bool, exit_code: int, launched: bool, executed: bool
+) -> None:
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.config.snapshot_restored = False
     sandbox.agent_server_health_url.return_value = "http://127.0.0.1:8080/health"
     sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=exit_code)
 
-    assert _launch_agent_shadow(_context(), sandbox) is launched
+    assert _launch_agent_shadow(_context(agent_shadow_enabled=agent_shadow_enabled), sandbox) is launched
+    assert sandbox.execute.called is executed
 
 
 def test_agent_shadow_skips_filesystem_snapshot(mocker) -> None:
@@ -983,16 +945,22 @@ def test_agent_shadow_skips_filesystem_snapshot(mocker) -> None:
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.current_activity_attempt",
         return_value=2,
     )
-    mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server._is_agent_shadow_enabled",
-        return_value=True,
-    )
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.config.snapshot_restored = True
-    sandbox.config.snapshot_kind = "filesystem"
+    sandbox.config.resume_snapshot_external_id = None
 
-    assert _launch_agent_shadow(_context(), sandbox) is False
+    assert _launch_agent_shadow(_context(agent_shadow_enabled=True), sandbox) is False
     sandbox.execute.assert_not_called()
+
+
+def test_agent_shadow_allows_directory_snapshot(mocker) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.config.snapshot_restored = True
+    sandbox.config.resume_snapshot_external_id = "im-dir"
+    sandbox.agent_server_health_url.return_value = "http://127.0.0.1:8080/health"
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    assert _launch_agent_shadow(_context(agent_shadow_enabled=True), sandbox) is True
 
 
 def test_agent_shadow_result_is_allowlisted(mocker) -> None:
@@ -1152,7 +1120,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(
     )
     get_user_mcp_configs = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_user_mcp_server_configs",
-        return_value=[],
+        return_value=UserMcpServerConfigs(configs=[]),
     )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.objects.filter",

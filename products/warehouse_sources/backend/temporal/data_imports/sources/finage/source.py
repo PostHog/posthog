@@ -66,7 +66,7 @@ class FinageSource(SimpleSource[FinageSourceConfig]):
             name=ExternalDataSourceType.FINAGE,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Finage",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Finage API key and the symbols you want to sync to pull market data into the PostHog Data warehouse.
 
 You can find your API key in the [Finage dashboard](https://finage.co.uk/dashboard) after subscribing to a plan. The key needs access to the **US stocks** endpoints, plus **fundamentals** for the dividend, split, profile and financial statement tables, and **forex** or **crypto** if you sync those tables.""",
@@ -86,6 +86,7 @@ You can find your API key in the [Finage dashboard](https://finage.co.uk/dashboa
                     ),
                     SourceFieldInputConfig(
                         name="symbols",
+                        sync_setting=True,
                         label="Symbols",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -95,6 +96,7 @@ You can find your API key in the [Finage dashboard](https://finage.co.uk/dashboa
                     ),
                     SourceFieldInputConfig(
                         name="forex_symbols",
+                        sync_setting=True,
                         label="Forex symbols",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -104,6 +106,7 @@ You can find your API key in the [Finage dashboard](https://finage.co.uk/dashboa
                     ),
                     SourceFieldInputConfig(
                         name="crypto_symbols",
+                        sync_setting=True,
                         label="Crypto symbols",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -113,6 +116,7 @@ You can find your API key in the [Finage dashboard](https://finage.co.uk/dashboa
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Backfill start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

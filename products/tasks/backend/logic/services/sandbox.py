@@ -37,9 +37,6 @@ from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
     DEV_STACK_IMAGE_NAME,
     SANDBOX_REPOSITORIES_ROOT,
-    SNAPSHOT_KIND_DIRECTORY,
-    SNAPSHOT_KIND_FILESYSTEM,
-    SnapshotKind,
 )
 from products.tasks.backend.logic.services.local_skills import BUNDLED_SKILLS_PATHS, ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.sandbox_config import (
@@ -217,7 +214,7 @@ class SandboxConfig(BaseModel):
     environment_variables: dict[str, str] | None = None
     snapshot_id: str | None = None
     snapshot_external_id: str | None = None
-    snapshot_kind: SnapshotKind = SNAPSHOT_KIND_FILESYSTEM
+    resume_snapshot_external_id: str | None = None
     snapshot_mount_path: str | None = None
     snapshot_source: str = "none"
     snapshot_restored: bool = False
@@ -278,18 +275,22 @@ class SandboxConfig(BaseModel):
             return self.dev_stack_present
         return self.custom_image_name == DEV_STACK_IMAGE_NAME
 
+    @property
+    def applies_dev_stack_floors(self) -> bool:
+        return self.is_dev_stack_image and self.workload == SandboxWorkload.DEFAULT
+
     @model_validator(mode="after")
     def _enforce_dev_stack_memory_floor(self) -> Self:
-        if self.is_dev_stack_image:
+        if self.applies_dev_stack_floors:
             self.memory_gb = max(self.memory_gb, DEV_STACK_MEMORY_GB)
         return self
 
     @property
     def effective_cpu_request_cores(self) -> float:
         """CPU floor the provider actually reserves when burstable: the configured request,
-        raised to the dev-stack image floor, clamped to the limit."""
+        raised to the dev-stack floor on default-workload boxes, clamped to the limit."""
         floor = float(self.cpu_request_cores)
-        if self.is_dev_stack_image:
+        if self.applies_dev_stack_floors:
             floor = max(floor, DEV_STACK_CPU_REQUEST_CORES)
         return min(floor, float(self.cpu_cores))
 
@@ -373,10 +374,8 @@ def build_agent_runtime_env_prefix(
     event_ingest_token: str | None = None,
     task_run_session_token: str | None = None,
     event_ingest_url: str | None = None,
-    event_ingest_keep_stream_open: bool = False,
     rtk_enabled: bool = True,
     benjamin_enabled: bool = False,
-    peer_messaging: bool = False,
     pi_acp_conversation: bool = False,
     unset_bedrock: bool = False,
 ) -> str:
@@ -400,16 +399,12 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_TASK_RUN_SESSION_TOKEN": task_run_session_token,
         "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
         "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN": (
-            "true" if event_ingest_keep_stream_open else "false" if settings.DEBUG and not event_ingest_url else None
+            "false" if settings.DEBUG and not event_ingest_url else "true"
         ),
         # Set explicitly in both states: "0" opts the run out, "1" pins auto-detection on
         # even if a stale env value survives in a resumed sandbox.
         "POSTHOG_RTK": "1" if rtk_enabled else "0",
         "POSTHOG_BENJAMIN": "1" if benjamin_enabled else "0",
-        # Exposure gate for the peer-messaging tools (PR: agent peer messaging). Set in
-        # both states so a stale "1" in a resumed sandbox can't outlive a flag rollback;
-        # the peers endpoints re-check authorization server-side regardless.
-        "POSTHOG_AGENT_PEER_MESSAGING": "1" if peer_messaging else "0",
         "POSTHOG_PI_CONVERSATION_FORMAT": "acp" if pi_acp_conversation else "pi",
     }
     assignments = " ".join(
@@ -535,16 +530,15 @@ class SandboxBase(ABC):
         # its author code execution with another member's secrets. Two checks:
         #   - the reserved name (user images always publish as posthog-sandbox-custom-*),
         #     with the absolute path below avoiding PATH shadowing;
-        #   - not a filesystem-snapshot restore: such a resume boots a mutable snapshot
+        #   - not a filesystem-snapshot restore: such a restore boots a mutable snapshot
         #     of a prior run — one that processed untrusted repo content and could have
         #     replaced the helper file itself. Directory restores only mount the workspace
         #     dir (ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS), leaving the helper the
         #     vetted image's own binary, so the warmup stays on for them — but the
         #     workspace is still attacker-controlled, so the launcher below scrubs the
-        #     environment (fixed PATH, no credentials) rather than trusting it. Anything
-        #     not explicitly a directory restore is treated as filesystem — fail closed.
+        #     environment (fixed PATH, no credentials) rather than trusting it.
         restored_untrusted_filesystem = (
-            self.config.snapshot_restored and self.config.snapshot_kind != SNAPSHOT_KIND_DIRECTORY
+            self.config.snapshot_restored and self.config.resume_snapshot_external_id is None
         )
         if (
             not self.config.is_vm
@@ -683,12 +677,10 @@ class SandboxBase(ABC):
         event_ingest_token: str | None = None,
         task_run_session_token: str | None = None,
         event_ingest_url: str | None = None,
-        event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
-        peer_messaging: bool = False,
         pi_acp_conversation: bool = False,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
@@ -729,6 +721,9 @@ class SandboxBase(ABC):
     def is_running(self) -> bool: ...
 
     def exit_reason(self) -> str | None:
+        return None
+
+    def exit_status(self) -> str | None:
         return None
 
     def read_agent_server_session_init_ms(self) -> int | None:

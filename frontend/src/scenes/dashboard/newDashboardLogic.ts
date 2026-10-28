@@ -19,6 +19,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { withBackLink } from 'scenes/analytics/analyticsBackLink'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { teamLogic } from 'scenes/teamLogic'
@@ -401,7 +402,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     }
                     if (show && redirectAfterCreation) {
                         breakpoint()
-                        router.actions.push(urls.dashboard(result.id))
+                        router.actions.push(withBackLink(urls.dashboard(result.id)))
                     }
                 } catch (e: any) {
                     if (!isBreakpoint(e)) {
@@ -507,7 +508,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     })
 
                     if (redirectAfterCreation) {
-                        router.actions.push(urls.dashboard(result.id))
+                        router.actions.push(withBackLink(urls.dashboard(result.id)))
                     }
                 } catch (e: any) {
                     if (!isBreakpoint(e)) {

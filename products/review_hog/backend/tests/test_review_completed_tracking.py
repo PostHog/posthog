@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -16,12 +17,15 @@ from products.review_hog.backend.reviewer.constants import (
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     REVIEW_MODEL,
+    SINGLE_AGENT_ARM_SETS,
+    SINGLE_AGENT_FLASH_ARM,
     VALIDATION_MODEL,
     VALIDATION_REASONING_EFFORT,
+    SingleAgentArms,
 )
 from products.review_hog.backend.reviewer.finding_budget import budget_arm
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
-from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRFileUpdate, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.persistence import (
@@ -116,6 +120,7 @@ class TestTrackReviewCompleted(BaseTest):
         flash_turn: FlashTurnStats | None = None,
         flash_sessions: FlashSessionStats | None = None,
         review_design: str = REVIEW_DESIGN_PIPELINE,
+        arm_set: str = "control",
     ) -> TrackReviewCompletedInput:
         return TrackReviewCompletedInput(
             team_id=self.team.id,
@@ -131,6 +136,7 @@ class TestTrackReviewCompleted(BaseTest):
             flash_turn=flash_turn,
             flash_sessions=flash_sessions,
             review_design=review_design,
+            arm_set=arm_set,
         )
 
     @parameterized.expand([(True,), (False,)])
@@ -209,6 +215,7 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["pr_draft"] is True
         # The finding budget's effect is measured by splitting on this, so it must be on every turn.
         assert props["finding_budget_arm"] == budget_arm("o/r", 7)
+        assert props["review_round"] == 1
         assert 90 <= props["duration_seconds"] < 600
         assert props["reviewhog_version"] == "reviewhog-full-9-9"
         assert props["reviewhog_fingerprint"] == "abc1234"
@@ -248,10 +255,23 @@ class TestTrackReviewCompleted(BaseTest):
             must_fix_on_change=1,
             must_fix_off_change=2,
         )
-        sessions = FlashSessionStats(lens_failures=1, lens_timeouts=1, slowest_session_seconds=412.5)
+        sessions = FlashSessionStats(lens_failures=1, lens_timeouts=1, slowest_session_seconds=412.5, arm_fallbacks=2)
+        trial = SingleAgentArms(main=replace(SINGLE_AGENT_FLASH_ARM, model="gpt-6-luna"), lens=SINGLE_AGENT_FLASH_ARM)
 
-        with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
-            _track_review_completed(self._tracking_input(report_id, flash_turn=turn, flash_sessions=sessions))
+        with (
+            patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
+            patch.dict(SINGLE_AGENT_ARM_SETS, {"trial": trial}),
+        ):
+            _track_review_completed(
+                self._tracking_input(
+                    report_id,
+                    review_mode=REVIEW_MODE_FLASH,
+                    review_design=REVIEW_DESIGN_SINGLE_AGENT,
+                    flash_turn=turn,
+                    flash_sessions=sessions,
+                    arm_set="trial",
+                )
+            )
             _track_review_completed(self._tracking_input(report_id))
 
         single_agent, pipeline = (call.kwargs["properties"] for call in capture.call_args_list)
@@ -274,8 +294,11 @@ class TestTrackReviewCompleted(BaseTest):
             "flash_lens_timeouts": 1,
             "flash_slowest_session_seconds": 412.5,
             "flash_coordinator": False,
+            "flash_arm_fallbacks": 2,
         }
         assert not [key for key in pipeline if key.startswith("flash_")]
+        assert (single_agent["single_agent_arm_set"], single_agent["review_model"]) == ("trial", "gpt-6-luna")
+        assert pipeline["single_agent_arm_set"] == "control"
 
     def test_missing_snapshot_still_captures_without_pr_size(self) -> None:
         # A turn whose pr_snapshot is unavailable must still count as a review — size props go
@@ -475,6 +498,101 @@ class TestTrackReviewCompleted(BaseTest):
         props = capture.call_args.kwargs["properties"]
         assert (result.skip, result.reason, props["previous_findings"], props["reviewable_lines"]) == expected
 
+    @parameterized.expand(
+        [
+            ("unchanged_in_the_treatment_arm", "limit = 10", [], True, (True, "zero_change", 0, False)),
+            ("unchanged_in_the_control_arm", "limit = 10", [], False, (False, "zero_change", 0, False)),
+            # The snapshot leaves a lockfile out, so its change is unseen, and it changes what the code runs with.
+            (
+                "lockfile_in_the_pr",
+                "limit = 10",
+                ["pnpm-lock.yaml"],
+                True,
+                (False, "system_one_above_threshold", 0, False),
+            ),
+            ("small_code_change", "limit = 20", [], True, (False, "system_one_above_threshold", 2, True)),
+            (
+                "small_code_change_with_a_lockfile_in_the_pr",
+                "limit = 20",
+                ["pnpm-lock.yaml"],
+                True,
+                (False, "system_one_above_threshold", 2, False),
+            ),
+        ]
+    )
+    def test_the_gate_compares_the_stored_pr_diff_of_both_heads(
+        self,
+        _name: str,
+        changed_code: str,
+        skipped_paths: list[str],
+        treatment: bool,
+        expected: tuple[bool, str, int, bool],
+    ) -> None:
+        report_id = self._review_report()
+
+        def code_file(code: str) -> PRFile:
+            return PRFile(
+                filename="a.py",
+                status="modified",
+                additions=900,
+                deletions=0,
+                changes=[
+                    PRFileUpdate(type="addition", new_start_line=1, new_end_line=1, code=code),
+                    PRFileUpdate(
+                        type="addition",
+                        new_start_line=2,
+                        new_end_line=900,
+                        code="\n".join(f"x{line} = {line}" for line in range(2, 901)),
+                    ),
+                ],
+            )
+
+        for head_sha, code in (("sha0", "limit = 10"), ("sha1", changed_code)):
+            persist_pr_snapshot(
+                team_id=self.team.id,
+                report_id=report_id,
+                head_sha=head_sha,
+                pr_metadata=_pr_metadata(),
+                pr_comments=[],
+                pr_files=[code_file(code)],
+                review_design=REVIEW_DESIGN_SINGLE_AGENT,
+                skipped_paths=skipped_paths,
+            )
+        decision = PushGateDecision(
+            skip=False, would_skip=False, reason="system_one_above_threshold", own_code_lines=100
+        )
+
+        with (
+            patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
+            patch("products.review_hog.backend.temporal.activities.PushGate") as gate,
+            patch("products.review_hog.backend.temporal.activities.apply_throttle", side_effect=lambda d, **_: d),
+            patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
+        ):
+            gate.return_value.decide.return_value = decision
+            gate.return_value.record_small_change_streak.side_effect = lambda decision, **_: decision
+            result = _gate_push(
+                GatePushInput(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    repository="o/r",
+                    previous_head_sha="sha0",
+                    head_sha="sha1",
+                    run_index=3,
+                    review_mode=REVIEW_MODE_FLASH,
+                    zero_change_skip=treatment,
+                    delta_band=treatment,
+                    coordinator=not treatment,
+                )
+            )
+
+        props = capture.call_args.kwargs["properties"]
+        assert (result.skip, result.reason, props["pr_changed_lines"], result.delta_review) == expected
+        assert (props["zero_change_skip_arm"], props["delta_band_arm"], props["coordinator"]) == (
+            treatment,
+            treatment,
+            not treatment,
+        )
+
     def _gate_draft_push(self, report_id: str, live_pr: dict[str, object] | Exception) -> tuple[PushGateDecision, Any]:
         live = MagicMock(side_effect=live_pr) if isinstance(live_pr, Exception) else MagicMock()
         live.return_value.json.return_value = live_pr
@@ -598,6 +716,48 @@ class TestTrackReviewCompleted(BaseTest):
         # The failed event needs its own stable uuid namespace: colliding with the completed event's
         # would make ingestion dedupe a real failure against a later success of the same turn.
         assert failed.kwargs["uuid"] != completed.kwargs["uuid"]
+
+    def test_every_turn_event_names_the_arms_of_each_split(self) -> None:
+        # Failure and start rates per arm need the arms on the failed and started events too, because a failed
+        # turn has no completed event to join against.
+        report_id = self._review_report()
+
+        with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
+            _track_review_started(
+                TrackReviewStartedInput(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    run_index=1,
+                    head_sha="sha1",
+                    turn_trigger_source=None,
+                    arm_set="trial",
+                    zero_change_skip_arm=True,
+                    delta_band_arm=True,
+                )
+            )
+            _track_review_failed(
+                TrackReviewFailedInput(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    run_index=1,
+                    arm_set="trial",
+                    zero_change_skip_arm=True,
+                    delta_band_arm=True,
+                )
+            )
+            _track_review_completed(
+                replace(
+                    self._tracking_input(report_id), arm_set="trial", zero_change_skip_arm=True, delta_band_arm=True
+                )
+            )
+
+        for call in capture.call_args_list:
+            props = call.kwargs["properties"]
+            assert (props["single_agent_arm_set"], props["zero_change_skip_arm"], props["delta_band_arm"]) == (
+                "trial",
+                True,
+                True,
+            )
 
     def test_events_carry_the_tier_and_report_link_of_an_agent_pr(self) -> None:
         # The per-tier dashboards split on these: an event that drops the tier, the priority, or

@@ -108,6 +108,7 @@ class TestLoginPrecheckAPI(APIBaseTest):
                 "saml_available": False,
                 "oidc_available": False,
                 "webauthn_credentials": [],
+                "account_exists": False,
                 "password_login_available": True,
                 "social_providers": [],
             },
@@ -132,6 +133,7 @@ class TestLoginPrecheckAPI(APIBaseTest):
                 "saml_available": False,
                 "oidc_available": False,
                 "webauthn_credentials": [],
+                "account_exists": True,
                 "password_login_available": True,
                 "social_providers": [],
             },
@@ -268,6 +270,7 @@ class TestLoginPrecheckAPI(APIBaseTest):
                 "saml_available": False,
                 "oidc_available": False,
                 "webauthn_credentials": [],
+                "account_exists": True,
                 "password_login_available": False,
                 "social_providers": [],
             },
@@ -305,22 +308,30 @@ class TestLoginPrecheckAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["social_providers"], [])
 
-    def test_login_precheck_treats_unknown_email_as_password_login_available(self):
-        # An unknown email must be indistinguishable from a user who has a password, so a typo is
-        # never a dead end and we don't leak which addresses have accounts.
-        response = self.client.post("/api/login/precheck", {"email": "nobody@posthog.com"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["password_login_available"], True)
-        self.assertEqual(response.json()["social_providers"], [])
+    @parameterized.expand(
+        [
+            ("active", True, True),
+            ("deactivated", False, True),
+            ("unknown", None, False),
+        ]
+    )
+    def test_login_precheck_reports_whether_an_account_exists(
+        self, _name: str, user_is_active: bool | None, expected_account_exists: bool
+    ) -> None:
+        # The auth page sends `account_exists: false` to the signup step. Signup cannot reuse a
+        # deactivated account's email, so that account must route to the login step instead.
+        email = "routed@posthog.com"
+        if user_is_active is not None:
+            user = User.objects.create_and_join(self.organization, email, None)
+            user.is_active = user_is_active
+            user.save()
 
-    def test_login_precheck_treats_inactive_passwordless_user_as_unknown(self):
-        user = User.objects.create_and_join(self.organization, "deactivated@posthog.com", None)
-        user.is_active = False
-        user.save()
-
-        response = self.client.post("/api/login/precheck", {"email": "deactivated@posthog.com"})
+        response = self.client.post("/api/login/precheck", {"email": email.upper()})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["password_login_available"], True)
+        self.assertEqual(response.json()["account_exists"], expected_account_exists)
+        if not expected_account_exists:
+            self.assertEqual(response.json()["password_login_available"], True)
+            self.assertEqual(response.json()["social_providers"], [])
 
     def test_login_precheck_is_rate_limited_by_ip(self):
         cache.clear()
@@ -2373,15 +2384,19 @@ class TestTimeSensitivePermissions(APIBaseTest):
             res = self.client.patch("/api/users/@me", payload, format="json")
             assert res.status_code != 403, f"Field update should not require re-authentication, got: {res.json()}"
 
-    def test_user_can_update_hedgehog_config_without_recent_authentication(self):
+    @parameterized.expand(
+        [
+            ("hedgehog_config", "patch", "/api/users/@me/hedgehog_config", {"enabled": True, "color": "red"}, 200),
+            ("credentials_review_complete", "post", "/api/users/@me/credentials_review_complete/", {}, 204),
+        ]
+    )
+    def test_user_actions_allowed_without_recent_authentication(
+        self, _name: str, method: str, url: str, payload: dict[str, object], expected_status: int
+    ):
         now = datetime.now()
         with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
-            res = self.client.patch(
-                "/api/users/@me/hedgehog_config",
-                {"enabled": True, "color": "red"},
-                format="json",
-            )
-            assert res.status_code == 200
+            res = getattr(self.client, method)(url, payload, format="json")
+            assert res.status_code == expected_status, res.content
 
     def test_user_can_update_scene_personalisation_without_recent_authentication(self):
         from products.dashboards.backend.models.dashboard import Dashboard

@@ -10,7 +10,7 @@ from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 
 logger = structlog.get_logger(__name__)
 
-RecordingApiOp = Literal["read", "delete"]
+RecordingApiOp = Literal["read", "delete", "write"]
 
 # Direct callers mint a fresh token per request, so a short lifetime suffices. The rasterizer
 # can't re-mint mid-render and reuses one relayed token across a whole render, so it passes a

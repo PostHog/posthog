@@ -1,7 +1,7 @@
 """Resolve the `recommended` inbox sort to a ranker, and give each row a coarse merge key.
 
-A multivariate flag keyed by the requesting user picks the ranker. The variants `open`, `action` and `fixed` order
-by the served head of the same name first. `control`, an unknown variant, or a flag that is off or fails to evaluate
+A multivariate flag keyed by the requesting user picks the ranker. The variants `open`, `action` and `fix` order
+by the served outcome of the same name first. `control`, an unknown variant, or a flag that is off or fails to evaluate
 gives the priority order. The EU instance gives the priority order without evaluating the flag.
 
 The merge key lets a client merge rows from different rankers without the raw score. It is the score
@@ -23,13 +23,14 @@ from posthog.models.user import User
 from posthog.utils import get_instance_region
 
 from products.signals.backend.models import AutonomyPriority
+from products.signals.backend.ranking.public_outcomes import PublicOutcomeName
 
 logger = structlog.get_logger(__name__)
 
 RECOMMENDED_INBOX_SORT_FLAG = "signals-inbox-recommended-sort"
 
-InboxRanker = Literal["priority", "open", "action", "fixed"]
-HeadRanker = Literal["open", "action", "fixed"]
+HeadRanker = PublicOutcomeName
+InboxRanker = Literal["priority", HeadRanker]
 
 HEAD_RANKERS: tuple[HeadRanker, ...] = get_args(HeadRanker)
 

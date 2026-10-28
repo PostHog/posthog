@@ -157,7 +157,7 @@ class VercelIntegration:
     SSO_EXPERIMENTATION_CONFIG: dict[str, SSOExperimentationConfig] = {
         "flag": SSOExperimentationConfig(
             model=FeatureFlag,
-            url_template="/project/{team_id}/feature_flags/{item_pk}",
+            url_template="/project/{team_id}/feature-flags/{item_pk}",
         ),
         "experiment": SSOExperimentationConfig(
             model=Experiment,
@@ -891,7 +891,7 @@ class VercelIntegration:
         return {
             **({"id": VercelIntegration._get_vercel_item_id("flag", feature_flag.pk)} if created else {}),
             "slug": feature_flag.key,
-            "origin": absolute_uri(f"/project/{feature_flag.team.id}/feature_flags/{feature_flag.pk}"),
+            "origin": absolute_uri(f"/project/{feature_flag.team.id}/feature-flags/{feature_flag.pk}"),
             "category": "flag",
             "name": feature_flag.key,
             "description": feature_flag.name,

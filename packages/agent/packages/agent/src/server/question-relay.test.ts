@@ -10,8 +10,11 @@ import {
   vi,
 } from "vitest";
 import { classifyAgentError } from "../adapters/error-classification";
+import { selectProduct } from "../boot/select-product";
 import type { PostHogAPIClient } from "../posthog-api";
+import type { ProductLaunchConfiguration } from "../sdk/product";
 import {
+  createTask as createBaseTask,
   createTaskRun,
   createTestRepo,
   type TestRepo,
@@ -24,11 +27,13 @@ import {
   UPSTREAM_PROVIDER_FAILURE_MESSAGE,
 } from "./agent-server";
 
+import type { ContextSelection } from "./context-selection";
+
 interface TestableAgentServer {
+  createContextSelection(runId: string): ContextSelection;
   posthogAPI: PostHogAPIClient;
-  isQuestionMeta: (value: unknown) => boolean;
-  getFirstQuestionMeta: (meta: unknown) => unknown;
-  relaySlackQuestion: (payload: Record<string, unknown>, meta: unknown) => void;
+  openProductSession: (launch: ProductLaunchConfiguration) => Promise<void>;
+  emitConsoleLog: (...args: unknown[]) => void;
   createCloudClient: (payload: Record<string, unknown>) => {
     requestPermission: (opts: {
       options: unknown[];
@@ -38,7 +43,7 @@ interface TestableAgentServer {
       _meta?: { message?: string; answers?: Record<string, string> };
     }>;
   };
-  questionRelayedToSlack: boolean;
+  questionAwaitingReply: boolean;
   session: unknown;
   relayAgentResponse: (
     payload: Record<string, unknown>,
@@ -77,17 +82,14 @@ const TEST_PAYLOAD = {
 };
 
 function createTask(overrides: Partial<Task> = {}): Task {
-  return {
+  return createBaseTask({
     id: "test-task-id",
-    task_number: null,
     slug: "test-task",
     title: "t",
     description: "original task description",
-    created_at: "2026-01-01T00:00:00.000Z",
-    updated_at: "2026-01-01T00:00:00.000Z",
     origin_product: "tasks",
     ...overrides,
-  };
+  });
 }
 
 const QUESTION_META = {
@@ -190,6 +192,7 @@ describe("Question relay", () => {
       mode: "interactive",
       taskId: "test-task-id",
       runId: "test-run-id",
+      selectProduct,
     }) as unknown as TestableAgentServer;
   });
 
@@ -198,121 +201,88 @@ describe("Question relay", () => {
     await repo.cleanup();
   });
 
-  describe("isQuestionMeta", () => {
-    it.each([
-      ["null", null],
-      ["undefined", undefined],
-      ["number", 42],
-      ["string", "not a question"],
-      ["object without question field", { options: [] }],
-      ["object with non-string question", { question: 123 }],
-      ["object with non-array options", { question: "Q?", options: "bad" }],
-      [
-        "object with invalid option items",
-        { question: "Q?", options: [{ notLabel: "x" }] },
-      ],
-    ])("rejects %s", (_label, value) => {
-      expect(server.isQuestionMeta(value)).toBe(false);
-    });
-
-    it.each([
-      [
-        "question with options",
-        {
-          question: "Pick one",
-          options: [{ label: "A", description: "desc" }, { label: "B" }],
-        },
-      ],
-      ["question without options", { question: "What do you think?" }],
-      ["question with empty options", { question: "Confirm?", options: [] }],
-    ])("accepts %s", (_label, value) => {
-      expect(server.isQuestionMeta(value)).toBe(true);
-    });
-  });
-
-  describe("getFirstQuestionMeta", () => {
-    it.each([
-      ["null meta", null],
-      ["undefined meta", undefined],
-      ["meta without questions", { other: "field" }],
-      ["meta with empty questions array", { questions: [] }],
-      ["meta with non-array questions", { questions: "not-array" }],
-    ])("returns null for %s", (_label, meta) => {
-      expect(server.getFirstQuestionMeta(meta)).toBeNull();
-    });
-
-    it("returns first question from valid meta", () => {
-      const result = server.getFirstQuestionMeta(QUESTION_META);
-      expect(result).toEqual(QUESTION_META.questions[0]);
-    });
-  });
-
-  describe("relaySlackQuestion", () => {
-    it("relays formatted question with options via posthogAPI", () => {
-      const relaySpy = vi
-        .spyOn(server.posthogAPI, "relayMessage")
-        .mockResolvedValue(undefined);
-
-      server.relaySlackQuestion(TEST_PAYLOAD, QUESTION_META);
-
-      expect(relaySpy).toHaveBeenCalledOnce();
-      const [taskId, runId, message] = relaySpy.mock.calls[0];
-      expect(taskId).toBe("test-task-id");
-      expect(runId).toBe("test-run-id");
-      expect(message).toContain("*Which license should I use?*");
-      expect(message).toContain("1. *MIT*");
-      expect(message).toContain("Permissive license");
-      expect(message).toContain("2. *Apache 2.0*");
-      expect(message).toContain("3. *GPL v3*");
-      expect(message).toContain("Reply in this thread");
-    });
-
-    it("sets questionRelayedToSlack flag", () => {
-      vi.spyOn(server.posthogAPI, "relayMessage").mockResolvedValue(undefined);
-
-      server.relaySlackQuestion(TEST_PAYLOAD, QUESTION_META);
-      expect(server.questionRelayedToSlack).toBe(true);
-    });
-
-    it("does not relay when meta has no valid question", () => {
-      const relaySpy = vi
-        .spyOn(server.posthogAPI, "relayMessage")
-        .mockResolvedValue(undefined);
-
-      server.relaySlackQuestion(TEST_PAYLOAD, { codeToolKind: "question" });
-      expect(server.questionRelayedToSlack).toBe(false);
-      expect(relaySpy).not.toHaveBeenCalled();
-    });
-  });
-
   describe("createCloudClient requestPermission", () => {
     const ALLOW_OPTIONS = [
       { kind: "allow_once", optionId: "allow", name: "Allow" },
     ];
 
-    describe("with POSTHOG_CODE_INTERACTION_ORIGIN=slack", () => {
-      beforeEach(() => {
-        process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
+    describe("with the Slack product", () => {
+      beforeEach(async () => {
+        await server.openProductSession({
+          taskId: "test-task-id",
+          runId: "test-run-id",
+          originProduct: "slack",
+          launchOptions: {},
+        });
       });
 
-      afterEach(() => {
-        delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
-      });
-
-      it("returns cancelled with relay message for question tool", async () => {
-        vi.spyOn(server.posthogAPI, "relayMessage").mockResolvedValue(
-          undefined,
-        );
+      it("relays the question to the thread and tells the agent to wait", async () => {
+        const relaySpy = vi
+          .spyOn(server.posthogAPI, "relayMessage")
+          .mockResolvedValue(undefined);
         const client = server.createCloudClient(TEST_PAYLOAD);
 
         const result = await client.requestPermission({
           options: ALLOW_OPTIONS,
-          toolCall: { _meta: QUESTION_META },
+          toolCall: { toolCallId: "question-1", _meta: QUESTION_META },
         });
 
         expect(result.outcome.outcome).toBe("cancelled");
         expect(result._meta?.message).toContain("relayed to the Slack thread");
         expect(result._meta?.message).toContain("Do NOT re-ask the question");
+        expect(server.questionAwaitingReply).toBe(true);
+        const [taskId, runId, message] = relaySpy.mock.calls[0];
+        expect([taskId, runId]).toEqual(["test-task-id", "test-run-id"]);
+        expect(message).toBe(
+          "*Which license should I use?*\n\n" +
+            "1. *MIT* — Permissive license\n" +
+            "2. *Apache 2.0* — Patent grant included\n" +
+            "3. *GPL v3* — Copyleft license\n" +
+            "\nReply in this thread with your choice.",
+        );
+      });
+
+      it("reports a failed question relay in the run log", async () => {
+        vi.spyOn(server.posthogAPI, "relayMessage").mockRejectedValue(
+          new Error("relay down"),
+        );
+        server.emitConsoleLog = vi.fn();
+        const client = server.createCloudClient(TEST_PAYLOAD);
+
+        const result = await client.requestPermission({
+          options: ALLOW_OPTIONS,
+          toolCall: { toolCallId: "question-1", _meta: QUESTION_META },
+        });
+
+        expect(result._meta?.message).toContain("relayed to the Slack thread");
+        await vi.waitFor(() =>
+          expect(server.emitConsoleLog).toHaveBeenCalledWith(
+            "error",
+            "product",
+            "Failed to send a reply",
+            expect.objectContaining({ error: "relay down" }),
+          ),
+        );
+      });
+
+      it("does not relay a question without valid question metadata", async () => {
+        const relaySpy = vi.spyOn(server.posthogAPI, "relayMessage");
+        const client = server.createCloudClient({
+          ...TEST_PAYLOAD,
+          mode: "background",
+        });
+
+        const result = await client.requestPermission({
+          options: ALLOW_OPTIONS,
+          toolCall: {
+            toolCallId: "question-1",
+            _meta: { codeToolKind: "question" },
+          },
+        });
+
+        expect(result.outcome.outcome).toBe("cancelled");
+        expect(relaySpy).not.toHaveBeenCalled();
+        expect(server.questionAwaitingReply).toBe(false);
       });
 
       it("auto-approves non-question tools", async () => {
@@ -574,7 +544,7 @@ describe("Question relay", () => {
   });
 
   describe("relayAgentResponse duplicate suppression", () => {
-    it("skips relay when questionRelayedToSlack is set", async () => {
+    it("skips relay when the agent waits for a question reply", async () => {
       const relaySpy = vi
         .spyOn(server.posthogAPI, "relayMessage")
         .mockResolvedValue(undefined);
@@ -588,14 +558,14 @@ describe("Question relay", () => {
         },
       };
 
-      server.questionRelayedToSlack = true;
+      server.questionAwaitingReply = true;
       await server.relayAgentResponse(TEST_PAYLOAD);
 
-      expect(server.questionRelayedToSlack).toBe(false);
+      expect(server.questionAwaitingReply).toBe(false);
       expect(relaySpy).not.toHaveBeenCalled();
     });
 
-    it("relays normally when questionRelayedToSlack is not set", async () => {
+    it("relays normally when no question waits for a reply", async () => {
       const relaySpy = vi
         .spyOn(server.posthogAPI, "relayMessage")
         .mockResolvedValue(undefined);
@@ -612,7 +582,6 @@ describe("Question relay", () => {
         },
       };
 
-      server.questionRelayedToSlack = false;
       await server.relayAgentResponse(TEST_PAYLOAD);
 
       expect(relaySpy).toHaveBeenCalledWith(
@@ -640,7 +609,6 @@ describe("Question relay", () => {
         },
       };
 
-      server.questionRelayedToSlack = false;
       await server.relayAgentResponse(
         TEST_PAYLOAD,
         "msg-123",
@@ -671,10 +639,34 @@ describe("Question relay", () => {
         },
       };
 
-      server.questionRelayedToSlack = false;
       await server.relayAgentResponse(TEST_PAYLOAD);
 
       expect(relaySpy).not.toHaveBeenCalled();
+    });
+
+    it("reports a failed relay in the run log", async () => {
+      server.emitConsoleLog = vi.fn();
+      server.session = {
+        payload: TEST_PAYLOAD,
+        logWriter: {
+          flush: vi.fn().mockResolvedValue(undefined),
+          getFullAgentResponse: vi.fn().mockReturnValue("agent response"),
+          getAgentResponseParts: vi.fn().mockReturnValue(["agent response"]),
+          isRegistered: vi.fn().mockReturnValue(true),
+        },
+      };
+      vi.spyOn(server.posthogAPI, "relayMessage").mockRejectedValue(
+        new Error("relay down"),
+      );
+
+      await server.relayAgentResponse(TEST_PAYLOAD, "msg-1");
+
+      expect(server.emitConsoleLog).toHaveBeenCalledWith(
+        "error",
+        "product",
+        "Failed to relay the agent reply",
+        expect.objectContaining({ messageId: "msg-1", error: "relay down" }),
+      );
     });
   });
 
@@ -696,6 +688,8 @@ describe("Question relay", () => {
 
       const promptSpy = vi.fn().mockResolvedValue({ stopReason: "max_tokens" });
       server.session = {
+        contextSelection: server.createContextSelection(TEST_PAYLOAD.run_id),
+        cancellationVersion: 0,
         payload: TEST_PAYLOAD,
         acpSessionId: "acp-session",
         clientConnection: { prompt: promptSpy },
@@ -741,6 +735,8 @@ describe("Question relay", () => {
 
       const promptSpy = vi.fn().mockResolvedValue({ stopReason: "max_tokens" });
       server.session = {
+        contextSelection: server.createContextSelection(TEST_PAYLOAD.run_id),
+        cancellationVersion: 0,
         payload: TEST_PAYLOAD,
         acpSessionId: "acp-session",
         clientConnection: { prompt: promptSpy },
@@ -776,6 +772,8 @@ describe("Question relay", () => {
 
       const promptSpy = vi.fn().mockResolvedValue({ stopReason: "max_tokens" });
       server.session = {
+        contextSelection: server.createContextSelection(TEST_PAYLOAD.run_id),
+        cancellationVersion: 0,
         payload: TEST_PAYLOAD,
         acpSessionId: "acp-session",
         clientConnection: { prompt: promptSpy },
@@ -811,6 +809,8 @@ describe("Question relay", () => {
 
       const promptSpy = vi.fn().mockResolvedValue({ stopReason: "end_turn" });
       server.session = {
+        contextSelection: server.createContextSelection(TEST_PAYLOAD.run_id),
+        cancellationVersion: 0,
         payload: TEST_PAYLOAD,
         acpSessionId: "acp-session",
         clientConnection: { prompt: promptSpy },
@@ -841,6 +841,8 @@ describe("Question relay", () => {
 
       const promptSpy = vi.fn().mockResolvedValue({ stopReason: "end_turn" });
       server.session = {
+        contextSelection: server.createContextSelection(TEST_PAYLOAD.run_id),
+        cancellationVersion: 0,
         payload: TEST_PAYLOAD,
         acpSessionId: "acp-session",
         clientConnection: { prompt: promptSpy },
@@ -877,6 +879,8 @@ describe("Question relay", () => {
 
         const promptSpy = vi.fn().mockResolvedValue({ stopReason: "end_turn" });
         server.session = {
+          contextSelection: server.createContextSelection(TEST_PAYLOAD.run_id),
+          cancellationVersion: 0,
           payload: TEST_PAYLOAD,
           acpSessionId: "acp-session",
           clientConnection: { prompt: promptSpy },
@@ -931,6 +935,8 @@ describe("Question relay", () => {
         .spyOn(server.posthogAPI, "updateTaskRun")
         .mockResolvedValue({} as TaskRun);
       server.session = {
+        contextSelection: server.createContextSelection(TEST_PAYLOAD.run_id),
+        cancellationVersion: 0,
         payload: TEST_PAYLOAD,
         acpSessionId: "acp-session",
         clientConnection: { prompt: promptSpy },
@@ -983,6 +989,8 @@ describe("Question relay", () => {
         .spyOn(server.posthogAPI, "updateTaskRun")
         .mockResolvedValue({} as TaskRun);
       server.session = {
+        contextSelection: server.createContextSelection(TEST_PAYLOAD.run_id),
+        cancellationVersion: 0,
         payload: TEST_PAYLOAD,
         acpSessionId: "acp-session",
         clientConnection: { prompt: promptSpy },
@@ -1032,6 +1040,8 @@ describe("Question relay", () => {
         .spyOn(server.posthogAPI, "updateTaskRun")
         .mockResolvedValue({} as TaskRun);
       server.session = {
+        contextSelection: server.createContextSelection(TEST_PAYLOAD.run_id),
+        cancellationVersion: 0,
         payload: TEST_PAYLOAD,
         acpSessionId: "acp-session",
         clientConnection: { prompt: promptSpy },
@@ -1048,7 +1058,7 @@ describe("Question relay", () => {
       vi.useFakeTimers();
       try {
         const sendPromise = startInitialTaskMessage(server, TEST_PAYLOAD);
-        await vi.advanceTimersByTimeAsync(10_000);
+        await vi.advanceTimersByTimeAsync(15_000);
         await sendPromise;
       } finally {
         vi.useRealTimers();

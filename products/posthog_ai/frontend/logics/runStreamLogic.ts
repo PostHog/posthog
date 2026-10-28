@@ -1,14 +1,26 @@
 import { type EventSourceMessage, createParser } from 'eventsource-parser'
-import { MakeLogicType, getContext, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    getContext,
+    actions,
+    beforeUnmount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import posthog from 'posthog-js'
 
 import { agentConversationEventToAcpNotification } from '@posthog/agent-contracts/acp-conversation'
 import type { AgentConversationEvent } from '@posthog/agent-contracts/agent-conversation'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { uuid } from 'lib/utils/dom'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -25,7 +37,6 @@ import {
     TaskRuntimeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
-import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { UserType } from '../../../../frontend/src/types'
 import { turnSuggestionsStateRetrieve } from '../generated/api'
 import { deliverPermissionResponse, isPermissionTargetEnded } from '../policy/permissionDelivery'
@@ -120,6 +131,27 @@ interface LiveStreamRegistryHost {
 // This only covers swaps that re-evaluate this module. `devHmrStreamAbort` covers the rest, where the
 // logic survives and its stream has to be reopened rather than left closed.
 const liveStreamControllers = new Set<LiveStreamEntry>()
+
+const liveRunStreamsByContext = new WeakMap<object, Map<string, string>>()
+
+function liveRunStreams(): Map<string, string> {
+    const context = getContext()
+    let streams = liveRunStreamsByContext.get(context)
+    if (!streams) {
+        streams = new Map()
+        liveRunStreamsByContext.set(context, streams)
+    }
+    return streams
+}
+
+export function findLiveRunStreamKey(runId: string): string | null {
+    for (const [streamKey, servedRunId] of liveRunStreams()) {
+        if (servedRunId === runId) {
+            return streamKey
+        }
+    }
+    return null
+}
 if (process.env.NODE_ENV === 'development') {
     const registryHost = globalThis as LiveStreamRegistryHost
     registryHost.__posthogAiLiveStreamControllers?.forEach((entry) => entry.controller.abort())
@@ -226,20 +258,15 @@ export interface StreamProxyTarget {
 }
 
 /**
- * Resolve the proxy target for a run, or null to stream from Django. Purely additive: with the
- * rollout flag off we skip the token mint entirely (pre-proxy behavior); with it on but the server
- * resolves no base URL — or the mint throws — we fall back to Django so streaming never breaks.
+ * Resolve the proxy target for a run, or null to stream from Django. When the server resolves no
+ * base URL — or the mint throws — we fall back to Django so streaming never breaks.
  */
 export async function resolveStreamTarget(
     projectId: string,
     taskId: string,
     runId: string,
-    viaProxy: boolean,
     signal?: AbortSignal
 ): Promise<StreamProxyTarget | null> {
-    if (!viaProxy) {
-        return null
-    }
     try {
         const { token, stream_base_url } = await tasksRunsStreamTokenRetrieve(
             projectId,
@@ -554,11 +581,121 @@ function isResumeRun(run: { state?: unknown }): boolean {
     return isRecord(state) && typeof state.resume_from_run_id === 'string' && state.resume_from_run_id !== ''
 }
 
-function normalizeHistory(entries: unknown[], runId: string, resumed: boolean): StoredLogEntry[] {
+/** Bytes of the latest turns a chat reads first; older turns load in pages of `HISTORY_PAGE_BYTES`. */
+const HISTORY_TAIL_BYTES = 1_000_000
+const HISTORY_PAGE_BYTES = 2_000_000
+/** Wait after the latest turns render before the next older page preloads, so it never competes with the open. */
+const OLDER_HISTORY_PRELOAD_DELAY_MS = 1_500
+/** Backoff after an older page fails to load, doubled per failure, and the failures before loading stops. */
+const OLDER_HISTORY_RETRY_DELAY_MS = 5_000
+const OLDER_HISTORY_MAX_FAILURES = 3
+
+export type OlderHistoryState = 'none' | 'idle' | 'loading'
+
+export interface HistoryPage {
+    entries: Record<string, any>[]
+    offset: number
+    count: number
+    preamble: number
+    turnsBefore: number
+    /** The first run of the chain the indexes count from; a chain keeps a limited number of runs. */
+    origin: string
+    /** False for a full log sent without paging headers: its entries carry no full-log index. */
+    indexed: boolean
+}
+
+/**
+ * Where the loaded log starts in the run's resume-chain log. `offset` is the full-log index of the first loaded entry
+ * after the preamble, and `turnsBefore` counts the user turns before it, so turns keep the numbers the full log gives
+ * them. The client log is always the preamble of `offset`, then every entry from `offset` on, then live entries.
+ */
+export interface HistoryCursor {
+    runId: string
+    origin: string
+    offset: number
+    turnsBefore: number
+}
+
+/** Stream backlog entries (`log-N` frames) by their full-log index. */
+const backlogIndexes = new WeakMap<StoredLogEntry, number>()
+
+/** Whether a stream backlog entry is already in the loaded log, or in an older page before it. */
+function isLoadedBacklog(entry: StoredLogEntry, loadedEnd: number | undefined): boolean {
+    const index = backlogIndexes.get(entry)
+    return index !== undefined && loadedEnd !== undefined && index < loadedEnd
+}
+
+/** The synthetic preamble entry that carries the context-block messages from before a page's cut. */
+const CONTEXT_HISTORY_METHOD = '_posthog/context_history'
+
+function contextHistoryLines(params: Record<string, unknown> | undefined): string[] {
+    const messages = params?.messages
+    return Array.isArray(messages)
+        ? messages.flatMap((message) => (typeof message === 'string' ? contextBlockLinesFromUserMessage(message) : []))
+        : []
+}
+
+/** Entries a page carried in its preamble: state from before the page, not entries at their own position. */
+const historyPreambles = new WeakSet<StoredLogEntry>()
+
+/**
+ * Put an older page in front of the log. The page's preamble replaces the preamble at the head of the log, so the log
+ * stays what a read from the page's cut returns. Nothing replays: the latest page already set the current state.
+ */
+function prependHistoryPage(log: RunLog, page: StoredLogEntry[]): RunLog {
+    // A stream that started without a history read keeps live entries the page can also hold; the saved copy
+    // at its own position wins.
+    const coverage = new RunEventCoverage(page)
+    return appendToRunLog(emptyRunLog(), [
+        ...page.map((entry): StoredEntry => ({ entry, source: 'replay' })),
+        ...log.entries.filter(
+            ({ entry, source }) =>
+                !historyPreambles.has(entry) && !(source === 'live' && !!entry.event_id && coverage.covers(entry))
+        ),
+    ])
+}
+
+/** The context-block lines of the user messages in an older page, which the send paths dedupe against. */
+function historyContextLines(entries: StoredLogEntry[]): string[] {
+    return entries.flatMap(({ notification }) => {
+        if (notification.method === CONTEXT_HISTORY_METHOD) {
+            return contextHistoryLines(notification.params)
+        }
+        if (notification.method === '_posthog/user_message') {
+            const content = notification.params?.content
+            if (Array.isArray(content) && content.length > 0 && content.every(isHiddenUserContent)) {
+                return []
+            }
+            return contextBlockLinesFromUserMessage(extractUserMessageText(content))
+        }
+        const update = notification.params?.update
+        if (
+            notification.method === 'session/update' &&
+            isSessionUpdateUserMessage(update) &&
+            update.sessionUpdate === 'user_message' &&
+            !isHiddenUserContent(update.content)
+        ) {
+            return contextBlockLinesFromUserMessage(String(update.content?.text ?? update.text ?? ''))
+        }
+        return []
+    })
+}
+
+/**
+ * `preamble` counts the leading entries that came in a page's preamble. `sourceRunId` names the run that owns the
+ * entries before the first run marker, for a read that continues a loaded log.
+ */
+function normalizeHistory(
+    entries: unknown[],
+    runId: string,
+    resumed: boolean,
+    preamble = 0,
+    sourceRunId?: string
+): StoredLogEntry[] {
     // Match Desktop's run-marker scoping without changing the shared log payload or its deduplication keys.
     // A resume chain without a marker has unknown ownership; a single-run history belongs to its requested run.
-    let sourceRunId: string | undefined = resumed ? undefined : runId
-    return entries.flatMap((raw) => {
+    let source: string | undefined = sourceRunId ?? (resumed ? undefined : runId)
+    return entries.flatMap((raw, index) => {
         const entry = normalizeNotificationEntry(raw)
         if (!entry) {
             return []
@@ -571,9 +708,13 @@ function normalizeHistory(entries: unknown[], runId: string, resumed: boolean): 
                   ? params?.runId
                   : undefined
         if (typeof marker === 'string') {
-            sourceRunId = marker
+            source = marker
         }
-        return [{ ...entry, source_run_id: sourceRunId }]
+        const normalized = { ...entry, source_run_id: source }
+        if (index < preamble) {
+            historyPreambles.add(normalized)
+        }
+        return [normalized]
     })
 }
 
@@ -1095,6 +1236,30 @@ function isAgentMessageEntry(entry: StoredLogEntry): boolean {
     )
 }
 
+const KEPT_TOOL_RESPONSE_FIELDS = ['decisionReason', 'message'] as const
+
+export function reduceToolResponseCopy(entry: StoredLogEntry): void {
+    const update = entry.notification.params?.update
+    const meta = isRecord(update) ? update._meta : undefined
+    const claudeCode = isRecord(meta) ? meta.claudeCode : undefined
+    if (!isRecord(claudeCode) || !('toolResponse' in claudeCode)) {
+        return
+    }
+    const toolResponse = claudeCode.toolResponse
+    const kept = Object.fromEntries(
+        isRecord(toolResponse)
+            ? KEPT_TOOL_RESPONSE_FIELDS.flatMap((key) =>
+                  typeof toolResponse[key] === 'string' ? [[key, toolResponse[key]]] : []
+              )
+            : []
+    )
+    if (Object.keys(kept).length > 0) {
+        claudeCode.toolResponse = kept
+    } else {
+        delete claudeCode.toolResponse
+    }
+}
+
 function persistedHumanText(entry: StoredLogEntry): string | null {
     if (entry.notification.method === '_posthog/user_message') {
         return unwrapUserMessageContent(extractUserMessageText(entry.notification.params?.content))
@@ -1373,6 +1538,49 @@ function retainedFramesWithoutOptimisticEchoes(retained: StoredEntry[]): StoredL
  * is the one echo no persisted copy covers yet, matched by identity because the same words can
  * arrive several times.
  */
+/**
+ * Row keys of optimistic sends, by the saved message that replaced them (`run:event_id`), so the row keeps the
+ * key it rendered with and the thread does not read the saved message as a new anchor.
+ */
+const sentHumanRowKeys = new Map<string, string>()
+
+function savedEntryKey(entry: StoredLogEntry): string | null {
+    return entry.event_id ? `${entry.source_run_id ?? ''}:${entry.event_id}` : null
+}
+
+/**
+ * The thread of the full conversation for a stream whose older history is not all loaded: the full log, with the
+ * stream's live and client entries after it. Null when the stream already holds its full history, so a caller
+ * that needs no read does not wait.
+ */
+export function readFullThread(
+    streamKey: string
+): Promise<{ threadItems: ThreadItem[]; toolInvocations: Map<string, ToolInvocation> }> | null {
+    const logic = runStreamLogic.findMounted({ streamKey })
+    const cursor = logic?.cache.historyCursor as HistoryCursor | undefined
+    const taskId = logic?.values.bootstrappedTaskId
+    const projectId = logic?.values.currentProjectId
+    if (!logic || !cursor || cursor.offset === 0 || !taskId || projectId == null) {
+        return null
+    }
+    return api.tasks.runs.getLogPage(taskId, cursor.runId, { projectId, view: 'thread' }).then((page) => {
+        const history = normalizeHistory(page.entries, cursor.runId, logic.values.isBootstrapResumeRun)
+        const tail = logic.values.log.entries.filter(({ source }) => source !== 'replay')
+        const folded = foldLogToThread(reconcileRunLog(history, tail, []).entries, {
+            isResumeRun: logic.values.isBootstrapResumeRun,
+            pendingMessage: logic.values.pendingRunMessage,
+            taskId,
+        })
+        const showDebugLogs = logic.values.showDebugLogs
+        return {
+            threadItems: folded.threadItems.filter(
+                (item) => (item.type !== 'debug' || showDebugLogs) && rendersThreadItemContent(item)
+            ),
+            toolInvocations: folded.toolInvocations,
+        }
+    })
+}
+
 export function reconcileRunLog(
     history: StoredLogEntry[],
     retained: StoredEntry[],
@@ -1382,6 +1590,8 @@ export function reconcileRunLog(
     let entries: StoredEntry[] = history.map((entry) => ({ entry, source: 'replay' }))
     const coverage = new RunEventCoverage(history)
     const savedHumanCounts = new Map<string, number>()
+    const savedHumanEntries = new Map<string, StoredLogEntry[]>()
+    const matchedSendIds = new Map<string, (string | undefined)[]>()
     const rememberedHumanTexts = new Map<string, number>()
     for (const entry of dedupeBufferedAgainstHistory(history, retainedFramesWithoutOptimisticEchoes(retained))) {
         const text = persistedHumanText(entry)
@@ -1398,6 +1608,7 @@ export function reconcileRunLog(
             }
         }
         savedHumanCounts.set(text, (savedHumanCounts.get(text) ?? 0) + 1)
+        savedHumanEntries.set(text, [...(savedHumanEntries.get(text) ?? []), entry])
     }
     for (const [tailIndex, tail] of [
         retained,
@@ -1416,6 +1627,11 @@ export function reconcileRunLog(
                 const saved = savedHumanCounts.get(text) ?? 0
                 if (saved > 0) {
                     savedHumanCounts.set(text, saved - 1)
+                    const clientId = entry.notification.params?.clientId
+                    matchedSendIds.set(text, [
+                        ...(matchedSendIds.get(text) ?? []),
+                        typeof clientId === 'string' ? clientId : undefined,
+                    ])
                     continue
                 }
             }
@@ -1456,6 +1672,16 @@ export function reconcileRunLog(
                 entries.push(stored)
             }
         }
+    }
+    // The sends that matched are the latest saved messages of their text, in order.
+    for (const [text, sendIds] of matchedSendIds) {
+        const saved = (savedHumanEntries.get(text) ?? []).slice(-sendIds.length)
+        sendIds.forEach((clientId, index) => {
+            const key = saved[index] ? savedEntryKey(saved[index]) : null
+            if (clientId && key && !sentHumanRowKeys.has(key)) {
+                sentHumanRowKeys.set(key, `client-${clientId}`)
+            }
+        })
     }
     return appendToRunLog(emptyRunLog(), entries)
 }
@@ -1714,6 +1940,11 @@ export function foldLogFromCheckpoint(
     let timestamp: number | undefined
     let importedRun = resume?.importedRun ?? false
     let entryRunId: string | undefined
+    // The agent's `event_id` of the entry being folded. Ids built from it stay the same when older history
+    // loads in front of the log, where the per-type counters behind the fallback ids would shift.
+    let entryKey: string | undefined
+    const seqId = (prefix: string, seq: number): string => (entryKey ? `${prefix}@${entryKey}` : `${prefix}-${seq}`)
+    const bubbleId = (id: string, seq: number): string => `${id}@${entryKey ?? seq}`
     let pendingMessageSeen = resume?.pendingMessageSeen ?? false
     let pendingInsertionIndex: number | undefined = resume?.pendingInsertionIndex
     let bufferedAttachments: ThreadAttachment[] = resume ? [...resume.bufferedAttachments] : []
@@ -1733,7 +1964,7 @@ export function foldLogFromCheckpoint(
         }
         const carried = [...attachments, ...bufferedAttachments]
         const item: ThreadItem = {
-            id: placement.reuseId ?? `human-${humanCount++}`,
+            id: placement.reuseId ?? seqId('human', humanCount++),
             type: 'human_message',
             text,
             complete: true,
@@ -1827,7 +2058,7 @@ export function foldLogFromCheckpoint(
                 openAssistantMessages++
             }
             items.push({
-                id: `${id}@${bubbleSeq++}`,
+                id: bubbleId(id, bubbleSeq++),
                 type,
                 text: delta,
                 complete: false,
@@ -1866,7 +2097,7 @@ export function foldLogFromCheckpoint(
             // arrives alone). Push a fresh bubble with a unique id — a bare fallback id would collide
             // as a React key with every other no-`messageId` message in the thread.
             items.push({
-                id: `${id}@${bubbleSeq++}`,
+                id: bubbleId(id, bubbleSeq++),
                 type: 'assistant_message',
                 text,
                 complete: true,
@@ -2012,7 +2243,7 @@ export function foldLogFromCheckpoint(
             items.splice(undeliveredIdx, 1)
         }
         items.push({
-            id: `error-${errorSeq++}`,
+            id: seqId('error', errorSeq++),
             type: 'error',
             errorMessage: message,
             variant,
@@ -2023,6 +2254,16 @@ export function foldLogFromCheckpoint(
     for (let index = resume ? resume.entries.length : 0; index < entries.length; index++) {
         const { entry, source } = entries[index]
         entryRunId = entry.source_run_id ?? options.pendingMessage?.runId
+        const clientId = entry.notification.params?.clientId
+        // A saved message that replaces its streamed chunks keeps the first chunk's id, so its row keeps its key.
+        const savedKey = savedEntryKey(entry)
+        const eventKey = (savedKey && sentHumanRowKeys.get(savedKey)) || entry.first_event_id || entry.event_id
+        entryKey =
+            typeof eventKey === 'string' && eventKey
+                ? eventKey
+                : entry.notification.method === '_client/human_message' && typeof clientId === 'string'
+                  ? `client-${clientId}`
+                  : undefined
         if (
             options.pendingMessage &&
             entryRunId === options.pendingMessage.runId &&
@@ -2048,7 +2289,7 @@ export function foldLogFromCheckpoint(
         }
         if (method === '_client/error') {
             items.push({
-                id: `error-${errorSeq++}`,
+                id: seqId('error', errorSeq++),
                 type: 'error',
                 errorMessage: String(params.message ?? ''),
                 variant: params.variant === 'crash' ? 'crash' : 'error',
@@ -2075,8 +2316,18 @@ export function foldLogFromCheckpoint(
         }
         if (method === '_posthog/turn_complete') {
             const traceId = typeof params.traceId === 'string' ? params.traceId : undefined
+            // A Stop or a steer ends the turn early. Without a notice the thread reads as a turn that went quiet.
+            if (params.stopReason === 'cancelled') {
+                items.push({
+                    id: `turn-cancelled-${separatorSeq}`,
+                    type: 'status',
+                    status: 'turn_cancelled',
+                    isComplete: true,
+                    ...(timestamp !== undefined && { startedAt: timestamp, endedAt: timestamp }),
+                })
+            }
             items.push({
-                id: `turn-${separatorSeq++}`,
+                id: seqId('turn', separatorSeq++),
                 type: 'turn_separator',
                 ...(traceId && { traceId }),
                 ...(timestamp !== undefined && { startedAt: timestamp }),
@@ -2106,7 +2357,7 @@ export function foldLogFromCheckpoint(
                     items[items.length - 1] = { ...last, undeliveredMessage: true }
                 } else {
                     items.push({
-                        id: `error-${errorSeq++}`,
+                        id: seqId('error', errorSeq++),
                         type: 'error',
                         errorMessage: stringifyOptional(params.detail) ?? label ?? 'Message not delivered',
                         variant: 'undelivered',
@@ -2158,7 +2409,7 @@ export function foldLogFromCheckpoint(
                     (item) => !isPendingStatus(item, status === 'clearing_failed' ? 'clearing' : 'compacting')
                 )
                 items.push({
-                    id: `status-${statusSeq++}`,
+                    id: seqId('status', statusSeq++),
                     type: 'status',
                     status,
                     isComplete: true,
@@ -2166,21 +2417,21 @@ export function foldLogFromCheckpoint(
                 })
             } else if (status === 'extension_notice') {
                 items.push({
-                    id: `status-${statusSeq++}`,
+                    id: seqId('status', statusSeq++),
                     type: 'status',
                     status,
                     isComplete: true,
                     message: stringifyOptional(params.message),
                 })
             } else {
-                items.push({ id: `status-${statusSeq++}`, type: 'status', status, isComplete })
+                items.push({ id: seqId('status', statusSeq++), type: 'status', status, isComplete })
             }
             continue
         }
         if (method === '_posthog/compact_boundary') {
             items = items.filter((item) => !isPendingStatus(item, 'compacting'))
             items.push({
-                id: `compact-${compactSeq++}`,
+                id: seqId('compact', compactSeq++),
                 type: 'compact_boundary',
                 trigger: stringifyOptional(params.trigger),
                 preTokens: typeof params.preTokens === 'number' ? params.preTokens : undefined,
@@ -2192,12 +2443,12 @@ export function foldLogFromCheckpoint(
             // The divider supersedes the spinner visually, but the completing `_posthog/status`
             // frame is a separate notification that may not have landed yet.
             items = items.filter((item) => !isPendingStatus(item, 'clearing'))
-            items.push({ id: `cleared-${clearedSeq++}`, type: 'conversation_cleared' })
+            items.push({ id: seqId('cleared', clearedSeq++), type: 'conversation_cleared' })
             continue
         }
         if (method === '_posthog/task_notification') {
             items.push({
-                id: `task-${taskSeq++}`,
+                id: seqId('task', taskSeq++),
                 type: 'task_notification',
                 status: stringifyOptional(params.status),
                 summary: stringifyOptional(params.summary),
@@ -2230,7 +2481,7 @@ export function foldLogFromCheckpoint(
             const level = typeof params.level === 'string' ? params.level : 'info'
             if (message) {
                 items.push({
-                    id: `console-${consoleSeq++}`,
+                    id: seqId('console', consoleSeq++),
                     type: 'debug',
                     text: message,
                     debugLevel: level,
@@ -2363,7 +2614,6 @@ function rendersThreadItemContent(item: ThreadItem): boolean {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface runStreamLogicValues {
     showDebugLogs: boolean // debugLogsLogic
-    featureFlags: FeatureFlagsSet // featureFlagLogic
     foregroundStreamKeys: Set<string> // foregroundStreamLogic
     isDev: boolean | undefined // preflightLogic
     currentProjectId: number | null // projectLogic
@@ -2387,11 +2637,14 @@ export interface runStreamLogicValues {
     hasGitArtifacts: boolean
     hasThreadItems: boolean
     historyComplete: boolean
+    historyTurnBase: number
     isBootstrapResumeRun: boolean
     isThinking: boolean
     latestTurnTraceId: string | null
     log: RunLog
     logBootstrapLoading: boolean
+    olderHistoryState: OlderHistoryState
+    pagedHistory: boolean
     pendingPermissionRequest: PermissionRequestRecord | null
     pendingRunMessage: PendingRunMessage | null
     permissionResponseRequestIds: Set<string>
@@ -2414,13 +2667,13 @@ export interface runStreamLogicValues {
     sseStatus: RunSseStatus
     streamHasEnded: boolean
     streamPhase: 'idle' | 'provisioning' | 'thinking'
-    streamViaProxyEnabled: boolean
     threadItems: ThreadItem[]
     toolInvocations: Map<string, ToolInvocation>
     traceId: string | null
     turnComplete: boolean
     turnSuggestion: TurnSuggestion | null
     turnSuggestionAcceptedHere: number | null
+    turnSuggestionExpandedHere: number | null
     turnSuggestionLedger: TurnSuggestionLedger | null
     turnSuggestionOutcomesHere: Record<number, string>
     turnSuggestionsMuted: boolean
@@ -2472,6 +2725,8 @@ export interface runStreamLogicActions {
     }
     bootstrapRun: (payload: {
         justCreatedRun?: boolean
+        /** Read the latest turns first and load older turns in pages, for a thread that can show them. */
+        pagedHistory?: boolean
         retainedMessage?: string
         runId: string
         taskId: string
@@ -2479,6 +2734,7 @@ export interface runStreamLogicActions {
         traceId?: string
     }) => {
         justCreatedRun?: boolean | undefined
+        pagedHistory?: boolean | undefined
         retainedMessage?: string | undefined
         runId: string
         taskId: string
@@ -2539,6 +2795,9 @@ export interface runStreamLogicActions {
         record: PermissionRequestRecord
         replayedFromHistory: boolean
     }
+    loadOlderHistory: () => {
+        value: true
+    }
     loadTurnSuggestionLedger: (
         taskId: string,
         attempt?: number
@@ -2565,6 +2824,9 @@ export interface runStreamLogicActions {
         value: true
     }
     markTurnSuggestionAccepted: (turnIndex: number) => {
+        turnIndex: number
+    }
+    markTurnSuggestionExpanded: (turnIndex: number) => {
         turnIndex: number
     }
     mergeRunArtifacts: (partial: Partial<RunArtifacts>) => {
@@ -2675,6 +2937,12 @@ export interface runStreamLogicActions {
     setHistoryComplete: (complete: boolean) => {
         complete: boolean
     }
+    setHistoryTurnBase: (base: number) => {
+        base: number
+    }
+    setOlderHistoryState: (state: OlderHistoryState) => {
+        state: OlderHistoryState
+    }
     setPendingRunMessage: (message: PendingRunMessage | null) => {
         message: PendingRunMessage | null
     }
@@ -2748,7 +3016,8 @@ export interface runStreamLogicMeta {
             turnSuggestionOutcomesHere: Record<number, string>,
             turnSuggestionAcceptedHere: number | null,
             turnSuggestionsMuted: boolean,
-            bootstrappedTaskId: string | null
+            bootstrappedTaskId: string | null,
+            historyTurnBase: number
         ) => TurnSuggestion | null
         latestTurnTraceId: (threadItems: ThreadItem[]) => string | null
         threadItems: (foldedThread: FoldedThread, showDebugLogs: boolean) => ThreadItem[]
@@ -2776,7 +3045,6 @@ export interface runStreamLogicMeta {
             toolInvocations: Map<string, ToolInvocation>
         ) => boolean
         hasGitArtifacts: (runArtifacts: RunArtifacts) => boolean
-        streamViaProxyEnabled: (featureFlags: FeatureFlagsSet) => boolean
         runConnectionState: (
             sseStatus: RunSseStatus,
             reconnectAttempt: number,
@@ -2822,8 +3090,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
         values: [
             projectLogic,
             ['currentProjectId'],
-            featureFlagLogic,
-            ['featureFlags'],
             preflightLogic,
             ['isDev'],
             userLogic,
@@ -2847,6 +3113,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
         resetRecoveryBudget: true,
         recoveryRunChanged: true,
         setHistoryComplete: (complete: boolean) => ({ complete }),
+        setOlderHistoryState: (state: OlderHistoryState) => ({ state }),
+        setHistoryTurnBase: (base: number) => ({ base }),
+        loadOlderHistory: true,
         setStreamHasEnded: (ended: boolean) => ({ ended }),
         recoveryProgress: (phase: RecoveryPhase, attempt: number, maxAttempts: number) => ({
             phase,
@@ -2867,6 +3136,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
             traceId?: string
             retainedMessage?: string
             taskRuntime?: string | null
+            /** Read the latest turns first and load older turns in pages, for a thread that can show them. */
+            pagedHistory?: boolean
         }) => payload,
         openSseForRun: (payload: { taskId: string; runId: string; startLatest?: boolean; traceId?: string }) => payload,
         /**
@@ -2991,6 +3262,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
         /** Records an outcome this tab sent to the server, so the card closes before the frame echoes back. */
         recordTurnSuggestionOutcome: (turnIndex: number, outcome: string) => ({ turnIndex, outcome }),
         markTurnSuggestionAccepted: (turnIndex: number) => ({ turnIndex }),
+        markTurnSuggestionExpanded: (turnIndex: number) => ({ turnIndex }),
         /**
          * Reopens the turn for a follow-up that started outside this composer, such as one sent from Slack
          * or from another tab. Dispatched from a user turn seen on the wire, and from the agent's first
@@ -3042,6 +3314,27 @@ export const runStreamLogic = kea<runStreamLogicType>([
             false,
             {
                 setHistoryComplete: (_, { complete }) => complete,
+                reset: () => false,
+            },
+        ],
+        historyTurnBase: [
+            0,
+            {
+                setHistoryTurnBase: (_, { base }) => base,
+                reset: () => 0,
+            },
+        ],
+        olderHistoryState: [
+            'none' as OlderHistoryState,
+            {
+                setOlderHistoryState: (_, { state }) => state,
+                reset: () => 'none' as OlderHistoryState,
+            },
+        ],
+        pagedHistory: [
+            false,
+            {
+                bootstrapRun: (state, { pagedHistory }) => pagedHistory ?? state,
                 reset: () => false,
             },
         ],
@@ -3396,6 +3689,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 reset: () => null,
             },
         ],
+        // The card's own logic unmounts when the virtualized thread recycles its row, so the open state lives here
+        // to keep an opened card open after the reader scrolls away and back.
+        turnSuggestionExpandedHere: [
+            null as number | null,
+            {
+                markTurnSuggestionExpanded: (_, { turnIndex }) => turnIndex,
+                reset: () => null,
+            },
+        ],
         turnComplete: [
             false,
             {
@@ -3539,6 +3841,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 s.turnSuggestionAcceptedHere,
                 s.turnSuggestionsMuted,
                 s.bootstrappedTaskId,
+                s.historyTurnBase,
             ],
             (
                 foldedThread: FoldedThread,
@@ -3547,12 +3850,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 outcomesHere: Record<number, string>,
                 acceptedHere: number | null,
                 muted: boolean,
-                taskId: string | null
+                taskId: string | null,
+                historyTurnBase: number
             ): TurnSuggestion | null => {
                 const offer = foldedThread.turnSuggestions.latest
                 // The classifier runs after the answer, so an offer can land once the user already sent
                 // the next message; it belongs to the answer above it and closes when the thread moves on.
-                const latestPromptIndex = threadItems.filter((item) => item.type === 'human_message').length - 1
+                const latestPromptIndex =
+                    historyTurnBase + threadItems.filter((item) => item.type === 'human_message').length - 1
                 if (!offer || offer.turnIndex !== latestPromptIndex) {
                     return null
                 }
@@ -3720,19 +4025,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
             (runArtifacts: RunArtifacts): boolean => !!runArtifacts.prUrl || !!runArtifacts.branch,
         ],
         /**
-         * Gates routing the live stream through the standalone agent-proxy (the durable-streaming
-         * rollout). Purely flag-driven: off ⇒ stream directly from Django and never mint a
-         * `stream_token`; on ⇒ resolve a proxy target. The server still owns the final
-         * proxy-vs-Django decision via `stream_token` (no base URL ⇒ Django), so a flag-on client
-         * where the proxy isn't deployed falls back safely. Frontend flags evaluate in local dev, so
-         * a dev exercises the proxy by enabling `tasks-stream-via-proxy` for their user.
-         */
-        streamViaProxyEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
-                !!featureFlags[FEATURE_FLAGS.TASKS_STREAM_VIA_PROXY],
-        ],
-        /**
          * The live connection banner view-model (footer `RunAlertActivity`), or null when the connection is
          * healthy. `reconnecting` drives the attempt-counter card during the backoff loop; `connection_failed`
          * is its terminal state (retries/cumulative exhausted, a non-retryable open, or a bootstrap-fetch
@@ -3817,10 +4109,16 @@ export const runStreamLogic = kea<runStreamLogicType>([
             actions.setStreamHasEnded(hasEnded(session))
             return session
         }
+        const dropHistoryPrefetch = (): void => {
+            cache.historyPrefetch = undefined
+            cache.disposables.dispose('history-prefetch')
+        }
         const failRecovery = (session: RunStreamRecovery, error: unknown): void => {
             if (!session.owns() || session.paused) {
                 return
             }
+            cache.bootstrapStartedAt = undefined
+            dropHistoryPrefetch()
             const envelope =
                 isRecord(error) && typeof error.errorTitle === 'string'
                     ? (error as unknown as StreamErrorEnvelope)
@@ -3887,29 +4185,154 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 cache.recoveryStartedAt = undefined
             }
         }
+        /** The latest turns of a paged log, or every entry from `start` on; the full log when the log is not paged. */
+        const readHistory = (session: RunStreamRecovery, signal: AbortSignal, start?: number): Promise<HistoryPage> =>
+            api.tasks.runs.getLogPage(session.taskId, session.runId, {
+                signal,
+                projectId: session.projectId,
+                view: 'thread',
+                ...(values.pagedHistory ? { tailBytes: HISTORY_TAIL_BYTES, start } : {}),
+            })
+        const stopHistoryPaging = (): void => {
+            cache.disposables.dispose('older-history-request')
+            cache.disposables.dispose('older-history-retry')
+            cache.disposables.dispose('older-history-preload')
+            cache.olderHistoryRequest = undefined
+            cache.olderHistoryFailures = 0
+        }
+        const setHistoryCursor = (cursor: HistoryCursor | undefined): void => {
+            stopHistoryPaging()
+            cache.historyCursor = cursor
+            actions.setHistoryTurnBase(cursor?.turnsBefore ?? 0)
+            actions.setOlderHistoryState(cursor && cursor.offset > 0 ? 'idle' : 'none')
+        }
+        const startHistoryPrefetch = (session: RunStreamRecovery): void => {
+            dropHistoryPrefetch()
+            const controller = new AbortController()
+            const entries = readHistory(session, controller.signal)
+            entries.catch(() => {})
+            cache.disposables.add(() => () => controller.abort(), 'history-prefetch', { pauseOnPageHidden: false })
+            cache.historyPrefetch = {
+                projectId: session.projectId,
+                taskId: session.taskId,
+                runId: session.runId,
+                entries,
+            }
+        }
+        const takeHistoryPrefetch = (session: RunStreamRecovery): Promise<HistoryPage> | undefined => {
+            const prefetch = cache.historyPrefetch as
+                | { projectId: number; taskId: string; runId: string; entries: Promise<HistoryPage> }
+                | undefined
+            cache.historyPrefetch = undefined
+            if (
+                !prefetch ||
+                session.phase === 'finalization' ||
+                session.committedCursor ||
+                prefetch.projectId !== session.projectId ||
+                prefetch.taskId !== session.taskId ||
+                prefetch.runId !== session.runId
+            ) {
+                cache.disposables.dispose('history-prefetch')
+                return undefined
+            }
+            return prefetch.entries
+        }
+        const replayRunLog = (log: RunLog, runId: string, isLiveFrame: (stored: StoredEntry) => boolean): void => {
+            // Rebuild state without publishing a partial transcript or repeating live reactions.
+            cache.rebuildingHistory = true
+            cache.coalesceReplay = true
+            cache.rebuildingLog = log
+            cache.trackedToolInvocations = undefined
+            try {
+                let reachedSuccessor = false
+                for (const stored of log.entries) {
+                    if (cache.retainedMessage && !reachedSuccessor && stored.entry.source_run_id === runId) {
+                        actions.prepareResumeRun()
+                        reachedSuccessor = true
+                    }
+                    if (stored.entry.notification.method === '_client/human_message') {
+                        actions.markTurnStarted()
+                    } else if (isLiveFrame(stored)) {
+                        actions.ingestAcpFrame(stored.entry, 'live')
+                    } else if (stored.source !== 'client') {
+                        ingestFrame(stored.entry, 'replay')
+                    }
+                }
+                if (cache.retainedMessage && !reachedSuccessor) {
+                    actions.prepareResumeRun()
+                }
+            } finally {
+                cache.rebuildingHistory = false
+                cache.coalesceReplay = false
+                cache.rebuildingLog = undefined
+                const replayContextUsage = cache.replayContextUsage as ContextUsage | undefined
+                cache.replayContextUsage = undefined
+                if (replayContextUsage) {
+                    actions.setContextUsage(replayContextUsage)
+                }
+            }
+        }
+        const rememberLegacyBacklog = (session: RunStreamRecovery, entries: unknown[], offset: number): void => {
+            // Django log-N cursors index the same object entries, including non-notification records.
+            entries.filter(isRecord).forEach((raw, index) => {
+                const entry = normalizeNotificationEntry(raw)
+                if (entry && !entry.event_id) {
+                    session.legacyBacklog.set(`log-${offset + index}`, entry)
+                }
+            })
+        }
         const reconcileHistory = async (session: RunStreamRecovery): Promise<void> => {
             const turnCompleteBeforeReconcile = values.turnComplete
             const recoveringLiveTurn = session.phase === 'history' || session.phase === 'stream'
             if (session.phase !== 'finalization') {
                 session.phase = 'history'
             }
-            const entries = await readWithRetry(session, () =>
-                session.request(STREAM_HISTORY_TIMEOUT_MS, (signal) =>
-                    api.tasks.runs.getLogEntries(session.taskId, session.runId, {
-                        signal,
-                        projectId: session.projectId,
+            // A log this run already loaded needs only the entries after it, so the pages above the reader stay.
+            const cursor = cache.historyCursor as HistoryCursor | undefined
+            const loadedEnd =
+                values.pagedHistory && cursor?.runId === session.runId
+                    ? (cache.historyEnd as number | undefined)
+                    : undefined
+            let prefetched = loadedEnd === undefined ? takeHistoryPrefetch(session) : undefined
+            if (loadedEnd !== undefined) {
+                dropHistoryPrefetch()
+            }
+            const read = (start?: number): Promise<HistoryPage> =>
+                readWithRetry(session, () =>
+                    session.request(STREAM_HISTORY_TIMEOUT_MS, (signal) => {
+                        const pending = prefetched
+                        prefetched = undefined
+                        if (pending) {
+                            signal.addEventListener('abort', () => cache.disposables.dispose('history-prefetch'), {
+                                once: true,
+                            })
+                            return pending
+                        }
+                        return readHistory(session, signal, start)
                     })
                 )
-            )
+            let page = await read(loadedEnd)
             session.check()
-            // Django log-N cursors index the same object entries, including non-notification records.
-            entries.filter(isRecord).forEach((raw, index) => {
-                const entry = normalizeNotificationEntry(raw)
-                if (entry && !entry.event_id) {
-                    session.legacyBacklog.set(`log-${index}`, entry)
-                }
-            })
-            const history = normalizeHistory(entries, session.runId, values.isBootstrapResumeRun)
+            if (loadedEnd !== undefined && page.indexed && page.origin !== cursor?.origin) {
+                // The chain dropped its oldest run, so the loaded indexes no longer match: read the latest turns again.
+                page = await read()
+                session.check()
+            }
+            const continues =
+                loadedEnd !== undefined && page.indexed && page.origin === cursor?.origin && page.offset === loadedEnd
+            rememberLegacyBacklog(session, page.entries.slice(page.preamble), page.offset)
+            if (page.indexed) {
+                // A stream backlog replays the run log from its start; the read already holds everything before its end.
+                session.buffer = session.buffer.filter((entry) => !isLoadedBacklog(entry, page.count))
+            }
+            const kept = continues ? values.log.entries.filter(({ source }) => source === 'replay') : []
+            const history = normalizeHistory(
+                page.entries,
+                session.runId,
+                values.isBootstrapResumeRun,
+                page.preamble,
+                kept[kept.length - 1]?.entry.source_run_id
+            )
             const echo = cache.retainedMessage
                 ? values.log.entries.findLast(
                       ({ entry }) =>
@@ -3923,44 +4346,41 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     (entry) =>
                         entry.source_run_id === session.runId && persistedHumanText(entry) === cache.retainedMessage
                 )
-            const retained = echoPersisted ? values.log.entries.filter((stored) => stored !== echo) : values.log.entries
-            const log = reconcileRunLog(history, retained, session.buffer, echoPersisted ? undefined : echo)
+            // A paged log keeps its saved entries apart: only live and client entries meet the new read.
+            const tail = values.pagedHistory
+                ? values.log.entries.filter(({ source }) => source !== 'replay')
+                : values.log.entries
+            const retained = echoPersisted ? tail.filter((stored) => stored !== echo) : tail
+            // The kept entries take part, so a frame the stream sends again after the read is a duplicate of them too.
+            const saved = [...kept.map(({ entry }) => entry), ...history]
+            const log = reconcileRunLog(saved, retained, session.buffer, echoPersisted ? undefined : echo)
+            if (values.pagedHistory && page.indexed) {
+                cache.historyEnd = page.count
+                if (!continues) {
+                    setHistoryCursor({
+                        runId: session.runId,
+                        origin: page.origin,
+                        offset: page.offset,
+                        turnsBefore: page.turnsBefore,
+                    })
+                }
+            } else {
+                cache.historyEnd = undefined
+                setHistoryCursor(undefined)
+            }
             const bufferedEntries = new Set(session.buffer)
             const bufferedIds = new Set(session.buffer.flatMap((entry) => (entry.event_id ? [entry.event_id] : [])))
-            // Rebuild state without publishing a partial transcript or repeating live reactions.
-            cache.rebuildingHistory = true
-            cache.rebuildingLog = log
-            cache.trackedToolInvocations = undefined
-            try {
-                let reachedSuccessor = false
-                for (const stored of log.entries) {
-                    if (cache.retainedMessage && !reachedSuccessor && stored.entry.source_run_id === session.runId) {
-                        actions.prepareResumeRun()
-                        reachedSuccessor = true
-                    }
-                    if (stored.entry.notification.method === '_client/human_message') {
-                        actions.markTurnStarted()
-                    } else if (stored.source !== 'client') {
-                        actions.ingestAcpFrame(
-                            stored.entry,
-                            stored.source === 'live' &&
-                                (bufferedEntries.has(stored.entry) ||
-                                    (stored.entry.event_id && bufferedIds.has(stored.entry.event_id)))
-                                ? 'live'
-                                : 'replay'
-                        )
-                    }
-                }
-                if (cache.retainedMessage && !reachedSuccessor) {
-                    actions.prepareResumeRun()
-                }
-            } finally {
-                cache.rebuildingHistory = false
-                cache.rebuildingLog = undefined
-            }
+            replayRunLog(
+                log,
+                session.runId,
+                (stored) =>
+                    stored.source === 'live' &&
+                    (bufferedEntries.has(stored.entry) ||
+                        (!!stored.entry.event_id && bufferedIds.has(stored.entry.event_id)))
+            )
             actions.replaceLog(log)
             cache.eventCoverage = new RunEventCoverage([
-                ...history,
+                ...saved,
                 ...retained.map(({ entry }) => entry),
                 ...session.buffer,
             ])
@@ -3977,7 +4397,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 recoveringLiveTurn &&
                 !turnCompleteBeforeReconcile &&
                 values.turnComplete &&
-                !windowShowsToolCallInFlight(dedupeBufferedAgainstHistory(session.buffer, history))
+                !windowShowsToolCallInFlight(dedupeBufferedAgainstHistory(session.buffer, saved))
             ) {
                 actions.markTurnComplete()
             }
@@ -3992,8 +4412,33 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
             actions.setHistoryComplete(true)
             actions.bootstrapLogReady()
+            if (cache.bootstrapStartedAt !== undefined) {
+                posthog.capture('sandbox_run_history_loaded', {
+                    conversation_id: props.conversationId,
+                    task_id: session.taskId,
+                    run_id: session.runId,
+                    run_status: values.currentRunStatus,
+                    entry_count: page.count || history.length,
+                    loaded_entry_count: page.entries.length - page.preamble,
+                    partial: page.indexed && page.offset > 0,
+                    duration_ms: Math.round(performance.now() - cache.bootstrapStartedAt),
+                    execution_type: 'sandbox',
+                })
+                cache.bootstrapStartedAt = undefined
+            }
             if (session.phase !== 'finalization') {
                 recordRecovery(session)
+            }
+            const loaded = cache.historyCursor as HistoryCursor | undefined
+            if (!continues && loaded && loaded.offset > 0) {
+                cache.disposables.add(() => {
+                    const timer = setTimeout(() => {
+                        // Fired once: a tab that hides and shows again must not load another page on its own.
+                        cache.disposables.dispose('older-history-preload')
+                        actions.loadOlderHistory()
+                    }, OLDER_HISTORY_PRELOAD_DELAY_MS)
+                    return () => clearTimeout(timer)
+                }, 'older-history-preload')
             }
         }
 
@@ -4030,6 +4475,356 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 actions.bootstrapReplayComplete()
             }
         }
+        const foldContextUsage = (fold: (usage: ContextUsage | null) => ContextUsage): void => {
+            if (cache.coalesceReplay) {
+                cache.replayContextUsage = fold(
+                    (cache.replayContextUsage as ContextUsage | undefined) ?? values.contextUsage
+                )
+                return
+            }
+            actions.setContextUsage(fold(values.contextUsage))
+        }
+        const ingestFrame = (entry: StoredLogEntry, source: FrameSource): void => {
+            const notification = entry?.notification
+            if (!notification) {
+                return
+            }
+            const method = notification.method
+            const isReplay = source === 'replay'
+
+            // Tool-stream events go out for every live frame; on replay only when a subscriber opted in
+            // (so history replay doesn't pay per-frame resolution for nobody).
+            const emitToolStream = !isReplay || (!cache.rebuildingHistory && hasReplayListener(values.toolListeners))
+
+            // Per-frame tool-invocation tracker: the same fold the projection applies, maintained
+            // O(1) per tool frame so the telemetry and tool-stream emits below never read the
+            // `toolInvocations` projection (each such read re-folds the entire log, which turns a
+            // long tool-heavy history replay quadratic). Maintained for every source so a live update
+            // whose `tool_call` arrived during replay still sees the right prior status.
+            // `preToolStatus` is the status BEFORE this frame folds in; it gates the
+            // once-per-transition `tool_call_completed` telemetry and the tool-stream phase.
+            const trackedInvocations: Map<string, ToolInvocation> = (cache.trackedToolInvocations ??= new Map())
+            let preToolStatus: ToolInvocationStatus | undefined
+            if (method === 'session/update') {
+                const u = notification.params?.update
+                if (isRecord(u) && u.sessionUpdate === 'tool_call') {
+                    const invocation = invocationFromToolCall(u)
+                    if (invocation) {
+                        trackedInvocations.set(invocation.toolCallId, invocation)
+                    }
+                } else if (isRecord(u) && u.sessionUpdate === 'tool_call_update') {
+                    const existing = trackedInvocations.get(String(u.toolCallId ?? ''))
+                    preToolStatus = existing?.status
+                    const invocation = invocationFromToolCallUpdate(existing, u, notification)
+                    if (invocation) {
+                        trackedInvocations.set(invocation.toolCallId, invocation)
+                    }
+                }
+            }
+
+            // Append to the ordered log — the single source of truth. The bootstrap seam was already
+            // deduped (see `bootstrapRun`) and steady-state live frames resume exclusively, so the
+            // side effects below run exactly once per frame without a per-frame key; the
+            // run-started/permission/tool-completion guards enforce fire-once on their own.
+            if (!cache.rebuildingHistory) {
+                actions.appendEntries([{ entry, source }])
+            }
+
+            // Custom `_posthog/*` notification namespace emitted by the agent-server. Thread items
+            // (errors, status, compaction, task notifications, progress, human turns) are derived by
+            // the projection straight from the log — handled here only for their value-fold side
+            // effects (telemetry, usage/resources/mode folds, permission routing).
+            if (method === '_posthog/run_started') {
+                // TASK_RUN_STARTED telemetry — emit once per run on the first `_posthog/run_started`
+                // frame. Suppressed while replaying history (the run started in a prior session);
+                // `markRunStarted` still runs so started/thinking state stays correct.
+                if (!values.runStarted && !isReplay) {
+                    const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
+                    cache.turnStartedAtMs = Date.now()
+                    posthog.capture('task_run_started', {
+                        conversation_id: props.conversationId,
+                        trace_id: values.traceId,
+                        run_id: activeRun?.runId,
+                        task_id: activeRun?.taskId,
+                        execution_type: 'sandbox',
+                        task_runtime: values.piRuntime ? TaskRuntimeEnumApi.Pi : TaskRuntimeEnumApi.Acp,
+                        // The run-started frame carries no warmth signal and pre-warming isn't wired
+                        // yet, so every run is a cold start. A later pre-warm hook flips this.
+                        cold_start: true,
+                    })
+                }
+                actions.setConversationClearSupported(
+                    (notification.params as { conversationClear?: unknown } | undefined)?.conversationClear === true
+                )
+                cache.isBootstrapping = false
+                actions.markRunStarted()
+                return
+            }
+            if (method === '_posthog/turn_suggestion') {
+                // The log holds only outcomes this tab saw live; the ledger adds the ones sent while
+                // no tab of this conversation was open. Read once per task, when it first has an offer.
+                const taskId = values.bootstrappedTaskId
+                if (taskId && cache.turnSuggestionLedgerTaskId !== taskId) {
+                    cache.turnSuggestionLedgerTaskId = taskId
+                    actions.loadTurnSuggestionLedger(taskId)
+                    // Another tab's resolution reaches this one only as a live frame, which can be
+                    // lost, so a returning tab rereads the ledger while it shows a card.
+                    cache.disposables.add(
+                        () => {
+                            const onVisibilityChange = (): void => {
+                                if (
+                                    document.visibilityState === 'visible' &&
+                                    values.turnSuggestion &&
+                                    values.bootstrappedTaskId === taskId
+                                ) {
+                                    actions.loadTurnSuggestionLedger(taskId)
+                                }
+                            }
+                            document.addEventListener('visibilitychange', onVisibilityChange)
+                            return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+                        },
+                        'turnSuggestionLedgerRefresh',
+                        { pauseOnPageHidden: false }
+                    )
+                }
+                return
+            }
+            if (method === '_posthog/turn_complete') {
+                if (!isReplay) {
+                    actions.emitTurnCompleteEvent({ streamKey: props.streamKey })
+                }
+                actions.markTurnComplete(isReplay)
+                return
+            }
+            if (method === '_posthog/progress') {
+                const progress = (notification.params ?? {}) as PosthogProgressParams
+                const status = normalizeProgressStatus(progress.status)
+                // A finished step is a milestone (the thread's progress card keeps it), not the current
+                // activity — clear it so the thinking line falls back to the rotating message instead of
+                // sticking on e.g. "Started agent" for the rest of the turn.
+                if (status === 'completed' || status === 'failed') {
+                    actions.setCurrentProgress(null)
+                } else {
+                    actions.setCurrentProgress(
+                        stringifyOptional(progress.label) ?? stringifyOptional(progress.detail) ?? ''
+                    )
+                }
+                return
+            }
+            // The agent-server persists the permission lifecycle to the run log — pending approvals
+            // are re-derived on bootstrap (a reload mid-approval would otherwise lose the card while
+            // the agent stays blocked), and a resolution observed here clears the local card.
+            if (isPosthogNotification(notification, '_posthog/permission_request')) {
+                const record = parsePermissionRequestFrame(notification.params ?? {}, entry.source_run_id)
+                if (
+                    record &&
+                    !values.seenPermissionRequestIds.has(record.requestId) &&
+                    !values.resolvedPermissionRequestIds.has(record.requestId) &&
+                    !permissionEndedByLaterTurn(
+                        entry.event_id ?? notification.params?.event_id,
+                        entry.source_run_id,
+                        (cache.rebuildingLog as RunLog | undefined) ?? values.log
+                    )
+                ) {
+                    actions.routePermissionRequest(record, isReplay)
+                }
+                return
+            }
+            if (isPosthogNotification(notification, '_posthog/permission_resolved')) {
+                const requestId = notification.params?.requestId
+                if (
+                    typeof requestId === 'string' &&
+                    requestId &&
+                    entry.source_run_id === cache.activeRun?.runId &&
+                    entry.source_run_id
+                ) {
+                    actions.markPermissionRequestResolved(requestId)
+                }
+                return
+            }
+            // Token usage + cost + context-window breakdown. The numeric used/size aggregate that
+            // drives the percentage ring arrives separately on a session/update (handled below).
+            if (isPosthogNotification(notification, '_posthog/usage_update')) {
+                foldContextUsage((usage) => foldUsageNotification(usage, notification.params ?? {}))
+                return
+            }
+            // Diagnostic only — no UI; kept for resume telemetry / crash-affordance work.
+            if (isPosthogNotification(notification, '_posthog/sdk_session')) {
+                const params = notification.params
+                actions.setSdkSession({ sessionId: params?.sessionId, adapter: params?.adapter })
+                return
+            }
+            // History-derived context dedupe: a persisted or echoed user message still carries the
+            // context blocks its send was wrapped with; record their rendered lines under the
+            // bootstrapped task (the `logs/` replay spans the task's full resume chain), so
+            // `pendingContextItems` prunes items the chain already carries even after the in-memory
+            // sent-keys bookkeeping is lost (a reload, another tab, a teammate's session). An
+            // unattached optimistic stream has no task id and records nothing — its send path marks
+            // sent keys directly.
+            if (method === CONTEXT_HISTORY_METHOD) {
+                const lines = contextHistoryLines(notification.params)
+                if (values.bootstrappedTaskId && lines.length > 0) {
+                    actions.markContextLinesSeen(values.bootstrappedTaskId, lines)
+                }
+                return
+            }
+            if (isPosthogNotification(notification, '_posthog/user_message')) {
+                const content = notification.params?.content
+                if (Array.isArray(content) && content.length > 0 && content.every(isHiddenUserContent)) {
+                    return
+                }
+                actions.markTurnStarted()
+                if (values.bootstrappedTaskId) {
+                    const lines = contextBlockLinesFromUserMessage(extractUserMessageText(notification.params?.content))
+                    if (lines.length > 0) {
+                        actions.markContextLinesSeen(values.bootstrappedTaskId, lines)
+                    }
+                }
+                return
+            }
+            if (method?.startsWith('_posthog/')) {
+                // _posthog/error, _posthog/status, _posthog/compact_boundary, _posthog/task_notification
+                // → rendered by the projection. _posthog/console, _posthog/sandbox_output,
+                // other internal events → no UI. No side effect either way.
+                return
+            }
+            // The session/new request carries the run's starting permission mode in its meta. Seed the
+            // mode fold from it so mode-aware permission routing (full-auto answering in
+            // `bypassPermissions`) works before any `current_mode_update` arrives — the adapter only
+            // emits those on changes.
+            if (method === 'session/new') {
+                const meta = (notification.params as { _meta?: { permissionMode?: unknown } } | undefined)?._meta
+                if (typeof meta?.permissionMode === 'string' && meta.permissionMode) {
+                    actions.setCurrentMode(meta.permissionMode)
+                }
+                return
+            }
+            // session/prompt never renders and the resume-context filter is handled in the projection.
+            if (method === 'session/prompt') {
+                return
+            }
+            if (!isSessionUpdateNotification(notification)) {
+                return
+            }
+            const update = notification.params?.update
+            // The numeric used/size usage aggregate is session/update-framed — fold it into the ring.
+            if (isSessionUpdateUsage(update)) {
+                foldContextUsage((usage) => foldUsageAggregate(usage, update))
+                return
+            }
+            // Wire user turns render only on replay (the projection branches on source). Their one side
+            // effect is the same context-line recording as `_posthog/user_message` above — resume
+            // chains persist a turn in both wire forms, and the seen-lines reducer dedupes the overlap.
+            // Chunked frames are skipped: a partial text could truncate a block mid-line.
+            if (isSessionUpdateUserMessage(update)) {
+                if (isHiddenUserContent(update.content)) {
+                    return
+                }
+                actions.markTurnStarted()
+                if (values.bootstrappedTaskId && update.sessionUpdate === 'user_message') {
+                    const lines = contextBlockLinesFromUserMessage(String(update.content?.text ?? update.text ?? ''))
+                    if (lines.length > 0) {
+                        actions.markContextLinesSeen(values.bootstrappedTaskId, lines)
+                    }
+                }
+                return
+            }
+            if (isSessionUpdateAvailableCommands(update)) {
+                actions.setAvailableCommands(parseAvailableCommands(update.availableCommands))
+                return
+            }
+            if (!isKnownSessionUpdate(update)) {
+                return
+            }
+            // The agent producing output is the only marker of a new turn this client can rely on when the
+            // turn was started from outside its own composer. Such a follow-up is queued on the run, which
+            // emits no second `run_started`, and neither wire form of the user turn fills the gap: the live
+            // stream never carries one, and the persisted one is written when the message is received, so a
+            // message sent mid-turn is replayed *before* the previous turn's `turn_complete`. Guarded on
+            // `turnComplete` so this costs one dispatch per turn rather than one per streamed chunk.
+            if (values.turnComplete && AGENT_GENERATING_SESSION_UPDATES.has(update.sessionUpdate)) {
+                actions.markTurnStarted()
+            }
+            if (update.sessionUpdate === 'current_mode_update') {
+                actions.setCurrentMode(String(update.currentModeId ?? update.mode ?? ''))
+                return
+            }
+            if (update.sessionUpdate === 'tool_call') {
+                // A fresh tool call — the tracker folded it in above, so resolve its name off the
+                // merged invocation and publish a `started` event on the bus.
+                if (emitToolStream) {
+                    const toolCallId = String(update.toolCallId ?? '')
+                    const invocation = toolCallId ? trackedInvocations.get(toolCallId) : undefined
+                    if (invocation) {
+                        actions.emitToolEvent({
+                            streamKey: props.streamKey,
+                            toolCallId,
+                            toolName: resolveToolCall(invocation).resolvedKey,
+                            rawToolName: invocation.rawToolName,
+                            phase: 'started',
+                            invocation,
+                            source,
+                        })
+                    }
+                }
+                return
+            }
+            if (update.sessionUpdate === 'tool_call_update') {
+                // TOOL_CALL_COMPLETED telemetry — emit once when a tool call first transitions to a
+                // terminal status. `preToolStatus` (read before the upsert) gates the once-only fire;
+                // the resolved key comes from the tracked merged invocation. Suppressed on replay,
+                // and skipped when the creating `tool_call` was lost (no pre-status).
+                const toolCallId = String(update.toolCallId ?? '')
+                if (!toolCallId) {
+                    return
+                }
+                const status = mapAcpStatus(update.status ?? preToolStatus)
+                if (
+                    !isReplay &&
+                    preToolStatus !== undefined &&
+                    preToolStatus !== 'completed' &&
+                    preToolStatus !== 'failed' &&
+                    (status === 'completed' || status === 'failed')
+                ) {
+                    const invocation = trackedInvocations.get(toolCallId)
+                    const startedAt = cache.turnStartedAtMs as number | undefined
+                    posthog.capture('tool_call_completed', {
+                        conversation_id: props.conversationId,
+                        trace_id: values.traceId,
+                        tool_call_id: toolCallId,
+                        tool_qualified_name: invocation ? resolveToolCall(invocation).resolvedKey : undefined,
+                        status,
+                        duration_ms: startedAt !== undefined ? Date.now() - startedAt : undefined,
+                        execution_type: 'sandbox',
+                    })
+                }
+                // Tool-stream event: phase from the pre-fold status → new status transition. A crossing
+                // into a terminal status is `completed`/`failed`; any other update is `updated`.
+                if (emitToolStream) {
+                    const invocation = trackedInvocations.get(toolCallId)
+                    if (invocation) {
+                        const wasTerminal = preToolStatus === 'completed' || preToolStatus === 'failed'
+                        const phase: ToolStreamPhase =
+                            !wasTerminal && status === 'completed'
+                                ? 'completed'
+                                : !wasTerminal && status === 'failed'
+                                  ? 'failed'
+                                  : 'updated'
+                        actions.emitToolEvent({
+                            streamKey: props.streamKey,
+                            toolCallId,
+                            toolName: resolveToolCall(invocation).resolvedKey,
+                            rawToolName: invocation.rawToolName,
+                            phase,
+                            invocation,
+                            source,
+                        })
+                    }
+                }
+                return
+            }
+            // agent_message_chunk / agent_message / agent_thought_chunk → projection only.
+        }
         return {
             [projectLogic.actionTypes.loadCurrentProjectSuccess]: () => {
                 const session = sessionNow()
@@ -4038,6 +4833,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 }
             },
             bootstrapRun: async ({ taskId, runId, justCreatedRun, retainedMessage }) => {
+                if (!props.replayOnly) {
+                    liveRunStreams().set(props.streamKey, runId)
+                }
+                dropHistoryPrefetch()
                 const previous = sessionNow()
                 if (
                     previous?.paused &&
@@ -4054,6 +4853,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 }
                 cache.retainedMessage = retainedMessage
                 cache.isBootstrapping = true
+                cache.bootstrapStartedAt = justCreatedRun ? undefined : performance.now()
                 actions.setHistoryComplete(false)
                 try {
                     if (hasEnded(session)) {
@@ -4079,6 +4879,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         actions.setRunOpening(false)
                         actions.bootstrapReplayComplete()
                     } else {
+                        if (!session.committedCursor) {
+                            startHistoryPrefetch(session)
+                        }
                         actions.openSseForRun({ taskId, runId, startLatest: false })
                     }
                 } catch (error) {
@@ -4135,6 +4938,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
             openSseForRun: ({ taskId, runId }) => {
                 if (props.replayOnly) {
                     return
+                }
+                if (liveRunStreams().get(props.streamKey) !== runId) {
+                    liveRunStreams().delete(props.streamKey)
                 }
                 const previous = sessionNow()
                 if (
@@ -4232,14 +5038,26 @@ export const runStreamLogic = kea<runStreamLogicType>([
                             ...parsed,
                             source_run_id: parsed.source_run_id ?? (id?.startsWith('log-') ? backlogRunId : runId),
                         }
+                        reduceToolResponseCopy(entry)
+                        const backlogIndex = id?.startsWith('log-') ? Number(id.slice('log-'.length)) : NaN
+                        if (Number.isSafeInteger(backlogIndex)) {
+                            backlogIndexes.set(entry, backlogIndex)
+                        }
+                        // An entry the loaded log already holds is not ingested, but it still moves the resume cursor below.
+                        const fresh = !isLoadedBacklog(entry, cache.historyEnd as number | undefined)
                         const savedBacklog = !entry.event_id && id ? session.legacyBacklog.get(id) : undefined
                         const matchesSavedBacklog =
                             savedBacklog &&
                             savedBacklog.timestamp === entry.timestamp &&
                             JSON.stringify(savedBacklog.notification) === JSON.stringify(entry.notification)
-                        if (session.buffering) {
+                        if (fresh && session.buffering) {
                             session.buffer.push(entry)
-                        } else if (!matchesSavedBacklog && !(cache.eventCoverage as RunEventCoverage).covers(entry)) {
+                        } else if (
+                            fresh &&
+                            !session.buffering &&
+                            !matchesSavedBacklog &&
+                            !(cache.eventCoverage as RunEventCoverage).covers(entry)
+                        ) {
                             ;(cache.eventCoverage as RunEventCoverage).add(entry)
                             if (entry.first_event_id) {
                                 const log = mergeCoalescedRunLog(values.log, entry)
@@ -4300,21 +5118,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     try {
                         let response: Response
                         for (;;) {
-                            const proxyTarget =
-                                values.streamViaProxyEnabled || values.piRuntime
-                                    ? await session.request(
-                                          STREAM_REQUEST_TIMEOUT_MS,
-                                          (signal) =>
-                                              resolveStreamTarget(
-                                                  String(session.projectId),
-                                                  taskId,
-                                                  runId,
-                                                  true,
-                                                  signal
-                                              ),
-                                          controller.signal
-                                      )
-                                    : null
+                            const proxyTarget = await session.request(
+                                STREAM_REQUEST_TIMEOUT_MS,
+                                (signal) => resolveStreamTarget(String(session.projectId), taskId, runId, signal),
+                                controller.signal
+                            )
                             if (!ownsStream()) {
                                 return
                             }
@@ -4426,6 +5234,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 cache.streamTokenRefreshes = 0
             },
             sseDropped: async () => {
+                dropHistoryPrefetch()
                 const previous = sessionNow()
                 if (!previous?.owns() || previous.paused || hasEnded(previous)) {
                     return
@@ -4476,6 +5285,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 }
             },
             streamEnded: () => {
+                dropHistoryPrefetch()
                 const previous = sessionNow()
                 if (!previous?.owns() || previous.phase === 'finalization') {
                     return
@@ -4777,6 +5587,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 })
             },
             closeSse: () => {
+                dropHistoryPrefetch()
                 cache.disposables.dispose('stream-session')
                 if (sessionNow()) {
                     sessionNow()!.paused = false
@@ -4788,7 +5599,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 cache.disposables.dispose('event-source')
             },
             reset: () => {
+                stopHistoryPaging()
+                cache.historyCursor = undefined
+                cache.historyEnd = undefined
+                if (!props.replayOnly) {
+                    liveRunStreams().delete(props.streamKey)
+                }
                 cache.disposables.dispose('stream-session')
+                cache.bootstrapStartedAt = undefined
+                dropHistoryPrefetch()
                 cache.recoverySession = undefined
                 cache.eventCoverage = undefined
                 cache.retainedMessage = undefined
@@ -4866,6 +5685,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     return
                 }
                 cache.optimisticResume = undefined
+                const cursor = cache.historyCursor as HistoryCursor | undefined
+                if (cursor) {
+                    // The successor's chain holds this run's chain at the same indexes, so the loaded log stays valid.
+                    cache.historyCursor = { ...cursor, runId: run.id }
+                }
                 actions.closeSse()
                 actions.prepareResumeRun()
                 actions.permissionRunChanged()
@@ -4900,6 +5724,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
                             notification: {
                                 method: '_client/human_message',
                                 params: {
+                                    // Keeps the row's id when older history loads in front of it.
+                                    clientId: uuid(),
                                     content,
                                     ...(stagedAttachments?.length ? { attachments: stagedAttachments } : {}),
                                 },
@@ -4933,345 +5759,127 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     },
                 ])
             },
-            ingestAcpFrame: ({ entry, source }) => {
-                const notification = entry?.notification
-                if (!notification) {
+            ingestAcpFrame: ({ entry, source }) => ingestFrame(entry, source),
+            loadOlderHistory: async () => {
+                const cursor = cache.historyCursor as HistoryCursor | undefined
+                const projectId = values.currentProjectId
+                const taskId = values.bootstrappedTaskId
+                if (
+                    !cursor ||
+                    cursor.offset === 0 ||
+                    values.olderHistoryState !== 'idle' ||
+                    projectId === null ||
+                    !taskId
+                ) {
                     return
                 }
-                const method = notification.method
-                const isReplay = source === 'replay'
-
-                // Tool-stream events go out for every live frame; on replay only when a subscriber opted in
-                // (so history replay doesn't pay per-frame resolution for nobody).
-                const emitToolStream =
-                    !isReplay || (!cache.rebuildingHistory && hasReplayListener(values.toolListeners))
-
-                // Per-frame tool-invocation tracker: the same fold the projection applies, maintained
-                // O(1) per tool frame so the telemetry and tool-stream emits below never read the
-                // `toolInvocations` projection (each such read re-folds the entire log, which turns a
-                // long tool-heavy history replay quadratic). Maintained for every source so a live update
-                // whose `tool_call` arrived during replay still sees the right prior status.
-                // `preToolStatus` is the status BEFORE this frame folds in; it gates the
-                // once-per-transition `tool_call_completed` telemetry and the tool-stream phase.
-                const trackedInvocations: Map<string, ToolInvocation> = (cache.trackedToolInvocations ??= new Map())
-                let preToolStatus: ToolInvocationStatus | undefined
-                if (method === 'session/update') {
-                    const u = notification.params?.update
-                    if (isRecord(u) && u.sessionUpdate === 'tool_call') {
-                        const invocation = invocationFromToolCall(u)
-                        if (invocation) {
-                            trackedInvocations.set(invocation.toolCallId, invocation)
+                cache.disposables.dispose('older-history-preload')
+                actions.setOlderHistoryState('loading')
+                // Paging owns its request, so a stream that reconnects, fails or moves to a successor run leaves it
+                // running. A new cursor, a reset or an unmount cancels it.
+                const request = {}
+                cache.olderHistoryRequest = request
+                const controller = new AbortController()
+                cache.disposables.add(
+                    () => {
+                        const timer = setTimeout(() => controller.abort(), STREAM_HISTORY_TIMEOUT_MS)
+                        return () => {
+                            clearTimeout(timer)
+                            controller.abort()
                         }
-                    } else if (isRecord(u) && u.sessionUpdate === 'tool_call_update') {
-                        const existing = trackedInvocations.get(String(u.toolCallId ?? ''))
-                        preToolStatus = existing?.status
-                        const invocation = invocationFromToolCallUpdate(existing, u, notification)
-                        if (invocation) {
-                            trackedInvocations.set(invocation.toolCallId, invocation)
-                        }
-                    }
+                    },
+                    'older-history-request',
+                    { pauseOnPageHidden: false }
+                )
+                const startedAt = performance.now()
+                const owned = (): HistoryCursor | undefined => {
+                    const current = cache.historyCursor as HistoryCursor | undefined
+                    return !cache.disposables.isDisposed &&
+                        cache.olderHistoryRequest === request &&
+                        current?.offset === cursor.offset
+                        ? current
+                        : undefined
                 }
-
-                // Append to the ordered log — the single source of truth. The bootstrap seam was already
-                // deduped (see `bootstrapRun`) and steady-state live frames resume exclusively, so the
-                // side effects below run exactly once per frame without a per-frame key; the
-                // run-started/permission/tool-completion guards enforce fire-once on their own.
-                if (!cache.rebuildingHistory) {
-                    actions.appendEntries([{ entry, source }])
+                const capture = (outcome: 'loaded' | 'failed', fields: Record<string, unknown>): void => {
+                    posthog.capture('sandbox_run_older_history_loaded', {
+                        conversation_id: props.conversationId,
+                        task_id: taskId,
+                        run_id: cursor.runId,
+                        outcome,
+                        duration_ms: Math.round(performance.now() - startedAt),
+                        execution_type: 'sandbox',
+                        ...fields,
+                    })
                 }
-
-                // Custom `_posthog/*` notification namespace emitted by the agent-server. Thread items
-                // (errors, status, compaction, task notifications, progress, human turns) are derived by
-                // the projection straight from the log — handled here only for their value-fold side
-                // effects (telemetry, usage/resources/mode folds, permission routing).
-                if (method === '_posthog/run_started') {
-                    // TASK_RUN_STARTED telemetry — emit once per run on the first `_posthog/run_started`
-                    // frame. Suppressed while replaying history (the run started in a prior session);
-                    // `markRunStarted` still runs so started/thinking state stays correct.
-                    if (!values.runStarted && !isReplay) {
-                        const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
-                        cache.turnStartedAtMs = Date.now()
-                        posthog.capture('task_run_started', {
-                            conversation_id: props.conversationId,
-                            trace_id: values.traceId,
-                            run_id: activeRun?.runId,
-                            task_id: activeRun?.taskId,
-                            execution_type: 'sandbox',
-                            task_runtime: values.piRuntime ? TaskRuntimeEnumApi.Pi : TaskRuntimeEnumApi.Acp,
-                            // The run-started frame carries no warmth signal and pre-warming isn't wired
-                            // yet, so every run is a cold start. A later pre-warm hook flips this.
-                            cold_start: true,
-                        })
+                try {
+                    const page = await api.tasks.runs.getLogPage(taskId, cursor.runId, {
+                        signal: controller.signal,
+                        projectId,
+                        tailBytes: HISTORY_PAGE_BYTES,
+                        before: cursor.offset,
+                        view: 'thread',
+                    })
+                    const current = owned()
+                    if (!current) {
+                        return
                     }
-                    actions.setConversationClearSupported(
-                        (notification.params as { conversationClear?: unknown } | undefined)?.conversationClear === true
+                    cache.olderHistoryRequest = undefined
+                    cache.disposables.dispose('older-history-request')
+                    // A page from a chain that dropped its oldest run counts from another run. The next history read
+                    // finds the same change and reads the latest turns again, with a new cursor.
+                    if (!page.indexed || page.origin !== current.origin || page.offset >= cursor.offset) {
+                        actions.setOlderHistoryState('none')
+                        return
+                    }
+                    const entries = normalizeHistory(
+                        page.entries.slice(0, page.preamble + cursor.offset - page.offset),
+                        current.runId,
+                        values.isBootstrapResumeRun,
+                        page.preamble
                     )
-                    cache.isBootstrapping = false
-                    actions.markRunStarted()
-                    return
-                }
-                if (method === '_posthog/turn_suggestion') {
-                    // The log holds only outcomes this tab saw live; the ledger adds the ones sent while
-                    // no tab of this conversation was open. Read once per task, when it first has an offer.
-                    const taskId = values.bootstrappedTaskId
-                    if (taskId && cache.turnSuggestionLedgerTaskId !== taskId) {
-                        cache.turnSuggestionLedgerTaskId = taskId
-                        actions.loadTurnSuggestionLedger(taskId)
-                        // Another tab's resolution reaches this one only as a live frame, which can be
-                        // lost, so a returning tab rereads the ledger while it shows a card.
-                        cache.disposables.add(
+                    const lines = historyContextLines(entries)
+                    if (lines.length > 0) {
+                        actions.markContextLinesSeen(taskId, lines)
+                    }
+                    cache.historyCursor = { ...current, offset: page.offset, turnsBefore: page.turnsBefore }
+                    cache.olderHistoryFailures = 0
+                    actions.replaceLog(prependHistoryPage(values.log, entries))
+                    actions.setHistoryTurnBase(page.turnsBefore)
+                    actions.setOlderHistoryState(page.offset > 0 ? 'idle' : 'none')
+                    capture('loaded', { entry_count: entries.length - page.preamble, remaining: page.offset > 0 })
+                } catch (error) {
+                    if (!owned()) {
+                        return
+                    }
+                    cache.olderHistoryRequest = undefined
+                    cache.disposables.dispose('older-history-request')
+                    const failures = ((cache.olderHistoryFailures as number | undefined) ?? 0) + 1
+                    cache.olderHistoryFailures = failures
+                    const status = (error as { status?: number } | null)?.status
+                    capture('failed', { http_status: status, failures })
+                    // A refused or missing log never loads, so it stops at once.
+                    if (status === 403 || status === 404 || failures >= OLDER_HISTORY_MAX_FAILURES) {
+                        actions.setOlderHistoryState('none')
+                        return
+                    }
+                    // Every failure waits before the state rearms, so a short thread's automatic load cannot loop.
+                    cache.disposables.add(() => {
+                        const timer = setTimeout(
                             () => {
-                                const onVisibilityChange = (): void => {
-                                    if (
-                                        document.visibilityState === 'visible' &&
-                                        values.turnSuggestion &&
-                                        values.bootstrappedTaskId === taskId
-                                    ) {
-                                        actions.loadTurnSuggestionLedger(taskId)
-                                    }
-                                }
-                                document.addEventListener('visibilitychange', onVisibilityChange)
-                                return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+                                cache.disposables.dispose('older-history-retry')
+                                actions.setOlderHistoryState('idle')
                             },
-                            'turnSuggestionLedgerRefresh',
-                            { pauseOnPageHidden: false }
+                            OLDER_HISTORY_RETRY_DELAY_MS * 2 ** (failures - 1)
                         )
-                    }
-                    return
+                        return () => clearTimeout(timer)
+                    }, 'older-history-retry')
                 }
-                if (method === '_posthog/turn_complete') {
-                    if (!isReplay) {
-                        actions.emitTurnCompleteEvent({ streamKey: props.streamKey })
-                    }
-                    actions.markTurnComplete(isReplay)
-                    return
-                }
-                if (method === '_posthog/progress') {
-                    const progress = (notification.params ?? {}) as PosthogProgressParams
-                    const status = normalizeProgressStatus(progress.status)
-                    // A finished step is a milestone (the thread's progress card keeps it), not the current
-                    // activity — clear it so the thinking line falls back to the rotating message instead of
-                    // sticking on e.g. "Started agent" for the rest of the turn.
-                    if (status === 'completed' || status === 'failed') {
-                        actions.setCurrentProgress(null)
-                    } else {
-                        actions.setCurrentProgress(
-                            stringifyOptional(progress.label) ?? stringifyOptional(progress.detail) ?? ''
-                        )
-                    }
-                    return
-                }
-                // The agent-server persists the permission lifecycle to the run log — pending approvals
-                // are re-derived on bootstrap (a reload mid-approval would otherwise lose the card while
-                // the agent stays blocked), and a resolution observed here clears the local card.
-                if (isPosthogNotification(notification, '_posthog/permission_request')) {
-                    const record = parsePermissionRequestFrame(notification.params ?? {}, entry.source_run_id)
-                    if (
-                        record &&
-                        !values.seenPermissionRequestIds.has(record.requestId) &&
-                        !values.resolvedPermissionRequestIds.has(record.requestId) &&
-                        !permissionEndedByLaterTurn(
-                            entry.event_id ?? notification.params?.event_id,
-                            entry.source_run_id,
-                            (cache.rebuildingLog as RunLog | undefined) ?? values.log
-                        )
-                    ) {
-                        actions.routePermissionRequest(record, isReplay)
-                    }
-                    return
-                }
-                if (isPosthogNotification(notification, '_posthog/permission_resolved')) {
-                    const requestId = notification.params?.requestId
-                    if (
-                        typeof requestId === 'string' &&
-                        requestId &&
-                        entry.source_run_id === cache.activeRun?.runId &&
-                        entry.source_run_id
-                    ) {
-                        actions.markPermissionRequestResolved(requestId)
-                    }
-                    return
-                }
-                // Token usage + cost + context-window breakdown. The numeric used/size aggregate that
-                // drives the percentage ring arrives separately on a session/update (handled below).
-                if (isPosthogNotification(notification, '_posthog/usage_update')) {
-                    actions.setContextUsage(foldUsageNotification(values.contextUsage, notification.params ?? {}))
-                    return
-                }
-                // Diagnostic only — no UI; kept for resume telemetry / crash-affordance work.
-                if (isPosthogNotification(notification, '_posthog/sdk_session')) {
-                    const params = notification.params
-                    actions.setSdkSession({ sessionId: params?.sessionId, adapter: params?.adapter })
-                    return
-                }
-                // History-derived context dedupe: a persisted or echoed user message still carries the
-                // context blocks its send was wrapped with; record their rendered lines under the
-                // bootstrapped task (the `logs/` replay spans the task's full resume chain), so
-                // `pendingContextItems` prunes items the chain already carries even after the in-memory
-                // sent-keys bookkeeping is lost (a reload, another tab, a teammate's session). An
-                // unattached optimistic stream has no task id and records nothing — its send path marks
-                // sent keys directly.
-                if (isPosthogNotification(notification, '_posthog/user_message')) {
-                    const content = notification.params?.content
-                    if (Array.isArray(content) && content.length > 0 && content.every(isHiddenUserContent)) {
-                        return
-                    }
-                    actions.markTurnStarted()
-                    if (values.bootstrappedTaskId) {
-                        const lines = contextBlockLinesFromUserMessage(
-                            extractUserMessageText(notification.params?.content)
-                        )
-                        if (lines.length > 0) {
-                            actions.markContextLinesSeen(values.bootstrappedTaskId, lines)
-                        }
-                    }
-                    return
-                }
-                if (method?.startsWith('_posthog/')) {
-                    // _posthog/error, _posthog/status, _posthog/compact_boundary, _posthog/task_notification
-                    // → rendered by the projection. _posthog/console, _posthog/sandbox_output,
-                    // other internal events → no UI. No side effect either way.
-                    return
-                }
-                // The session/new request carries the run's starting permission mode in its meta. Seed the
-                // mode fold from it so mode-aware permission routing (full-auto answering in
-                // `bypassPermissions`) works before any `current_mode_update` arrives — the adapter only
-                // emits those on changes.
-                if (method === 'session/new') {
-                    const meta = (notification.params as { _meta?: { permissionMode?: unknown } } | undefined)?._meta
-                    if (typeof meta?.permissionMode === 'string' && meta.permissionMode) {
-                        actions.setCurrentMode(meta.permissionMode)
-                    }
-                    return
-                }
-                // session/prompt never renders and the resume-context filter is handled in the projection.
-                if (method === 'session/prompt') {
-                    return
-                }
-                if (!isSessionUpdateNotification(notification)) {
-                    return
-                }
-                const update = notification.params?.update
-                // The numeric used/size usage aggregate is session/update-framed — fold it into the ring.
-                if (isSessionUpdateUsage(update)) {
-                    actions.setContextUsage(foldUsageAggregate(values.contextUsage, update))
-                    return
-                }
-                // Wire user turns render only on replay (the projection branches on source). Their one side
-                // effect is the same context-line recording as `_posthog/user_message` above — resume
-                // chains persist a turn in both wire forms, and the seen-lines reducer dedupes the overlap.
-                // Chunked frames are skipped: a partial text could truncate a block mid-line.
-                if (isSessionUpdateUserMessage(update)) {
-                    if (isHiddenUserContent(update.content)) {
-                        return
-                    }
-                    actions.markTurnStarted()
-                    if (values.bootstrappedTaskId && update.sessionUpdate === 'user_message') {
-                        const lines = contextBlockLinesFromUserMessage(
-                            String(update.content?.text ?? update.text ?? '')
-                        )
-                        if (lines.length > 0) {
-                            actions.markContextLinesSeen(values.bootstrappedTaskId, lines)
-                        }
-                    }
-                    return
-                }
-                if (isSessionUpdateAvailableCommands(update)) {
-                    actions.setAvailableCommands(parseAvailableCommands(update.availableCommands))
-                    return
-                }
-                if (!isKnownSessionUpdate(update)) {
-                    return
-                }
-                // The agent producing output is the only marker of a new turn this client can rely on when the
-                // turn was started from outside its own composer. Such a follow-up is queued on the run, which
-                // emits no second `run_started`, and neither wire form of the user turn fills the gap: the live
-                // stream never carries one, and the persisted one is written when the message is received, so a
-                // message sent mid-turn is replayed *before* the previous turn's `turn_complete`. Guarded on
-                // `turnComplete` so this costs one dispatch per turn rather than one per streamed chunk.
-                if (values.turnComplete && AGENT_GENERATING_SESSION_UPDATES.has(update.sessionUpdate)) {
-                    actions.markTurnStarted()
-                }
-                if (update.sessionUpdate === 'current_mode_update') {
-                    actions.setCurrentMode(String(update.currentModeId ?? update.mode ?? ''))
-                    return
-                }
-                if (update.sessionUpdate === 'tool_call') {
-                    // A fresh tool call — the tracker folded it in above, so resolve its name off the
-                    // merged invocation and publish a `started` event on the bus.
-                    if (emitToolStream) {
-                        const toolCallId = String(update.toolCallId ?? '')
-                        const invocation = toolCallId ? trackedInvocations.get(toolCallId) : undefined
-                        if (invocation) {
-                            actions.emitToolEvent({
-                                streamKey: props.streamKey,
-                                toolCallId,
-                                toolName: resolveToolCall(invocation).resolvedKey,
-                                rawToolName: invocation.rawToolName,
-                                phase: 'started',
-                                invocation,
-                                source,
-                            })
-                        }
-                    }
-                    return
-                }
-                if (update.sessionUpdate === 'tool_call_update') {
-                    // TOOL_CALL_COMPLETED telemetry — emit once when a tool call first transitions to a
-                    // terminal status. `preToolStatus` (read before the upsert) gates the once-only fire;
-                    // the resolved key comes from the tracked merged invocation. Suppressed on replay,
-                    // and skipped when the creating `tool_call` was lost (no pre-status).
-                    const toolCallId = String(update.toolCallId ?? '')
-                    if (!toolCallId) {
-                        return
-                    }
-                    const status = mapAcpStatus(update.status ?? preToolStatus)
-                    if (
-                        !isReplay &&
-                        preToolStatus !== undefined &&
-                        preToolStatus !== 'completed' &&
-                        preToolStatus !== 'failed' &&
-                        (status === 'completed' || status === 'failed')
-                    ) {
-                        const invocation = trackedInvocations.get(toolCallId)
-                        const startedAt = cache.turnStartedAtMs as number | undefined
-                        posthog.capture('tool_call_completed', {
-                            conversation_id: props.conversationId,
-                            trace_id: values.traceId,
-                            tool_call_id: toolCallId,
-                            tool_qualified_name: invocation ? resolveToolCall(invocation).resolvedKey : undefined,
-                            status,
-                            duration_ms: startedAt !== undefined ? Date.now() - startedAt : undefined,
-                            execution_type: 'sandbox',
-                        })
-                    }
-                    // Tool-stream event: phase from the pre-fold status → new status transition. A crossing
-                    // into a terminal status is `completed`/`failed`; any other update is `updated`.
-                    if (emitToolStream) {
-                        const invocation = trackedInvocations.get(toolCallId)
-                        if (invocation) {
-                            const wasTerminal = preToolStatus === 'completed' || preToolStatus === 'failed'
-                            const phase: ToolStreamPhase =
-                                !wasTerminal && status === 'completed'
-                                    ? 'completed'
-                                    : !wasTerminal && status === 'failed'
-                                      ? 'failed'
-                                      : 'updated'
-                            actions.emitToolEvent({
-                                streamKey: props.streamKey,
-                                toolCallId,
-                                toolName: resolveToolCall(invocation).resolvedKey,
-                                rawToolName: invocation.rawToolName,
-                                phase,
-                                invocation,
-                                source,
-                            })
-                        }
-                    }
-                    return
-                }
-                // agent_message_chunk / agent_message / agent_thought_chunk → projection only.
             },
+        }
+    }),
+    beforeUnmount(({ props }) => {
+        if (!props.replayOnly) {
+            liveRunStreams().delete(props.streamKey)
         }
     }),
 ])

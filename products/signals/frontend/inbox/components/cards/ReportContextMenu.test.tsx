@@ -7,7 +7,8 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { SignalReport, SignalReportStatus } from '../../types'
+import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
+import { INBOX_SCOPE_ENTIRE_PROJECT, SignalReport, SignalReportStatus } from '../../types'
 import { ReportContextMenu } from './ReportContextMenu'
 
 jest.mock('posthog-js')
@@ -78,17 +79,17 @@ describe('ReportContextMenu', () => {
         {
             name: 'a ready actionable report offers every action',
             report: makeReport(),
-            expected: ['Select', 'Create PR', 'Resolve', 'Dismiss', 'Reviewers'],
+            expected: ['Select', 'Create PR', 'Resolve', 'Dismiss', 'Reviewers', 'Remove yourself'],
         },
         {
             name: 'a report with a PR does not offer creating another',
             report: makeReport({ implementation_pr_url: 'https://github.com/posthog/posthog/pull/1' }),
-            expected: ['Select', 'Resolve', 'Dismiss', 'Reviewers'],
+            expected: ['Select', 'Resolve', 'Dismiss', 'Reviewers', 'Remove yourself'],
         },
         {
             name: 'an in-progress report cannot be resolved yet',
             report: makeReport({ status: SignalReportStatus.IN_PROGRESS, actionability: null }),
-            expected: ['Select', 'Dismiss', 'Reviewers'],
+            expected: ['Select', 'Dismiss', 'Reviewers', 'Remove yourself'],
         },
         {
             name: 'a dismissed report only offers restore',
@@ -99,6 +100,18 @@ describe('ReportContextMenu', () => {
         openMenu(report)
 
         expect(menuRowText()).toEqual([...expected, ...BROWSER_LINK_ROWS])
+    })
+
+    // Outside the "For me" scope, a report that does not name you must not offer to remove you from it.
+    it.each([
+        { name: 'names you', isReviewer: true, offered: true },
+        { name: 'does not name you', isReviewer: false, offered: false },
+    ])('in the whole-project scope, a report that $name', ({ isReviewer, offered }) => {
+        inboxFiltersLogic.mount()
+        inboxFiltersLogic.actions.setScope(INBOX_SCOPE_ENTIRE_PROJECT)
+        openMenu(makeReport({ is_suggested_reviewer: isReviewer }))
+
+        expect(menuRowText().includes('Remove yourself')).toBe(offered)
     })
 
     // A relative or wrong-tab URL would copy a link that 404s or opens the wrong list when pasted.
@@ -134,8 +147,8 @@ describe('ReportContextMenu', () => {
     it.each([
         {
             submenu: 'Resolve',
-            reason: 'PR was merged',
-            body: { state: 'resolved', dismissal_reason: 'pr_merged' },
+            reason: 'No action needed',
+            body: { state: 'resolved', dismissal_reason: 'no_action_needed' },
         },
         {
             submenu: 'Resolve',

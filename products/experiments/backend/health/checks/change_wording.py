@@ -3,7 +3,11 @@
 from datetime import datetime, timedelta
 from typing import Literal
 
-from products.experiments.backend.health.context import FlagHistoryNotCheckedReason
+from products.experiments.backend.health.context import (
+    MAX_FLAG_SAVES,
+    MAX_RELEASE_CONDITIONS,
+    FlagHistoryNotCheckedReason,
+)
 from products.experiments.backend.health.split_changes import format_change_time
 
 SECONDS_PER_DAY = 24 * 60 * 60
@@ -47,6 +51,10 @@ def not_checked_because(reason: FlagHistoryNotCheckedReason) -> str:
             return "this API key can't query events"
         case FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS:
             return "you can't view the linked feature flag's history"
+        case FlagHistoryNotCheckedReason.TOO_MANY_SAVES:
+            return f"the flag was saved more than {MAX_FLAG_SAVES} times since launch"
+        case FlagHistoryNotCheckedReason.TOO_MANY_CONDITIONS:
+            return f"the flag has more than {MAX_RELEASE_CONDITIONS} release conditions"
 
 
 def not_checked_next_step(reason: FlagHistoryNotCheckedReason, the_change: str) -> str:

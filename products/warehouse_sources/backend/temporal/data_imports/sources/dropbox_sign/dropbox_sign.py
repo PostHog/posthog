@@ -5,10 +5,13 @@ from typing import Any
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign.settings import (
@@ -50,7 +53,7 @@ def validate_credentials(api_key: str) -> bool:
         return False
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((DropboxSignRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
@@ -134,11 +137,13 @@ def get_rows(
         path = path.format(team_id=team_id)
     url = f"{DROPBOX_SIGN_BASE_URL}{path}"
 
-    if config.is_single_object:
+    if config.is_single_object or not config.is_paginated:
         data = _fetch_page(session, url, headers, {}, logger, empty_on_404=config.empty_on_404)
-        obj = data.get(config.data_key) if data else None
-        if obj:
-            batcher.batch(_redact(obj, config.redact_paths))
+        records = data.get(config.data_key) if data else None
+        if config.is_single_object:
+            records = [records] if records else []
+        for record in records or []:
+            batcher.batch(_redact(record, config.redact_paths))
         while batcher.should_yield(include_incomplete_chunk=True):
             yield batcher.get_table()
         return

@@ -13,10 +13,11 @@ from django.db import transaction
 
 from pydantic import BaseModel
 
+from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.enums import LabeledStrEnum
 from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
-from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
 from posthog.models.user_integration import (
@@ -27,18 +28,16 @@ from posthog.models.user_integration import (
 )
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
-from products.mcp_store.backend.facade.api import get_installations_for_sandbox
+from products.mcp_store.backend.facade.api import resolve_installations_for_sandbox
+from products.mcp_store.backend.facade.contracts import UnmountedInstallation, UnmountedInstallationReason
 from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import (
     ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
-    DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
     EVAL_INTERACTION_ORIGIN,
     INITIAL_PERMISSION_MODE_CHOICES,
-    SNAPSHOT_KIND_DIRECTORY,
-    SNAPSHOT_KIND_FILESYSTEM,
+    RESUME_SNAPSHOT_KIND,
     InitialPermissionMode,
-    SnapshotKind,
     filter_user_sandbox_env_vars,
     is_same_run_resume_idle_state,
     is_same_run_resume_state,
@@ -47,6 +46,7 @@ from products.tasks.backend.exceptions import (
     CredentialUnavailableError,
     GatewayTokenUnavailableError,
     ProcessTaskError,
+    ProcessTaskFatalError,
     ProcessTaskTransientError,
 )
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
@@ -94,7 +94,7 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
     from products.slack_app.backend.models import SlackThreadTaskMapping
-    from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
+    from products.tasks.backend.models import Task, TaskRun
     from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
         TaskProcessingContext,
     )
@@ -339,25 +339,23 @@ def normalize_directory_resume_snapshot_mount_path(snapshot_mount_path: object) 
 
     A snapshot's content layout matches the path it was captured from, so a stored path outside
     the allowlist (notably the legacy "/tmp" default, whose mount replaced the live system temp
-    dir and killed the sandbox) cannot be remapped to a safe path — the snapshot is unusable and
-    the resume must fall back to a fresh sandbox.
+    dir and killed the sandbox) cannot be remapped to a safe path. A snapshot with no stored path
+    predates the path stamp and cannot be restored either, so the resume falls back to a fresh
+    sandbox.
     """
-    if not snapshot_mount_path:
-        return DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH
     if isinstance(snapshot_mount_path, str) and snapshot_mount_path in ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS:
         return snapshot_mount_path
 
-    logger.warning(
-        "Directory resume snapshot has an unsupported mount path; invalidating the snapshot",
-        extra={"snapshot_mount_path": snapshot_mount_path},
-    )
+    if snapshot_mount_path:
+        logger.warning(
+            "Directory resume snapshot has an unsupported mount path; invalidating the snapshot",
+            extra={"snapshot_mount_path": snapshot_mount_path},
+        )
     return None
 
 
-def is_resume_snapshot_usable(kind: SnapshotKind, mount_path: str | None) -> bool:
-    """Whether a stored snapshot may be restored into a new sandbox; False falls back to a fresh one.
-    A directory snapshot whose stored mount path was invalidated (legacy "/tmp" captures) can't be restored."""
-    return not (kind == SNAPSHOT_KIND_DIRECTORY and mount_path is None)
+def is_resume_snapshot_usable(mount_path: str | None) -> bool:
+    return mount_path is not None
 
 
 class RunState(BaseModel, extra="allow"):
@@ -380,7 +378,6 @@ class RunState(BaseModel, extra="allow"):
     same_run_resume: bool = False
     same_run_resume_idle: bool = False
     snapshot_external_id: str | None = None
-    snapshot_kind: str | None = None
     snapshot_mount_path: str | None = None
     sandbox_id: str | None = None
     sandbox_url: str | None = None
@@ -399,19 +396,11 @@ class RunState(BaseModel, extra="allow"):
     def model_access(self) -> ModelAccess:
         return resolve_model_access(self.model_dump())
 
-    def resume_snapshot_kind(self) -> SnapshotKind:
-        if self.snapshot_kind == SNAPSHOT_KIND_DIRECTORY:
-            return SNAPSHOT_KIND_DIRECTORY
-        return SNAPSHOT_KIND_FILESYSTEM
-
     def resume_snapshot_mount_path(self) -> str | None:
-        if self.resume_snapshot_kind() != SNAPSHOT_KIND_DIRECTORY:
-            return None
         return normalize_directory_resume_snapshot_mount_path(self.snapshot_mount_path)
 
     def resume_snapshot_is_usable(self) -> bool:
-        """See ``is_resume_snapshot_usable`` — callers must provision fresh when False."""
-        return is_resume_snapshot_usable(self.resume_snapshot_kind(), self.resume_snapshot_mount_path())
+        return is_resume_snapshot_usable(self.resume_snapshot_mount_path())
 
     def resume_snapshot_carry_state(self) -> dict[str, Any]:
         """State keys a successor run must copy (always the full set, never the external ID
@@ -420,7 +409,7 @@ class RunState(BaseModel, extra="allow"):
             return {}
         carried: dict[str, Any] = {
             "snapshot_external_id": self.snapshot_external_id,
-            "snapshot_kind": self.resume_snapshot_kind(),
+            "snapshot_kind": RESUME_SNAPSHOT_KIND,
         }
         mount_path = self.resume_snapshot_mount_path()
         if mount_path is not None:
@@ -433,29 +422,6 @@ def parse_run_state(state: dict[str, Any] | None) -> RunState:
     normalized_state["same_run_resume"] = is_same_run_resume_state(state)
     normalized_state["same_run_resume_idle"] = is_same_run_resume_idle_state(state)
     return RunState.model_validate(normalized_state)
-
-
-@dataclass(frozen=True)
-class SnapshotMetadata:
-    kind: SnapshotKind
-    mount_path: str | None
-
-    @property
-    def is_usable(self) -> bool:
-        """See ``is_resume_snapshot_usable`` — same invalidation rule."""
-        return is_resume_snapshot_usable(self.kind, self.mount_path)
-
-
-def get_sandbox_snapshot_metadata(snapshot: SandboxSnapshot) -> SnapshotMetadata:
-    kind: SnapshotKind = (
-        SNAPSHOT_KIND_DIRECTORY
-        if snapshot.metadata.get("snapshot_kind") == SNAPSHOT_KIND_DIRECTORY
-        else SNAPSHOT_KIND_FILESYSTEM
-    )
-    mount_path = None
-    if kind == SNAPSHOT_KIND_DIRECTORY:
-        mount_path = normalize_directory_resume_snapshot_mount_path(snapshot.metadata.get("snapshot_mount_path"))
-    return SnapshotMetadata(kind=kind, mount_path=mount_path)
 
 
 # TTL for the per-run GitHub user token cache. Kept for backward-compat with callers
@@ -589,6 +555,43 @@ def loop_mcp_installation_allowlist(state: dict | None) -> list[str] | None:
     return [str(i) for i in ids] if isinstance(ids, list) else []
 
 
+@frozen
+class UserMcpServerConfigs:
+    configs: list[McpServerConfig]
+    unmounted: tuple[UnmountedInstallation, ...] = ()
+
+
+_UNMOUNTED_REASON_NOTICES: dict[UnmountedInstallationReason, str] = {
+    "needs_reconnect": "reconnect it in the MCP Store",
+    "server_disabled": "a project admin turned this server off",
+    "revoked": "a project admin turned this server off for you",
+}
+
+
+def unmounted_mcp_installations_notice(unmounted: Sequence[UnmountedInstallation]) -> str | None:
+    """The run-log warning for connections the user expects but the run left out.
+
+    A connection the run's own selection excluded, or one the user's personal copy replaced,
+    is the expected outcome, so it is not reported.
+    """
+    missing = [
+        f"{installation.name} ({_UNMOUNTED_REASON_NOTICES[installation.reason]})"
+        for installation in unmounted
+        if installation.reason in _UNMOUNTED_REASON_NOTICES
+    ]
+    if not missing:
+        return None
+    noun = "connection was" if len(missing) == 1 else "connections were"
+    return f"{len(missing)} MCP Store {noun} not added to this run: {', '.join(missing)}."
+
+
+def unmounted_mcp_installations_log_fields(unmounted: Sequence[UnmountedInstallation]) -> list[dict[str, str]]:
+    return [
+        {"id": installation.id, "name": installation.name, "scope": installation.scope, "reason": installation.reason}
+        for installation in unmounted
+    ]
+
+
 def get_user_mcp_server_configs(
     token: str,
     team_id: int,
@@ -602,7 +605,7 @@ def get_user_mcp_server_configs(
     task_agent_key: str | None = None,
     credential_owner_id: int | None = None,
     allowed_gateway_server_ids: list[str] | None = None,
-) -> list[McpServerConfig]:
+) -> UserMcpServerConfigs:
     """Fetch MCP Store installations for sandbox use and return configs.
 
     Unmapped tasks include shared team installations. Built-in agent tasks only
@@ -633,12 +636,14 @@ def get_user_mcp_server_configs(
     identity propagates through the MCP Store proxy to whichever upstream MCP
     the user installed. Non-PostHog upstreams ignore the header.
 
-    Returns an empty list on errors (non-fatal).
+    ``unmounted`` carries the installations the run reached but left out, with the reason.
+
+    Returns no configs on errors (non-fatal).
     """
     if origin_product == "account_audit":
-        return []
+        return UserMcpServerConfigs(configs=[])
 
-    installations = get_installations_for_sandbox(
+    resolution = resolve_installations_for_sandbox(
         team_id,
         user_id=user_id,
         include_personal=include_personal,
@@ -654,7 +659,7 @@ def get_user_mcp_server_configs(
     )
 
     configs: list[McpServerConfig] = []
-    for installation in installations:
+    for installation in resolution.mounted:
         headers = [
             {"name": "Authorization", "value": f"Bearer {installation.proxy_token or token}"},
             {"name": "x-posthog-mcp-consumer", "value": consumer},
@@ -669,7 +674,7 @@ def get_user_mcp_server_configs(
             )
         )
 
-    return configs
+    return UserMcpServerConfigs(configs=configs, unmounted=resolution.unmounted)
 
 
 def build_imported_mcp_server_configs(
@@ -905,6 +910,7 @@ def get_sandbox_ph_mcp_configs(
 # GitHub installation tokens expire after 1 hour and sandboxes refresh theirs every 20 minutes, so a
 # token cached for 30 minutes still outlives the next refresh.
 SCOPED_GITHUB_TOKEN_CACHE_TTL_SECONDS = 30 * 60
+PUBLIC_GITHUB_REPOSITORY_CACHE_TTL_SECONDS = 5 * 60
 
 
 def _private_repositories(repositories: Sequence[str]) -> list[str]:
@@ -938,16 +944,115 @@ def _sandbox_repositories(state: dict[str, Any] | None, repository: str | None) 
     return [repository] if repository else []
 
 
+def _resolve_installation_repository_names(
+    github_integration: GitHubIntegrationBase, names: Sequence[str]
+) -> list[str]:
+    owner = github_integration.organization().lower()
+    installed: dict[int, str] = {}
+    for repository in github_integration.sync_repository_cache():
+        repository_id = repository.get("id")
+        full_name = repository.get("full_name")
+        if isinstance(repository_id, int) and isinstance(full_name, str):
+            repository_owner, _, name = full_name.lower().rpartition("/")
+            if repository_owner == owner and name:
+                installed[repository_id] = name
+
+    installed_names = set(installed.values())
+    resolved: set[str] = set()
+    unavailable: list[str] = []
+    for name in names:
+        if name in installed_names:
+            resolved.add(name)
+            continue
+        full_name = f"{owner}/{name}"
+        response = github_integration.api_request("GET", f"/repos/{full_name}", endpoint="/repos/{owner}/{repo}")
+        if response.status_code == 404:
+            unavailable.append(full_name)
+            continue
+        if response.status_code != 200:
+            raise GitHubIntegrationError("Failed to check GitHub repository access", status_code=response.status_code)
+        repository = response.json()
+        repository_id = repository.get("id")
+        if isinstance(repository_id, int) and repository_id in installed:
+            resolved.add(installed[repository_id])
+        elif repository.get("private") is not False or repository.get("visibility") == "internal":
+            unavailable.append(full_name)
+
+    if unavailable:
+        raise CredentialUnavailableError(
+            f"Cannot access GitHub repositories: {', '.join(unavailable)}. "
+            "Check that they exist and grant the GitHub App access in your installation settings, then retry.",
+            {"repositories": unavailable},
+        )
+    return sorted(resolved)
+
+
+def _scoped_token_cache_key(github_integration: GitHubIntegrationBase, names: Sequence[str]) -> str:
+    return f"task-sandbox-github-token:{github_integration.github_installation_id}:{','.join(names)}"
+
+
+def _readonly_token_cache_key(github_integration: GitHubIntegrationBase, names: Sequence[str]) -> str:
+    return f"task-sandbox-github-readonly-token:{github_integration.github_installation_id}:{','.join(names)}"
+
+
+def _cached_github_token(cache_key: str) -> str | None:
+    try:
+        cached = get_tasks_cache().get(cache_key)
+    except Exception:
+        logger.warning("Tasks cache read failed for %s", cache_key, exc_info=True)
+        return None
+    return cached if isinstance(cached, str) and cached else None
+
+
+def _store_github_token(cache_key: str, token: str) -> None:
+    try:
+        get_tasks_cache().set(cache_key, token, timeout=SCOPED_GITHUB_TOKEN_CACHE_TTL_SECONDS)
+    except Exception:
+        logger.warning("Tasks cache write failed for %s", cache_key, exc_info=True)
+
+
+def forget_cached_github_tokens(github_integration: GitHubIntegrationBase, repositories: Sequence[str]) -> None:
+    names = _installation_repository_names(github_integration, _private_repositories(repositories))
+    get_tasks_cache().delete_many(
+        [_scoped_token_cache_key(github_integration, names), _readonly_token_cache_key(github_integration, names)]
+    )
+
+
+def installation_confirms_repository_denied(github_integration: GitHubIntegrationBase, repository: str) -> bool:
+    try:
+        response = github_integration.api_request("GET", f"/repos/{repository}", endpoint="/repos/{owner}/{repo}")
+    except Exception:
+        logger.warning("Could not verify GitHub installation access to %s", repository, exc_info=True)
+        return False
+    return response.status_code in (403, 404)
+
+
+def resolve_installation_github_integration(github_integration_id: int) -> GitHubIntegration | None:
+    integration = Integration.objects.filter(id=github_integration_id, kind="github").first()
+    if integration is None:
+        return None
+    return GitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
+
+
 def _mint_repository_scoped_token(github_integration: GitHubIntegrationBase, repositories: Sequence[str]) -> str | None:
     names = _installation_repository_names(github_integration, repositories)
     if not names:
         return None
-    cache_key = f"task-sandbox-github-token:{github_integration.github_installation_id}:{','.join(names)}"
+    cache_key = _scoped_token_cache_key(github_integration, names)
     cache = get_tasks_cache()
     cached = cache.get(cache_key)
-    if isinstance(cached, str) and cached:
-        return cached
-    token = github_integration.mint_scoped_installation_token(None, repositories=names)
+    if isinstance(cached, str):
+        return cached or None
+    try:
+        token = github_integration.mint_scoped_installation_token(None, repositories=names)
+    except GitHubIntegrationError as error:
+        if error.status_code != 422:
+            raise
+        resolved_names = _resolve_installation_repository_names(github_integration, names)
+        if not resolved_names:
+            cache.set(cache_key, "", timeout=PUBLIC_GITHUB_REPOSITORY_CACHE_TTL_SECONDS)
+            return None
+        token = github_integration.mint_scoped_installation_token(None, repositories=resolved_names)
     cache.set(cache_key, token, timeout=SCOPED_GITHUB_TOKEN_CACHE_TTL_SECONDS)
     return token
 
@@ -1034,9 +1139,15 @@ def get_readonly_github_token(team_id: int, repositories: Sequence[str] = ()) ->
         names = _installation_repository_names(integration, private_repositories)
         if private_repositories and not names:
             return None
-        return integration.mint_scoped_installation_token(
+        cache_key = _readonly_token_cache_key(integration, names)
+        cached = _cached_github_token(cache_key)
+        if cached:
+            return cached
+        token = integration.mint_scoped_installation_token(
             READONLY_SANDBOX_GITHUB_PERMISSIONS, repositories=names or None
         )
+        _store_github_token(cache_key, token)
+        return token
     except Exception:
         logger.warning("Failed to mint read-only GitHub token for team %d", team_id, exc_info=True)
         return None
@@ -1490,12 +1601,25 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
             "AI_GATEWAY_PRODUCT": "signals_scout",
             "AI_GATEWAY_AI_STAGE": (ctx.state or {}).get("ai_stage") or "scout",
         }
+    requires_pi_scout = (
+        ctx.task_runtime == "pi"
+        and ctx.origin_product == "signals_scout"
+        and (ctx.state or {}).get("billing_product") != "posthog_ai"
+    )
     if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
+        if requires_pi_scout:
+            raise GatewayNotConfiguredError("Pi scouts require the AI gateway")
         record_gateway_routing(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=False)
         return {}
     ai_stage = (ctx.state or {}).get("ai_stage")
-    requires_go = resolve_sandbox_ai_product(ctx.origin_product, ai_stage, internal=task.internal) == (
-        POSTHOG_CODE_PRODUCT
+    requires_go = (
+        resolve_sandbox_ai_product(
+            ctx.origin_product,
+            ai_stage,
+            internal=task.internal,
+            billing_product=(ctx.state or {}).get("billing_product"),
+        )
+        == POSTHOG_CODE_PRODUCT
     )
     try:
         env_vars = ai_gateway_env_vars(
@@ -1513,6 +1637,13 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
         if not _record_pinned_gateway_product(ctx.run_id, ctx.state, pinned):
             if requires_go:
                 raise posthog_code_token_unavailable("pin_unrecorded", ctx.team_id)
+            if requires_pi_scout:
+                raise ProcessTaskTransientError(
+                    "Could not record the Pi scout's gateway model pin.",
+                    {"team_id": ctx.team_id, "run_id": ctx.run_id},
+                    RuntimeError("pin_unrecorded"),
+                    capture=False,
+                )
             # The model-change guard reads that stamp; unstamped, a run can move off its pin with no fallback.
             for key in _TOKEN_ENV_KEYS:
                 env_vars.pop(key, None)
@@ -1521,6 +1652,13 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
     except Exception as e:
         if requires_go:
             raise posthog_code_token_unavailable("mint_failed", ctx.team_id) from e
+        if requires_pi_scout:
+            raise ProcessTaskTransientError(
+                "The Pi scout's AI gateway is temporarily unavailable.",
+                {"team_id": ctx.team_id, "run_id": ctx.run_id},
+                e,
+                capture=False,
+            ) from e
         # Degrading to the Python gateway beats failing the provisioning activity and the run.
         AI_GATEWAY_TOKEN_MINTS.labels(result="error").inc()
         logger.warning(
@@ -1529,6 +1667,10 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
             exc_info=True,
         )
         env_vars = {}
+    if requires_pi_scout and not env_vars.get("AI_GATEWAY_TOKEN"):
+        raise GatewayTokenUnavailableError(
+            "Pi scouts require a scoped AI gateway token", {"team_id": ctx.team_id, "run_id": ctx.run_id}
+        )
     # Retry provisioning if coverage cannot be recorded; otherwise fallback usage can look fully accounted for.
     record_gateway_routing(
         run_id=ctx.run_id,
@@ -1574,6 +1716,14 @@ def _record_pinned_gateway_product(run_id: str, state: dict | None, minted_produ
     return True
 
 
+WORKFLOWS_PRODUCT = "workflows"
+WORKFLOWS_CREDITS_EXHAUSTED_REFUSAL = "ai_credits_exhausted"
+WORKFLOWS_CREDITS_EXHAUSTED_DETAIL = (
+    "This project has used its monthly PostHog AI credits. "
+    "Raise the AI credit limit in billing settings, or wait for the next billing period."
+)
+
+
 def ai_gateway_env_vars(
     *,
     team_id: int | None = None,
@@ -1599,12 +1749,30 @@ def ai_gateway_env_vars(
     Go gateway only when the token is present, so a missing token (mint failure,
     or a caller that cannot supply run context) degrades the run to the Python
     gateway, except a `posthog_code` run, which raises: the Python gateway
-    refuses `posthog_code`.
+    refuses `posthog_code`. A `workflows` run whose team is out of AI credits
+    also raises, because the Python gateway refuses it too.
     """
     ai_product = (
-        resolve_sandbox_ai_product(origin_product, ai_stage, internal=internal) if team_id is not None else None
+        resolve_sandbox_ai_product(
+            origin_product, ai_stage, internal=internal, billing_product=(state or {}).get("billing_product")
+        )
+        if team_id is not None
+        else None
     )
     requires_go = ai_product == POSTHOG_CODE_PRODUCT
+    requires_pi_scout = (
+        runtime == "pi" and origin_product == "signals_scout" and (state or {}).get("billing_product") != "posthog_ai"
+    )
+    if requires_pi_scout and not (
+        ai_product == "signals_scout"
+        and settings.SANDBOX_AI_GATEWAY_URL
+        and settings.SANDBOX_AI_GATEWAY_MINT_KEY
+        and settings.SANDBOX_AI_GATEWAY_PRODUCTS
+        and sandbox_product_routed(ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS)
+    ):
+        raise GatewayTokenUnavailableError(
+            "Pi scouts require configured scoped AI gateway routing.", {"team_id": team_id}
+        )
     if not (settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS):
         if requires_go:
             raise posthog_code_token_unavailable("not_configured", team_id)
@@ -1650,8 +1818,21 @@ def ai_gateway_env_vars(
                 )
                 if requires_go:
                     raise posthog_code_token_unavailable(refusal, team_id)
+                if requires_pi_scout:
+                    raise GatewayTokenUnavailableError(
+                        "The AI gateway refused the Pi scout token.", {"team_id": team_id, "reason": refusal}
+                    )
+                # The legacy gateway refuses an exhausted bucket with a retryable 429. A background
+                # workflow run has nobody to read the refusal, so the agent retries until the idle
+                # timeout and the run fails as lost. Fail it here with the real reason.
+                if ai_product == WORKFLOWS_PRODUCT and refusal == WORKFLOWS_CREDITS_EXHAUSTED_REFUSAL:
+                    raise GatewayTokenUnavailableError(
+                        WORKFLOWS_CREDITS_EXHAUSTED_DETAIL, {"team_id": team_id, "reason": refusal}
+                    )
                 return env_vars
             mint_kwargs: dict[str, Any] = {}
+            if requires_pi_scout:
+                mint_kwargs["raise_on_failure"] = True
             if ai_product == POSTHOG_CODE_PRODUCT:
                 free_pin = posthog_code_allowed_models(team_id)
                 if free_pin is not None:
@@ -1698,6 +1879,7 @@ def posthog_code_token_unavailable(reason: str, team_id: int | None) -> ProcessT
     message = _POSTHOG_CODE_REFUSAL_MESSAGES.get(reason, f"PostHog AI refused this run (reason: {reason}).")
     if reason == "not_configured":
         logger.error("ai_gateway: posthog_code run with no gateway configured (team_id=%s)", team_id)
+        return ProcessTaskFatalError(message, context, RuntimeError(reason), capture=False)
     return GatewayTokenUnavailableError(message, context)
 
 
@@ -1850,6 +2032,14 @@ def record_delivered_message(
 
 def get_message_actor(run_id: str, message_id: str) -> str | None:
     return get_tasks_cache().get(_message_record_key("actor", run_id, message_id))
+
+
+def is_explicit_slack_reply(task_run: TaskRun, message_id: str | None) -> bool:
+    if message_id:
+        return bool(get_message_actor(str(task_run.id), message_id))
+    # The opening turn starts with the sandbox, before per-message sender records exist.
+    state = task_run.state or {}
+    return state.get("interaction_origin") == "slack" and bool(state.get("slack_actor_slack_user_id"))
 
 
 def turn_person_message(run_id: str | None, message_id: str | None, *, mention: str | None = None) -> str | None:

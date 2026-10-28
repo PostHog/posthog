@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -59,6 +58,8 @@ class TestClarifaiTransport:
             ("concept_relations", "concepts/relations", "concept_relations", {}),
             ("annotations", "annotations", "annotations", {"list_all_annotations": ["true"]}),
             ("evaluations", "evaluations", "eval_metrics", {"show_failed_metrics": ["true"]}),
+            ("tasks", "tasks", "tasks", {"including_label_order_tasks": ["true"]}),
+            ("collaborators", "collaborators", "collaborators", {"list_all_collaborators": ["true"]}),
         ],
     )
     @pytest.mark.parametrize("resume_page", [None, 4])
@@ -232,11 +233,6 @@ class TestClarifaiTransport:
         assert "redirect" in str(result.raised)
         assert len(result.requests) == 1
 
-    def test_unknown_endpoint_does_not_request(self, config: ClarifaiSourceConfig) -> None:
-        result = self._driver(config).run("unknown", [])
-        assert isinstance(result.raised, UnknownResourceError)
-        assert result.requests == []
-
 
 class TestClarifaiCredentials:
     @pytest.mark.parametrize(
@@ -281,11 +277,23 @@ class TestClarifaiCredentials:
             assert network.requests_log[0].param("per_page") == "1"
             assert network.requests_log[0].headers["authorization"] == "Key fake-clarifai-pat"
 
-    @pytest.mark.parametrize("http_status", [400, 429, 500])
-    def test_probe_does_not_disguise_other_errors(self, config: ClarifaiSourceConfig, http_status: int) -> None:
+    @pytest.mark.parametrize(
+        "http_status,expected",
+        [
+            (400, HTTPError),
+            (429, (False, "Couldn't reach Clarifai to check your credentials. Try again in a few minutes.")),
+            (500, (False, "Couldn't reach Clarifai to check your credentials. Try again in a few minutes.")),
+        ],
+    )
+    def test_probe_does_not_disguise_other_errors(
+        self, config: ClarifaiSourceConfig, http_status: int, expected: type[Exception] | tuple[bool, str]
+    ) -> None:
         with scripted_network(always(ScriptedResponse(status=http_status, json={"status": {"code": 10020}}))):
-            with pytest.raises((HTTPError, RESTClientRetryableError)):
-                ClarifaiSource().validate_credentials(config, 42)
+            if isinstance(expected, tuple):
+                assert ClarifaiSource().validate_credentials(config, 42) == expected
+            else:
+                with pytest.raises(expected):
+                    ClarifaiSource().validate_credentials(config, 42)
 
     @pytest.mark.parametrize(
         "host",

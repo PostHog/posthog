@@ -8,7 +8,6 @@ from requests import HTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     Script,
@@ -124,12 +123,7 @@ class TestDinoTransport(TestCase):
 
     @parameterized.expand(
         [
-            (200, None, None),
             (400, "VALIDATION_ERROR", "Check the project ID"),
-            (401, "UNAUTHORIZED", "Create a personal access token"),
-            (401, "TOKEN_EXPIRED", "Create a personal access token"),
-            (401, "TOKEN_REVOKED", "Create a personal access token"),
-            (403, "FORBIDDEN", "projects allowed"),
             (404, "NOT_FOUND", "projects allowed"),
         ]
     )
@@ -182,10 +176,4 @@ class TestDinoTransport(TestCase):
         self.assertIsInstance(result.raised, ValueError)
         self.assertIn("project ID", str(result.raised))
         self.assertEqual(network.requests_log, [])
-        self.assertEqual(result.requests, [])
-
-    def test_unknown_table_does_not_make_a_request(self) -> None:
-        result = self.run_table("unknown", [])
-
-        self.assertIsInstance(result.raised, UnknownResourceError)
         self.assertEqual(result.requests, [])

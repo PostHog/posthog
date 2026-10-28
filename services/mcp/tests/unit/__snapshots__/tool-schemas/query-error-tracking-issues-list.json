@@ -202,6 +202,10 @@
             ],
             "description": "Filter by exact exception fingerprint hash, not fuzzy search."
         },
+        "firstSeenAfter": {
+            "description": "Only include issues first seen strictly after this ISO timestamp or relative date, such as -24h or -7d. Independent of dateRange, which filters occurrences.",
+            "type": "string"
+        },
         "library": {
             "anyOf": [
                 {
@@ -247,7 +251,7 @@
             "type": "string"
         },
         "release": {
-            "description": "Filter by exact release ID, version, or git commit ID captured in $exception_releases.",
+            "description": "Filter by exact release ID, version, or git commit ID captured in $exception_release.",
             "maxLength": 500,
             "type": "string"
         },

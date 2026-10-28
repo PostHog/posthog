@@ -118,7 +118,7 @@ class SimFinSource(SimpleSource[SimFinSourceConfig]):
             name=ExternalDataSourceType.SIMFIN,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="SimFin",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["financial data", "fundamentals", "stocks", "equities", "share prices"],
             caption="""Enter your SimFin API key and the stock tickers you want to track to pull standardized financial statements, share prices and company data into the PostHog Data warehouse.
 
@@ -140,6 +140,7 @@ Note: each selected table costs one request per ticker on every sync, and SimFin
                     ),
                     SourceFieldInputConfig(
                         name="tickers",
+                        sync_setting=True,
                         label="Tickers (comma-separated)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

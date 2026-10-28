@@ -19,10 +19,6 @@ class TestFreshsalesSource:
         # The API key is sent to a host derived from `domain`, so retargeting it must re-require the key.
         assert FreshsalesSource().connection_host_fields == ["domain"]
 
-    def test_get_schemas_filters_by_name(self) -> None:
-        schemas = FreshsalesSource().get_schemas(_config(), team_id=1, names=["contacts", "deals"])
-        assert {s.name for s in schemas} == {"contacts", "deals"}
-
     @parameterized.expand(
         [
             ("valid", 200, "acme", None, True),

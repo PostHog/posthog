@@ -64,7 +64,7 @@ class HyperspellSource(ResumableSource[HyperspellSourceConfig, HyperspellResumeC
             name=ExternalDataSourceType.HYPERSPELL,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Hyperspell",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Hyperspell API key to pull your app's memories, connections, and extracted entities into the PostHog Data warehouse.
 
 Create an API key in the [Hyperspell dashboard](https://app.hyperspell.com/). Keys are region-specific, so pick the region your Hyperspell app lives in.

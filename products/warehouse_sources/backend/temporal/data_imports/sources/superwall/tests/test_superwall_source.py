@@ -45,7 +45,7 @@ def test_credentials_distinguish_invalid_key_from_missing_scope(
         if schema_name == "products"
         else "/v2/projects/project_test/events"
         if schema_name == "webhook_events"
-        else "/v2/me"
+        else "/v2/projects"
     )
     if schema_name == "products":
         assert request.param("project_id") == "project_test"

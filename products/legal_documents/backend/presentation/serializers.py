@@ -4,11 +4,12 @@ from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models.organization import Organization
 
 from ..facade import api
 from ..facade.contracts import LegalDocumentDTO
-from ..facade.enums import DocumentType
+from ..facade.enums import BaaBlockReason, DocumentType
 
 
 class LegalDocumentSerializer(DataclassSerializer):
@@ -16,6 +17,12 @@ class LegalDocumentSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = LegalDocumentDTO
+
+
+BAA_BLOCK_MESSAGES: dict[BaaBlockReason, str] = {
+    BaaBlockReason.STARTUP_PROGRAM: "BAAs aren't covered by startup program credits. Contact us to discuss options.",
+    BaaBlockReason.NO_QUALIFYING_ADDON: "A Boost, Scale, or Enterprise add-on is required to generate a BAA.",
+}
 
 
 class CreateLegalDocumentSerializer(serializers.Serializer):
@@ -45,8 +52,12 @@ class CreateLegalDocumentSerializer(serializers.Serializer):
         document_type = attrs["document_type"]
         organization: Organization = self.context["view"].organization
 
-        if document_type == DocumentType.BAA and not api.has_qualifying_baa_addon(organization):
-            raise PermissionDenied("A Boost, Scale, or Enterprise add-on is required to generate a BAA.")
+        if document_type == DocumentType.BAA:
+            block_reason = api.get_baa_block_reason(organization, is_impersonated(self.context.get("request")))
+            if block_reason is not None:
+                raise PermissionDenied(
+                    BAA_BLOCK_MESSAGES.get(block_reason, BAA_BLOCK_MESSAGES[BaaBlockReason.NO_QUALIFYING_ADDON])
+                )
 
         # Only one BAA and one DPA per organization. If they need a new one, a staff
         # member deletes the old row from Django admin. The DB-level unique constraint

@@ -157,6 +157,13 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
             maximum_interval=timedelta(seconds=RECALCULATION_RETRY_MAX_INTERVAL_SECONDS),
             maximum_attempts=MAX_METRIC_ATTEMPTS,
         )
+        # Pre-patch histories scheduled every calculation on the workflow's queue, even when an old worker
+        # received a run with the field set, so they must replay with None.
+        activity_task_queue = (
+            inputs.activity_task_queue
+            if inputs.activity_task_queue and temporalio.workflow.patched("recalc-activity-task-queue-2026-10")
+            else None
+        )
         results = await asyncio.gather(
             *[
                 temporalio.workflow.execute_activity(
@@ -172,6 +179,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                     schedule_to_close_timeout=timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS),
                     heartbeat_timeout=timedelta(seconds=METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS),
                     retry_policy=calc_retry_policy,
+                    task_queue=activity_task_queue,
                     # Round-robin dispatch across orgs under backlog; a no-op on namespaces without
                     # fairness support.
                     priority=Priority(fairness_key=inputs.fairness_key),

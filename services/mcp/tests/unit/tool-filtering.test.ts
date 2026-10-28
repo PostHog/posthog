@@ -452,20 +452,12 @@ describe('Tool Filtering - API Scopes', () => {
         ['notebooks-widget-status', ['notebook:read']],
         ['notebooks-widget-cancel', ['notebook:write']],
     ] satisfies [string, string[]][])(
-        'exposes %s only with notebook widgets enabled and the required scopes',
+        'exposes %s with the required scopes without feature flags',
         async (toolName, scopes) => {
             const context = createMockContext(scopes)
-            const enabledOptions = { featureFlags: { 'notebook-generated-widgets': true }, aiConsentGiven: true }
+            const enabledOptions = { aiConsentGiven: true }
             const enabled = await getToolsFromContext(context, enabledOptions)
             expect(enabled.map((tool) => tool.name)).toContain(toolName)
-
-            for (const flagValue of [false, undefined]) {
-                const disabled = await getToolsFromContext(context, {
-                    ...enabledOptions,
-                    featureFlags: { 'notebook-generated-widgets': flagValue },
-                })
-                expect(disabled.map((tool) => tool.name)).not.toContain(toolName)
-            }
 
             for (const missingScope of scopes) {
                 const denied = await getToolsFromContext(
@@ -653,6 +645,18 @@ describe('server-minted scope matching', () => {
         expect(hasScope(['signal_scout_report:write'], 'signal_scout_internal:read')).toBe(false)
     })
 
+    // Keys and tokens issued before the inbox got its own scope carry only `task:*`.
+    it.each([
+        { held: ['task:read'], required: 'inbox:read', allowed: true },
+        { held: ['task:write'], required: 'inbox:read', allowed: true },
+        { held: ['task:write'], required: 'inbox:write', allowed: true },
+        { held: ['task:read'], required: 'inbox:write', allowed: false },
+        { held: ['inbox:read'], required: 'inbox:read', allowed: true },
+        { held: ['task:write'], required: 'insight:read', allowed: false },
+    ])('lets a legacy task scope satisfy an inbox scope: $held -> $required', ({ held, required, allowed }) => {
+        expect(hasScope(held, required)).toBe(allowed)
+    })
+
     it('leaves wildcard and write-implies-read intact for user-grantable scopes', () => {
         expect(hasScope(['*'], 'insight:read')).toBe(true)
         expect(hasScope(['*'], 'insight:write')).toBe(true)
@@ -750,6 +754,18 @@ describe('Tool Filtering - excludeTools', () => {
 })
 
 describe('Tool Filtering - AI Consent', () => {
+    it.each([true, false, undefined])(
+        'requires consent to start conversion recommendations but keeps saved results readable (%s)',
+        (aiConsentGiven) => {
+            const tools = getToolsForFeatures({
+                aiConsentGiven,
+                featureFlags: { 'marketing-analytics-conversion-setup-ai': true },
+            })
+            expect(tools).toContain('marketing-analytics-conversion-recommendations')
+            expect(tools.includes('marketing-analytics-start-conversion-recommendations')).toBe(aiConsentGiven === true)
+        }
+    )
+
     it('should exclude tools requiring AI consent when aiConsentGiven is false', () => {
         const tools = getToolsForFeatures({ aiConsentGiven: false })
         expect(tools).not.toContain('llma-summarization-create')
@@ -1080,17 +1096,26 @@ describe('Tool Filtering - Feature Flags', () => {
         const allFlags = getRequiredFeatureFlags()
         const branchFlags = [
             'scout-trials',
-            'self-optimising-workflows',
-            'business-knowledge-github-repos',
             'signals-report-checks-replace',
             'inbox-report-actions-mcp',
+            'signals-reviewer-exclusions-mcp',
             'cross-project-dashboards',
             'warehouse-suggestions',
             'scouts-tool-access',
+            'workflows-sending-tier-requests',
             'replay-vision-scanner-dashboard',
             'metrics-dashboard-import',
             'managed-warehouse-trino-query',
             'llm-analytics-tags',
+            'marketing-analytics-conversion-setup-ai',
+            'insight-data-checks',
+            'logs-agent-tools',
+            'workflows-transactional-email-api',
+            'activity-summary',
+            'anomalies-search',
+            'workflows-email-domain-agent-setup',
+            'feature-flag-rules-v2-mcp',
+            'investigate-insight',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1107,18 +1132,14 @@ describe('Tool Filtering - Feature Flags', () => {
                 'customer-analytics-feature-requests',
                 'customer-analytics-customer-tasks',
                 'notebooks-collaboration',
-                'notebook-generated-widgets',
                 'revamped-py-notebooks',
-                'notebook-generated-widgets',
                 'tasks',
                 'tasks-mcp-agent-run-start',
-                'dashboard-widgets',
                 'marketing-analytics-mcp',
                 'product-business-knowledge',
                 'field-notes',
                 'mcp-analytics-intent-routing',
                 'metrics',
-                'endpoints-ai-materialization-fix',
                 'engineering-analytics',
                 'web-analytics-path-cleaning-suggestions',
                 'stamphog',
@@ -1130,18 +1151,18 @@ describe('Tool Filtering - Feature Flags', () => {
                 'experiment-behavior-comparison',
                 'experiment-setup-context',
                 'data-warehouse-scene',
-                'data-quality-checks',
                 'context-layer',
                 'warehouse-multi-destination',
                 'autoresearch',
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
-                'workflows-data-suggestions',
                 'workflows-mcp-onboarding',
+                'aeo-citation-tracking',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
-        expect(flags).toHaveLength(39)
+        expect(allFlags).not.toContain('dashboard-widgets')
+        expect(flags).toHaveLength(35)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {

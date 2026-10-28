@@ -18,16 +18,12 @@ sidebar: Docs
 showTitle: true
 availability: { free: full, selfServe: full, enterprise: full }
 sourceId: Everhour
-beta: true
 
 ---
 
 import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
 import SyncModes from "../\_snippets/sync-modes.mdx"
 import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
-import AlphaRelease from "../\_snippets/alpha-release.mdx"
-
-<AlphaRelease />
 
 [Everhour](https://everhour.com) is a time-tracking, budgeting, and resource-planning tool for teams. This source syncs your Everhour clients, projects, tasks, project sections, project custom fields, team members, time records, invoices, expenses, expense categories, timecards, timesheets, and resource planner assignments, time off types and allocations into the PostHog data warehouse so you can join time-tracking data with your product and revenue data.
 

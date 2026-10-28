@@ -1,12 +1,16 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BIConfig, BIField, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
-import { ChartSettings, NodeKind } from '~/queries/schema/schema-general'
+import { ChartSettings, NodeKind, TableSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType, AccessControlResourceType, AccessControlLevel } from '~/types'
+
+import { expect, userEvent } from 'storybook/test'
 
 import { buildBIQuery, getBIResultDimensions, getBIResultMeasureColumns } from './biEditorTypes'
 import { biSceneLogic } from './biSceneLogic'
@@ -42,11 +46,13 @@ function WorksheetStage({
     width = 1200,
     sqlPreview = false,
     chartSettings,
+    tableSettings,
 }: {
     config: BIConfig
     width?: number
     sqlPreview?: boolean
     chartSettings?: ChartSettings
+    tableSettings?: TableSettings
 }): JSX.Element {
     useEffect(() => {
         const logic = biSceneLogic({ tabId })
@@ -56,6 +62,7 @@ function WorksheetStage({
             kind: NodeKind.BIVisualizationNode,
             config,
             chartSettings: { ...buildBIQuery(config)!.node.chartSettings, ...chartSettings },
+            tableSettings: { ...buildBIQuery(config)!.node.tableSettings, ...tableSettings },
         }
         logic.actions.restoreWorksheet(node)
         logic.actions.recordWorksheet(true)
@@ -63,7 +70,7 @@ function WorksheetStage({
             logic.actions.setSqlPreviewOpen(true)
         }
         return unmount
-    }, [config, sqlPreview, chartSettings])
+    }, [config, sqlPreview, chartSettings, tableSettings])
     return (
         <div className="h-[850px] max-w-full" style={{ width }}>
             <BusinessIntelligenceScene tabId={tabId} />
@@ -73,6 +80,17 @@ function WorksheetStage({
 
 const meta: Meta = {
     title: 'Products/Business intelligence/Worksheet exploration',
+    play: async () => {
+        await waitFor(() => {
+            const { dataNodeKey } = biSceneLogic({ tabId }).values
+            const logic = dataNodeLogic.findMounted({ key: dataNodeKey })
+            expect(logic?.values.responseLoading).toBe(false)
+            expect(logic?.values.response).toBeTruthy()
+        })
+        const { dataNodeKey } = biSceneLogic({ tabId }).values
+        // Mocked responses still measure real browser time, which varies between snapshots.
+        dataNodeLogic.findMounted({ key: dataNodeKey })!.actions.setElapsedTime(180)
+    },
     beforeEach: () => {
         const context = window.POSTHOG_APP_CONTEXT!
         const previous = context.resource_access_control
@@ -108,6 +126,9 @@ const meta: Meta = {
                 '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
                     const { query } = (await request.json()) as {
                         query: { kind: string; query?: string; limit?: number }
+                    }
+                    if (query.kind === NodeKind.HogQLAutocomplete) {
+                        return [200, { suggestions: [] }]
                     }
                     if (query.kind === NodeKind.HogQLMetadata) {
                         return [
@@ -246,6 +267,31 @@ export default meta
 export const FiltersAndHierarchy: StoryObj = { render: () => <WorksheetStage config={config} /> }
 export const Narrow: StoryObj = { render: () => <WorksheetStage config={config} width={520} /> }
 export const SQLPreview: StoryObj = { render: () => <WorksheetStage config={config} sqlPreview /> }
+const tableConfig: BIConfig = { ...config, chartType: ChartDisplayType.ActionsTable }
+const tableSettings: TableSettings = {
+    conditionalFormatting: [
+        {
+            id: 'revenue-highlight',
+            templateId: 'equals',
+            columnName: getBIResultMeasureColumns(tableConfig)[0].column,
+            input: '27',
+            color: '#FFADAD',
+            colorMode: 'light',
+            bytecode: ['_H', 1, 32, 'input', 1, 1, 32, 'value', 1, 1, 11, 38],
+        },
+    ],
+}
+export const TableConditionalFormatting: StoryObj = {
+    render: () => <WorksheetStage config={tableConfig} tableSettings={tableSettings} />,
+    play: async (context) => {
+        await meta.play?.(context)
+        const button = context.canvasElement.querySelector('[data-attr="bi-conditional-formatting"]')
+        expect(button).toBeTruthy()
+        await userEvent.click(button!)
+        await waitFor(() => expect(context.canvasElement.querySelector('.ConditionalFormattingTab')).toBeTruthy())
+        await waitFor(() => expect(context.canvasElement.querySelector('td[style*="background-color"]')).toBeTruthy())
+    },
+}
 const dailyConfig: BIConfig = {
     ...config,
     chartType: ChartDisplayType.ActionsLineGraph,

@@ -151,13 +151,14 @@ function share(value: unknown): string | null {
 function serverOnlyCheck(
     input: HealthDebugInput,
     check: ExperimentHealthFindingApi['code'],
-    note: ((finding: ExperimentHealthFindingApi) => string) | null
+    note: ((finding: ExperimentHealthFindingApi) => string) | null,
+    reads: HealthDebugDomain[] = ['experiment', 'flag']
 ): HealthDebugCheck {
     const finding = findingOf(input, check)
     return {
         check,
         source: 'health endpoint',
-        reads: ['experiment', 'flag'],
+        reads,
         ...serverResult(check, input.health, (code) => code === check),
         browser: null,
         browserLabel: BROWSER_RULES,
@@ -190,6 +191,21 @@ function bucketingChangedNote(finding: ExperimentHealthFindingApi): string {
         : `${changed} ${exposedBeforeFirst(finding)}`
 }
 
+function conditionsChangedNote(finding: ExperimentHealthFindingApi): string {
+    const { evidence } = finding
+    const changed = `${evidence.change_count} changes, from ${evidence.conditions_before} to ${evidence.conditions_after} conditions.`
+    if (finding.subcode === 'not_checked') {
+        return `Not checked: ${evidence.reason}. ${changed}`
+    }
+    const pinnedShare = share(evidence.pinned_share)
+    const removedOverride = pinnedShare
+        ? `Removed override share ${pinnedShare}.`
+        : typeof evidence.reason === 'string'
+          ? `Removed override share unknown: ${evidence.reason}.`
+          : null
+    return [changed, exposedBeforeFirst(finding), removedOverride].filter(Boolean).join(' ')
+}
+
 function forcedVariantNote(finding: ExperimentHealthFindingApi): string {
     const { evidence } = finding
     const parts = [`Pinned sets: ${evidence.pinned_condition_sets}, to ${evidence.pinned_variant_keys}.`]
@@ -208,6 +224,33 @@ function forcedVariantNote(finding: ExperimentHealthFindingApi): string {
         parts.push(`Share unknown: ${evidence.reason}.`)
     }
     return parts.join(' ')
+}
+
+function metricEventNote({ evidence }: ExperimentHealthFindingApi): string {
+    const events = Object.entries(evidence)
+        .filter(([key]) => /^metric_\d+_events$/.test(key))
+        .map(([, value]) => value)
+    return `Not received: ${events.join(', ')}.`
+}
+
+function metricCompileNote({ evidence }: ExperimentHealthFindingApi): string {
+    const errors = Object.entries(evidence)
+        .filter(([key]) => /^metric_\d+_error$/.test(key))
+        .map(([, value]) => value)
+    return `Doesn't compile: ${errors.join(', ')}.`
+}
+
+function metricCalculationNote({ evidence }: ExperimentHealthFindingApi): string {
+    const failures = Object.entries(evidence)
+        .filter(([key]) => /^metric_\d+_failure$/.test(key))
+        .map(([, value]) => value)
+    return `Failed: ${failures.join(', ')}. Calculated at ${evidence.calculated_at}.`
+}
+
+function exposureCriteriaNote({ subcode, evidence }: ExperimentHealthFindingApi): string {
+    return subcode === 'filter_on_another_flag'
+        ? `The query requires ${evidence.flag_key}, a filter requires ${evidence.filter_flag_keys}.`
+        : `Not received: ${evidence.event}.`
 }
 
 function noMetricCheck(input: HealthDebugInput): HealthDebugCheck {
@@ -280,9 +323,18 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
     }
 
     return [
-        exposureCheck('zero_exposures', ['experiment', 'exposures'], null),
-        exposureCheck('srm', ['exposures'], 'The finding needs p < 0.001.'),
+        exposureCheck('zero_exposures', ['experiment', 'flag', 'exposures'], null),
+        exposureCheck(
+            'srm',
+            ['exposures', 'flag'],
+            'The finding needs p < 0.001. After a split change it tests the users first exposed after the day of the change. It reads the flag history only for a reader who can view the flag.'
+        ),
         exposureCheck('bias_risk_multiple_excluded', ['exposures'], null),
+        exposureCheck(
+            'multiple_variants_share',
+            ['exposures'],
+            'The finding needs more than 5% and at least 5 users or groups in multiple variants, under Exclude only.'
+        ),
     ]
 }
 
@@ -292,9 +344,16 @@ export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugChec
         flagStateCheck(input),
         serverOnlyCheck(input, 'split_changed_mid_run', splitChangedNote),
         serverOnlyCheck(input, 'bucketing_changed_mid_run', bucketingChangedNote),
+        serverOnlyCheck(input, 'release_conditions_changed_mid_run', conditionsChangedNote),
         serverOnlyCheck(input, 'flag_variants_mismatch', null),
         serverOnlyCheck(input, 'forced_variant_release_condition', forcedVariantNote),
+        serverOnlyCheck(input, 'new_flag_no_traffic', null),
         noMetricCheck(input),
+        serverOnlyCheck(input, 'metric_event_not_ingested', metricEventNote, ['metrics', 'project']),
+        serverOnlyCheck(input, 'metric_cannot_compile', metricCompileNote, ['metrics', 'experiment']),
+        serverOnlyCheck(input, 'metric_calculation_failed', metricCalculationNote, ['metrics']),
+        serverOnlyCheck(input, 'exposure_criteria_cannot_match', exposureCriteriaNote, ['experiment', 'project']),
+        serverOnlyCheck(input, 'early_significance', null, ['experiment', 'metrics']),
         ...exposureChecks(input),
     ]
 }

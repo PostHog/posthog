@@ -7,6 +7,8 @@ rules:
       owners: team-feature-flags
     - match: ['/dependabot.yml', '/pull_request_template.md', '/workflows/']
       owners: team-devex
+    - match: '/shared-image-releases.yaml'
+      owners: [team-devex, team-data-stack, batch-exports]
     - match: '/workflows/cd-llm-analytics-image.yml'
       owners: [team-devex, team-ai-observability]
     - match:
@@ -31,6 +33,5 @@ rules:
     - match:
           - '/workflows/ci-agent-proxy.yml'
           - '/workflows/cd-agent-proxy-image.yml'
-          - '/workflows/cd-tasks-golden-snapshot.yml'
       owners: team-agent-infrastructure
       sensitive: true

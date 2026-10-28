@@ -403,6 +403,37 @@ class TestExportStreamRetry:
         assert mock_request.call_count == 1
         mock_sleep.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("read_timeout", requests.ReadTimeout("stalled")),
+            ("connection_error", requests.ConnectionError("refused")),
+        ]
+    )
+    def test_does_not_refetch_when_request_gave_up(self, _name: str, error: Exception) -> None:
+        manager = FakeManager()
+        day = date(2024, 1, 1)
+        with (
+            patch.object(mp, "_request", side_effect=error) as mock_request,
+            patch.object(mp.time, "sleep") as mock_sleep,
+        ):
+            with pytest.raises(type(error)):
+                list(
+                    mp._iter_export(
+                        "us",
+                        "u",
+                        "s",
+                        "123",
+                        LOGGER,
+                        manager,  # type: ignore[arg-type]
+                        start_date=day,
+                        end_date=day,
+                        api_version=MIXPANEL_API_VERSION_V1,
+                    )
+                )
+
+        assert mock_request.call_count == 1
+        mock_sleep.assert_not_called()
+
 
 class TestEngageIterator:
     def test_paginates_with_session_id_and_saves_state(self) -> None:

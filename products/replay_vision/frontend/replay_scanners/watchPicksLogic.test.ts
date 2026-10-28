@@ -2,12 +2,12 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { replayListColumnLogic } from 'scenes/session-recordings/playlist/replayListColumnLogic'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { picksInListFromFlag } from './picksInList'
 import { emptyImpressionsStorageKey, picksShownCountStorageKey, watchPicksLogic } from './watchPicksLogic'
 
 describe('watchPicksLogic', () => {
@@ -39,16 +39,6 @@ describe('watchPicksLogic', () => {
         })
         localStorage.clear()
         initKeaTests()
-    })
-
-    it.each([
-        ['in-list', true],
-        ['control', false],
-        ['watch-tab', false],
-        ['both', false],
-        [undefined, false],
-    ])('maps flag value %p to picks in the list: %p', (flagValue, expected) => {
-        expect(picksInListFromFlag(flagValue)).toBe(expected)
     })
 
     describe('inside a recordings list', () => {
@@ -89,7 +79,28 @@ describe('watchPicksLogic', () => {
 
         it('opens on the picks and reports the impression with its count', () => {
             expect(logic.values.effectiveListMode).toBe('picks')
-            expect(shownEvents()).toEqual([{ view: 'list', count: 3, unwatched_count: 3, shown_count: 1 }])
+            expect(shownEvents()).toEqual([
+                expect.objectContaining({
+                    view: 'list',
+                    count: 3,
+                    unwatched_count: 3,
+                    shown_count: 1,
+                    feed_load_id: logic.values.picksLoad?.feedLoadId,
+                    observation_ids: ['o1', 'o2', 'o3'],
+                }),
+            ])
+        })
+
+        it('reports impressions of served picks only, not of the unranked fallback rows', () => {
+            const [served] = logic.values.picks ?? []
+            logic.actions.cardSeen(served as any, 0)
+            logic.actions.cardSeen(item('fallback', 'session-c') as any, 0)
+            logic.unmount()
+            const batches = captureSpy.mock.calls
+                .filter(([name]) => name === 'replay_vision_watch_feed_impressions')
+                .map(([, props]) => props.impressions.map((i: { observation_id: string }) => i.observation_id))
+            expect(batches).toEqual([['o1']])
+            logic.mount()
         })
 
         it.each([
@@ -159,6 +170,17 @@ describe('watchPicksLogic', () => {
             await mountList()
             expect(logic.values.effectiveListMode).toBe('recordings')
             expect(shownEvents()).toEqual([])
+        })
+
+        it('opens the Scans segment on every pick', async () => {
+            const column = replayListColumnLogic({ logicKey: 'test-picks' })
+            column.mount()
+            for (const position of [0, 1]) {
+                column.actions.setSegment('picks')
+                logic.actions.watchPick(logic.values.picks![position], position)
+                expect(column.values.segment).toBe('moments')
+            }
+            column.unmount()
         })
 
         it('selects the pick, seeks ahead of its key moment, and marks it viewed for this person', async () => {

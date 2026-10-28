@@ -3,6 +3,8 @@ import { IconWarning } from '@posthog/icons'
 import { cn } from 'lib/utils/css-classes'
 
 import type { TraceNodeApi } from '../../../generated/api.schemas'
+import { EvalRollupOutcome } from '../types'
+import { EvalOutcomeMarker } from './EvalOutcomeMarker'
 import { NodeKindGlyph } from './NodeKindGlyph'
 import { NodeStatsLine } from './NodeStatsLine'
 
@@ -11,15 +13,28 @@ export interface TraceTreeRowProps {
     depth: number
     selectedNodeId: string | null
     onSelectNode: (id: string) => void
+    onPrefetchNode: (id: string) => void
+    evalOutcomes: Record<string, EvalRollupOutcome>
 }
 
-export function TraceTreeRow({ node, depth, selectedNodeId, onSelectNode }: TraceTreeRowProps): JSX.Element {
+export function TraceTreeRow({
+    node,
+    depth,
+    selectedNodeId,
+    onSelectNode,
+    onPrefetchNode,
+    evalOutcomes,
+}: TraceTreeRowProps): JSX.Element {
     const isSelected = node.id === selectedNodeId
+    // Node ids come from free-form trace ids, so a name like "constructor" would read an inherited property.
+    const evalOutcome = Object.hasOwn(evalOutcomes, node.id) ? evalOutcomes[node.id] : null
     return (
         <li>
             <button
                 type="button"
                 onClick={() => onSelectNode(node.id)}
+                onMouseEnter={() => onPrefetchNode(node.id)}
+                onFocus={() => onPrefetchNode(node.id)}
                 aria-current={isSelected ? 'true' : undefined}
                 data-attr="trace-view-tree-node"
                 className={cn(
@@ -40,6 +55,7 @@ export function TraceTreeRow({ node, depth, selectedNodeId, onSelectNode }: Trac
                     >
                         <span className="truncate">{node.name}</span>
                         {node.hasError ? <IconWarning className="shrink-0" role="img" aria-label="Error" /> : null}
+                        {evalOutcome ? <EvalOutcomeMarker outcome={evalOutcome} /> : null}
                     </span>
                     <NodeStatsLine stats={node.stats} model={node.model} compact />
                 </span>
@@ -53,6 +69,8 @@ export function TraceTreeRow({ node, depth, selectedNodeId, onSelectNode }: Trac
                             depth={depth + 1}
                             selectedNodeId={selectedNodeId}
                             onSelectNode={onSelectNode}
+                            onPrefetchNode={onPrefetchNode}
+                            evalOutcomes={evalOutcomes}
                         />
                     ))}
                 </ul>

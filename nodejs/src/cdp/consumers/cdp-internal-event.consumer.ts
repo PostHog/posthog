@@ -21,7 +21,7 @@ import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { convertInternalEventToHogFunctionInvocationGlobals } from '../utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { counterParseError } from './metrics'
+import { parseBatch } from './message-parsing'
 
 /**
  * Whether a GitHub delivery is a write PostHog's own GitHub App made, resolved from the `own_app`
@@ -180,38 +180,18 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
 
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        const events: HogFunctionInvocationGlobals[] = []
-        await Promise.all(
-            messages.map(async (message) => {
-                try {
-                    const kafkaEvent = parseJSON(message.value!.toString()) as unknown
-                    const event = CdpInternalEventSchema.parse(kafkaEvent)
-
-                    const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
-                        this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, this.hogTypes),
-                        this.hogFlowManager.getHogFlowsForTeam(event.team_id),
-                        this.deps.teamManager.getTeam(event.team_id),
-                    ])
-
-                    if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
-                        return
-                    }
-
-                    events.push(convertInternalEventToHogFunctionInvocationGlobals(event, team, this.config.SITE_URL))
-                } catch (e) {
-                    // A dependency outage is not a poison message. Rethrowing fails the batch, so the
-                    // offsets stay put and the consumer retries, instead of dropping every event of a
-                    // team for the length of a Postgres blip.
-                    if (e?.isRetriable === true) {
-                        throw e
-                    }
-                    logger.error('Error parsing message', e)
-                    counterParseError.labels({ error: e.message }).inc()
+        return await parseBatch(messages, {
+            errorLog: 'Error parsing message',
+            parse: (message) => {
+                const event = CdpInternalEventSchema.parse(parseJSON(message.value!.toString()))
+                return {
+                    teamId: event.team_id,
+                    toGlobals: (team) =>
+                        convertInternalEventToHogFunctionInvocationGlobals(event, team, this.config.SITE_URL),
                 }
-            })
-        )
-
-        return events
+            },
+            loadTeam: (teamId) => this.loadTeamWithHogFunctionsOrFlows(teamId, this.hogTypes),
+        })
     }
 
     public override async start(): Promise<void> {

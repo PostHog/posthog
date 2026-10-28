@@ -36,11 +36,14 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport, SignalReportCheck, SignalScoutRun
 from products.signals.backend.report_check_agent import AGENT_CHECK_RESULT_WINDOW, resolve_check_skill_name
 from products.signals.backend.report_check_authoring import CheckCreationError, cancel_check, create_check
-from products.signals.backend.report_check_execution import CheckVerdict, record_check_verdict
+from products.signals.backend.report_check_evaluation import CheckVerdict
+from products.signals.backend.report_check_execution import record_check_verdict
 from products.signals.backend.report_checks import (
+    MAX_CHECK_HORIZON,
     AgentCheckConfig,
     CheckInconclusiveReason,
     CheckOutcome,
+    monitoring_window_end,
     parse_check_config,
 )
 from products.signals.backend.scout_harness.tools.emit import _preflight_emit_gates, _resolve_task_id
@@ -77,7 +80,13 @@ def _pause_reason(check: SignalReportCheck, report_status: str, now: datetime) -
     These are the filters `collect_due_checks` applies besides the clock, so an undispatched check
     is `due` to a run only when the coordinator would dispatch it too.
     """
-    if report_status != SignalReport.Status.RESOLVED:
+    if report_status == SignalReport.Status.MONITORING:
+        start = check.report.monitoring_started_at
+        if check.kind != SignalReportCheck.Kind.METRIC_THRESHOLD or not check.config.get("monitoring") or start is None:
+            return "its report is `monitoring`"
+        if now >= min(monitoring_window_end(start, check.soak_minutes), start + MAX_CHECK_HORIZON):
+            return "its Monitoring window ended"
+    else:
         return f"its report is `{report_status}`"
     if check.expires_at <= now:
         return "its horizon passed"
@@ -104,6 +113,9 @@ def _resolve_dispatched_check(team: Team, run: SignalScoutRun, check_id: str) ->
         raise InvalidCheckResultError(f"check {check_id} not found")
     if check.kind != SignalReportCheck.Kind.AGENT:
         raise InvalidCheckResultError(f"check {check_id} is a `{check.kind}` check, which the coordinator measures")
+    pause_reason = _pause_reason(check, check.report.effective_status, timezone.now())
+    if pause_reason is not None:
+        raise InvalidCheckResultError(f"check {check_id} is paused because {pause_reason}")
     if check.status == SignalReportCheck.Status.PENDING:
         raise InvalidCheckResultError(
             f"check {check_id} waits for its report to resolve, so there is no fix to measure yet"
@@ -235,9 +247,9 @@ def _run_state(check: SignalReportCheck, report_status: str, dispatched_run_id: 
         return "waiting_on_report"
     if check.status != SignalReportCheck.Status.ACTIVE:
         return check.status
+    if _pause_reason(check, report_status, now) is not None:
+        return "paused"
     if check.dispatched_at is None:
-        if _pause_reason(check, report_status, now) is not None:
-            return "paused"
         return "due" if check.next_run_at <= now else "scheduled"
     if check.dispatched_at + AGENT_CHECK_RESULT_WINDOW <= now:
         return "stale"
@@ -247,6 +259,7 @@ def _run_state(check: SignalReportCheck, report_status: str, dispatched_run_id: 
 def _summarize(
     check: SignalReportCheck, report_status: str, dispatched_run_id: str | None = None, now: datetime | None = None
 ) -> ScoutCheckSummary:
+    run_state = _run_state(check, report_status, dispatched_run_id, now or timezone.now())
     return ScoutCheckSummary(
         check_id=str(check.id),
         report_id=str(check.report_id),
@@ -257,9 +270,8 @@ def _summarize(
         next_run_at=check.next_run_at,
         last_outcome=check.last_outcome,
         last_outcome_reason=check.last_outcome_reason,
-        run_state=_run_state(check, report_status, dispatched_run_id, now or timezone.now()),
-        # Cancel and expiry leave `dispatched_at` set, so only an open check can still owe a run.
-        waiting_on_run=check.status == SignalReportCheck.Status.ACTIVE and check.dispatched_at is not None,
+        run_state=run_state,
+        waiting_on_run=run_state in {"queued", "running", "stale"},
         dispatched_run_id=dispatched_run_id,
         dispatched_at=check.dispatched_at,
     )
@@ -371,6 +383,8 @@ def list_report_checks(*, team: Team, report_id: str) -> list[ScoutCheckSummary]
         .filter(report_id=report.id)
         .order_by("-created_at")[:MAX_CHECKS_LISTED]
     )
+    for check in checks:
+        check.report = report
     run_ids = _dispatched_run_ids(team.parent_team_id or team.id, checks)
     now = timezone.now()
     report_status = report.effective_status

@@ -1,0 +1,73 @@
+name: Weekly MCP tool health report
+
+# Posts the week's failing MCP tools to #team-context-and-mcp every Monday morning. Sibling of
+# weekly-flaky-report.yml: the script reads the `$mcp_tool_call` events the MCP server captures
+# and maps each tool to the team that owns its definition through the packages/owners-yaml
+# resolver, which is why the sparse checkout includes the ownership and tool definition files.
+# Each owning team's rows go to that team's channel when vars.MCP_TOOL_HEALTH_TEAM_CHANNELS is
+# 'true', and stay in the digest thread otherwise.
+#
+# Requires (no-ops with a warning until set, so it never spams failures):
+#   - vars.ENG_ANALYTICS_PROJECT_ID: the PostHog project that records MCP tool calls.
+#   - secrets.ENG_ANALYTICS_POSTHOG_API_KEY: a personal API key with query:read for that project.
+#   - secrets.SLACK_DEVEX_BOT_TOKEN: the existing DevEx Slack bot.
+
+on:
+    schedule:
+        - cron: '50 13 * * 1' # Mondays 13:50 UTC, staggered after the slow tests report
+    workflow_dispatch:
+        inputs:
+            dry_run:
+                description: 'Print each failing tool with its owner and channel instead of posting to Slack'
+                type: boolean
+                default: true
+
+permissions:
+    contents: read
+
+jobs:
+    report:
+        runs-on: ubuntu-24.04
+        # Worst case is 3 query attempts x 150s abort plus 2 x 30s backoffs (~8.5min), plus checkout
+        # and owner resolution.
+        timeout-minutes: 12
+        # Never run from forks (no secret access anyway), only the canonical repo.
+        # Manual dispatch is master-only so branch-controlled code can't run with the secrets.
+        if: >-
+            github.repository == 'PostHog/posthog' &&
+            (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master')
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/scripts/weekly-mcp-tool-health-report.mjs
+                      .github/scripts/weekly-report-common.mjs
+                      .nvmrc
+                      packages/owners-yaml
+                      owners.yaml
+                      **/owners.yaml
+                      **/product.yaml
+                      products/*/mcp/*.yaml
+                      services/mcp/definitions/*.yaml
+                      services/mcp/src/tools/index.ts
+                  sparse-checkout-cone-mode: false
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+
+            - name: Install owners resolver dependency
+              run: python3 -m pip install --quiet pyyaml
+
+            - name: Build and post weekly MCP tool health report
+              # POSTHOG_HOST rides the script's default.
+              env:
+                  POSTHOG_PROJECT_ID: ${{ vars.ENG_ANALYTICS_PROJECT_ID }}
+                  POSTHOG_API_KEY: ${{ secrets.ENG_ANALYTICS_POSTHOG_API_KEY }}
+                  SLACK_CHANNEL: '#team-context-and-mcp'
+                  # 'true' posts each team's rows to that team's channel. Any other value keeps the
+                  # rows in the digest thread, labeled with the channel they would reach.
+                  MCP_TOOL_HEALTH_TEAM_CHANNELS: ${{ vars.MCP_TOOL_HEALTH_TEAM_CHANNELS }}
+                  SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+              run: node .github/scripts/weekly-mcp-tool-health-report.mjs

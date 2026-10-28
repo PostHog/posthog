@@ -3,6 +3,7 @@ import type { LemonTagType } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 
 import type {
+    SignalReportStatusEnumApi,
     SignalReportCheckApi,
     SignalReportCheckInconclusiveReasonEnumApi,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -25,6 +26,7 @@ const FALLBACK_LANE_LABEL = 'The follow-up scout'
 
 export interface ReportCheckRowData {
     check: SignalReportCheckApi
+    reportStatus: SignalReportStatusEnumApi
     tag: { label: string; type: LemonTagType }
     /** The line under the title: when it runs, who runs it, or what the verdict said. */
     detail: string
@@ -120,7 +122,61 @@ function joinDetail(parts: (string | null | undefined)[]): string {
     return parts.filter((part): part is string => !!part).join(' · ')
 }
 
-function openCheckRow(check: SignalReportCheckApi): Pick<ReportCheckRowData, 'tag' | 'detail'> {
+const MONITORING_CHECK_ROWS: Record<
+    NonNullable<SignalReportCheckApi['monitoring_timing']>['state'],
+    Pick<ReportCheckRowData, 'tag' | 'detail'>
+> = {
+    scheduled: {
+        tag: { label: 'Scheduled', type: 'primary' },
+        detail: 'Interim measurements collect evidence during this check’s observation window.',
+    },
+    due: {
+        tag: { label: 'Measurement due', type: 'primary' },
+        detail: 'The next interim measurement is due.',
+    },
+    window_ended: {
+        tag: { label: 'Awaiting verification', type: 'warning' },
+        detail: 'The observation window has ended. Interim measurements have stopped. A final verdict has not been recorded.',
+    },
+    no_interim_measurements: {
+        tag: { label: 'Observing', type: 'primary' },
+        detail: 'No interim measurement is scheduled before this check’s window ends.',
+    },
+    waiting: {
+        tag: { label: 'Waiting', type: 'muted' },
+        detail: 'Waiting for interim measurements to be scheduled.',
+    },
+    paused: {
+        tag: { label: 'Paused', type: 'muted' },
+        detail: 'This check is paused during Monitoring.',
+    },
+    archived: {
+        tag: { label: 'Paused', type: 'muted' },
+        detail: 'Checks are paused while this report is archived.',
+    },
+    unavailable: {
+        tag: { label: 'Timing unavailable', type: 'warning' },
+        detail: 'A Monitoring start time and a check observation window are needed to schedule measurements.',
+    },
+    expiry_reached: {
+        tag: { label: 'Expiry reached', type: 'muted' },
+        detail: 'This check has reached its expiry. No more measurements are scheduled.',
+    },
+}
+
+function openCheckRow(
+    check: SignalReportCheckApi,
+    reportStatus: SignalReportStatusEnumApi
+): Pick<ReportCheckRowData, 'tag' | 'detail'> {
+    if (reportStatus !== 'monitoring') {
+        return {
+            tag: { label: 'Paused', type: 'muted' },
+            detail: 'Checks run only while this report is in Monitoring.',
+        }
+    }
+    if (check.monitoring_timing) {
+        return MONITORING_CHECK_ROWS[check.monitoring_timing.state]
+    }
     const lane = laneLabel(check)
 
     if (check.status === 'pending') {
@@ -230,7 +286,8 @@ export function latestCheckExplanations(artefacts: SignalReportArtefact[]): Map<
 
 export function buildReportCheckRows(
     checks: SignalReportCheckApi[],
-    explanations: Map<string, string>
+    explanations: Map<string, string>,
+    reportStatus: SignalReportStatusEnumApi
 ): ReportCheckRowData[] {
     return [...checks]
         .sort((a, b) => {
@@ -242,7 +299,8 @@ export function buildReportCheckRows(
             const open = OPEN_STATUSES.includes(check.status)
             return {
                 check,
-                ...(open ? openCheckRow(check) : terminalCheckRow(check, explanations.get(check.id))),
+                reportStatus,
+                ...(open ? openCheckRow(check, reportStatus) : terminalCheckRow(check, explanations.get(check.id))),
                 cancelled: check.status === 'cancelled',
                 cancellable: open,
             }
@@ -271,7 +329,13 @@ export function splitReportCheckRows(rows: ReportCheckRowData[]): {
 }
 
 /** The section header's right-hand summary: how many checks, and then the next thing that happens. */
-export function reportChecksMeta(checks: SignalReportCheckApi[]): string {
+export function reportChecksMeta(checks: SignalReportCheckApi[], reportStatus: SignalReportStatusEnumApi): string {
+    if (reportStatus !== 'monitoring' && checks.some((check) => OPEN_STATUSES.includes(check.status))) {
+        return `${checks.length} · paused`
+    }
+    if (checks.some((check) => check.monitoring_timing)) {
+        return String(checks.length)
+    }
     if (checks.some(isRunning)) {
         // A dispatched check's `next_run_at` is the deadline its run has to answer by, so quoting it
         // as the next date would promise a run that is already under way.

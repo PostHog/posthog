@@ -2,7 +2,7 @@ import './DataTable.scss'
 
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -210,6 +210,8 @@ export function DataTable({
     // Lazy precompute can be on without the v2 pre-agg flag, so it surfaces a
     // badge regardless of `canUseWebAnalyticsPreAggregatedTables`.
     const usedWebAnalyticsLazyPrecompute = preComputeStrategy === WebAnalyticsPreComputeStrategy.LazyPrecompute
+    const preComputedAt = response && 'preComputedAt' in response ? response.preComputedAt : undefined
+    const preComputeStale = response && 'preComputeStale' in response ? response.preComputeStale : undefined
 
     const dataTableLogicProps: DataTableLogicProps = {
         query,
@@ -273,6 +275,11 @@ export function DataTable({
         [sourceFeatures, columnsInResponse, columnsInQuery]
     )
     const contextColumns = context?.columns
+    const columnFormatsRef = useRef<(string | null)[] | undefined>(undefined)
+    columnFormatsRef.current =
+        isHogQLQuery(query.source) && response && 'column_formats' in response
+            ? (response.column_formats as (string | null)[] | undefined)
+            : undefined
     const columnsInLemonTable = useMemo(
         () =>
             allColumns.filter((colName) => {
@@ -356,7 +363,17 @@ export function DataTable({
                                 const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)
                                     ? (result as any[])[index]
                                     : (result as Record<string, any>)[key]
-                                return renderColumn(key, value, result, recordIndex, rowCount, query, setQuery, context)
+                                return renderColumn(
+                                    key,
+                                    value,
+                                    result,
+                                    recordIndex,
+                                    rowCount,
+                                    query,
+                                    setQuery,
+                                    context,
+                                    columnFormatsRef.current?.[index]
+                                )
                             }
                         },
                         sorter: undefined, // using custom sorting code
@@ -1069,6 +1086,8 @@ export function DataTable({
                                 <PreAggregatedBadge
                                     variant="precomputed"
                                     onDisable={context?.onDisableWebAnalyticsPrecompute}
+                                    computedAt={preComputedAt}
+                                    stale={preComputeStale}
                                 />
                             ) : usedWebAnalyticsPreAggregatedTables ? (
                                 <PreAggregatedBadge variant="preagg" />
@@ -1148,7 +1167,11 @@ export function DataTable({
                                     (dataTableRows ?? []).length > 0 &&
                                     (context?.showLoadNextButton ||
                                         !sourceFeatures.has(QueryFeature.hideLoadNextButton)) ? (
-                                        <LoadNext query={query.source} nouns={context?.dataTableNouns} />
+                                        <LoadNext
+                                            query={query.source}
+                                            nouns={context?.dataTableNouns}
+                                            expectedTotalRows={context?.dataTableExpectedTotalRows}
+                                        />
                                     ) : null
                                 }
                                 nouns={context?.dataTableNouns}

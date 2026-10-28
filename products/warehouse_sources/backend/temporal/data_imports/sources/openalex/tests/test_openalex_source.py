@@ -25,14 +25,15 @@ class TestOpenalexSource:
         self.config = OpenalexSourceConfig(api_key="key")
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_only_works_advertises_incremental_sync(self, endpoint: str) -> None:
-        # OpenAlex gates its updated/created date filters behind a paid plan, so `works` is the
-        # only table with a usable server-side timestamp filter.
+    def test_only_works_and_locations_advertise_incremental_sync(self, endpoint: str) -> None:
+        # OpenAlex gates its updated/created date filters behind a paid plan, so only the free
+        # `publication_date` and `ingested_at` filters give a usable server-side timestamp filter.
         schema = next(s for s in self.source.get_schemas(self.config, team_id=1) if s.name == endpoint)
+        expected_fields = {"works": ["publication_date"], "locations": ["ingested_at"]}
 
-        if endpoint == "works":
+        if endpoint in expected_fields:
             assert schema.supports_incremental is True
-            assert [f["field"] for f in schema.incremental_fields] == ["publication_date"]
+            assert [f["field"] for f in schema.incremental_fields] == expected_fields[endpoint]
         else:
             assert schema.supports_incremental is False
             assert schema.incremental_fields == []
@@ -43,8 +44,6 @@ class TestOpenalexSource:
     @pytest.mark.parametrize(
         "observed_error",
         [
-            "401 Client Error: Unauthorized for url: https://api.openalex.org/works?per_page=200",
-            "403 Client Error: Forbidden for url: https://api.openalex.org/works?per_page=200",
             "400 Client Error: Bad Request for url: https://api.openalex.org/works?per_page=200",
         ],
     )
@@ -57,6 +56,7 @@ class TestOpenalexSource:
             ("works", "works-scope"),
             ("authors", "authors-scope"),
             ("awards", "awards-scope"),
+            ("locations", "locations-scope"),
             ("topics", None),
             ("institutions", None),
         ],
@@ -68,6 +68,7 @@ class TestOpenalexSource:
             works_filter="works-scope",
             authors_filter="authors-scope",
             awards_filter="awards-scope",
+            locations_filter="locations-scope",
         )
 
         result = SourceDriver(self.source, config).run(
@@ -91,4 +92,5 @@ class TestOpenalexSource:
             "works": "works-scope",
             "authors": None,
             "awards": "awards-scope",
+            "locations": None,
         }

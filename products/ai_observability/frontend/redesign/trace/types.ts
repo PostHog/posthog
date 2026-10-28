@@ -1,4 +1,9 @@
-import type { TraceNodeApi } from '../../generated/api.schemas'
+import type {
+    TraceEvaluationResultOutcomeEnumApi,
+    TraceNodeApi,
+    TraceNodeDetailApi,
+    TraceNodeEvaluationRollupOutcomeEnumApi,
+} from '../../generated/api.schemas'
 
 export type TraceNodeKind = TraceNodeApi['kind']
 
@@ -7,6 +12,19 @@ export type TraceMode = 'spans' | 'thread' | 'timeline'
 export type TraceViewChoice = 'new' | 'legacy'
 
 export type NodeDetailTab = 'messages' | 'details' | 'evals' | 'raw'
+
+export type LoadFailure = 'not_found' | 'failed'
+
+/**
+ * `selection` is a click on a step. `navigation` is a node the view selects without a click: on open, from a
+ * link, as the default node, as the root while the trace loads, or from the browser history.
+ */
+export type NodeLoadTrigger = 'selection' | 'navigation' | 'prefetch' | 'thread'
+
+export type NodeLoad =
+    | { status: 'loading' }
+    | { status: 'ready'; node: TraceNodeDetailApi }
+    | { status: 'error'; failure: LoadFailure }
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool'
 
@@ -41,6 +59,7 @@ export interface ConversationTurn {
 
 export type ConversationState =
     | { status: 'loading' }
+    | { status: 'error'; message: string }
     | { status: 'ready'; turns: ConversationTurn[]; activeTurnId: string | null }
 
 export type NodeContent =
@@ -50,7 +69,7 @@ export type NodeContent =
     | { kind: 'error'; message: string }
 
 export interface NodeProperties {
-    timestamp: string
+    timestamp: string | null
     provider: string | null
     temperature: number | null
     sessionId: string | null
@@ -63,7 +82,17 @@ export interface NodeProperties {
  * `unrated` is a result with a value but no verdict, such as a numeric score without a passing rule.
  * `inconclusive` is a run that produced no usable value: skipped, not applicable, no score, unknown sentiment.
  */
-export type EvalOutcome = 'pass' | 'fail' | 'error' | 'pending' | 'inconclusive' | 'unrated'
+export type EvalOutcome = TraceEvaluationResultOutcomeEnumApi
+
+/** A step's evaluations rolled up: `fail` if any fails, else `pass` if any passes, else `unrated`. */
+export type EvalRollupOutcome = TraceNodeEvaluationRollupOutcomeEnumApi
+
+export interface EvalsChipData {
+    passed: number
+    /** Results with a pass or a fail. */
+    graded: number
+    unrated: number
+}
 
 export interface EvalTarget {
     label: string

@@ -1,0 +1,55 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT p.id::bigint as \"id!\", p.uuid as \"uuid!\",\n                   COALESCE(p.version, 0)::bigint as \"version!\", p.is_deleted as \"is_deleted!\",\n                   p.created_at as \"created_at!\",\n                   EXISTS (\n                       SELECT 1 FROM posthog_persondistinctid d\n                       WHERE d.team_id = p.team_id AND d.person_id = p.id AND d.is_deleted = false\n                   ) as \"has_live_distinct_ids!\"\n            FROM posthog_person p\n            WHERE p.team_id = $1 AND p.id > $2 AND ($4::bigint IS NULL OR p.id < $4)\n            ORDER BY p.id\n            LIMIT $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "uuid!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "version!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_deleted!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "has_live_distinct_ids!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "d7226032035f297431b53f4366ad79100e6e35659787633eb7075e47763b1f0e"
+}

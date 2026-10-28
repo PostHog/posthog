@@ -38,6 +38,12 @@ const EXPERIMENT_HEALTH = {
             diagnostic_ref: 'E3',
         },
     ],
+    checks: [
+        { key: 'split_changed_mid_run', name: 'Variant split changes since launch', status: 'finding', reason: null },
+        { key: 'flag_state', name: 'Feature flag rollout', status: 'passed', reason: null },
+        { key: 'flag_history', name: 'Feature flag history', status: 'passed', reason: null },
+        { key: 'no_metric', name: 'Metrics', status: 'passed', reason: null },
+    ],
 }
 
 // Typed as the generated response, so a new required field on the serializer breaks the typecheck here.
@@ -60,6 +66,28 @@ const HEALTH_INPUTS: ExperimentHealthInputsApi = {
         ],
         variants: SPLIT_AFTER,
         split_text: 'control 34%, test-1 33%, test-2 33%',
+    },
+    flag_last_called_at: '2025-05-21T09:12:00Z',
+    flag_called: true,
+    flag_called_during_run: true,
+    flag_called_after_end: null,
+    exposure_events: {
+        custom_event: null,
+        required_flag_key: 'experiment-with-mean-metric',
+        variant_property: '$feature_flag_response',
+        activation: null,
+    },
+    events_received: {},
+    metric_compiles: {
+        metric_count: 1,
+        unknown_count: 0,
+        no_access_count: 0,
+        exposure_query_fails: false,
+        failures: [],
+    },
+    latest_calculation: {
+        finished_at: '2025-01-27T09:30:00Z',
+        failures: [],
     },
     flag_history: {
         checked: true,
@@ -91,6 +119,7 @@ const HEALTH_INPUTS: ExperimentHealthInputsApi = {
         ],
         calls: 4200,
         remotely_evaluated_calls: 4116,
+        people_assigned_outside: 0,
     },
     reader_access: { can_read_flag_history: true, can_query_events: true, denied_event_properties: [] },
     exposures: {

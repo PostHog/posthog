@@ -29,7 +29,7 @@ export interface HealthDebugReleaseCondition {
 
 export interface HealthDebugFlagChange {
     changedAt: string
-    /** What changed: the split, or a setting that decides the variant draw. */
+    /** What changed: the split, a setting that decides the variant draw, or the release conditions. */
     changed: string
     before: string
     after: string
@@ -53,6 +53,22 @@ function serverValue(state: HealthInputsState, read: (inputs: ExperimentHealthIn
 
 function yesNoUnknown(value: boolean | null): string {
     return value === null ? 'Unknown' : formatYesNo(value)
+}
+
+function describeExposureEvents({ exposure_events, events_received }: ExperimentHealthInputsApi): string {
+    if (!exposure_events) {
+        return "The stored exposure criteria don't parse"
+    }
+    if (exposure_events.custom_event) {
+        const received = events_received[exposure_events.custom_event]
+        const receivedText = received === undefined ? 'no record' : received ? 'received' : 'never received'
+        return `The event "${exposure_events.custom_event}" (${receivedText}), with the variant in ${exposure_events.variant_property}`
+    }
+    if (exposure_events.required_flag_key) {
+        const calls = `Calls of the flag "${exposure_events.required_flag_key}"`
+        return exposure_events.activation ? `${calls}, then the activation "${exposure_events.activation}"` : calls
+    }
+    return `An action, with the variant in ${exposure_events.variant_property}`
 }
 
 function describeState(inputs: ExperimentHealthInputsApi): string {
@@ -123,6 +139,23 @@ export function buildFlagFacts(experiment: Experiment, state: HealthInputsState)
         {
             label: 'Variants',
             value: serverValue(state, ({ flag }) => (flag ? flag.split_text : 'No flag')),
+        },
+        {
+            label: 'Latest recorded call',
+            value: serverValue(state, ({ flag_last_called_at }) =>
+                flag_last_called_at ? formatTimestamp(flag_last_called_at) : 'None'
+            ),
+            help: 'A sync of the flag call events sets it every 30 minutes, so it can trail a call by up to an hour.',
+        },
+        {
+            label: 'Called during the run',
+            value: serverValue(state, ({ flag_called_during_run }) => yesNoUnknown(flag_called_during_run)),
+            help: "The zero-exposures finding says the flag has no recorded calls when this is No. Unknown before launch, when the latest call came after the end, or when the organization's flag calls skip the events table.",
+        },
+        {
+            label: 'Called after the end',
+            value: serverValue(state, ({ flag_called_after_end }) => yesNoUnknown(flag_called_after_end)),
+            help: "When this is No, the flag-state finding for an ended experiment is info. No needs 3 days without a recorded call after the end. Unknown before the end, before those 3 days are over, or when the organization's flag calls skip the events table.",
         },
     ]
 }
@@ -213,7 +246,7 @@ export function buildFlagChanges(inputs: ExperimentHealthInputsApi | null): Heal
 
 const TRAFFIC_STATUS_LABELS: Record<ExperimentHealthInputsTrafficStatusEnumApi, string> = {
     read: 'Read',
-    not_needed: 'Not read: the forced-variant check does not need it',
+    not_needed: 'Not read: no check needs it',
     no_query_access: 'Not read: you may not query events',
     denied_properties: 'Not read: you are denied a flag call property that the scan reads',
     no_flag_version: "Not read: the flag has no version, so its calls can't be matched to it",
@@ -227,7 +260,7 @@ export function buildTrafficFacts(state: HealthInputsState): SetupFact[] {
         {
             label: 'Status',
             value: serverValue(state, (inputs) => TRAFFIC_STATUS_LABELS[inputs.condition_set_traffic_status]),
-            help: 'The forced-variant check reads the calls when the experiment is launched and some, but not all, release conditions pin a variant that has a share of the split and is not excluded from the analysis.',
+            help: 'The forced-variant check reads the calls when the experiment is launched and some, but not all, release conditions pin a variant that has a share of the split and is not excluded from the analysis. The release-condition check reads them when such an override was removed after launch. The flag-state check reads them when the experiment is running and the flag has a 0% rollout.',
         },
         ...(traffic
             ? [
@@ -239,6 +272,11 @@ export function buildTrafficFacts(state: HealthInputsState): SetupFact[] {
                       help: 'Only these calls name the condition that served them. Local evaluation and bootstrapped values name none.',
                   },
                   { label: 'People served by a named condition', value: formatCount(people) },
+                  {
+                      label: 'People assigned outside the flag service',
+                      value: formatCount(traffic.people_assigned_outside),
+                      help: 'People who got a variant from a call without a flag version that is no local evaluation, from an hour after the window starts. With a 0% rollout, 10 or more of them show that the variants are assigned outside PostHog.',
+                  },
               ]
             : []),
     ]
@@ -275,7 +313,60 @@ export function buildMetricFacts(
             label: 'Shared metric links',
             value: `${countType('primary')} primary, ${countType('secondary')} secondary, ${countType('none')} without a type`,
         },
+        {
+            label: 'Metric queries',
+            value: serverValue(state, (inputs) => describeMetricCompiles(inputs.metric_compiles)),
+            help: "The metric queries check compiles each metric's query as you, without running it. A metric that compiles is cached for a day. A failing metric compiles again on every load.",
+        },
+        ...(state.inputs?.metric_compiles?.failures ?? []).map((failure) => ({
+            label: `Doesn't compile: ${failure.name} (${failure.role})`,
+            value: `${failure.kind}: ${failure.message ?? 'message hidden, it can hold evaluation rules'}`,
+        })),
+        {
+            label: 'Latest calculation',
+            value: serverValue(state, (inputs) => describeLatestCalculation(inputs.latest_calculation)),
+            help: 'The metric results check reads the latest finished calculation, which the results page shows.',
+        },
+        ...(state.inputs?.latest_calculation?.failures ?? []).map((failure) => ({
+            label: `Failed: ${failure.name} (${failure.role})`,
+            value: `${failure.error_type ?? 'no class'}${failure.retriable ? ', retriable' : ''}: ${
+                failure.message ?? 'message hidden, it can hold evaluation rules'
+            }`,
+        })),
     ]
+}
+
+function describeLatestCalculation(calculation: ExperimentHealthInputsApi['latest_calculation']): string {
+    if (!calculation) {
+        return 'Not read: the experiment is not launched or is archived, or the read failed'
+    }
+    if (!calculation.finished_at) {
+        return 'No calculation has finished'
+    }
+    const failed = calculation.failures.length
+    return `Finished ${formatTimestamp(calculation.finished_at)}, ${failed} ${failed === 1 ? 'metric' : 'metrics'} failed`
+}
+
+function describeMetricCompiles(compiles: ExperimentHealthInputsApi['metric_compiles']): string {
+    if (!compiles) {
+        return 'Not compiled: the compile failed'
+    }
+    if (compiles.exposure_query_fails) {
+        return "Not compiled: the exposure query doesn't compile"
+    }
+    const failed = compiles.failures.length
+    const checked = compiles.metric_count - failed - compiles.unknown_count - compiles.no_access_count
+    const parts = [`${checked} of ${compiles.metric_count} compile`]
+    if (failed) {
+        parts.push(`${failed} ${failed === 1 ? "doesn't" : "don't"}`)
+    }
+    if (compiles.no_access_count) {
+        parts.push(`${compiles.no_access_count} not checked, they read data you can't query`)
+    }
+    if (compiles.unknown_count) {
+        parts.push(`${compiles.unknown_count} not checked`)
+    }
+    return parts.join(', ')
 }
 
 const EXPOSURE_STATUS_LABELS: Record<HealthExposureInputsStatusEnumApi, string> = {
@@ -306,6 +397,11 @@ export function buildExposureFacts(state: HealthInputsState): SetupFact[] {
             label: 'Status',
             value: serverValue(state, (inputs) => exposureStatusLabel(inputs.exposures)),
             help: 'The server reads the cached answer and never waits for the query.',
+        },
+        {
+            label: 'Counted on',
+            value: serverValue(state, describeExposureEvents),
+            help: "The zero-exposures finding reads the flag's calls only when the exposures are counted on them. A custom event or an action carries the variant in its own property.",
         },
     ]
     const totals = exposures?.totals
