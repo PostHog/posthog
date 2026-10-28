@@ -67,9 +67,14 @@ function InvestigationCell({ check, alertId }: { check: AlertCheck; alertId: Ale
 
     useLayoutEffect(() => {
         const element = summaryRef.current
-        if (element && !expanded) {
-            setIsClamped(element.scrollHeight > element.clientHeight)
+        if (!element || expanded) {
+            return
         }
+        const measure = (): void => setIsClamped(element.scrollHeight > element.clientHeight)
+        measure()
+        const observer = new ResizeObserver(measure)
+        observer.observe(element)
+        return () => observer.disconnect()
     }, [summary, expanded])
 
     if (status === 'done') {

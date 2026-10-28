@@ -269,14 +269,15 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
 
 def _destination_breach_text(breaches: list[str], summary_index: int | None) -> str:
     if summary_index is None:
-        return "\n".join(breaches)[:_DESTINATION_MAX_CHARS]
+        return "\n".join(breaches)
     other_lines = [breach for index, breach in enumerate(breaches) if index != summary_index]
     budget = max(_DESTINATION_MAX_CHARS - len("\n".join(other_lines)) - 1, _DESTINATION_MIN_SUMMARY_CHARS)
-    summary = strip_external_links_markdown(breaches[summary_index])
-    summary = re.sub(r"\*\*(.+?)\*\*", r"*\1*", summary)
-    summary = re.sub(r"^(\s*)[-*] ", "\\1• ", summary, flags=re.MULTILINE)
+    summary = breaches[summary_index]
     if len(summary) > budget:
         summary = summary[: budget - 1].rstrip() + "…"
+    summary = strip_external_links_markdown(summary)
+    summary = re.sub(r"\*\*(.+?)\*\*", r"*\1*", summary)
+    summary = re.sub(r"^(\s*)[-*] ", "\\1• ", summary, flags=re.MULTILINE)
     return "\n".join([*breaches[:summary_index], summary, *breaches[summary_index + 1 :]])
 
 
@@ -711,15 +712,13 @@ def dispatch_alert_notification(
                     chart_url = prepare_alert_insight_chart_url(alert=alert, alert_check=alert_check)
                     if chart_url:
                         properties["insight_chart_url"] = chart_url
-                # Only forward extra_properties when there's something to add, keeping the
-                # common threshold-alert call unchanged when nothing was attached.
+                # Forward only what is set, keeping the common threshold-alert call unchanged.
+                optional_kwargs: dict = {}
                 if properties:
-                    return send_notifications_for_breaches(
-                        alert, breaches, idempotency_key=key, extra_properties=properties, summary_index=summary_index
-                    )
-                return send_notifications_for_breaches(
-                    alert, breaches, idempotency_key=key, summary_index=summary_index
-                )
+                    optional_kwargs["extra_properties"] = properties
+                if summary_index is not None:
+                    optional_kwargs["summary_index"] = summary_index
+                return send_notifications_for_breaches(alert, breaches, idempotency_key=key, **optional_kwargs)
             case _:
                 raise AssertionError(f"dispatch_alert_notification: unhandled alert state: {alert_check.state}")
 
