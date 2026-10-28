@@ -646,6 +646,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
                 raise serializers.ValidationError({"template_id": f"No template found for id '{data['template_id']}'"})
 
+            # A test run of an unsaved function takes template_id from the caller, and the template decides
+            # which reserved functions the code may call, so it gets the same check as a create.
+            is_unsaved_test = (
+                instance is None and self.context.get("view") and self.context["view"].action == "invocations"
+            )
+            if is_unsaved_test:
+                self._validate_template_is_creatable(template)
+
         if is_create:
             # Set defaults for new functions
             data["inputs_schema"] = data.get("inputs_schema") or []

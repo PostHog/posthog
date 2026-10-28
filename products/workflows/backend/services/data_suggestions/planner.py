@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -57,6 +58,13 @@ class PlannedBranch(BaseModel):
     label: str = Field(description="Short name of this path, like 'Finished onboarding' or 'Group A'.")
     percentage: int | None = Field(description="For a random_split: this path's share in percent, else null.")
     next: str | None = Field(description="The id of the first step on this path, or null to end the workflow.")
+    person_property: str | None = Field(
+        description="For a conditional_branch: the person property from person_properties this path checks, else null."
+    )
+    property_value: str | None = Field(
+        description="For a conditional_branch: the value of person_property that sends a person down this path, "
+        "copied exactly from person_properties, else null."
+    )
 
 
 class PlannedStep(BaseModel):
@@ -128,6 +136,8 @@ class StepsContext:
     has_slack: bool
     # The trigger event's own properties, like a product name or an amount, that an email can show.
     event_properties: tuple[str, ...] = ()
+    # Person properties with few values, like a plan or a status, that a branch can split on.
+    person_properties: dict[str, tuple[str, ...]] = dataclasses.field(default_factory=dict)
     mobile_first: bool = False
 
 
@@ -178,20 +188,21 @@ Step types:
 - delay: wait a fixed time.
 - wait_until_time_window: wait for a time of day or day of the week the team picks.
 - wait_until_event: wait until the person does one of the project's events, at most duration.
-- conditional_branch: split on person properties the team defines. It cannot check what the person did.
+- conditional_branch: split on the value of a person property from person_properties. It cannot check what the \
+person did.
 - random_split: split people at random into paths, such as for an A/B test.
 - exit: end the workflow early with a reason.
 
 Rules:
 - Steps form a graph: next, branches and wait_event_next point at step ids. Never point back at an earlier step.
-- Leave settings you cannot know blank: API keys, URLs, channels, phone numbers, property filters and \
-recipients. The team fills them in. Say what is left in setup_note.
+- Leave settings you cannot know blank: API keys, URLs, channels, phone numbers and recipients. The team fills them in. Say what is left in setup_note.
 - A wait_until_event step waits for the event that shows the workflow reached its goal for this person, like a \
 successful payment after a failed one, or an order after an abandoned cart. Use it only when an event in the list \
 clearly means that. Another event of the same kind is not enough: a paid invoice from the person's own customer is not \
 their subscription payment. When no event means it, use a delay instead.
 - To check whether the person did something, like started a chat or placed an order, wait for that event with a \
 wait_until_event step. Never use a delay followed by a conditional_branch for it, which the team would have to set up.
+- {{branch_rule}}
 - {{personalization_rule}}
 - Never promise a discount, offer or gift. The team adds one if it has one.
 - {{email_rule}}
@@ -272,6 +283,12 @@ def plan_steps(
         if context.event_properties
         else "Do not mention a product name, price or amount you cannot know."
     )
+    branch_rule = (
+        "Each conditional_branch path checks one person property from person_properties for one of its listed "
+        "values. Use a conditional_branch only when a listed property and value fit the split."
+        if context.person_properties
+        else "Do not use conditional_branch. The project has no person properties to split on."
+    )
     idea = context.idea
     human = as_untrusted_data(
         "workflow",
@@ -291,6 +308,12 @@ def plan_steps(
             "trigger_event_properties",
             list(context.event_properties),
             source="property names this project sends on the trigger event",
+        )
+    if context.person_properties:
+        human += "\n\n" + as_untrusted_data(
+            "person_properties",
+            [f"{name}: {', '.join(values)}" for name, values in context.person_properties.items()],
+            source="person property names and values this project sends",
         )
     human += "\n\n" + as_untrusted_data(
         "step_catalog",
@@ -321,11 +344,16 @@ def plan_steps(
             channel_rule=_channel_rule(context.channels, context.mobile_first),
             slack_rule=slack_rule,
             personalization_rule=personalization_rule,
+            branch_rule=branch_rule,
             max_steps=MAX_PLANNED_STEPS,
         ),
         excluded_values=_missing_channels(context.channels),
         # An empty enum would make every wait_until_event step impossible, so the list is only set when there is one.
-        allowed_values={"wait_event": context.events} if context.events else None,
+        allowed_values={
+            **({"wait_event": context.events} if context.events else {}),
+            **({"person_property": list(context.person_properties)} if context.person_properties else {}),
+        }
+        or None,
         human=human,
         analytics_client=analytics_client,
     )

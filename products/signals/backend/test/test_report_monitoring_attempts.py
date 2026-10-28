@@ -478,11 +478,20 @@ class TestReportMonitoringAttempts(BaseTest):
             report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_EXPIRED
         ).exists()
 
-    @parameterized.expand([("disabled", False), ("unavailable", RuntimeError("flag service unavailable"))])
+    @parameterized.expand(
+        [
+            ("disabled", False),
+            ("unavailable", RuntimeError("flag service unavailable")),
+            ("archived_disabled", False, True),
+            ("archived_unavailable", RuntimeError("flag service unavailable"), True),
+        ]
+    )
     def test_disabled_or_unavailable_flag_resolves_without_creating_an_attempt(
-        self, _name: str, flag_result: bool | Exception
+        self, _name: str, flag_result: bool | Exception, archived: bool = False
     ) -> None:
         check = self._check()
+        if archived:
+            self.report.save(update_fields=self.report.transition_to(SignalReport.Status.SUPPRESSED))
         if isinstance(flag_result, Exception):
             self.flag.side_effect = flag_result
         else:

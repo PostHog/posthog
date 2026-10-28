@@ -221,6 +221,7 @@ export enum Scene {
     Endpoint = 'Endpoint',
     Workflow = 'Workflow',
     Broadcasts = 'Broadcasts',
+    Transactional = 'Transactional',
     Workflows = 'Workflows',
     Broadcast = 'Broadcast',
     WorkflowsEmailDomain = 'WorkflowsEmailDomain',
@@ -456,6 +457,7 @@ export const sceneToAccessControlResourceType: Partial<
     // Workflows
     [Scene.Workflow]: AccessControlResourceType.Workflow,
     [Scene.Broadcasts]: AccessControlResourceType.Workflow,
+    [Scene.Transactional]: AccessControlResourceType.Workflow,
     [Scene.Workflows]: AccessControlResourceType.Workflow,
     [Scene.Broadcast]: AccessControlResourceType.Workflow,
     [Scene.WorkflowsEmailDomain]: AccessControlResourceType.Workflow,

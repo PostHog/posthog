@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vantage import (
     VantageSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.vantage.settings import VANTAGE_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.vantage.source import VantageSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.vantage.vantage import (
     VANTAGE_BASE_URL,
@@ -145,6 +146,13 @@ def _by_url(answers: dict[str, ScriptedResponse]) -> Script:
 _COSTS_CHILD = f"{VANTAGE_BASE_URL}/costs?cost_report_token={{token}}&limit=5000&order=asc"
 _RESOURCES_CHILD = f"{VANTAGE_BASE_URL}/resources?resource_report_token={{token}}&limit=1000"
 _TAG_VALUES_CHILD = f"{VANTAGE_BASE_URL}/tags/{{token}}/values?limit=1000"
+_UNIT_COSTS_CHILD = f"{VANTAGE_BASE_URL}/unit_costs?cost_report_token={{token}}&limit=1000&order=asc"
+_BUSINESS_METRIC_VALUES_CHILD = f"{VANTAGE_BASE_URL}/business_metrics/{{token}}/values?limit=5000"
+_NETWORK_FLOW_LOGS_CHILD = f"{VANTAGE_BASE_URL}/network_flow_logs?network_flow_report_token={{token}}&limit=1000"
+_COST_PROVIDERS_CHILD = f"{VANTAGE_BASE_URL}/cost_providers?workspace_token={{token}}&limit=1000"
+# These two endpoints document no page-size param, so neither they nor their parent send `limit`.
+_COST_PROVIDER_ACCOUNTS_CHILD = f"{VANTAGE_BASE_URL}/cost_provider_accounts?workspace_token={{token}}"
+_COST_SERVICES_CHILD = f"{VANTAGE_BASE_URL}/cost_services?workspace_token={{token}}"
 
 
 class TestFanOut:
@@ -153,6 +161,7 @@ class TestFanOut:
             (
                 "costs",
                 "cost_reports",
+                "?limit=1000",
                 [{"token": "rprt_a"}, {"token": "rprt_b"}],
                 _COSTS_CHILD,
                 ["rprt_a", "rprt_b"],
@@ -162,6 +171,7 @@ class TestFanOut:
             (
                 "resources",
                 "resource_reports",
+                "?limit=1000",
                 [{"token": "rsrc_rprt_a"}, {"token": "rsrc_rprt_b"}],
                 _RESOURCES_CHILD,
                 ["rsrc_rprt_a", "rsrc_rprt_b"],
@@ -172,11 +182,77 @@ class TestFanOut:
                 # A `/` in a tag key would otherwise split the path into a different route.
                 "tag_values",
                 "tags",
+                "?limit=1000",
                 [{"tag_key": "team"}, {"tag_key": "kubernetes.io/name"}],
                 _TAG_VALUES_CHILD,
                 ["team", "kubernetes.io%2Fname"],
                 "tag_key",
                 {"tag_value": "web"},
+            ),
+            (
+                "unit_costs",
+                "cost_reports",
+                "?limit=1000",
+                [{"token": "rprt_a"}, {"token": "rprt_b"}],
+                _UNIT_COSTS_CHILD,
+                ["rprt_a", "rprt_b"],
+                "cost_report_token",
+                {"business_metric_token": "bsnss_mtrc_1", "unit_cost_amount": "0.42", "date": "2025-01-01"},
+            ),
+            (
+                "business_metric_values",
+                "business_metrics",
+                "?limit=1000",
+                [{"token": "bsnss_mtrc_a"}, {"token": "bsnss_mtrc_b"}],
+                _BUSINESS_METRIC_VALUES_CHILD,
+                ["bsnss_mtrc_a", "bsnss_mtrc_b"],
+                "business_metric_token",
+                {"date": "2025-01-01T00:00:00Z", "amount": "120.0", "label": None},
+            ),
+            (
+                "network_flow_logs",
+                "network_flow_reports",
+                "?limit=1000",
+                [{"token": "ntflw_lg_rprt_a"}, {"token": "ntflw_lg_rprt_b"}],
+                _NETWORK_FLOW_LOGS_CHILD,
+                ["ntflw_lg_rprt_a", "ntflw_lg_rprt_b"],
+                "network_flow_report_token",
+                {"groupings": {"region": {"value": "us-east-1"}}, "bytes": 2048.0, "estimated_cost": "0.10"},
+            ),
+            (
+                "cost_providers",
+                "workspaces",
+                "?limit=1000",
+                [{"token": "wrkspc_a"}, {"token": "wrkspc_b"}],
+                _COST_PROVIDERS_CHILD,
+                ["wrkspc_a", "wrkspc_b"],
+                "workspace_token",
+                {"name": "AWS", "key": "aws"},
+            ),
+            (
+                "cost_provider_accounts",
+                "workspaces",
+                "",
+                [{"token": "wrkspc_a"}, {"token": "wrkspc_b"}],
+                _COST_PROVIDER_ACCOUNTS_CHILD,
+                ["wrkspc_a", "wrkspc_b"],
+                "workspace_token",
+                {
+                    "title": "Example account",
+                    "account_id": "000000000000",
+                    "provider_uuid": "uuid-1",
+                    "provider": "aws",
+                },
+            ),
+            (
+                "cost_services",
+                "workspaces",
+                "",
+                [{"token": "wrkspc_a"}, {"token": "wrkspc_b"}],
+                _COST_SERVICES_CHILD,
+                ["wrkspc_a", "wrkspc_b"],
+                "workspace_token",
+                {"name": "Amazon S3", "provider": "aws"},
             ),
         ]
     )
@@ -184,6 +260,7 @@ class TestFanOut:
         self,
         endpoint: str,
         parent_key: str,
+        parent_query: str,
         parents: list[dict[str, Any]],
         child_url: str,
         child_path_values: list[str],
@@ -195,13 +272,15 @@ class TestFanOut:
         second_child = child_url.format(token=child_path_values[1])
         parent_values = [next(iter(parent.values())) for parent in parents]
 
+        data_key = VANTAGE_ENDPOINTS[endpoint].data_key
+
         result = _run(
             _by_url(
                 {
-                    f"{VANTAGE_BASE_URL}/{parent_key}?limit=1000": _response(parents, data_key=parent_key),
-                    first_child: _response([dict(child_row)], data_key=endpoint, next_url=second_page),
-                    second_page: _response([dict(child_row)], data_key=endpoint),
-                    second_child: _response([dict(child_row)], data_key=endpoint),
+                    f"{VANTAGE_BASE_URL}/{parent_key}{parent_query}": _response(parents, data_key=parent_key),
+                    first_child: _response([dict(child_row)], data_key=data_key, next_url=second_page),
+                    second_page: _response([dict(child_row)], data_key=data_key),
+                    second_child: _response([dict(child_row)], data_key=data_key),
                 }
             ),
             endpoint=endpoint,

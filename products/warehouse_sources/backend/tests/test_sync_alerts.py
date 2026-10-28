@@ -10,10 +10,18 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
-from products.alerts.backend.facade.destinations import MAX_DESTINATIONS_PER_ALERT, list_alert_destination_groups
+from products.access_control.backend.models.access_control import AccessControl
+from products.alerts.backend.facade.destinations import (
+    MAX_DESTINATIONS_PER_ALERT,
+    list_alert_destination_groups,
+    list_delivery_destination_groups,
+)
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
     create_configuration,
@@ -25,6 +33,7 @@ from products.alerts_platform.backend.facade.api import (
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
+    DestinationType,
     Grouping,
     GroupingMode,
     IncidentAction,
@@ -40,7 +49,7 @@ from products.warehouse_sources.backend.models.external_data_destination import 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.presentation.views import warehouse_alert_destinations as destinations_view
-from products.warehouse_sources.backend.sync_alerts.destinations import EVENT_IDS_BY_KIND
+from products.warehouse_sources.backend.sync_alerts.destinations import EVENT_IDS, EVENT_IDS_BY_KIND
 from products.warehouse_sources.backend.sync_alerts.evaluation import evaluate_warehouse_alert_batch
 from products.warehouse_sources.backend.sync_alerts.wording import (
     describe_destination_transition,
@@ -615,3 +624,91 @@ class TestWarehouseAlerts(APIBaseTest):
         assert [(detail.label, detail.value) for detail in description.details] == details
         assert description.data_link is not None
         assert description.data_link.url.endswith(path)
+
+    def _person(self, who: str) -> User:
+        if who == "another_organization":
+            other = Organization.objects.create(name="Elsewhere")
+            return User.objects.create_and_join(other, "elsewhere@example.com", None)
+        person = User.objects.create_and_join(self.organization, f"{who}@example.com", None)
+        if who == "opted_out":
+            person.partial_notification_settings = {"plugin_disabled": False}
+            person.save()
+        if who in ("no_project_access", "no_warehouse_access"):
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save(update_fields=["available_product_features"])
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save(update_fields=["level"])
+        if who == "no_project_access":
+            # A private project, which an organization member reaches only through an explicit grant.
+            AccessControl.objects.create(
+                team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+            )
+        if who == "no_warehouse_access":
+            AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+        return person
+
+    @parameterized.expand(
+        [
+            ("a_member", SourceKind.WAREHOUSE_SOURCE, "member", True, True),
+            ("a_member_of_a_destination_alert", SourceKind.WAREHOUSE_DESTINATION, "member", True, True),
+            ("nobody_when_the_alert_does_not_email", SourceKind.WAREHOUSE_SOURCE, "member", False, False),
+            ("not_a_member_who_turned_off_pipeline_emails", SourceKind.WAREHOUSE_SOURCE, "opted_out", True, False),
+            ("not_a_member_without_project_access", SourceKind.WAREHOUSE_SOURCE, "no_project_access", True, False),
+            ("not_a_member_without_warehouse_access", SourceKind.WAREHOUSE_SOURCE, "no_warehouse_access", True, False),
+            (
+                "not_a_member_of_a_destination_alert_without_warehouse_access",
+                SourceKind.WAREHOUSE_DESTINATION,
+                "no_warehouse_access",
+                True,
+                False,
+            ),
+            ("not_a_user_of_another_organization", SourceKind.WAREHOUSE_SOURCE, "another_organization", True, False),
+        ]
+    )
+    def test_an_alert_that_emails_project_members_reaches_who_pipeline_error_emails_reach(
+        self, _name: str, kind: SourceKind, who: str, email_project_members: bool, reached: bool
+    ) -> None:
+        person = self._person(who)
+        grouping_key = "source_id" if kind == SourceKind.WAREHOUSE_SOURCE else "destination_id"
+        configuration_id = self._alert(kind, {"email_project_members": email_project_members}, grouping_key)
+        expected = sorted([self.user.email, person.email] if reached else [self.user.email])
+
+        groups_by_event = {
+            event_id: list_delivery_destination_groups(
+                team_id=self.team.id, alert_id=str(configuration_id), allowed_event_ids=[event_id]
+            )
+            for event_id in EVENT_IDS[kind]
+        }
+
+        message_event_ids = set(EVENT_IDS_BY_KIND[kind].values())
+        assert {event_id: [group.data for group in groups] for event_id, groups in groups_by_event.items()} == {
+            event_id: [{"type": DestinationType.EMAIL, "email_addresses": expected}]
+            if email_project_members and event_id in message_event_ids
+            else []
+            for event_id in EVENT_IDS[kind]
+        }
+
+    def test_a_failing_table_emails_the_project_members_of_an_alert_that_emails_them(self) -> None:
+        self._person("member")
+        self._schema(self._source(), "charges", Status.FAILED)
+        configuration_id = self._alert(
+            SourceKind.WAREHOUSE_SOURCE, {"group_by": "source", "email_project_members": True}, "source_id"
+        )
+        evaluation = self._evaluate(SourceKind.WAREHOUSE_SOURCE)
+        # The history that delivery reads is written when the record commits.
+        with team_scope(self.team.id), self.captureOnCommitCallbacks(execute=True):
+            record_outcomes(self.team.id, list(evaluation.outcomes), self.cutoff)
+        (delivery,) = evaluation.deliveries
+
+        with patch("products.alerts_platform.backend.delivery.email.EmailMessage") as email_message:
+            sent = platform_testing.deliver(delivery)
+
+        assert sent == 1
+        assert delivery.configuration_id == str(configuration_id)
+        assert "Sync failures" in email_message.call_args.kwargs["subject"]
+        assert [call.kwargs["email"] for call in email_message.return_value.add_recipient.call_args_list] == sorted(
+            [self.user.email, "member@example.com"]
+        )
+        email_message.return_value.send.assert_called_once_with()
