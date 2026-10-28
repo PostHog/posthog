@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 
 import { IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
@@ -72,7 +73,11 @@ export function ReplayVisionPlayerUpsellCard(): JSX.Element | null {
                         ) : (
                             <LemonButton
                                 type="primary"
-                                to={urls.replayVisionNewScanner()}
+                                // Pinned: the scanner's `entry_point`, so the scanners this card produces can be counted.
+                                to={
+                                    combineUrl(urls.replayVisionNewScanner(), { entry_point: 'replay_upsell_player' })
+                                        .url
+                                }
                                 onClick={() => reportClicked('player', 'set_up_scanner')}
                                 data-attr="replay-vision-upsell-player-card-set-up-scanner"
                             >
