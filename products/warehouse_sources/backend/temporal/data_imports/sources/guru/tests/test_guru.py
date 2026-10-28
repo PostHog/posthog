@@ -174,21 +174,53 @@ class TestTeamScopedEndpoints:
         assert result.paths[1] == "/api/v1/teams/team-1/tagcategories"
         assert result.rows == [{"categoryId": "cat-1", "categoryName": "Fruits", "id": "t1", "value": "Apple"}]
 
-    def test_analytics_incremental_request_filters_by_from_date(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, cursor_field, filter_param, path, needs_team",
+        [
+            ("analytics_events", "eventDate", "fromDate", "/api/v1/teams/team-1/analytics", True),
+            ("card_comments", "dateCreated", "createdAfter", "/api/v1/comments", False),
+        ],
+    )
+    @pytest.mark.parametrize("incremental", [True, False])
+    def test_date_filtered_request_shaping(
+        self, endpoint: str, cursor_field: str, filter_param: str, path: str, needs_team: bool, incremental: bool
+    ) -> None:
+        script = [_page([{"id": "e1", cursor_field: "2024-01-02T00:00:00.000+0000"}])]
         result = _driver().run(
-            "analytics_events",
-            [_whoami(), _page([{"id": "e1", "eventDate": "2024-01-02T00:00:00.000+0000"}])],
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-            incremental_field="eventDate",
+            endpoint,
+            [_whoami(), *script] if needs_team else script,
+            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC) if incremental else None,
+            incremental_field=cursor_field if incremental else None,
         )
 
         assert result.raised is None
-        assert result.paths[1] == "/api/v1/teams/team-1/analytics"
-        assert result.queries[1] == {"fromDate": ("2024-01-01T00:00:00.000+00:00",)}
+        assert result.paths[-1] == path
+        assert result.queries[-1] == ({filter_param: ("2024-01-01T00:00:00.000+00:00",)} if incremental else {})
         assert [row["id"] for row in result.rows] == ["e1"]
-        # Guru documents no order for the export, so the watermark must not checkpoint mid-run.
+        # Guru documents no order for these lists, so the watermark must not checkpoint mid-run.
         assert result.response is not None
         assert result.response.sort_mode == "desc"
+
+    def test_team_stats_object_is_split_into_one_row_per_stat(self) -> None:
+        body = {
+            "stats": {
+                "team-card-count": {"type": "team-card-count", "count": 120},
+                "team-trust-score": {"type": "team-trust-score", "trustedCount": 90, "needsVerificationCount": 30},
+            }
+        }
+        result = _driver().run("team_stats", [_whoami(), _page(body)])
+
+        assert result.raised is None
+        assert result.paths[1] == "/api/v1/teams/team-1/stats"
+        assert result.rows == [
+            {"statKey": "team-card-count", "type": "team-card-count", "count": 120},
+            {
+                "statKey": "team-trust-score",
+                "type": "team-trust-score",
+                "trustedCount": 90,
+                "needsVerificationCount": 30,
+            },
+        ]
 
     def test_whoami_auth_failure_surfaces_as_http_error(self) -> None:
         result = _driver().run("analytics_events", [ScriptedResponse(status=401)])
@@ -197,35 +229,75 @@ class TestTeamScopedEndpoints:
         assert "401 Client Error: Unauthorized for url: https://api.getguru.com" in str(result.raised)
 
 
+class TestCardVerifiers:
+    def test_verifiers_are_flattened_per_card(self) -> None:
+        cards = [
+            {
+                "id": "c1",
+                "verifiers": [
+                    {"id": "v1", "type": "user", "user": {"id": "u1", "email": "jane@example.com"}},
+                    {"type": "user-group", "userGroup": {"id": "grp1", "name": "Support"}},
+                ],
+            },
+            {"id": "c2", "verifiers": [{"id": "v1", "type": "user", "user": {"id": "u1"}}]},
+            {"id": "c3", "verifiers": []},
+            {"id": "c4"},
+        ]
+        result = _driver().run("card_verifiers", [_page(cards)])
+
+        assert result.raised is None
+        assert result.paths == ["/api/v1/search/query"]
+        assert result.requests[0].param("sortField") == "dateCreated"
+        # The same verifier on two cards stays two rows, and a group verifier without its own id
+        # takes the group id, so the (cardId, id) key is never null.
+        assert [(row["cardId"], row["id"], row["type"]) for row in result.rows] == [
+            ("c1", "v1", "user"),
+            ("c1", "grp1", "user-group"),
+            ("c2", "v1", "user"),
+        ]
+
+    def test_verifier_without_any_id_fails_loud(self) -> None:
+        result = _driver().run("card_verifiers", [_page([{"id": "c1", "verifiers": [{"type": "user"}]}])])
+
+        assert isinstance(result.raised, KeyError)
+
+
 class TestFanoutEndpoints:
     @pytest.mark.parametrize(
-        "endpoint, parent_id, child_path, child_rows, expected",
+        "endpoint, parent_row, child_path, child_rows, expected",
         [
             (
                 "group_members",
-                "g1",
+                {"id": "g1"},
                 "/groups/g1/members",
                 [{"id": "m1", "user": {"email": "jane@company.com"}}],
                 [{"id": "m1", "user": {"email": "jane@company.com"}, "group_id": "g1", "email": "jane@company.com"}],
             ),
             (
                 "folder_items",
-                "f1",
+                {"id": "f1"},
                 "/folders/f1/items",
                 [{"id": "c1", "type": "card"}],
                 [{"id": "c1", "type": "card", "folder_id": "f1"}],
+            ),
+            (
+                "knowledge_alert_users",
+                {"alertId": "a1", "cardTitle": "Holiday policy"},
+                "/announcements/a1/stats/users",
+                [{"id": "u1", "email": "jane@example.com", "announcementReadAt": None}],
+                [{"id": "u1", "email": "jane@example.com", "announcementReadAt": None, "alert_id": "a1"}],
             ),
         ],
     )
     def test_child_rows_carry_parent_id(
         self,
         endpoint: str,
-        parent_id: str,
+        parent_row: dict[str, Any],
         child_path: str,
         child_rows: list[dict[str, Any]],
         expected: list[dict[str, Any]],
     ) -> None:
-        result = _driver().run(endpoint, [_page([{"id": parent_id}]), _page(child_rows)])
+        result = _driver().run(endpoint, [_page([parent_row]), _page(child_rows)])
 
         assert result.raised is None
         assert result.paths[1].endswith(child_path)
@@ -233,6 +305,17 @@ class TestFanoutEndpoints:
         assert result.response is not None
         assert result.response.primary_keys is not None
         assert all(row[key] is not None for row in result.rows for key in result.response.primary_keys)
+
+
+class TestKnowledgeAlerts:
+    @pytest.mark.parametrize("endpoint", ["knowledge_alerts", "knowledge_alert_users"])
+    def test_alert_list_requests_all_sent_alerts(self, endpoint: str) -> None:
+        # Without view=ALL_SENT Guru returns only the alerts the token owner sent.
+        result = _driver().run(endpoint, [_page([])])
+
+        assert result.raised is None
+        assert result.paths[0] == "/api/v1/announcements/delegated"
+        assert result.queries[0] == {"view": ("ALL_SENT",), "sortField": ("dateSent",), "sortOrder": ("ASC",)}
 
 
 class TestGuruSourceResponse:
@@ -245,7 +328,9 @@ class TestGuruSourceResponse:
         assert result.raised is None
         assert result.response is not None
         assert result.response.name == endpoint
-        assert result.response.primary_keys == [config.primary_key]
+        assert result.response.primary_keys == (
+            config.primary_key if isinstance(config.primary_key, list) else [config.primary_key]
+        )
         if config.partition_key:
             assert result.response.partition_mode == "datetime"
             assert result.response.partition_keys == [config.partition_key]

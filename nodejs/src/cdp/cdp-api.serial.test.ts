@@ -14,6 +14,7 @@ import { setupExpressApp } from '~/common/api/router'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -2116,7 +2117,11 @@ describe('CDP API', () => {
             } = {}
         ) => jwt.sign({ team_id: teamId, hog_flow_id: hogFlowId }, secret, { audience, expiresIn: '2m' })
 
-        const transactionalFlow = (trigger: 'api' | 'schedule', status: HogFlow['status']): HogFlow =>
+        const transactionalFlow = (
+            trigger: 'api' | 'schedule',
+            status: HogFlow['status'],
+            category: 'transactional' | 'marketing' = 'transactional'
+        ): HogFlow =>
             new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
                 .withStatus(status)
@@ -2124,7 +2129,10 @@ describe('CDP API', () => {
                 .withWorkflow({
                     actions: {
                         trigger: { type: 'trigger', config: { type: trigger } },
-                        email: { type: 'function_email', config: { template_id: 'template-email', inputs: {} } },
+                        email: {
+                            type: 'function_email',
+                            config: { template_id: 'template-email', inputs: {}, message_category_type: category },
+                        },
                     },
                     edges: [{ from: 'trigger', to: 'email', type: 'continue' }],
                 })
@@ -2144,6 +2152,12 @@ describe('CDP API', () => {
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
             api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
             hogFlow = await insertHogFlow(transactionalFlow('api', 'active'))
+            // The fixtures send to example.com, which publishes a null MX. Without this every send is refused.
+            jest.spyOn(api['emailValidationService'], 'getRecipientSkipReason').mockResolvedValue(null)
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
         })
 
         it('queues one run on the email fast lane with the recipient and the data', async () => {
@@ -2252,15 +2266,96 @@ describe('CDP API', () => {
             })
         })
 
-        it('refuses a send when the team is over its email quota', async () => {
+        it('queues a send when the team is over its email quota', async () => {
             jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
-            const limitedBefore = await outcomeCount('quota_limited')
+            const queuedBefore = await outcomeCount('queued')
 
             const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+
+            expect(res.status).toEqual(202)
+            expect(await outcomeCount('queued')).toEqual(queuedBefore + 1)
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
+
+        it('refuses a send of a marketing email when the team is over its email quota', async () => {
+            jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+            const marketingFlow = await insertHogFlow(transactionalFlow('api', 'active', 'marketing'))
+            const limitedBefore = await outcomeCount('quota_limited')
+
+            const res = await send(marketingFlow.id, {
+                Authorization: `Bearer ${mintToken(team.id, marketingFlow.id)}`,
+            })
 
             expect(res.status).toEqual(429)
             expect(await outcomeCount('quota_limited')).toEqual(limitedBefore + 1)
             expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            [
+                'email sending is suspended for the project',
+                'sending_suspended',
+                () =>
+                    jest
+                        .spyOn(api['teamWorkflowsConfigService'], 'getEmailSendingSuspension')
+                        .mockResolvedValueOnce('staff'),
+            ],
+            [
+                "the transactional email's sending is paused",
+                'sending_paused',
+                () =>
+                    jest
+                        .spyOn(api['hogFlowManager'], 'getHogFlow')
+                        .mockResolvedValueOnce({ ...hogFlow, email_sending_paused_at: Date.now() }),
+            ],
+            [
+                'the recipient is suppressed',
+                'recipient_suppressed',
+                () => jest.spyOn(api['emailSuppressionService'], 'isSuppressed').mockResolvedValueOnce(true),
+            ],
+            [
+                "the recipient's domain has no mail servers",
+                'recipient_unreachable',
+                () =>
+                    jest
+                        .spyOn(api['emailValidationService'], 'getRecipientSkipReason')
+                        .mockResolvedValueOnce('Skipping send: the domain has no reachable mail servers.'),
+            ],
+        ] as const)('refuses a send the email worker would skip because %s', async (_desc, code, refuse) => {
+            refuse()
+            const refusedBefore = await outcomeCount(code)
+            const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
+            const headers = { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }
+
+            const refused = await send(hogFlow.id, headers, keyed)
+
+            expect(refused.status).toEqual(422)
+            expect(refused.body).toEqual({ error: code })
+            expect(await outcomeCount(code)).toEqual(refusedBefore + 1)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+
+            const retry = await send(hogFlow.id, headers, keyed)
+
+            expect(retry.status).toEqual(202)
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
+
+        it('sends to a recipient whose only suppression is a spam complaint', async () => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_messagesuppression
+                    (id, team_id, identifier, source, reason, transient_bounce_count,
+                     suppressed, suppressed_at, deleted, created_at, updated_at)
+                 VALUES (gen_random_uuid(), $1, $2, 'COMPLAINT', 'test row', 0,
+                     true, NOW(), false, NOW(), NOW())`,
+                [team.id, body.to],
+                'test-insert-suppression'
+            )
+
+            const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+
+            expect(res.status).toEqual(202)
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
 
         it.each([
@@ -2272,6 +2367,7 @@ describe('CDP API', () => {
             const res = await send(other.id, { Authorization: `Bearer ${mintToken(team.id, other.id)}` })
 
             expect(res.status).toEqual(400)
+            expect(res.body).toEqual({ error: 'not_sendable' })
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 
@@ -2698,6 +2794,7 @@ describe('CDP API', () => {
                     Promise.resolve({
                         invocation,
                         finished: true,
+                        emailSendResult: { status: 'accepted' },
                         logs: [],
                         metrics: [
                             {
@@ -2721,7 +2818,23 @@ describe('CDP API', () => {
             emailSpy.mockRestore()
         })
 
-        it('sends the email inline via EmailService instead of routing to the email queue', async () => {
+        it.each([
+            { status: 'accepted' },
+            { status: 'skipped', reason: 'The recipient has no reachable mail servers.' },
+        ])('returns the inline email outcome %j without routing to the email queue', async (emailSendResult) => {
+            emailSpy.mockImplementation((invocation: any) =>
+                Promise.resolve({
+                    invocation,
+                    finished: true,
+                    emailSendResult,
+                    logs: [],
+                    metrics: [],
+                    capturedPostHogEvents: [],
+                    warehouseWebhookPayloads: [],
+                    messageAssets: [],
+                    conversionWatchers: [],
+                })
+            )
             const res = await supertest(app).post(`/api/projects/${team.id}/hog_flows/${hogFlowId}/invocations`).send({
                 globals,
                 configuration: {},
@@ -2730,6 +2843,7 @@ describe('CDP API', () => {
 
             expect(res.status).toBe(200)
             expect(res.body.status).toBe('success')
+            expect(res.body.emailSendResult).toEqual(emailSendResult)
             expect(res.body.errors).toEqual([])
             // EmailService was called inline — proving the test endpoint forced inline delivery
             // even though the team would normally be routed to the email queue.

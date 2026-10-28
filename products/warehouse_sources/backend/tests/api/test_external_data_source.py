@@ -226,6 +226,29 @@ class TestExternalDataSource(APIBaseTest):
             should_sync=should_sync,
         )
 
+    def test_exists_ignores_deleted_and_other_project_sources_without_loading_schemas(self) -> None:
+        source = self._make_source("exists")
+        self._make_schema_with_table(source, "example_customers")
+        url = f"/api/projects/{self.team.pk}/external_data_sources/exists/"
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.Database.create_for"
+            ) as database,
+            CaptureQueriesContext(connection) as queries,
+        ):
+            response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"exists": True})
+        database.assert_not_called()
+        self.assertFalse(any(ExternalDataSchema._meta.db_table in query["sql"] for query in queries))
+
+        source.deleted = True
+        source.save(update_fields=["deleted"])
+        other_team = Team.objects.create(organization=self.organization)
+        ExternalDataSource.objects.create(team=other_team, source_type="Stripe")
+        self.assertEqual(self.client.get(url).json(), {"exists": False})
+
     def test_list_serializes_trimmed_schema_shape_while_retrieve_stays_full(self):
         # The sources list embeds every schema of every source, so it serializes a trimmed per-schema
         # shape (the fields the list UI reads); the single-source view keeps the full schema.
@@ -904,6 +927,10 @@ class TestExternalDataSource(APIBaseTest):
         [
             ("unknown_name", {"name": "SomeOtherSchema", "should_sync": True, "sync_type": "full_refresh"}),
             ("unknown_sync_type", {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full"}),
+            (
+                "webhook_without_webhook_support",
+                {"name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME, "should_sync": True, "sync_type": "webhook"},
+            ),
         ]
     )
     @patch(
@@ -4851,6 +4878,13 @@ class TestExternalDataSource(APIBaseTest):
         assert not ExternalDataSource.objects.filter(team_id=self.team.pk).exists()
         assert not ExternalDataSchema.objects.filter(team_id=self.team.pk, name="analytics.events").exists()
 
+    @parameterized.expand(
+        [
+            ("default_mode_keeps_no_history", None, []),
+            ("history_mode_reports_enabled", "both", ["both"]),
+        ]
+    )
+    @patch("posthog.event_usage.posthoganalytics.capture")
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.base.is_cdc_enabled_for_team",
         return_value=True,
@@ -4866,12 +4900,16 @@ class TestExternalDataSource(APIBaseTest):
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_create_postgres_cdc_leaves_unenabled_schemas_without_sync_type(
         self,
+        _name,
+        events_table_mode,
+        expected_history_modes,
         mock_get_source,
         mock_cdc_pg_connection,
         mock_get_primary_key_columns,
         mock_setup_cdc_resources,
         mock_add_table,
         _mock_is_cdc_enabled_for_team,
+        mock_capture,
     ):
         _configure_source_mock_versioning(mock_get_source)
         # A CDC source discovers every table, but the user only enables a few. Tables the user
@@ -4946,7 +4984,12 @@ class TestExternalDataSource(APIBaseTest):
                     "schema": "analytics",
                     "cdc_enabled": True,
                     "schemas": [
-                        {"name": "analytics.events", "should_sync": True, "sync_type": "cdc"},
+                        {
+                            "name": "analytics.events",
+                            "should_sync": True,
+                            "sync_type": "cdc",
+                            **({"cdc_table_mode": events_table_mode} if events_table_mode else {}),
+                        },
                         {"name": "analytics.sessions", "should_sync": False, "sync_type": "cdc"},
                     ],
                 },
@@ -4958,7 +5001,15 @@ class TestExternalDataSource(APIBaseTest):
         enabled = ExternalDataSchema.objects.get(team_id=self.team.pk, name="analytics.events")
         assert enabled.sync_type == ExternalDataSchema.SyncType.CDC
         assert enabled.sync_type_config["cdc_mode"] == "snapshot"
-        assert enabled.sync_type_config["cdc_table_mode"] == "consolidated"
+        assert enabled.sync_type_config["cdc_table_mode"] == (events_table_mode or "consolidated")
+        history_events = [
+            c.kwargs["properties"]
+            for c in mock_capture.call_args_list
+            if c.kwargs.get("event") == "data warehouse history enabled"
+        ]
+        assert [(e["schema_id"], e["table_mode"]) for e in history_events] == [
+            (str(enabled.id), mode) for mode in expected_history_modes
+        ]
 
         unenabled = ExternalDataSchema.objects.get(team_id=self.team.pk, name="analytics.sessions")
         assert unenabled.sync_type is None
@@ -4974,12 +5025,30 @@ class TestExternalDataSource(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_primary_key", [("id", "uuid", False)], {}, "primary key"),
+            ("no_primary_key", [("id", "uuid", False)], {}, "primary key", "consolidated", None),
             (
                 "reserved_column",
                 [("id", "uuid", False), ("_ph_cdc_seq", "bigint", True)],
                 {"tracking_link": ["id"]},
                 "_ph_cdc_seq",
+                "consolidated",
+                None,
+            ),
+            (
+                "validity_column_with_a_history_table",
+                [("id", "uuid", False), ("valid_to", "timestamp", True)],
+                {"tracking_link": ["id"]},
+                "valid_to",
+                "cdc_only",
+                None,
+            ),
+            (
+                "validity_column_in_enabled_columns_that_hold_a_non_string",
+                [("id", "uuid", False), ("valid_to", "timestamp", True)],
+                {"tracking_link": ["id"]},
+                "valid_to",
+                "cdc_only",
+                ["id", "valid_to", {}],
             ),
         ]
     )
@@ -5002,6 +5071,8 @@ class TestExternalDataSource(APIBaseTest):
         columns,
         primary_keys,
         expected_in_message,
+        cdc_table_mode,
+        enabled_columns,
         mock_get_source,
         mock_cdc_pg_connection,
         mock_get_primary_key_columns,
@@ -5059,7 +5130,13 @@ class TestExternalDataSource(APIBaseTest):
                     "schema": "public",
                     "cdc_enabled": True,
                     "schemas": [
-                        {"name": "tracking_link", "should_sync": True, "sync_type": "cdc"},
+                        {
+                            "name": "tracking_link",
+                            "should_sync": True,
+                            "sync_type": "cdc",
+                            "cdc_table_mode": cdc_table_mode,
+                            **({"enabled_columns": enabled_columns} if enabled_columns is not None else {}),
+                        },
                     ],
                 },
             },
@@ -11766,6 +11843,14 @@ class TestDisableCDC(APIBaseTest):
             sync_type=ExternalDataSchema.SyncType.CDC,
             should_sync=True,
         )
+        history_schema = ExternalDataSchema.objects.create(
+            name="cdc_history_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"cdc_table_mode": "both"},
+            should_sync=True,
+        )
         non_cdc_schema = ExternalDataSchema.objects.create(
             name="incremental_table",
             team_id=self.team.pk,
@@ -11774,10 +11859,18 @@ class TestDisableCDC(APIBaseTest):
             should_sync=True,
         )
 
-        response = self.client.post(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
-        )
+        with patch("posthog.event_usage.posthoganalytics.capture") as mock_capture:
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+            )
         assert response.status_code == 200, response.content
+
+        history_events = [
+            c.kwargs for c in mock_capture.call_args_list if c.kwargs.get("event") == "data warehouse history disabled"
+        ]
+        assert [(e["properties"]["schema_id"], e["properties"]["table_mode"]) for e in history_events] == [
+            (str(history_schema.id), "both")
+        ]
 
         source.refresh_from_db()
         ji = source.job_inputs or {}
@@ -11796,7 +11889,7 @@ class TestDisableCDC(APIBaseTest):
         non_cdc_schema.refresh_from_db()
         assert non_cdc_schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
         assert non_cdc_schema.should_sync is True
-        mock_pause_schedule.assert_called_once_with(str(cdc_schema.id))
+        assert {c.args[0] for c in mock_pause_schedule.call_args_list} == {str(cdc_schema.id), str(history_schema.id)}
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",

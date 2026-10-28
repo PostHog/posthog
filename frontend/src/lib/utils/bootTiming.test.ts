@@ -138,29 +138,85 @@ describe('bootTiming', () => {
     })
 
     it.each([
-        { distinctId: IN_SAMPLE_ID, sends: true },
-        { distinctId: OUT_OF_SAMPLE_ID, sends: false },
+        { distinctId: IN_SAMPLE_ID, variant: undefined, sampleRate: 0.05 },
+        { distinctId: OUT_OF_SAMPLE_ID, variant: undefined, sampleRate: null },
         // An empty ID hashes to bucket 0, so without a guard every such page load would land in the sample.
-        { distinctId: '', sends: false },
-        { distinctId: undefined, sends: false },
-    ])('samples on distinct ID $distinctId (sends: $sends)', async ({ distinctId, sends }) => {
-        getDistinctId.mockReturnValue(distinctId)
-        markAt(50, 'entry')
-        markAt(900, 'scene_rendered')
-        await flushSend()
+        { distinctId: '', variant: undefined, sampleRate: null },
+        { distinctId: undefined, variant: undefined, sampleRate: null },
+        { distinctId: OUT_OF_SAMPLE_ID, variant: 'control', sampleRate: 1 },
+        { distinctId: OUT_OF_SAMPLE_ID, variant: 'test', sampleRate: 1 },
+    ])(
+        'samples on distinct ID $distinctId in variant $variant (sample rate: $sampleRate)',
+        async ({ distinctId, variant, sampleRate }) => {
+            getDistinctId.mockReturnValue(distinctId)
+            markAt(50, 'entry', { deferred_app_context_variant: variant })
+            markAt(900, 'scene_rendered')
+            await flushSend()
 
-        expect(capture).toHaveBeenCalledTimes(sends ? 1 : 0)
-    })
+            if (sampleRate === null) {
+                expect(capture).not.toHaveBeenCalled()
+            } else {
+                expect(capture).toHaveBeenCalledWith(
+                    'app boot timing',
+                    expect.objectContaining({ sample_rate: sampleRate })
+                )
+            }
+        }
+    )
 
     it.each([
         {
             name: 'splits the entry phase with navigation timing',
-            navigationEntries: [{ type: 'navigate', requestStart: 120.4, responseStart: 310.6, responseEnd: 352.2 }],
+            navigationEntries: [
+                {
+                    type: 'navigate',
+                    nextHopProtocol: 'h2',
+                    domainLookupStart: 2,
+                    domainLookupEnd: 30.4,
+                    connectStart: 30.4,
+                    secureConnectionStart: 80.2,
+                    connectEnd: 119.6,
+                    requestStart: 120.4,
+                    responseStart: 310.6,
+                    responseEnd: 352.2,
+                },
+            ],
             expected: {
                 navigation_type: 'navigate',
+                next_hop_protocol: 'h2',
+                dns_ms: 28,
+                connect_ms: 89,
+                tls_ms: 39,
                 request_start_ms: 120,
                 response_start_ms: 311,
                 response_end_ms: 352,
+            },
+        },
+        {
+            name: 'reports no connection or TLS time on a reused connection',
+            navigationEntries: [
+                {
+                    type: 'reload',
+                    nextHopProtocol: 'h2',
+                    domainLookupStart: 5,
+                    domainLookupEnd: 5,
+                    connectStart: 5,
+                    secureConnectionStart: 5,
+                    connectEnd: 5,
+                    requestStart: 6,
+                    responseStart: 150,
+                    responseEnd: 160,
+                },
+            ],
+            expected: {
+                navigation_type: 'reload',
+                next_hop_protocol: 'h2',
+                dns_ms: 0,
+                connect_ms: null,
+                tls_ms: null,
+                request_start_ms: 6,
+                response_start_ms: 150,
+                response_end_ms: 160,
             },
         },
         {
@@ -189,8 +245,18 @@ describe('bootTiming', () => {
             Reflect.deleteProperty(performance, 'getEntriesByType')
         }
 
-        const { navigation_type, request_start_ms, response_start_ms, response_end_ms } = capture.mock.calls[0][1]
-        expect({ navigation_type, request_start_ms, response_start_ms, response_end_ms }).toEqual(expected)
+        const navigationKeys = [
+            'navigation_type',
+            'next_hop_protocol',
+            'dns_ms',
+            'connect_ms',
+            'tls_ms',
+            'request_start_ms',
+            'response_start_ms',
+            'response_end_ms',
+        ]
+        const properties = capture.mock.calls[0][1]
+        expect(Object.fromEntries(navigationKeys.map((key) => [key, properties[key]]))).toEqual(expected)
     })
 
     it('reports a page hidden only between two marks', async () => {

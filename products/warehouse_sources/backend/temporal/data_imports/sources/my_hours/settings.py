@@ -42,6 +42,16 @@ _PROJECT_FANOUT = DependentEndpointConfig(
     child_response_actions=[{"status_code": 404, "action": "ignore"}],
 )
 
+_TEAM_FANOUT = DependentEndpointConfig(
+    parent_name="teams",
+    resolve_param="team_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "teamId"},
+    # A team deleted between the team listing and its child request.
+    child_response_actions=[{"status_code": 404, "action": "ignore"}],
+)
+
 # My Hours REST API list endpoints. The plain list endpoints are full refresh only: they expose no
 # row-level pagination and no updated-since cursor. `time_logs` reads the account-wide activity
 # report, which filters server-side by log date.
@@ -65,9 +75,27 @@ MY_HOURS_ENDPOINTS: dict[str, MyHoursEndpointConfig] = {
         primary_keys=["projectId", "userId"],
         fanout=_PROJECT_FANOUT,
     ),
+    "project_overviews": MyHoursEndpointConfig(
+        name="project_overviews",
+        path="/Projects/{project_id}/overview",
+        fanout=_PROJECT_FANOUT,
+    ),
+    # Teams are a Pro plan feature: other plans answer 403.
+    "teams": MyHoursEndpointConfig(name="teams", path="/Teams/getall"),
+    "team_members": MyHoursEndpointConfig(
+        name="team_members",
+        path="/Teams/{team_id}/teammembers",
+        primary_keys=["teamId", "id"],
+        fanout=_TEAM_FANOUT,
+    ),
 }
 
 ENDPOINTS = tuple(MY_HOURS_ENDPOINTS.keys())
+
+# Teams are a Pro plan feature, so these tables need a probe of the team listing before setup.
+TEAMS_PROBE_PATH = "/Teams/getall"
+TEAM_ENDPOINTS = frozenset({"teams", "team_members"})
+TEAMS_UNAVAILABLE_ERROR = "Teams are only available on the My Hours Pro plan, and this API key cannot read them."
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     TIME_LOGS_ENDPOINT: [

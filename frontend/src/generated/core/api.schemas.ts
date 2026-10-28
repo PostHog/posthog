@@ -1789,7 +1789,7 @@ export interface TeamWorkflowsConfigApi {
      * * `opt_out` - Opt Out
      * * `opt_in` - Opt In */
     email_tracking_consent_mode?: EmailTrackingConsentModeEnumApi
-    /** Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails keep their current values. */
+    /** Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails change only through apply_utm_defaults. */
     email_utm_tags_enabled?: boolean
     /** Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag. */
     email_utm_params?: EmailUtmParamsApi
@@ -3676,6 +3676,8 @@ export interface ProjectBackwardCompatApi {
     readonly managed_viewsets: ProjectBackwardCompatApiManagedViewsets
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
+    readonly api_host: string
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
@@ -4564,6 +4566,8 @@ export interface PatchedProjectBackwardCompatApi {
     readonly managed_viewsets?: PatchedProjectBackwardCompatApiManagedViewsets
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode?: FlagEvaluationsModeEnumApi
+    /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
+    readonly api_host?: string
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
@@ -7045,6 +7049,19 @@ export type FileSystemDestroyParams = {
      * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
      */
     recursive?: boolean
+}
+
+export type FileSystemFrequentListParams = {
+    /**
+     * Maximum number of frequently viewed items to return.
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number
+    /**
+     * A search term.
+     */
+    search?: string
 }
 
 export type FileSystemSearchRetrieveParams = {

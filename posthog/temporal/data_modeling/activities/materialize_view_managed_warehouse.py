@@ -3,6 +3,7 @@ import time
 import typing
 import datetime as dt
 import dataclasses
+from uuid import UUID
 
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
@@ -23,9 +24,12 @@ from products.data_modeling.backend.facade.api import (
     clear_incremental_state,
     resolve_write_plan,
     set_incremental_state,
+    unbuilt_upstream_saved_query_ids,
 )
 from products.data_modeling.backend.facade.models import (
+    TERMINAL_JOB_STATUSES,
     DataModelingJob,
+    DataModelingJobEngine,
     DataModelingJobRunMode,
     DataModelingJobStatus,
     DataWarehouseSavedQuery,
@@ -106,7 +110,26 @@ class ManagedWarehouseShadowResult:
     file_size_bytes: int = 0
     file_size_delta_bytes: int = 0
     run_mode: str = UNKNOWN_RUN_MODE
-    bytes_read: int | None = None
+    read_bytes: int | None = None
+    cpu_microseconds: int | None = None
+    # The run read an upstream model that has never been built on Trino. That says nothing about the
+    # view itself, so the job is skipped rather than failed and does not count toward suspension.
+    skipped: bool = False
+
+
+_TABLE_MISSING_ERROR_NAMES = frozenset({"CATALOG_NOT_FOUND", "SCHEMA_NOT_FOUND", "TABLE_NOT_FOUND"})
+
+
+def _upstream_model_unbuilt(missing_object_error_name: str | None, team_id: int, saved_query_id: UUID) -> bool:
+    """Whether a missing Trino table is explained by an upstream model that has never been built there.
+
+    A missing imported table or events table is a sync or provisioning fault, so it still fails the job.
+    """
+    if missing_object_error_name not in _TABLE_MISSING_ERROR_NAMES:
+        return False
+    return bool(
+        unbuilt_upstream_saved_query_ids(team_id, saved_query_id, engine=DataModelingJobEngine.MANAGED_WAREHOUSE)
+    )
 
 
 def _failed_run_mode(plan: WritePlan | None, use_trino: bool) -> str:
@@ -234,18 +257,27 @@ async def check_managed_warehouse_shadow_eligibility_activity(
 def _resolve_managed_warehouse_job(job_id: str, result: "ManagedWarehouseShadowResult") -> str:
     """Update the managed warehouse job to its terminal state based on the result."""
     job = DataModelingJob.objects.get(id=job_id)
-    if job.status in (DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED, DataModelingJobStatus.COMPLETED):
+    if job.status in TERMINAL_JOB_STATUSES:
         return job.engine
     if result.error is None:
         job.status = DataModelingJobStatus.COMPLETED
         job.rows_materialized = result.row_count
         job.error = None
+    elif result.skipped:
+        job.status = DataModelingJobStatus.SKIPPED
+        job.rows_materialized = 0
+        job.error = result.error
     else:
         job.status = DataModelingJobStatus.FAILED
         job.rows_materialized = 0
         job.error = result.error
-    job.bytes_read = result.bytes_read
-    job.last_run_at = dt.datetime.now(dt.UTC)
+    completed_at = dt.datetime.now(dt.UTC)
+    job.read_bytes = result.read_bytes
+    job.cpu_microseconds = result.cpu_microseconds
+    job.usage_updated_at = (
+        completed_at if result.read_bytes is not None or result.cpu_microseconds is not None else None
+    )
+    job.last_run_at = completed_at
     job.save()
     return job.engine
 
@@ -276,6 +308,7 @@ async def _materialize_view_managed_warehouse(
     s3_secrets: tuple[DuckLakeS3Secret, ...] = ()
     plan: WritePlan | None = None
     processed_bytes: list[int] = []
+    cpu_milliseconds: list[int] = []
     try:
         from products.managed_warehouse.backend.facade.client import execute_ducklake_create_table, execute_trino_model
 
@@ -299,6 +332,7 @@ async def _materialize_view_managed_warehouse(
                 source_query=saved_query.query,
                 incremental=_trino_incremental_write(plan),
                 on_processed_bytes=processed_bytes.append,
+                on_cpu_milliseconds=cpu_milliseconds.append,
             )
             if plan.config is not None:
                 # A quiet window writes nothing, so it records the run without moving the watermark.
@@ -351,7 +385,8 @@ async def _materialize_view_managed_warehouse(
             file_size_bytes=result.file_size_bytes,
             file_size_delta_bytes=result.file_size_delta_bytes,
             run_mode=INCREMENTAL_RUN_MODE if inputs.use_trino and result.merged else FULL_REFRESH_RUN_MODE,
-            bytes_read=_total_bytes_read(processed_bytes),
+            read_bytes=_total_read_bytes(processed_bytes),
+            cpu_microseconds=_total_cpu_microseconds(cpu_milliseconds),
         )
         job_engine = await _resolve_managed_warehouse_job(inputs.job_id, shadow_result)
         await clear_node_suspension_for_engine(
@@ -400,7 +435,11 @@ async def _materialize_view_managed_warehouse(
             table_name=table_name,
             error=str(e),
             run_mode=_failed_run_mode(plan, inputs.use_trino),
-            bytes_read=_total_bytes_read(processed_bytes),
+            read_bytes=_total_read_bytes(processed_bytes),
+            cpu_microseconds=_total_cpu_microseconds(cpu_milliseconds),
+            skipped=await database_sync_to_async_pool(_upstream_model_unbuilt)(
+                missing_object_error_name, team.pk, saved_query.id
+            ),
         )
         if plan is not None and plan.incremental:
             # The merge may have stopped partway or failed on a schema change. Rebuilding next run
@@ -410,6 +449,8 @@ async def _materialize_view_managed_warehouse(
             except Exception as clear_error:
                 capture_exception(clear_error)
         job_engine = await _resolve_managed_warehouse_job(inputs.job_id, shadow_result)
+        if shadow_result.skipped:
+            return shadow_result
         suspended = await maybe_suspend_node_for_engine(
             node_id=inputs.node_id,
             team_id=inputs.team_id,
@@ -427,9 +468,13 @@ async def _materialize_view_managed_warehouse(
         return shadow_result
 
 
-def _total_bytes_read(processed_bytes: list[int]) -> int | None:
+def _total_read_bytes(processed_bytes: list[int]) -> int | None:
     # No statement reported its bytes, so the run was not measured. That is not the same as reading zero bytes.
     return sum(processed_bytes) if processed_bytes else None
+
+
+def _total_cpu_microseconds(cpu_milliseconds: list[int]) -> int | None:
+    return sum(cpu_milliseconds) * 1_000 if cpu_milliseconds else None
 
 
 def _trino_incremental_write(plan: WritePlan) -> TrinoIncrementalWrite | None:

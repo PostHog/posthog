@@ -922,6 +922,9 @@ auth:
     gateway:token:
         click: hogli_commands.gateway:gateway_token
         description: Get a short-lived AI gateway token for PostHog staff, approved in your browser
+    gateway:status:
+        click: hogli_commands.gateway:gateway_status
+        description: Show how much budget a developer mode token has left (reads the token from stdin or env)
 tools:
     metabase:databases:
         click: hogli_commands.metabase:metabase_databases
@@ -991,12 +994,9 @@ tools:
             development
         services:
             - temporal
-    tool:hog:
-        bin_script: hog
-        description: Run HogQL interpreter (TypeScript/Python) or compiled bytecode
-    tool:hoge:
-        bin_script: hoge
-        description: Compile HogQL source to bytecode or JavaScript
+    tool:hoglang:
+        bin_script: hoglang
+        description: Run HogLang source or bytecode, or compile source to bytecode or JavaScript
     tool:ruff:
         bin_script: ruff.sh
         description: Python linter and formatter with virtualenv auto-activation

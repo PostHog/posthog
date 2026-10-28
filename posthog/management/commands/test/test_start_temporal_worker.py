@@ -4,6 +4,8 @@ import pytest
 
 from django.conf import settings
 
+from posthog.hogql import parser as hogql_parser
+
 from posthog.management.commands.start_temporal_worker import (
     ACTIVITIES_DICT,
     AI_WORKFLOWS,
@@ -15,6 +17,7 @@ from posthog.management.commands.start_temporal_worker import (
     WEEKLY_DIGEST_WORKFLOWS,
     WORKFLOWS_DICT,
     _task_queue_specs,
+    apply_hogql_shadow_sample_rate_override,
     workflows_include_data_import_syncs,
 )
 from posthog.temporal.usage_report.activities import aggregate_and_chunk_org_reports
@@ -33,6 +36,10 @@ from products.metrics.backend.facade.temporal import (
     WORKFLOWS as METRICS_WORKFLOWS,
 )
 from products.signals.backend.temporal import InboxRankingScoringWorkflow, score_inbox_reports_activity
+from products.warehouse_sources.backend.facade.temporal import (
+    WAREHOUSE_ALERT_EVALUATION_ACTIVITIES,
+    WAREHOUSE_ALERT_EVALUATION_WORKFLOWS,
+)
 from products.wizard.backend.facade.temporal import (
     ACTIVITIES as WIZARD_ACTIVITIES,
     WORKFLOWS as WIZARD_WORKFLOWS,
@@ -68,6 +75,11 @@ def test_aggregation_runs_on_its_own_queue_and_the_billing_queue() -> None:
             SHARED_ORCHESTRATION_ACTIVITIES,
         ),
         ("alerts-platform-evaluation-task-queue", EVALUATION_WORKFLOWS, EVALUATION_ACTIVITIES),
+        (
+            "alerts-platform-evaluation-task-queue",
+            WAREHOUSE_ALERT_EVALUATION_WORKFLOWS,
+            WAREHOUSE_ALERT_EVALUATION_ACTIVITIES,
+        ),
         ("alerts-platform-delivery-task-queue", DELIVERY_WORKFLOWS, DELIVERY_ACTIVITIES),
         (settings.SELF_DRIVING_TASK_QUEUE, [InboxRankingScoringWorkflow], [score_inbox_reports_activity]),
         (settings.GENERAL_PURPOSE_TASK_QUEUE, METRICS_WORKFLOWS, METRICS_ACTIVITIES),
@@ -132,3 +144,24 @@ def test_ai_queue_registers_the_alert_evaluate_activity() -> None:
     assert ALERT_AI_QUEUE_ACTIVITIES
     assert set(ALERT_AI_QUEUE_ACTIVITIES) <= set(entries[0])
     assert set(INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES) <= set(entries[0])
+
+
+@pytest.mark.parametrize(
+    "env_value, expected",
+    [
+        (None, 0.001),
+        ("0", 0.0),
+        ("0.25", 0.25),
+        ("off", 0.001),
+        ("2", 0.001),
+    ],
+)
+def test_hogql_shadow_sample_rate_override(
+    monkeypatch: pytest.MonkeyPatch, env_value: str | None, expected: float
+) -> None:
+    monkeypatch.delenv("HOGQL_PARSER_SHADOW_SAMPLE_RATE", raising=False)
+    if env_value is not None:
+        monkeypatch.setenv("HOGQL_PARSER_SHADOW_SAMPLE_RATE", env_value)
+    monkeypatch.setattr(hogql_parser, "_SHADOW_SAMPLE_RATE", 0.001)
+    apply_hogql_shadow_sample_rate_override()
+    assert hogql_parser._SHADOW_SAMPLE_RATE == expected

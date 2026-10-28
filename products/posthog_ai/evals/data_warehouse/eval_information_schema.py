@@ -29,7 +29,7 @@ To run a single eval::
 
 from __future__ import annotations
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.evals.data_warehouse.scorers import (
@@ -109,7 +109,7 @@ async def eval_dw_discovery(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-warehouse-discovery-cli",
         offline_suite=offline_suite(
             "data_warehouse/eval_information_schema::eval_dw_discovery",
@@ -175,7 +175,7 @@ async def eval_dw_value_retrieval(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-warehouse-retrieval-cli",
         offline_suite=offline_suite(
             "data_warehouse/eval_information_schema::eval_dw_value_retrieval",
@@ -241,7 +241,7 @@ async def eval_dw_relationships(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-warehouse-relationships-cli",
         offline_suite=offline_suite(
             "data_warehouse/eval_information_schema::eval_dw_relationships",
@@ -293,7 +293,7 @@ async def eval_dw_table_relevancy(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-warehouse-relevancy-cli",
         offline_suite=offline_suite(
             "data_warehouse/eval_information_schema::eval_dw_table_relevancy",

@@ -11,9 +11,9 @@ is visible in one place.
 and ``temporalio`` on the ``django.setup()`` path. Core config-time consumers import this
 facade, so it reaches the service only through ``_service()``, which imports it at call
 time. For the same reason the Temporal client is built in ``_get_temporal_client()``, and
-the HogQL, destination config, file download, run and backfill modules load through
-``_import_hogql_source()``, ``_import_destination_config()``, ``_import_file_downloads()``,
-``_import_runs()`` and ``_import_backfills()``.
+the HogQL, destination config, export, file download, run and backfill modules load through
+``_import_hogql_source()``, ``_import_destination_config()``, ``_import_exports()``,
+``_import_file_downloads()``, ``_import_runs()`` and ``_import_backfills()``.
 
 Temporal workflow and activity registration crosses as objects, not data, so it lives in
 ``facade/temporal.py``. The destination clients the warehouse writers reuse live in
@@ -76,6 +76,7 @@ __all__ = [
     "get_batch_export_backfill",
     "get_batch_export_by_name",
     "get_batch_export_run",
+    "get_destination_test_config",
     "get_file_download_run",
     "get_file_download_url",
     "get_latest_completed_run",
@@ -90,9 +91,14 @@ __all__ = [
     "list_file_download_runs",
     "list_latest_failed_runs",
     "list_supported_intervals",
+    "merge_destination_config",
+    "pause_batch_export",
+    "prepare_new_destination_config",
     "retry_batch_export_run",
     "run_destination_test_step",
     "start_file_download",
+    "unpause_batch_export",
+    "validate_batch_export_destination",
     "validate_batch_export_filters",
     "validate_destination_config",
     "validate_hogql_query",
@@ -148,6 +154,13 @@ def _import_destination_config() -> ModuleType:
     )
 
     return destination_config
+
+
+def _import_exports() -> ModuleType:
+    """Import the export logic at call time. See the module docstring for why."""
+    from products.batch_exports.backend.logic import exports
+
+    return exports
 
 
 def _import_file_downloads() -> ModuleType:
@@ -479,10 +492,31 @@ def create_workflows_backfill_export(
 
 
 def delete_batch_export(export_id: UUID, team_id: int) -> None:
-    """Delete a batch export: pause it, cancel its work, then drop its Temporal schedule."""
-    service = _service()
-    batch_export = BatchExport.objects.select_related("destination").get(id=export_id, team_id=team_id)
-    service.delete_batch_export(batch_export)
+    """Delete a batch export: pause it, cancel its work, then drop its Temporal schedule.
+
+    Raises ``contracts.BatchExportNotFoundError`` when the team has no such live export.
+    """
+    _import_exports().delete_batch_export(team_id, export_id)
+
+
+def pause_batch_export(team_id: int, export_id: UUID, *, note: str) -> None:
+    """Pause a batch export, so its schedule starts no new runs.
+
+    ``note`` records who asked, on the Temporal schedule. Raises
+    ``contracts.BatchExportNotFoundError`` when the team has no such export, and
+    ``contracts.BatchExportScheduleError`` when Temporal rejects the change.
+    """
+    _import_exports().pause_batch_export(team_id, export_id, note=note)
+
+
+def unpause_batch_export(team_id: int, export_id: UUID, *, note: str, backfill: bool) -> None:
+    """Unpause a batch export. With ``backfill``, also backfill the runs it missed while paused.
+
+    ``note`` records who asked, on the Temporal schedule. Raises
+    ``contracts.BatchExportNotFoundError`` when the team has no such export, and
+    ``contracts.BatchExportScheduleError`` when Temporal rejects the change.
+    """
+    _import_exports().unpause_batch_export(team_id, export_id, note=note, backfill=backfill)
 
 
 def backfill_batch_export(
@@ -519,6 +553,62 @@ def coerce_destination_config(destination_type: str, config: dict[str, Any]) -> 
     The stored config reads back with stringified scalars, so ``"False"`` becomes ``False``.
     """
     return _service().coerce_config_to_declared_types(destination_type, config)
+
+
+def validate_batch_export_destination(
+    team_id: int,
+    *,
+    export_id: UUID | None,
+    destination_type: str,
+    config: Mapping[str, Any],
+    integration_id: int | None,
+    integration_sent: bool,
+) -> None:
+    """Check that a destination can be saved, for a new export or as a change to ``export_id``.
+
+    ``config`` already passed ``validate_destination_config``. ``integration_sent`` is false when
+    the request left the integration out, which keeps the existing integration of the export.
+    Raises ``contracts.InvalidBatchExportDestinationError`` with the failed check as the message.
+    """
+    _import_exports().validate_destination(
+        team_id,
+        export_id=export_id,
+        destination_type=destination_type,
+        config=config,
+        integration_id=integration_id,
+        integration_sent=integration_sent,
+    )
+
+
+def prepare_new_destination_config(destination_type: str, config: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the config a new destination saves, with the defaults that a new export opts into.
+
+    Temporary: only the export serializer calls this, because it still saves the destination
+    through the ORM. Do not add callers. The function goes away when export creation moves
+    behind the facade.
+    """
+    return _import_exports().prepare_new_destination_config(destination_type, config)
+
+
+def merge_destination_config(
+    destination_type: str, stored_config: Mapping[str, Any], patch: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Return the config an export saves after a patch, merged key by key into its stored config.
+
+    Temporary: only the export serializer calls this, because it still saves the destination
+    through the ORM. Do not add callers. The function goes away when export updates move
+    behind the facade.
+    """
+    return _import_exports().merge_destination_config(destination_type, stored_config, patch)
+
+
+def get_destination_test_config(team_id: int, export_id: UUID) -> dict[str, Any]:
+    """Return the stored destination config of an export, for a connection test of that export.
+
+    Only the fields that the workflow inputs of the destination declare are kept. The config holds
+    the credentials of the destination, so it must not leave the product.
+    """
+    return _import_exports().get_destination_test_config(team_id, export_id)
 
 
 def describe_destination_test(destination_type: str) -> contracts.DestinationTest:

@@ -16,7 +16,19 @@ _THRESHOLD_MEAN: dict[str, object] = {
     "source": {"kind": "EventsNode", "event": "$pageview", "math": "sum", "math_property": "amount"},
 }
 
+_WAREHOUSE_NATIVE_MEAN: dict[str, object] = {
+    "kind": "ExperimentMetric",
+    "metric_type": "mean",
+    "source": {
+        "kind": "ExperimentWarehouseNativeNode",
+        "connection_id": "00000000-0000-0000-0000-000000000000",
+        "query": "SELECT user_id AS entity_id, paid_at AS timestamp, amount AS value FROM payments",
+        "math": "sum",
+    },
+}
+
 _SHARED_RULE_CASES: list[tuple[str, dict[str, object], str]] = [
+    ("warehouse_native_not_supported_yet", _WAREHOUSE_NATIVE_MEAN, "warehouse-native sources are not supported yet"),
     (
         "funnel_without_steps",
         {"kind": "ExperimentMetric", "metric_type": "funnel", "series": []},

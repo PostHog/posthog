@@ -59,6 +59,9 @@ const dashboardCreate = (): ToolBase<
         if (params.layout_compaction !== undefined) {
             body['layout_compaction'] = params.layout_compaction
         }
+        if (params.group_display !== undefined) {
+            body['group_display'] = params.group_display
+        }
         if (params.groups !== undefined) {
             body['groups'] = params.groups
         }
@@ -614,6 +617,9 @@ const dashboardUpdate = (): ToolBase<
         }
         if (params.layout_compaction !== undefined) {
             body['layout_compaction'] = params.layout_compaction
+        }
+        if (params.group_display !== undefined) {
+            body['group_display'] = params.group_display
         }
         if (params.groups !== undefined) {
             body['groups'] = params.groups

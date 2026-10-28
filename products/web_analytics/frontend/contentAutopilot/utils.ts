@@ -1,6 +1,7 @@
 import { parseWebAnalyticsURL } from 'scenes/web-analytics/common'
 
 import type {
+    AEOPromptCheckApi,
     ContentAutopilotOpportunityApi,
     ContentAutopilotProposalListApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
@@ -63,3 +64,8 @@ export const opportunitiesNeedRefresh = (
         .filter((time) => !Number.isNaN(time))
     return refreshedAt.length === 0 || now - Math.max(...refreshedAt) > OPPORTUNITIES_STALE_AFTER_MS
 }
+
+// Checks recorded before prompts had versions carry no version. A prompt's text could not change
+// before then, so those checks all ran the text that became version 1.
+export const checkPromptVersion = (check: Pick<AEOPromptCheckApi, 'prompt_version'>): number =>
+    check.prompt_version ?? 1

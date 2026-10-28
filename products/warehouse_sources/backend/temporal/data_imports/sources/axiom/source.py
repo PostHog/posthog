@@ -20,6 +20,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.axiom.sett
     API_VERSION,
     AUTH_ERRORS,
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    MONITOR_HISTORY,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -89,7 +91,9 @@ class AxiomSource(ResumableSource[AxiomSourceConfig, AxiomResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, {}, names)
+        return build_endpoint_schemas(
+            [*ENDPOINTS, MONITOR_HISTORY], INCREMENTAL_FIELDS, names, merge_only=[MONITOR_HISTORY]
+        )
 
     def validate_credentials(
         self,

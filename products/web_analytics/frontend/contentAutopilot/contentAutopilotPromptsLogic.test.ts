@@ -39,7 +39,7 @@ describe('contentAutopilotPromptsLogic', () => {
         logic?.unmount()
     })
 
-    it('resets to the first page and sends the topic when the topic filter changes', async () => {
+    it('resets to the first page and sends the filters when the topic or archived filter changes', async () => {
         logic = contentAutopilotPromptsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -59,6 +59,16 @@ describe('contentAutopilotPromptsLogic', () => {
             offset: 0,
             topic: '',
         })
+
+        logic.actions.setPromptsPage(2)
+        logic.actions.setShowArchived(true)
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ promptsPage: 1 })
+        expect(mockPromptsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            limit: PROMPTS_PAGE_SIZE,
+            offset: 0,
+            topic: '',
+            include_archived: true,
+        })
     })
 
     it.each([
@@ -71,6 +81,51 @@ describe('contentAutopilotPromptsLogic', () => {
             logic = contentAutopilotPromptsLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners().toMatchValues({ promptsError: expected, prompts: null })
+        } finally {
+            resumeKeaLoadersErrors()
+        }
+    })
+
+    it('drops a stale prompts failure after a newer request resolved', async () => {
+        const settlers: { resolve: () => void; reject: () => void }[] = []
+        mockPromptsList.mockImplementation(
+            () =>
+                new Promise((resolve, reject) => {
+                    settlers.push({
+                        resolve: () => resolve({ count: 1, next: null, previous: null, results: [EXAMPLE_PROMPTS[0]] }),
+                        reject: () => reject(new ApiError('Server error', 500)),
+                    })
+                })
+        )
+        logic = contentAutopilotPromptsLogic()
+        logic.mount()
+        logic.actions.setPromptsTopic('pricing')
+        await expectLogic(logic).toDispatchActions(['loadAeoPrompts', 'loadAeoPrompts'])
+        expect(settlers).toHaveLength(2)
+
+        settlers[1].resolve()
+        await expectLogic(logic).toDispatchActions(['loadAeoPromptsSuccess'])
+        settlers[0].reject()
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toNotHaveDispatchedActions(['loadAeoPromptsFailure'])
+            .toMatchValues({ promptsError: null, prompts: expect.objectContaining({ count: 1 }) })
+    })
+
+    it('flags a topics failure and clears it when a retry succeeds', async () => {
+        mockPromptsTopics.mockRejectedValueOnce(new ApiError('Server error', 500))
+        silenceKeaLoadersErrors()
+        try {
+            logic = contentAutopilotPromptsLogic()
+            logic.mount()
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({ promptTopicsError: true, promptTopics: [], promptsError: null })
+
+            logic.actions.loadAeoPromptTopics()
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({ promptTopicsError: false, promptTopics: EXAMPLE_PROMPT_TOPICS })
         } finally {
             resumeKeaLoadersErrors()
         }

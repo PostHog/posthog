@@ -120,6 +120,7 @@ from .aws_inspector.source import AwsInspectorSource
 from .aws_macie.source import AwsMacieSource
 from .aws_organizations.source import AwsOrganizationsSource
 from .aws_rds_performance_insights.source import AwsRdsPerformanceInsightsSource
+from .aws_s3_tables.source import AwsS3TablesSource
 from .aws_sagemaker.source import AwsSagemakerSource
 from .aws_savings_plans.source import AwsSavingsPlansSource
 from .aws_security_hub.source import AwsSecurityHubSource
@@ -159,6 +160,7 @@ from .basecamp.source import BasecampSource
 from .baserow.source import BaserowSource
 from .baseten.source import BasetenSource
 from .bcms.source import BCMSSource
+from .beacons.source import BeaconsSource
 from .beamer.source import BeamerSource
 from .beehiiv.source import BeehiivSource
 from .better_stack.source import BetterStackSource
@@ -392,6 +394,7 @@ from .drchrono.source import DrchronoSource
 from .dreamdata.source import DreamdataSource
 from .dremio.source import DremioSource
 from .drip.source import DripSource
+from .dripify.source import DripifySource
 from .dropbox.source import DropboxSource
 from .dropbox_sign.source import DropboxSignSource
 from .dub.source import DubSource
@@ -1169,6 +1172,7 @@ from .solarwinds_service_desk.source import SolarwindsServiceDeskSource
 from .sonar_cloud.source import SonarCloudSource
 from .sonarqube.source import SonarqubeSource
 from .sonatype_nexus.source import SonatypeNexusSource
+from .soniox.source import SonioxSource
 from .sourcegraph.source import SourcegraphSource
 from .spacelift.source import SpaceliftSource
 from .sparkpost.source import SparkPostSource
@@ -1358,6 +1362,7 @@ from .wix.source import WixSource
 from .wiz.source import WizSource
 from .wompi.source import WompiSource
 from .woocommerce.source import WooCommerceSource
+from .woopayments.source import WooPaymentsSource
 from .wordpress.source import WordpressSource
 from .workable.source import WorkableSource
 from .workato.source import WorkatoSource

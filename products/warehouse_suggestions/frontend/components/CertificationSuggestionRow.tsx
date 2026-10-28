@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconWarning } from '@posthog/icons'
-import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 
@@ -9,11 +9,11 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { WarehouseSuggestionApi } from '../generated/api.schemas'
-import { subjectUrl } from '../subjectUrl'
 import { daysReadLabel, isDeprecatePayload, noReadsLabel, readSummary, refreshCostLabel } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
-import { DismissSuggestionMenu } from './DismissSuggestionMenu'
+import { DismissSuggestionButtons } from './DismissSuggestionButtons'
 import { SuggestionRow } from './SuggestionRow'
+import { SuggestionSubjectLink } from './SuggestionSubjectLink'
 import { WhyThisSuggestion } from './WhyThisSuggestion'
 
 const EDIT_ACCESS_REASON = 'You need edit access to this view or table'
@@ -43,6 +43,8 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
     return (
         <SuggestionRow
             suggestionId={suggestion.id}
+            assignee={suggestion.assignee}
+            canAct={suggestion.can_act}
             leaving={leaving}
             icon={
                 <Tooltip title={isTable ? 'Table' : 'View'}>
@@ -51,11 +53,7 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
                     </span>
                 </Tooltip>
             }
-            title={
-                <Link to={subjectUrl(suggestion)} subtle className="block min-w-0 truncate text-sm font-semibold">
-                    {payload.subject_name}
-                </Link>
-            }
+            title={<SuggestionSubjectLink suggestion={suggestion} />}
             meta={
                 deprecating
                     ? [
@@ -92,7 +90,7 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
                     >
                         {deprecating ? 'Mark deprecated' : 'Certify'}
                     </LemonButton>
-                    <DismissSuggestionMenu
+                    <DismissSuggestionButtons
                         suggestionId={suggestion.id}
                         kind={suggestion.kind}
                         disabledReason={blockedReason ?? (inFlight ? 'Working' : undefined)}

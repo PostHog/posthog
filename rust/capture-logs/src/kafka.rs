@@ -22,6 +22,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::log::{debug, info};
 
+// The logs consumer verifies this signature against the team it resolves from the token.
+pub const INTERNAL_LOGS_KAFKA_HEADER: &str = "posthog-internal";
+
 struct KafkaContext {
     liveness: HealthHandle,
 }
@@ -402,6 +405,7 @@ impl KafkaSink {
         timestamps_overridden: u64,
         min_timestamp_micros: Option<i64>,
         backfill_days: Option<u32>,
+        internal_signature: Option<&str>,
     ) -> Result<(), anyhow::Error> {
         let mut writer = Writer::with_codec(
             schema,
@@ -454,6 +458,12 @@ impl KafkaSink {
                         value: Some(&days.to_string()),
                     });
                 }
+                if let Some(signature) = internal_signature {
+                    headers = headers.insert(Header {
+                        key: INTERNAL_LOGS_KAFKA_HEADER,
+                        value: Some(signature),
+                    });
+                }
                 headers
                     .insert(Header {
                         key: "bytes_compressed",
@@ -494,6 +504,7 @@ impl KafkaSink {
         uncompressed_bytes: u64,
         timestamps_overridden: u64,
         backfill_days: Option<u32>,
+        internal_signature: Option<&str>,
     ) -> Result<(), anyhow::Error> {
         if rows.is_empty() {
             return Ok(());
@@ -523,6 +534,7 @@ impl KafkaSink {
             timestamps_overridden,
             min_kafka_log_row_timestamp_micros(&rows),
             backfill_days,
+            internal_signature,
         )
         .await?;
 
@@ -555,6 +567,7 @@ impl KafkaSink {
             timestamps_overridden,
             None,
             None,
+            None,
         )
         .await?;
 
@@ -585,6 +598,7 @@ impl KafkaSink {
             uncompressed_bytes,
             None,
             timestamps_overridden,
+            None,
             None,
             None,
         )

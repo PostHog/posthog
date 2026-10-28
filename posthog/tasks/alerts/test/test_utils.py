@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime
 from functools import partial
 
@@ -19,6 +20,7 @@ from posthog.tasks.alerts.utils import (
     dispatch_alert_notification,
     next_check_time,
     send_notifications_for_breaches,
+    send_notifications_for_disabled,
     send_notifications_for_errors,
     trigger_alert_hog_functions,
 )
@@ -48,10 +50,7 @@ class TestAlertUtils:
         ]
     )
     def test_detector_verdict_event_fields(self, _name: str, metadata: dict | None, expected: dict) -> None:
-        alert_check = MagicMock(spec=AlertCheck)
-        alert_check.triggered_metadata = metadata
-
-        assert detector_verdict_event_fields(alert_check) == expected
+        assert detector_verdict_event_fields(metadata) == expected
 
     def test_next_check_time_advances_by_2_minutes(self) -> None:
         alert = MagicMock(spec=AlertConfiguration)
@@ -297,6 +296,25 @@ class TestSendNotificationsReceipts(APIBaseTest):
         assert [(r.channel, r.target, r.status) for r in receipts] == [("email", self.user.email, "accepted")]
         mock_send.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("breaches", lambda alert: send_notifications_for_breaches(alert, ["breach"], idempotency_key="check-1")),
+            ("errors", lambda alert: send_notifications_for_errors(alert, {"message": "boom"}, idempotency_key="c-1")),
+            (
+                "disabled",
+                lambda alert: send_notifications_for_disabled(alert, "bad config", [alert.created_by.email]),
+            ),
+        ]
+    )
+    @patch("posthog.tasks.alerts.utils.trigger_alert_hog_functions", return_value=[])
+    @patch("products.alerts.backend.facade.email.EmailMessage")
+    @patch("products.alerts.backend.facade.email.is_email_available", return_value=False)
+    def test_notifications_skip_email_when_instance_has_no_email(
+        self, _name: str, send: Callable, _mock_available: MagicMock, mock_message: MagicMock, _mock_trigger: MagicMock
+    ) -> None:
+        assert send(self.alert) == []
+        mock_message.assert_not_called()
+
 
 class TestDispatchAlertInsightChart(APIBaseTest):
     def setUp(self) -> None:
@@ -337,8 +355,7 @@ class TestDispatchAlertInsightChart(APIBaseTest):
         dispatch_alert_notification(self.alert, self.alert_check, ["breach"])
 
         mock_prepare.assert_not_called()
-        # No chart keeps the common threshold-alert call shape (no extra_properties forwarded).
-        assert "extra_properties" not in mock_send.call_args.kwargs
+        assert "insight_chart_url" not in mock_send.call_args.kwargs["extra_properties"]
 
     @patch("posthog.tasks.alerts.utils.prepare_alert_insight_chart_url")
     @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
