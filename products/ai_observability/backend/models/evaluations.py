@@ -1,4 +1,3 @@
-from typing import Any
 from collections.abc import Collection
 from typing import Any, Self
 
