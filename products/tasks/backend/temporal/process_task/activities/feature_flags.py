@@ -6,6 +6,9 @@ from temporalio import activity
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
+from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationNotFound
+
 logger = get_logger(__name__)
 
 
@@ -25,14 +28,15 @@ def is_slack_app_agent_design_enabled_for_task_activity(
 ) -> bool:
     """Flag check + persist to TaskRun.state so out-of-workflow callers (e.g.
     forward_pending_message) can read the decision without re-evaluating."""
-    from posthog.models.integration import Integration
-
     from products.slack_app.backend.feature_flags import is_slack_app_agent_design_enabled
     from products.tasks.backend.models import TaskRun
 
+    run_team_id = TaskRun.objects.filter(id=input.run_id).values_list("team_id", flat=True).first()
     try:
-        integration = Integration.objects.select_related("team", "team__organization").get(id=input.integration_id)
-    except Integration.DoesNotExist:
+        if run_team_id is None:
+            raise IntegrationNotFound(f"No task run {input.run_id}")
+        integration = IntegrationManager.slack.oauth.get(run_team_id, input.integration_id)
+    except IntegrationNotFound:
         logger.warning("slack_app_agent_design_integration_missing", integration_id=input.integration_id)
         enabled = False
     else:

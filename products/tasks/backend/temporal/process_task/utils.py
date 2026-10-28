@@ -28,6 +28,7 @@ from posthog.models.user_integration import (
 )
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
+from products.integrations.backend.facade.api import IntegrationManager
 from products.mcp_store.backend.facade.api import resolve_installations_for_sandbox
 from products.mcp_store.backend.facade.contracts import UnmountedInstallation, UnmountedInstallationReason
 from products.tasks.backend import model_catalog
@@ -1027,8 +1028,8 @@ def installation_confirms_repository_denied(github_integration: GitHubIntegratio
     return response.status_code in (403, 404)
 
 
-def resolve_installation_github_integration(github_integration_id: int) -> GitHubIntegration | None:
-    integration = Integration.objects.filter(id=github_integration_id, kind="github").first()
+def resolve_installation_github_integration(team_id: int, github_integration_id: int) -> GitHubIntegration | None:
+    integration = IntegrationManager.github.oauth.get_many(team_id, [github_integration_id]).get(github_integration_id)
     if integration is None:
         return None
     return GitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)

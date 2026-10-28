@@ -1324,7 +1324,7 @@ def _installation_behind_sandbox_token(ctx: TaskProcessingContext) -> GitHubInte
         return None
     if get_pr_authorship_mode(_load_task(ctx), ctx.state) != PrAuthorshipMode.BOT:
         return None
-    return resolve_installation_github_integration(ctx.github_integration_id)
+    return resolve_installation_github_integration(ctx.team_id, ctx.github_integration_id)
 
 
 def _is_repository_access_denied_clone_error(result: ExecutionResult) -> bool:

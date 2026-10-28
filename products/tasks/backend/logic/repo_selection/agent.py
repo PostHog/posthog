@@ -6,11 +6,11 @@ import logging
 from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING
 
-from django.db.models import Case, IntegerField, Q, Value, When
+from django.db.models import Case, IntegerField, Value, When
 
 from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, GitHubIntegrationBase
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration, Integration
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration
 from posthog.models.integration_repository_cache import GitHubRepositoryFullCache
 from posthog.models.organization import OrganizationMembership
 from posthog.models.repo_routing_rule import RepoRoutingRule
@@ -18,6 +18,7 @@ from posthog.models.team.team import Team
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.sync import database_sync_to_async
 
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
 from products.tasks.backend.logic.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
@@ -118,6 +119,11 @@ def _first_user_github_integration(user_ids: Iterable[int]) -> UserIntegration |
     )
 
 
+def _account_type_sort_key(row: IntegrationRecord) -> tuple[bool, str]:
+    account_type = (row.config.get("account") or {}).get("type")
+    return (account_type is None, account_type or "")
+
+
 def resolve_team_github_integration(
     team_id: int, team: Team | None = None, requester_user_id: int | None = None, team_only: bool = False
 ) -> GitHubIntegrationBase | None:
@@ -141,18 +147,19 @@ def resolve_team_github_integration(
     source's repository names are shown to other team members, or when the work runs under the
     team installation's bot identity — a personal connection is a cross-account leak there.
     """
-    integration = (
-        Integration.objects.filter(team_id=team_id, kind="github")
+    candidates = [
+        row
+        for row in IntegrationManager.github.oauth.list(team_id)
         # Skip integrations whose installation has been synced and confirmed empty (0 repos)
-        .exclude(repository_cache=[], repository_cache_updated_at__isnull=False)
+        if not (row.repository_cache == [] and row.repository_cache_updated_at is not None)
         # Skip installs whose token refresh is permanently failing (uninstalled/suspended on
         # GitHub's side): re-selecting one makes repo discovery storm GitHub with doomed refreshes.
-        .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
-        .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
-        # Prioritize orgs vs users (alphabetically), then oldest first
-        .order_by("config__account__type", "created_at", "id")
-        .first()
-    )
+        and row.errors != ERROR_TOKEN_REFRESH_FAILED
+        and INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in row.config
+    ]
+    # Prioritize orgs vs users (alphabetically), then oldest first. `list` is already oldest first
+    # and `min` keeps the first of equal keys.
+    integration = min(candidates, key=_account_type_sort_key, default=None)
     # Prefer the first GitHub integration from the team
     if integration is not None:
         return GitHubIntegration(integration, source="repo_selection", priority=Priority.CRITICAL)
@@ -181,10 +188,9 @@ def resolve_team_github_integration(
 
 
 async def _github_reconnect_required(team_id: int) -> bool:
-    if (
-        await Integration.objects.filter(team_id=team_id, kind="github")
-        .filter(Q(errors=ERROR_TOKEN_REFRESH_FAILED) | Q(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY))
-        .aexists()
+    if any(
+        row.errors == ERROR_TOKEN_REFRESH_FAILED or INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY in row.config
+        for row in await IntegrationManager.github.oauth.alist(team_id)
     ):
         return True
 

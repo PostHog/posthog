@@ -7,9 +7,10 @@ import structlog
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationError, PullRequestRef
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration
 
+from products.integrations.backend.facade.api import IntegrationManager
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.visibility import task_visibility_q
@@ -61,7 +62,9 @@ def _github_for_task(task: Task, team_id: int, user_id: int) -> GitHubIntegratio
         return UserGitHubIntegration(user_integration, source="tasks", priority=Priority.NORMAL)
     if not task.github_integration_id:
         return None
-    integration = Integration.objects.filter(team_id=team_id, kind="github", id=task.github_integration_id).first()
+    integration = IntegrationManager.github.oauth.get_many(team_id, [task.github_integration_id]).get(
+        task.github_integration_id
+    )
     if integration is None:
         return None
     github = GitHubIntegration(integration, source="tasks", priority=Priority.NORMAL)

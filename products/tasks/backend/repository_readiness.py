@@ -11,10 +11,11 @@ from django.utils import timezone
 import requests
 
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration
 
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.event_definitions.backend.models.event_definition import EventDefinition
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 from products.tasks.backend.models import Task
 from products.tasks.backend.redis import get_tasks_cache
 
@@ -115,7 +116,7 @@ def _cache_key(*, team_id: int, integration_id: int, repository: str, window_day
     )
 
 
-def _refresh_installation_token(integration: Integration) -> None:
+def _refresh_installation_token(integration: IntegrationRecord) -> None:
     github = GitHubIntegration(integration, source="tasks", priority=Priority.CRITICAL)
     try:
         if github.access_token_expired():
@@ -232,7 +233,7 @@ def _fetch_file_content(github: GitHubIntegration, repository: str, path: str, r
         return None
 
 
-def _scan_repository(integration: Integration, repository: str) -> tuple[RepositoryScanEvidence, list[str]]:
+def _scan_repository(integration: IntegrationRecord, repository: str) -> tuple[RepositoryScanEvidence, list[str]]:
     github = GitHubIntegration(integration, source="tasks", priority=Priority.CRITICAL)
     tree_paths, default_branch = _fetch_repository_tree(github, repository)
 
@@ -374,7 +375,7 @@ def compute_repository_readiness(
     repository = _normalize_repo_key(repository)
     window_days = min(max(window_days, 1), MAX_WINDOW_DAYS)
 
-    integration = Integration.objects.filter(team=team, kind="github").first()
+    integration = IntegrationManager.github.oauth.find(team.id)
     if not integration:
         not_ready = _capability_state("GitHub integration is not connected.", "needs_setup")
         return {

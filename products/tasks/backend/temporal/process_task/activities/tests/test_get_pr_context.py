@@ -10,6 +10,7 @@ from parameterized import parameterized
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.tasks.backend.exceptions import GitHubRateLimitedError, ProcessTaskTransientError
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
     DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS,
@@ -369,7 +370,7 @@ class TestGetGithubIntegration:
             wrapped.access_token_expired.return_value = True
             MockGitHubIntegration.return_value = wrapped
 
-            result = get_github_integration(github_integration.id)
+            result = get_github_integration(github_integration.team_id, github_integration.id)
 
         assert result is wrapped
         wrapped.access_token_expired.assert_called_once()
@@ -382,14 +383,12 @@ class TestGetGithubIntegration:
             wrapped.access_token_expired.return_value = False
             MockGitHubIntegration.return_value = wrapped
 
-            result = get_github_integration(github_integration.id)
+            result = get_github_integration(github_integration.team_id, github_integration.id)
 
         assert result is wrapped
         wrapped.refresh_access_token.assert_not_called()
 
     @pytest.mark.django_db
-    def test_raises_when_integration_not_found(self):
-        from posthog.models import Integration
-
-        with pytest.raises(Integration.DoesNotExist):
-            get_github_integration(999999999)
+    def test_raises_when_integration_not_found(self, github_integration):
+        with pytest.raises(IntegrationNotFound):
+            get_github_integration(github_integration.team_id, 999999999)

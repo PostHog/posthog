@@ -57,7 +57,6 @@ from posthog.event_usage import groups
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import Team, User
 from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
-from posthog.models.integration import Integration
 from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE
@@ -65,6 +64,8 @@ from posthog.utils import absolute_uri
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.cdp.backend.facade import api as cdp_facade
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.posthog_ai.backend.task_ownership import (
     detach_conversations_for_task_handoff,
     soft_delete_conversations_for_task,
@@ -6295,7 +6296,7 @@ def user_has_usable_personal_github(user_id: int) -> bool:
 def _ensure_task_team_github_integration(task: Task) -> bool:
     if task.github_integration_id is not None:
         return True
-    github_integration = Integration.objects.filter(team_id=task.team_id, kind="github").first()
+    github_integration = IntegrationManager.github.oauth.find(task.team_id)
     if github_integration is None:
         return False
     task.github_integration = github_integration
@@ -7891,7 +7892,7 @@ def create_task(
         validated_data["created_by"] = User.objects.get(id=user_id)
 
     if validated_data.get("repository") and not validated_data.get("github_integration"):
-        default_integration = Integration.objects.filter(team=team, kind="github").first()
+        default_integration = IntegrationManager.github.oauth.find(team.id)
         if default_integration:
             validated_data["github_integration"] = default_integration
 
@@ -8104,7 +8105,7 @@ def create_task(
         and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
     )
     if (validated_data.get("repository") or entitled_report_task) and not validated_data.get("github_integration"):
-        default_integration = Integration.objects.filter(team=team, kind="github").first()
+        default_integration = IntegrationManager.github.oauth.find(team.id)
         if default_integration:
             validated_data["github_integration"] = default_integration
 
@@ -8572,8 +8573,11 @@ def resolve_team_github_integration_id(team_id: int, github_integration_id: int)
     no serializer team context. Returns ``None`` for any id that doesn't belong to the team —
     the caller treats that as "skip warming" (the submit later falls through to a cold create+run).
     """
-    exists = Integration.objects.filter(id=github_integration_id, team_id=team_id, kind="github").exists()
-    return github_integration_id if exists else None
+    try:
+        IntegrationManager.github.oauth.get(team_id, github_integration_id)
+    except IntegrationNotFound:
+        return None
+    return github_integration_id
 
 
 def can_mint_readonly_github_token(team_id: int) -> bool:
@@ -8971,7 +8975,7 @@ def _activate_warm_run(
 def _report_task_github_integration_id(team: Team, *, code_access_allowed: bool) -> int | None:
     if not code_access_allowed:
         return None
-    integration = Integration.objects.filter(team=team, kind="github").first()
+    integration = IntegrationManager.github.oauth.find(team.id)
     return integration.id if integration is not None else None
 
 
@@ -9089,9 +9093,10 @@ def warm_task_sandbox(
         github_integration_id = _report_task_github_integration_id(team, code_access_allowed=code_access_allowed)
     github_integration = None
     if github_integration_id is not None:
-        github_integration = Integration.objects.filter(
-            id=github_integration_id, team_id=team_id, kind="github"
-        ).first()
+        try:
+            github_integration = IntegrationManager.github.oauth.get(team_id, github_integration_id)
+        except IntegrationNotFound:
+            github_integration = None
     # An integration id that does not resolve to this team's GitHub integration is never warmed on, and
     # a repository cannot be cloned without one. An integration without a repository is fine: the
     # create path stores that pair too, and reuse matches on the integration id.
@@ -10153,11 +10158,7 @@ def resolve_slack_thread_context(
         # per-conversation queue workflow, so derive its handle anyway. Only possible
         # when the team maps to a single Slack workspace — with several, the guess
         # could point at another workspace's workflow.
-        workspace_ids = list(
-            Integration.objects.filter(team_id=team_id, kind="slack")
-            .values_list("integration_id", flat=True)
-            .distinct()[:2]
-        )
+        workspace_ids = list({row.integration_id for row in IntegrationManager.slack.oauth.list(team_id)})
         workspace_id = workspace_ids[0] if len(workspace_ids) == 1 else None
         queue_workflow_id = _slack_queue_workflow_id(workspace_id, channel, thread_ts)
         return contracts.SlackThreadContextResult(
@@ -10685,7 +10686,7 @@ def update_channel(
     *,
     can_manage_shared_auto_archive: bool,
     name: str | None = None,
-    github_integration: Integration | None = None,
+    github_integration: IntegrationRecord | None = None,
     repositories: list[str] | None = None,
     auto_archive_after_days: int | None | _AutoArchiveUnchanged = _AUTO_ARCHIVE_UNCHANGED,
     channel_type: str | None = None,

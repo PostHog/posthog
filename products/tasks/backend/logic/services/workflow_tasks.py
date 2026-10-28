@@ -18,11 +18,12 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.models import User
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.cdp.backend.workflow_step_resume import RESULT_STRING_CAP
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 from products.mcp_store.backend.facade.api import resolve_agent_gateway_server_ids
 from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates, slack_channel_is_approved
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -602,7 +603,7 @@ def _trimmed_event(event: dict[str, Any]) -> dict[str, Any]:
 class _SlackBinding:
     """A slack_context resolved against the team's Slack integrations, ready to bind."""
 
-    integration: Integration
+    integration: IntegrationRecord
     thread_context: SlackThreadContext
 
 
@@ -610,11 +611,9 @@ def _resolve_slack_binding(team_id: int, ctx: contracts.WorkflowTaskSlackContext
     """Team-scoped on purpose: the team filter is what stops a token binding another team's threads."""
     if ctx is None:
         return None
-    integration = Integration.objects.filter(id=ctx.integration_id, team_id=team_id, kind="slack").first()
+    integration = IntegrationManager.slack.oauth.get_many(team_id, [ctx.integration_id]).get(ctx.integration_id)
     if integration is None and ctx.slack_team_id:
-        integration = Integration.objects.filter(
-            team_id=team_id, kind="slack", integration_id=ctx.slack_team_id
-        ).first()
+        integration = IntegrationManager.slack.oauth.find(team_id, external_id=ctx.slack_team_id)
     if integration is None:
         logger.warning(
             "workflow_task_slack_bind_no_integration",
@@ -650,7 +649,7 @@ def _resolve_slack_binding(team_id: int, ctx: contracts.WorkflowTaskSlackContext
     )
 
 
-def _may_speak_in_channel(integration: Integration, ctx: contracts.WorkflowTaskSlackContext) -> bool:
+def _may_speak_in_channel(integration: IntegrationRecord, ctx: contracts.WorkflowTaskSlackContext) -> bool:
     """Whether the task is allowed to reply in this channel at all.
 
     An externally shared channel has members from another Slack workspace, so PostHog stays
@@ -699,7 +698,7 @@ def _acknowledge_trigger_message(binding: _SlackBinding) -> None:
     transaction.on_commit(_react)
 
 
-def _thread_has_a_live_run(integration: Integration, ctx: contracts.WorkflowTaskSlackContext) -> bool:
+def _thread_has_a_live_run(integration: IntegrationRecord, ctx: contracts.WorkflowTaskSlackContext) -> bool:
     """Whether another agent already owns this thread's reply channel.
 
     Checked before the binding is built, not just before the row is written: the same

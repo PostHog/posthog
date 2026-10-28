@@ -8,13 +8,16 @@ from typing import Any, Optional
 from django.apps import apps
 
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration
+
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 
 class RepositoryContext:
     """Context object for a resolved repository"""
 
-    def __init__(self, integration: Integration, repository: str, organization: str, is_primary: bool = False):
+    def __init__(self, integration: IntegrationRecord, repository: str, organization: str, is_primary: bool = False):
         self.integration = integration
         self.repository = repository
         self.organization = organization
@@ -102,11 +105,11 @@ async def resolve_multiple_repositories(issue) -> list[RepositoryContext]:
             continue
 
         try:
-            integration = await Integration.objects.aget(id=integration_id, kind="github")
+            integration = await IntegrationManager.github.oauth.aget(issue.team_id, integration_id)
             resolved_repos.append(
                 RepositoryContext(integration=integration, repository=repo, organization=org, is_primary=is_primary)
             )
-        except Integration.DoesNotExist:
+        except IntegrationNotFound:
             continue
 
     return resolved_repos
@@ -203,20 +206,17 @@ async def get_primary_repository(issue) -> Optional[RepositoryContext]:
     return repositories[0] if repositories else None
 
 
-async def _get_team_github_integration(team_id: int) -> Optional[Integration]:
+async def _get_team_github_integration(team_id: int) -> Optional[IntegrationRecord]:
     """Get the team's first GitHub integration"""
-    try:
-        return await Integration.objects.filter(team_id=team_id, kind="github").afirst()
-    except Integration.DoesNotExist:
-        return None
+    return await IntegrationManager.github.oauth.afind(team_id)
 
 
-async def _get_allowed_integrations_for_smart_select(issue, constraints: dict) -> list[Integration]:
+async def _get_allowed_integrations_for_smart_select(issue, constraints: dict) -> list[IntegrationRecord]:
     """Get allowed integrations based on smart select constraints"""
     allowed_orgs = constraints.get("organizations", [])
 
     integrations = []
-    async for integration in Integration.objects.filter(team_id=issue.team_id, kind="github"):
+    for integration in await IntegrationManager.github.oauth.alist(issue.team_id):
         github = GitHubIntegration(integration, source="tasks", priority=Priority.CRITICAL)
         org = github.organization()
 

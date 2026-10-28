@@ -9,6 +9,7 @@ from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration
 from posthog.temporal.common.utils import close_db_connections
 
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.tasks.backend.exceptions import GitHubRateLimitedError, ProcessTaskTransientError
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.babysit_pr.snapshot import PRSnapshot
@@ -52,10 +53,10 @@ def get_pr_babysit_snapshot(input: GetPrBabysitSnapshotInput) -> PRSnapshot | No
         try:
             github_integration: GitHubIntegration | UserGitHubIntegration
             if ctx.github_integration_id:
-                github_integration = get_github_integration(ctx.github_integration_id)
+                github_integration = get_github_integration(ctx.team_id, ctx.github_integration_id)
             else:
                 github_integration = get_user_github_integration(str(ctx.github_user_integration_id))
-        except ObjectDoesNotExist:
+        except (ObjectDoesNotExist, IntegrationNotFound):
             activity.logger.warning(
                 "get_pr_babysit_snapshot_github_integration_not_found",
                 extra={

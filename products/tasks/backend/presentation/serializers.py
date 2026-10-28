@@ -20,13 +20,13 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.api.fields import JSONTolerantListField, RepeatedOrCommaSeparatedListField
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.event_usage import groups
-from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
 from posthog.oauth_provenance import get_oauth_client_id, is_interactive_desktop_grant
 from posthog.object_tags.kinds import OBJECT_KINDS
 from posthog.security.url_validation import is_url_allowed, resolve_url_hosts_ips
 from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS
 
+from products.integrations.backend.presentation.fields import IntegrationReferenceField
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agent_instructions import AGENT_INSTRUCTIONS_MAX_LENGTH
 from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES, TASK_RUN_FAILURE_ERROR_TYPES
@@ -798,8 +798,8 @@ class TaskWriteSerializer(serializers.Serializer):
         max_length=10,
         help_text="GitHub repositories available to this task, each in `organization/repo` format.",
     )
-    github_integration = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.filter(kind="github"),
+    github_integration = IntegrationReferenceField(
+        kinds=["github"],
         required=False,
         allow_null=True,
         help_text="GitHub integration for this task.",
@@ -815,7 +815,7 @@ class TaskWriteSerializer(serializers.Serializer):
     # (team scope is enforced by validate_signal_report below). Bound lazily in __init__ so
     # importing this module never touches the signals model.
     signal_report = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.none(),
+        queryset=UserIntegration.objects.none(),  # placeholder, replaced in __init__
         required=False,
         allow_null=True,
         help_text="Signal report this task implements, when created from a report.",
@@ -940,7 +940,7 @@ class TaskWriteSerializer(serializers.Serializer):
         ),
     )
     channel = TeamScopedPrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.none(),
+        queryset=UserIntegration.objects.none(),  # placeholder, replaced in __init__
         required=False,
         allow_null=True,
         help_text="Channel this task is owned by (the channel it was kicked off in).",
@@ -2635,8 +2635,8 @@ class ChannelUpdateSerializer(serializers.Serializer):
         required=False,
         help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed.",
     )
-    github_integration = TeamScopedPrimaryKeyRelatedField(
-        queryset=Integration.objects.filter(kind="github"),
+    github_integration = IntegrationReferenceField(
+        kinds=["github"],
         required=False,
         allow_null=True,
         help_text="Team GitHub integration used for repositories linked to this channel.",
@@ -4146,7 +4146,7 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         ),
     )
     signal_report = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.none(),
+        queryset=UserIntegration.objects.none(),  # placeholder, replaced in __init__
         required=False,
         default=None,
         allow_null=True,

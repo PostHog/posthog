@@ -2,9 +2,10 @@ from dataclasses import dataclass
 
 from temporalio import activity
 
-from posthog.models.integration import Integration
 from posthog.temporal.common.utils import asyncify
 
+from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.tasks.backend.exceptions import TaskInvalidStateError
 from products.tasks.backend.temporal.observability import log_with_activity_context
 
@@ -40,8 +41,8 @@ def get_snapshot_context(input: GetSnapshotContextInput) -> SnapshotContext:
     )
 
     try:
-        Integration.objects.get(id=input.github_integration_id)
-    except Integration.DoesNotExist as e:
+        IntegrationManager.github.oauth.get(input.team_id, input.github_integration_id)
+    except IntegrationNotFound as e:
         raise TaskInvalidStateError(
             f"Integration {input.github_integration_id} not found",
             {"github_integration_id": input.github_integration_id},

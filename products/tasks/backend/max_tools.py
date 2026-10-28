@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 from posthog.egress.limiter.policies import Priority
 from posthog.storage import object_storage
 
+from products.integrations.backend.facade.api import IntegrationManager
+
 from ee.hogai.tool import MaxTool
 
 from .facade import api as tasks_facade
@@ -72,14 +74,12 @@ By default, the task will be created and immediately executed. Set run=false to 
     async def _arun_impl(
         self, title: str, description: str, repository: str, run: bool = True
     ) -> tuple[str, dict[str, Any]]:
-        from posthog.models.integration import Integration
-
         slack_thread_context = (self._config.get("configurable") or {}).get("slack_thread_context")
 
         @sync_to_async
         @transaction.atomic
         def create_task_and_maybe_run():
-            github_integration = Integration.objects.filter(team=self._team, kind="github").first()
+            github_integration = IntegrationManager.github.oauth.find(self._team.id)
 
             task = Task.objects.create(
                 team=self._team,
@@ -551,11 +551,11 @@ Use this tool when the user wants to:
     args_schema: type[BaseModel] = ListRepositoriesArgs
 
     async def _arun_impl(self, search: str | None = None) -> tuple[str, dict[str, Any]]:
-        from posthog.models.integration import GitHubIntegration, Integration
+        from posthog.models.integration import GitHubIntegration
 
         @sync_to_async
         def get_repositories():
-            integrations = Integration.objects.filter(team=self._team, kind="github")
+            integrations = IntegrationManager.github.oauth.list(self._team.id)
 
             all_repos: list[dict[str, str]] = []
 

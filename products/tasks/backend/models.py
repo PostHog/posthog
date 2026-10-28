@@ -41,6 +41,7 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 from posthog.uuidt import uuid7
 
+from products.integrations.backend.facade.api import IntegrationManager
 from products.tasks.backend.constants import (
     DEFAULT_TRUSTED_DOMAINS,
     GITHUB_PR_URL_PREFIX,
@@ -1307,11 +1308,14 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         )
         github_integration = None
         if github_resolution_allowed:
-            github_integration = (
-                Integration.objects.filter(team=team, kind="github")
-                .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
-                .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
-                .first()
+            github_integration = next(
+                (
+                    row
+                    for row in IntegrationManager.github.oauth.list(team.id)
+                    if row.errors != ERROR_TOKEN_REFRESH_FAILED
+                    and INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in row.config
+                ),
+                None,
             )
         github_user_integration = None
         task_stub = Task(

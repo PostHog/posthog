@@ -2,9 +2,9 @@ from dataclasses import dataclass
 
 from temporalio import activity
 
-from posthog.models import Integration
 from posthog.temporal.common.utils import asyncify
 
+from products.integrations.backend.facade.api import IntegrationManager
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_user
 from products.tasks.backend.temporal.observability import log_activity_execution
@@ -35,7 +35,7 @@ def create_sandbox(input: CreateSandboxInput) -> CreateSandboxOutput:
     ):
         github_token = get_github_token(ctx.github_integration_id) or ""
 
-        integration = Integration.objects.select_related("created_by").get(id=ctx.github_integration_id)
+        integration = IntegrationManager.github.oauth.get(ctx.team_id, ctx.github_integration_id)
         access_token = create_oauth_access_token_for_user(integration.created_by, ctx.team_id)
 
         environment_variables = {

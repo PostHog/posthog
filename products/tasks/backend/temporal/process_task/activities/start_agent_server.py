@@ -15,7 +15,6 @@ from temporalio import activity
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.models import Integration
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.common.activity_context import current_activity_attempt
@@ -24,6 +23,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.integrations.backend.facade.api import IntegrationManager
 from products.mcp_store.backend.facade.contracts import UnmountedInstallation
 from products.tasks.backend.constants import SUBSCRIPTION_PLAN_NAMES
 from products.tasks.backend.exceptions import (
@@ -150,7 +150,7 @@ def _resolve_protected_base_branch(ctx: TaskProcessingContext) -> str | None:
         integration: GitHubIntegration | UserGitHubIntegration
         if ctx.github_integration_id:
             integration = GitHubIntegration(
-                Integration.objects.get(id=ctx.github_integration_id),
+                IntegrationManager.github.oauth.get(ctx.team_id, ctx.github_integration_id),
                 source="tasks_sandbox",
                 priority=Priority.CRITICAL,
             )
