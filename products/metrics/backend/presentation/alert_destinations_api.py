@@ -47,7 +47,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
-from products.metrics.backend.alerts.destinations import EVENT_IDS, EVENT_KIND_CONFIG, METRICS_ALERT_DESTINATION_TYPES
+from products.metrics.backend.facade.alerts import EVENT_IDS, EVENT_KIND_CONFIG, METRICS_ALERT_DESTINATION_TYPES
 
 METRICS_ALERT_KINDS = (SourceKind.METRICS.value,)
 # The metrics an alert queries are gated by the same resource as the metrics scene.
