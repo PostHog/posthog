@@ -486,9 +486,12 @@ export const EditedInsight: Story = {
         await expect(
             canvasElement.ownerDocument.querySelector('[data-attr="sql-editor-save-as-endpoint"]')
         ).toHaveAttribute('aria-disabled', 'true')
-        await expect(
-            menu.getByText('Run the current query successfully to check which columns the endpoint will return')
-        ).toBeVisible()
+        // The popover fades in, so wait for it instead of asserting visibility on the first frame.
+        await waitFor(() =>
+            expect(
+                menu.getByText('Run the current query successfully to check which columns the endpoint will return')
+            ).toBeVisible()
+        )
         await userEvent.keyboard('{Escape}')
         await waitFor(() => expect(menu.queryByText('Save query as')).not.toBeInTheDocument())
         await userEvent.click(canvas.getByRole('button', { name: 'Stop editing insight' }))
