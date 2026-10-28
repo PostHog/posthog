@@ -24,7 +24,7 @@ from products.alerts_platform.backend.delivery.discord import DiscordTransport
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.email import EmailTransport
 from products.alerts_platform.backend.delivery.in_app import InAppTransport
-from products.alerts_platform.backend.delivery.message import AlertMessage
+from products.alerts_platform.backend.delivery.message import INCIDENT_KINDS, AlertMessage
 from products.alerts_platform.backend.delivery.pagerduty import PagerDutyTransport, source_incident_key
 from products.alerts_platform.backend.delivery.slack import SlackTransport
 from products.alerts_platform.backend.delivery.team_flags import team_flag_enabled
@@ -48,7 +48,10 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.logic import delivery_holds
-from products.alerts_platform.backend.logic.alert_destinations import list_alert_destinations
+from products.alerts_platform.backend.logic.alert_destinations import (
+    INCIDENT_DESTINATION_TYPES,
+    enabled_alert_destinations,
+)
 from products.alerts_platform.backend.logic.platform_alert_events import announced_kinds, announcement
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 from products.alerts_platform.backend.temporal.metrics import DeliveryOutcomeLabel, increment_deliveries, safe_record
@@ -78,12 +81,6 @@ _TRANSPORTS: Final[dict[DestinationType, type[DeliveryTransport]]] = {
     DestinationType.PAGERDUTY: PagerDutyTransport,
     DestinationType.EMAIL: EmailTransport,
     DestinationType.IN_APP: InAppTransport,
-}
-
-# The announced kind an incident action reaches an incident manager's `AlertDestination` with.
-_INCIDENT_KINDS: Final[dict[IncidentAction, AlertEventKind]] = {
-    IncidentAction.TRIGGER: AlertEventKind.FIRING,
-    IncidentAction.RESOLVE: AlertEventKind.RESOLVED,
 }
 
 
@@ -385,7 +382,7 @@ def _count_emissions(request: AlertDeliveryRequest, outcome: DeliveryOutcomeLabe
 def _split_by_path(
     request: AlertDeliveryRequest,
     announced: EvaluationAnnouncement,
-    platform_destinations: tuple[StoredAlertDestination, ...] | None,
+    platform_destinations: "_PlatformDestinations | None",
 ) -> tuple[EvaluationAnnouncement, tuple[LegacyEventEmission, ...]]:
     """The transitions HogFunction destinations receive natively, and the ones the source emits for them.
 
@@ -444,7 +441,7 @@ def _split_by_path(
 
 def _overflow_notice_keys(
     request: AlertDeliveryRequest,
-    platform_destinations: tuple[StoredAlertDestination, ...] | None,
+    platform_destinations: "_PlatformDestinations | None",
     kinds: dict[str, AlertEventKind],
 ) -> dict[str, str]:
     """For each destination, the grouping key whose part tells it about the overflow.
@@ -513,10 +510,21 @@ class _SubscribedDestination:
     receives_emitted_events: bool
 
 
-def _platform_destinations(request: AlertDeliveryRequest) -> tuple[StoredAlertDestination, ...] | None:
-    """The alert's `AlertDestination` rows when the platform owns its destinations, or None when its
-    source's HogFunctions hold them. Read once per delivery, and after the check, so a destination
-    removed in between is not sent to."""
+@frozen
+class _PlatformDestinations:
+    """An alert's enabled `AlertDestination` rows, with the kind each of its event ids announces."""
+
+    destinations: tuple[StoredAlertDestination, ...]
+    kind_by_event_id: dict[str, AlertEventKind]
+    incident_event_ids: frozenset[str]
+
+
+def _platform_destinations(request: AlertDeliveryRequest) -> _PlatformDestinations | None:
+    """The alert's destinations when the platform owns them, or None when its source's HogFunctions
+    hold them. Read once per delivery, and after the check, so a destination removed in between is
+    not sent to. Only an alert the platform owns can have its destinations on the platform."""
+    if not request.owned_by_platform:
+        return None
     owner = (
         PlatformAlertConfiguration.objects.for_team(request.team_id)
         .filter(id=request.configuration_id)
@@ -525,13 +533,26 @@ def _platform_destinations(request: AlertDeliveryRequest) -> tuple[StoredAlertDe
     )
     if owner != PlatformAlertOwner.PLATFORM:
         return None
-    return list_alert_destinations(team_id=request.team_id, configuration_id=UUID(request.configuration_id))
+    incident_kinds = {
+        event_id: INCIDENT_KINDS[IncidentAction(action)]
+        for action, event_id in request.event_ids_by_incident_action.items()
+    }
+    return _PlatformDestinations(
+        destinations=enabled_alert_destinations(
+            team_id=request.team_id, configuration_id=UUID(request.configuration_id)
+        ),
+        kind_by_event_id={
+            **{event_id: AlertEventKind(kind) for kind, event_id in request.event_ids_by_kind.items()},
+            **incident_kinds,
+        },
+        incident_event_ids=frozenset(incident_kinds),
+    )
 
 
 def _destinations(
     request: AlertDeliveryRequest,
     event_id: str,
-    platform_destinations: tuple[StoredAlertDestination, ...] | None,
+    platform_destinations: "_PlatformDestinations | None",
 ) -> list[_SubscribedDestination]:
     """Who subscribed to this event, resolved now rather than pinned when the check ran.
 
@@ -539,7 +560,7 @@ def _destinations(
     would get wrong.
     """
     if platform_destinations is not None:
-        return _platform_subscribers(request, event_id, platform_destinations)
+        return _platform_subscribers(event_id, platform_destinations)
     groups = list_alert_destination_groups(
         team_id=request.team_id,
         alert_id=request.destination_alert_id,
@@ -556,32 +577,19 @@ def _destinations(
     ]
 
 
-def _platform_subscribers(
-    request: AlertDeliveryRequest, event_id: str, destinations: tuple[StoredAlertDestination, ...]
-) -> list[_SubscribedDestination]:
-    """The enabled `AlertDestination` rows that hear this event.
+def _platform_subscribers(event_id: str, platform: _PlatformDestinations) -> list[_SubscribedDestination]:
+    """The `AlertDestination` rows that hear this event.
 
     A message event reaches every destination but an incident manager that asked for its kind. An
     incident event reaches only incident managers, which ask for firings to hear the trigger and for
     resolves to hear the resolve, as with HogFunction destinations.
     """
-    action = next(
-        (IncidentAction(action) for action, event in request.event_ids_by_incident_action.items() if event == event_id),
-        None,
-    )
-    kind = (
-        _INCIDENT_KINDS[action]
-        if action is not None
-        else next(
-            (AlertEventKind(kind) for kind, event in request.event_ids_by_kind.items() if event == event_id), None
-        )
-    )
+    kind = platform.kind_by_event_id.get(event_id)
     if kind is None:
         return []
+    incident = event_id in platform.incident_event_ids
     return [
         _SubscribedDestination(id=str(destination.id), data=destination.data, receives_emitted_events=False)
-        for destination in destinations
-        if destination.enabled
-        and kind in destination.event_kinds
-        and (destination.data["type"] == DestinationType.PAGERDUTY) == (action is not None)
+        for destination in platform.destinations
+        if kind in destination.event_kinds and (destination.data["type"] in INCIDENT_DESTINATION_TYPES) == incident
     ]

@@ -25,6 +25,9 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.models import AlertDestination, PlatformAlertConfiguration
 
+# The destination types that open and close incidents rather than post messages.
+INCIDENT_DESTINATION_TYPES: Final = frozenset({DestinationType.PAGERDUTY})
+
 _REQUIRED_FIELDS: Final[dict[DestinationType, tuple[str, ...]]] = {
     DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id"),
     DestinationType.WEBHOOK: ("webhook_url",),
@@ -114,11 +117,21 @@ def delete_alert_destinations(*, team_id: int, configuration_id: UUID, destinati
     return deleted
 
 
+def enabled_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple[StoredAlertDestination, ...]:
+    """The destinations delivery sends to. A disabled one is left out before its address is decrypted."""
+    return tuple(
+        _stored(row)
+        for row in AlertDestination.objects.for_team(team_id)
+        .filter(configuration_id=configuration_id, enabled=True)
+        .order_by("created_at", "id")
+    )
+
+
 def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:
     """Whether the alert has an enabled incident manager, so that a firing that opens or closes needs a delivery."""
     return (
         AlertDestination.objects.for_team(team_id)
-        .filter(configuration_id=configuration_id, type=DestinationType.PAGERDUTY, enabled=True)
+        .filter(configuration_id=configuration_id, type__in=INCIDENT_DESTINATION_TYPES, enabled=True)
         .exists()
     )
 
