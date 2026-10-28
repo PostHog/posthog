@@ -25,8 +25,9 @@
  * - `isPostHogCodeConsumer()` matches the `x-posthog-mcp-consumer` header
  *   sent by the PostHog Desktop Tasks wrapper.
  *
- * - `isRenderUiHost()` checks declared MCP Apps support, with the existing
- *   Claude web/desktop and Cowork detection as a compatibility fallback.
+ * - `isRenderUiHost()` uses declared MCP Apps support when the client sends it.
+ *   Otherwise it matches Claude web/desktop, Cowork, Codex, ChatGPT, and the
+ *   shared OpenAI MCP client.
  *
  * - `isClaudeChatHost()` matches Claude web/desktop only — the chat surfaces that
  *   report `supportsInstructions` but never surface the `instructions` payload to
@@ -121,6 +122,8 @@ export const LEGACY_DIALECT_ONLY_CLIENT_NAME_FRAGMENTS = ['antigravity'] as cons
 //   on a User-Agent label that only some of its requests carry.
 export const TOOLS_MODE_CLIENT_NAME_FRAGMENTS = ['cursor'] as const
 export const TOOLS_MODE_USER_AGENT_FRAGMENTS = ['cursor'] as const
+
+const RENDER_UI_CLIENT_FRAGMENTS = ['codex', 'chatgpt', 'openai-mcp'] as const
 
 // Known `x-anthropic-client` (`vendorClient`) header values. Anthropic pools
 // MCP transports across all its products and reports the live one in this
@@ -319,7 +322,17 @@ export class MCPClientProfile {
     }
 
     isRenderUiHost(): boolean {
-        return this.uiSupported === true || this.isClaudeUiHost()
+        // A client that declares the MCP Apps extension states its own support, so the
+        // declaration wins over name detection in both directions. Clients that omit the
+        // extension fall back to the hosts known to render `render-ui`.
+        if (this.uiSupported !== undefined) {
+            return this.uiSupported
+        }
+        return (
+            this.isClaudeUiHost() ||
+            matchesAnyFragment(this.clientName, RENDER_UI_CLIENT_FRAGMENTS) ||
+            matchesAnyFragment(this.userAgent, RENDER_UI_CLIENT_FRAGMENTS)
+        )
     }
 
     isClaudeUiHost(): boolean {

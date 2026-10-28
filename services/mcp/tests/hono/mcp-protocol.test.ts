@@ -96,10 +96,9 @@ defineStatelessProtocolTests('Hono', harness)
 
 describe.each(['2025-11-25', '2026-07-28'] as const)('MCP UI capability negotiation on %s', (version) => {
     it.each([
-        { name: 'ChatGPT', mimeTypes: ['text/html;profile=mcp-app'], supported: true },
-        { name: 'codex', mimeTypes: ['text/html;profile=mcp-app'], supported: true },
-        { name: 'Codex CLI', mimeTypes: undefined, supported: false },
-        { name: 'openai-mcp', mimeTypes: undefined, supported: false },
+        { name: 'example-client', mimeTypes: ['text/html;profile=mcp-app'], supported: true },
+        { name: 'openai-mcp', mimeTypes: undefined, supported: true },
+        { name: 'example-client', mimeTypes: undefined, supported: false },
         { name: 'ChatGPT', mimeTypes: ['text/html'], supported: false },
     ])('gates tool discovery and cached calls for %j', async ({ name, mimeTypes, supported }) => {
         const client = new Client(

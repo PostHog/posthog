@@ -35,24 +35,19 @@ const JsonRpcMessageSchema = z.object({
     params: z.unknown().optional(),
 })
 
-function parseUiCapabilities(
-    capabilities: unknown
-): Pick<ClientInfo, 'uiSupported' | 'uiCapabilityDeclared' | 'uiMimeTypes'> {
+function parseUiCapabilities(capabilities: unknown): Pick<ClientInfo, 'uiSupported'> {
     const parsed = z
         .object({ extensions: z.record(z.string(), z.record(z.string(), z.unknown())).optional() })
         .safeParse(capabilities)
     const uiCapability = getUiCapability(parsed.success ? parsed.data : undefined)
-    const ui = z.object({ mimeTypes: z.array(z.string()).optional() }).safeParse(uiCapability)
-    return {
-        uiSupported: ui.success && ui.data.mimeTypes?.includes(RESOURCE_MIME_TYPE) === true,
-        uiCapabilityDeclared: uiCapability !== undefined,
-        uiMimeTypes: ui.success
-            ? ui.data.mimeTypes?.slice(0, 16).map((mimeType) => sanitizeHeaderValue(mimeType) ?? '')
-            : undefined,
+    if (uiCapability === undefined) {
+        return { uiSupported: undefined }
     }
+    const ui = z.object({ mimeTypes: z.array(z.string()).optional() }).safeParse(uiCapability)
+    return { uiSupported: ui.success && ui.data.mimeTypes?.includes(RESOURCE_MIME_TYPE) === true }
 }
 
-export function parseClientInfo(bodyText: string): ClientInfo {
+function parseClientInfo(bodyText: string): ClientInfo {
     try {
         const parsed = JSON.parse(bodyText)
         const messages = Array.isArray(parsed) ? parsed : [parsed]

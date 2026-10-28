@@ -557,10 +557,10 @@ describe('RequestStateResolver MCP client contexts', () => {
     it.each([
         { mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI' },
         { mcpClientName: 'Anthropic/ClaudeAI', mcpVendorClient: 'Cowork' },
-        { mcpClientName: 'codex', mcpUiSupported: true },
-        { mcpClientName: 'ChatGPT', mcpUiSupported: true },
-        { mcpClientName: 'openai-mcp', mcpUiSupported: true },
-        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0', mcpUiSupported: true },
+        { mcpClientName: 'example-client', mcpUiSupported: true },
+        { mcpClientName: 'codex-mcp-client' },
+        { mcpClientName: 'ChatGPT' },
+        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0' },
     ])('puts UI host %j in single-exec and enables render-ui', async (clientProps) => {
         const props = makeProps(clientProps)
         const result = await makeResolver().resolve(props)
@@ -587,12 +587,10 @@ describe('RequestStateResolver MCP client contexts', () => {
 
     it.each([
         { mcpClientName: 'Anthropic/ClaudeAI', mcpVendorClient: 'ClaudeCode' },
-        { mcpClientName: 'Codex CLI' },
+        { mcpClientName: 'example-client' },
         { mcpClientName: 'codex', mcpUiSupported: false },
-        { mcpClientName: 'ChatGPT' },
-        { mcpClientName: 'openai-mcp' },
-        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0 (Codex)' },
-        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0 (ChatGPT)' },
+        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0', mcpUiSupported: false },
+        { mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI', mcpUiSupported: false },
     ])('does not enable render-ui without UI support for %j', async (clientProps) => {
         const props = makeProps(clientProps)
         const result = await makeResolver().resolve(props)
@@ -606,7 +604,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         { cached: true, live: false, expected: false },
         { cached: false, live: true, expected: true },
     ])('resolves UI support from the live declaration before the legacy session: %j', async (testCase) => {
-        await makeResolver().resolve(makeProps({ mcpClientName: 'openai-mcp', mcpUiSupported: testCase.cached }))
+        await makeResolver().resolve(makeProps({ mcpClientName: 'example-client', mcpUiSupported: testCase.cached }))
 
         const result = await makeResolver().resolve(makeProps({ mcpUiSupported: testCase.live }))
 

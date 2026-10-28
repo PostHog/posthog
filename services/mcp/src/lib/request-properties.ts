@@ -55,8 +55,6 @@ export type ClientInfo = {
     protocolVersion?: string | undefined
     elicitationUrlSupported?: boolean | undefined
     uiSupported?: boolean | undefined
-    uiCapabilityDeclared?: boolean | undefined
-    uiMimeTypes?: string[] | undefined
 }
 
 function header(request: Request, name: string): string | undefined {
