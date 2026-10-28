@@ -284,6 +284,18 @@ class TestMarkdownToTiptapNodes(SimpleTestCase):
         assert time.monotonic() - started < 1
         assert nodes == [{"type": "text", "text": text}]
 
+    def test_failed_link_destination_is_not_rescanned(self):
+        text = "[" * 4000 + "](https://" + "a" * 4000
+        started = time.monotonic()
+        nodes = _parse_inline(text)
+        assert time.monotonic() - started < 1
+        assert "".join(node["text"] for node in nodes) == text
+        blocked = "[" * 2000 + "](javascript:" + "a" * 2000 + ")"
+        started = time.monotonic()
+        nodes = _parse_inline(blocked)
+        assert time.monotonic() - started < 1
+        assert "".join(node["text"] for node in nodes) == blocked
+
     def test_multi_block_markdown(self):
         md = "# Title\n\nSome text.\n\n- a\n- b\n\n```\ncode\n```"
         nodes = markdown_to_tiptap_nodes(md)

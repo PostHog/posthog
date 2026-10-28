@@ -264,6 +264,7 @@ def _parse_inline(text: str) -> list[dict]:
     n = len(text)
     # -1 means no closer exists at or after the cached start.
     bracket_at = -2
+    failed_bracket = -2
     bold_at = -2
     code_at = -2
 
@@ -277,8 +278,15 @@ def _parse_inline(text: str) -> list[dict]:
             # A missing ] is final. Searching again from every [ is quadratic.
             if bracket_at != -1 and bracket_at < i:
                 bracket_at = text.find("]", i + 1)
-            taken = _take_link(text, i, bracket_at) if bracket_at > i else None
+            # One failed destination is the same for every [ that ends at that ].
+            # Re-scanning it per bracket is quadratic and holds the ticket row lock.
+            if bracket_at == failed_bracket or bracket_at <= i:
+                buf.append("[")
+                i += 1
+                continue
+            taken = _take_link(text, i, bracket_at)
             if taken is None:
+                failed_bracket = bracket_at
                 buf.append("[")
                 i += 1
                 continue
