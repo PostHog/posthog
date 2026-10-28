@@ -829,7 +829,12 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         if reference_counts is not None:
             # List passes counts for the whole page, so the field costs one query however many rows there are.
             return reference_counts.get(obj.integration_id, 0) > 1
-        return Integration.objects.filter(kind="github", integration_id=obj.integration_id).exclude(id=obj.id).exists()
+        return (
+            Integration.objects.with_auth(Integration.AuthType.APP)
+            .filter(kind="github", integration_id=obj.integration_id)
+            .exclude(id=obj.id)
+            .exists()
+        )
 
     @extend_schema_field(serializers.ChoiceField(choices=GITHUB_INSTALLATION_STATUS_CHOICES, allow_null=True))
     def get_installation_status(self, obj: Integration) -> str | None:
@@ -892,9 +897,9 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         with transaction.atomic():
             existing_integrations = {
                 integration.integration_id: integration
-                for integration in Integration.objects.only("id", "kind", "integration_id", "created_by_id").filter(
-                    team_id=team_id, kind=kind
-                )
+                for integration in Integration.objects.with_auth(DEFAULT)
+                .only("id", "kind", "integration_id", "created_by_id")
+                .filter(team_id=team_id, kind=kind)
             }
             instance = self._build_integration(validated_data)
             existing_integration = existing_integrations.get(instance.integration_id)
@@ -1316,7 +1321,8 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                         )
 
                     conflicting = (
-                        Integration.objects.filter(team_id=team_id, kind="stripe")
+                        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+                        .filter(team_id=team_id, kind="stripe")
                         .exclude(integration_id=stripe_user_id)
                         .exists()
                     )
@@ -1672,7 +1678,8 @@ class IntegrationViewSet(
             # uninstall the App on GitHub and delete the now-orphaned personal integrations.
             # Other teams still sharing the same GitHub account keep it installed.
             is_last_team_reference = (
-                not Integration.objects.filter(kind="github", integration_id=instance.integration_id)
+                not Integration.objects.with_auth(Integration.AuthType.APP)
+                .filter(kind="github", integration_id=instance.integration_id)
                 .exclude(id=instance.id)
                 .exists()
             )
@@ -2941,7 +2948,9 @@ class IntegrationViewSet(
 
     def _record_email_setup_method(self, integration_id: int, setup_method: str) -> None:
         with transaction.atomic():
-            instance = Integration.objects.select_for_update().get(id=integration_id, team_id=self.team_id)
+            instance = (
+                Integration.objects.with_auth(DEFAULT).select_for_update().get(id=integration_id, team_id=self.team_id)
+            )
             instance.config["setup_method"] = setup_method
             instance.save(update_fields=["config"])
 

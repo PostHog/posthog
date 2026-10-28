@@ -1247,7 +1247,11 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         integration_id = params.validated_data["integration_id"]
         channel_id = params.validated_data["channel_id"]
 
-        integration = Integration.objects.filter(team=team, id=integration_id, kind="slack").first()
+        integration = (
+            Integration.objects.with_auth(Integration.AuthType.OAUTH)
+            .filter(team=team, id=integration_id, kind="slack")
+            .first()
+        )
         if integration is None:
             raise exceptions.ValidationError("Slack integration not found")
 

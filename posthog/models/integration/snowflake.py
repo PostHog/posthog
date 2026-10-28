@@ -131,7 +131,7 @@ class SnowflakeIntegration:
             # Savepoint so the unique-constraint IntegrityError aborts only this INSERT, not the
             # surrounding transaction.
             with transaction.atomic():
-                return model.Integration.objects.create(
+                return model.Integration.objects.with_auth(model.Integration.AuthType.CREDENTIALS).create(
                     team_id=team_id,
                     kind=model.Integration.IntegrationKind.SNOWFLAKE,
                     integration_id=name,

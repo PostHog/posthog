@@ -54,7 +54,7 @@ class Command(BaseCommand):
             raise CommandError(f"{CURRENT_CLIENT_ID_SETTING[kind]} is not set, so nothing can be compared against it")
 
         counts = {"legacy": 0, "current": 0, "unknown": 0}
-        for integration in Integration.objects.filter(kind=kind).iterator():
+        for integration in Integration.objects.with_auth(Integration.AuthType.OAUTH).filter(kind=kind).iterator():
             client_ids = issuing_oauth_client_ids(integration)
             if not client_ids:
                 # No id_token to read, so the refresh path stays the only signal for this row.
@@ -68,7 +68,9 @@ class Command(BaseCommand):
             if already_flagged == is_legacy or dry_run:
                 continue
 
-            Integration.objects.filter(pk=integration.pk).update(config=_FLAG_SET if is_legacy else _FLAG_CLEARED)
+            Integration.objects.with_auth(Integration.AuthType.OAUTH).filter(pk=integration.pk).update(
+                config=_FLAG_SET if is_legacy else _FLAG_CLEARED
+            )
 
         self.stdout.write(
             f"{kind}: {counts['legacy']} on a superseded client, {counts['current']} current, "

@@ -156,7 +156,7 @@ class AnthropicIntegration:
             config["workspace_label"] = workspace_label
 
         if force:
-            integration, _ = model.Integration.objects.update_or_create(
+            integration, _ = model.Integration.objects.with_auth(model.Integration.AuthType.API_KEY).update_or_create(
                 team_id=team_id,
                 kind=anthropic_kind,
                 integration_id=integration_id,
@@ -174,7 +174,7 @@ class AnthropicIntegration:
             # aborts only the INSERT, not the surrounding transaction (e.g. the
             # outer DRF request atomic block, or the test wrapper).
             with transaction.atomic():
-                return model.Integration.objects.create(
+                return model.Integration.objects.with_auth(model.Integration.AuthType.API_KEY).create(
                     team_id=team_id,
                     kind=anthropic_kind,
                     integration_id=integration_id,

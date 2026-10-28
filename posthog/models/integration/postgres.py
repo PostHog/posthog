@@ -14,6 +14,7 @@ from posthog.security.url_validation import (
 )
 
 from . import common, model
+from .auth_types import DEFAULT
 
 
 class Credentials(NamedTuple):
@@ -145,14 +146,13 @@ class PostgreSQLServerIntegration:
             # `update_or_create` replaces the whole config, so a reconnect that omits the name
             # would otherwise drop the one the user already chose.
             name = (
-                model.Integration.objects.filter(
-                    team_id=team_id, kind=cls.integration_kind, integration_id=integration_id
-                )
+                model.Integration.objects.with_auth(DEFAULT)
+                .filter(team_id=team_id, kind=cls.integration_kind, integration_id=integration_id)
                 .values_list("config__name", flat=True)
                 .first()
             )
 
-        integration, _ = model.Integration.objects.update_or_create(
+        integration, _ = model.Integration.objects.with_auth(DEFAULT).update_or_create(
             team_id=team_id,
             kind=cls.integration_kind,
             integration_id=integration_id,

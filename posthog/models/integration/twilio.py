@@ -42,7 +42,9 @@ class TwilioIntegration:
         if not account_info.get("sid"):
             raise ValidationError({"account_info": "Failed to get account info"})
 
-        integration, created = model.Integration.objects.update_or_create(
+        integration, created = model.Integration.objects.with_auth(
+            model.Integration.AuthType.AUTH_TOKEN
+        ).update_or_create(
             team_id=self.integration.team_id,
             kind="twilio",
             integration_id=account_info["sid"],

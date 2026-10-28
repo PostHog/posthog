@@ -16,6 +16,7 @@ from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
 from . import model, refresh_tracking
+from .auth_types import DEFAULT
 from .google_cloud import InvalidGoogleTokenUriError, require_google_token_uri
 
 logger = structlog.get_logger(__name__)
@@ -86,7 +87,8 @@ def preserved_push_config(
         cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [team_id, f"{kind}:{integration_id}"])
 
     existing = (
-        model.Integration.objects.select_for_update()
+        model.Integration.objects.with_auth(DEFAULT)
+        .select_for_update()
         .filter(team_id=team_id, kind=kind, integration_id=integration_id)
         .only("config")
         .first()
@@ -154,7 +156,9 @@ class FirebaseIntegration:
 
         # Atomic so `preserved_push_config`'s row lock is held through the upsert that follows it.
         with transaction.atomic():
-            integration, created = model.Integration.objects.update_or_create(
+            integration, created = model.Integration.objects.with_auth(
+                model.Integration.AuthType.SERVICE_ACCOUNT
+            ).update_or_create(
                 team_id=team_id,
                 kind="firebase",
                 integration_id=project_id,
@@ -324,7 +328,9 @@ class ApplePushIntegration:
         integration_id = apns_integration_id(team_id_apple, bundle_id, environment)
         # Atomic so `preserved_push_config`'s row lock is held through the upsert that follows it.
         with transaction.atomic():
-            integration, created = model.Integration.objects.update_or_create(
+            integration, created = model.Integration.objects.with_auth(
+                model.Integration.AuthType.SIGNING_KEY
+            ).update_or_create(
                 team_id=team_id,
                 kind="apns",
                 integration_id=integration_id,

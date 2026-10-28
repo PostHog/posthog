@@ -114,7 +114,7 @@ class TwitterAdsIntegration:
             ),
             ("oauth_token", "oauth_token_secret", "user_id", "screen_name"),
         )
-        integration, _ = Integration.objects.update_or_create(
+        integration, _ = Integration.objects.with_auth(Integration.AuthType.OAUTH).update_or_create(
             team_id=team_id,
             kind="twitter-ads",
             integration_id=tokens["user_id"],

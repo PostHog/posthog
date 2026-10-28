@@ -121,10 +121,14 @@ class OrganizationIntegrationViewSet(
                     error=str(e),
                 )
 
-        team_integrations_deleted, _ = Integration.objects.filter(
-            team__organization=instance.organization,
-            kind=Integration.IntegrationKind.VERCEL,
-        ).delete()
+        team_integrations_deleted, _ = (
+            Integration.objects.with_auth(Integration.AuthType.APP)
+            .filter(
+                team__organization=instance.organization,
+                kind=Integration.IntegrationKind.VERCEL,
+            )
+            .delete()
+        )
 
         logger.info(
             "organization_integration.deleted",
@@ -167,7 +171,7 @@ class OrganizationIntegrationViewSet(
         resources: dict[int, TeamIntegration] = {}
         for tid in {production_id, preview_id, development_id}:
             teams_by_id[tid] = Team.objects.get(pk=tid, organization=org)
-            resources[tid], _ = TeamIntegration.objects.get_or_create(
+            resources[tid], _ = TeamIntegration.objects.with_auth(TeamIntegration.AuthType.APP).get_or_create(
                 team=teams_by_id[tid],
                 kind=TeamIntegration.IntegrationKind.VERCEL,
                 integration_id=str(tid),

@@ -19,6 +19,7 @@ from posthog.models.utils import IntegrityError
 from posthog.security.url_validation import is_url_allowed
 
 from . import common, model
+from .auth_types import DEFAULT
 
 _AWSKindType = Literal[model.Integration.IntegrationKind.AWS_REDSHIFT, model.Integration.IntegrationKind.AWS_S3]
 
@@ -83,7 +84,7 @@ def _create_unique_named_integration(
         # Savepoint so the unique-constraint IntegrityError aborts only this INSERT, not the
         # surrounding transaction (e.g. the test wrapper, or any outer atomic block).
         with transaction.atomic():
-            return model.Integration.objects.create(
+            return model.Integration.objects.with_auth(DEFAULT).create(
                 team_id=team_id,
                 kind=kind,
                 integration_id=name,
@@ -107,7 +108,8 @@ def is_unique_aws_role_by_organization_id(aws_role_arn: str, organization_id: st
     `s3_batch_export.py`.
     """
     has_same_aws_role_integrations = (
-        model.Integration.objects.select_related("team__organization")
+        model.Integration.objects.with_auth(DEFAULT)
+        .select_related("team__organization")
         .filter(
             kind__in=(model.Integration.IntegrationKind.AWS_S3, model.Integration.IntegrationKind.AWS_REDSHIFT),
             config__aws_role_arn=aws_role_arn,

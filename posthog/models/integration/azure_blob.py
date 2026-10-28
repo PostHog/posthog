@@ -71,7 +71,9 @@ class AzureBlobIntegration:
             "connection_string": connection_string,
         }
 
-        integration, created = model.Integration.objects.update_or_create(
+        integration, created = model.Integration.objects.with_auth(
+            model.Integration.AuthType.CONNECTION_STRING
+        ).update_or_create(
             team_id=team_id,
             kind=model.Integration.IntegrationKind.AZURE_BLOB.value,
             integration_id=account_name,

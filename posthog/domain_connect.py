@@ -260,9 +260,9 @@ def resolve_email_context(
     Triggers SES verification to get current tokens, then extracts the
     template variables needed for the email-verification template.
     """
-    from posthog.models.integration import EmailIntegration, Integration
+    from posthog.models.integration import DEFAULT, EmailIntegration, Integration
 
-    instance = Integration.objects.get(id=integration_id, team_id=team_id)
+    instance = Integration.objects.with_auth(DEFAULT).get(id=integration_id, team_id=team_id)
     if instance.kind != "email":
         raise ValueError("Integration must be of kind 'email'")
 

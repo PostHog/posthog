@@ -17,6 +17,7 @@ from posthog.sync import database_sync_to_async
 
 from . import common
 from .auth_types import (
+    DEFAULT,
     AuthRequirement,
     AuthTypeSelector,
     IntegrationAuthType,
@@ -431,4 +432,4 @@ def defer_repository_cache_fields(queryset: models.QuerySet[Integration]) -> mod
 
 @database_sync_to_async
 def aget_integration_by_id(integration_id: str, team_id: int) -> Integration | None:
-    return Integration.objects.get(id=integration_id, team_id=team_id)
+    return Integration.objects.with_auth(DEFAULT).get(id=integration_id, team_id=team_id)

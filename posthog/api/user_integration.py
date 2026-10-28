@@ -389,7 +389,11 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
             return set()
 
         installation_ids: set[str] = set()
-        for ti in Integration.objects.filter(team=team, kind="github").values("integration_id"):
+        for ti in (
+            Integration.objects.with_auth(Integration.AuthType.APP)
+            .filter(team=team, kind="github")
+            .values("integration_id")
+        ):
             iid = ti["integration_id"]
             if iid:
                 installation_ids.add(str(iid))
@@ -755,7 +759,8 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         )
 
         candidates = (
-            Integration.objects.filter(kind="slack", team__organization_id__in=org_ids)
+            Integration.objects.with_auth(Integration.AuthType.OAUTH)
+            .filter(kind="slack", team__organization_id__in=org_ids)
             .exclude(integration_id__in=already_linked_slack_team_ids)
             .select_related("team", "team__organization")
         )
@@ -824,7 +829,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         # the resolved team (the simple "Link my Slack account" path).
         body: Any = request.data if isinstance(request.data, dict) else {}
         slack_team_id_hint = body.get("slack_team_id")
-        workspace_query = Integration.objects.filter(team=team, kind="slack")
+        workspace_query = Integration.objects.with_auth(Integration.AuthType.OAUTH).filter(team=team, kind="slack")
         if slack_team_id_hint:
             workspace_query = workspace_query.filter(integration_id=slack_team_id_hint)
         workspace = workspace_query.first()
@@ -970,7 +975,8 @@ def _team_github_installation_id(team: Any) -> str | None:
     if team is None:
         return None
     team_row = (
-        Integration.objects.filter(team=team, kind="github")
+        Integration.objects.with_auth(Integration.AuthType.APP)
+        .filter(team=team, kind="github")
         .exclude(integration_id__isnull=True)
         .exclude(integration_id="")
         .order_by("id")

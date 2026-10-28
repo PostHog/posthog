@@ -276,7 +276,7 @@ def _delete_orphaned_integration(integration: OrganizationIntegration) -> None:
                 return
             claimed_team_ids |= sibling_team_ids
 
-        Integration.objects.filter(
+        Integration.objects.with_auth(Integration.AuthType.APP).filter(
             team__organization_id=integration.organization_id,
             kind=Integration.IntegrationKind.VERCEL,
         ).exclude(team_id__in=claimed_team_ids).delete()
@@ -444,7 +444,11 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                 raise exceptions.ValidationError(f"Project {tid} does not belong to this organization.")
 
         for tid in unique_team_ids:
-            if Integration.objects.filter(team_id=tid, kind=Integration.IntegrationKind.VERCEL).exists():
+            if (
+                Integration.objects.with_auth(Integration.AuthType.APP)
+                .filter(team_id=tid, kind=Integration.IntegrationKind.VERCEL)
+                .exists()
+            ):
                 raise exceptions.ValidationError(f"Project '{teams_by_id[tid].name}' already has a Vercel integration.")
 
         production_team = teams_by_id[production_team_id]
@@ -480,7 +484,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
 
             resources: dict[int, Integration] = {}
             for tid, team in teams_by_id.items():
-                resources[tid] = Integration.objects.create(
+                resources[tid] = Integration.objects.with_auth(Integration.AuthType.APP).create(
                     team=team,
                     kind=Integration.IntegrationKind.VERCEL,
                     integration_id=str(team.pk),
@@ -637,10 +641,12 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             teams_by_org.setdefault(team.organization_id, []).append(team)
 
         teams_with_vercel = set(
-            Integration.objects.filter(
+            Integration.objects.with_auth(Integration.AuthType.APP)
+            .filter(
                 team__organization_id__in=org_ids,
                 kind=Integration.IntegrationKind.VERCEL,
-            ).values_list("team_id", flat=True)
+            )
+            .values_list("team_id", flat=True)
         )
 
         organizations = [

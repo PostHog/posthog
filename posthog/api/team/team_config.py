@@ -421,7 +421,10 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         if self.parent or value is None:
             return value
         sender = (
-            Integration.objects.filter(team_id=self.instance.team_id, kind="email", id=value).only("config").first()
+            Integration.objects.with_auth(Integration.AuthType.VERIFIED_DOMAIN)
+            .filter(team_id=self.instance.team_id, kind="email", id=value)
+            .only("config")
+            .first()
             if self.instance is not None
             else None
         )

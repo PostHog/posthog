@@ -11,6 +11,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.integration import Integration
+from posthog.models.integration.model import IntegrationQuerySet
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.organization_provisioning import OrganizationProvisioning
@@ -935,14 +936,14 @@ class TestVercelConnectComplete(VercelConnectTestBase):
 
     def test_rollback_on_integration_create_failure(self):
         session_token = self._seed_session()
-        original_create = Integration.objects.create
+        original_create = IntegrationQuerySet.create
 
-        def failing_create(**kwargs):
+        def failing_create(queryset, **kwargs):
             if kwargs.get("kind") == Integration.IntegrationKind.VERCEL:
                 raise Exception("db error")
-            return original_create(**kwargs)
+            return original_create(queryset, **kwargs)
 
-        with patch.object(Integration.objects, "create", side_effect=failing_create):
+        with patch.object(IntegrationQuerySet, "create", autospec=True, side_effect=failing_create):
             response = self.client.post(
                 self.url,
                 {

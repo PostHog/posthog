@@ -4,6 +4,7 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import (
+    DEFAULT,
     FirebaseIntegration,
     GitHubIntegration,
     GoogleCloudIntegration,
@@ -33,7 +34,8 @@ def refresh_integrations() -> int:
     # The Meta kinds are excluded because their grants carry no refresh token: a long-lived token is
     # re-exchanged on use by `MetaGraphIntegration.refresh_access_token` rather than by this sweep.
     oauth_integrations = defer_repository_cache_fields(
-        Integration.objects.filter(kind__in=OauthIntegration.supported_kinds)
+        Integration.objects.with_auth(DEFAULT)
+        .filter(kind__in=OauthIntegration.supported_kinds)
         .exclude(kind__in=["meta-ads", "instagram", "resend"])
         .all()
     )
@@ -45,7 +47,7 @@ def refresh_integrations() -> int:
             refresh_integration.delay(integration.id)
 
     gcloud_integrations = defer_repository_cache_fields(
-        Integration.objects.filter(kind__in=GoogleCloudIntegration.supported_kinds).all()
+        Integration.objects.with_auth(DEFAULT).filter(kind__in=GoogleCloudIntegration.supported_kinds).all()
     )
 
     for integration in gcloud_integrations:
@@ -54,7 +56,9 @@ def refresh_integrations() -> int:
         if not refresh_backoff_active(integration) and gcloud_integration.access_token_expired():
             refresh_integration.delay(integration.id)
 
-    github_integrations = defer_repository_cache_fields(Integration.objects.filter(kind="github").all())
+    github_integrations = defer_repository_cache_fields(
+        Integration.objects.with_auth(Integration.AuthType.APP).filter(kind="github").all()
+    )
 
     for integration in github_integrations:
         github_integration = GitHubIntegration(
@@ -64,7 +68,9 @@ def refresh_integrations() -> int:
         if not refresh_backoff_active(integration) and github_integration.access_token_expired():
             refresh_integration.delay(integration.id)
 
-    firebase_integrations = defer_repository_cache_fields(Integration.objects.filter(kind="firebase").all())
+    firebase_integrations = defer_repository_cache_fields(
+        Integration.objects.with_auth(Integration.AuthType.SERVICE_ACCOUNT).filter(kind="firebase").all()
+    )
 
     for integration in firebase_integrations:
         firebase_integration = FirebaseIntegration(integration)
@@ -80,7 +86,7 @@ def refresh_integrations() -> int:
 def refresh_integration(id: int) -> int:
     from posthog.models.integration import Integration, OauthIntegration
 
-    integration = defer_repository_cache_fields(Integration.objects.all()).get(id=id)
+    integration = defer_repository_cache_fields(Integration.objects.with_auth(DEFAULT).all()).get(id=id)
 
     # Re-check backoff against the just-loaded row: a failure recorded after this task was
     # enqueued must not be retried ahead of its scheduled next attempt.
@@ -131,7 +137,11 @@ def delete_ses_identity_if_unused(domain: str) -> None:
 
     # Re-check at execution time: the domain may have been re-added since this
     # task was enqueued, and deleting the identity would break the new sender.
-    if Integration.objects.filter(kind="email", config__domain=domain).exists():
+    if (
+        Integration.objects.with_auth(Integration.AuthType.VERIFIED_DOMAIN)
+        .filter(kind="email", config__domain=domain)
+        .exists()
+    ):
         return
 
     delete_ses_identity(domain)
@@ -161,7 +171,9 @@ def refresh_github_branch_cache(
             return
         github = UserGitHubIntegration(user_integration, source="github_branch_picker", priority=Priority.BATCH)
     else:
-        integration = defer_repository_cache_fields(Integration.objects.filter(id=integration_id)).first()
+        integration = defer_repository_cache_fields(
+            Integration.objects.with_auth(DEFAULT).filter(id=integration_id)
+        ).first()
         if integration is None:
             return
         github = GitHubIntegration(integration, source="github_branch_picker", priority=Priority.BATCH)

@@ -388,8 +388,10 @@ def deliver_slack_report(
         try:
             # The organization comes along because the follow-up invite below reads its AI consent
             # flag, and this query already runs once per target.
-            integration = Integration.objects.select_related("team__organization").get(
-                id=integration_id, team_id=team_id, kind="slack"
+            integration = (
+                Integration.objects.with_auth(Integration.AuthType.OAUTH)
+                .select_related("team__organization")
+                .get(id=integration_id, team_id=team_id, kind="slack")
             )
             client = SlackIntegration(integration, source="eval_reports").client
 

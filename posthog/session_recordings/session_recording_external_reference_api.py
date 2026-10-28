@@ -14,6 +14,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.models.integration import (
+    DEFAULT,
     GitHubIntegration,
     GitLabIntegration,
     Integration,
@@ -46,7 +47,7 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
     session_recording_id = serializers.CharField(write_only=True)
     integration = SessionRecordingExternalReferenceIntegrationSerializer(read_only=True)
     integration_id = TeamScopedPrimaryKeyRelatedField(
-        write_only=True, queryset=Integration.objects.all(), source="integration"
+        write_only=True, queryset=Integration.objects.with_auth(DEFAULT).all(), source="integration"
     )
     external_url = serializers.SerializerMethodField()
     title = serializers.SerializerMethodField()

@@ -116,9 +116,9 @@ def invalidate_github_repository_caches_for_installation(installation_id: str | 
     from posthog.models.user_integration import UserIntegration
 
     installation_id_str = str(installation_id)
-    model.Integration.objects.filter(kind="github", integration_id=installation_id_str).update(
-        repository_cache_updated_at=None
-    )
+    model.Integration.objects.with_auth(model.Integration.AuthType.APP).filter(
+        kind="github", integration_id=installation_id_str
+    ).update(repository_cache_updated_at=None)
     UserIntegration.objects.filter(
         kind=UserIntegration.IntegrationKind.GITHUB,
         integration_id=installation_id_str,
@@ -199,7 +199,7 @@ class GitHubIntegration(GitHubIntegrationBase):
 
         sensitive_config = {"access_token": installation_access.access_token}
 
-        integration, created = model.Integration.objects.update_or_create(
+        integration, created = model.Integration.objects.with_auth(model.Integration.AuthType.APP).update_or_create(
             team_id=team_id,
             kind="github",
             integration_id=installation_id,
@@ -352,7 +352,11 @@ class GitHubIntegration(GitHubIntegrationBase):
         if not _is_safe_github_repo_path(repository):
             return None
         exhausted: Exception | None = None
-        for integration in model.Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
+        for integration in (
+            model.Integration.objects.with_auth(model.Integration.AuthType.APP)
+            .filter(team_id=team_id, kind="github")
+            .order_by("id")
+        ):
             github = cls(integration, source=source, priority=priority)
             try:
                 covers = github.installation_can_access_repository(repository, raise_on_transient=True)

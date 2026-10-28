@@ -12,6 +12,7 @@ from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
 from . import model, refresh_tracking
+from .auth_types import DEFAULT
 
 logger = structlog.get_logger(__name__)
 
@@ -56,7 +57,8 @@ def is_unique_service_account_by_organization_id(service_account_email: str, org
     `bigquery_batch_export.py`.
     """
     same_service_account_integrations = (
-        model.Integration.objects.select_related("team__organization")
+        model.Integration.objects.with_auth(model.Integration.AuthType.SERVICE_ACCOUNT)
+        .select_related("team__organization")
         .filter(kind="google-cloud-service-account", config__service_account_email=service_account_email)
         # If private key is present, then we are not impersonating
         .exclude(sensitive_config__has_key="private_key")
@@ -101,7 +103,9 @@ class GoogleCloudServiceAccountIntegration:
 
         variant = "impersonated" if is_impersonated else "key-file"
 
-        integration, _ = model.Integration.objects.update_or_create(
+        integration, _ = model.Integration.objects.with_auth(
+            model.Integration.AuthType.SERVICE_ACCOUNT
+        ).update_or_create(
             team_id=team_id,
             kind=model.Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT.value,
             # Including team_id to allow teams from the same organization to use the
@@ -180,7 +184,7 @@ class GoogleCloudIntegration:
         except Exception:
             raise ValidationError(f"Failed to authenticate with provided service account key")
 
-        integration, created = model.Integration.objects.update_or_create(
+        integration, created = model.Integration.objects.with_auth(DEFAULT).update_or_create(
             team_id=team_id,
             kind=kind,
             integration_id=credentials.service_account_email,

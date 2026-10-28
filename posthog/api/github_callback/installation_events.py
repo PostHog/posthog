@@ -54,16 +54,20 @@ def handle_installation_event(payload: dict) -> HttpResponse:
 
     installation_id = str(installation_id)
 
-    integrations = list(Integration.objects.filter(kind="github", integration_id=installation_id))
+    integrations = list(
+        Integration.objects.with_auth(Integration.AuthType.APP).filter(kind="github", integration_id=installation_id)
+    )
 
     project_audits = [GitHubAudit.project(row) for row in integrations]
     personal_rows = list(UserIntegration.objects.filter(kind="github", integration_id=installation_id))
     personal_audits = [GitHubAudit.personal(row) for row in personal_rows]
     try:
-        # nosemgrep: idor-lookup-without-team (a verified installation webhook removes this installation across projects)
-        team_deleted, _ = Integration.objects.filter(
-            kind="github", integration_id=installation_id, pk__in=[row.pk for row in integrations]
-        ).delete()
+        team_deleted, _ = (
+            # nosemgrep: idor-lookup-without-team (a verified installation webhook removes this installation across projects)
+            Integration.objects.with_auth(Integration.AuthType.APP)
+            .filter(kind="github", integration_id=installation_id, pk__in=[row.pk for row in integrations])
+            .delete()
+        )
     except Exception as exc:
         for audit in project_audits:
             audit.record("webhook_cleanup_failed", stage="project_deletion", failure_type=type(exc).__name__)
@@ -148,7 +152,9 @@ def handle_installation_repositories_event(payload: dict) -> HttpResponse:
     # avoiding a per-row lazy load of the deferred `kind`.
     team_changed = [
         row
-        for row in Integration.objects.filter(kind="github", integration_id=installation_id).only("id", "config")
+        for row in Integration.objects.with_auth(Integration.AuthType.APP)
+        .filter(kind="github", integration_id=installation_id)
+        .only("id", "config")
         if row.config.get("repository_selection") != repository_selection
     ]
     user_changed = [
@@ -160,7 +166,7 @@ def handle_installation_repositories_event(payload: dict) -> HttpResponse:
     for row in changed:
         row.config = {**row.config, "repository_selection": repository_selection}
     if team_changed:
-        Integration.objects.bulk_update(team_changed, ["config"])
+        Integration.objects.with_auth(Integration.AuthType.APP).bulk_update(team_changed, ["config"])
     if user_changed:
         UserIntegration.objects.bulk_update(user_changed, ["config"])
     updated = len(changed)

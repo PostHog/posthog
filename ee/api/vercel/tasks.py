@@ -23,17 +23,19 @@ def backfill_vercel_connectable_resources() -> None:
     for installation in installations:
         org = installation.organization
         teams_with_resources = set(
-            Integration.objects.filter(
+            Integration.objects.with_auth(Integration.AuthType.APP)
+            .filter(
                 team__organization=org,
                 kind=Integration.IntegrationKind.VERCEL,
-            ).values_list("team_id", flat=True)
+            )
+            .values_list("team_id", flat=True)
         )
 
         teams_without_resources = Team.objects.filter(organization=org).exclude(pk__in=teams_with_resources)
 
         for team in teams_without_resources:
             try:
-                resource, created = Integration.objects.get_or_create(
+                resource, created = Integration.objects.with_auth(Integration.AuthType.APP).get_or_create(
                     team=team,
                     kind=Integration.IntegrationKind.VERCEL,
                     integration_id=str(team.pk),

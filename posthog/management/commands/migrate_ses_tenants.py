@@ -48,7 +48,8 @@ def migrate_ses_tenants(team_ids: list[int], domains: list[str], dry_run: bool =
         return counts
 
     query = (
-        Integration.objects.filter(kind="email")
+        Integration.objects.with_auth(Integration.AuthType.VERIFIED_DOMAIN)
+        .filter(kind="email")
         .filter(Q(config__provider="ses") | Q(config__provider__isnull=True))
         .order_by("id")
     )

@@ -39,7 +39,7 @@ def sorted_apns_integrations() -> list[Integration]:
     # for the bare id a sandbox row still holds, and it would keep the whitespace if it were read
     # first.
     return sorted(
-        Integration.objects.filter(kind="apns"),
+        Integration.objects.with_auth(Integration.AuthType.SIGNING_KEY).filter(kind="apns"),
         key=lambda integration: apns_environment(integration) != "sandbox",
     )
 

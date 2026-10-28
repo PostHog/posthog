@@ -36,7 +36,8 @@ def installation_integrations(external_id: str) -> tuple[InstallationIntegration
     """
     with bounded_statement_timeout(_INSTALLATION_LOOKUP_TIMEOUT_MS, aliases=[SCOPE_DB_ALIAS]):
         rows = (
-            Integration.objects.using(SCOPE_DB_ALIAS)
+            Integration.objects.with_auth(Integration.AuthType.APP)
+            .using(SCOPE_DB_ALIAS)
             .filter(kind="github", integration_id=external_id)
             .order_by("team_id", "id")
             .values_list("id", "team_id")

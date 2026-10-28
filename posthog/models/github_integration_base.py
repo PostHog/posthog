@@ -398,7 +398,9 @@ class GitHubIntegrationBase:
         from posthog.models.integration import Integration
         from posthog.models.user_integration import UserIntegration
 
-        team_qs = Integration.objects.filter(kind="github", integration_id=installation_id)
+        team_qs = Integration.objects.with_auth(Integration.AuthType.APP).filter(
+            kind="github", integration_id=installation_id
+        )
         if exclude_team_integration_id is not None:
             team_qs = team_qs.exclude(id=exclude_team_integration_id)
 

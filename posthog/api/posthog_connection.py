@@ -310,7 +310,9 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if pk is None:
             raise NotFound("No PostHog connection with that id in this project.")
         try:
-            integration = Integration.objects.get(team_id=self.team_id, id=pk, kind=POSTHOG_CONNECT_KIND)
+            integration = Integration.objects.with_auth(Integration.AuthType.OAUTH).get(
+                team_id=self.team_id, id=pk, kind=POSTHOG_CONNECT_KIND
+            )
         except (Integration.DoesNotExist, ValueError, ValidationError):
             raise NotFound("No PostHog connection with that id in this project.")
         # A connection acts as the user who consented to it. Restrict use to that user so a broad,

@@ -96,9 +96,11 @@ def finish_personal(request: HttpRequest) -> FinishResult:
             installation_id = authorize_state.installation_id
             if not installation_id:
                 return _error("missing_params")
-            if not Integration.objects.filter(
-                kind="github", integration_id=installation_id, team__in=user.teams.all()
-            ).exists():
+            if (
+                not Integration.objects.with_auth(Integration.AuthType.APP)
+                .filter(kind="github", integration_id=installation_id, team__in=user.teams.all())
+                .exists()
+            ):
                 return _error("invalid_installation")
             installation_ids = [installation_id]
         case FlowKind.TEAM_OAUTH:

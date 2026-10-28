@@ -311,7 +311,8 @@ def execute_team_github_finish_setup(
         try:
             organization = team.organization
             existing_install = (
-                Integration.objects.filter(
+                Integration.objects.with_auth(Integration.AuthType.APP)
+                .filter(
                     team__organization_id=organization.id,
                     kind="github",
                 )
@@ -476,7 +477,9 @@ def _org_linked_github_installation_ids(organization: Organization) -> set[str]:
     ``_accessible_org_team_ids`` would leak through the adoption path.
     """
     org_github = defer_repository_cache_fields(
-        Integration.objects.filter(team__organization_id=organization.id, kind="github")
+        Integration.objects.with_auth(Integration.AuthType.APP).filter(
+            team__organization_id=organization.id, kind="github"
+        )
     )
     return {
         str(installation_id)
@@ -511,7 +514,7 @@ def link_existing_team_github_integration(
         if source_team_id_int not in accessible_team_ids:
             raise ValidationError("Source team not found in your organization")
 
-        qs = Integration.objects.filter(team_id=source_team_id_int, kind="github")
+        qs = Integration.objects.with_auth(Integration.AuthType.APP).filter(team_id=source_team_id_int, kind="github")
         if installation_id_param:
             qs = qs.for_github_installation_id(str(installation_id_param))
 
@@ -522,11 +525,13 @@ def link_existing_team_github_integration(
         installation_id_str = str(installation_id_param)
         existing = (
             defer_repository_cache_fields(
-                Integration.objects.filter(
+                Integration.objects.with_auth(Integration.AuthType.APP)
+                .filter(
                     team__organization_id=organization.id,
                     team_id__in=accessible_team_ids,
                     kind="github",
-                ).for_github_installation_id(installation_id_str)
+                )
+                .for_github_installation_id(installation_id_str)
             )
             .order_by("id")
             .first()
@@ -555,9 +560,8 @@ def link_existing_team_github_integration(
         # one-click "Link existing installation" UI, where a second project reuses the org's single
         # install without the caller having to know a sibling team id or the installation id.
         org_github = (
-            Integration.objects.filter(
-                team__organization_id=organization.id, team_id__in=accessible_team_ids, kind="github"
-            )
+            Integration.objects.with_auth(Integration.AuthType.APP)
+            .filter(team__organization_id=organization.id, team_id__in=accessible_team_ids, kind="github")
             .exclude(team_id=team_id)
             .order_by("id")
         )
@@ -653,7 +657,9 @@ def list_org_github_installations(
     """
     accessible_team_ids = _accessible_org_team_ids(user, organization)
     org_github = defer_repository_cache_fields(
-        Integration.objects.filter(team__organization_id=organization.id, kind="github").select_related("team")
+        Integration.objects.with_auth(Integration.AuthType.APP)
+        .filter(team__organization_id=organization.id, kind="github")
+        .select_related("team")
     ).order_by("id")
 
     # One pass over the org's rows yields both the sibling entries and the org-wide linked set the

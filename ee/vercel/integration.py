@@ -178,7 +178,9 @@ class VercelIntegration:
     def _get_resource(resource_id: str) -> Integration:
         try:
             # nosemgrep: idor-lookup-without-team (Vercel integration auth validates ownership)
-            return Integration.objects.get(pk=resource_id, kind=Integration.IntegrationKind.VERCEL)
+            return Integration.objects.with_auth(Integration.AuthType.APP).get(
+                pk=resource_id, kind=Integration.IntegrationKind.VERCEL
+            )
         except Integration.DoesNotExist:
             raise exceptions.NotFound("Resource not found")
 
@@ -568,7 +570,7 @@ class VercelIntegration:
                 user=installation.created_by,
             )
 
-        resource = Integration.objects.create(
+        resource = Integration.objects.with_auth(Integration.AuthType.APP).create(
             team=team,
             kind=Integration.IntegrationKind.VERCEL,
             integration_id=str(team.pk),
@@ -644,7 +646,9 @@ class VercelIntegration:
     @staticmethod
     def _get_vercel_resource_for_team(team: Team) -> Integration | None:
         try:
-            return Integration.objects.get(team=team, kind=Integration.IntegrationKind.VERCEL)
+            return Integration.objects.with_auth(Integration.AuthType.APP).get(
+                team=team, kind=Integration.IntegrationKind.VERCEL
+            )
         except Integration.DoesNotExist:
             return None
 
@@ -1347,8 +1351,12 @@ class VercelIntegration:
 
     @staticmethod
     def set_active_project(user: User, resource_id: str):
-        # nosemgrep: idor-lookup-without-team (Vercel integration auth validates ownership)
-        resource = Integration.objects.filter(pk=resource_id, kind=Integration.IntegrationKind.VERCEL).first()
+        resource = (
+            # nosemgrep: idor-lookup-without-team (Vercel integration auth validates ownership)
+            Integration.objects.with_auth(Integration.AuthType.APP)
+            .filter(pk=resource_id, kind=Integration.IntegrationKind.VERCEL)
+            .first()
+        )
         if not resource:
             raise exceptions.NotFound(f"Vercel resource not found: {resource_id}")
 
@@ -1432,7 +1440,7 @@ def _safe_vercel_sync(
         if not installation:
             return
         try:
-            resource, created = Integration.objects.get_or_create(
+            resource, created = Integration.objects.with_auth(Integration.AuthType.APP).get_or_create(
                 team=team,
                 kind=Integration.IntegrationKind.VERCEL,
                 integration_id=str(team.pk),

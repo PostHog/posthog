@@ -38,7 +38,8 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         team_ids = sorted(
-            Integration.objects.filter(kind=Integration.IntegrationKind.VERCEL)
+            Integration.objects.with_auth(Integration.AuthType.APP)
+            .filter(kind=Integration.IntegrationKind.VERCEL)
             .values_list("team_id", flat=True)
             .distinct()
         )

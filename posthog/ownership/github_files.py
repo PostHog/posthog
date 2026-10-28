@@ -542,7 +542,11 @@ def _covering_integration(team_id: int, repository: str, *, priority: Priority) 
     if isinstance(cached, int):
         if cached == _NO_COVERING_INTEGRATION:
             return None
-        integration = Integration.objects.filter(team_id=team_id, id=cached, kind="github").first()
+        integration = (
+            Integration.objects.with_auth(Integration.AuthType.APP)
+            .filter(team_id=team_id, id=cached, kind="github")
+            .first()
+        )
         # A disconnected integration falls through to a fresh lookup rather than to no reader.
         if integration is not None:
             return GitHubIntegration(integration, source=EGRESS_SOURCE, priority=priority)

@@ -23,6 +23,7 @@ from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
 from . import model
+from .auth_types import DEFAULT
 
 if TYPE_CHECKING:
     from products.workflows.backend.facade.contracts import EmailDomainCheck, EmailDomainVerification
@@ -62,7 +63,9 @@ class EmailIntegration:
 
         # Check if any other integration already exists in a different team with the same domain,
         # if so, ensure this team is part of the same organization. If not, we block creation.
-        same_domain_integrations = model.Integration.objects.filter(kind="email", config__domain=domain)
+        same_domain_integrations = model.Integration.objects.with_auth(
+            model.Integration.AuthType.VERIFIED_DOMAIN
+        ).filter(kind="email", config__domain=domain)
         for integration in same_domain_integrations:
             if str(integration.team.organization.id) != str(organization_id):
                 raise ValidationError(
@@ -87,7 +90,9 @@ class EmailIntegration:
         else:
             raise ValueError(f"Invalid provider: must be 'ses'")
 
-        integration, created = model.Integration.objects.update_or_create(
+        integration, created = model.Integration.objects.with_auth(
+            model.Integration.AuthType.VERIFIED_DOMAIN
+        ).update_or_create(
             team_id=team_id,
             kind="email",
             integration_id=email_address,
@@ -143,7 +148,7 @@ class EmailIntegration:
             changes["setup_method"] = setup_method
         # The row is reread under a lock so a concurrent verification write is not overwritten.
         with transaction.atomic():
-            locked = model.Integration.objects.select_for_update().get(id=self.integration.id)
+            locked = model.Integration.objects.with_auth(DEFAULT).select_for_update().get(id=self.integration.id)
             locked.config.update(changes)
             locked.save(update_fields=["config"])
         self.integration.config = locked.config
@@ -249,7 +254,8 @@ class EmailIntegration:
     def _mark_domain_verified(self, on_domain_verified: Callable[[], None] | None) -> None:
         with transaction.atomic():
             senders = list(
-                model.Integration.objects.select_for_update()
+                model.Integration.objects.with_auth(model.Integration.AuthType.VERIFIED_DOMAIN)
+                .select_for_update()
                 .filter(
                     team_id=self.integration.team_id,
                     kind="email",

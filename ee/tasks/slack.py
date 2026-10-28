@@ -46,7 +46,9 @@ def _handle_slack_event(event_payload: Any) -> None:
 
             # Now we try and get the SlackIntegration for the specificed PostHog team and Slack Team
             try:
-                integration = Integration.objects.get(kind="slack", team=team_id, config__team__id=slack_team_id)
+                integration = Integration.objects.with_auth(Integration.AuthType.OAUTH).get(
+                    kind="slack", team=team_id, config__team__id=slack_team_id
+                )
                 slack_integration = SlackIntegration(integration)
 
             except Integration.DoesNotExist:

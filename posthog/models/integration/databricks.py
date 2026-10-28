@@ -88,7 +88,9 @@ class DatabricksIntegration:
             "client_id": client_id,
             "client_secret": client_secret,
         }
-        integration, _ = model.Integration.objects.update_or_create(
+        integration, _ = model.Integration.objects.with_auth(
+            model.Integration.AuthType.SERVICE_PRINCIPAL
+        ).update_or_create(
             team_id=team_id,
             kind=model.Integration.IntegrationKind.DATABRICKS.value,
             integration_id=server_hostname,  # Use server_hostname as unique identifier

@@ -29,6 +29,7 @@ from posthog.schema_enums import SlackIntegrationScope
 from posthog.scopes import get_oauth_scopes_supported
 
 from . import apple_ads, common, model, refresh_tracking
+from .auth_types import DEFAULT
 
 logger = structlog.get_logger(__name__)
 
@@ -1449,7 +1450,7 @@ class OauthIntegration:
 
         config["refreshed_at"] = int(time.time())
 
-        integration, created = model.Integration.objects.update_or_create(
+        integration, created = model.Integration.objects.with_auth(DEFAULT).update_or_create(
             team_id=team_id,
             kind=kind,
             integration_id=integration_id,

@@ -62,7 +62,7 @@ class GitLabIntegration:
     def create_integration(cls, hostname, project_id, project_access_token, team_id, user) -> model.Integration:
         project = cls.get(hostname, f"projects/{project_id}", project_access_token)
 
-        integration = model.Integration.objects.create(
+        integration = model.Integration.objects.with_auth(model.Integration.AuthType.ACCESS_TOKEN).create(
             team_id=team_id,
             kind=model.Integration.IntegrationKind.GITLAB,
             integration_id=project.get("name_with_namespace"),
