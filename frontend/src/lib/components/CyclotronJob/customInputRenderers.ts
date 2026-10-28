@@ -50,6 +50,9 @@ export const CUSTOM_INPUT_RENDERERS: Record<
     signals_scout: lazyWithRetry(
         () => import('products/signals/frontend/components/ScoutPicker/CyclotronJobInputScoutPicker')
     ),
+    posthog_survey: lazyWithRetry(
+        () => import('products/surveys/frontend/components/WorkflowSurveyPicker/CyclotronJobInputSurveyPicker')
+    ),
     task_skills: lazyWithRetry(
         () => import('products/tasks/frontend/components/TaskSkillsPicker/CyclotronJobInputTaskSkills')
     ),

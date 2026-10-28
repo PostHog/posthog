@@ -645,6 +645,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "task_repository",
             "task_mcp_installations",
             "signals_scout",
+            "posthog_survey",
             "task_skills",
             "replay_vision_scan",
         ]
@@ -838,6 +839,9 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "signals_scout":
             if not isinstance(value, str):
                 raise serializers.ValidationError({"input": "Value must be a scout skill name."})
+        elif item_type == "posthog_survey":
+            if not isinstance(value, str):
+                raise serializers.ValidationError({"input": "Value must be a survey ID."})
         elif item_type == "replay_vision_scan":
             if not isinstance(value, dict) or not isinstance(value.get("type"), str):
                 raise serializers.ValidationError({"input": "Choose what Replay Vision should do."})
