@@ -121,7 +121,7 @@ def snapshot_experiment_scope_q(
 
 
 def accessible_observations(
-    access: UserAccessControl, team_id: int, observations: "QuerySet[ReplayObservation]"
+    access: UserAccessControl | None, team_id: int, observations: "QuerySet[ReplayObservation]"
 ) -> "QuerySet[ReplayObservation]":
     """Drop observations whose recorded experiment the caller can't view.
 

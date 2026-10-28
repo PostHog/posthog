@@ -356,8 +356,8 @@ def _pick_window_rows(
 def select_embedding_picks(
     walkable: QuerySet[ReplayObservation],
     scanner_ids: list[Any],
-    viewed: Exists,
-    access: UserAccessControl,
+    viewed: Exists | Value,
+    access: UserAccessControl | None,
     team_id: int,
     cap: int,
 ) -> list[dict[str, Any]]:

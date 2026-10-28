@@ -31,11 +31,18 @@ def analysis_assets(team_id: int, session_id: str) -> "QuerySet[ExportedAsset]":
 
     Shared so a caller that only needs to find one cannot drift from the render parameters.
     """
-    context = analysis_export_context(session_id)
+    return analysis_assets_for_sessions(team_id, [session_id])
+
+
+def analysis_assets_for_sessions(team_id: int, session_ids: list[str]) -> "QuerySet[ExportedAsset]":
+    """`analysis_assets` for several sessions in one query."""
+    context = analysis_export_context("")
+    del context["session_recording_id"]
     return ExportedAsset.objects.filter(
         team_id=team_id,
         export_format=_EXPORT_FORMAT,
         is_system=True,
+        export_context__session_recording_id__in=session_ids,
         **{f"export_context__{key}": value for key, value in context.items()},
     )
 
