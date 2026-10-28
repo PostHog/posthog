@@ -682,7 +682,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'mcp-analytics-custom-harnesses',
                 title: 'Custom harnesses',
                 description:
-                    'Name your own MCP clients. Calls from a client whose name or User-Agent contains the text you enter show under your name instead of Other harnesses. Changes can take up to a minute to show.',
+                    'Name your own MCP clients. Calls from a client whose name or User-Agent contains the text you enter show under your name instead of Other harnesses. Harness names are cached, so a change can take a few minutes to show.',
                 component: <McpCustomHarnessesSettings />,
                 keywords: ['mcp', 'harness', 'client', 'user agent', 'other harnesses'],
             },

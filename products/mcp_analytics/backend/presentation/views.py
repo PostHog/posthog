@@ -417,12 +417,15 @@ class MCPCustomHarnessViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer: BaseSerializer[Any]) -> None:
         super().perform_create(serializer)
+        api.refresh_custom_harness_rules(self.team)
         clear_sources_cache()
 
     def perform_update(self, serializer: BaseSerializer[Any]) -> None:
         super().perform_update(serializer)
+        api.refresh_custom_harness_rules(self.team)
         clear_sources_cache()
 
     def perform_destroy(self, instance: MCPCustomHarness) -> None:
         super().perform_destroy(instance)
+        api.refresh_custom_harness_rules(self.team)
         clear_sources_cache()
