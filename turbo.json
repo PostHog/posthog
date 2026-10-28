@@ -42,7 +42,7 @@
             //   internal-only tests for external contributors).
             // - COVERAGE_CORE: without it, coverage uses its slower C tracer.
             // - POSTHOG_PYTEST_HARD_EXIT: without it, green shards pay the interpreter teardown.
-            // - TMPDIR: Temporal's SDK looks for the test servers that CI downloads in TMPDIR, or /tmp without it.
+            // - TMPDIR: Temporal's SDK must read the same cache directory as the CI restore step.
             "passThroughEnv": [
                 "PYTEST_ADDOPTS",
                 "TMPDIR",

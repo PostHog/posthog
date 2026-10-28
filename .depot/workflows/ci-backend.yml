@@ -1072,6 +1072,8 @@ jobs:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 40
         name: Product tests (${{ matrix.group }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }})
+        env:
+            TMPDIR: /tmp
         strategy:
             fail-fast: false
             matrix:
@@ -1139,9 +1141,17 @@ jobs:
               timeout-minutes: 5
               retry: 1
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation timeout --kill-after=10s "$PY_DEPS_SYNC_TIMEOUT" uv sync --frozen --dev
-            - name: Download Temporal test servers
-              timeout-minutes: 10
-              run: python -m posthog.test.temporal_test_servers
+            - name: Restore Temporal test servers
+              id: temporal-server-cache
+              continue-on-error: true
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      /tmp/temporal-sdk-python-*
+                      /tmp/temporal-test-server-sdk-python-*
+                      !/tmp/*.downloading
+                  key: temporal-test-servers-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('uv.lock') }}
+                  restore-keys: temporal-test-servers-v1-${{ runner.os }}-${{ runner.arch }}-
             - name: Add service hostnames to /etc/hosts
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage temporal" | sudo tee -a /etc/hosts
             - name: Set up needed files
@@ -1356,6 +1366,17 @@ jobs:
                   done
                   set -e
                   exit $overall
+
+            - name: Save Temporal test servers
+              if: env.IS_MASTER == 'true' && steps.temporal-server-cache.outcome == 'success' && steps.temporal-server-cache.outputs.cache-hit != 'true'
+              continue-on-error: true
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      /tmp/temporal-sdk-python-*
+                      /tmp/temporal-test-server-sdk-python-*
+                      !/tmp/*.downloading
+                  key: ${{ steps.temporal-server-cache.outputs.cache-primary-key }}
 
             - name: Prepare product JUnit for Trunk
               id: prepare_product_junit
@@ -3057,6 +3078,8 @@ jobs:
         # increase for tmate testing
         timeout-minutes: 45
         name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }}${{ matrix.json-targets && ' json-targets' || '' }} (persons-on-events ${{ (matrix.segment == 'Core' && !matrix.person-on-events && !matrix.compat) && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
+        env:
+            TMPDIR: /tmp
         # Shards restore the master-primed schema cache (turbo-discover key + check-migrations
         # save), so they skip migrations once a master run has warmed Depot Cache.
         runs-on: depot-ubuntu-24.04
@@ -3192,11 +3215,18 @@ jobs:
               retry: 1
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation timeout --kill-after=10s "$PY_DEPS_SYNC_TIMEOUT" uv sync --frozen --dev
-            - name: Download Temporal test servers
+            - name: Restore Temporal test servers
+              id: temporal-server-cache
               if: ${{ needs.changes.outputs.backend == 'true' && (matrix.segment == 'Temporal' || matrix.json-targets) }}
-              shell: bash
-              timeout-minutes: 10
-              run: python -m posthog.test.temporal_test_servers
+              continue-on-error: true
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      /tmp/temporal-sdk-python-*
+                      /tmp/temporal-test-server-sdk-python-*
+                      !/tmp/*.downloading
+                  key: temporal-test-servers-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('uv.lock') }}
+                  restore-keys: temporal-test-servers-v1-${{ runner.os }}-${{ runner.arch }}-
             - name: Set up Node.js for canvas builder
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && hashFiles('products/canvas/packages/canvas_builder/package.json') != '' }}
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -3904,6 +3934,17 @@ jobs:
               if: ${{ !cancelled() && ((steps.run-core-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_core.outcome != 'success')) || (steps.run-temporal-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_temporal.outcome != 'success'))) }}
               shell: bash
               run: exit 1
+
+            - name: Save Temporal test servers
+              if: env.IS_MASTER == 'true' && steps.temporal-server-cache.outcome == 'success' && steps.temporal-server-cache.outputs.cache-hit != 'true'
+              continue-on-error: true
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      /tmp/temporal-sdk-python-*
+                      /tmp/temporal-test-server-sdk-python-*
+                      !/tmp/*.downloading
+                  key: ${{ steps.temporal-server-cache.outputs.cache-primary-key }}
 
     # Read ClickHouse versions for the compat test matrix.
     get_clickhouse_versions:

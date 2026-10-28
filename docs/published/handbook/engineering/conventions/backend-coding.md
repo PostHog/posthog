@@ -88,6 +88,7 @@ Maximize value and minimize cost; this never means "write fewer tests", it means
 - For pytest use the `assert x == y` instead of the `self.assertEqual(x, y)` format of tests
   - it's recommended in the pytest docs
   - and you get better output when the test fails
+- Suites that import `temporalio.testing` warm the SDK's ephemeral server cache after collection, before test HTTP mocks are active. Setup retries downloads in a subprocess with a two-minute deadline per attempt. Run `python -m posthog.test.temporal_test_servers` to warm the cache manually. Backend CI restores these binaries from Depot Cache; only master runs save them.
 - prefer assertions like `assert ['x', 'y'] == response.json()["results"]` over `assert len(response.json()["results"]) == 2`
   - that's because you want test output to give you the information you need to fix a failure
   - and because you want your assertions to be as concrete as possible it shouldn't be possible to break the code and the test pass

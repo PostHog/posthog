@@ -255,6 +255,10 @@ def pytest_configure(config) -> None:
 
 def pytest_collection_finish() -> None:
     _end_gc_boot_window()
+    if "temporalio.testing" in sys.modules:
+        from posthog.test.temporal_test_servers import prepare  # noqa: PLC0415 - only Temporal test runs need this
+
+        prepare()
 
 
 def pytest_runtest_setup(item: pytest.Item) -> None:
