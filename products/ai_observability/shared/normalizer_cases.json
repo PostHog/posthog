@@ -1,0 +1,3300 @@
+{
+    "cases": [
+        {
+            "name": "normalizeOutputMessage parses OpenAI message",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "content": "Hello, world!"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": "Hello, world!"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "normalizeOutputMessage stringifies incomplete OpenAI message",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": "{\"role\":\"assistant\"}"
+                    }
+                ],
+                "recognized": false
+            }
+        },
+        {
+            "name": "normalizeOutputMessage stringifies incomplete OpenAI message #2",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant"
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": "{\"role\":\"assistant\"}"
+                    }
+                ],
+                "recognized": false
+            }
+        },
+        {
+            "name": "normalizeOutputMessage parses OpenAI tool calls",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "type": "function",
+                        "id": "123",
+                        "function": {
+                            "name": "test",
+                            "arguments": "{\"foo\": \"bar\"}"
+                        }
+                    },
+                    {
+                        "type": "function",
+                        "id": "456",
+                        "function": {
+                            "name": "test2",
+                            "arguments": "{\"bar\": \"baz\"}"
+                        }
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "123",
+                                "function": {
+                                    "name": "test",
+                                    "arguments": {
+                                        "foo": "bar"
+                                    }
+                                }
+                            },
+                            {
+                                "type": "function",
+                                "id": "456",
+                                "function": {
+                                    "name": "test2",
+                                    "arguments": {
+                                        "bar": "baz"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "normalizeOutputMessage parses OpenAI tool use",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "tool",
+                "content": "response",
+                "tool_call_id": "456"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "tool",
+                        "content": "response",
+                        "tool_call_id": "456"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "normalizeOutputMessage parses a string message",
+            "call": "normalizeMessage",
+            "input": "foo",
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "foo",
+                        "role": "user"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "normalizeOutputMessage parses a string message #2",
+            "call": "normalizeMessage",
+            "input": "foo",
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "foo",
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "normalizeOutputMessage parses an Anthropic tool call message",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "tool_use",
+                "id": "toolu_01D7FLrfh4GYq7yT1ULFeyMV",
+                "name": "get_stock_price",
+                "input": {
+                    "ticker": "^GSPC"
+                }
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "toolu_01D7FLrfh4GYq7yT1ULFeyMV",
+                                "function": {
+                                    "name": "get_stock_price",
+                                    "arguments": {
+                                        "ticker": "^GSPC"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "normalizeOutputMessage parses an Anthropic tool call message #2",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_01D7FLrfh4GYq7yT1ULFeyMV",
+                        "name": "get_stock_price",
+                        "input": {
+                            "ticker": "^GSPC"
+                        }
+                    },
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_01D7FLrfh4GYq7yT1ULFeyMV2",
+                        "name": "get_stock_price",
+                        "input": {
+                            "ticker": "^GSPC"
+                        }
+                    }
+                ]
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "toolu_01D7FLrfh4GYq7yT1ULFeyMV",
+                                "function": {
+                                    "name": "get_stock_price",
+                                    "arguments": {
+                                        "ticker": "^GSPC"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    },
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "toolu_01D7FLrfh4GYq7yT1ULFeyMV2",
+                                "function": {
+                                    "name": "get_stock_price",
+                                    "arguments": {
+                                        "ticker": "^GSPC"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "normalizeOutputMessage prefers top-level tool_calls over content tool_use blocks",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Let me check that."
+                    },
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_123",
+                        "name": "get_weather",
+                        "input": {}
+                    }
+                ],
+                "tool_calls": [
+                    {
+                        "type": "function",
+                        "id": "toolu_123",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": "{\"location\": \"San Francisco\"}"
+                        }
+                    }
+                ]
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "Let me check that.",
+                        "role": "assistant"
+                    },
+                    {
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "toolu_123",
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": {
+                                        "location": "San Francisco"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant",
+                        "content": ""
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "normalizeOutputMessage parses an Anthropic tool result message",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "1",
+                        "content": "foo"
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "foo",
+                        "tool_call_id": "1",
+                        "role": "assistant (tool result)"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "normalizeOutputMessage parses an Anthropic tool result message #2",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "1",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "foo"
+                            }
+                        ]
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "foo",
+                        "role": "assistant (tool result)",
+                        "tool_call_id": "1"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API parses a function_call item as an assistant tool call",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "function_call",
+                "call_id": "call_tLji37A7lp7Buy7hcqUPMUXE",
+                "name": "search_category",
+                "arguments": "{\"dimensions\":[],\"list_all\":true}"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "call_tLji37A7lp7Buy7hcqUPMUXE",
+                                "function": {
+                                    "name": "search_category",
+                                    "arguments": {
+                                        "dimensions": [],
+                                        "list_all": true
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API parses a function_call_output item as a tool result",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "function_call_output",
+                "call_id": "call_tLji37A7lp7Buy7hcqUPMUXE",
+                "output": "{\"categories\":[{\"id\":\"149288\",\"name\":\"Asheville Cloud Shaker\"}]}"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "{\"categories\":[{\"id\":\"149288\",\"name\":\"Asheville Cloud Shaker\"}]}",
+                        "tool_call_id": "call_tLji37A7lp7Buy7hcqUPMUXE",
+                        "role": "assistant (tool result)"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API parses a reasoning item as assistant thinking",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "reasoning",
+                "id": "rs_123",
+                "summary": [
+                    {
+                        "type": "summary_text",
+                        "text": "Thinking about the query..."
+                    },
+                    {
+                        "type": "summary_text",
+                        "text": "Deciding on a response."
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "Thinking about the query...\nDeciding on a response.",
+                        "role": "assistant (thinking)"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API handles reasoning with no summary",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "reasoning",
+                "id": "rs_456"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "role": "assistant (thinking)"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API handles Vercel AI SDK reasoning with text field",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "reasoning",
+                "text": "Let me think about this step by step."
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "Let me think about this step by step.",
+                        "role": "assistant (thinking)"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API handles Vercel AI SDK tool-call with string arguments (posthog-node format)",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "tool-call",
+                "id": "toolu_vrtx_01CTHfH7tfd2vNWSWJhKzfov",
+                "function": {
+                    "name": "queryModel",
+                    "arguments": "{\"query\": \"relevant data\"}"
+                }
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "toolu_vrtx_01CTHfH7tfd2vNWSWJhKzfov",
+                                "function": {
+                                    "name": "queryModel",
+                                    "arguments": {
+                                        "query": "relevant data"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API handles Vercel AI SDK tool-call with object arguments (posthog-node format)",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "tool-call",
+                "id": "call_123",
+                "function": {
+                    "name": "get_weather",
+                    "arguments": {
+                        "location": "NYC"
+                    }
+                }
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "call_123",
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": {
+                                        "location": "NYC"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API handles Vercel AI SDK tool-call with native Vercel SDK format (toolName/input/toolCallId)",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "tool-call",
+                "toolCallId": "tc_native_123",
+                "toolName": "get_weather",
+                "input": {
+                    "location": "NYC"
+                }
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "tc_native_123",
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": {
+                                        "location": "NYC"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API handles Vercel AI SDK tool-result with object output",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "tool-result",
+                "toolCallId": "tc_123",
+                "toolName": "get_weather",
+                "output": {
+                    "temperature": 72,
+                    "unit": "F"
+                }
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "{\"temperature\":72,\"unit\":\"F\"}",
+                        "tool_call_id": "tc_123",
+                        "role": "assistant (tool result)"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API handles Vercel AI SDK tool-result with string output",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "tool-result",
+                "toolCallId": "tc_456",
+                "toolName": "search",
+                "output": "Found 3 results"
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "Found 3 results",
+                        "tool_call_id": "tc_456",
+                        "role": "assistant (tool result)"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API handles Vercel AI SDK toolName variant with string input",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "tool-call",
+                "toolCallId": "tc_1",
+                "toolName": "run_code",
+                "input": "print(\"hi\")"
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "tc_1",
+                                "function": {
+                                    "name": "run_code",
+                                    "arguments": "print(\"hi\")"
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API handles Vercel AI SDK toolName variant with missing input",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "tool-call",
+                "toolCallId": "tc_2",
+                "toolName": "no_args_tool"
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "tc_2",
+                                "function": {
+                                    "name": "no_args_tool",
+                                    "arguments": {}
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API prefers function variant when both function and toolName are present",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "tool-call",
+                "id": "func_id",
+                "function": {
+                    "name": "from_function",
+                    "arguments": "{\"a\":1}"
+                },
+                "toolCallId": "tool_id",
+                "toolName": "from_toolName",
+                "input": {
+                    "b": 2
+                }
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "func_id",
+                                "function": {
+                                    "name": "from_function",
+                                    "arguments": {
+                                        "a": 1
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API handles Vercel AI SDK tool-result with undefined output",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "tool-result",
+                "toolCallId": "tc_empty",
+                "toolName": "void_tool"
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_call_id": "tc_empty",
+                        "role": "assistant (tool result)"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API handles Vercel AI SDK mixed content array with reasoning + text + tool-call",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "reasoning",
+                        "text": "I should use a tool to look up the data."
+                    },
+                    {
+                        "type": "text",
+                        "text": "Let me check that for you."
+                    },
+                    {
+                        "type": "tool-call",
+                        "id": "toolu_vrtx_abc",
+                        "function": {
+                            "name": "queryModel",
+                            "arguments": "{\"query\":\"data\"}"
+                        }
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "I should use a tool to look up the data.",
+                        "role": "assistant (thinking)"
+                    },
+                    {
+                        "content": "Let me check that for you.",
+                        "role": "assistant"
+                    },
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "toolu_vrtx_abc",
+                                "function": {
+                                    "name": "queryModel",
+                                    "arguments": {
+                                        "query": "data"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API parses web_search_call as an assistant tool call preserving metadata",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "web_search_call",
+                "id": "ws_123",
+                "status": "completed",
+                "action": {
+                    "type": "search",
+                    "query": "weather today"
+                }
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "ws_123",
+                                "function": {
+                                    "name": "web_search_call",
+                                    "arguments": {
+                                        "action": {
+                                            "type": "search",
+                                            "query": "weather today"
+                                        }
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API parses code_interpreter_call as an assistant tool call preserving metadata",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "code_interpreter_call",
+                "id": "ci_123",
+                "status": "completed",
+                "code": "print(\"hello\")"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "ci_123",
+                                "function": {
+                                    "name": "code_interpreter_call",
+                                    "arguments": {
+                                        "code": "print(\"hello\")"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API parses image_generation_call as an assistant tool call preserving metadata",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "image_generation_call",
+                "id": "ig_123",
+                "status": "completed",
+                "prompt": "a red cat"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "ig_123",
+                                "function": {
+                                    "name": "image_generation_call",
+                                    "arguments": {
+                                        "prompt": "a red cat"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API parses mcp_call as an assistant tool call preserving metadata",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "mcp_call",
+                "id": "mcp_123",
+                "status": "completed",
+                "name": "search_docs",
+                "server_label": "docs",
+                "arguments": "{\"query\":\"pricing\"}"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "mcp_123",
+                                "function": {
+                                    "name": "search_docs",
+                                    "arguments": {
+                                        "query": "pricing"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API parses file_search_call as an assistant tool call preserving metadata",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "file_search_call",
+                "id": "fs_123",
+                "status": "completed",
+                "queries": ["q1", "q2"]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "fs_123",
+                                "function": {
+                                    "name": "file_search_call",
+                                    "arguments": {
+                                        "queries": ["q1", "q2"]
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API parses computer_call as an assistant tool call preserving metadata",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "computer_call",
+                "id": "cc_123",
+                "status": "completed",
+                "action": {
+                    "type": "click",
+                    "x": 10,
+                    "y": 20
+                }
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "cc_123",
+                                "function": {
+                                    "name": "computer_call",
+                                    "arguments": {
+                                        "action": {
+                                            "type": "click",
+                                            "x": 10,
+                                            "y": 20
+                                        }
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OpenAI Responses API handles function_call with unparseable arguments",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "function_call",
+                "call_id": "call_abc",
+                "name": "my_func",
+                "arguments": "{invalid json"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "call_abc",
+                                "function": {
+                                    "name": "my_func",
+                                    "arguments": "{invalid json"
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "normalizeMessage: lifts function items out of array-based content into tool_calls",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "I'll check the weather for you."
+                    },
+                    {
+                        "type": "function",
+                        "id": "call_123",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": {
+                                "location": "New York City"
+                            }
+                        }
+                    }
+                ]
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "I'll check the weather for you."
+                            }
+                        ],
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "call_123",
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": {
+                                        "location": "New York City"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "normalizeMessage: array-based content with function items leaves content empty when every item is a function",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "function",
+                        "id": "call_1",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": {
+                                "location": "Berlin"
+                            }
+                        }
+                    },
+                    {
+                        "type": "function",
+                        "id": "call_2",
+                        "function": {
+                            "name": "search_docs",
+                            "arguments": {
+                                "query": "foo"
+                            }
+                        }
+                    }
+                ]
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "call_1",
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": {
+                                        "location": "Berlin"
+                                    }
+                                }
+                            },
+                            {
+                                "type": "function",
+                                "id": "call_2",
+                                "function": {
+                                    "name": "search_docs",
+                                    "arguments": {
+                                        "query": "foo"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "normalizeMessage: array-based content with function items parses function arguments provided as pre-parsed object",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "function",
+                        "id": "call_1",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": {
+                                "location": "Berlin",
+                                "unit": "celsius"
+                            }
+                        }
+                    }
+                ]
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "call_1",
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": {
+                                        "location": "Berlin",
+                                        "unit": "celsius"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "normalizeMessage: array-based content with function items parses function arguments provided as JSON-encoded string",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "function",
+                        "id": "call_1",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": "{\"location\":\"Berlin\",\"unit\":\"celsius\"}"
+                        }
+                    }
+                ]
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "call_1",
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": {
+                                        "location": "Berlin",
+                                        "unit": "celsius"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "normalizeMessage: array-based content with function items lifts function items into tool_calls and keeps non-function items as content",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "function",
+                        "id": "fs_1",
+                        "function": {
+                            "name": "file_search",
+                            "arguments": {
+                                "queries": ["q"]
+                            }
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "text": "hi"
+                    }
+                ]
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "hi"
+                            }
+                        ],
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "fs_1",
+                                "function": {
+                                    "name": "file_search",
+                                    "arguments": {
+                                        "queries": ["q"]
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "normalizeMessage: built-in tool call with explicit name uses rawMessage.name for mcp_call, not the \"mcp_call\" type string",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "mcp_call",
+                "id": "mcp_123",
+                "name": "search_docs",
+                "server_label": "docs",
+                "arguments": "{\"query\":\"pricing\"}"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "mcp_123",
+                                "function": {
+                                    "name": "search_docs",
+                                    "arguments": {
+                                        "query": "pricing"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "role preservation in nested content preserves assistant role when recursing into nested array content with output_text",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "Hello! How can I help you?"
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "Hello! How can I help you?"
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "role preservation in nested content preserves system role when recursing into nested array content with output_text",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "system",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "You are a helpful assistant."
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "You are a helpful assistant."
+                            }
+                        ],
+                        "role": "system"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "role preservation in nested content preserves role even when defaultRole is different",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "Response"
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "Response"
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "role preservation in nested content preserves input_text content type",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": "What is the weather?"
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": "What is the weather?"
+                            }
+                        ],
+                        "role": "user"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "role preservation in nested content uses defaultRole when message has no role property",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "output_text",
+                "text": "Some text"
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": "{\"type\":\"output_text\",\"text\":\"Some text\"}"
+                    }
+                ],
+                "recognized": false
+            }
+        },
+        {
+            "name": "role preservation in nested content handles Anthropic tool result with nested content and overrides role to assistant (tool result)",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "tool_result",
+                "tool_use_id": "tool_123",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Weather is sunny"
+                    }
+                ]
+            },
+            "default_role": "tool",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "Weather is sunny",
+                        "role": "assistant (tool result)",
+                        "tool_call_id": "tool_123"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "role preservation in nested content preserves custom/unknown roles",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "custom_agent",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Custom response"
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Custom response"
+                            }
+                        ],
+                        "role": "custom_agent"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "role preservation in nested content handles stringified structured content in OpenAI-compatible messages: single text block",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "content": "[{\"type\":\"text\",\"text\":\"lets respond inline to each bot to explain that its fine\"}]"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "lets respond inline to each bot to explain that its fine"
+                            }
+                        ]
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "role preservation in nested content handles stringified structured content in OpenAI-compatible messages: plain string stays plain",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "content": "plain text"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "plain text"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "role preservation in nested content handles stringified structured content in OpenAI-compatible messages: invalid JSON falls back to raw string",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "content": "[not json"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "[not json"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "role preservation in nested content handles stringified structured content in OpenAI-compatible messages: unknown block types stay as raw string",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "content": "[{\"type\":\"schema\",\"definition\":{\"foo\":\"bar\"}}]"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "[{\"type\":\"schema\",\"definition\":{\"foo\":\"bar\"}}]"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "role preservation in nested content handles stringified structured content in OpenAI-compatible messages: empty structured array parses as empty array",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "content": "[]"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": []
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "role preservation in nested content handles LiteLLM choice wrapper and preserves nested role",
+            "call": "normalizeMessage",
+            "input": {
+                "finish_reason": "stop",
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Response from LiteLLM"
+                        }
+                    ]
+                }
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Response from LiteLLM"
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "LiteLLM support normalizeMessage should handle LiteLLM choice format",
+            "call": "normalizeMessage",
+            "input": {
+                "finish_reason": "stop",
+                "index": 0,
+                "message": {
+                    "annotations": [],
+                    "content": "That's wonderful to hear! 😊 I'm here to spread positivity. If you have any questions or need anything, just let me know!",
+                    "function_call": null,
+                    "role": "assistant",
+                    "tool_calls": null
+                },
+                "provider_specific_fields": {}
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "annotations": [],
+                        "content": "That's wonderful to hear! 😊 I'm here to spread positivity. If you have any questions or need anything, just let me know!",
+                        "function_call": null,
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "LiteLLM support normalizeMessage should handle LiteLLM choice with tool calls",
+            "call": "normalizeMessage",
+            "input": {
+                "finish_reason": "stop",
+                "index": 0,
+                "message": {
+                    "annotations": [],
+                    "content": null,
+                    "function_call": null,
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "type": "function",
+                            "id": "call_123",
+                            "function": {
+                                "name": "get_weather",
+                                "arguments": "{\"location\": \"San Francisco\"}"
+                            }
+                        }
+                    ]
+                },
+                "provider_specific_fields": {}
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "annotations": [],
+                        "content": "",
+                        "function_call": null,
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "call_123",
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": {
+                                        "location": "San Francisco"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "LiteLLM support normalizeMessages should handle LiteLLM response format",
+            "call": "normalizeMessages",
+            "input": {
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "index": 0,
+                        "message": {
+                            "annotations": [],
+                            "content": "That's wonderful to hear! 😊 I'm here to spread positivity. If you have any questions or need anything, just let me know!",
+                            "function_call": null,
+                            "role": "assistant",
+                            "tool_calls": null
+                        },
+                        "provider_specific_fields": {}
+                    }
+                ],
+                "model": "gpt-3.5-turbo",
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 25,
+                    "total_tokens": 35
+                }
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "annotations": [],
+                        "content": "That's wonderful to hear! 😊 I'm here to spread positivity. If you have any questions or need anything, just let me know!",
+                        "function_call": null,
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "LiteLLM support normalizeMessages should handle LiteLLM response with multiple choices",
+            "call": "normalizeMessages",
+            "input": {
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "index": 0,
+                        "message": {
+                            "annotations": [],
+                            "content": "That's wonderful to hear! 😊 I'm here to spread positivity. If you have any questions or need anything, just let me know!",
+                            "function_call": null,
+                            "role": "assistant",
+                            "tool_calls": null
+                        },
+                        "provider_specific_fields": {}
+                    },
+                    {
+                        "finish_reason": "stop",
+                        "index": 1,
+                        "message": {
+                            "annotations": [],
+                            "content": "Alternative response",
+                            "function_call": null,
+                            "role": "assistant",
+                            "tool_calls": null
+                        },
+                        "provider_specific_fields": {}
+                    }
+                ]
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "annotations": [],
+                        "content": "That's wonderful to hear! 😊 I'm here to spread positivity. If you have any questions or need anything, just let me know!",
+                        "function_call": null,
+                        "role": "assistant"
+                    },
+                    {
+                        "annotations": [],
+                        "content": "Alternative response",
+                        "function_call": null,
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "LiteLLM support normalizeMessages should handle empty LiteLLM response gracefully",
+            "call": "normalizeMessages",
+            "input": {
+                "choices": []
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [],
+                "recognized": true
+            }
+        },
+        {
+            "name": "LiteLLM support Role normalization should preserve system role in array-based content",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "system",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "You are a helpful assistant."
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "You are a helpful assistant."
+                            }
+                        ],
+                        "role": "system"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "LiteLLM support Role normalization should preserve system role in string content",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "system",
+                "content": "You are a helpful assistant."
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant."
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "LiteLLM support Role normalization should map known provider roles",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "human",
+                "content": "Hello"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "Hello"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "LangChain/LangGraph format normalizeMessage maps human type to user role",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "human",
+                "content": "Hello",
+                "id": "msg-1"
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "Hello",
+                        "role": "user"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "LangChain/LangGraph format normalizeMessage maps ai type to assistant role",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "ai",
+                "content": "Hi there",
+                "id": "msg-2",
+                "meta": {}
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "Hi there",
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "LangChain/LangGraph format normalizeMessage handles ai type with tool_calls",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "ai",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "type": "function",
+                        "id": "toolu_123",
+                        "function": {
+                            "name": "search",
+                            "arguments": "{\"q\":\"test\"}"
+                        }
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "toolu_123",
+                                "function": {
+                                    "name": "search",
+                                    "arguments": {
+                                        "q": "test"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "LangChain/LangGraph format normalizeMessage handles tool type with tool_call_id",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "tool",
+                "content": "Search results: ...",
+                "tool_call_id": "toolu_123"
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "Search results: ...",
+                        "tool_call_id": "toolu_123",
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "LangChain/LangGraph format normalizeMessage maps context type to system role",
+            "call": "normalizeMessage",
+            "input": {
+                "type": "context",
+                "content": "<system_reminder>Your initial mode is sql.</system_reminder>"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "<system_reminder>Your initial mode is sql.</system_reminder>",
+                        "role": "system"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format normalizes a single text part into a string content",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "parts": [
+                    {
+                        "type": "text",
+                        "content": "Hello from OTel!"
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "Hello from OTel!",
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format normalizes multiple text parts into an array content",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "parts": [
+                    {
+                        "type": "text",
+                        "content": "First part."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Second part."
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "First part."
+                            },
+                            {
+                                "type": "text",
+                                "text": "Second part."
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format normalizes tool_call parts into CompatToolCall format",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "parts": [
+                    {
+                        "type": "tool_call",
+                        "id": "call_1",
+                        "name": "get_weather",
+                        "arguments": {
+                            "location": "London"
+                        }
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "call_1",
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": {
+                                        "location": "London"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format handles mixed text and tool_call parts",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "parts": [
+                    {
+                        "type": "text",
+                        "content": "Let me check that."
+                    },
+                    {
+                        "type": "tool_call",
+                        "id": "call_1",
+                        "name": "get_weather",
+                        "arguments": {
+                            "location": "London"
+                        }
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "Let me check that.",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "call_1",
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": {
+                                        "location": "London"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format preserves top-level fields via spread",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "finish_reason": "stop",
+                "parts": [
+                    {
+                        "type": "text",
+                        "content": "Done."
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "finish_reason": "stop",
+                        "content": "Done.",
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format handles tool_call without id",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "parts": [
+                    {
+                        "type": "tool_call",
+                        "name": "do_thing",
+                        "arguments": {
+                            "x": 1
+                        }
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "function": {
+                                    "name": "do_thing",
+                                    "arguments": {
+                                        "x": 1
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format handles tool_call without arguments",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "parts": [
+                    {
+                        "type": "tool_call",
+                        "id": "call_1",
+                        "name": "no_args"
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "call_1",
+                                "function": {
+                                    "name": "no_args",
+                                    "arguments": {}
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format normalizes role aliases",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "human",
+                "parts": [
+                    {
+                        "type": "text",
+                        "content": "Hi"
+                    }
+                ]
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "Hi",
+                        "role": "user"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format normalizes tool_call_response parts into tool messages from the schema response key",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "parts": [
+                    {
+                        "type": "tool_call_response",
+                        "id": "call_abc",
+                        "name": "get_weather",
+                        "response": "Sunny, 25°C"
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "Sunny, 25°C",
+                        "tool_call_id": "call_abc",
+                        "role": "tool"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format normalizes tool_call_response parts into tool messages from the spec example result key",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "parts": [
+                    {
+                        "type": "tool_call_response",
+                        "id": "call_abc",
+                        "name": "get_weather",
+                        "result": "Sunny, 25°C"
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "Sunny, 25°C",
+                        "tool_call_id": "call_abc",
+                        "role": "tool"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format normalizes tool_call_response parts into tool messages from both keys, preferring response",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "parts": [
+                    {
+                        "type": "tool_call_response",
+                        "id": "call_abc",
+                        "name": "get_weather",
+                        "response": "Sunny, 25°C",
+                        "result": "stale"
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "Sunny, 25°C",
+                        "tool_call_id": "call_abc",
+                        "role": "tool"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format normalizes tool_call_response parts into tool messages from a null response falling back to result",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "parts": [
+                    {
+                        "type": "tool_call_response",
+                        "id": "call_abc",
+                        "name": "get_weather",
+                        "response": null,
+                        "result": "Sunny, 25°C"
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "Sunny, 25°C",
+                        "tool_call_id": "call_abc",
+                        "role": "tool"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format keeps an empty string response over a stale result",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "parts": [
+                    {
+                        "type": "tool_call_response",
+                        "id": "call_abc",
+                        "name": "get_weather",
+                        "response": "",
+                        "result": "stale"
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_call_id": "call_abc",
+                        "role": "tool"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format stringifies non-string tool_call_response response values",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "parts": [
+                    {
+                        "type": "tool_call_response",
+                        "id": "call_1",
+                        "name": "get_data",
+                        "response": {
+                            "temperature": 25,
+                            "unit": "C"
+                        }
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "{\"temperature\":25,\"unit\":\"C\"}",
+                        "tool_call_id": "call_1",
+                        "role": "tool"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format stringifies non-string tool_call_response result values",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "parts": [
+                    {
+                        "type": "tool_call_response",
+                        "id": "call_1",
+                        "name": "get_data",
+                        "result": {
+                            "temperature": 25,
+                            "unit": "C"
+                        }
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "{\"temperature\":25,\"unit\":\"C\"}",
+                        "tool_call_id": "call_1",
+                        "role": "tool"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format parses stringified JSON tool_call arguments",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "parts": [
+                    {
+                        "type": "tool_call",
+                        "id": "call_1",
+                        "name": "get_weather",
+                        "arguments": "{\"latitude\":45.5,\"longitude\":-73.5}"
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "call_1",
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": {
+                                        "latitude": 45.5,
+                                        "longitude": -73.5
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format handles a full tool-use conversation",
+            "call": "normalizeMessages",
+            "input": [
+                {
+                    "role": "assistant",
+                    "parts": [
+                        {
+                            "type": "tool_call",
+                            "id": "call_1",
+                            "name": "get_weather",
+                            "arguments": "{\"location\":\"Montreal\"}"
+                        }
+                    ],
+                    "finish_reason": "tool_call"
+                },
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "type": "tool_call_response",
+                            "id": "call_1",
+                            "name": "get_weather",
+                            "result": "-10°C, partly cloudy"
+                        }
+                    ]
+                }
+            ],
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "finish_reason": "tool_call",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "call_1",
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": {
+                                        "location": "Montreal"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    },
+                    {
+                        "content": "-10°C, partly cloudy",
+                        "tool_call_id": "call_1",
+                        "role": "tool"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format handles empty parts array",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "parts": []
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format normalizes reasoning parts into thinking messages without an empty primary",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "parts": [
+                    {
+                        "type": "reasoning",
+                        "content": "The user wants the forecast."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Here is the forecast."
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "Here is the forecast.",
+                        "role": "assistant"
+                    },
+                    {
+                        "content": "The user wants the forecast.",
+                        "role": "assistant (thinking)"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format normalizes a reasoning-only message into just a thinking message",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "parts": [
+                    {
+                        "type": "reasoning",
+                        "content": "Considering options."
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "Considering options.",
+                        "role": "assistant (thinking)"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format normalizes server_tool_call parts into tool calls",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "parts": [
+                    {
+                        "type": "server_tool_call",
+                        "id": "st_1",
+                        "name": "web_search",
+                        "server_tool_call": {
+                            "type": "web_search",
+                            "query": "weather in Montreal"
+                        }
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "st_1",
+                                "function": {
+                                    "name": "web_search",
+                                    "arguments": {
+                                        "type": "web_search",
+                                        "query": "weather in Montreal"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format normalizes server_tool_call_response parts into tool messages",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "parts": [
+                    {
+                        "type": "server_tool_call_response",
+                        "id": "st_1",
+                        "server_tool_call_response": {
+                            "type": "web_search",
+                            "status": "completed"
+                        }
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "{\"type\":\"web_search\",\"status\":\"completed\"}",
+                        "tool_call_id": "st_1",
+                        "role": "tool"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format normalizes image blob parts into data-URI image items",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "parts": [
+                    {
+                        "type": "text",
+                        "content": "What is in this picture?"
+                    },
+                    {
+                        "type": "blob",
+                        "modality": "image",
+                        "mime_type": "image/png",
+                        "content": "aGVsbG8="
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "What is in this picture?",
+                        "role": "user"
+                    },
+                    {
+                        "content": [
+                            {
+                                "type": "image",
+                                "image": "data:image/png;base64,aGVsbG8="
+                            }
+                        ],
+                        "role": "user"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format normalizes image uri parts into image items",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "parts": [
+                    {
+                        "type": "uri",
+                        "modality": "image",
+                        "mime_type": "image/jpeg",
+                        "uri": "https://example.com/cat.jpg"
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": [
+                            {
+                                "type": "image",
+                                "image": "https://example.com/cat.jpg"
+                            }
+                        ],
+                        "role": "user"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format normalizes a non-image blob into a text marker",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "parts": [
+                    {
+                        "type": "blob",
+                        "modality": "audio",
+                        "mime_type": "audio/mp3",
+                        "content": "aGVsbG8="
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "[audio]",
+                        "role": "user"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format normalizes a non-image uri into a text marker",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "parts": [
+                    {
+                        "type": "uri",
+                        "modality": "document",
+                        "mime_type": "application/pdf",
+                        "uri": "https://example.com/doc.pdf"
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "[document: https://example.com/doc.pdf]",
+                        "role": "user"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format normalizes a file reference into a text marker",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "parts": [
+                    {
+                        "type": "file",
+                        "modality": "document",
+                        "file_id": "file_123"
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "[file: file_123]",
+                        "role": "user"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format normalizes compaction parts into its summary when present",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "parts": [
+                    {
+                        "type": "compaction",
+                        "id": "c1",
+                        "content": "Earlier turns covered pricing."
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "Earlier turns covered pricing.",
+                        "role": "user"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "OTel parts format normalizes compaction parts into a marker when the summary is absent",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "parts": [
+                    {
+                        "type": "compaction",
+                        "id": "c1"
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "[conversation compacted]",
+                        "role": "user"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "production payload regressions null input carries no message",
+            "call": "normalizeMessages",
+            "input": null,
+            "default_role": "user",
+            "expected": {
+                "messages": [],
+                "recognized": true
+            }
+        },
+        {
+            "name": "production payload regressions number/boolean input carries no message",
+            "call": "normalizeMessages",
+            "input": 42,
+            "default_role": "user",
+            "expected": {
+                "messages": [],
+                "recognized": true
+            }
+        },
+        {
+            "name": "production payload regressions number/boolean input carries no message #2",
+            "call": "normalizeMessages",
+            "input": true,
+            "default_role": "user",
+            "expected": {
+                "messages": [],
+                "recognized": true
+            }
+        },
+        {
+            "name": "production payload regressions a single-field {content} object inherits the default role",
+            "call": "normalizeMessages",
+            "input": {
+                "content": "hi"
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "hi",
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "production payload regressions a single-field {content} object inherits the default role #2",
+            "call": "normalizeMessages",
+            "input": {
+                "content": "hi"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "hi",
+                        "role": "user"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "production payload regressions an empty top-level tool_calls array adds no synthetic message",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "thinking",
+                        "thinking": "x"
+                    },
+                    {
+                        "type": "text",
+                        "text": "done"
+                    }
+                ],
+                "tool_calls": []
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "x",
+                        "role": "assistant (thinking)"
+                    },
+                    {
+                        "content": "done",
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "production payload regressions OTel parts whose text lives under an unexpected key degrade to empty content, not [null]",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "user",
+                "parts": [
+                    {
+                        "type": "text",
+                        "text": "hi"
+                    }
+                ]
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "role": "user"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "recipe normalization improvements extracts single-field {text}/{message} wrappers instead of stringifying them",
+            "call": "normalizeMessages",
+            "input": {
+                "text": "hello"
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "hello",
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "recipe normalization improvements empties null content and drops an empty tool_calls array",
+            "call": "normalizeMessages",
+            "input": {
+                "role": "assistant",
+                "content": null,
+                "tool_calls": []
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": ""
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "recipe normalization improvements preserves and canonicalizes a tool_call lacking the type marker",
+            "call": "normalizeMessages",
+            "input": {
+                "role": "assistant",
+                "content": null,
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "caller": {
+                            "type": "direct"
+                        },
+                        "index": 0,
+                        "function": {
+                            "name": "send_email",
+                            "arguments": "{\"to\":\"x@y.com\"}"
+                        }
+                    }
+                ]
+            },
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "call_1",
+                                "function": {
+                                    "name": "send_email",
+                                    "arguments": {
+                                        "to": "x@y.com"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "recipe normalization improvements flattens a doubly-nested message array instead of stringifying it",
+            "call": "normalizeMessages",
+            "input": [
+                [
+                    {
+                        "role": "system",
+                        "content": "a"
+                    },
+                    {
+                        "role": "user",
+                        "content": "b"
+                    }
+                ]
+            ],
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "a"
+                    },
+                    {
+                        "role": "user",
+                        "content": "b"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "recipe normalization improvements parses typed agent items (tool_call/tool_result) into real tool messages",
+            "call": "normalizeMessages",
+            "input": [
+                {
+                    "type": "tool_call",
+                    "callId": "c1",
+                    "name": "getWeather",
+                    "arguments": {
+                        "city": "NYC"
+                    }
+                },
+                {
+                    "type": "tool_result",
+                    "callId": "c1",
+                    "name": "getWeather",
+                    "output": {
+                        "tempF": 71
+                    }
+                }
+            ],
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "c1",
+                                "function": {
+                                    "name": "getWeather",
+                                    "arguments": {
+                                        "city": "NYC"
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    },
+                    {
+                        "content": "{\"tempF\":71}",
+                        "tool_call_id": "c1",
+                        "role": "tool"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "delegates to the recipe normalizer normalizeMessage normalizes a single message",
+            "call": "normalizeMessage",
+            "input": {
+                "role": "assistant",
+                "content": "hi"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": "hi"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "delegates to the recipe normalizer normalizeMessages prepends an available-tools pseudo-message when tools are passed",
+            "call": "normalizeMessages",
+            "input": {
+                "role": "user",
+                "content": "hi"
+            },
+            "default_role": "user",
+            "tools": [
+                {
+                    "name": "search"
+                }
+            ],
+            "expected": {
+                "messages": [
+                    {
+                        "role": "available tools",
+                        "content": "",
+                        "tools": [
+                            {
+                                "name": "search"
+                            }
+                        ]
+                    },
+                    {
+                        "role": "user",
+                        "content": "hi"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "delegates to the recipe normalizer normalizeMessages carries no message for nullish/scalar input",
+            "call": "normalizeMessages",
+            "input": null,
+            "default_role": "user",
+            "expected": {
+                "messages": [],
+                "recognized": true
+            }
+        },
+        {
+            "name": "delegates to the recipe normalizer normalizeMessages carries no message for nullish/scalar input #2",
+            "call": "normalizeMessages",
+            "input": 42,
+            "default_role": "user",
+            "expected": {
+                "messages": [],
+                "recognized": true
+            }
+        },
+        {
+            "name": "normalizeMessages recognition reports a recognized conversation alongside its messages",
+            "call": "normalizeMessages",
+            "input": {
+                "role": "assistant",
+                "content": "hi"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": "hi"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "normalizeMessages recognition reports opaque state as unrecognized and salvages it",
+            "call": "normalizeMessages",
+            "input": {
+                "file_path": "src/index.ts"
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "{\"file_path\":\"src/index.ts\"}"
+                    }
+                ],
+                "recognized": false
+            }
+        },
+        {
+            "name": "thinking blocks alongside typed function blocks renders the thought as thinking and keeps the sibling tool call typed",
+            "call": "normalizeMessages",
+            "input": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "thinking",
+                            "thinking": "Two rapid clicks, check the events."
+                        },
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": "get_events_around",
+                                "arguments": {
+                                    "rec_t": 320
+                                }
+                            }
+                        }
+                    ]
+                }
+            ],
+            "default_role": "assistant",
+            "expected": {
+                "messages": [
+                    {
+                        "content": "Two rapid clicks, check the events.",
+                        "role": "assistant (thinking)"
+                    },
+                    {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "function": {
+                                    "name": "get_events_around",
+                                    "arguments": {
+                                        "rec_t": 320
+                                    }
+                                }
+                            }
+                        ],
+                        "role": "assistant"
+                    }
+                ],
+                "recognized": true
+            }
+        }
+    ]
+}
