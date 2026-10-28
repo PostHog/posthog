@@ -9,6 +9,7 @@ so agents can still sign commits when the engineer is away from the laptop.
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import platform
 import tempfile
@@ -167,6 +168,16 @@ class SecureEnclaveSigningSetup:
         SIGN_PROGRAM_PATH.write_text(SIGN_PROGRAM)
         SIGN_PROGRAM_PATH.chmod(0o755)
 
+    def _restore_commands(self) -> list[list[str]]:
+        commands = []
+        for target, settings in self.previous_settings.items():
+            for setting, value in settings.items():
+                if value is None:
+                    commands.append([*git_config_command(target), "--unset", setting])
+                else:
+                    commands.append([*git_config_command(target), setting, value])
+        return commands
+
     def _configure_git(self) -> None:
         values = {
             "gpg.format": "ssh",
@@ -174,9 +185,14 @@ class SecureEnclaveSigningSetup:
             "gpg.ssh.program": str(SIGN_PROGRAM_PATH),
             "commit.gpgsign": "true",
         }
-        for target in self.targets:
-            for setting, value in values.items():
-                subprocess.run([*git_config_command(target), setting, value], check=True)
+        try:
+            for target in self.targets:
+                for setting, value in values.items():
+                    subprocess.run([*git_config_command(target), setting, value], check=True)
+        except subprocess.CalledProcessError as error:
+            for command in self._restore_commands():
+                subprocess.run(command, capture_output=True)
+            raise click.ClickException(f"Writing git config failed, so the previous settings were restored: {error}")
 
     def _test_sign(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -212,9 +228,9 @@ class SecureEnclaveSigningSetup:
 
     def _print_manual_github_steps(self) -> None:
         subprocess.run(["pbcopy"], input=Path(f"{KEY_PATH}.pub").read_text(), text=True)
-        click.echo("Add the key to GitHub by hand. The public key is on your clipboard:")
-        click.echo("  1. Open https://github.com/settings/ssh/new")
-        click.echo("  2. Set the key type to Signing Key, paste the key and save.")
+        subprocess.run(["open", "https://github.com/settings/ssh/new"])
+        click.echo("Add the key to GitHub in the browser page that just opened. The public key is on your clipboard.")
+        click.echo("Set the key type to Signing Key, paste the key and save.")
 
     def _register_on_github(self) -> None:
         if shutil.which("gh") is None:
@@ -230,25 +246,14 @@ class SecureEnclaveSigningSetup:
         if self._add_to_github():
             click.echo(f"Added the signing key to GitHub for {login}.")
             return
-        click.echo("gh needs the admin:ssh_signing_key scope to add a signing key. A browser login opens next.")
-        subprocess.run(
-            ["gh", "auth", "refresh", "--hostname", "github.com", "--scopes", "admin:ssh_signing_key"],
-            env=self._gh_env(),
-        )
-        if self._add_to_github():
-            click.echo(f"Added the signing key to GitHub for {login}.")
-            return
+        # No `gh auth refresh --scopes admin:ssh_signing_key` here: the scope would stay on the stored
+        # gh token, and any process that reads the token could then add signing keys to the account.
         self._print_manual_github_steps()
 
     def _print_undo_steps(self) -> None:
         click.echo("\nTo go back to your previous signing setup:")
-        for target, settings in self.previous_settings.items():
-            command = " ".join(git_config_command(target))
-            for setting, value in settings.items():
-                if value is None:
-                    click.echo(f"  {command} --unset {setting}")
-                else:
-                    click.echo(f'  {command} {setting} "{value}"')
+        for command in self._restore_commands():
+            click.echo(f"  {shlex.join(command)}")
         click.echo("To delete the Secure Enclave key as well:")
         click.echo(f"  sc_auth list-ctk-identities   # find the hash of the `{KEY_LABEL}` key")
         click.echo(f"  sc_auth delete-ctk-identity -h <hash> && rm {KEY_PATH} {KEY_PATH}.pub")
