@@ -470,6 +470,7 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
         )
         self.assertNotIn("metric_3", finding.evidence)
         self.assertNotIn("purchase_total", finding.detail + str(finding.evidence))
+        self.assertIsNone(finding.evidence["metric_2_message"])
 
     @parameterized.expand(
         [

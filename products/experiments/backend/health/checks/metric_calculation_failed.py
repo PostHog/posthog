@@ -3,9 +3,9 @@ Metrics whose latest calculation failed, so the results page shows an error in p
 functions, no I/O.
 
 The page shows the stored error text, which is often the raw text of an exception. The finding says in words what
-kind of failure it was and what to do next. It repeats a message only when PostHog wrote it for users: the message of
-a validation error, or a HogQL message that the metric queries check also words and that can't quote the evaluation
-rules. The text of other exceptions is written for engineers.
+kind of failure it was and what to do next. It repeats a message only when PostHog's query builder wrote it for
+users, as the message of a validation error. It doesn't repeat HogQL's text, which the calculation writes without the
+reader's warehouse access, or the text of other exceptions, which is written for engineers.
 """
 
 import re
@@ -313,7 +313,8 @@ def _settings(failure: MetricCalculationFailure) -> _Wording | None:
     if not failure.can_quote_evaluation_rules:
         wording = word_compile_error(ExperimentHealthMetricCompileErrorKind.QUERY, message, failure.definition)
         if wording.error != MetricCompileError.OTHER:
-            return _setting(wording.error.value, wording.explanation, message)
+            # Unlike the metric queries check, which compiles as the reader, the evidence leaves out HogQL's text.
+            return _setting(wording.error.value, wording.explanation)
     if failure.error_type == "validation_error":
         return _setting(
             MetricCompileError.OTHER.value,
