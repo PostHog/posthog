@@ -918,14 +918,16 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ("level_filter", {"level": "error"}, None, ["second", "fourth"], False),
             ("first_page", {"limit": 2}, None, ["first", "second"], True),
             ("last_page", {"limit": 2, "offset": 2}, None, ["third", "fourth"], False),
-            ("after_offset", {}, 15, ["third", "fourth"], False),
+            ("after_offset", {}, {"after": 15}, ["third", "fourth"], False),
+            ("before_offset", {}, {"before": 15}, ["first", "second"], False),
+            ("after_past_recording_end", {}, {"after": 3600}, [], False),
         ]
     )
     def test_console_logs(
         self,
         _name: str,
         params: dict,
-        after_seconds: int | None,
+        offsets_seconds: dict[str, int] | None,
         expected_messages: list[str],
         expected_has_more: bool,
     ):
@@ -949,8 +951,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._insert_console_log(session_id, base_time + relativedelta(seconds=5), "error", "other team", other_team.pk)
         self._insert_console_log(session_id, base_time - relativedelta(hours=2), "error", "outside recording")
 
-        if after_seconds is not None:
-            params = {**params, "after": (base_time + relativedelta(seconds=after_seconds)).isoformat()}
+        for key, seconds in (offsets_seconds or {}).items():
+            params = {**params, key: (base_time + relativedelta(seconds=seconds)).isoformat()}
         response = self.client.get(
             f"/api/projects/{self.team.id}/session_recordings/{session_id}/console_logs?{urlencode(params)}"
         )
@@ -960,6 +962,29 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert [entry["message"] for entry in body["results"]] == expected_messages
         assert body["has_more"] is expected_has_more
         assert body["logs_expired"] is False
+
+    def test_console_logs_truncates_long_messages(self):
+        session_id = str(uuid7())
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time,
+            last_timestamp=base_time + relativedelta(seconds=30),
+            distinct_id="d1",
+            ensure_analytics_event_in_session=False,
+            retention_period_days=30,
+        )
+        self._insert_console_log(session_id, base_time + relativedelta(seconds=1), "info", "é" * 3000)
+        self._insert_console_log(session_id, base_time + relativedelta(seconds=2), "info", "é" * 3001)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/console_logs")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [(entry["message"], entry["truncated"]) for entry in response.json()["results"]] == [
+            ("é" * 3000, False),
+            ("é" * 3000, True),
+        ]
 
     def test_console_logs_404s_for_missing_recording(self):
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{uuid7()}/console_logs")

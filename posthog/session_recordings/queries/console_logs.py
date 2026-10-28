@@ -79,13 +79,17 @@ def get_console_logs(
 
     query = parse_select(
         """
-        SELECT timestamp, level, message
+        SELECT
+            timestamp,
+            level,
+            left(message, {max_message_length}),
+            lengthUTF8(message) > {max_message_length}
         FROM console_logs_log_entries
         WHERE log_source_id = {session_id}
             AND timestamp >= {date_from}
             AND timestamp <= {date_to}
             AND {level_filter}
-        ORDER BY timestamp ASC
+        ORDER BY timestamp ASC, level ASC, message ASC
         LIMIT {limit}
         OFFSET {offset}
         """,
@@ -94,6 +98,7 @@ def get_console_logs(
             "date_from": ast.Constant(value=date_from),
             "date_to": ast.Constant(value=date_to),
             "level_filter": level_filter,
+            "max_message_length": ast.Constant(value=MAX_CONSOLE_MESSAGE_LENGTH),
             # One extra row tells us whether another page exists.
             "limit": ast.Constant(value=limit + 1),
             "offset": ast.Constant(value=offset),
@@ -111,12 +116,7 @@ def get_console_logs(
 
     rows = response.results or []
     entries = [
-        ConsoleLogEntry(
-            timestamp=timestamp,
-            level=row_level,
-            message=message[:MAX_CONSOLE_MESSAGE_LENGTH],
-            truncated=len(message) > MAX_CONSOLE_MESSAGE_LENGTH,
-        )
-        for timestamp, row_level, message in rows[:limit]
+        ConsoleLogEntry(timestamp=timestamp, level=row_level, message=message, truncated=bool(truncated))
+        for timestamp, row_level, message, truncated in rows[:limit]
     ]
     return ConsoleLogsPage(results=entries, has_more=len(rows) > limit, logs_expired=expired)

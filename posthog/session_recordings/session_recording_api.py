@@ -620,7 +620,8 @@ class SessionRecordingConsoleLogsResponseSerializer(serializers.Serializer):
     )
     logs_expired = serializers.BooleanField(
         help_text="True when the recording started longer ago than the console log retention period. "
-        "The recording can still exist after its console log entries are deleted."
+        "The recording can still exist after its console log entries are deleted. Entries expire one at a time, "
+        "so a recording close to the retention period can already miss its earliest entries while this is false."
     )
 
 
