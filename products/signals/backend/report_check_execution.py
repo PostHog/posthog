@@ -77,6 +77,7 @@ from products.signals.backend.report_lifecycle import (
 )
 from products.signals.backend.report_metric_refresh import MetricQueryBudgetExhausted, measure_metric
 from products.signals.backend.report_metrics import validate_live_metric_query
+from products.signals.backend.report_monitoring_attempts import check_definition_version, current_monitoring_attempt
 
 logger = structlog.get_logger(__name__)
 
@@ -289,6 +290,14 @@ def record_check_verdict(
         ):
             return
         transition = _next_state(current, verdict, now)
+        if current.kind == SignalReportCheck.Kind.AGENT:
+            attempt = current_monitoring_attempt(report) if report.status == SignalReport.Status.MONITORING else None
+            current.legacy_monitoring_attempt_id = (
+                attempt.id
+                if attempt is not None
+                and attempt.check_versions.get(str(current.id)) == check_definition_version(current)
+                else None
+            )
         current.status = transition.status
         current.runs_remaining = transition.runs_remaining
         current.last_run_at = now
@@ -318,6 +327,7 @@ def record_check_verdict(
                 "consecutive_inconclusive",
                 "next_run_at",
                 "dispatched_at",
+                "legacy_monitoring_attempt_id",
                 "updated_at",
             ]
         )

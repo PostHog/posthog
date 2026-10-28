@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q
@@ -419,6 +420,41 @@ def _claim_for_dispatch(check: SignalReportCheck, now: datetime) -> bool:
         return bool(claimed)
 
 
+def legacy_check_dispatch_ready(
+    *, team_id: int, skill_name: str, check_id: str | None, dispatched_at: datetime | None
+) -> bool:
+    if check_id is None or dispatched_at is None or timezone.is_naive(dispatched_at):
+        return False
+    now = timezone.now()
+    if dispatched_at > now or dispatched_at + AGENT_CHECK_RESULT_WINDOW <= now:
+        return False
+    try:
+        identifier = UUID(check_id)
+    except (ValueError, TypeError, AttributeError):
+        return False
+    check = (
+        SignalReportCheck.all_teams.select_related("report__team")
+        .filter(
+            Q(team_id=team_id) | Q(team__parent_team_id=team_id),
+            id=identifier,
+            kind=SignalReportCheck.Kind.AGENT,
+            status=SignalReportCheck.Status.ACTIVE,
+            dispatched_at=dispatched_at,
+            expires_at__gt=now,
+        )
+        .first()
+    )
+    if check is None or check.team_id != check.report.team_id:
+        return False
+    if (check.report.team.parent_team_id or check.team_id) != team_id or not legacy_agent_checks_enabled(check.report):
+        return False
+    try:
+        config = AgentCheckConfig.model_validate(check.config)
+    except ValueError:
+        return False
+    return resolve_check_skill_name(config, team_id) == skill_name
+
+
 def _release_dispatch_claim(check: SignalReportCheck, now: datetime) -> None:
     SignalReportCheck.objects.for_team(check.team_id).filter(id=check.id, dispatched_at__isnull=False).update(
         dispatched_at=None, next_run_at=now + CHECK_DISPATCH_DEFER_AFTER, updated_at=now
@@ -555,6 +591,7 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
             skill_name=skill_name,
             run_note=build_check_run_note(check, config),
             check_id=str(check.id),
+            dispatched_at=now,
         )
     except WorkflowAlreadyStartedError:
         # Another check on the same lane is still being answered. Theirs finishes, ours goes next
