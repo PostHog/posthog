@@ -153,6 +153,22 @@ describe('outbound 429 handling', () => {
             expect(mockFetch).toHaveBeenCalledTimes(4)
         })
 
+        it('stops waiting to retry once the caller aborts', async () => {
+            const mockFetch = stubFetch(build429({ 'Retry-After': '10' }))
+            const controller = new AbortController()
+
+            const resultPromise = buildClient()
+                .query({ projectId: '1' })
+                .runQuery({ query: { kind: 'HogQLQuery', query: 'SELECT 1' }, signal: controller.signal })
+            const settled = await expect(resultPromise).rejects.toThrow()
+            await vi.advanceTimersByTimeAsync(1000)
+            controller.abort()
+            await vi.advanceTimersByTimeAsync(0)
+            await settled
+
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+        })
+
         it('fails fast without sleeping when Retry-After exceeds the wait budget', async () => {
             const mockFetch = stubFetch(build429({ 'Retry-After': '3600' }))
 

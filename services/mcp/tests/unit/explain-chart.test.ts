@@ -237,7 +237,7 @@ describe('explain-chart', () => {
         ])
         expect(context.api.query({ projectId: '1' }).runQuery).toHaveBeenCalledWith({
             query: sql('by_hour'),
-            timeoutMs: expect.any(Number),
+            signal: expect.any(AbortSignal),
         })
         expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('"Versions." returned nothing to draw')
         expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('"Two metrics." returned nothing to draw')

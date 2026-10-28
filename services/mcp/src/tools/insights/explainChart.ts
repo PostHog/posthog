@@ -99,16 +99,15 @@ async function runSqlEvidence(
         }
     }
     // One at a time, so the evidence does not use up the team's concurrent query limit, within one shared time limit.
-    const deadline = Date.now() + SQL_EVIDENCE_TIME_LIMIT_MS
+    const signal = AbortSignal.timeout(SQL_EVIDENCE_TIME_LIMIT_MS)
     const results = new Map<string, SqlEvidence>()
     for (const [key, query] of queries) {
-        const timeoutMs = deadline - Date.now()
-        if (timeoutMs <= 0) {
+        if (signal.aborted) {
             results.set(key, { error: 'it did not finish in time' })
             continue
         }
         try {
-            const response = await context.api.query({ projectId }).runQuery({ query, timeoutMs })
+            const response = await context.api.query({ projectId }).runQuery({ query, signal })
             const columns = (response.columns ?? []).map(String)
             const rows = Array.isArray(response.results) ? (response.results as unknown[][]) : []
             results.set(key, { chart: sqlEvidenceChart(columns, rows) })
