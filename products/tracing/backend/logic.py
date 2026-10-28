@@ -300,6 +300,25 @@ def parse_span_events(raw_events: list[str]) -> list[dict]:
     return [event for _, event in parsed]
 
 
+_EXISTENCE_OPERATORS = frozenset({PropertyOperator.IS_SET, PropertyOperator.IS_NOT_SET})
+
+
+def with_attribute_set_guards(filters: list[SpanPropertyFilter]) -> list[SpanPropertyFilter]:
+    """Return the attribute filters plus an is_set filter for each key that they compare.
+
+    An attribute Map reads a missing key as its default value ('' or 0). Without the guard, a negated
+    filter such as `not_icontains` matches every span that does not have the attribute. The trace list
+    then selects a whole trace through one such span, so the trace shows even when its root span has a
+    value that the filter excludes. The guard uses the same suffixed key as the filter, so it checks
+    the Map that the comparison reads.
+    """
+    guards: dict[str, SpanPropertyFilter] = {}
+    for prop in filters:
+        if prop.operator not in _EXISTENCE_OPERATORS and prop.key not in guards:
+            guards[prop.key] = SpanPropertyFilter(key=prop.key, type=prop.type, operator=PropertyOperator.IS_SET)
+    return [*filters, *guards.values()]
+
+
 class TraceSpansQueryRunnerMixin(QueryRunner):
     """Shared WHERE clause and settings for all trace span query runners."""
 
@@ -384,10 +403,10 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
                 exprs.append(property_to_expr(span_filter, team=self.team))
 
         if self.span_attribute_filters:
-            exprs.append(property_to_expr(self.span_attribute_filters, team=self.team))
+            exprs.append(property_to_expr(with_attribute_set_guards(self.span_attribute_filters), team=self.team))
 
         if self.resource_attribute_filters:
-            for f in self.resource_attribute_filters:
+            for f in with_attribute_set_guards(self.resource_attribute_filters):
                 exprs.append(property_to_expr(f, team=self.team))
 
         if self.query.traceId:
