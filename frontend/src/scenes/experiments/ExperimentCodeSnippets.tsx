@@ -20,12 +20,20 @@ interface SnippetProps {
     onCopy?: () => void
     /** Called when the "Test that it works" snippet reaches the clipboard. Only the JavaScript snippet has one. */
     onTestCopy?: () => void
+    /** Collapses the implementation snippet to this many lines until the user expands it. */
+    maxLinesWithoutExpansion?: number
 }
 
-export function AndroidSnippet({ flagKey, variant, onCopy }: SnippetProps): JSX.Element {
+export function AndroidSnippet({ flagKey, variant, onCopy, maxLinesWithoutExpansion }: SnippetProps): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.Kotlin} wrap compact onCopy={onCopy}>
+            <CodeSnippet
+                language={Language.Kotlin}
+                wrap
+                compact
+                onCopy={onCopy}
+                maxLinesWithoutExpansion={maxLinesWithoutExpansion}
+            >
                 {`if (PostHog.getFeatureFlag("${flagKey}") == "${variant}") {
     // do something
 } else {
@@ -37,10 +45,16 @@ export function AndroidSnippet({ flagKey, variant, onCopy }: SnippetProps): JSX.
     )
 }
 
-export function IOSSnippet({ flagKey, variant, onCopy }: SnippetProps): JSX.Element {
+export function IOSSnippet({ flagKey, variant, onCopy, maxLinesWithoutExpansion }: SnippetProps): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.Swift} wrap compact onCopy={onCopy}>
+            <CodeSnippet
+                language={Language.Swift}
+                wrap
+                compact
+                onCopy={onCopy}
+                maxLinesWithoutExpansion={maxLinesWithoutExpansion}
+            >
                 {`if (PostHogSDK.shared.getFeatureFlag("${flagKey}") as? String == "${variant}") {
     // do something
 } else {
@@ -52,10 +66,16 @@ export function IOSSnippet({ flagKey, variant, onCopy }: SnippetProps): JSX.Elem
     )
 }
 
-export function NodeJSSnippet({ flagKey, variant, onCopy }: SnippetProps): JSX.Element {
+export function NodeJSSnippet({ flagKey, variant, onCopy, maxLinesWithoutExpansion }: SnippetProps): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.JavaScript} wrap compact onCopy={onCopy}>
+            <CodeSnippet
+                language={Language.JavaScript}
+                wrap
+                compact
+                onCopy={onCopy}
+                maxLinesWithoutExpansion={maxLinesWithoutExpansion}
+            >
                 {`const experimentFlagValue = await client.getFeatureFlag('${flagKey}', 'user distinct id')
 
 if (experimentFlagValue === '${variant}') {
@@ -70,10 +90,22 @@ if (experimentFlagValue === '${variant}') {
     )
 }
 
-export function JSSnippet({ flagKey, variant, onCopy, onTestCopy }: SnippetProps): JSX.Element {
+export function JSSnippet({
+    flagKey,
+    variant,
+    onCopy,
+    onTestCopy,
+    maxLinesWithoutExpansion,
+}: SnippetProps): JSX.Element {
     return (
         <div>
-            <CodeSnippet language={Language.JavaScript} wrap compact onCopy={onCopy}>
+            <CodeSnippet
+                language={Language.JavaScript}
+                wrap
+                compact
+                onCopy={onCopy}
+                maxLinesWithoutExpansion={maxLinesWithoutExpansion}
+            >
                 {`if (posthog.getFeatureFlag('${flagKey}') === '${variant}') {
     // Do something differently for this user
 } else {
@@ -89,10 +121,16 @@ export function JSSnippet({ flagKey, variant, onCopy, onTestCopy }: SnippetProps
     )
 }
 
-export function ReactSnippet({ flagKey, variant, onCopy }: SnippetProps): JSX.Element {
+export function ReactSnippet({ flagKey, variant, onCopy, maxLinesWithoutExpansion }: SnippetProps): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.JavaScript} wrap compact onCopy={onCopy}>
+            <CodeSnippet
+                language={Language.JavaScript}
+                wrap
+                compact
+                onCopy={onCopy}
+                maxLinesWithoutExpansion={maxLinesWithoutExpansion}
+            >
                 {`// You can either use the useFeatureFlagVariantKey hook,
 // or you can use the feature flags component - https://posthog.com/docs/libraries/react#feature-flags-react-component
 
@@ -126,10 +164,16 @@ posthog.featureFlags.overrideFeatureFlags({ flags: {'${flagKey}': '${variant}'} 
     )
 }
 
-export function RNSnippet({ flagKey, variant, onCopy }: SnippetProps): JSX.Element {
+export function RNSnippet({ flagKey, variant, onCopy, maxLinesWithoutExpansion }: SnippetProps): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.JavaScript} wrap compact onCopy={onCopy}>
+            <CodeSnippet
+                language={Language.JavaScript}
+                wrap
+                compact
+                onCopy={onCopy}
+                maxLinesWithoutExpansion={maxLinesWithoutExpansion}
+            >
                 {`if (posthog.getFeatureFlag('${flagKey}') === '${variant}') {
     // Do something differently for this user
 } else {
@@ -141,10 +185,16 @@ export function RNSnippet({ flagKey, variant, onCopy }: SnippetProps): JSX.Eleme
     )
 }
 
-export function PHPSnippet({ flagKey, variant, onCopy }: SnippetProps): JSX.Element {
+export function PHPSnippet({ flagKey, variant, onCopy, maxLinesWithoutExpansion }: SnippetProps): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.PHP} wrap compact onCopy={onCopy}>
+            <CodeSnippet
+                language={Language.PHP}
+                wrap
+                compact
+                onCopy={onCopy}
+                maxLinesWithoutExpansion={maxLinesWithoutExpansion}
+            >
                 {`if (PostHog::getFeatureFlag('${flagKey}', 'user distinct id') == '${variant}') {
     // Do something differently for this user
 } else {
@@ -157,10 +207,16 @@ export function PHPSnippet({ flagKey, variant, onCopy }: SnippetProps): JSX.Elem
     )
 }
 
-export function GolangSnippet({ flagKey, variant, onCopy }: SnippetProps): JSX.Element {
+export function GolangSnippet({ flagKey, variant, onCopy, maxLinesWithoutExpansion }: SnippetProps): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.Go} wrap compact onCopy={onCopy}>
+            <CodeSnippet
+                language={Language.Go}
+                wrap
+                compact
+                onCopy={onCopy}
+                maxLinesWithoutExpansion={maxLinesWithoutExpansion}
+            >
                 {`experimentFlagValue, err := client.GetFeatureFlag(posthog.FeatureFlagPayload{
     Key:        ${JSON.stringify(flagKey)},
     DistinctId: "distinct-id",
@@ -180,14 +236,20 @@ if experimentFlagValue == ${JSON.stringify(variant)} {
     )
 }
 
-export function FlutterSnippet({ flagKey, variant, onCopy }: SnippetProps): JSX.Element {
+export function FlutterSnippet({ flagKey, variant, onCopy, maxLinesWithoutExpansion }: SnippetProps): JSX.Element {
     const clientSuffix = 'await Posthog().'
     const flagFunction = 'getFeatureFlag'
     const variantSuffix = ` == '${variant}'`
 
     return (
         <>
-            <CodeSnippet language={Language.Dart} wrap compact onCopy={onCopy}>
+            <CodeSnippet
+                language={Language.Dart}
+                wrap
+                compact
+                onCopy={onCopy}
+                maxLinesWithoutExpansion={maxLinesWithoutExpansion}
+            >
                 {`if (${clientSuffix}${flagFunction}('${flagKey}')${variantSuffix}) {
   // Do something differently for this user
 } else {
@@ -199,10 +261,16 @@ export function FlutterSnippet({ flagKey, variant, onCopy }: SnippetProps): JSX.
     )
 }
 
-export function RubySnippet({ flagKey, variant, onCopy }: SnippetProps): JSX.Element {
+export function RubySnippet({ flagKey, variant, onCopy, maxLinesWithoutExpansion }: SnippetProps): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.Ruby} wrap compact onCopy={onCopy}>
+            <CodeSnippet
+                language={Language.Ruby}
+                wrap
+                compact
+                onCopy={onCopy}
+                maxLinesWithoutExpansion={maxLinesWithoutExpansion}
+            >
                 {`experimentFlagValue = posthog.get_feature_flag('${flagKey}', 'user distinct id')
 
 if experimentFlagValue == '${variant}'
@@ -217,10 +285,16 @@ end`}
     )
 }
 
-export function PythonSnippet({ flagKey, variant, onCopy }: SnippetProps): JSX.Element {
+export function PythonSnippet({ flagKey, variant, onCopy, maxLinesWithoutExpansion }: SnippetProps): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.Python} wrap compact onCopy={onCopy}>
+            <CodeSnippet
+                language={Language.Python}
+                wrap
+                compact
+                onCopy={onCopy}
+                maxLinesWithoutExpansion={maxLinesWithoutExpansion}
+            >
                 {`experiment_flag_value = posthog.get_feature_flag("${flagKey}", "user_distinct_id")
 
 if experiment_flag_value == '${variant}':
@@ -235,10 +309,16 @@ else:
     )
 }
 
-export function JavaSnippet({ flagKey, variant, onCopy }: SnippetProps): JSX.Element {
+export function JavaSnippet({ flagKey, variant, onCopy, maxLinesWithoutExpansion }: SnippetProps): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.Java} wrap compact onCopy={onCopy}>
+            <CodeSnippet
+                language={Language.Java}
+                wrap
+                compact
+                onCopy={onCopy}
+                maxLinesWithoutExpansion={maxLinesWithoutExpansion}
+            >
                 {`Object flagValue = postHog.getFeatureFlag("user distinct id", "${flagKey}");
 if ("${variant}".equals(flagValue)) {
     // Do something differently for this user

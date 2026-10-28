@@ -200,7 +200,7 @@ describe('ExperimentImplementationDetails', () => {
         }
     )
 
-    it('opens the test arm on the agent prompt for this experiment', async () => {
+    it('opens the test arm on a preview of the agent prompt for this experiment', async () => {
         setImplementationArm('test')
 
         const { container } = render(
@@ -219,6 +219,14 @@ describe('ExperimentImplementationDetails', () => {
         expect(container).toHaveTextContent(/Experiment page: http:\/\/localhost\/project\/\d+\/experiments\/42/)
         expect(container).toHaveTextContent('Feature flag key: "new-checkout"')
         expect(container).toHaveTextContent('Variants: "control", "one-page"')
+        expect(container).not.toHaveTextContent('What to do')
+
+        // The preview hides the steps, but a copy from it still takes the whole prompt.
+        await clickCopy(container)
+        expect(copyToClipboard).toHaveBeenCalledWith(expect.stringContaining('Reference docs'), 'snippet')
+
+        fireEvent.click(screen.getByText(/more lines/))
+
         expect(container).toHaveTextContent('Show the change only when the flag returns "one-page".')
         expect(container).toHaveTextContent('For "control", or when the flag has no value, keep today\'s behavior.')
         // The text matches what the agent button copies, so pasting it by hand also says how to install the MCP server.
@@ -226,6 +234,31 @@ describe('ExperimentImplementationDetails', () => {
             expect(container).toHaveTextContent('If the server is not connected, ask me to install it by running')
         )
     })
+
+    // The control arm is the baseline the experiment measures against, so only the test arm collapses snippets.
+    it.each([
+        ['control', 'in full', true],
+        ['test', 'as a preview', false],
+    ] as [ImplementationArm, string, boolean][])(
+        'shows a long code snippet in the %s arm %s',
+        async (arm, _how, showsWholeSnippet) => {
+            setImplementationArm(arm)
+            const { container } = render(
+                <ExperimentImplementationDetails
+                    experiment={experimentWithStatus(ExperimentStatus.Draft)}
+                    placement="draft_header"
+                />
+            )
+
+            if (arm === 'test') {
+                fireEvent.click(screen.getByText('Code snippet'))
+            }
+            fireEvent.click(within(container).getByText('JavaScript'))
+            fireEvent.click(await screen.findByText('React'))
+
+            expect(container.textContent?.includes('Method two')).toBe(showsWholeSnippet)
+        }
+    )
 
     it('captures the switch to the code snippet, and marks its copies as the test arm', async () => {
         setImplementationArm('test')

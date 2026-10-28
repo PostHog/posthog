@@ -51,6 +51,10 @@ type ImplementationOption = 'agent_prompt' | 'code_snippet'
 // The test arm opens on the prompt, so the experiment measures what leading with the prompt does.
 const DEFAULT_IMPLEMENTATION_OPTION: ImplementationOption = 'agent_prompt'
 
+// The test arm opens the agent prompt and long code snippets on a preview, so they don't push the page down.
+// It stops after the prompt's context lines.
+const IMPLEMENTATION_PREVIEW_LINES = 8
+
 interface ExperimentImplementationDetailsProps {
     experiment: Partial<Experiment> | null
     placement: ImplementationSnippetPlacement
@@ -370,41 +374,29 @@ function PromptExperimentImplementation({
 }
 
 function ExperimentAgentPrompt({
-    experiment,
+    action,
     onPromptCopied,
-    onPromptOpened,
 }: {
-    experiment: Partial<Experiment> | null
-    onPromptCopied: (source: AgentPromptCopy['source']) => void
-    onPromptOpened: (agent: string) => void
+    action: AgentPromptAction
+    onPromptCopied: () => void
 }): JSX.Element {
     const { currentProjectId } = useValues(projectLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
-    const action: AgentPromptAction = {
-        key: 'implement',
-        label: 'prompt',
-        buildPrompt: () => experimentFlagAgentPrompt(experiment),
-    }
     // Show the text the Clipboard option copies, so it also says how to install the PostHog MCP server.
     const prompt = buildAgentPrompt(action, 'clipboard', currentProjectId, !!isCloudOrDev)
 
     return (
         <div className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-secondary text-sm mb-0">
-                    Run this prompt in your coding agent to add the feature flag to your code.
-                </p>
-                <AgentPromptButton
-                    appearance="lemon"
-                    labelMode="destination"
-                    data-attr="experiment-implementation-agent-prompt"
-                    actions={[action]}
-                    onRun={({ agentKey }) =>
-                        agentKey === 'clipboard' ? onPromptCopied('agent_button') : onPromptOpened(agentKey)
-                    }
-                />
-            </div>
-            <CodeSnippet language={Language.Text} wrap compact onCopy={() => onPromptCopied('prompt_text')}>
+            <p className="text-secondary text-sm mb-0">
+                Run this prompt in your coding agent to add the feature flag to your code.
+            </p>
+            <CodeSnippet
+                language={Language.Text}
+                wrap
+                compact
+                onCopy={onPromptCopied}
+                maxLinesWithoutExpansion={IMPLEMENTATION_PREVIEW_LINES}
+            >
                 {prompt}
             </CodeSnippet>
         </div>
@@ -461,6 +453,14 @@ function GenericExperimentImplementation({
         })
     }
 
+    const agentPromptAction: AgentPromptAction = {
+        key: 'implement',
+        label: 'prompt',
+        buildPrompt: () => experimentFlagAgentPrompt(experiment),
+    }
+    const reportFlagAgentPromptCopied = (source: AgentPromptCopy['source']): void =>
+        onAgentPromptCopied({ promptKind: 'feature_flag', source })
+
     const snippetSelects = (
         <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
@@ -486,6 +486,8 @@ function GenericExperimentImplementation({
                 <selectedOption.Snippet
                     variant={currentVariant}
                     flagKey={experiment?.feature_flag?.key ?? ''}
+                    // The control arm keeps today's full snippet.
+                    maxLinesWithoutExpansion={implementationArm === 'test' ? IMPLEMENTATION_PREVIEW_LINES : undefined}
                     onCopy={() =>
                         onSnippetCopied({
                             sdk: selectedOption.key,
@@ -526,27 +528,41 @@ function GenericExperimentImplementation({
         <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="font-semibold text-lg mb-0">Implementation</h2>
-                <LemonSegmentedButton
-                    size="small"
-                    value={implementationOption}
-                    onChange={selectImplementationOption}
-                    options={[
-                        { value: 'agent_prompt', label: 'Prompt for your agent' },
-                        { value: 'code_snippet', label: 'Code snippet' },
-                    ]}
-                />
+                {/* Each option's controls sit left of the switch, so the switch stays put on a change. */}
+                <div className="flex flex-wrap items-center gap-2">
+                    {implementationOption === 'agent_prompt' ? (
+                        <AgentPromptButton
+                            appearance="lemon"
+                            labelMode="destination"
+                            data-attr="experiment-implementation-agent-prompt"
+                            actions={[agentPromptAction]}
+                            onRun={({ agentKey }) =>
+                                agentKey === 'clipboard'
+                                    ? reportFlagAgentPromptCopied('agent_button')
+                                    : reportAgentPromptOpened(agentKey)
+                            }
+                        />
+                    ) : (
+                        snippetSelects
+                    )}
+                    <LemonSegmentedButton
+                        size="small"
+                        value={implementationOption}
+                        onChange={selectImplementationOption}
+                        options={[
+                            { value: 'agent_prompt', label: 'Prompt for your agent' },
+                            { value: 'code_snippet', label: 'Code snippet' },
+                        ]}
+                    />
+                </div>
             </div>
             {implementationOption === 'agent_prompt' ? (
                 <ExperimentAgentPrompt
-                    experiment={experiment}
-                    onPromptCopied={(source) => onAgentPromptCopied({ promptKind: 'feature_flag', source })}
-                    onPromptOpened={reportAgentPromptOpened}
+                    action={agentPromptAction}
+                    onPromptCopied={() => reportFlagAgentPromptCopied('prompt_text')}
                 />
             ) : (
-                <>
-                    {snippetSelects}
-                    {snippet}
-                </>
+                snippet
             )}
         </div>
     )
