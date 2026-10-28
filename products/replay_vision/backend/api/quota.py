@@ -77,6 +77,13 @@ class VisionQuotaSerializer(serializers.Serializer):
             "Scanners without a computed estimate contribute 0."
         ),
     )
+    scanners_period_credits = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "The part of `scanners_monthly_credits` that lands between now and `period_end`. "
+            "Use it for rest-of-period forecasts; billing forecasts from the same figure."
+        ),
+    )
     backfills_committed_credits = serializers.IntegerField(
         read_only=True,
         help_text=(

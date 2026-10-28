@@ -97,15 +97,32 @@ export function isFreeAllocationOnly(quota: VisionQuotaApi | null): boolean {
 export interface ProjectionInputs {
     /** Fleet rate in credits per 30 days; defaults to the quota's stored `scanners_monthly_credits`. */
     monthlyRateCredits?: number
+    /** `monthlyRateCredits` already pro-rated to the period end by the backend, which then wins. */
+    ratePeriodCredits?: number
     /** Charged once (backfills), so they count toward the cap-reach date but not the rate. */
     oneOffCredits?: number
 }
 
-/** Credits the period ends on: spend so far, the rate pro-rated over the days left, and the one-offs. Unclamped. */
+/** Credits the period ends on: spend so far, the scanners' rest-of-period credits, and the one-offs. Unclamped. */
 export function projectDemandCredits(quota: VisionQuotaApi, inputs: ProjectionInputs = {}): number {
+    return quota.credits_used + scannerPeriodCredits(quota, inputs) + Math.max(inputs.oneOffCredits ?? 0, 0)
+}
+
+/** The backend's rest-of-period figure, which billing also forecasts from; a what-if rate pro-rates locally. */
+function scannerPeriodCredits(quota: VisionQuotaApi, inputs: ProjectionInputs): number {
+    if (inputs.ratePeriodCredits !== undefined) {
+        return Math.max(inputs.ratePeriodCredits, 0)
+    }
+    if (inputs.monthlyRateCredits === undefined) {
+        return quota.scanners_period_credits
+    }
+    return periodShareOfMonthlyRate(quota, Math.max(inputs.monthlyRateCredits, 0))
+}
+
+/** The part of a 30-day rate that lands before the period ends, for rates the backend has not seen yet. */
+export function periodShareOfMonthlyRate(quota: VisionQuotaApi, monthlyCredits: number): number {
     const daysRemaining = Math.max(dayjs.utc(quota.period_end).diff(dayjs(), 'day', true), 0)
-    const rate = Math.max(inputs.monthlyRateCredits ?? quota.scanners_monthly_credits, 0) / ESTIMATE_MONTH_DAYS
-    return quota.credits_used + rate * daysRemaining + Math.max(inputs.oneOffCredits ?? 0, 0)
+    return (monthlyCredits / ESTIMATE_MONTH_DAYS) * daysRemaining
 }
 
 /** Project credit spend to period end from a fleet rate and the one-offs already committed. */

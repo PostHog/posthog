@@ -140,6 +140,9 @@ class SpendProjection:
     scanners_monthly_credits: int
     # Committed-but-unspent credits of active backfills. A one-off charge, not a rate.
     backfills_committed_credits: int
+    # The scanners' share of that rate that lands before the period ends: the one rest-of-period figure
+    # the meters, the spend chart and billing's forecast all read.
+    scanners_period_credits: int = 0
     # The monthly rate the free credits still cover after the other free-only scanners and backfills.
     # Only the editor's forecast asks for it, so it is None unless requested.
     free_only_monthly_credits_left: int | None = None
@@ -156,6 +159,7 @@ class QuotaSnapshot(QuotaState):
     projected_monthly_credits: int = 0
     scanners_monthly_credits: int = 0
     backfills_committed_credits: int = 0
+    scanners_period_credits: int = 0
 
 
 def next_month_start(now: datetime) -> datetime:
@@ -557,6 +561,12 @@ def _billing_synced_limit(organization: Organization | None) -> tuple[bool, int 
     return False, None
 
 
+def _monthly_rate_to_period_credits(monthly_credits: float, period_end: datetime, now: datetime) -> int:
+    """The part of a 30-day credit rate that lands between `now` and `period_end`."""
+    days_left = max((period_end - now).total_seconds() / 86400, 0)
+    return round(max(monthly_credits, 0) * days_left / ESTIMATE_MONTH_DAYS)
+
+
 def spend_projection(
     organization_id: UUID,
     exclude_scanner_id: UUID | None = None,
@@ -595,9 +605,11 @@ def spend_projection(
         pool_rate = _remaining_as_monthly_rate(pool, datetime.now(UTC))
         # Past the period end there is no rate to share, and an unbounded rate leaves nothing to cap.
         free_left = max(0, round(pool_rate - rates.free_only)) if math.isfinite(pool_rate) else 0
+    period_end = org_state.period_end if org_state else current_period_bounds(organization_id).end
     return SpendProjection(
         scanners_monthly_credits=rates.total,
         backfills_committed_credits=backfills.paid + free_only_backfills,
+        scanners_period_credits=_monthly_rate_to_period_credits(rates.total, period_end, datetime.now(UTC)),
         free_only_monthly_credits_left=free_left,
     )
 
@@ -634,10 +646,8 @@ def spend_projection_by_team() -> SpendProjectionByTeam:
     backfills: list[tuple[int, int]] = []
     for org_id, team_id in team_by_org.items():
         projection = spend_projection(org_id)
-        days_left = max((current_period_bounds(org_id).end - datetime.now(UTC)).total_seconds() / 86400, 0)
-        period_credits = round(projection.scanners_monthly_credits * days_left / ESTIMATE_MONTH_DAYS)
-        if period_credits:
-            scanners.append((team_id, period_credits))
+        if projection.scanners_period_credits:
+            scanners.append((team_id, projection.scanners_period_credits))
         if projection.backfills_committed_credits:
             backfills.append((team_id, projection.backfills_committed_credits))
     return SpendProjectionByTeam(scanners_period_credits=scanners, backfills_committed_credits=backfills)
@@ -757,6 +767,7 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
         projected_monthly_credits=projection.total,
         scanners_monthly_credits=projection.scanners_monthly_credits,
         backfills_committed_credits=projection.backfills_committed_credits,
+        scanners_period_credits=projection.scanners_period_credits,
     )
 
 
