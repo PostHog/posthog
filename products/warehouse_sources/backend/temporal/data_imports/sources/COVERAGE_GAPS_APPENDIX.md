@@ -1372,7 +1372,7 @@ Diffed against: <https://raw.githubusercontent.com/axiomhq/docs/main/content/doc
 
 - [x] `Users (GET /v2/users)` — resolve createdBy on synced monitors to people and analyze ownership across monitoring resources (high). Added as `users`.
 - [ ] `Dataset events (Run query, POST /v1/datasets/_apl; edge deployments use POST /v1/query/_apl)` — analyze actual logs, traces, and events instead of only dataset and dashboard metadata (high); skipped, it is an APL query endpoint on the v1 API rather than a list endpoint: each dataset has its own user-defined schema, so it needs per-dataset table discovery, time windowing and regional endpoint routing that a static endpoint catalog cannot express
-- [ ] `Monitor notification history (GET /v2/monitors/{id}/history)` — measure alert frequency, notification outcomes, and changes in monitor behavior over time (medium); skipped, rows carry no identifier and repeat once per notifier and email recipient, so no primary key is unique, and the endpoint requires a `startTime`/`endTime` window with no documented retention bound
+- [x] `Monitor notification history (GET /v2/monitors/{id}/history)` — measure alert frequency, notification outcomes, and changes in monitor behavior over time (medium); skipped, rows carry no identifier and repeat once per notifier and email recipient, so no primary key is unique, and the endpoint requires a `startTime`/`endTime` window with no documented retention bound. Added as `monitor_history`, keyed with a `deliveryIndex` column and read in 7-day windows from each monitor's `createdAt`.
 - [x] `Groups (GET /v2/rbac/groups)` — analyze organization membership and connect users to operational teams (medium). Added as `groups`.
 
 Note: The official documentation repository provides the v2, v1, and v1-edge-query OpenAPI files used for this comparison. The v1 specs confirm that dataset event queries are read operations sent by POST; the source currently imports metadata only. Event imports require dataset selection, time windows, pagination, and the correct regional query endpoint; history requires requests for each monitor. Tokens, notifiers, field settings, views, ingestion writes, and other configuration operations are excluded.
@@ -1586,9 +1586,9 @@ Diffed against: <https://docs.bigeye.com/llms.txt>
 - [x] `Metric runs (POST /api/v1/metrics/runs)` — measure observed values, failed checks, and data quality trends over time (high)
 - [x] `Metric scorecard (POST /api/v1/metrics/scorecard)` — report monitoring coverage and successful checks over time, which metric configuration cannot provide (high)
 - [x] `Schema changes (POST /api/v1/schema-changes/fetch)` — track schema changes and connect added, removed, or changed fields to data quality incidents (medium)
-- [ ] `Deltas (POST /api/v1/deltas/fetch)` — analyze data comparison results to find replication failures and inconsistent datasets (medium)
+- [x] `Deltas (POST /api/v1/deltas/fetch)` — analyze data comparison results to find replication failures and inconsistent datasets (medium)
 - [x] `Metric revisions (GET /api/v1/metrics/{metricId}/revisions)` — track changes to checks and thresholds when investigating changes in alert frequency (medium)
-- [ ] `Lineage graph (GET /api/v2/lineage/nodes/{dataNodeId}/graph)` — connect data incidents to affected tables and downstream assets (medium)
+- [x] `Lineage graph (GET /api/v2/lineage/nodes/{dataNodeId}/graph)` — connect data incidents to affected tables and downstream assets (medium)
 
 Note: The official index links supplied OpenAPI definitions for every listed gap. Metrics contains configuration; observed results need separate calls for each metric. Read-only POST collections are included alongside the lineage GET route. Embedded catalog details, issue events, settings, keys, and execution commands are excluded.
 
@@ -5371,7 +5371,7 @@ Today (6): `Countries`, `EntityLegalForms`, `Jurisdictions`, `LeiIssuers`, `LeiR
 
 Diffed against: <https://documenter.gw.postman.com/api/collections/7679680/SVYrrxuU?segregateAuth=true&versionTag=latest>
 
-- [ ] `Region Codes (GET /api/v1/regions)` — resolve address region codes to named subdivisions for geographic entity analysis (high)
+- [x] `Region Codes (GET /api/v1/regions)` — resolve address region codes to named subdivisions for geographic entity analysis (high)
 - [ ] `Direct Child Relationship(s) (GET /api/v1/lei-records/{id}/direct-child-relationships)` — build direct consolidation hierarchies and identify related entities for counterparty exposure analysis (high)
 - [ ] `Ultimate Child Relationship(s) (GET /api/v1/lei-records/{id}/ultimate-child-relationships)` — connect entities to their ultimate consolidation parents for group exposure and corporate structure analysis (high)
 - [ ] `ISINs (GET /api/v1/lei-records/{id}/isins)` — join legal entities to issued securities and connect issuer identity with investment data (high)
@@ -6988,13 +6988,13 @@ Diffed against: <https://raw.githubusercontent.com/Kong/developer.konghq.com/mai
 - [x] `/control-planes/{id}/core-entities/routes` — lookup resolving route_id on api_requests to a path/method (high)
 - [x] `/control-planes/{id}/core-entities/consumers` — lookup resolving consumer_id on api_requests to a named API consumer (high)
 - [x] `/api-products (API Products v2)` — lookup for the api_product / api_product_version dimensions filterable on api_requests (high)
-- [ ] `/metrics (Analytics Metrics v2)` — vendor's aggregated traffic, latency and error-rate metrics without re-aggregating raw request rows (medium)
-- [ ] `/control-planes/{id}/core-entities/plugins` — which rate-limit/auth plugins were active on a service or route when traffic was served (medium)
+- [x] `/metrics (Analytics Metrics v2)` — vendor's aggregated traffic, latency and error-rate metrics without re-aggregating raw request rows (medium)
+- [x] `/control-planes/{id}/core-entities/plugins` — which rate-limit/auth plugins were active on a service or route when traffic was served (medium)
 - [x] `/control-planes/{id}/core-entities/consumer_groups and /consumer_groups/{id}/consumers` — consumer-group membership junction for segmenting request volume by tier (medium)
 - [x] `/realms/{realmId}/consumers (Konnect Consumers v1)` — identity-realm consumer registry backing the consumer dimension (medium)
 - [x] `/catalog-services and /scorecards (Service Catalog v1)` — service inventory plus scorecard scores, the headline governance metric (medium)
-- [ ] `/control-planes/{id}/core-entities/upstreams and /targets` — upstream/target topology behind each service for latency attribution (low)
-- [ ] `/openmeter/meters and /openmeter/subscriptions (Metering & Billing v3)` — metered usage and subscription state for cost-per-request analysis (low)
+- [x] `/control-planes/{id}/core-entities/upstreams and /targets` — upstream/target topology behind each service for latency attribution (low)
+- [x] `/openmeter/meters and /openmeter/subscriptions (Metering & Billing v3)` — metered usage and subscription state for cost-per-request analysis (low)
 
 Note: Kong publishes 25 separate Konnect OpenAPI specs under https://github.com/Kong/developer.konghq.com/tree/main/api-specs/konnect; PostHog implements one path (/api-requests) from analytics-requests/v2. Other specs diffed this run: control-planes/v2, control-planes-config/v2, analytics-metrics/v2, api-products/v2, consumers/v1, service-catalog/v1, audit-logs/v3, metering-and-billing/v3. The audit-logs v3 spec only exposes webhook/destination config, so there is no queryable audit-log table to add.
 
@@ -9090,8 +9090,8 @@ Diffed against: <https://raw.githubusercontent.com/PagerDuty/api-schema/main/ref
 - [x] `/incidents/{id}/notes` — responder notes attached to incidents, for postmortem/context analysis (medium). Added as `incident_notes` (fan-out over `incidents`)
 - [ ] `/schedules/{id}/users` — skipped: the endpoint lists the users on call in a time window, not schedule membership; membership is already in the `users` column of `schedules`, and who is on call is in `oncalls` (medium)
 - [ ] `/v3/schedules/{id}/rotations (and /overrides)` — skipped: these belong to the separate v3 shift-based schedules API, not the REST v2 API this source implements; v3 schedules need their own `/v3/schedules` parent, and overrides require a `since`/`until` shift window, so a synced table would silently drop history outside it (medium)
-- [ ] `/business_services` — business service layer plus /business_services/impacts, needed to roll incidents up to business impact (medium)
-- [ ] `/maintenance_windows` — suppression windows; without them uptime and alert-volume math is wrong (medium)
+- [x] `/business_services` — business service layer plus /business_services/impacts, needed to roll incidents up to business impact (medium). Added as `business_services` (full refresh); `/business_services/impacts` is a live top-200 snapshot, not synced
+- [x] `/maintenance_windows` — suppression windows; without them uptime and alert-volume math is wrong (medium). Added as `maintenance_windows` (full refresh, `filter=all`)
 - [ ] `/audit/records` — state/transition history across services, schedules, and policies (medium)
 - [ ] `/notifications` — notifications actually sent to responders, for pager fatigue analysis (low)
 - [ ] `/incidents/{id}/scribe_transcripts` — skipped: each row exists to carry a presigned transcript download link that expires after one hour, so a synced copy is stale by the next query; the rest is Scribe start and end times that cost one request per incident on every sync (low)
@@ -10117,9 +10117,9 @@ Today (4): `candidates`, `departments`, `offers`, `placements`
 
 Diffed against: <https://docs.recruitee.com/reference>
 
-- [ ] `GET /locations` — Lookup table resolving the location IDs carried on offers we already sync (high)
+- [x] `GET /locations` — Lookup table resolving the location IDs carried on offers we already sync (high)
 - [ ] `GET /timeline` — Hiring activity/event stream - the state-transition history behind candidates and placements (high)
-- [ ] `GET /candidates/{id}/notes` — Recruiter notes per candidate, the qualitative record attached to candidates already synced (medium)
+- [x] `GET /candidates/{id}/notes` — Recruiter notes per candidate, the qualitative record attached to candidates already synced (medium)
 - [ ] `POST /analytics (job campaign analytics)` — Sourcing and job-campaign performance breakdowns - the vendor's own reporting dimensions (medium)
 - [ ] `GET /candidates/{id}/reports` — Assessment and screening report results attached to candidates (low)
 
@@ -13197,10 +13197,10 @@ Today (3): `article_pageviews`, `pageviews`, `top_articles`
 
 Diffed against: <https://gitlab.wikimedia.org/repos/generated-data-platform/aqs/analytics-api/-/raw/main/reference/page-views.md>
 
-- [ ] `GET /metrics/pageviews/top-by-country/{project}/{access}/{year}/{month}` — country breakdown of project pageviews — a geographic dimension on the headline metric that is otherwise unavailable (high)
-- [ ] `GET /metrics/pageviews/top-per-country/{country}/{access}/{year}/{month}/{day}` — most-viewed articles within a single country, the geo equivalent of the top_articles table already synced (medium)
-- [ ] `GET /metrics/unique-devices/{project}/{access-site}/{granularity}/{start}/{end}` — unique device counts, Wikimedia's other headline traffic metric and the closest thing to a uniques denominator for pageviews (medium)
-- [ ] `GET /metrics/mediarequests/per-file/{referer}/{agent}/{file-path}/{granularity}/{start}/{end} and the aggregate variant` — media file request counts, the same traffic question for images and video (low)
+- [x] `GET /metrics/pageviews/top-by-country/{project}/{access}/{year}/{month}` — country breakdown of project pageviews — a geographic dimension on the headline metric that is otherwise unavailable (high)
+- [x] `GET /metrics/pageviews/top-per-country/{country}/{access}/{year}/{month}/{day}` — most-viewed articles within a single country, the geo equivalent of the top_articles table already synced (medium)
+- [x] `GET /metrics/unique-devices/{project}/{access-site}/{granularity}/{start}/{end}` — unique device counts, Wikimedia's other headline traffic metric and the closest thing to a uniques denominator for pageviews (medium)
+- [x] `GET /metrics/mediarequests/per-file/{referer}/{agent}/{file-path}/{granularity}/{start}/{end} and the aggregate variant` — media file request counts, the same traffic question for images and video (low)
 - [ ] `GET /metrics/legacy/pagecounts/aggregate/{project}/{access-site}/{granularity}/{start}/{end}` — pre-2015 traffic history for long-range trend analysis; the modern pageviews series starts July 2015 (low)
 
 Note: Confirmed the three synced tables map to /pageviews/aggregate, /pageviews/per-article and /pageviews/top. A machine-readable spec exists at https://wikimedia.org/api/rest\_v1/metrics/pageviews/api-spec.json and the docs site's source markdown on GitLab names the exact operation path for every documented endpoint, which is the reliable way to enumerate. The AQS analytics API has four sibling families beyond page views (edits, editors, devices, media files, Commons category metrics); I only listed the ones a source scoped to 'Wikipedia Pageviews' plausibly owns. Editor and edit metrics are real endpoints but arguably belong in a separate source.
@@ -13428,10 +13428,10 @@ Diffed against: <https://help.xmatters.com/xmapi/index.html>
 - [x] `incidents (GET /api/xm/1/incidents, /incidents/{id}/timeline-entries)` — incident objects and their timeline; the headline object of xMatters incident management (high)
 - [x] `group members (GET /api/xm/1/groups/{id}/members)` — membership lookup joining the people and groups we already sync (high)
 - [x] `group shifts (GET /api/xm/1/groups/{id}/shifts)` — on-call rotation definitions; without them groups carry no schedule (high)
-- [ ] `on-call (GET /api/xm/1/on-call)` — who is on call over a timeframe, the vendor's headline query (high)
-- [ ] `services (GET /api/xm/1/services)` — lookup resolving the service referenced by incidents and signals (high)
-- [ ] `event user deliveries (GET /api/xm/1/events/{id}/user-deliveries)` — per-recipient delivery and response outcomes for each event (medium)
-- [ ] `signals (GET /api/xm/1/signals)` — the raw inbound alerts that events are created from (medium)
+- [x] `on-call (GET /api/xm/1/on-call)` — who is on call over a timeframe, the vendor's headline query (high)
+- [x] `services (GET /api/xm/1/services)` — lookup resolving the service referenced by incidents and signals (high)
+- [x] `event user deliveries (GET /api/xm/1/events/{id}/user-deliveries)` — per-recipient delivery and response outcomes for each event (medium)
+- [x] `signals (GET /api/xm/1/signals)` — the raw inbound alerts that events are created from (medium)
 - [ ] `shift members (GET /api/xm/1/groups/{id}/shifts/{id}/members)` — who is rostered on each shift, with rotation order (medium)
 - [ ] `on-call summary (GET /api/xm/1/on-call-summary)` — aggregated on-call load per person and group (medium)
 - [ ] `forms (GET /api/xm/1/forms)` — lookup resolving the form id carried on events and scenarios (medium)
@@ -13609,10 +13609,10 @@ Today (3): `thread_messages`, `threads`, `users`
 
 Diffed against: <https://help.getzep.com/sitemap.xml>
 
-- [ ] `graph/edge/user/{user_id} and graph/edge/graph/{graph_id} (edges/facts)` — the temporal fact triples that are Zep's headline product - relationships with valid_at/invalid_at intervals (high)
-- [ ] `graph/node/user/{user_id} and graph/node/graph/{graph_id} (nodes/entities)` — the extracted entities in the knowledge graph, the lookup table every edge and observation points at (high)
-- [ ] `graph/episodes/user/{user_id} and graph/episodes/graph/{graph_id}` — the ingested source episodes that produced each node and edge - the provenance link back to thread messages (high)
-- [ ] `graph/list-all (graphs)` — lookup enumerating non-user graphs; without it the entire graph-scoped side of the API is unreachable (high)
+- [x] `graph/edge/user/{user_id} and graph/edge/graph/{graph_id} (edges/facts)` — the temporal fact triples that are Zep's headline product - relationships with valid_at/invalid_at intervals (high)
+- [x] `graph/node/user/{user_id} and graph/node/graph/{graph_id} (nodes/entities)` — the extracted entities in the knowledge graph, the lookup table every edge and observation points at (high)
+- [x] `graph/episodes/user/{user_id} and graph/episodes/graph/{graph_id}` — the ingested source episodes that produced each node and edge - the provenance link back to thread messages (high)
+- [x] `graph/list-all (graphs)` — lookup enumerating non-user graphs; without it the entire graph-scoped side of the API is unreachable (high)
 - [ ] `graph/observation/user/{user_id} and graph/observation/graph/{graph_id}` — per-entity observations, the granular memory records behind summarized facts (medium)
 - [ ] `graph thread summaries (get-user-thread-summaries / get-graph-thread-summaries)` — generated summaries per thread, the analytical rollup of the thread_messages we already sync (medium)
 - [ ] `graph/list-ontology (entity and edge type definitions)` — lookup resolving the type labels stamped on nodes and edges (medium)

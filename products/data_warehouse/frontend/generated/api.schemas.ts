@@ -3823,6 +3823,7 @@ export interface CredentialApi {
  * * `AwsS3Tables` - AwsS3Tables
  * * `Beacons` - Beacons
  * * `WooPayments` - WooPayments
+ * * `Soniox` - Soniox
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -5239,6 +5240,7 @@ export const ExternalDataSourceTypeEnumApi = {
     AwsS3Tables: 'AwsS3Tables',
     Beacons: 'Beacons',
     WooPayments: 'WooPayments',
+    Soniox: 'Soniox',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

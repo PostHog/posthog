@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { tagsModel } from '~/models/tagsModel'
 
+import { filterMessageTemplates } from './filterMessageTemplates'
 import { MessageTemplate } from './types'
 
 export type { MessageTemplate }
@@ -267,28 +268,13 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 createdByFilter: number | null,
                 transactionalOnly: boolean,
                 tagsFilter: string[]
-            ): MessageTemplate[] => {
-                let filtered = templates
-                if (search) {
-                    const lowerSearch = search.toLowerCase()
-                    filtered = filtered.filter(
-                        (t) =>
-                            (t.name ?? '').toLowerCase().includes(lowerSearch) ||
-                            (t.description ?? '').toLowerCase().includes(lowerSearch) ||
-                            (t.tags ?? []).some((tag) => tag.toLowerCase().includes(lowerSearch))
-                    )
-                }
-                if (tagsFilter.length) {
-                    filtered = filtered.filter((t) => (t.tags ?? []).some((tag) => tagsFilter.includes(tag)))
-                }
-                if (createdByFilter !== null) {
-                    filtered = filtered.filter((t) => t.created_by?.id === createdByFilter)
-                }
-                if (transactionalOnly) {
-                    filtered = filtered.filter((t) => !!t.transactional_hog_flow_id)
-                }
-                return filtered
-            },
+            ): MessageTemplate[] =>
+                filterMessageTemplates(templates, {
+                    search,
+                    tags: tagsFilter,
+                    createdBy: createdByFilter,
+                    transactionalOnly,
+                }),
         ],
     }),
     afterMount(({ actions }) => {
