@@ -563,14 +563,14 @@
 # ---
 # name: test_wrapper_sort_projections_preserve_output[SELECT user_id, user_id = toString(1) AS bucket, row_number() OVER (ORDER BY user_id) AS rn FROM users QUALIFY rn > 0 ORDER BY user_id = toString(1.0) DESC LIMIT 1]
   tuple(
-    'SELECT "__hogql_trino_source_0"."user_id", "__hogql_trino_source_0"."bucket", "__hogql_trino_source_0"."rn" FROM (SELECT "users"."user_id" AS "user_id", ("user_id" = CAST(1 AS VARCHAR)) AS "bucket", row_number() OVER (ORDER BY "user_id" ASC) AS "rn", ("user_id" = CAST(1.0 AS VARCHAR)) AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."rn" > 0) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC LIMIT 1',
+    'SELECT "__hogql_trino_source_0"."user_id", "__hogql_trino_source_0"."bucket", "__hogql_trino_source_0"."rn" FROM (SELECT "users"."user_id" AS "user_id", ("users"."user_id" = CAST(1 AS VARCHAR)) AS "bucket", row_number() OVER (ORDER BY "users"."user_id" ASC) AS "rn", ("users"."user_id" = CAST(1.0 AS VARCHAR)) AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."rn" > 0) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC LIMIT 1',
     dict({
     }),
   )
 # ---
 # name: test_wrapper_sort_projections_preserve_output[SELECT user_id, user_id = toString(1) AS bucket, row_number() OVER (ORDER BY user_id) AS rn FROM users QUALIFY rn > 0 ORDER BY user_id = toString(true) DESC LIMIT 1]
   tuple(
-    'SELECT "__hogql_trino_source_0"."user_id", "__hogql_trino_source_0"."bucket", "__hogql_trino_source_0"."rn" FROM (SELECT "users"."user_id" AS "user_id", ("user_id" = CAST(1 AS VARCHAR)) AS "bucket", row_number() OVER (ORDER BY "user_id" ASC) AS "rn", ("user_id" = CAST(true AS VARCHAR)) AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."rn" > 0) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC LIMIT 1',
+    'SELECT "__hogql_trino_source_0"."user_id", "__hogql_trino_source_0"."bucket", "__hogql_trino_source_0"."rn" FROM (SELECT "users"."user_id" AS "user_id", ("users"."user_id" = CAST(1 AS VARCHAR)) AS "bucket", row_number() OVER (ORDER BY "users"."user_id" ASC) AS "rn", ("users"."user_id" = CAST(true AS VARCHAR)) AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."rn" > 0) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC LIMIT 1',
     dict({
     }),
   )

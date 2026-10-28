@@ -2561,10 +2561,10 @@ Diffed against: <https://raw.githubusercontent.com/meraki/openapi/master/openapi
 
 - [x] `Network clients (GET /api/v1/networks/{networkId}/clients)` — measure active clients and join client activity with imported networks and devices (high)
 - [x] `Network events (GET /api/v1/networks/{networkId}/events)` — analyze connectivity failures, authentication events, and operational history (high)
-- [ ] `Client usage histories (GET /api/v1/networks/{networkId}/clients/usageHistories)` — measure bandwidth consumption by client over time (high)
-- [ ] `Uplink loss and latency history (GET /api/v1/devices/{serial}/lossAndLatencyHistory)` — measure packet loss and latency beyond the current uplink status (high)
-- [ ] `Device statuses (GET /api/v1/organizations/{organizationId}/devices/statuses)` — monitor device availability and last contact across the imported inventory (medium)
-- [ ] `Uplink usage history (GET /api/v1/networks/{networkId}/appliance/uplinks/usageHistory)` — track sent and received traffic for each network uplink (medium)
+- [x] `Client usage histories (GET /api/v1/networks/{networkId}/clients/usageHistories)` — measure bandwidth consumption by client over time (high) → `client_usage_histories` (client keys come from the network clients listing, in batches of 100)
+- [ ] `Uplink loss and latency history (GET /api/v1/devices/{serial}/lossAndLatencyHistory)` — measure packet loss and latency beyond the current uplink status (high) — skipped: each request needs one device, one uplink, and a required destination IP, so a table needs a device × uplink × destination fan-out
+- [x] `Device statuses (GET /api/v1/organizations/{organizationId}/devices/statuses)` — monitor device availability and last contact across the imported inventory (medium) → `device_availabilities` (implemented against the non-deprecated `GET /organizations/{organizationId}/devices/availabilities`; the spec marks `devices/statuses` deprecated)
+- [x] `Uplink usage history (GET /api/v1/networks/{networkId}/appliance/uplinks/usageHistory)` — track sent and received traffic for each network uplink (medium) → `uplink_usage_history`
 - [ ] `Network traffic (GET /api/v1/networks/{networkId}/traffic)` — identify applications that drive network traffic and capacity requirements (medium)
 - [ ] `Wireless client connection statistics (GET /api/v1/networks/{networkId}/wireless/clients/connectionStats)` — compare connection failures and wireless reliability across clients (medium)
 - [ ] `Organization security events (GET /api/v1/organizations/{organizationId}/appliance/security/events)` — measure security threats and affected networks over time (medium)
@@ -5663,10 +5663,10 @@ Diffed against: <https://developer.getguru.com/reference/authentication>
 - [x] `group members (GET /v1/groups/{id}/members)` — membership table joining the groups and members we already sync (high)
 - [x] `tag categories and tags (GET /v1/teams/{id}/tagcategories, /tagcategories/tags)` — lookup resolving the tag IDs carried on synced cards (high)
 - [x] `folders (GET /v1/folders, GET /v1/folders/{id}/items)` — the board/folder hierarchy that organizes cards - lookup plus card-to-folder membership (high)
-- [ ] `card comments (GET /v1/cards/{id}/comments)` — engagement and feedback events attached to synced cards (medium)
-- [ ] `card verifiers (GET /v1/cards/verifiers, /v1/cards/{id}/verifiers)` — verification ownership per card - drives knowledge-freshness reporting (medium)
-- [ ] `team stats (GET /v1/teams/{id}/stats)` — rolled-up workspace counters for trend dashboards (medium)
-- [ ] `knowledge alerts (GET /v1/alerts/delegated, /v1/alerts/{id}/stats/summary, /stats/users)` — alert delivery and per-user read state - announcement reach analysis (medium)
+- [x] `card comments (GET /v1/cards/{id}/comments)` — engagement and feedback events attached to synced cards (medium)
+- [x] `card verifiers (GET /v1/cards/verifiers, /v1/cards/{id}/verifiers)` — verification ownership per card - drives knowledge-freshness reporting (medium)
+- [x] `team stats (GET /v1/teams/{id}/stats)` — rolled-up workspace counters for trend dashboards (medium)
+- [x] `knowledge alerts (GET /v1/alerts/delegated, /v1/alerts/{id}/stats/summary, /stats/users)` — alert delivery and per-user read state - announcement reach analysis (medium)
 - [ ] `templates (GET /v1/templates)` — lookup for the template a card was created from (medium)
 - [ ] `collection access (GET /v1/collections/{id}/access, GET /v1/groups/{id}/collections)` — group-to-collection permission mapping, a membership-style join across two synced tables (low)
 - [ ] `people (GET /v1/people/{id}, /v1/people/{id}/directreports)` — org chart attributes enriching members (low)
@@ -5676,17 +5676,17 @@ Note: developer.getguru.com is a ReadMe site with no downloadable OpenAPI (opena
 
 ## Gusto — gaps
 
-Today (14): `ach_transactions`, `companies`, `company_benefits`, `contractor_payments`, `contractors`, `departments`, `employees`, `jobs`, `locations`, `pay_periods`, `pay_schedules`, `payrolls`, `recurring_reimbursements`, `tax_payments`
+Today (18): `ach_transactions`, `companies`, `company_benefits`, `contractor_payments`, `contractors`, `departments`, `earning_types`, `employee_benefits`, `employees`, `employment_history`, `jobs`, `locations`, `pay_periods`, `pay_schedules`, `payrolls`, `recurring_reimbursements`, `tax_payments`, `time_off_requests`
 
 Diffed against: <https://docs.gusto.com/embedded-payroll/llms.txt>
 
 - [x] `Departments (GET /v1/companies/{company_uuid}/departments)` — resolve department_uuid values on employees and analyze workforce composition by department (high)
 - [x] `ACH transactions (GET /v1/companies/{company_uuid}/ach_transactions)` — reconcile payroll funding and payment movements with bank transaction status and failures (high)
 - [x] `Company benefits (GET /v1/companies/{company_id}/company_benefits)` — explain employee deductions and employer contributions using named benefit plans (high)
-- [ ] `Earning types (GET /v1/companies/{company_id}/earning_types)` — separate standard earnings from custom pay categories in payroll analysis (medium)
-- [ ] `Employee benefits (GET /v1/company_benefits/{company_benefit_id}/employee_benefits)` — measure benefit enrollment, employee deductions, and employer contribution arrangements (medium)
-- [ ] `Employment history (GET /v1/employees/{employee_id}/employment_history)` — analyze terminations, rehires, tenure, and workforce changes beyond current employment status (medium)
-- [ ] `Time off requests (GET /v1/companies/{company_uuid}/time_off/requests)` — track requested and approved leave, absence patterns, and approval delays (medium)
+- [x] `Earning types (GET /v1/companies/{company_id}/earning_types)` — separate standard earnings from custom pay categories in payroll analysis (medium)
+- [x] `Employee benefits (GET /v1/company_benefits/{company_benefit_id}/employee_benefits)` — measure benefit enrollment, employee deductions, and employer contribution arrangements (medium)
+- [x] `Employment history (GET /v1/employees/{employee_id}/employment_history)` — analyze terminations, rehires, tenure, and workforce changes beyond current employment status (medium)
+- [x] `Time off requests (GET /v1/companies/{company_uuid}/time_off/requests)` — track requested and approved leave, absence patterns, and approval delays (medium)
 - [ ] `Employee time off activities (GET /v1/employees/{employee_uuid}/time_off_activities)` — explain leave balance changes through accrual, usage, and adjustment activity (medium)
 - [x] `Recurring reimbursements (GET /v1/employees/{employee_id}/recurring_reimbursements)` — forecast recurring employee reimbursements separately from amounts already paid through payroll (medium)
 - [ ] `Events (GET /v1/events)` — track payroll and employee changes as events instead of inferring them from repeated snapshots (medium)
@@ -6819,10 +6819,10 @@ Diffed against: <https://api.katanamrp.com/v1/openapi.json>
 - [x] `sales_order_fulfillments` — shipment/fulfillment records — the transition from order to delivered (high)
 - [x] `sales_return_rows` — line items behind sales_returns, needed to attribute returns to products (medium)
 - [x] `manufacturing_order_operation_rows` — per-operation timings and assigned operators, for throughput and labor cost (medium)
-- [ ] `price_list_rows` — priced items per price list; price_lists alone is only the header (medium)
-- [ ] `stocktake_rows` — counted vs expected quantity per stocktake line — the actual shrinkage numbers (medium)
-- [ ] `bin_locations and bin_inventory` — bin-level stock lookup and on-hand quantities below the location grain we already sync (medium)
-- [ ] `operators` — lookup table resolving operator IDs referenced by manufacturing order operations (medium)
+- [x] `price_list_rows` — priced items per price list; price_lists alone is only the header (medium)
+- [x] `stocktake_rows` — counted vs expected quantity per stocktake line — the actual shrinkage numbers (medium)
+- [x] `bin_locations and bin_inventory` — bin-level stock lookup and on-hand quantities below the location grain we already sync (medium)
+- [x] `operators` — lookup table resolving operator IDs referenced by manufacturing order operations (medium)
 
 Note: The docs site (developer.katanamrp.com) is a ReadMe app, but the live gateway serves a full OpenAPI 3.0 document at https://api.katanamrp.com/v1/openapi.json — 120 paths. PostHog's 18 tables cover almost every header-level object but essentially none of the row/line-item children, which is where most manufacturing analytics lives. Also unsynced but lower value: serial_numbers, batch_stocks, additional_costs, po_additional_cost_rows, demand_forecasts, negative_stock, custom_field_definitions, customer_addresses, supplier_addresses.
 
@@ -7027,10 +7027,10 @@ Diffed against: <https://docs.kubecost.com/apis/apis-overview>
 - [x] `GET /model/allocation?aggregate=cluster` — cluster is the top breakdown dimension and the only aggregation missing from namespace/controller/pod (high). Added as `allocation_by_cluster`.
 - [ ] `GET /model/allocation?aggregate=label:<name>` — label-based chargeback is the standard way teams attribute Kubernetes spend (high). Not added: the label name is per deployment, so it is not a fixed table. Pod and controller allocation rows already carry `properties.labels` for label chargeback in SQL.
 - [x] `GET /model/allocation?aggregate=service and ?aggregate=node` — remaining first-class allocation breakdown dimensions the API documents (medium). Added as `allocation_by_service` and `allocation_by_node`.
-- [ ] `GET /model/audit/events (Cost Events Audit API)` — cluster-level change history with estimated cost impact, i.e. why spend moved (medium)
-- [ ] `GET /model/savings and /model/savings/requestSizingV2` — headline savings-opportunity numbers surfaced in the Savings dashboard (medium)
-- [ ] `GET /model/customCost/timeseries (External Costs API)` — third-party service costs joined into total spend (medium)
-- [ ] `GET /model/allocation/trends` — period-over-period percentage change, the metric the UI's total-cost column shows (medium)
+- [x] `GET /model/audit/events (Cost Events Audit API)` — cluster-level change history with estimated cost impact, i.e. why spend moved (medium). Added as `audit_events` (full refresh; the API is Enterprise-only, off by default, and holds at most the 1000 most recent events).
+- [x] `GET /model/savings and /model/savings/requestSizingV2` — headline savings-opportunity numbers surfaced in the Savings dashboard (medium). Added `/model/savings/requestSizingV2` as `request_sizing_recommendations` (full refresh, 7-day window). `/model/savings` not added: the docs list it with no parameters or response schema, and it is a total of the other savings endpoints.
+- [x] `GET /model/customCost/timeseries (External Costs API)` — third-party service costs joined into total spend (medium). Added as `external_costs` (one-day windows, incremental on `window_start`).
+- [ ] `GET /model/allocation/trends` — period-over-period percentage change, the metric the UI's total-cost column shows (medium). Not added: the API requires a `names` list of the items to compare, and it returns only a ratio of two windows (`current/previous - 1`) that SQL can compute from the `allocation_by_*` tables.
 - [ ] `GET /model/savings/clusterSizingETL and /model/savings/abandonedWorkloads` — cluster right-sizing and abandoned-workload recommendations (medium)
 - [ ] `GET /model/budget (Budget API)` — budget rules to join against actual allocation spend for over/under reporting (low)
 - [ ] `GET /model/forecast (Forecast API)` — predicted future spend for allocation, assets and cloud cost (low)
