@@ -1,7 +1,7 @@
+import re
 from collections.abc import Collection
 from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
-from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.db.models import Q
@@ -15,6 +15,7 @@ from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayTyp
 
 from posthog.dataclasses import frozen
 from posthog.helpers.email_formatting import render_markdown_email_html
+from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.models.user import User
 from posthog.ph_client import ph_background_capture
 from posthog.slo.context import get_current_slo
@@ -53,6 +54,10 @@ from products.alerts_platform.backend.facade.scheduling import (
 from products.exports.backend.facade import api as exports
 
 logger = structlog.get_logger(__name__)
+
+# Discord rejects content over 2000 characters, and the destination template adds the alert header and link to it.
+_DESTINATION_MAX_CHARS = 1500
+_DESTINATION_MIN_SUMMARY_CHARS = 300
 
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 
@@ -262,20 +267,37 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
     return receipts
 
 
+def _destination_breach_text(breaches: list[str], summary_index: int | None) -> str:
+    if summary_index is None:
+        return "\n".join(breaches)[:_DESTINATION_MAX_CHARS]
+    other_lines = [breach for index, breach in enumerate(breaches) if index != summary_index]
+    budget = max(_DESTINATION_MAX_CHARS - len("\n".join(other_lines)) - 1, _DESTINATION_MIN_SUMMARY_CHARS)
+    summary = strip_external_links_markdown(breaches[summary_index])
+    summary = re.sub(r"\*\*(.+?)\*\*", r"*\1*", summary)
+    summary = re.sub(r"^(\s*)[-*] ", "\\1• ", summary, flags=re.MULTILINE)
+    if len(summary) > budget:
+        summary = summary[: budget - 1].rstrip() + "…"
+    return "\n".join([*breaches[:summary_index], summary, *breaches[summary_index + 1 :]])
+
+
 def send_notifications_for_breaches(
     alert: AlertConfiguration,
     breaches: list[str],
     idempotency_key: str,
-    extra_properties: dict[str, Any] | None = None,
+    extra_properties: dict[str, str] | None = None,
+    summary_index: int | None = None,
 ) -> list[AlertDelivery]:
     """A stable idempotency_key (typically alert_check.id) lets MessagingRecord enforce
     per-recipient at-most-once email delivery on retries.
 
     `extra_properties` are merged into the internal-event properties that HogFunction
     destinations render (e.g. the anomaly investigation notebook URL for the Slack button).
+
+    `summary_index` marks the entry of `breaches` that holds untrusted Markdown from the
+    investigation agent. Email renders it as sanitized HTML. Chat destinations get it with
+    external links removed and a bounded length.
     """
     deliveries: list[AlertDelivery] = []
-    investigation_summary = (extra_properties or {}).get("investigation_summary")
     email_targets = alert.get_subscribed_users_emails()
     if email_targets:
         subject = f"PostHog alert {alert.name} is firing for {alert.team.name}"
@@ -284,12 +306,10 @@ def send_notifications_for_breaches(
         alert_url = f"{insight_url}?alert_id={alert.id}"
         logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
         match_descriptions_html = []
-        if investigation_summary:
+        if summary_index is not None:
             match_descriptions_html = [
-                render_markdown_email_html(breach)
-                if breach == investigation_summary
-                else format_html("<p>{}</p>", breach)
-                for breach in breaches
+                render_markdown_email_html(breach) if index == summary_index else format_html("<p>{}</p>", breach)
+                for index, breach in enumerate(breaches)
             ]
         email_sent = send_alert_email(
             recipients=email_targets,
@@ -312,9 +332,7 @@ def send_notifications_for_breaches(
 
     # Join with newlines so each breach/investigation line renders on its own line in
     # Slack/Discord/Teams destinations rather than as one run-on comma-separated string.
-    destination_description = "\n".join(breaches)
-    if len(destination_description) > 3000:
-        destination_description = destination_description[:2999] + "…"
+    destination_description = _destination_breach_text(breaches, summary_index)
     deliveries.extend(
         trigger_alert_hog_functions(
             alert=alert,
@@ -552,9 +570,10 @@ def dispatch_alert_notification(
     alert: AlertConfiguration,
     alert_check: AlertCheck,
     breaches: list[str] | None,
-    extra_properties: dict[str, Any] | None = None,
+    extra_properties: dict[str, str] | None = None,
     idempotency_key: str | None = None,
     render_chart: bool = True,
+    summary_index: int | None = None,
 ) -> list[AlertDelivery] | None:
     """Route an AlertCheck to the correct notification sender.
 
@@ -696,9 +715,11 @@ def dispatch_alert_notification(
                 # common threshold-alert call unchanged when nothing was attached.
                 if properties:
                     return send_notifications_for_breaches(
-                        alert, breaches, idempotency_key=key, extra_properties=properties
+                        alert, breaches, idempotency_key=key, extra_properties=properties, summary_index=summary_index
                     )
-                return send_notifications_for_breaches(alert, breaches, idempotency_key=key)
+                return send_notifications_for_breaches(
+                    alert, breaches, idempotency_key=key, summary_index=summary_index
+                )
             case _:
                 raise AssertionError(f"dispatch_alert_notification: unhandled alert state: {alert_check.state}")
 

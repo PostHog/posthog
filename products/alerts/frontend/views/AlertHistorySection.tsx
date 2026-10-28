@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { IconGraph, IconNotebook } from '@posthog/icons'
 import {
@@ -57,11 +57,20 @@ function InvestigationCell({ check, alertId }: { check: AlertCheck; alertId: Ale
     const { expandedInvestigationChecks } = useValues(logic)
     const { toggleInvestigationSummary } = useActions(logic)
     const expanded = !!expandedInvestigationChecks[check.id]
+    const summaryRef = useRef<HTMLDivElement>(null)
+    const [isClamped, setIsClamped] = useState(false)
     const status = check.investigation_status
     const shortId = check.investigation_notebook_short_id
     const summary = check.investigation_summary?.trim() || null
     const verdict = check.investigation_verdict ?? null
     const suppressed = !!check.notification_suppressed_by_agent
+
+    useLayoutEffect(() => {
+        const element = summaryRef.current
+        if (element && !expanded) {
+            setIsClamped(element.scrollHeight > element.clientHeight)
+        }
+    }, [summary, expanded])
 
     if (status === 'done') {
         const verdictCfg = verdict ? VERDICT_CONFIG[verdict] : null
@@ -81,19 +90,24 @@ function InvestigationCell({ check, alertId }: { check: AlertCheck; alertId: Ale
                 )}
                 {summary && (
                     <>
-                        <div className={`text-sm leading-normal text-muted ${expanded ? '' : 'line-clamp-2'}`}>
+                        <div
+                            ref={summaryRef}
+                            className={`text-sm leading-normal text-muted ${expanded ? '' : 'line-clamp-2'}`}
+                        >
                             <LemonMarkdown disableImages="all" disableLinks disableMentions lowKeyHeadings>
                                 {summary}
                             </LemonMarkdown>
                         </div>
-                        <LemonButton
-                            type="tertiary"
-                            size="xsmall"
-                            onClick={() => toggleInvestigationSummary(check.id)}
-                            aria-expanded={expanded}
-                        >
-                            {expanded ? 'Show less' : 'Show more'}
-                        </LemonButton>
+                        {(expanded || isClamped) && (
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                onClick={() => toggleInvestigationSummary(check.id)}
+                                aria-expanded={expanded}
+                            >
+                                {expanded ? 'Show less' : 'Show more'}
+                            </LemonButton>
+                        )}
                     </>
                 )}
                 {shortId && (

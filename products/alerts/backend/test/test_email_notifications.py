@@ -10,43 +10,30 @@ from products.alerts.backend.facade.email import send_alert_email
 from products.alerts.backend.models import AlertConfiguration
 
 
-@pytest.mark.parametrize(
-    "description_length,is_investigation",
-    [(100, False), (100, True), (2999, True), (3000, True), (3001, True), (12000, True)],
-)
-def test_breach_delivery_preserves_email_text_and_bounds_destination_text(
-    description_length: int, is_investigation: bool
-) -> None:
+@pytest.mark.parametrize("summary_length", [100, 1400, 12000])
+def test_investigation_summary_is_sanitized_and_bounded_for_destinations(summary_length: int) -> None:
     alert = MagicMock(spec=AlertConfiguration)
     alert.get_subscribed_users_emails.return_value = ["reader@example.com"]
     label = "Anomaly detected in [metric](https://example.com) **count** <value>."
-    summary = "x" * (description_length - len(label) - 1)
-    breaches = [label, summary]
-    properties = {"investigation_notebook_url": "https://example.com/notebooks/example"}
-    if is_investigation:
-        properties["investigation_summary"] = summary
+    summary = "- **Spike** in [docs](https://evil.example.com/x) " + "x" * summary_length
+    footer = "See https://example.com/notebooks/example for the full investigation."
+    breaches = [label, summary, footer]
 
     with (
         patch("posthog.tasks.alerts.utils.send_alert_email") as email,
         patch("posthog.tasks.alerts.utils.trigger_alert_hog_functions", return_value=[]) as destinations,
     ):
-        send_notifications_for_breaches(alert, breaches, "example-check", extra_properties=properties)
+        send_notifications_for_breaches(alert, breaches, "example-check", summary_index=1)
 
     context = email.call_args.kwargs["template_context"]
     assert context["match_descriptions"] == breaches
-    if is_investigation:
-        assert summary in context["match_descriptions_html"][1]
-        assert "[metric](https://example.com) **count** &lt;value&gt;" in context["match_descriptions_html"][0]
-    else:
-        assert context["match_descriptions_html"] == []
-    sent = destinations.call_args.kwargs["properties"]
-    assert sent["investigation_notebook_url"] == properties["investigation_notebook_url"]
-    assert len(sent["breaches"]) <= 3000
-    assert sent["breaches"].startswith(label + "\n")
-    if len("\n".join(breaches)) <= 3000:
-        assert sent["breaches"] == "\n".join(breaches)
-    else:
-        assert sent["breaches"].endswith("…")
+    assert "<strong>Spike</strong>" in context["match_descriptions_html"][1]
+    assert "[metric](https://example.com) **count** &lt;value&gt;" in context["match_descriptions_html"][0]
+    sent = destinations.call_args.kwargs["properties"]["breaches"]
+    assert len(sent) <= 1500
+    assert sent.startswith(label + "\n• *Spike* in")
+    assert "evil.example.com" not in sent
+    assert sent.endswith(footer)
 
 
 @patch("products.alerts.backend.facade.email.is_email_available", return_value=True)

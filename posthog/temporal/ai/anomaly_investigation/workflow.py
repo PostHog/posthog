@@ -252,8 +252,6 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         verdict=result.report.verdict,
         previous_verdict=episode.previous_verdict,
         summary=result.report.summary,
-        metric_description=result.report.metric_meaning,
-        next_step=next(iter(result.report.recommendations), None),
         notebook_short_id=notebook.short_id,
         insight_chart_url=insight_chart_url,
     )
@@ -453,8 +451,6 @@ def _deliver_investigation_outcome(
     summary: str,
     notebook_short_id: str | None,
     insight_chart_url: str | None = None,
-    metric_description: str | None = None,
-    next_step: str | None = None,
 ) -> None:
     """Decide what the user gets now that we have the verdict.
 
@@ -486,8 +482,6 @@ def _deliver_investigation_outcome(
                 verdict=verdict,
                 previous_verdict=previous_verdict,
                 summary=summary,
-                metric_description=metric_description,
-                next_step=next_step,
                 notebook_short_id=notebook_short_id,
             )
             return
@@ -503,7 +497,7 @@ def _deliver_investigation_outcome(
             )
             return
 
-        breaches = _build_breach_descriptions(
+        breaches, summary_index = _build_breach_descriptions(
             alert_check=check,
             verdict=verdict,
             previous_verdict=previous_verdict,
@@ -514,12 +508,7 @@ def _deliver_investigation_outcome(
         # URL backs the Slack "View Investigation" button (falls back to "View Alert" when
         # absent), and the chart URL renders as an image block of the alerted insight (the
         # block falls back to a divider when absent).
-        extra_properties: dict[str, str | None] = {
-            "investigation_summary": summary,
-            "investigation_verdict": verdict,
-            "investigation_metric_description": metric_description,
-            "investigation_next_step": next_step,
-        }
+        extra_properties: dict[str, str] = {}
         if notebook_short_id:
             extra_properties["investigation_notebook_url"] = absolute_uri(f"/notebooks/{notebook_short_id}")
         if insight_chart_url:
@@ -528,7 +517,12 @@ def _deliver_investigation_outcome(
             # render_chart=False: the chart was already rendered above, before this
             # transaction took its row lock.
             deliveries = dispatch_alert_notification(
-                alert, check, breaches, extra_properties=extra_properties or None, render_chart=False
+                alert,
+                check,
+                breaches,
+                extra_properties=extra_properties or None,
+                render_chart=False,
+                summary_index=summary_index,
             )
             record_alert_delivery(alert, check, deliveries, stamp_on_empty=True)
         except Exception:
@@ -549,8 +543,6 @@ def _dispatch_verdict_change_followup(
     previous_verdict: str | None,
     summary: str,
     notebook_short_id: str | None,
-    metric_description: str | None = None,
-    next_step: str | None = None,
 ) -> None:
     """Send one follow-up for a check whose notification already went out and whose verdict
     changed since the previous investigation of the same episode.
@@ -575,19 +567,14 @@ def _dispatch_verdict_change_followup(
     if receipts.get(_VERDICT_CHANGE_FOLLOWUP_KEY):
         return
 
-    breaches = _build_breach_descriptions(
+    breaches, summary_index = _build_breach_descriptions(
         alert_check=check,
         verdict=verdict,
         previous_verdict=previous_verdict,
         summary=summary,
         notebook_short_id=notebook_short_id,
     )
-    extra_properties = {
-        "investigation_summary": summary,
-        "investigation_verdict": verdict,
-        "investigation_metric_description": metric_description,
-        "investigation_next_step": next_step,
-    }
+    extra_properties: dict[str, str] = {}
     if notebook_short_id:
         extra_properties["investigation_notebook_url"] = absolute_uri(f"/notebooks/{notebook_short_id}")
     try:
@@ -604,6 +591,7 @@ def _dispatch_verdict_change_followup(
                 breaches,
                 extra_properties=extra_properties,
                 idempotency_key=f"{check.id}:investigation-verdict-change",
+                summary_index=summary_index,
                 # The caller holds a row lock, and this check was already notified, so
                 # prepare_alert_insight_chart_url would return None anyway.
                 render_chart=False,
@@ -650,10 +638,12 @@ def _build_breach_descriptions(
     previous_verdict: str | None,
     summary: str,
     notebook_short_id: str | None,
-) -> list[str]:
+) -> tuple[list[str], int | None]:
     """Compose the strings that populate the `match_descriptions` list in the
     existing alert email template. Keeps the current template working while
     giving gated notifications richer body content.
+
+    Also returns the index of the Markdown summary line, so destinations can sanitize it.
     """
     lines: list[str] = []
     if previous_verdict and verdict and verdict != previous_verdict:
@@ -675,12 +665,14 @@ def _build_breach_descriptions(
     verdict_label = _VERDICT_LABELS.get(verdict or "", "")
     if verdict_label:
         lines.append(f"Investigation verdict: {verdict_label}.")
+    summary_index = None
     if summary:
+        summary_index = len(lines)
         lines.append(summary)
     if notebook_short_id:
         notebook_url = absolute_uri(f"/notebooks/{notebook_short_id}")
         lines.append(f"See {notebook_url} for the full investigation.")
-    return lines
+    return lines, summary_index
 
 
 async def _update_status(alert_check, status: str) -> None:
