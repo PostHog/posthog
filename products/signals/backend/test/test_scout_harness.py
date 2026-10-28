@@ -1105,6 +1105,8 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         experiment_granted = _prompt(write_scopes=["experiment:write"])
         assert "experiments in this project" in experiment_granted
         assert "Experiment lifecycle changes reach real users" in experiment_granted
+        assert "Event definitions: tags only" not in granted
+        assert "Event definitions: tags only" in _prompt(write_scopes=["event_definition:write"])
 
         # A scout that holds only the default grant still has to be told it may write notebooks.
         notebooks_only = _prompt(write_scopes=["notebook:write"])

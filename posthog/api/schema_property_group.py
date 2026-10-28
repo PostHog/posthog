@@ -4,10 +4,14 @@ from django.db import IntegrityError, transaction
 
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import mixins, serializers, viewsets
+from rest_framework.permissions import SAFE_METHODS
+from rest_framework.request import Request
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import SchemaPropertyGroup, SchemaPropertyGroupProperty
+from posthog.permissions import is_scout_sandbox_request
+from posthog.taxonomy.scout_writes import refuse_scout_taxonomy_write
 
 MAX_PROPERTY_NAME_LENGTH = 200
 
@@ -164,6 +168,11 @@ class SchemaPropertyGroupViewSet(
     serializer_class = SchemaPropertyGroupSerializer
     queryset = SchemaPropertyGroup.objects.all()
     lookup_field = "id"
+
+    def check_permissions(self, request: Request) -> None:
+        super().check_permissions(request)
+        if request.method not in SAFE_METHODS:
+            refuse_scout_taxonomy_write(is_scout_sandbox_request(request))
 
     def safely_get_queryset(self, queryset):
         return (
