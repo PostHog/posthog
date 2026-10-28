@@ -46,6 +46,22 @@ class TestIsTransientObjectStoreError:
                 True,
             ),
             (
+                # delta-rs's own object_store crate (reqwest/hyper) reports a connection the remote
+                # end dropped mid-response this way, already marked "(temporary)" before this
+                # classifier runs - a retry against a fresh connection self-heals it.
+                "connection_closed_before_message_completed",
+                OSError(
+                    "Generic IoError error: Unexpected (temporary) at read, context: { url: "
+                    "https://example-bucket.oss-us-west-1.aliyuncs.com/_delta_log/00000000000000000002.json, "
+                    "called: http_util::Client::send, service: oss, path: "
+                    "_delta_log/00000000000000000002.json, range: 0-3460 } => send http request, source: "
+                    "error sending request for url (https://example-bucket.oss-us-west-1.aliyuncs.com/"
+                    "_delta_log/00000000000000000002.json) => client error (SendRequest) => connection "
+                    "closed before message completed"
+                ),
+                True,
+            ),
+            (
                 # s3fs/aiobotocore's own credential resolution (distinct from delta-rs's Rust
                 # object_store crate) can raise this bare, unwrapped — same IMDS/STS blip
                 # hitting our own instance-role-authenticated bucket, different client library.
