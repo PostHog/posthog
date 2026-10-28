@@ -695,7 +695,7 @@ export const UnavailableSources: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await expect(await canvas.findByText('Some connections need attention')).toBeVisible()
+        await expect(await canvas.findByText("Some search tables aren't ready")).toBeVisible()
         await expect(await canvas.findByText(/Enable keyword and keyword_stats/)).toBeVisible()
         for (const header of canvas.getAllByRole('button', { name: /1 connection/ })) {
             if (header.getAttribute('aria-expanded') === 'false') {

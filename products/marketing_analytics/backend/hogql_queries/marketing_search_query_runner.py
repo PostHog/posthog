@@ -169,14 +169,18 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
         }
         term_queries: list[ast.SelectQuery | ast.SelectSetQuery] = [
             parse_select(
-                f"""
+                """
                 SELECT customer_id, campaign_id, {term_column} AS term,
                     toFloat(metrics_clicks) AS clicks, toFloat(metrics_impressions) AS impressions,
                     toFloat(metrics_cost_micros) AS cost_micros, toFloat(metrics_conversions) AS conversions
-                FROM {{terms}}
-                WHERE toDate(segments_date) >= toDate({{date_from}}) AND toDate(segments_date) <= toDate({{date_to}})
+                FROM {terms}
+                WHERE toDate(segments_date) >= toDate({date_from}) AND toDate(segments_date) <= toDate({date_to})
                 """,
-                placeholders={**date_placeholders, "terms": ast.Field(chain=[*table.split(".")])},
+                placeholders={
+                    **date_placeholders,
+                    "terms": ast.Field(chain=[*table.split(".")]),
+                    "term_column": ast.Field(chain=[term_column]),
+                },
             )
             for table, term_column in (
                 (source.searchTermTable, "search_term_view_search_term"),
