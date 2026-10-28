@@ -112,6 +112,8 @@ fn ends_with_escape(bytes: &[u8], at: usize) -> bool {
     short || unicode
 }
 
+const SRCSET_KEY: &[u8] = br#""srcset":"#;
+
 struct Target {
     replacement: Vec<u8>,
     /// The policy's reason, for a declined URL.
@@ -171,10 +173,11 @@ impl UrlRewrite {
             else {
                 continue;
             };
-            let mut pattern = Vec::with_capacity(srcset.text.len() + 2);
+            // The key keeps the pattern to srcset attributes, so a `src` or `href` with the same value stays.
+            let mut pattern = SRCSET_KEY.to_vec();
             write_json_string(&srcset.text, &mut pattern);
             patterns.push(pattern);
-            let mut replacement = Vec::with_capacity(value.len() + 2);
+            let mut replacement = SRCSET_KEY.to_vec();
             write_json_string(&value, &mut replacement);
             targets.push(Target {
                 replacement,

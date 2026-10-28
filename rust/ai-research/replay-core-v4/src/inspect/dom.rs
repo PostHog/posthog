@@ -208,9 +208,17 @@ pub struct RemoteUrls {
     bytes: usize,
     pub limit: Option<UrlLimit>,
     /// Each image-slot srcset value, and whether it belongs to a source of a type the fetcher does not store. The
-    /// writer rebuilds each from the candidates it keeps. Past the cap it keeps no more, which is safe: the writer still
-    /// replaces each URL in `urls` on its own.
-    srcsets: HashMap<String, bool>,
+    /// writer rebuilds each from the candidates it keeps, and it builds one matcher over them as over `urls`, so they
+    /// share the byte budget of `urls`. Past it this keeps no more, which is safe: the writer still replaces each URL
+    /// in `urls` on its own.
+    /// Boxed, because the session state counts this struct's size and most blocks hold no srcset.
+    srcsets: Option<Box<SrcsetValues>>,
+}
+
+#[derive(Debug, Default)]
+struct SrcsetValues {
+    texts: HashMap<String, bool>,
+    bytes: usize,
 }
 
 /// An image-slot srcset value as the event holds it.
@@ -241,10 +249,14 @@ impl RemoteUrls {
 
     /// A value seen on a source of a stored type and on one of another type keeps its candidates.
     fn insert_srcset(&mut self, text: &str, unfetched_type: bool) {
-        if let Some(known) = self.srcsets.get_mut(text) {
+        let srcsets = self.srcsets.get_or_insert_with(Box::default);
+        if let Some(known) = srcsets.texts.get_mut(text) {
             *known &= unfetched_type;
-        } else if self.srcsets.len() < MAX_BLOCK_REMOTE_URLS && text.len() <= MAX_REMOTE_URL_BYTES {
-            self.srcsets.insert(text.to_owned(), unfetched_type);
+        } else if srcsets.texts.len() < MAX_BLOCK_REMOTE_URLS
+            && srcsets.bytes + text.len() <= MAX_BLOCK_REMOTE_URL_BYTES
+        {
+            srcsets.bytes += text.len();
+            srcsets.texts.insert(text.to_owned(), unfetched_type);
         }
     }
 
@@ -253,13 +265,16 @@ impl RemoteUrls {
         for url in &other.urls {
             self.insert(url);
         }
-        for (text, unfetched_type) in &other.srcsets {
+        for (text, unfetched_type) in other.srcsets.iter().flat_map(|s| &s.texts) {
             self.insert_srcset(text, *unfetched_type);
         }
     }
 
     pub fn take_srcsets(&mut self) -> Vec<Srcset> {
-        std::mem::take(&mut self.srcsets)
+        self.srcsets
+            .take()
+            .map(|srcsets| srcsets.texts)
+            .unwrap_or_default()
             .into_iter()
             .map(|(text, unfetched_type)| Srcset {
                 text,
@@ -444,8 +459,16 @@ impl Walk {
 /// The candidates of a srcset as (URL, descriptors), parsed as HTML parses one: a URL is a run of non-whitespace, so
 /// it can hold a comma. A comma ends a candidate only at the end of its URL or after its descriptors.
 pub fn srcset_candidates(srcset: &str) -> Vec<(&str, &str)> {
-    let bytes = srcset.as_bytes();
     let mut candidates = Vec::new();
+    for_each_srcset_candidate(srcset, |url, descriptors| {
+        candidates.push((url, descriptors))
+    });
+    candidates
+}
+
+/// Streams the candidates of [`srcset_candidates`], so that a message-sized srcset needs no list of them.
+fn for_each_srcset_candidate<'s>(srcset: &'s str, mut found: impl FnMut(&'s str, &'s str)) {
+    let bytes = srcset.as_bytes();
     let mut position = 0;
     loop {
         while bytes
@@ -455,7 +478,7 @@ pub fn srcset_candidates(srcset: &str) -> Vec<(&str, &str)> {
             position += 1;
         }
         if position >= bytes.len() {
-            return candidates;
+            return;
         }
         let start = position;
         while bytes
@@ -466,7 +489,7 @@ pub fn srcset_candidates(srcset: &str) -> Vec<(&str, &str)> {
         }
         let url = srcset[start..position].trim_end_matches(',');
         if url.len() < position - start {
-            candidates.push((url, ""));
+            found(url, "");
             continue;
         }
         let descriptors = position;
@@ -484,14 +507,12 @@ pub fn srcset_candidates(srcset: &str) -> Vec<(&str, &str)> {
                 _ => {}
             }
         }
-        candidates.push((url, srcset[descriptors..end].trim()));
+        found(url, srcset[descriptors..end].trim());
     }
 }
 
 fn srcset_urls(srcset: &str, found: &mut impl FnMut(&str)) {
-    for (url, _) in srcset_candidates(srcset) {
-        found(url);
-    }
+    for_each_srcset_candidate(srcset, |url, _| found(url));
 }
 
 fn style_property_value(bytes: &[u8], span: Span) -> Option<Span> {
@@ -594,8 +615,9 @@ impl Attributes {
     }
 }
 
+/// An empty `type` gives the browser no hint, as a missing one does.
 fn is_unfetched_type(bytes: &[u8], source_type: Option<Span>) -> bool {
-    text(bytes, source_type).is_some_and(|t| !is_fetched_image_type(&t))
+    text(bytes, source_type).is_some_and(|t| !t.trim().is_empty() && !is_fetched_image_type(&t))
 }
 
 /// A CSS or HTML length read as pixels, as in v3: `1`, `1px` and `1.0` are one pixel, other units are unknown.
@@ -1996,6 +2018,10 @@ mod tests {
         ] {
             assert_eq!(limit(&mut urls.into_iter()), expected);
         }
+        // Srcset values share the byte budget, past which the writer falls back to replacing each URL.
+        let mut remote = RemoteUrls::default();
+        (0..=most_long).for_each(|i| remote.insert_srcset(&url(i, longest), false));
+        assert_eq!(remote.take_srcsets().len(), most_long);
 
         // A mutation past the attribute cap is not read to its end.
         let attributes = |count: usize| {
