@@ -15950,6 +15950,10 @@ snapshots:
         hash: v1.k794b7964.0673d34d6bf0b4fd471c62fbcece324dd1fbb6180a6a37e7ffffee639f57e209.oEb2yD3dty7AG4d_62ypUf61Dhc28FYVFs9oMzUyRlw
     scenes-app-web-analytics-livemetricscharts--users-per-minute-empty--light:
         hash: v1.k794b7964.08f6363b9b1efb601ef2b7fb5e28f46c8c6726f861d927c6e994213085e666d3.BdfZOIp9Rfr_MYCMTsHW6qmhKUH_Z4u1S2beLgY0eqs
+    scenes-app-web-analytics-page-reports-page-health-card--statuses--dark:
+        hash: v1.k794b7964.20b213a26f1fccece45da99285654f977234b3897340f5218b9034c9d7f44ba0.pjvdtkXf_E6pAEMOFtadD_xgy__zYnRCS8idyWy5sLA
+    scenes-app-web-analytics-page-reports-page-health-card--statuses--light:
+        hash: v1.k794b7964.eec445093be15103165264d561f8a7cb14f9cacda7ad423cc444b949abaa1e89.FEOxmxet-N1p8rUsTt1-ba2sqNSYmiYEH167zEOFkpY
     scenes-app-web-analytics-pageperformancemetriccard--decrease--dark:
         hash: v1.k794b7964.3f63a6ca6c96ecfa8d06124b4e18d56a38607bf556f3b1047b2b53e0ce65a11a.LCU961p9dYD1lX1bB0gN9D0HEmO_UHdHkRE9dduvuas
     scenes-app-web-analytics-pageperformancemetriccard--decrease--light:
