@@ -56,6 +56,7 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
 from posthog.models.integration import (
+    ANY as ANY_AUTH_TYPE,
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
@@ -5361,6 +5362,29 @@ class TestStripeIntegration:
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not Integration.objects.filter(id=integration.id).exists()
 
+    @patch("posthog.api.integration.OauthIntegration")
+    @patch("posthog.api.integration.StripeIntegration")
+    def test_destroy_typed_in_row_skips_provider_teardown(
+        self, MockStripeIntegration, MockOauthIntegration, client: HttpClient
+    ):
+        integration = Integration.objects._with_auth(ANY_AUTH_TYPE).create(
+            team=self.team,
+            kind="stripe",
+            integration_id="typed-in",
+            config={"auth_type": "token"},
+            sensitive_config={"api_key": "sk_test_not_a_real_key"},
+            created_by=self.user,
+        )
+        MockOauthIntegration.supported_kinds = ["stripe"]
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        MockStripeIntegration.assert_not_called()
+        MockOauthIntegration.assert_not_called()
+        assert not Integration.objects._with_auth(ANY_AUTH_TYPE).filter(id=integration.id).exists()
+
     def test_destroy_non_stripe_does_not_call_clear_secrets(self, client: HttpClient):
         integration = Integration.objects.create(
             team=self.team,
@@ -8204,9 +8228,8 @@ class TestWarehouseSourceIntegrationKind(APIBaseTest):
         [
             ("referenced", "postgresql", "credentials", True, 400),
             ("unreferenced", "postgresql", "credentials", False, 204),
-            # Destroy reads only default-auth rows, so a typed-in row of an OAuth kind never reaches the
-            # provider teardown (grant revoke, app uninstall).
-            ("non_default_auth_type", "stripe", "token", False, 404),
+            # A typed-in row of an OAuth kind is deleted without the provider teardown.
+            ("non_default_auth_type", "stripe", "token", False, 204),
         ]
     )
     def test_destroy_of_a_source_credentials_row(

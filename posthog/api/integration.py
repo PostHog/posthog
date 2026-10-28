@@ -130,6 +130,7 @@ from posthog.models.integration import (
     defer_repository_cache_fields,
     resolve_aliased_oauth_kind,
 )
+from posthog.models.integration.auth_types import default_auth_type
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.integration.stripe import stripe_signing_secret
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
@@ -1608,9 +1609,10 @@ class IntegrationViewSet(
         # list/retrieve — scope `posthog` rows to the requesting user. Other kinds stay team-visible.
         user_id = getattr(self.request.user, "id", None)
         queryset = queryset.exclude(Q(kind=POSTHOG_CONNECT_KIND) & ~Q(created_by_id=user_id))
-        # The other actions (destroy, channels, github_repos, ...) call provider code that reads the
-        # row in the default shape of its kind, so they keep to rows with the default auth type.
-        if self.action not in ("list", "retrieve"):
+        # The other actions (channels, github_repos, ...) call provider code that reads the row in the
+        # default shape of its kind, so they keep to rows with the default auth type. Destroy accepts
+        # every auth type, because the list shows every row, and skips provider teardown for the rest.
+        if self.action not in ("list", "retrieve", "destroy"):
             assert isinstance(queryset, IntegrationQuerySet)
             queryset = queryset._with_auth(DEFAULT)
         return queryset
@@ -1658,13 +1660,17 @@ class IntegrationViewSet(
             if live_runs.count:
                 raise ValidationError(_github_disconnect_blocked_message(live_runs, team_id=instance.team_id))
 
-        if instance.kind == "stripe":
+        # Provider teardown (secret clearing, grant revoke, App uninstall) applies only to the connection
+        # that the kind's default auth type describes. A typed-in key or token has no grant to revoke.
+        provider_connection = instance.auth_type == default_auth_type(instance.kind).value
+
+        if instance.kind == "stripe" and provider_connection:
             try:
                 stripe_integration = StripeIntegration(instance)
                 stripe_integration.clear_posthog_secrets()
             except Exception as e:
                 capture_exception(e)
-        if instance.kind in OauthIntegration.supported_kinds:
+        if instance.kind in OauthIntegration.supported_kinds and provider_connection:
             # Disconnecting should sever the grant at the provider too, not just delete our copy
             # of the tokens — otherwise the provider keeps treating the app as authorized.
             try:
@@ -1674,9 +1680,11 @@ class IntegrationViewSet(
             except Exception as e:
                 capture_exception(e)
         github_audit = (
-            GitHubAudit.project(instance, cast(User, self.request.user)) if instance.kind == "github" else None
+            GitHubAudit.project(instance, cast(User, self.request.user))
+            if instance.kind == "github" and provider_connection
+            else None
         )
-        if instance.kind == "github" and instance.integration_id:
+        if github_audit is not None and instance.integration_id:
             # Team integrations own the installation; personal ones are subordinate. When the
             # last team integration for an installation is removed, tear it down everywhere:
             # uninstall the App on GitHub and delete the now-orphaned personal integrations.
@@ -1686,7 +1694,6 @@ class IntegrationViewSet(
                 .exclude(id=instance.id)
                 .exists()
             )
-            assert github_audit is not None
             github_audit.record("disconnect_started", last_reference=is_last_team_reference)
             if not is_last_team_reference:
                 github_audit.record("uninstall_completed", outcome="skipped", reason="other_project_references")
