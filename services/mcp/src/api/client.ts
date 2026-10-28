@@ -925,6 +925,7 @@ export class ApiClient {
                 eventName: string
                 data?: {
                     description?: string
+                    owner?: number | null
                     tags?: string[]
                     verified?: boolean
                     hidden?: boolean
@@ -938,6 +939,20 @@ export class ApiClient {
                 })
             },
 
+            getEventDefinition: async ({
+                projectId,
+                eventName,
+            }: {
+                projectId: string
+                eventName: string
+            }): Promise<Result<ApiEventDefinition>> => {
+                const searchParams = new URLSearchParams({ name: eventName })
+
+                return this.fetchJson<ApiEventDefinition>(
+                    `${this.baseUrl}/api/projects/${projectId}/event_definitions/by_name/?${searchParams}`
+                )
+            },
+
             updateEventDefinition: async ({
                 projectId,
                 eventName,
@@ -947,16 +962,17 @@ export class ApiClient {
                 eventName: string
                 data: {
                     description?: string
+                    owner?: number | null
                     tags?: string[]
                     verified?: boolean
                     hidden?: boolean
                 }
             }): Promise<Result<ApiEventDefinition>> => {
                 // Fetching the event definition by name to get its ID
-                const searchParams = new URLSearchParams({ name: eventName })
-                const findUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/by_name/?${searchParams}`
-
-                const findResult = await this.fetchJson<ApiEventDefinition>(findUrl)
+                const findResult: Result<ApiEventDefinition> = await this.projects().getEventDefinition({
+                    projectId,
+                    eventName,
+                })
 
                 if (!findResult.success) {
                     if (findResult.error instanceof PostHogApiError && findResult.error.status === 404) {

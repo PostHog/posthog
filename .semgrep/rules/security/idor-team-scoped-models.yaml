@@ -439,6 +439,7 @@ rules:
                               |PlatformAlertDeliveryPath
                               |PlatformAlertThread
                               |AlertDestination
+                              |SupabaseAuthEmailConfig
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -927,6 +928,7 @@ rules:
                         |PlatformAlertDeliveryPath
                         |PlatformAlertThread
                         |AlertDestination
+                        |SupabaseAuthEmailConfig
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification
