@@ -21,6 +21,7 @@ type ReadyValues = Pick<
     | 'timeline'
     | 'evalsChip'
     | 'evalOutcomesByNode'
+    | 'gitBranch'
 >
 
 interface ReadyActions {
@@ -42,6 +43,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
         summary: {
             ...values.summary,
             evals: values.evalsChip ? { chip: values.evalsChip, onClick: actions.showFailingEvals } : null,
+            git: values.gitBranch,
         },
         mode: values.mode,
         onModeChange: actions.setMode,
@@ -86,6 +88,7 @@ export function TraceScene(): JSX.Element {
         timeline,
         evalsChip,
         evalOutcomesByNode,
+        gitBranch,
     } = useValues(logic)
     const actions = useActions(logic)
 
@@ -106,6 +109,7 @@ export function TraceScene(): JSX.Element {
                       timeline,
                       evalsChip,
                       evalOutcomesByNode,
+                      gitBranch,
                   },
                   actions
               )

@@ -585,7 +585,7 @@ const ExplainChartEvidenceSchema = z.object({
         .record(z.string(), z.unknown())
         .optional()
         .describe(
-            'The query that found this, as you ran it (for example a TrendsQuery with a breakdown). It becomes a link to that chart, and a TrendsQuery also draws as a chart in the walkthrough.'
+            'The query that found this, as you ran it (for example a TrendsQuery with a breakdown). It becomes a link to that chart, and a TrendsQuery also draws as a chart in the explanation.'
         ),
     chart: z
         .object({
