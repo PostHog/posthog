@@ -292,6 +292,25 @@ class TestFanout:
         assert state is not None
         assert "completed" in state
 
+    @pytest.mark.parametrize("resumed", [False, True])
+    def test_user_deliveries_keeps_one_historical_at_across_resumes(self, resumed: bool) -> None:
+        saved_at = "2026-01-01T00:00:00Z"
+        script = route(
+            {
+                "/events/e-1/user-deliveries": [_response([{"event": {"id": "e-1"}, "person": {"id": "u-1"}}])],
+                "/events": [_response([{"id": "e-1"}])],
+            }
+        )
+        resume_state = XmattersResumeConfig(paginator_state={}, historical_at=saved_at) if resumed else None
+        result = _driver().run("user_deliveries", script, resume_state=resume_state)
+
+        assert result.raised is None
+        child_ats = {r.param("at") for r in result.requests if r.path.endswith("/user-deliveries")}
+        assert len(child_ats) == 1
+        assert (child_ats == {saved_at}) is resumed
+        assert result.saved_states
+        assert {state.historical_at for state in result.saved_states} == child_ats
+
     def test_child_404_for_a_deleted_parent_is_skipped(self) -> None:
         script = route(
             {

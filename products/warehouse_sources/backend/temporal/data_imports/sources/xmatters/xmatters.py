@@ -50,6 +50,8 @@ class XmattersResumeConfig:
     # per-parent checkpoint through `paginator_state`.
     offset: int = 0
     paginator_state: Optional[dict[str, Any]] = None
+    # A resumed child offset only addresses the same rows under the same historical snapshot.
+    historical_at: Optional[str] = None
 
 
 def is_valid_subdomain(subdomain: str) -> bool:
@@ -208,16 +210,22 @@ def _fanout_source(
     assert config.fanout is not None
 
     initial_paginator_state: Optional[dict[str, Any]] = None
+    historical_at: Optional[str] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None:
             initial_paginator_state = resume.paginator_state
+            historical_at = resume.historical_at
+
+    if config.name == "user_deliveries" and historical_at is None:
+        historical_at = _historical_at(datetime.now(UTC))
+    child_params_extra = {"at": historical_at} if historical_at is not None else None
 
     def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state:
-            resumable_source_manager.save_state(XmattersResumeConfig(paginator_state=dict(state)))
-
-    child_params_extra = {"at": _historical_at(datetime.now(UTC))} if config.name == "user_deliveries" else None
+            resumable_source_manager.save_state(
+                XmattersResumeConfig(paginator_state=dict(state), historical_at=historical_at)
+            )
 
     resource = cast(
         Resource,
