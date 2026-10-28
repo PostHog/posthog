@@ -16,13 +16,16 @@ import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
-import { Experiment, MultivariateFlagVariant, SDKKey } from '~/types'
+import { groupsModel } from '~/models/groupsModel'
+import { ExperimentExposureConfig } from '~/queries/schema/schema-general'
+import { Experiment, GroupType, GroupTypeIndex, MultivariateFlagVariant, SDKKey } from '~/types'
 
 import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
 
 import {
     AndroidSnippet,
     buildExperimentFlagAgentPrompt,
+    type ExperimentAgentPromptEvent,
     FlutterSnippet,
     GolangSnippet,
     IOSSnippet,
@@ -38,6 +41,7 @@ import {
     ReactSnippet,
     RubySnippet,
 } from './ExperimentCodeSnippets'
+import { EXPERIMENT_EXPOSURE_EVENT, EXPOSURE_DEFAULT_EVENT, getActivationConfig } from './exposureContract'
 import { getBaselineVariantKey, getExperimentVariants } from './utils'
 
 /** Where the snippet is shown: above the tabs while the experiment is a draft, or in the Code tab. */
@@ -111,8 +115,25 @@ function reportAgentPromptCopied(
     })
 }
 
-function experimentFlagAgentPrompt(experiment: Partial<Experiment> | null): string {
+/** The event or action an exposure config names, or null when it is the default exposure the flag read records. */
+function promptEvent(config: ExperimentExposureConfig | undefined): ExperimentAgentPromptEvent | null {
+    if (!config) {
+        return null
+    }
+    if ('event' in config) {
+        return [EXPOSURE_DEFAULT_EVENT, EXPERIMENT_EXPOSURE_EVENT].includes(config.event)
+            ? null
+            : { kind: 'event', name: config.event }
+    }
+    return { kind: 'action', name: config.name ?? String(config.id) }
+}
+
+function experimentFlagAgentPrompt(
+    experiment: Partial<Experiment> | null,
+    groupTypes: Map<GroupTypeIndex, GroupType>
+): string {
     const experimentId = experiment?.id
+    const groupTypeIndex = experiment?.feature_flag?.filters?.aggregation_group_type_index
     return buildExperimentFlagAgentPrompt({
         experimentName: experiment?.name ?? '',
         experimentUrl:
@@ -122,6 +143,10 @@ function experimentFlagAgentPrompt(experiment: Partial<Experiment> | null): stri
         flagKey: experiment?.feature_flag?.key ?? '',
         variantKeys: getExperimentVariants(experiment).map((variant) => variant.key),
         baselineVariantKey: getBaselineVariantKey(experiment),
+        customExposure: promptEvent(experiment?.exposure_criteria?.exposure_config),
+        activation: promptEvent(getActivationConfig(experiment?.exposure_criteria)),
+        groupType:
+            groupTypeIndex != null ? (groupTypes.get(groupTypeIndex as GroupTypeIndex)?.group_type ?? null) : null,
     })
 }
 
@@ -415,6 +440,7 @@ function GenericExperimentImplementation({
     onAgentPromptCopied: OnAgentPromptCopied
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { groupTypes } = useValues(groupsModel)
     // Read here rather than on the page, so only people who see this section are exposed to the experiment.
     const implementationArm: ImplementationArm =
         featureFlags[FEATURE_FLAGS.EXPERIMENT_IMPLEMENTATION_AGENT_PROMPT] === 'test' ? 'test' : 'control'
@@ -456,7 +482,7 @@ function GenericExperimentImplementation({
     const agentPromptAction: AgentPromptAction = {
         key: 'implement',
         label: 'prompt',
-        buildPrompt: () => experimentFlagAgentPrompt(experiment),
+        buildPrompt: () => experimentFlagAgentPrompt(experiment, groupTypes),
     }
     const reportFlagAgentPromptCopied = (source: AgentPromptCopy['source']): void =>
         onAgentPromptCopied({ promptKind: 'feature_flag', source })
@@ -533,7 +559,9 @@ function GenericExperimentImplementation({
                     {implementationOption === 'agent_prompt' ? (
                         <AgentPromptButton
                             appearance="lemon"
-                            labelMode="destination"
+                            pinnedAgentKey="clipboard"
+                            // PostHog AI cannot edit the user's codebase, so it cannot add the flag.
+                            excludeAgentKeys={['posthog-ai']}
                             data-attr="experiment-implementation-agent-prompt"
                             actions={[agentPromptAction]}
                             onRun={({ agentKey }) =>
