@@ -30,10 +30,12 @@ from posthog.schema import (
     ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentQuery,
+    ExperimentWarehouseNativeExposureConfig,
     HogQLPropertyFilter,
 )
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 
@@ -226,6 +228,26 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         )
 
         with self.assertRaisesMessage(ValidationError, "Persons are not available for evaluation pass rate metrics."):
+            ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+    def test_experiment_actors_refuses_warehouse_native_exposure_override(self) -> None:
+        # The override skips the save-time validation, so the runner must reject it as a query error.
+        _feature_flag, _experiment, experiment_query = self._create_experiment_with_funnel()
+        actors_query = ActorsQuery(
+            source=ExperimentActorsQuery(
+                kind="ExperimentActorsQuery",
+                source=experiment_query,
+                funnelStep=1,
+                funnelStepBreakdown="control",
+                exposureConfig=ExperimentWarehouseNativeExposureConfig(
+                    connection_id="00000000-0000-0000-0000-000000000000",
+                    query="SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                ),
+            ),
+            select=["id", "person"],
+        )
+
+        with self.assertRaisesMessage(ExposedHogQLError, "Warehouse-native sources cannot be calculated yet."):
             ActorsQueryRunner(query=actors_query, team=self.team).calculate()
 
     @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=4), tick=False)
