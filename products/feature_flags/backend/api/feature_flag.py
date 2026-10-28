@@ -1322,9 +1322,10 @@ class FeatureFlagRollbackReasonSerializer(serializers.Serializer):
     ask_rollback_reason = serializers.BooleanField(
         required=False,
         default=False,
-        help_text="When true and the edit lowers the flag's exposure, the flag is not saved and the response is a 409 "
-        "with the code `rollback_reason_required`. Send the edit again without this field to save it, with or "
-        "without a `rollback_reason`. Ignored for an edit that needs approval and for a config version 2 flag.",
+        help_text="When true, the edit lowers the flag's exposure, and the request sends no `rollback_reason`, the "
+        "flag is not saved and the response is a 409 with the code `rollback_reason_required`. Send the edit again "
+        "without this field to save it, with or without a `rollback_reason`. Ignored for an edit that needs approval "
+        "and for a config version 2 flag.",
     )
     rollback_reason = serializers.ChoiceField(
         choices=RollbackReason.choices,
@@ -3009,16 +3010,18 @@ class FeatureFlagSerializer(
         self, locked_instance: FeatureFlag, validated_data: dict, rollback: dict
     ) -> ExposureChange | None:
         """Classifies the edit only when the request asks for a rollback reason or sends one, so other saves pay
-        nothing. Returns the classification when the request sends a reason."""
+        nothing. Returns the classification when the request sends a reason. Raises the `rollback_reason_required`
+        409, and so refuses the save, when the request asks for a reason, sends none, and the edit lowers exposure."""
         reason = rollback.get("rollback_reason")
         if not rollback.get("ask_rollback_reason") and reason is None:
             return None
 
+        stored_filters = self._normalized_stored_filters(locked_instance)
         change = classify_exposure_change(
             before=FlagExposureConfig(
                 active=locked_instance.active,
                 deleted=locked_instance.deleted,
-                filters=locked_instance.filters,
+                filters=stored_filters,
                 key=locked_instance.key,
                 bucketing_identifier=locked_instance.bucketing_identifier,
                 ensure_experience_continuity=locked_instance.ensure_experience_continuity,
@@ -3026,7 +3029,7 @@ class FeatureFlagSerializer(
             after=FlagExposureConfig(
                 active=validated_data.get("active", locked_instance.active),
                 deleted=validated_data.get("deleted", locked_instance.deleted),
-                filters=validated_data.get("filters", locked_instance.filters),
+                filters=validated_data.get("filters", stored_filters),
                 key=validated_data.get("key", locked_instance.key),
                 bucketing_identifier=validated_data.get("bucketing_identifier", locked_instance.bucketing_identifier),
                 ensure_experience_continuity=validated_data.get(
@@ -3043,6 +3046,18 @@ class FeatureFlagSerializer(
                 )
             return None
         return change
+
+    @staticmethod
+    def _normalized_stored_filters(locked_instance: FeatureFlag) -> dict:
+        """The stored filters, normalized the way `validate_filters` normalizes the request's, so a shape the
+        serializer rewrites (a condition without a `properties` key, an operator alias) does not read as an edit.
+        Payloads are left out because the classifier does not read them and stored ones can be ciphertext."""
+        stored = {key: value for key, value in (locked_instance.filters or {}).items() if key != "payloads"}
+        structural = FeatureFlagFiltersSerializer(
+            data=stored,
+            context={FLAG_ID_CONTEXT_KEY: locked_instance.id, PRESERVE_UNKNOWN_KEYS_CONTEXT_KEY: True},
+        )
+        return structural.validated_data if structural.is_valid() else stored
 
     def _discard_unchanged_stale_fields(self, validated_data: dict, original_flag: dict | None) -> dict:
         if not original_flag:
