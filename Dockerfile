@@ -246,7 +246,7 @@ RUN mkdir -p "$TIKTOKEN_CACHE_DIR" && \
     python -c "import tiktoken; [tiktoken.get_encoding(e) for e in ('o200k_base', 'cl100k_base')]"
 
 # Add in Django deps
-COPY manage.py manage.py
+COPY manage.py manage_diagnostics.py ./
 COPY common/esbuilder common/esbuilder
 COPY common/hogvm common/hogvm/
 COPY common/migration_utils common/migration_utils/
@@ -400,7 +400,7 @@ COPY --from=frontend-build --chown=posthog:posthog /code/frontend/src/products.j
 COPY --chown=posthog:posthog ./bin ./bin/
 # Persons SQL migration files (read by apply_persons_migrations management command for hobby deploys)
 COPY --chown=posthog:posthog ./rust/persons_migrations ./rust/persons_migrations/
-COPY --chown=posthog:posthog manage.py manage.py
+COPY --chown=posthog:posthog manage.py manage_diagnostics.py ./
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog common/hogvm common/hogvm/
@@ -425,7 +425,7 @@ COPY --chown=posthog:posthog services/mcp/schema services/mcp/schema/
 # Test modules are skipped to keep the layer small. Default (timestamp) validation: one stat per
 # module, and a later COPY of edited .py files still takes effect. See docs/internal/django-startup-time.md.
 RUN /python-runtime/bin/python -m compileall -q -j 0 -x '/tests?/' \
-    manage.py posthog ee common/hogvm common/migration_utils products packages/owners-yaml
+    manage.py manage_diagnostics.py posthog ee common/hogvm common/migration_utils products packages/owners-yaml
 
 # Validate the Playwright client library (used to drive the remote browserless service over CDP —
 # no browser binary ships in this image).

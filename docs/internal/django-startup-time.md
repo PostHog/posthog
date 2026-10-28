@@ -143,7 +143,9 @@ When the floor has crept, the lever is the same as it ever was — find the heav
 ### Diagnose a stalled management command
 
 Set `POSTHOG_COMMAND_DIAGNOSTICS=1` for the process that needs investigation.
-`manage.py` starts a traceback watchdog before it imports Django and sends JSON phase events and thread dumps through a bounded, nonblocking pipe.
+`manage.py` loads `manage_diagnostics.py` only when diagnostics are enabled.
+The helper starts a traceback watchdog before Django imports and sends JSON phase events and thread dumps through a bounded, nonblocking pipe.
+With diagnostics disabled, the entry point does not import the helper or its dependencies.
 `POSTHOG_COMMAND_DIAGNOSTICS_INTERVAL_SECONDS` controls the interval between thread dumps and defaults to 60 seconds.
 An invalid interval disables diagnostics and attempts to emit a warning without changing the command result.
 

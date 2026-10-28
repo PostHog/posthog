@@ -550,6 +550,7 @@ const TRIPWIRE_RULES = [
     ['pytest.ini', PYTHON],
     ['conftest.py', PYTHON],
     ['manage.py', PYTHON],
+    ['manage_diagnostics.py', PYTHON],
     ['pytest_boot_gc.py', PYTHON],
     ['dagster_cloud.yaml', PYTHON],
 

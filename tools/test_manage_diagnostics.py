@@ -50,6 +50,7 @@ def setup():
         block_during_setup()
 
 def execute(argv):
+    assert ('manage_diagnostics' in sys.modules) == (os.environ.get('POSTHOG_COMMAND_DIAGNOSTICS') == '1')
     phase = os.environ['HANG_PHASE']
     if phase == 'command':
         block_during_command()
@@ -150,7 +151,7 @@ class ManageDiagnosticsTest(unittest.TestCase):
         if absent_phase:
             self.assertNotIn(absent_phase, self.phases(output))
 
-    @parameterized.expand([(True, "success", 0), (True, "failure", 7), (False, "success", 0)])
+    @parameterized.expand([(True, "success", 0), (True, "failure", 7), (False, "success", 0), (False, "failure", 7)])
     def test_preserves_command_outcome(self, enabled: bool, phase: str, expected_status: int) -> None:
         process = self.start(phase, enabled, "60")
         _, output = process.communicate(timeout=5)

@@ -264,6 +264,7 @@ jobs:
                         - 'rust/persons_migrations/**'
                         # Django entry point + pytest config
                         - manage.py
+                        - manage_diagnostics.py
                         - pytest.ini
                         - pyproject.toml
                         - uv.lock

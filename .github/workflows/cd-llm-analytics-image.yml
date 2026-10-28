@@ -19,6 +19,7 @@ on:
             - 'posthog/management/commands/start_temporal_worker.py'
             - 'posthog/clickhouse/migrations/**'
             - 'Dockerfile.llm-analytics'
+            - manage_diagnostics.py
             - '.github/workflows/cd-llm-analytics-image.yml'
             - 'pyproject.toml'
             - 'bin/temporal-django-worker'
@@ -35,6 +36,7 @@ on:
             - 'posthog/management/commands/start_temporal_worker.py'
             - 'posthog/clickhouse/migrations/**'
             - 'Dockerfile.llm-analytics'
+            - manage_diagnostics.py
             - '.github/workflows/cd-llm-analytics-image.yml'
             - 'pyproject.toml'
             - 'bin/temporal-django-worker'
