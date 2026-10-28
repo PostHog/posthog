@@ -13,9 +13,10 @@ little, because the rollback suggestion then finds nobody with a new value and s
 raise lets a bad rollout through.
 
 Not covered: the holdout, because only experiments write it, and their flags are out of scope. Early access enrollment
-and the other super groups, because the early access product owns those flags. Turning `early_exit` on, which only
-takes values away. The flag-level aggregation is covered, because it decides whether the flag counts persons or
-groups.
+and the other super groups, because the early access product owns those flags. Turning `early_exit` on, which takes
+values away from the people outside a condition's rollout. It changes how the conditions combine and rolls nothing
+back, so the flag page does not ask why. The flag-level aggregation is covered, because it decides whether the flag
+counts persons or groups.
 """
 
 from collections.abc import Mapping
@@ -52,7 +53,7 @@ class ExposureChangeKind(StrEnum):
     CONDITION_ADDED = "condition_added"
     CONDITION_REMOVED = "condition_removed"
     # The criteria of a condition changed, or the flag-level aggregation changed.
-    PROPERTIES_CHANGED = "properties_changed"
+    CRITERIA_CHANGED = "criteria_changed"
     VARIANT_CHANGED = "variant_changed"
     # The conditions have a new order, and the order decides the value of a person who matches two of them.
     CONDITIONS_REORDERED = "conditions_reordered"
@@ -94,8 +95,6 @@ class ExposureChange:
     # raise, the rollback suggestion counts the people with any value other than false, and the people with each
     # variant. Empty for a boolean flag, and for a disabled or deleted flag.
     served_variants: tuple[str, ...]
-    # The flag-level group type index after the edit, None for persons. A group flag counts groups, not people.
-    aggregation: int | None
 
 
 @frozen
@@ -209,14 +208,19 @@ def _reads_bucketing(side: _Side, *, persons_only: bool = False) -> bool:
     )
 
 
-def _person_hash_inputs(config: FlagExposureConfig) -> tuple[str, bool]:
-    return (
-        normalized_bucketing_identifier(config.bucketing_identifier),
-        normalized_experience_continuity(config.ensure_experience_continuity),
+def _person_hash_inputs(config: FlagExposureConfig, side: _Side) -> tuple[str, bool]:
+    identifier = normalized_bucketing_identifier(config.bucketing_identifier)
+    # The flag service reads experience continuity only for a person flag that buckets on the distinct ID. See
+    # `has_experience_continuity` in rust/feature-flags/src/flags/flag_operations.rs.
+    continuity = (
+        identifier == "distinct_id"
+        and side.aggregation is None
+        and normalized_experience_continuity(config.ensure_experience_continuity)
     )
+    return identifier, continuity
 
 
-def _changes_bucketing(before: FlagExposureConfig, after: FlagExposureConfig, new: _Side) -> bool:
+def _changes_bucketing(before: FlagExposureConfig, after: FlagExposureConfig, old: _Side, new: _Side) -> bool:
     # The flag service hashes the flag key with the group key for a group condition. For a person condition, it uses
     # the device ID or the distinct ID, as the bucketing identifier says. With experience continuity, it uses an
     # override row or the anonymous ID that the request sends. See `hashed_identifier` in
@@ -225,7 +229,9 @@ def _changes_bucketing(before: FlagExposureConfig, after: FlagExposureConfig, ne
     # A deleted flag does not get here, so the tombstone suffix of a deleted flag's key is not a new key.
     if before.key != after.key and _reads_bucketing(new):
         return True
-    return _person_hash_inputs(before) != _person_hash_inputs(after) and _reads_bucketing(new, persons_only=True)
+    return _person_hash_inputs(before, old) != _person_hash_inputs(after, new) and _reads_bucketing(
+        new, persons_only=True
+    )
 
 
 def _reordered(pairs: Mapping[int, int]) -> bool:
@@ -261,7 +267,7 @@ def _compare_pair(
     if not _ends_evaluation(previous, old) and not _ends_evaluation(condition, new):
         return
     if previous.criteria != condition.criteria and _ends_evaluation(condition, new):
-        builder.add(ExposureChangeKind.PROPERTIES_CHANGED)
+        builder.add(ExposureChangeKind.CRITERIA_CHANGED)
     if condition.rollout > previous.rollout:
         builder.add(ExposureChangeKind.ROLLOUT_INCREASED)
     elif condition.rollout < previous.rollout:
@@ -328,14 +334,14 @@ def classify_exposure_change(*, before: FlagExposureConfig, after: FlagExposureC
 
     if was_on and is_on:
         if old.aggregation != new.aggregation and _serves_anybody(new):
-            builder.add(ExposureChangeKind.PROPERTIES_CHANGED)
+            builder.add(ExposureChangeKind.CRITERIA_CHANGED)
         if (
             not new.early_exit
             and any(_gives_false_outside_rollout(condition, old) for condition in old.conditions)
             and _serves_anybody(new)
         ):
             builder.add(ExposureChangeKind.EARLY_EXIT_TURNED_OFF)
-        if _changes_bucketing(before, after, new):
+        if _changes_bucketing(before, after, old, new):
             builder.add(ExposureChangeKind.BUCKETING_CHANGED)
         _compare_conditions(old, new, builder)
         if not same_assignment(old.split, new.split) and _serves_from_split(new):
@@ -349,5 +355,4 @@ def classify_exposure_change(*, before: FlagExposureConfig, after: FlagExposureC
         kinds=builder.kinds(),
         direction=builder.direction(),
         served_variants=_served_variants(new) if is_on else (),
-        aggregation=new.aggregation,
     )

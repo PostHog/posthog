@@ -24,7 +24,7 @@ ROLLOUT_INCREASED = ExposureChangeKind.ROLLOUT_INCREASED
 ROLLOUT_DECREASED = ExposureChangeKind.ROLLOUT_DECREASED
 CONDITION_ADDED = ExposureChangeKind.CONDITION_ADDED
 CONDITION_REMOVED = ExposureChangeKind.CONDITION_REMOVED
-PROPERTIES_CHANGED = ExposureChangeKind.PROPERTIES_CHANGED
+CRITERIA_CHANGED = ExposureChangeKind.CRITERIA_CHANGED
 VARIANT_CHANGED = ExposureChangeKind.VARIANT_CHANGED
 CONDITIONS_REORDERED = ExposureChangeKind.CONDITIONS_REORDERED
 EARLY_EXIT_TURNED_OFF = ExposureChangeKind.EARLY_EXIT_TURNED_OFF
@@ -147,7 +147,7 @@ class TestClassifyExposureChange(TestCase):
                 "properties_changed",
                 _flag(_condition(100, EMAIL)),
                 _flag(_condition(100, OTHER_EMAIL)),
-                {PROPERTIES_CHANGED},
+                {CRITERIA_CHANGED},
                 RAISES,
             ),
             (
@@ -161,7 +161,7 @@ class TestClassifyExposureChange(TestCase):
                 "flag_aggregation_changed",
                 _flag(_condition(100)),
                 _flag(_condition(100), aggregation=0),
-                {PROPERTIES_CHANGED},
+                {CRITERIA_CHANGED},
                 RAISES,
             ),
             (
@@ -270,7 +270,7 @@ class TestClassifyExposureChange(TestCase):
                 "properties_changed_on_a_condition_at_zero_rollout_with_early_exit",
                 _flag(_condition(0, EMAIL), _condition(100), early_exit=True),
                 _flag(_condition(0, OTHER_EMAIL), _condition(100), early_exit=True),
-                {PROPERTIES_CHANGED},
+                {CRITERIA_CHANGED},
                 RAISES,
             ),
             (
@@ -298,6 +298,13 @@ class TestClassifyExposureChange(TestCase):
                 "early_exit_turned_off_at_full_rollout",
                 _flag(_condition(100, EMAIL), _condition(100), early_exit=True),
                 _flag(_condition(100, EMAIL), _condition(100)),
+                set(),
+                KEEPS,
+            ),
+            (
+                "early_exit_turned_on",
+                _flag(_condition(10, EMAIL), _condition(100)),
+                _flag(_condition(10, EMAIL), _condition(100), early_exit=True),
                 set(),
                 KEEPS,
             ),
@@ -380,6 +387,13 @@ class TestClassifyExposureChange(TestCase):
                 KEEPS,
             ),
             (
+                "key_changed_on_a_group_flag",
+                _flag(_condition(50), aggregation=0),
+                _flag(_condition(50), aggregation=0, key="renamed"),
+                {BUCKETING_CHANGED},
+                RAISES,
+            ),
+            (
                 "bucketing_identifier_written_as_the_default",
                 _flag(_condition(50)),
                 _flag(_condition(50), bucketing_identifier="distinct_id"),
@@ -399,6 +413,24 @@ class TestClassifyExposureChange(TestCase):
                 _flag(_condition(50), ensure_experience_continuity=None),
                 {BUCKETING_CHANGED},
                 RAISES,
+            ),
+            (
+                "experience_continuity_turned_on_under_device_id_bucketing",
+                _flag(_condition(50), bucketing_identifier="device_id"),
+                _flag(_condition(50), bucketing_identifier="device_id", ensure_experience_continuity=True),
+                set(),
+                KEEPS,
+            ),
+            (
+                "experience_continuity_turned_on_for_a_person_condition_of_a_group_flag",
+                _flag({**_condition(50), "aggregation_group_type_index": None}, aggregation=0),
+                _flag(
+                    {**_condition(50), "aggregation_group_type_index": None},
+                    aggregation=0,
+                    ensure_experience_continuity=True,
+                ),
+                set(),
+                KEEPS,
             ),
             (
                 "key_changed_on_a_partially_allocated_split",
@@ -471,6 +503,8 @@ class TestClassifyExposureChange(TestCase):
                 _flag(_condition(100, EMAIL, variant="b"), _condition(100), variants=SPLIT_ALL_A, active=False),
                 (),
             ),
+            ("boolean_flag_with_a_leftover_override", _flag(_condition(100, variant="b")), ()),
+            ("deleted", _flag(_condition(100), variants=SPLIT_ALL_A, deleted=True), ()),
         ]
     )
     def test_lists_the_variants_that_the_flag_serves(
@@ -479,13 +513,6 @@ class TestClassifyExposureChange(TestCase):
         change = classify_exposure_change(before=_flag(_condition(100), variants=SPLIT_ALL_A), after=after)
 
         assert change.served_variants == served_variants
-
-    def test_returns_the_group_type_after_the_edit(self) -> None:
-        change = classify_exposure_change(
-            before=_flag(_condition(50), aggregation=0), after=_flag(_condition(50), aggregation=1)
-        )
-
-        assert change.aggregation == 1
 
     @parameterized.expand(
         [
