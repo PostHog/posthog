@@ -105,7 +105,7 @@ export interface nodeDetailSceneLogicValues {
     lineageHiddenNodeBridging: HiddenNodeBridging | null
     lineageModalOpen: boolean
     lineageNodePositions: Record<string, XYPosition>
-    lineageTypeFilter: DataModelingNodeType[]
+    lineageTypeFilter: NodeTypeEnumApi[]
     lineageVisibleNodeIds: Set<string>
     node: DataModelingNode | null
     nodeLoading: boolean
@@ -266,7 +266,7 @@ export interface nodeDetailSceneLogicActions {
         tab: 'data-quality' | 'history' | 'lineage' | 'materialization' | 'query' | null
     }
     setLineageTypeFilter: (typeFilter: DataModelingNodeType[]) => {
-        typeFilter: DataModelingNodeType[]
+        typeFilter: NodeTypeEnumApi[]
     }
     setQueryEditorState: (state: NodeDetailQueryEditorState | null) => {
         state: NodeDetailQueryEditorState | null
@@ -324,7 +324,7 @@ export interface nodeDetailSceneLogicMeta {
         canEditQuery: (node: DataModelingNode | null, savedQuery: DataWarehouseSavedQuery | null) => boolean
         lineageVisibleNodeIds: (
             lineageGraph: LineageGraphData | null,
-            lineageTypeFilter: DataModelingNodeType[]
+            lineageTypeFilter: NodeTypeEnumApi[]
         ) => Set<string>
         lineageHiddenNodeBridging: (
             lineageGraph: LineageGraphData | null,
