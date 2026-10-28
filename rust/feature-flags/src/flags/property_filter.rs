@@ -17,8 +17,8 @@ impl PropertyFilter {
 
     /// Whether the cohort matcher honors this filter's operator.
     /// `apply_cohort_membership_logic` applies `in` and `not_in`, reads an absent operator as
-    /// `in`, and scores every other operator as a non-match. Every path that reports on a
-    /// cohort filter's operator resolves through here, so they cannot drift apart.
+    /// `in`, and scores every other operator as a non-match. That matcher and every path that
+    /// reports on a cohort filter's operator resolve through here, so they cannot drift apart.
     pub fn cohort_operator_is_supported(&self) -> bool {
         matches!(
             self.operator.unwrap_or(OperatorType::In),

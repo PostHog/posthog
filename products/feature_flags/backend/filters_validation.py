@@ -59,7 +59,7 @@ def _is_comparable_number(value: Any) -> bool:
 
 LIST_VALUE_OPERATORS: frozenset[str] = frozenset({"icontains_multi", "not_icontains_multi"})
 # The matcher honors these two on a cohort property and scores every other operator as a
-# non-match, so a flag that stores one of the others never matches anybody.
+# non-match, so a condition that stores one of the others never matches.
 COHORT_OPERATORS: frozenset[str] = frozenset({"in", "not_in"})
 PERSON_AGGREGATED_PROPERTY_TYPES: tuple[str, ...] = ("person", "cohort", "flag")
 

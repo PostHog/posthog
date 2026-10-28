@@ -2317,13 +2317,18 @@ impl FeatureFlagMatcher {
                 if !self.evaluate_cohort_filters(&cohort_filters, cohort_props, cohorts.clone())? {
                     // A non-match isn't trustworthy when a targeted cohort has a behavioral or
                     // lifecycle leaf the dynamic path can't resolve, so flag it with a distinct reason.
-                    let cohort_membership_unresolved = cohort_filters.iter().any(|filter| {
-                        filter.get_cohort_id().is_some_and(|cohort_id| {
-                            cohorts
-                                .iter()
-                                .any(|c| c.id == cohort_id && c.has_behavioral_condition())
-                        })
-                    });
+                    // An operator the matcher does not honor fails the condition whatever the
+                    // membership is, so the caveat does not hold for one of those.
+                    let cohort_membership_unresolved = cohort_filters
+                        .iter()
+                        .all(|filter| filter.cohort_operator_is_supported())
+                        && cohort_filters.iter().any(|filter| {
+                            filter.get_cohort_id().is_some_and(|cohort_id| {
+                                cohorts
+                                    .iter()
+                                    .any(|c| c.id == cohort_id && c.has_behavioral_condition())
+                            })
+                        });
                     let reason = if cohort_membership_unresolved {
                         FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated
                     } else {
