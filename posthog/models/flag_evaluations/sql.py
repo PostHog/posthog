@@ -245,7 +245,7 @@ ENGINE = {FLAG_EVALUATIONS_DATA_TABLE_ENGINE()}
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY {FLAG_EVALUATIONS_ORDER_BY}
 {ttl_period("timestamp", FLAG_EVALUATIONS_TTL_DAYS, unit="DAY")}
-SETTINGS ttl_only_drop_parts = 1
+SETTINGS ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1
 """
 )
 

@@ -103,7 +103,7 @@
         }
     },
     "experiment-results-get": {
-        "description": "Run an experiment's metric queries and return primary/secondary metric results plus exposure data in one call, with self-describing per-metric metadata: each row in metrics.primary.results / metrics.secondary.results carries a `metric` summary (uuid, name, metric_type, goal, and source - 'inline' for metrics defined on the experiment, 'shared' for saved metrics, with saved_metric_id/saved_metric_name set on shared rows). Rows are ordered to match the experiment UI (primary_metrics_ordered_uuids / secondary_metrics_ordered_uuids); a row whose metric query failed is kept with data: null so positions stay aligned. Results younger than 24 hours are served from cache, and refresh=true does not change that: it computes only when no cached result is that fresh, which is also the default. To recompute, use experiment-metrics-recalculation-create. Only works with new experiments (not legacy ExperimentTrendsQuery / ExperimentFunnelsQuery). Sibling tools: experiment-metrics-recalculation-latest-retrieve reads the most recent completed background recalculation run instead of executing queries in-call (pair it with experiment-metrics-recalculation-create to refresh); experiment-timeseries-results returns one metric's day-by-day history. Note the response strips UI-only bulk fields (clickhouse_sql, hogql, the legacy insight payload, per-funnel-step step_sessions) while preserving statistical fields (sum, sum_squares, step_counts, credible_intervals, per-breakdown stats).",
+        "description": "Run an experiment's metric queries and return primary/secondary metric results plus exposure data in one call, with self-describing per-metric metadata: each row in metrics.primary.results / metrics.secondary.results carries a `metric` summary (uuid, name, metric_type, goal, and source - 'inline' for metrics defined on the experiment, 'shared' for saved metrics, with saved_metric_id/saved_metric_name set on shared rows). Rows are ordered to match the experiment UI (primary_metrics_ordered_uuids / secondary_metrics_ordered_uuids); a row whose metric query failed is kept with data: null so positions stay aligned. Results younger than 24 hours are served from cache, and refresh=true does not change that: it computes only when no cached result is that fresh, which is also the default. To recompute, use experiment-metrics-recalculation-create. Only works with new experiments (not legacy ExperimentTrendsQuery / ExperimentFunnelsQuery). Sibling tools: experiment-metrics-recalculation-latest-retrieve reads the most recent completed background recalculation run instead of executing queries in-call (pair it with experiment-metrics-recalculation-create to refresh); experiment-timeseries-results returns one metric's day-by-day history. Note the response strips UI-only bulk fields (clickhouse_sql, hogql, per-funnel-step step_sessions) while preserving statistical fields (sum, sum_squares, step_counts, each variant's credible_interval or confidence_interval, per-breakdown stats).",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Get experiment metric and exposure results with self-describing per-metric metadata.",
@@ -301,6 +301,22 @@
             "readOnlyHint": true
         },
         "feature_flag": "insight-data-checks"
+    },
+    "explain-chart": {
+        "description": "Show the person an explanation of a trends chart: the chart with each moment that stands out highlighted, and a panel that steps through them one chapter at a time, with what happened, the likely cause and the evidence.\n\nCall it at the end of an investigation, after you have looked into the chart yourself (the investigate-metric skill describes how). Pass the saved insight's `insightId`, or the TrendsQuery you ran as `query`, plus a one-sentence `headline` and the chapters in reading order.\n\nThe app works out each chapter's numbers from the chart itself (the value, and how it compares with a typical point), so leave the chart's numbers out of your text. Numbers from your own follow-up queries belong in `evidence`, with the `query` that found them so the person can open it. Say how sure you are with `confidence`, and word a cause you could not confirm as a guess. Wrap each name that explains a moment (a referrer, a page, a country, a release) in **double asterisks** to highlight it, in the headline as well as in the chapters.\n\nTrends only, one series at a time. A chart that shows a total, such as a number, pie, table or map, is drawn as the line behind it. A box plot, 2D heatmap or scatter plot is refused. The response says which chapters' dates matched no point on the chart.\n\nA direct call checks the chapters against the chart. Where the host draws apps from `exec`, as Claude Code does, the call also shows the explanation and the response says so. Otherwise it returns only a short summary: show the explanation with `render-ui` where that tool exists, and write the findings in the chat where it does not.",
+        "category": "Insights & analytics",
+        "feature": "insights",
+        "summary": "Walk the person through a trends chart, one highlighted moment at a time.",
+        "title": "Explain this chart",
+        "required_scopes": ["insight:read", "query:read"],
+        "api_operations": ["GET /api/projects/{project_id}/insights/{id}/", "POST /api/projects/{project_id}/query/"],
+        "feature_flag": "investigate-insight",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
     },
     "notebook-edit": {
         "description": "Edit part of a notebook's content by short_id.\n\nFor markdown notebooks, use `execute-sql` to read the current markdown from `system.notebooks.markdown`, then edit with `old_markdown` / `new_markdown`. These are plain markdown strings; do not copy or construct the nested `ph-markdown-notebook` JSON wrapper.\n\nFor legacy rich-text notebooks, inspect the JSON content from `system.notebooks.content`, then edit with `old_value` / `new_value` JSON subtree replacement. Matching is by content: the tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it; reload the latest markdown or JSON content and re-apply your edit.\nIf you have browser access, check how the edited notebook renders.",
@@ -560,7 +576,7 @@
         }
     },
     "event-definition-create": {
-        "description": "Create an event definition for an event that has not been ingested yet. Use this to define the event name, description, tags, verified state, and hidden state before the first event arrives. Fails if a definition with the same name already exists (use event-definition-update instead). Use exact event name like 'user_signed_up'.",
+        "description": "Create an event definition for an event that has not been ingested yet. Use this to define the event name, description, owner, tags, verified state, and hidden state before the first event arrives. Fails if a definition with the same name already exists (use event-definition-update instead). Use exact event name like 'user_signed_up'.",
         "category": "Events & properties",
         "feature": "events",
         "summary": "Create an event definition.",
@@ -573,8 +589,22 @@
             "readOnlyHint": false
         }
     },
+    "event-definition-get": {
+        "description": "Get one event definition by its exact name, like '$pageview' or 'user_signed_up'. Returns the description, owner, tags, verified and hidden state, first seen time, and last seen time. Use this to find who owns an event. Returns `found: false` when no definition has that name.",
+        "category": "Events & properties",
+        "feature": "events",
+        "summary": "Get an event definition by name.",
+        "title": "Get event definition",
+        "required_scopes": ["event_definition:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "event-definition-update": {
-        "description": "Update event definition metadata. Can update description, tags, mark status as verified or hidden. Use exact event name like '$pageview' or 'user_signed_up'.",
+        "description": "Update event definition metadata. Can update description, owner, tags, mark status as verified or hidden. Use exact event name like '$pageview' or 'user_signed_up'.",
         "category": "Events & properties",
         "feature": "events",
         "summary": "Update an event definition's metadata.",

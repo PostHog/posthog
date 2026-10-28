@@ -9,6 +9,18 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Broadcast audiences written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const broadcastAudienceSuggestionsGenerateBodyRefreshDefault = false
+
+export const BroadcastAudienceSuggestionsGenerateBody = /* @__PURE__ */ zod.object({
+    refresh: zod
+        .boolean()
+        .default(broadcastAudienceSuggestionsGenerateBodyRefreshDefault)
+        .describe('Make new suggestions even when the cached ones are still valid.'),
+})
+
 export const hogFlowTemplatesCreateBodyNameMax = 400
 
 export const hogFlowTemplatesCreateBodyImageUrlMax = 8201
@@ -512,6 +524,9 @@ export const hogFlowsCreateBodyTagsItemMax = 255
 
 export const hogFlowsCreateBodyTagsMax = 10
 
+export const hogFlowsCreateBodySourceRecordMax = 255
+
+export const hogFlowsCreateBodySourceRecordRegExp = new RegExp('^[a-z_]+:[A-Za-z0-9_-]+$')
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -560,6 +575,14 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails'
+            ),
+        source_record: zod
+            .string()
+            .max(hogFlowsCreateBodySourceRecordMax)
+            .regex(hogFlowsCreateBodySourceRecordRegExp)
+            .nullish()
+            .describe(
+                "The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`."
             ),
         trigger_masking: zod
             .union([
@@ -1933,6 +1956,9 @@ export const hogFlowsInvocationsCreateBodyConfigurationOneTagsItemMax = 255
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneTagsMax = 10
 
+export const hogFlowsInvocationsCreateBodyConfigurationOneSourceRecordMax = 255
+
+export const hogFlowsInvocationsCreateBodyConfigurationOneSourceRecordRegExp = new RegExp('^[a-z_]+:[A-Za-z0-9_-]+$')
 export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneDistinctIdMax = 200
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneFirstNameMax = 150
@@ -2005,6 +2031,14 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe(
                     'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails'
+                ),
+            source_record: zod
+                .string()
+                .max(hogFlowsInvocationsCreateBodyConfigurationOneSourceRecordMax)
+                .regex(hogFlowsInvocationsCreateBodyConfigurationOneSourceRecordRegExp)
+                .nullish()
+                .describe(
+                    "The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`."
                 ),
             created_at: zod.iso.datetime({ offset: true }),
             created_by: zod.object({
@@ -2842,6 +2876,22 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Variable value overrides merged with the workflow defaults on each run.'),
 })
 
+export const hogFlowsApplyUtmDefaultsCreateBodyDryRunDefault = true
+export const hogFlowsApplyUtmDefaultsCreateBodyEnableWhereOffDefault = false
+
+export const HogFlowsApplyUtmDefaultsCreateBody = /* @__PURE__ */ zod.object({
+    dry_run: zod
+        .boolean()
+        .default(hogFlowsApplyUtmDefaultsCreateBodyDryRunDefault)
+        .describe('When true, only count the emails the change would update. Nothing is saved.'),
+    enable_where_off: zod
+        .boolean()
+        .default(hogFlowsApplyUtmDefaultsCreateBodyEnableWhereOffDefault)
+        .describe(
+            'Also turn UTM tags on in emails that have them off. Off by default, so those emails keep sending untagged links.'
+        ),
+})
+
 export const hogFlowsBulkDeleteCreateBodyNameMax = 400
 
 export const hogFlowsBulkDeleteCreateBodyDescriptionDefault = ``
@@ -2849,6 +2899,9 @@ export const hogFlowsBulkDeleteCreateBodyTagsItemMax = 255
 
 export const hogFlowsBulkDeleteCreateBodyTagsMax = 10
 
+export const hogFlowsBulkDeleteCreateBodySourceRecordMax = 255
+
+export const hogFlowsBulkDeleteCreateBodySourceRecordRegExp = new RegExp('^[a-z_]+:[A-Za-z0-9_-]+$')
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -2902,6 +2955,14 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails'
+            ),
+        source_record: zod
+            .string()
+            .max(hogFlowsBulkDeleteCreateBodySourceRecordMax)
+            .regex(hogFlowsBulkDeleteCreateBodySourceRecordRegExp)
+            .nullish()
+            .describe(
+                "The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`."
             ),
         trigger_masking: zod
             .union([

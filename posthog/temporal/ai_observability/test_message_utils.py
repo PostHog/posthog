@@ -4,7 +4,11 @@ import json
 
 import pytest
 
-from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
+from posthog.temporal.ai_observability.message_utils import (
+    extract_text_from_messages,
+    format_tool_definitions,
+    last_message_text,
+)
 
 
 class TestExtractTextFromMessages:
@@ -764,3 +768,34 @@ class TestFormatToolDefinitions:
         # rather than silently dropped — the judge can still see something.
         result = format_tool_definitions(tools)
         assert result == json.dumps(tools, default=str)
+
+
+@pytest.mark.parametrize(
+    "messages,role,expected",
+    [
+        (
+            [
+                {"role": "system", "content": "You are a support agent."},
+                {"role": "user", "content": "First question"},
+                {"role": "assistant", "content": "First answer"},
+                {"role": "user", "content": [{"type": "text", "text": "Second question"}]},
+            ],
+            "user",
+            "Second question",
+        ),
+        (
+            [
+                {"role": "user", "content": "What is the weather in Paris?"},
+                {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "weather", "input": {}}]},
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "18C sunny"}]},
+            ],
+            "user",
+            "What is the weather in Paris?",
+        ),
+        ([{"role": "assistant", "content": "The answer"}], "assistant", "The answer"),
+        ([{"role": "system", "content": "Only a system prompt"}], "user", "system: Only a system prompt"),
+        ("A plain string", "user", "A plain string"),
+    ],
+)
+def test_last_message_text(messages, role, expected):
+    assert last_message_text(messages, role) == expected

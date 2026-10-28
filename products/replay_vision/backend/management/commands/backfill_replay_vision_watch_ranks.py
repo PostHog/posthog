@@ -4,8 +4,11 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandParser
 from django.utils import timezone
 
-from products.replay_vision.backend.watch_rank import DUPLICATE_LOOKBACK
-from products.replay_vision.backend.watch_rank_backfill import backfill_team_watch_ranks, teams_with_observations
+from products.replay_vision.backend.watch_rank_backfill import (
+    WATCH_RANK_BACKFILL_DAYS,
+    backfill_team_watch_ranks,
+    teams_with_observations,
+)
 
 
 class Command(BaseCommand):
@@ -13,7 +16,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--team-id", type=int, action="append", help="Only this team; repeat for more")
-        parser.add_argument("--days", type=int, default=DUPLICATE_LOOKBACK.days, help="How far back to rank, in days")
+        parser.add_argument("--days", type=int, default=WATCH_RANK_BACKFILL_DAYS, help="How far back to rank, in days")
         parser.add_argument("--dry-run", action="store_true", help="Count what would be ranked, write nothing")
 
     def handle(self, *args: Any, **options: Any) -> None:

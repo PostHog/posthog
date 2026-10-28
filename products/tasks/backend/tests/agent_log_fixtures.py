@@ -164,6 +164,8 @@ def _cost_less_usage_update_line(used: int = 1000) -> str:
 @dataclass
 class FakeTaskRun:
     id: str = "run-1"
+    task_id: str = "task-1"
     log_url: str = "s3://fake/log"
     status: str = "running"
     error_message: str | None = None
+    state: dict[str, object] | None = None

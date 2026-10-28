@@ -212,6 +212,15 @@ export function parseGithubRepoURL(url: string): Record<string, string> {
     return { user, repo, type, path }
 }
 
+function pathOf(url: URL): string | null {
+    // Dot-segment removal can turn '/.//evil.com' into the pathname '//evil.com', which a browser
+    // then loads as a protocol-relative URL on another origin.
+    if (url.pathname.startsWith('//')) {
+        return null
+    }
+    return url.pathname + url.search + url.hash
+}
+
 function resolveSameOriginPath(candidate: string, location: Location): string | null {
     // Protocol-relative URLs (e.g., //evil.com/test) are not allowed
     if (candidate.startsWith('//')) {
@@ -227,7 +236,7 @@ function resolveSameOriginPath(candidate: string, location: Location): string | 
             if (url.origin !== location.origin) {
                 return null
             }
-            return url.pathname + url.search + url.hash
+            return pathOf(url)
         } catch {
             return null
         }
@@ -237,7 +246,7 @@ function resolveSameOriginPath(candidate: string, location: Location): string | 
     try {
         const url = new URL(candidate)
         if ((url.protocol === 'http:' || url.protocol === 'https:') && url.origin === location.origin) {
-            return url.pathname + url.search + url.hash
+            return pathOf(url)
         }
         return null
     } catch {

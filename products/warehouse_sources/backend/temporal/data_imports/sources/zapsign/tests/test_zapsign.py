@@ -18,9 +18,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     ZapSignSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zapsign.settings import (
+    AUDIT_TRAIL_RESOURCE,
     DOCUMENTS_RESOURCE,
+    SIGNER_VERIFICATIONS_RESOURCE,
     SIGNERS_RESOURCE,
     TEMPLATES_RESOURCE,
+    USERS_RESOURCE,
     ZAPSIGN_BASE_URL,
     ZAPSIGN_SANDBOX_BASE_URL,
 )
@@ -198,6 +201,91 @@ class TestSignersSource:
         assert result.response is not None
         assert result.response.primary_keys == ["_documents_token", "token"]
         assert result.response.partition_keys is None
+
+
+class TestUsersSource:
+    def test_walks_every_page_until_next_is_null(self) -> None:
+        page2_url = f"{ZAPSIGN_BASE_URL}/api/v1/users/?page=2"
+        result = _driver().run(
+            USERS_RESOURCE,
+            [
+                _scripted_page([{"email": "owner@example.com", "user_group": {"name": "owner"}}], next_url=page2_url),
+                _scripted_page([{"email": "member@example.com", "user_group": {"name": "self_docs_limited"}}]),
+            ],
+        )
+
+        assert [row["email"] for row in result.rows] == ["owner@example.com", "member@example.com"]
+        assert result.urls[0].startswith(f"{ZAPSIGN_BASE_URL}/api/v1/users/")
+        assert result.urls[1] == page2_url
+
+
+class TestAuditTrailSource:
+    def test_fans_out_per_document_and_skips_documents_that_answer_404(self) -> None:
+        result = _driver().run(
+            AUDIT_TRAIL_RESOURCE,
+            [
+                _scripted_page([{"token": "d1"}, {"token": "d2"}, {"token": "d3"}]),
+                ScriptedResponse(
+                    json=[
+                        {
+                            "time": "2026-01-02 10:00:00.500000+00:00",
+                            "user": "signer@example.com",
+                            "event": "Document viewed",
+                            "description": "Document viewed by signer@example.com",
+                        },
+                        {
+                            "time": "2026-01-01 09:00:00+00:00",
+                            "user": "owner@example.com",
+                            "event": "Document created",
+                            "description": "Document created by owner@example.com via web",
+                        },
+                    ]
+                ),
+                ScriptedResponse(status=404, json={"detail": "Not found."}),
+                ScriptedResponse(json=[]),
+            ],
+        )
+
+        assert [(row["_documents_token"], row["event"], row["time"]) for row in result.rows] == [
+            ("d1", "Document viewed", datetime.datetime(2026, 1, 2, 10, 0, 0, 500000, tzinfo=datetime.UTC)),
+            ("d1", "Document created", datetime.datetime(2026, 1, 1, 9, 0, tzinfo=datetime.UTC)),
+        ]
+        assert [url.split("?")[0] for url in result.urls[1:]] == [
+            f"{ZAPSIGN_BASE_URL}/api/v1/docs/signer-log/{token}" for token in ("d1", "d2", "d3")
+        ]
+
+
+class TestSignerVerificationsSource:
+    def test_fans_out_from_documents_through_signers_and_skips_missing_documents_and_attempts(self) -> None:
+        verification = {
+            "token": "s1",
+            "selfie_validation_type": "identity-verification-global",
+            "validations": [{"type": "Name validation", "status": "success", "reason": ""}],
+        }
+        result = _driver().run(
+            SIGNER_VERIFICATIONS_RESOURCE,
+            [
+                _scripted_page([{"token": "d1"}, {"token": "d2"}, {"token": "d3"}]),
+                ScriptedResponse(json={"token": "d1", "signers": [{"token": "s1"}, {"token": "s2"}]}),
+                ScriptedResponse(json=verification),
+                ScriptedResponse(status=404, json={"error": "Signer has no attempts"}),
+                ScriptedResponse(status=404, json={"detail": "Not found."}),
+                ScriptedResponse(json={"token": "d3", "signers": []}),
+            ],
+        )
+
+        assert [(row["_signers_token"], row["selfie_validation_type"]) for row in result.rows] == [
+            ("s1", "identity-verification-global")
+        ]
+        assert result.rows[0]["validations"] == verification["validations"]
+        assert [url.split("?")[0] for url in result.urls] == [
+            f"{ZAPSIGN_BASE_URL}/api/v1/docs/",
+            f"{ZAPSIGN_BASE_URL}/api/v1/docs/d1/",
+            f"{ZAPSIGN_BASE_URL}/api/v1/signer-verification-details/s1/",
+            f"{ZAPSIGN_BASE_URL}/api/v1/signer-verification-details/s2/",
+            f"{ZAPSIGN_BASE_URL}/api/v1/docs/d2/",
+            f"{ZAPSIGN_BASE_URL}/api/v1/docs/d3/",
+        ]
 
 
 class TestWebhookTableTransformer:

@@ -239,7 +239,8 @@ describe('watchFeedLogic', () => {
         )
         logic.actions.loadMoreFeed({})
         logic.actions.loadMoreFeed({})
-        await expectLogic(logic).toMatchValues({ feedItemsLoading: true })
+        // Loading the next page keeps the cards usable; only a filter change dims them.
+        await expectLogic(logic).toMatchValues({ feedItemsLoading: true, feedReloading: false })
         await waitFor(() => expect(pending).toHaveLength(2))
         // The newer request lands first, then the older one would append the same page again.
         pending[1]()
@@ -255,7 +256,7 @@ describe('watchFeedLogic', () => {
         logic.mount()
         await expectLogic(logic)
             .toDispatchActions(['loadFeed', 'loadFeedFailure'])
-            .toMatchValues({ feedFailed: true, feedItems: null })
+            .toMatchValues({ feedFailed: true, feedItems: null, feedReloading: false })
         feedSpy.mockImplementation(() => [200, { results: [] }])
         await expectLogic(logic, () => {
             logic.actions.loadFeed()
