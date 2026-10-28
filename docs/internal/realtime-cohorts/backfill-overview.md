@@ -257,7 +257,7 @@ Every backfill gate is on, and the default timings apply: a 5-minute save deboun
    The seeder picks up R and sets `B` to 10:05:10.
    It plans one chunk per day from 2026-03-03 through 2026-03-09.
 4. **10:05:25, scan.**
-   Workers claim chunks oldest day first.
+   Workers claim chunks newest day first.
    The 2026-03-05 chunk is claimed at 10:05:25, so its `S_chunk` is 10:05:25.
    ClickHouse returns p-1's 4 pageviews, all of which arrived long ago.
    The seeder produces a tile: p-1, condition H, 2026-03-05, count 4.
@@ -302,4 +302,5 @@ A backlog, a failure or a slow catalog refresh makes it longer.
   So reconcile is dispatched long before most seeds apply, and the ordering on each partition is what keeps a reconcile behind its run's held seeds.
 - Reconcile requests are not fenced.
   A request that reaches a partition before the processor has loaded the cohort's current definition waits for the next catalog refresh, up to one refresh interval, and is withheld only if that refresh still disagrees.
-- Every chunk of every run is claimed oldest day first, so a small new cohort's recent days wait behind a large team run's older days.
+- Behavioral chunks are claimed newest day first across every run, so the older days of a long-window run wait behind the newer days of every other run.
+  Under sustained load, such a run can finish long after shorter runs created later.
