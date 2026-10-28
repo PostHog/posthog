@@ -70393,6 +70393,8 @@ export namespace Schemas {
          * @maxLength 100
          */
       match_pattern: string;
+      /** Optional icon shown next to the harness name. A base64 data URI of a PNG, JPEG, GIF or WebP image, 16 KB or smaller and at most 256 by 256 pixels. An empty string means no icon. */
+      icon?: string;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -90163,6 +90165,8 @@ export namespace Schemas {
          * @maxLength 100
          */
       match_pattern?: string;
+      /** Optional icon shown next to the harness name. A base64 data URI of a PNG, JPEG, GIF or WebP image, 16 KB or smaller and at most 256 by 256 pixels. An empty string means no icon. */
+      icon?: string;
       readonly created_at?: string;
       readonly updated_at?: string;
     }
