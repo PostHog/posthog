@@ -8,7 +8,7 @@ inbox_ranking/
 ├── dataset/
 │   ├── dag.py      # the dataset assets + job + schedule
 │   ├── queries.py  # HogQL label SQL, embeddings SQL, stream merging
-│   └── project_vectors.py  # per-team context vectors (pure function)
+│   └── project_vectors.py  # per-team and per-user context vectors (pure functions)
 ├── training/
 │   ├── dag.py        # serving manifest → served scores → unseen grade assets + job + schedule, and the plumbing nn shares
 │   ├── promote.py    # the manual promote job that writes served.json
@@ -17,7 +17,7 @@ inbox_ranking/
 │   ├── train.py      # per-head holdout/null metrics that every learner fills
 │   └── promotion.py  # the candidate grading rule
 ├── multihead/        # the multi-head network, its ONNX export, and the offline prototype
-├── nn/               # the `nn` family: examples → candidate → champion assets, on the `signals_ml` location
+├── nn/               # the `nn` family: examples → candidate → champion assets, and the pair examples, on the `signals_ml` location
 └── tests/
 ```
 
@@ -27,7 +27,7 @@ Registered via `posthog/dags/locations/signals.py` (US only) and loaded locally 
 
 ## The dataset dag
 
-`inbox_ranking_dataset_job` runs daily at 02:30 UTC (schedule default: running on prod US, stopped everywhere else — including hosted DEV and E2E, which have no dogfood project to read labels from) and builds nine assets on one daily partition, each a Parquet object in S3:
+`inbox_ranking_dataset_job` runs daily at 02:30 UTC (schedule default: running on prod US, stopped everywhere else — including hosted DEV and E2E, which have no dogfood project to read labels from) and builds ten assets on one daily partition, each a Parquet object in S3:
 
 ```text
 s3://<bucket>/<prefix>/
@@ -41,7 +41,8 @@ s3://<bucket>/<prefix>/
 ├── inbox_report_title_embeddings/v1/dt=YYYY-MM-DD/  # the same shape, for the title-only rendering
 ├── inbox_report_reviewers/v1/dt=YYYY-MM-DD/   # one row per suggested reviewer of each spine report
 ├── inbox_user_report_interactions/v1/dt=YYYY-MM-DD/ # cumulative interactions per (report, person)
-└── inbox_project_vectors/v1/dt=YYYY-MM-DD/    # per-team mean report vectors of past engagement, by kind
+├── inbox_project_vectors/v1/dt=YYYY-MM-DD/    # per-team mean report vectors of past engagement, by kind
+└── inbox_activity_summary_vectors/v1/dt=YYYY-MM-DD/ # one row per activity summary vector generated during the day
 ```
 
 The first four are report grain and land in one table. `inbox_signal_embeddings` is signal grain, feeds the group-level model, and is read on its own — training joins it to `inbox_report_model_data` by `report_id`.
@@ -163,6 +164,20 @@ Point-in-time caveats, per source:
 - Consequently **a re-run is additive**: it unions the fresh scan into the rows the partition already holds, keyed by `(team_id, signal_id, embedding_inserted_at)`, so a row the source can no longer supply survives. Overwriting with the scan alone would delete it permanently, and a row count cannot police that — a scan can lose one emission and gain another and land on the same total.
 - The count check remains as a backstop: a union can only grow, so a smaller result means the merge itself is broken and the write is refused. Row counts are stamped in S3 object metadata at write time to make that check a `head_object`. A deliberate shrink still means deleting the object by hand.
 - Signal text never leaves ClickHouse: the query selects the vector and the structured metadata (weight, source, match graph), not `content` or the free-text metadata fields.
+
+### Activity summary vectors
+
+`inbox_activity_summary_vectors` is a (team, user, day) leaf with its own `ACTIVITY_SUMMARY_VECTORS_SCHEMA_VERSION`.
+It is the durable history of the per-user activity summary vectors, for a ranking model that reads a user vector next to the report vector.
+Each successful activity summary build writes one vector per (user, day) to the document embeddings table (`document_id` = `"{user_id}:{date}"`, `timestamp` = the summary's `generated_at`).
+That table drops a row 3 months after its `timestamp`, and `UserActivitySummaryVersion` keeps only the newest versions of a pair, so a vector that this asset does not copy in time cannot be rebuilt.
+
+- `dt=D` holds only the vectors whose `timestamp` falls in D, one row per `(team_id, document_id)`, the newest `inserted_at` winning. It is not a cumulative snapshot.
+- The columns are `team_id`, `user_id`, `document_id`, `generated_date`, `generated_at`, `embedding_small` (small-1536, the report vectors' space), `embedding_inserted_at`, `prompt_version`, `render_version`, `model` and `source` (`live`, or `backfill` for a summary built as of a past date). No summary text leaves ClickHouse.
+- Training reads the union of partitions and calls `activity_vector_as_of` (`training/examples.py`) for the vector a user had at a moment: the newest one generated strictly before it, or nothing when that one is older than a staleness cap.
+- A re-run replaces the rows the source still returns and keeps the rows it no longer returns, so a re-run after the TTL does not erase history. It drops the rows of teams without training consent.
+- **It is a leaf.** Nothing joins it, so a failure here does not fail the training table. A day of vectors is small, so it has no ordering dependency.
+- Backfill: materialize every partition from the first activity summary build that is still inside the source TTL. Repeat for the matching partitions after a backfill of past-dated summaries, before those vectors expire.
 
 ## The training dag
 
@@ -440,6 +455,25 @@ dagster job launch -w .dagster_home/workspace.yaml --location posthog.dags.locat
 
 The newest day you can launch is the newest day the `nn` job finished. Adjacent days share most of their train and holdout rows, so their reads are not independent. Judge a `vs_baseline` gap on spaced days, for example every 7th day.
 
+### Pair examples
+
+`inbox_ranking_nn_pair_examples` (`nn/pairs.py`) holds the report-user pairs for a personal ranking lane: a model that reads a vector of the reports one user viewed before, next to the report.
+It writes `inbox_ranking_nn_pair_examples/v1/dt=D/` with its own `PAIR_EXAMPLES_SCHEMA_VERSION`, and runs in its own job, `inbox_ranking_nn_pair_examples_job`, which has no schedule. Launch it for a partition after the `nn` job finished that day.
+
+- **Rows**: one per (report example, user), for each user impressed with the report within `PAIR_HORIZON_DAYS` (7) of birth. The report rows are the `open` head's rows of the dt=D `inbox_ranking_nn_examples` object, so the report inputs, the holdout split (`holdout` is the row's `open_holdout`) and the day windows are the report lane's. A report born on day B reads its impressions from the dt=B+7 `inbox_user_report_interactions` partition, the partition the report's `open` label reads.
+- **Labels**, from the same partition and before its end: `open_label` is the user's `first_opened_at`, and `action_label` is any of the user's UI action `first_*` columns from `UI_ACTION_COLUMNS`, the set the `action` project vector reads. There is no `fixed` label, because a fix belongs to the report and not to a user.
+- **User inputs**, as of the start of day B, from the dt=D interactions and embeddings snapshots: `user_open_reports` and `user_dismiss_reports` (the reports in each `user_vectors()` mean), `prior_views` (every view before B, without the limit or the embedding gate), `days_since_last_view` (capped at `DAYS_SINCE_VIEW_CAP`) and `has_history`. The report and the reports born with it are outside the history by construction.
+- **`is_suggested_reviewer`** comes from the dt=B `inbox_report_reviewers` partition when it exists, and from `impressed_as_suggested_reviewer_count` otherwise. `suggested_reviewer_source` says which (`reviewers` or `impressions`).
+- **No vectors.** The object holds the user inputs above and the keys `report_id`, `report_team_id` and `user_distinct_id`. A reader rebuilds the `open` and `dismiss` user vectors with `pair_user_vectors`, which calls `user_vectors()` once per birth day.
+- **Consent**: only reports and history of teams in `training_consent_team_ids()`, read at run time.
+- **Metadata**: `rows`, `users`, `reports`, positives per label, rows and users per prior-view bucket (`0`, `1_9`, `10_49`, `50_plus`), and `suggested_reviewer_share`.
+- **A missing input is a skip.** Without the dt=D examples, interactions or embeddings object, the asset writes nothing. A birth day without its dt=B+7 interactions partition gives no pairs and is counted in `birth_days_without_impressions`.
+
+`user_vectors(interactions, embeddings, as_of, organizations=...)` in `dataset/project_vectors.py` builds one row per (organization, user, kind) with `vector`, `n_reports`, `last_at` and `as_of`.
+The `open` kind reads `first_viewed_at`, the durable VIEW row, and the `dismiss` kind reads `first_ui_dismissed_at`.
+The vector is the plain mean of the user's last `USER_HISTORY_LIMIT` (20) reports of the kind, through the as-of rule and the embedding gate of `project_vectors()`.
+A report counts only in the organization of its own team, and a user without usable history gets no row.
+
 ## Configuration
 
 | Setting                                 | Default         | Meaning                                                                                                                                                                                                             |
@@ -474,7 +508,7 @@ The dags train only on reports from organizations whose `Organization.is_ai_trai
 `consent.training_consent_team_ids()` returns the consenting teams that hold an inbox report, and every asset reads it once per run.
 
 - `inbox_report_state` keeps only the spine reports of those teams. A label event that names another team's report does not pull it back in. That report's labels still land in `inbox_report_model_data` as a label-only row, which training skips.
-- `inbox_report_embeddings`, `inbox_report_title_embeddings` and `inbox_signal_embeddings` read only those teams, through `team_id IN (...)` in the ClickHouse query.
+- `inbox_report_embeddings`, `inbox_report_title_embeddings`, `inbox_signal_embeddings` and `inbox_activity_summary_vectors` read only those teams, through `team_id IN (...)` in the ClickHouse query.
 - The `nn` examples asset drops every state row whose `report_team_id` is not in the current set, before it builds examples. The lookback window reaches partitions written before an organization opted out, so this filter is what makes an opt-out take effect on the next training run.
 
 The filter follows the current setting, so an organization that opts back in is trained on again.
