@@ -1,4 +1,5 @@
 from collections.abc import Collection
+from datetime import datetime
 from graphlib import TopologicalSorter
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -29,6 +30,13 @@ def refresh_view_columns(team: "Team", saved_query_ids: Collection[UUID | str], 
         .exclude(deleted=True)
     }
     return {view_id for view_id in _upstream_first(team.pk, set(views)) if _refresh_columns(views[view_id], user)}
+
+
+def views_updated_since(team: "Team", saved_query_ids: Collection[UUID | str], since: datetime) -> bool:
+    """Whether any of these views was written after ``since``, for example by another request's refresh."""
+    return DataWarehouseSavedQuery.objects.filter(
+        team_id=team.pk, id__in=list(saved_query_ids), updated_at__gt=since
+    ).exists()
 
 
 def _infers_masked_columns(team: "Team", user: "User | None") -> bool:

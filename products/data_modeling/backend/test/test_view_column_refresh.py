@@ -12,6 +12,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import PropertyDefinition
 
+from products.data_modeling.backend.logic import view_column_refresh
 from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
 from products.data_modeling.backend.logic.view_column_refresh import refresh_view_columns
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -52,6 +53,22 @@ class TestViewColumnRefresh(ClickhouseTestMixin, BaseTest):
         for view in (middle, downstream):
             view.refresh_from_db()
             assert view.column_order == ["new_id"]
+
+    def test_query_retries_when_another_request_already_refreshed_the_view(self) -> None:
+        upstream = self._create_view("upstream_view", "SELECT 1 AS old_id")
+        downstream = self._create_view("downstream_view", "SELECT * FROM upstream_view")
+        self._edit_view(upstream, "SELECT 1 AS new_id")
+
+        def refreshed_by_another_request(team, saved_query_ids, user):
+            refresh_view_columns(team, saved_query_ids, user)
+            return set()
+
+        with patch.object(view_column_refresh, "refresh_view_columns", side_effect=refreshed_by_another_request):
+            response = execute_hogql_query("SELECT * FROM downstream_view", team=self.team, user=self.user)
+
+        assert response.columns == ["new_id"]
+        downstream.refresh_from_db()
+        assert downstream.column_order == ["new_id"]
 
     def test_query_by_a_property_restricted_reader_leaves_stale_columns_untouched(self) -> None:
         upstream = self._create_view("upstream_view", "SELECT 1 AS old_id")

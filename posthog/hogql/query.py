@@ -1,6 +1,9 @@
 import dataclasses
+from datetime import datetime
 from time import sleep
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
+
+from django.utils import timezone
 
 from opentelemetry import trace
 
@@ -1080,19 +1083,22 @@ class HogQLQueryExecutor:
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:
         query = self.query
+        started_at = timezone.now()
         try:
             return self._execute()
         except (CHQueryErrorUnknownIdentifier, QueryError) as error:
-            if not _names_a_missing_column(error) or not self._refreshed_stale_view_columns():
+            if not _names_a_missing_column(error) or not self._refreshed_stale_view_columns(started_at):
                 raise
             return self._with_fresh_database(query).execute()
 
-    def _refreshed_stale_view_columns(self) -> bool:
+    def _refreshed_stale_view_columns(self, started_at: datetime) -> bool:
         view_ids = self.context.referenced_saved_query_ids
         if not self.refresh_stale_view_columns or not view_ids:
             return False
         try:
-            return bool(data_modeling_api.refresh_view_columns(self.team, view_ids, self.user))
+            if data_modeling_api.refresh_view_columns(self.team, view_ids, self.user):
+                return True
+            return data_modeling_api.views_updated_since(self.team, view_ids, started_at)
         except Exception as e:
             capture_exception(e, {"team_id": self.team.pk})
             return False
