@@ -1,0 +1,175 @@
+"""Download Temporal's ephemeral test servers with retries before tests start them.
+
+`WorkflowEnvironment.start_time_skipping()` and `start_local()` download their server
+binary on first use. The SDK downloads it once per call with no retry and no read timeout,
+so a flaky network fails the test or hangs it until the job timeout. This module downloads the binaries
+with timeouts and retries into a per-SDK-version cache directory, under a file lock so
+parallel pytest processes download each binary once. It then passes the cached path to
+the SDK as `*_existing_path`. If the download still fails, the SDK falls back to its own
+download, so offline runs behave as they did before.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import time
+import shutil
+import asyncio
+import logging
+import tarfile
+import platform
+import tempfile
+import functools
+from collections.abc import Awaitable, Callable
+from pathlib import Path
+from typing import Any
+
+import requests
+import temporalio.service
+from filelock import FileLock
+from temporalio.testing import WorkflowEnvironment
+
+from posthog.dataclasses import frozen
+
+logger = logging.getLogger(__name__)
+
+DOWNLOAD_BASE_URL = "https://temporal.download"
+CACHE_DIR_ENV = "POSTHOG_TEMPORAL_SERVER_CACHE_DIR"
+ATTEMPTS = 5
+# The read timeout applies per socket read, so a stalled transfer fails while a slow one completes.
+REQUEST_TIMEOUT = (10, 60)
+# Longer than ATTEMPTS full downloads, so a waiting process outlasts the lock holder's retries.
+LOCK_TIMEOUT_SECONDS = 900
+
+
+@frozen
+class ServerBinary:
+    artifact: str
+    file_name: str
+    archive_format: str | None
+
+
+TEST_SERVER = ServerBinary(artifact="temporal-test-server", file_name="temporal-test-server", archive_format=None)
+DEV_SERVER = ServerBinary(artifact="cli", file_name="temporal", archive_format="tar.gz")
+
+
+def cache_dir() -> Path:
+    if configured := os.environ.get(CACHE_DIR_ENV):
+        base = Path(configured)
+    else:
+        base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "posthog" / "temporal-servers"
+    return base / f"sdk-python-{temporalio.service.__version__}"
+
+
+def _platform_params() -> dict[str, str] | None:
+    system = {"linux": "linux", "darwin": "darwin"}.get(sys.platform)
+    arch = {"x86_64": "amd64", "amd64": "amd64", "arm64": "arm64", "aarch64": "arm64"}.get(platform.machine().lower())
+    if system is None or arch is None:
+        return None
+    return {"platform": system, "arch": arch}
+
+
+def _download(binary: ServerBinary, platform_params: dict[str, str], dest: Path) -> None:
+    # Same query the SDK sends, so the server resolves the same binary version.
+    params = {**platform_params, "sdk-name": "sdk-python", "sdk-version": temporalio.service.__version__}
+    if binary.archive_format:
+        params["format"] = binary.archive_format
+    info_response = requests.get(
+        f"{DOWNLOAD_BASE_URL}/{binary.artifact}/default", params=params, timeout=REQUEST_TIMEOUT
+    )
+    info_response.raise_for_status()
+    info = info_response.json()
+    archive_url: str = info["archiveUrl"]
+    file_to_extract: str = info["fileToExtract"]
+    if not archive_url.endswith(".tar.gz"):
+        raise ValueError(f"unsupported archive format: {archive_url}")
+
+    with tempfile.TemporaryDirectory(dir=dest.parent) as work_dir:
+        archive_path = Path(work_dir) / "archive.tar.gz"
+        with requests.get(archive_url, stream=True, timeout=REQUEST_TIMEOUT) as response:
+            response.raise_for_status()
+            with archive_path.open("wb") as archive_file:
+                for chunk in response.iter_content(chunk_size=1 << 20):
+                    archive_file.write(chunk)
+
+        extracted_path = Path(work_dir) / binary.file_name
+        # Reading the member to the end makes gzip verify its CRC, so a corrupt archive raises here.
+        with tarfile.open(archive_path, "r:gz") as archive:
+            member = archive.extractfile(file_to_extract)
+            if member is None:
+                raise ValueError(f"{file_to_extract} is not a regular file in {archive_url}")
+            with member, extracted_path.open("wb") as extracted_file:
+                shutil.copyfileobj(member, extracted_file)
+        extracted_path.chmod(0o755)
+        extracted_path.replace(dest)
+
+
+def _sdk_cached_binary(binary: ServerBinary) -> Path:
+    # Mirrors the file name that sdk-core's ephemeral_server module gives a default-version download.
+    return Path(tempfile.gettempdir()) / f"{binary.file_name}-sdk-python-{temporalio.service.__version__}"
+
+
+# Cached per process, so a process that cannot download retries once in total, not once per test.
+@functools.cache
+def ensure_binary(binary: ServerBinary) -> Path | None:
+    platform_params = _platform_params()
+    if platform_params is None:
+        return None
+    dest = cache_dir() / binary.file_name
+    if dest.is_file():
+        return dest
+    if _sdk_cached_binary(binary).is_file():
+        # The SDK reuses its own earlier download without network access, so offline runs stay fast.
+        return None
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with FileLock(f"{dest}.lock", timeout=LOCK_TIMEOUT_SECONDS):
+            if dest.is_file():
+                return dest
+            for attempt in range(1, ATTEMPTS + 1):
+                try:
+                    _download(binary, platform_params, dest)
+                    return dest
+                except (requests.RequestException, tarfile.TarError, EOFError, OSError, ValueError, KeyError) as error:
+                    logger.warning("Temporal %s download attempt %d failed: %s", binary.artifact, attempt, error)
+                    if attempt < ATTEMPTS:
+                        time.sleep(2**attempt)
+    except Exception:
+        logger.warning("Could not cache the Temporal %s binary", binary.artifact, exc_info=True)
+    return None
+
+
+def _with_cached_binary(
+    start: Callable[..., Awaitable[WorkflowEnvironment]], binary: ServerBinary, prefix: str
+) -> Callable[..., Awaitable[WorkflowEnvironment]]:
+    @functools.wraps(start)
+    async def wrapper(cls: type[WorkflowEnvironment], **kwargs: Any) -> WorkflowEnvironment:
+        uses_sdk_default = (
+            kwargs.get(f"{prefix}_existing_path") is None
+            and kwargs.get(f"{prefix}_download_version", "default") == "default"
+            and kwargs.get("download_dest_dir") is None
+        )
+        if uses_sdk_default and (path := await asyncio.to_thread(ensure_binary, binary)) is not None:
+            kwargs[f"{prefix}_existing_path"] = str(path)
+        return await start(cls, **kwargs)
+
+    return wrapper
+
+
+_installed = False
+
+
+def install() -> None:
+    global _installed
+    if _installed:
+        return
+    _installed = True
+    start_time_skipping = vars(WorkflowEnvironment)["start_time_skipping"].__func__
+    start_local = vars(WorkflowEnvironment)["start_local"].__func__
+    WorkflowEnvironment.start_time_skipping = classmethod(  # type: ignore[method-assign,assignment]  # ty: ignore[invalid-assignment]
+        _with_cached_binary(start_time_skipping, TEST_SERVER, "test_server")
+    )
+    WorkflowEnvironment.start_local = classmethod(  # type: ignore[method-assign,assignment]  # ty: ignore[invalid-assignment]
+        _with_cached_binary(start_local, DEV_SERVER, "dev_server")
+    )
