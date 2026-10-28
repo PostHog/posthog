@@ -1,5 +1,6 @@
 import json
 from dataclasses import asdict
+from time import monotonic
 from typing import cast
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
@@ -26,5 +27,5 @@ class Command(BaseCommand):
         index = get_membership_group_type_index(team)
         if index is None:
             raise CommandError("Customer analytics must be active with a valid account group type")
-        plan = MembershipBackfillService().plan(team, index, timezone.now())
+        plan = MembershipBackfillService(deadline=monotonic() + 300).plan(team, index, timezone.now())
         self.stdout.write(json.dumps(asdict(plan), default=str))

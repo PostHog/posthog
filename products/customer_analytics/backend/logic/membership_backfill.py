@@ -266,16 +266,24 @@ class MembershipBackfillService:
         self.check_attempt()
         return rows
 
-    def get_history_bounds(self, team_id: int, end: datetime) -> MembershipHistoryBounds:
-        table = events_read_table(use_new_events_schema(team_id))
+    def get_history_bounds(
+        self, team_id: int, index: int, end: datetime, account_keys: tuple[str, ...] = ()
+    ) -> MembershipHistoryBounds:
+        native_json = use_new_events_schema(team_id)
+        table = events_read_table(native_json)
+        group_column = get_membership_group_column(index, native_json=native_json)
         days = []
         for direction in ("ASC", "DESC"):
             rows = self.query(
                 f"""SELECT toDate(timestamp) AS event_date FROM {table}
                     WHERE team_id = %(team_id)s
+                      AND (inserted_at IS NULL OR inserted_at < %(snapshot_end)s)
+                      AND person_mode != 'propertyless'
+                      AND notEmpty({group_column})
+                      AND (empty(%(account_keys)s) OR {group_column} IN %(account_keys)s)
                     ORDER BY event_date {direction} LIMIT 1
                     SETTINGS optimize_read_in_order = 1""",
-                {"team_id": team_id},
+                {"team_id": team_id, "snapshot_end": end, "account_keys": list(account_keys)},
                 team_id=team_id,
             )
             if not rows:
@@ -284,7 +292,7 @@ class MembershipBackfillService:
         return MembershipHistoryBounds(start=days[0], end=max(end, days[1] + timedelta(days=1)))
 
     def plan(self, team: Team, index: int, end: datetime, account_keys: tuple[str, ...] = ()) -> MembershipPlan:
-        bounds = self.get_history_bounds(team.id, end)
+        bounds = self.get_history_bounds(team.id, index, end, account_keys)
         native_json = use_new_events_schema(team.id)
         group_column = get_membership_group_column(index, native_json=native_json)
         start: datetime | None = None
@@ -616,7 +624,7 @@ class MembershipBackfillService:
             self.sync_registry(team, config, index, None)
             version = config.version
         end = timezone.now()
-        bounds = self.get_history_bounds(team.id, end)
+        bounds = self.get_history_bounds(team.id, index, end, input.account_keys)
         return MembershipCursor(
             team_id=team.id,
             version=version,

@@ -1,6 +1,7 @@
 from collections.abc import Mapping
 from dataclasses import fields
 from datetime import UTC, datetime, timedelta
+from io import StringIO
 from types import SimpleNamespace
 from typing import Literal, cast
 from uuid import uuid4
@@ -9,6 +10,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.management import call_command
 from django.test import override_settings
 from django.utils import timezone
 
@@ -587,6 +589,34 @@ class TestMembershipBackfill(BaseTest):
             assert self.process_batch(state).status == "disabled"
         assert state.next_window_start == START
 
+    def test_planning_command_stops_at_its_deadline(self) -> None:
+        clock = 1000.0
+        end = timezone.now()
+
+        def execute(*args: object, **kwargs: object) -> list[tuple[object, ...]]:
+            nonlocal clock
+            sql = cast(str, args[0])
+            if "ORDER BY event_date ASC" in sql:
+                return [((end - timedelta(days=3650)).date(),)]
+            if "ORDER BY event_date DESC" in sql:
+                return [(end.date(),)]
+            clock += 301
+            return [(None, None, 0)]
+
+        output = StringIO()
+        with (
+            patch(
+                "products.customer_analytics.backend.management.commands.plan_membership_backfill.monotonic",
+                return_value=clock,
+            ),
+            patch(f"{MODULE}.monotonic", side_effect=lambda: clock),
+            patch(f"{MODULE}.sync_execute", side_effect=execute) as query,
+            pytest.raises(RuntimeError, match="attempt expired"),
+        ):
+            call_command("plan_membership_backfill", team_id=self.team.id, stdout=output)
+        assert query.call_count == 3
+        assert output.getvalue() == ""
+
     @parameterized.expand([(False,), (True,)])
     def test_backfill_sql_admission_and_overlap(self, native_json: bool) -> None:
         start = timezone.now() - timedelta(days=100)
@@ -623,6 +653,21 @@ class TestMembershipBackfill(BaseTest):
                     properties=properties,
                     timestamp=start + timedelta(minutes=5),
                 )
+            outliers: list[tuple[int, Literal["full", "propertyless"], dict[str, str]]] = [
+                (-3650, "full", {}),
+                (-3600, "propertyless", {"$group_0": "account-a"}),
+                (3650, "full", {"$group_1": "wrong-index"}),
+            ]
+            for days, mode, properties in outliers:
+                create_event(
+                    event_uuid=uuid4(),
+                    event="example_action",
+                    team=self.team,
+                    distinct_id="identified",
+                    person_mode=mode,
+                    properties=properties,
+                    timestamp=start + timedelta(days=days),
+                )
             snapshot = timezone.now() + timedelta(minutes=1)
             with patch.object(self.service, "query", wraps=self.service.query) as query:
                 plan = self.service.plan(self.team, 0, snapshot)
@@ -635,6 +680,9 @@ class TestMembershipBackfill(BaseTest):
             assert plan.historical_end == snapshot
             assert plan.estimated_events == 3
             assert plan.windows == 2
+            absent_account = self.service.get_history_bounds(self.team.id, 0, snapshot, ("absent-account",))
+            assert absent_account.start is None
+            assert absent_account.end == snapshot
             self.process_batch(state)
             first = self.service.query(
                 "SELECT group_type_index, group_key, distinct_id, min(first_seen), max(last_seen) FROM person_group_membership WHERE team_id = %(team_id)s GROUP BY group_type_index, group_key, distinct_id",
