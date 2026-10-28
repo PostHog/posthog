@@ -34,6 +34,13 @@ CREATE TABLE IF NOT EXISTS {table_name}
 
     -- Per-entity exposure data
     entity_id String,
+
+    -- distinct_id of the first exposure event, the key a person-overrides lookup needs to
+    -- find this row's current person.
+    distinct_id String,
+    -- The entity's person, kept separate from entity_id so it can be rewritten after a person
+    -- merge: entity_id is in the sorting key, which ClickHouse refuses to UPDATE.
+    person_id UUID DEFAULT toUUIDOrZero(entity_id),
     variant String,
     first_exposure_time DateTime64(6, 'UTC'),
     last_exposure_time DateTime64(6, 'UTC'),
