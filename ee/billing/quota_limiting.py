@@ -1323,12 +1323,19 @@ def _iter_quota_organizations(
         org_teams = list(group)
         seen.add(str(organization_id))
         yield org_teams[0].organization, org_teams
-    for organization in (
+    organizations = (
         Organization.objects.filter(id__in=offline_usage.keys() - seen, for_internal_metrics=False)
         .only("id", "usage", "created_at", "never_drop_data", "customer_trust_scores", "customer_id")
-        .iterator()
-    ):
-        yield organization, []
+        .order_by("id")
+    )
+    # Buffer each page because quota updates close database connections between batches.
+    page = organizations
+    while batch := list(page[:QUOTA_ORGANIZATION_BATCH_SIZE]):
+        for organization in batch:
+            yield organization, []
+        if len(batch) < QUOTA_ORGANIZATION_BATCH_SIZE:
+            return
+        page = organizations.filter(id__gt=batch[-1].id)
 
 
 def update_all_orgs_billing_quotas(

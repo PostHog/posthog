@@ -480,6 +480,7 @@ Deleted teams' usage is omitted from newly generated reports, even though its le
 
 Current-day quota refresh adds eligible offline usage to `llm_events.todays_usage` by the stored organization, using the same current-team exclusions.
 It leaves the prior-period `usage` received from billing intact. Ledger failures abort before quota updates or report delivery, allowing existing retries without publishing an incomplete total.
+Organizations included only through offline usage are read in bounded, buffered pages so database connection cleanup between quota batches cannot interrupt the scan.
 Reports are absolute totals: rereading an unchanged window does not consume or modify ledger entries. Existing analytics dispatch claims and already-reported checks still apply.
 Separately scheduled reports can observe different late-arriving ingested data; identical windows and source snapshots produce matching AIO totals.
 

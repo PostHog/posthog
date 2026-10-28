@@ -1,9 +1,11 @@
 from collections import defaultdict
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from itertools import batched
 from uuid import uuid4
 
 import time_machine
+from unittest.mock import patch
 
 from django.db import DatabaseError, connection
 from django.test import TestCase
@@ -108,6 +110,38 @@ class TestOfflineEvaluationBilling(TestCase):
         quotas = _aggregate_quota_usage([], defaultdict(dict), offline_usage=usage)
         self.assertEqual(quotas.usage, {})
         self.assertEqual(OfflineEvaluationUsageLedger.objects.unscoped().get().quantity, 30)
+
+    @parameterized.expand([(1,), (2,)])
+    def test_offline_quota_organizations_survive_closed_server_cursors(self, batch_size: int) -> None:
+        historical_organizations = [self.organization, Organization.objects.create(), Organization.objects.create()]
+        for organization in historical_organizations:
+            self.team.organization = organization
+            self.team.save(update_fields=["organization"])
+            self.record(self.team, 10)
+        self.team.organization = self.other_organization
+        self.team.save(update_fields=["organization"])
+        self.record(self.team, 7)
+        usage = get_offline_evaluation_usage(self.period.start, self.period.end)
+
+        organizations = []
+        with (
+            patch.dict(connection.settings_dict, DISABLE_SERVER_SIDE_CURSORS=False),
+            patch("ee.billing.quota_limiting.QUOTA_ORGANIZATION_BATCH_SIZE", batch_size),
+        ):
+            for batch in batched(
+                _iter_quota_organizations([self.team, self.other_team], usage), batch_size, strict=False
+            ):
+                with connection.cursor() as cursor:
+                    cursor.execute("CLOSE ALL")
+                organizations.extend((organization.id, [team.id for team in teams]) for organization, teams in batch)
+
+        self.assertEqual(
+            organizations,
+            [
+                (self.other_organization.id, [self.team.id, self.other_team.id]),
+                *[(organization.id, []) for organization in sorted(historical_organizations, key=lambda org: org.id)],
+            ],
+        )
 
     def test_grouped_query_cost_does_not_grow_with_upload_count(self) -> None:
         for _ in range(20):
