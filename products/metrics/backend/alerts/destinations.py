@@ -7,7 +7,12 @@ find who to tell and words the message itself, so their templates never run.
 from dataclasses import replace
 from typing import Final, Literal
 
-from products.alerts_platform.backend.facade.contracts import AlertDestinationAction, EventKindSpec, IncidentAction
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationAction,
+    AlertEventKind,
+    EventKindSpec,
+    IncidentAction,
+)
 
 EventKind = Literal["firing", "resolved", "errored", "broken", "incident_opened", "incident_closed"]
 
@@ -83,6 +88,12 @@ EVENT_KIND_CONFIG: Final[dict[EventKind, EventKindSpec]] = {
 }
 
 EVENT_IDS: Final[tuple[str, ...]] = tuple(spec.event_id for spec in EVENT_KIND_CONFIG.values())
+
+# Which event id each announced kind's destinations filter on. Resolved here because the platform
+# imports no source.
+EVENT_IDS_BY_KIND: Final[dict[str, str]] = {
+    key: spec.event_id for key, spec in EVENT_KIND_CONFIG.items() if key in set(AlertEventKind)
+}
 
 EVENT_IDS_BY_INCIDENT_ACTION: Final[dict[str, str]] = {
     spec.incident_action.value: spec.event_id for spec in EVENT_KIND_CONFIG.values() if spec.incident_action
