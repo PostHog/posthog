@@ -23,13 +23,23 @@ _source_kinds: set[str] = set()
 def register_source_kinds(kinds: Mapping[str, AuthType]) -> None:
     """Register warehouse source kinds with the default auth type of each.
 
-    A kind that is also in the catalogue, such as `stripe` or `postgresql`, keeps its catalogue entry,
-    and the auth type given here does not change it.
+    A kind that is also in the catalogue, such as `stripe` or `postgresql`, keeps its catalogue default.
+    The auth type given here only joins the auth types the kind supports, so its source rows can be written.
     """
     with _lock:
         for kind, auth_type in kinds.items():
-            if kind not in KINDS:
+            catalogued = KINDS.get(kind)
+            if catalogued is None:
                 register_kind_auth_types(kind, KindSpec(label=kind, default=AuthType(auth_type)))
+            elif AuthType(auth_type) not in catalogued.supported:
+                register_kind_auth_types(
+                    kind,
+                    KindSpec(
+                        label=catalogued.label,
+                        default=catalogued.default,
+                        others=catalogued.others | {AuthType(auth_type)},
+                    ),
+                )
             _source_kinds.add(kind)
 
 

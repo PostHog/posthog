@@ -3232,8 +3232,9 @@ class TestIntegrationAPIKeyAccess:
         )
         base_url = f"/api/environments/{self.team.pk}/integrations"
 
-        listed = client.get(f"{base_url}/").json()["results"]
-        retrieved = client.get(f"{base_url}/{token_row.id}/")
+        with patch.object(GitHubIntegration, "ensure_account_name") as heal:
+            listed = client.get(f"{base_url}/").json()["results"]
+            retrieved = client.get(f"{base_url}/{token_row.id}/")
         repos = client.get(f"{base_url}/{token_row.id}/github_repos/")
 
         assert {(row["id"], row["auth_type"]) for row in listed} == {
@@ -3244,6 +3245,8 @@ class TestIntegrationAPIKeyAccess:
         assert retrieved.status_code == status.HTTP_200_OK
         assert (retrieved.json()["auth_type"], retrieved.json()["installation_status"]) == ("token", None)
         assert repos.status_code == status.HTTP_404_NOT_FOUND
+        # Only the App row of the list heals its account name. The token row has no installation.
+        assert heal.call_count == 1
 
     def test_list_integrations_filtered_by_kind(self, client: HttpClient):
         client.force_login(self.user)

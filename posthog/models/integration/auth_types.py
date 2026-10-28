@@ -54,7 +54,11 @@ _KIND_AUTH_TYPES: dict[str, KindSpec] = dict(KINDS)
 def register_kind_auth_types(kind: str, auth_types: KindSpec) -> None:
     """Add a kind to the catalogue, before the first query of the kind runs. `register_source_kinds` calls it."""
     existing = _KIND_AUTH_TYPES.get(kind)
-    if existing is not None and existing != auth_types:
+    # Adding supported auth types is safe. Changing the default is not: rows store only a non-default.
+    widens = (
+        existing is not None and existing.default == auth_types.default and existing.supported <= auth_types.supported
+    )
+    if existing is not None and existing != auth_types and not widens:
         raise ValueError(f"Integration kind {kind!r} already has auth types {existing!r}")
     _KIND_AUTH_TYPES[kind] = auth_types
 

@@ -10,11 +10,12 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.models import Team
-from posthog.models.integration import ANY, Integration
-from posthog.models.integration.auth_types import default_auth_type
+from posthog.models.integration import ANY, Integration, auth_types
+from posthog.models.integration.auth_types import default_auth_type, kind_auth_types
+from posthog.models.integration.model import IntegrationQuerySet
 
 from products.integrations.backend.facade.api import IntegrationManager, register_source_kinds, register_usage_provider
-from products.integrations.backend.facade.api_accessors import IntegrationReader
+from products.integrations.backend.facade.api_accessors import AuthAccessor, IntegrationReader, SourceRows
 from products.integrations.backend.facade.contracts import (
     IntegrationConflict,
     IntegrationInUse,
@@ -292,6 +293,74 @@ class TestIntegrationAccessors(BaseTest):
         with self.assertRaises(error):
             IntegrationManager.github.token.update(self.team.id, self.rows["github_token"].id, **kwargs)
 
+    def test_upsert_without_created_by_keeps_the_creator(self) -> None:
+        row = IntegrationManager.github.token.create(
+            self.team.id, external_id="new", config={}, created_by_id=self.user.id
+        )
+
+        again, created = IntegrationManager.github.token.upsert(self.team.id, "new", config={"b": 2})
+
+        assert (created, again.id) == (False, row.id)
+        assert Integration._base_manager.get(id=row.id).created_by_id == self.user.id
+
+    def test_upsert_updates_the_row_that_a_concurrent_insert_won(self) -> None:
+        original_first = IntegrationQuerySet.first
+        reads: list[int] = []
+
+        def first_after_a_competing_insert(queryset: Any) -> Integration | None:
+            result = original_first(queryset)
+            reads.append(1)
+            if len(reads) == 1:
+                assert result is None
+                Integration.objects._with_auth(ANY).create(
+                    team=self.team, kind="github", integration_id="raced", config={"auth_type": "token", "old": True}
+                )
+            return result
+
+        with patch.object(IntegrationQuerySet, "first", autospec=True, side_effect=first_after_a_competing_insert):
+            row, created = IntegrationManager.github.token.upsert(
+                self.team.id, "raced", config={"new": True}, created_by_id=self.user.id
+            )
+
+        stored = Integration._base_manager.filter(team=self.team, kind="github", integration_id="raced")
+        saved = stored.get()
+        assert (created, stored.count(), saved.id) == (False, 1, row.id)
+        assert (saved.config, saved.created_by_id) == ({"new": True, "auth_type": "token"}, self.user.id)
+
+    @parameterized.expand(
+        [
+            ("nothing", {}),
+            ("empty_collections", {"config_patch": {}, "config_remove": (), "sensitive_config_patch": {}}),
+        ]
+    )
+    def test_an_empty_patch_writes_nothing(self, _name: str, kwargs: dict[str, Any]) -> None:
+        row = self.rows["github_oauth"]
+        before = Integration._base_manager.get(id=row.id)
+
+        with patch.object(Integration, "save") as save:
+            updated = IntegrationManager.github.oauth.update(self.team.id, row.id, **kwargs)
+
+        save.assert_not_called()
+        assert (updated.config, updated.sensitive_config, updated.errors) == (
+            before.config,
+            before.sensitive_config,
+            before.errors,
+        )
+
+    @parameterized.expand(
+        [
+            ("auth_type_without_kinds", {"kinds": None, "auth_type": AuthType.TOKEN}),
+            ("auth_type_with_empty_kinds", {"kinds": frozenset(), "auth_type": AuthType.TOKEN}),
+        ]
+    )
+    def test_a_reader_with_an_auth_type_needs_kinds(self, _name: str, kwargs: dict[str, Any]) -> None:
+        with self.assertRaises(ValueError):
+            IntegrationReader(**kwargs)
+
+    def test_a_write_accessor_refuses_to_include_source_rows(self) -> None:
+        with self.assertRaises(ValueError):
+            AuthAccessor(kind="github", auth_type=AuthType.OAUTH, source_rows=SourceRows.INCLUDE)
+
     def test_update_raises_for_a_row_out_of_scope(self) -> None:
         with self.assertRaises(IntegrationNotFound):
             IntegrationManager.github.oauth.update(self.team.id, self.rows["github_token"].id, errors="")
@@ -372,17 +441,67 @@ class TestIntegrationAccessors(BaseTest):
         ]
         load.assert_called_once_with("integration_usages")
 
-    def test_async_forms_match_the_sync_forms(self) -> None:
+    @parameterized.expand(
+        [
+            ("aget", lambda t, r: ("get", (t, r), {})),
+            ("aget_many", lambda t, r: ("get_many", (t, [r]), {})),
+            ("afind", lambda t, r: ("find", (t,), {"external_id": "github_oauth"})),
+            ("alist", lambda t, r: ("list", (t,), {})),
+            ("aexists", lambda t, r: ("exists", (t,), {"external_id": "github_oauth"})),
+            ("ausages", lambda t, r: ("usages", (t, r), {})),
+        ]
+    )
+    def test_async_reads_match_the_sync_reads(
+        self, name: str, args: Callable[[int, int], tuple[str, tuple[Any, ...], dict[str, Any]]]
+    ) -> None:
+        accessor = IntegrationManager.github.oauth
+        sync_name, call_args, call_kwargs = args(self.team.id, self.rows["github_oauth"].id)
+
+        with _usage_providers(
+            lambda team_id, integration_id: [IntegrationUsage(type="warehouse_source", id="1", name="a")]
+        ):
+            expected = getattr(accessor, sync_name)(*call_args, **call_kwargs)
+            actual = async_to_sync(getattr(accessor, name))(*call_args, **call_kwargs)
+
+        assert actual == expected
+        assert actual not in (None, [], {}, False)
+
+    def test_async_delete_deletes_and_honors_usages(self) -> None:
+        accessor = IntegrationManager.github.oauth
         row = self.rows["github_oauth"]
 
-        assert async_to_sync(IntegrationManager.github.oauth.aget)(self.team.id, row.id) == row
-        assert self._names(async_to_sync(IntegrationManager.github.any.alist)(self.team.id)) == {
-            "github_oauth",
-            "github_token",
-        }
-        assert async_to_sync(IntegrationManager.github.token.aexists)(self.team.id) is True
-        updated = async_to_sync(IntegrationManager.github.oauth.aupdate)(self.team.id, row.id, config_patch={"x": 1})
-        assert updated.config["x"] == 1
+        with _usage_providers(
+            lambda team_id, integration_id: [IntegrationUsage(type="warehouse_source", id="1", name="a")]
+        ):
+            with self.assertRaises(IntegrationInUse):
+                async_to_sync(accessor.adelete)(self.team.id, row.id)
+            assert Integration._base_manager.filter(id=row.id).exists()
+            async_to_sync(accessor.adelete)(self.team.id, row.id, ignore_usages=True)
+
+        assert not Integration._base_manager.filter(id=row.id).exists()
+
+    def test_async_writes_match_the_sync_writes(self) -> None:
+        accessor = IntegrationManager.github.token
+        row = self.rows["github_token"]
+
+        created = async_to_sync(accessor.acreate)(
+            self.team.id, external_id="made", config={"a": 1}, sensitive_config={"s": 1}, created_by_id=self.user.id
+        )
+        upserted, was_created = async_to_sync(accessor.aupsert)(self.team.id, "made", config={"b": 2})
+        updated = async_to_sync(accessor.aupdate)(self.team.id, row.id, config_patch={"x": 1}, errors="boom")
+        atomic = async_to_sync(accessor.aupdate_atomically)(
+            self.team.id, row.id, lambda current: IntegrationPatch(config_patch={"y": current.config["x"] + 1})
+        )
+
+        assert (created.config, created.sensitive_config, created.created_by_id) == (
+            {"a": 1, "auth_type": "token"},
+            {"s": 1},
+            self.user.id,
+        )
+        assert (upserted.id, was_created, upserted.config) == (created.id, False, {"b": 2, "auth_type": "token"})
+        assert (updated.config["x"], updated.errors) == (1, "boom")
+        assert atomic.config["y"] == 2
+        assert Integration._base_manager.get(id=row.id).config["y"] == 2
 
 
 class TestRegistration(BaseTest):
@@ -398,11 +517,21 @@ class TestRegistration(BaseTest):
             build()
 
     def test_register_source_kinds_sets_the_default_of_a_new_kind_only(self) -> None:
-        register_source_kinds({"acme-sdk-test": AuthType.TOKEN, "stripe": AuthType.CREDENTIALS})
+        with patch.dict(auth_types._KIND_AUTH_TYPES):
+            register_source_kinds({"acme-sdk-test": AuthType.TOKEN, "stripe": AuthType.CREDENTIALS})
 
-        assert default_auth_type("acme-sdk-test") == AuthType.TOKEN
-        assert default_auth_type("stripe") == AuthType.OAUTH
-        assert IntegrationManager.source("acme-sdk-test").token.list(self.team.id) == []
+            assert default_auth_type("acme-sdk-test") == AuthType.TOKEN
+            assert default_auth_type("stripe") == AuthType.OAUTH
+            assert AuthType.CREDENTIALS in kind_auth_types("stripe").supported
+            assert IntegrationManager.source("acme-sdk-test").token.list(self.team.id) == []
+
+    def test_source_rows_of_a_catalogue_kind_use_the_warehouse_auth_type(self) -> None:
+        row = IntegrationManager.source("clickup").credentials.create(
+            self.team.id, external_id="new", config={MARKER: "ClickUp"}
+        )
+
+        assert default_auth_type("clickup") == AuthType.OAUTH
+        assert row.config == {MARKER: "ClickUp", "auth_type": "credentials"}
 
     def test_register_source_kinds_rejects_a_changed_default(self) -> None:
         register_source_kinds({"acme-sdk-test-2": AuthType.TOKEN})
