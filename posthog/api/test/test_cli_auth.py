@@ -10,7 +10,13 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.cli_auth import CLI_SCOPES, DEVICE_CODE_EXPIRY_SECONDS, get_device_cache_key, get_user_code_cache_key
+from posthog.api.cli_auth import (
+    AUTHORIZED_RETRIEVAL_SECONDS,
+    CLI_SCOPES,
+    DEVICE_CODE_EXPIRY_SECONDS,
+    get_device_cache_key,
+    get_user_code_cache_key,
+)
 from posthog.constants import AvailableFeature
 from posthog.models import PersonalAPIKey, Team, User
 from posthog.models.organization import Organization, OrganizationMembership
@@ -416,24 +422,6 @@ class TestCLIAuthPollEndpoint(APIBaseTest):
         data = response.json()
         self.assertEqual(data["status"], "expired")
 
-    def test_poll_cleans_up_cache_after_successful_retrieval(self):
-        """Test that cache is cleaned up after API key is retrieved"""
-        # Authorize the code
-        self.client.post(
-            "/api/cli-auth/authorize/",
-            {"user_code": self.user_code, "project_id": self.team.id},
-        )
-
-        # Poll for the result
-        self.client.post("/api/cli-auth/poll/", {"device_code": self.device_code})
-
-        # Verify cache is cleaned up
-        device_cache_key = get_device_cache_key(self.device_code)
-        user_code_cache_key = get_user_code_cache_key(self.user_code)
-
-        self.assertIsNone(cache.get(device_cache_key))
-        self.assertIsNone(cache.get(user_code_cache_key))
-
     def test_poll_can_be_called_multiple_times_before_authorization(self):
         """Test that poll can be called multiple times while pending"""
         # Poll multiple times
@@ -448,22 +436,36 @@ class TestCLIAuthPollEndpoint(APIBaseTest):
         response = self.client.post("/api/cli-auth/poll/", {"device_code": self.device_code})
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
 
-    def test_poll_returns_api_key_only_once(self):
-        """Test that API key can only be retrieved once"""
-        # Authorize the code
-        self.client.post(
-            "/api/cli-auth/authorize/",
-            {"user_code": self.user_code, "project_id": self.team.id},
-        )
+    def test_poll_returns_the_key_again_until_the_retrieval_window_closes(self):
+        self.client.post("/api/cli-auth/authorize/", {"user_code": self.user_code, "project_id": self.team.id})
 
-        # First poll succeeds
-        response1 = self.client.post("/api/cli-auth/poll/", {"device_code": self.device_code})
-        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        first = self.client.post("/api/cli-auth/poll/", {"device_code": self.device_code})
+        second = self.client.post("/api/cli-auth/poll/", {"device_code": self.device_code})
 
-        # Second poll fails (cache cleaned up)
-        response2 = self.client.post("/api/cli-auth/poll/", {"device_code": self.device_code})
-        self.assertEqual(response2.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response2.json()["status"], "expired")
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.json()["personal_api_key"], first.json()["personal_api_key"])
+        self.assertIsNone(cache.get(get_user_code_cache_key(self.user_code)))
+        with time_machine.travel(timezone.now() + timedelta(seconds=AUTHORIZED_RETRIEVAL_SECONDS + 1), tick=False):
+            late = self.client.post("/api/cli-auth/poll/", {"device_code": self.device_code})
+        self.assertEqual(late.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(late.json()["status"], "expired")
+
+    @parameterized.expand(
+        [
+            ("long after approval", 300, status.HTTP_200_OK),
+            ("after the code expires", DEVICE_CODE_EXPIRY_SECONDS + 1, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_an_approved_key_waits_for_the_first_poll_until_the_code_expires(
+        self, _name: str, seconds_later: int, expected_status: int
+    ):
+        self.client.post("/api/cli-auth/authorize/", {"user_code": self.user_code, "project_id": self.team.id})
+
+        with time_machine.travel(timezone.now() + timedelta(seconds=seconds_later), tick=False):
+            response = self.client.post("/api/cli-auth/poll/", {"device_code": self.device_code})
+
+        self.assertEqual(response.status_code, expected_status)
 
 
 class TestCLIAuthEndToEnd(APIBaseTest):
