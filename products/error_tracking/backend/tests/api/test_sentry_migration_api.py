@@ -1,4 +1,3 @@
-import json
 from collections.abc import Callable
 from contextlib import nullcontext
 from typing import Any
@@ -8,13 +7,14 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-import requests
+import httpx
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
+from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.error_tracking.backend.logic.sentry_migration import client as sentry_client
@@ -24,19 +24,15 @@ TOKEN = "sntryu_test_token_value"
 PROJECT_PATH = "/api/0/projects/acme/web/"
 
 
-def _response(body: Any, status_code: int = 200, headers: dict[str, str] | None = None) -> requests.Response:
-    response = requests.Response()
-    response.status_code = status_code
-    response._content = json.dumps(body).encode()
-    response.headers.update(headers or {})
-    return response
+def _response(body: Any, status_code: int = 200, headers: dict[str, str] | None = None) -> Callable[[], httpx.Response]:
+    return lambda: httpx.Response(status_code, json=body, headers=headers)
 
 
 def _no_more_pages(cursor: str = "0:100:0") -> dict[str, str]:
     return {"Link": f'<https://sentry.io/x>; rel="next"; results="false"; cursor="{cursor}"'}
 
 
-PROJECT_RESPONSES: dict[str, requests.Response] = {
+PROJECT_RESPONSES: dict[str, Callable[[], httpx.Response]] = {
     PROJECT_PATH: _response(
         {
             "slug": "web",
@@ -76,19 +72,25 @@ class TestSentryMigrationAPI(APIBaseTest):
     def _url(self, action: str) -> str:
         return f"/api/projects/{self.team.id}/error_tracking/sentry_migration/{action}/"
 
-    def _fake_sentry(self, routes: dict[str, requests.Response]) -> Callable[..., requests.Response]:
-        def fake(method: str, url: str, *, timeout: float, headers: dict[str, str]) -> requests.Response:
-            parsed = urlparse(url)
-            self.requested.append((f"{parsed.scheme}://{parsed.netloc}{parsed.path}", headers.get("Authorization")))
-            route = f"{parsed.path}?{parsed.query}" if parsed.query else parsed.path
-            return routes[route] if route in routes else _response({"detail": "not found"}, status_code=404)
+    def _fake_sentry(self, routes: dict[str, Callable[[], httpx.Response]]) -> Callable[..., httpx.Client]:
+        def handle(request: httpx.Request) -> httpx.Response:
+            url = urlparse(str(request.url))
+            self.requested.append((f"{url.scheme}://{url.netloc}{url.path}", request.headers.get("Authorization")))
+            route = f"{url.path}?{url.query}" if url.query else url.path
+            return routes[route]() if route in routes else httpx.Response(404, json={"detail": "not found"})
 
-        return fake
+        def client(url: str, pinned_ips: object, **kwargs: Any) -> httpx.Client:
+            return httpx.Client(transport=httpx.MockTransport(handle), follow_redirects=kwargs["follow_redirects"])
 
-    def _post(self, action: str, routes: dict[str, requests.Response], body: dict) -> Any:
-        with patch(
-            "products.error_tracking.backend.logic.sentry_migration.client.pinned_request",
-            side_effect=self._fake_sentry(routes),
+        return client
+
+    def _post(self, action: str, routes: dict[str, Callable[[], httpx.Response]], body: dict) -> Any:
+        with (
+            patch(
+                f"{sentry_client.__name__}.validate_url_and_pin_ips",
+                return_value=PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set()),
+            ),
+            patch(f"{sentry_client.__name__}.pinned_client", side_effect=self._fake_sentry(routes)),
         ):
             return self.client.post(self._url(action), {"auth_token": TOKEN, **body}, format="json")
 
@@ -105,7 +107,10 @@ class TestSentryMigrationAPI(APIBaseTest):
                 headers=_no_more_pages(),
             ),
             "/api/0/organizations/acme/projects/": _response(
-                [{"slug": "web", "name": "Web", "platform": "javascript"}],
+                [
+                    {"slug": "web", "name": "Web", "platform": "javascript"},
+                    {"slug": "secret", "name": "Secret", "platform": "python", "hasAccess": False},
+                ],
                 headers={"Link": '<https://de.sentry.io/x>; rel="next"; results="true"; cursor="0:100:0"'},
             ),
             "/api/0/organizations/acme/projects/?cursor=0%3A100%3A0": _response(
@@ -151,6 +156,7 @@ class TestSentryMigrationAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("plain_http_url", {"base_url": "http://sentry.example.com"}, None, "https://", 0),
+            ("malformed_url", {"base_url": "https://[sentry.example.com"}, None, "https://", 0),
             ("more_pages_than_allowed", {}, ("MAX_PAGES", 1), "more Sentry data than PostHog can read", 1),
             ("slower_than_the_total_budget", {}, ("TOTAL_TIMEOUT_SECONDS", 0), "took too long", 0),
         ]
@@ -215,7 +221,7 @@ class TestSentryMigrationAPI(APIBaseTest):
         assert {item_id for item_id, item in second_items.items() if item["already_in_posthog"]} == set(selected)
         assert (
             "replaces the project's current rate limit of 5,000 exceptions per 1 hour"
-            in (second_items["rate_limit:key2"]["note"])
+            in (second_items["rate_limit:key2:100:60"]["note"])
         )
 
         repeated = self._post("apply", PROJECT_RESPONSES, self._project_body(item_ids=selected))
@@ -254,9 +260,10 @@ class TestSentryMigrationAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("two_rate_limits", ["rate_limit:key1", "rate_limit:key2"], "Select only one rate limit"),
+            ("two_rate_limits", ["rate_limit:key1:5000:3600", "rate_limit:key2:100:60"], "Select only one rate limit"),
+            ("rate_limit_changed_since_preview", ["rate_limit:key1:1:3600"], "Load the preview again"),
             ("item_not_in_sentry", ["error_message:000000000000"], "Load the preview again"),
-            ("inactive_key", ["rate_limit:key3"], "Load the preview again"),
+            ("inactive_key", ["rate_limit:key3:1:60"], "Load the preview again"),
         ]
     )
     def test_apply_rejects_selections_it_cannot_import(self, _name: str, item_ids: list[str], message: str) -> None:
@@ -266,6 +273,22 @@ class TestSentryMigrationAPI(APIBaseTest):
         assert message in response.json()["detail"]
         assert not ErrorTrackingSuppressionRule.objects.filter(team=self.team).exists()
         assert not ErrorTrackingSettings.objects.filter(team=self.team, project_rate_limit_value__isnull=False).exists()
+
+    def test_apply_names_a_pattern_posthog_cannot_compile_and_writes_nothing(self) -> None:
+        routes = {
+            **PROJECT_RESPONSES,
+            PROJECT_PATH: _response(
+                {"slug": "web", "options": {"filters:error_messages": "*ResizeObserver loop*\n[z-a]"}}
+            ),
+        }
+        preview = self._post("preview", routes, self._project_body())
+        message_ids = [item["id"] for item in preview.json()["items"] if item["category"] == "error_message"]
+
+        applied = self._post("apply", routes, self._project_body(item_ids=message_ids))
+
+        assert applied.status_code == status.HTTP_400_BAD_REQUEST
+        assert '"[z-a]"' in applied.json()["detail"]
+        assert not ErrorTrackingSuppressionRule.objects.filter(team=self.team).exists()
 
     @pytest.mark.ee
     def test_import_requires_resource_level_access(self) -> None:

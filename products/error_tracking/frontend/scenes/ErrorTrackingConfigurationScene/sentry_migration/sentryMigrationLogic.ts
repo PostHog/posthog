@@ -27,6 +27,7 @@ import {
     type SentryImportPlan,
     buildImportPlan,
     defaultSelectedItemIds,
+    isSelectable,
     toggleItemSelection,
 } from './sentryMigrationSelection'
 import { ImportWizardStep, wizardSteps } from './sentryMigrationSteps'
@@ -109,31 +110,15 @@ export interface sentryMigrationLogicActions {
     disconnect: () => {
         value: true
     }
-    disconnectFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    disconnectSuccess: (
-        projects: null,
-        payload?: {
-            value: true
-        }
-    ) => {
-        projects: null
-        payload?: {
-            value: true
-        }
-    }
     goToNextStep: () => {
         value: true
     }
     goToPreviousStep: () => {
         value: true
     }
-    loadPreview: (_: void) => void
+    loadPreview: (_?: { keepSelection?: boolean }) => {
+        keepSelection?: boolean
+    }
     loadPreviewFailure: (
         error: string,
         errorObject?: any
@@ -143,10 +128,14 @@ export interface sentryMigrationLogicActions {
     }
     loadPreviewSuccess: (
         items: SentryMigrationItemApi[] | null,
-        payload?: void
+        payload?: {
+            keepSelection?: boolean
+        }
     ) => {
         items: SentryMigrationItemApi[] | null
-        payload?: void
+        payload?: {
+            keepSelection?: boolean
+        }
     }
     loadProjects: (_: void) => void
     loadProjectsFailure: (
@@ -166,47 +155,11 @@ export interface sentryMigrationLogicActions {
     resetWizard: () => {
         value: true
     }
-    resetWizardFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    resetWizardSuccess: (
-        projects: null,
-        payload?: {
-            value: true
-        }
-    ) => {
-        projects: null
-        payload?: {
-            value: true
-        }
-    }
     selectHosting: (hosting: SentryHosting) => {
         hosting: SentryHosting
     }
     selectProject: (projectKey: string | null) => {
         projectKey: string | null
-    }
-    selectProjectFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    selectProjectSuccess: (
-        items: null,
-        payload?: {
-            projectKey: string | null
-        }
-    ) => {
-        items: null
-        payload?: {
-            projectKey: string | null
-        }
     }
     selectSource: (source: ImportSource) => {
         source: 'sentry'
@@ -295,14 +248,12 @@ export const sentryMigrationLogic = kea<sentryMigrationLogicType>([
                     }
                     return response.projects
                 },
-                disconnect: () => null,
-                resetWizard: () => null,
             },
         ],
         items: [
             null as SentryMigrationItemApi[] | null,
             {
-                loadPreview: async (_: void, breakpoint) => {
+                loadPreview: async (_: { keepSelection?: boolean } = {}, breakpoint) => {
                     const project = values.selectedProject
                     if (!project) {
                         return null
@@ -326,9 +277,6 @@ export const sentryMigrationLogic = kea<sentryMigrationLogicType>([
                             (showBuiltInFilters || !item.built_in_filter)
                     )
                 },
-                selectProject: () => null,
-                disconnect: () => null,
-                resetWizard: () => null,
             },
         ],
         importResult: [
@@ -412,9 +360,21 @@ export const sentryMigrationLogic = kea<sentryMigrationLogicType>([
                 resetWizard: () => null,
             },
         ],
+        // Plain reducer cases, because an action listed in two loaders gets one success action shaped for the first.
+        projects: {
+            disconnect: () => null,
+            resetWizard: () => null,
+        },
+        items: {
+            selectProject: () => null,
+            loadProjects: () => null,
+            disconnect: () => null,
+            resetWizard: () => null,
+        },
         previewFailed: [
             false,
             {
+                loadProjects: () => false,
                 loadPreview: () => false,
                 loadPreviewFailure: () => true,
                 selectProject: () => false,
@@ -426,13 +386,20 @@ export const sentryMigrationLogic = kea<sentryMigrationLogicType>([
             [] as string[],
             {
                 setSelectedItemIds: (_, { itemIds }) => itemIds,
-                loadPreviewSuccess: (_, { items }) => defaultSelectedItemIds(items ?? []),
+                loadPreviewSuccess: (state, { items, payload }) =>
+                    payload?.keepSelection
+                        ? state.filter((id) => (items ?? []).some((item) => item.id === id && isSelectable(item)))
+                        : defaultSelectedItemIds(items ?? []),
+                loadProjects: () => [],
                 selectProject: () => [],
                 disconnect: () => [],
                 resetWizard: () => [],
             },
         ],
         importResult: {
+            // Changing the selection starts a new import, so the last result no longer applies.
+            toggleItem: () => null,
+            loadProjects: () => null,
             selectProject: () => null,
             disconnect: () => null,
             resetWizard: () => null,
@@ -486,7 +453,7 @@ export const sentryMigrationLogic = kea<sentryMigrationLogicType>([
             rulesLogic.findMounted({ ruleType: ErrorTrackingRuleType.Suppression })?.actions.loadRules()
             rateLimitConfigLogic.findMounted()?.actions.loadConfig()
             builtInFiltersLogic.findMounted()?.actions.loadBuiltInFilters()
-            actions.loadPreview()
+            actions.loadPreview({ keepSelection: true })
         },
     })),
 ])

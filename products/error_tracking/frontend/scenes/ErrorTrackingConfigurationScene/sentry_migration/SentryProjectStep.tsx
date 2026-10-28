@@ -8,9 +8,10 @@ import { sentryMigrationLogic } from './sentryMigrationLogic'
 import { SentryMigrationProjectPicker } from './SentryMigrationProjectPicker'
 
 export function SentryProjectStep(): JSX.Element {
-    const { projects, selectedProjectKey, items, itemsLoading, previewFailed } = useValues(sentryMigrationLogic)
+    const { projects, selectedProjectKey, selectedProject, items, itemsLoading, previewFailed } =
+        useValues(sentryMigrationLogic)
     const { disconnect, loadPreview, goToNextStep, goToPreviousStep } = useActions(sentryMigrationLogic)
-    const hasItems = !itemsLoading && !!items && items.length > 0
+    const hasItems = !!selectedProject && !itemsLoading && !!items && items.length > 0
 
     return (
         <>
