@@ -403,6 +403,9 @@ function handleToolResultChunk(
         {
           sessionUpdate: "plan",
           entries: taskStateToPlanEntries(ctx.taskState),
+          ...(ctx.parentToolCallId
+            ? { _meta: toolMeta(toolUse.name, undefined, ctx.parentToolCallId) }
+            : {}),
         },
       ];
     }
@@ -624,13 +627,7 @@ function streamEventToAcpNotifications(
   switch (event.type) {
     case "content_block_start": {
       const block = event.content_block;
-      if (block.type === "tool_use" || block.type === "mcp_tool_use") {
-        toolUseStreamCache.set(event.index, {
-          toolUseId: block.id,
-          partialJson: "",
-        });
-      }
-      return toAcpNotifications(
+      const notifications = toAcpNotifications(
         [block],
         "assistant",
         sessionId,
@@ -647,6 +644,20 @@ function streamEventToAcpNotifications(
         taskState,
         emittedToolCalls,
       );
+      if (block.type === "tool_use" || block.type === "mcp_tool_use") {
+        toolUseStreamCache.set(event.index, {
+          toolUseId: block.id,
+          partialJson: "",
+          ...(parentToolCallId
+            ? {
+                meta:
+                  notifications[0]?.update._meta ??
+                  toolMeta(block.name, undefined, parentToolCallId),
+              }
+            : {}),
+        });
+      }
+      return notifications;
     }
     case "content_block_delta": {
       if (event.delta.type === "input_json_delta") {
@@ -714,6 +725,7 @@ function inputJsonDeltaToAcpNotifications(
         sessionUpdate: "tool_call_update" as const,
         toolCallId: entry.toolUseId,
         rawInput: parsed as Record<string, unknown>,
+        ...(entry.meta ? { _meta: entry.meta } : {}),
       },
     },
   ];

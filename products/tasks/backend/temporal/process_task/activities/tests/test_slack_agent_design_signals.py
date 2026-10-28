@@ -75,6 +75,26 @@ def _session_prompt(message_id: str | None = None) -> dict[str, Any]:
 
 
 class TestSlackAgentDesignSignalEmitter:
+    @parameterized.expand(
+        [
+            ("agent_message_chunk", "posthog"),
+            ("agent_message", "posthog"),
+            ("agent_message_chunk", "claudeCode"),
+            ("agent_message", "claudeCode"),
+        ]
+    )
+    def test_subagent_prose_does_not_open_or_write_a_turn(self, session_update: str, channel: str) -> None:
+        emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
+        child_chunk = _text_chunk("child")
+        child_chunk["notification"]["params"]["update"]["sessionUpdate"] = session_update
+        child_chunk["notification"]["params"]["update"]["_meta"] = {channel: {"parentToolCallId": "tool-1"}}
+
+        assert emitter.process(child_chunk) == []
+        assert emitter.process(_text_chunk("parent")) == [
+            ("turn_started", {"slack_thread_context": SLACK_CTX, "message_id": None}),
+            ("agent_text_delta", "parent"),
+        ]
+
     def test_first_session_update_opens_turn_and_streams_text(self) -> None:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
 
@@ -133,7 +153,31 @@ class TestSlackAgentDesignSignalEmitter:
 
         assert signals == [("agent_status_update", expected)]
 
-    def test_agent_todo_list_reaches_the_relay(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "visible_call",
+                "mcp__posthog__exec",
+                {"command": 'call execute-sql {"query": "SELECT 1 FROM events"}'},
+                [("agent_status_update", {"phase": "posthog:Execute SQL query", "nested": True})],
+            ),
+            ("hidden_call", "Sleep", {}, []),
+        ]
+    )
+    def test_subagent_call_does_not_end_the_answer(
+        self, _name: str, tool_name: str, raw_input: dict[str, Any], expected: list[tuple[str, Any]]
+    ) -> None:
+        emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
+        emitter.process(_text_chunk("The answer is"))
+        call = _tool_call("call-3", tool_name, "")
+        update = call["notification"]["params"]["update"]
+        update["rawInput"] = raw_input
+        update["_meta"]["claudeCode"]["parentToolCallId"] = "call-agent"
+
+        assert emitter.process(call) == expected
+
+    @parameterized.expand([("parent", None), ("claude_child", "claudeCode"), ("posthog_child", "posthog")])
+    def test_agent_todo_list_reaches_the_relay(self, _name: str, meta_channel: str | None) -> None:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
         emitter.process(_text_chunk("thinking"))
         plan = {
@@ -144,6 +188,7 @@ class TestSlackAgentDesignSignalEmitter:
                     "update": {
                         "sessionUpdate": "plan",
                         "entries": [{"content": "Count weekly signups", "status": "in_progress"}],
+                        **({"_meta": {meta_channel: {"parentToolCallId": "parent-tool"}}} if meta_channel else {}),
                     }
                 },
             },
@@ -152,7 +197,13 @@ class TestSlackAgentDesignSignalEmitter:
         signals = emitter.process(plan)
 
         assert signals == [
-            ("agent_status_update", {"plan": [{"title": "Count weekly signups", "status": "in_progress"}]})
+            (
+                "agent_status_update",
+                {
+                    "plan": [{"title": "Count weekly signups", "status": "in_progress"}],
+                    **({"nested": True} if meta_channel else {}),
+                },
+            )
         ]
 
     @parameterized.expand(

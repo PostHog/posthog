@@ -630,7 +630,7 @@ async def _relay_loop(
                             if is_agent_design_enabled and workflow_handle is not None:
                                 if not slack_turn_active[0] and _is_session_prompt(event_data):
                                     slack_turn_message_id[0] = _prompt_message_id(event_data)
-                                if not slack_turn_active[0] and _is_session_update(event_data):
+                                if not slack_turn_active[0] and _is_parent_session_update(event_data):
                                     slack_turn_active[0] = True
                                     # Await so turn_started is recorded before any delta of this turn,
                                     # and reset the flush clock so the first delta buffers rather than
@@ -876,8 +876,27 @@ def _is_active_agent_update(event_data: dict) -> bool:
     return update.get("sessionUpdate") in _GENERATION_SESSION_UPDATE_SUBTYPES
 
 
+def _is_subagent_update(update: dict[str, Any]) -> bool:
+    """True for an update from a sub-agent, which names its parent tool call in ``_meta``."""
+    meta = update.get("_meta")
+    if not isinstance(meta, dict):
+        return False
+    for channel in (meta.get("posthog"), meta.get("claudeCode")):
+        parent = channel.get("parentToolCallId") if isinstance(channel, dict) else None
+        if isinstance(parent, str) and parent:
+            return True
+    return False
+
+
+def _is_parent_session_update(event_data: dict) -> bool:
+    if not _is_session_update(event_data):
+        return False
+    update = (event_data.get("notification", {}).get("params") or {}).get("update") or {}
+    return not _is_subagent_update(update)
+
+
 def _extract_progress_update(event_data: dict, seen: set[str]) -> dict[str, Any] | None:
-    """The Slack plan payload for an ACP tool call (``{"phase", "activity"}``) or todo list (``{"plan"}``).
+    """The Slack plan payload for an ACP tool call (``{"phase", "activity", "nested"}``) or todo list (``{"plan"}``).
 
     It carries no tool name or arguments, only the call's description written for people. An id is
     marked seen only once its command is known, so a call that arrives without input retries.
@@ -885,9 +904,10 @@ def _extract_progress_update(event_data: dict, seen: set[str]) -> dict[str, Any]
     if not _is_session_update(event_data):
         return None
     update = (event_data.get("notification", {}).get("params") or {}).get("update") or {}
+    nested = _is_subagent_update(update)
     steps = agent_plan_steps(update)
     if steps is not None:
-        return {"plan": steps} if steps else None
+        return {"plan": steps, **({"nested": True} if nested else {})} if steps else None
     if update.get("sessionUpdate") not in ("tool_call", "tool_call_update"):
         return None
 
@@ -900,10 +920,14 @@ def _extract_progress_update(event_data: dict, seen: set[str]) -> dict[str, Any]
         return None
     seen.add(tool_call_id)
     phase = phase_for_tool_call(tool_call)
-    # A hidden tool still ends the narrative burst before it, so it is signaled without a phase.
+    # A background sub-agent can call tools while the agent writes its answer, so its calls are
+    # marked nested and do not end the narrative burst. A hidden tool of the agent itself still
+    # ends the burst before it, so it is signaled without a phase.
     if phase is None:
-        return {"phase": None}
+        return None if nested else {"phase": None}
     payload: dict[str, Any] = {"phase": phase.key}
+    if nested:
+        payload["nested"] = True
     if tool_call.description:
         payload["activity"] = tool_call.description
     return payload
@@ -925,6 +949,8 @@ def _extract_agent_message_text(event_data: dict) -> str | None:
     params = notification.get("params") or {}
     update = params.get("update") or {}
     if update.get("sessionUpdate") not in {"agent_message", "agent_message_chunk"}:
+        return None
+    if _is_subagent_update(update):
         return None
     content = update.get("content")
     if not isinstance(content, dict):

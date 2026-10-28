@@ -644,29 +644,33 @@ describe("createTaskHook", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  test("TaskCreated inserts a pending entry and fires onChange", async () => {
-    const state: TaskState = new Map();
-    const onChange = vi.fn(async () => {});
-    const hook = createTaskHook(state, onChange);
-    const result = await hook(
-      {
-        ...baseInput,
-        hook_event_name: "TaskCreated",
-        task_id: "t1",
-        task_subject: "Fix bug",
-        task_description: "details",
-      } as unknown as HookInput,
-      undefined,
-      { signal: new AbortController().signal },
-    );
-    expect(result).toEqual({ continue: true });
-    expect(state.get("t1")).toEqual({
-      subject: "Fix bug",
-      status: "pending",
-      description: "details",
-    });
-    expect(onChange).toHaveBeenCalledOnce();
-  });
+  test.each([undefined, "child-agent"])(
+    "TaskCreated updates state and only emits parent plans (agent=%s)",
+    async (agentId) => {
+      const state: TaskState = new Map();
+      const onChange = vi.fn(async () => {});
+      const hook = createTaskHook(state, onChange);
+      const result = await hook(
+        {
+          ...baseInput,
+          hook_event_name: "TaskCreated",
+          agent_id: agentId,
+          task_id: "t1",
+          task_subject: "Fix bug",
+          task_description: "details",
+        } as unknown as HookInput,
+        undefined,
+        { signal: new AbortController().signal },
+      );
+      expect(result).toEqual({ continue: true });
+      expect(state.get("t1")).toEqual({
+        subject: "Fix bug",
+        status: "pending",
+        description: "details",
+      });
+      expect(onChange).toHaveBeenCalledTimes(agentId ? 0 : 1);
+    },
+  );
 
   test("TaskCreated is idempotent for an existing task_id", async () => {
     const state: TaskState = new Map([
@@ -712,24 +716,28 @@ describe("createTaskHook", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  test("TaskCompleted flips status and fires onChange", async () => {
-    const state: TaskState = new Map([
-      ["t1", { subject: "Existing", status: "in_progress" as const }],
-    ]);
-    const onChange = vi.fn(async () => {});
-    const hook = createTaskHook(state, onChange);
-    await hook(
-      {
-        ...baseInput,
-        hook_event_name: "TaskCompleted",
-        task_id: "t1",
-      } as unknown as HookInput,
-      undefined,
-      { signal: new AbortController().signal },
-    );
-    expect(state.get("t1")?.status).toBe("completed");
-    expect(onChange).toHaveBeenCalledOnce();
-  });
+  test.each([undefined, "child-agent"])(
+    "TaskCompleted updates state and only emits parent plans (agent=%s)",
+    async (agentId) => {
+      const state: TaskState = new Map([
+        ["t1", { subject: "Existing", status: "in_progress" as const }],
+      ]);
+      const onChange = vi.fn(async () => {});
+      const hook = createTaskHook(state, onChange);
+      await hook(
+        {
+          ...baseInput,
+          hook_event_name: "TaskCompleted",
+          agent_id: agentId,
+          task_id: "t1",
+        } as unknown as HookInput,
+        undefined,
+        { signal: new AbortController().signal },
+      );
+      expect(state.get("t1")?.status).toBe("completed");
+      expect(onChange).toHaveBeenCalledTimes(agentId ? 0 : 1);
+    },
+  );
 
   test("TaskCompleted is a no-op for unknown task_id", async () => {
     const state: TaskState = new Map();

@@ -281,6 +281,111 @@ describe("assembled assistant text fallback", () => {
     expect(context.session.notificationHistory).toEqual(updates);
   });
 
+  it.each(["Bash", "mcp__posthog__exec"])(
+    "preserves %s child tool metadata while streaming input",
+    async (toolName) => {
+      const { context, updates } = createHandlerContext();
+      context.supportsTerminalOutput = true;
+      await handleStreamEvent(
+        streamEvent(
+          {
+            type: "content_block_start",
+            index: 0,
+            content_block: {
+              type: "tool_use",
+              id: "child-tool",
+              name: toolName,
+              input: {},
+            },
+          },
+          "parent-tool",
+        ),
+        context,
+      );
+      await handleStreamEvent(
+        streamEvent(
+          {
+            type: "content_block_delta",
+            index: 0,
+            delta: {
+              type: "input_json_delta",
+              partial_json: '{"command":"echo hello"}',
+            },
+          },
+          "parent-tool",
+        ),
+        context,
+      );
+
+      expect(updates.at(-1)?.update._meta).toEqual(updates[0].update._meta);
+      expect(updates.at(-1)?.update._meta).toMatchObject({
+        claudeCode: { toolName, parentToolCallId: "parent-tool" },
+      });
+    },
+  );
+
+  it.each([null, "parent-tool"])(
+    "preserves plan ownership for TaskCreate and TaskUpdate (parent=%s)",
+    async (parentToolUseId) => {
+      const { context, updates } = createHandlerContext();
+      for (const [name, input, content, status] of [
+        [
+          "TaskCreate",
+          { subject: "Check the query" },
+          JSON.stringify({
+            task: { id: "1", subject: "Check the query", status: "pending" },
+          }),
+          "pending",
+        ],
+        [
+          "TaskUpdate",
+          { taskId: "1", status: "completed" },
+          "Updated task #1",
+          "completed",
+        ],
+      ] as const) {
+        await handleUserAssistantMessage(
+          assistantMessage(
+            "msg_1",
+            [{ type: "tool_use", id: "task-tool", name, input }],
+            parentToolUseId,
+          ),
+          context,
+        );
+        await handleUserAssistantMessage(
+          {
+            type: "user",
+            parent_tool_use_id: parentToolUseId,
+            uuid: "00000000-0000-0000-0000-000000000003",
+            session_id: "test-session",
+            message: {
+              role: "user",
+              content: [
+                { type: "tool_result", tool_use_id: "task-tool", content },
+              ],
+            },
+          } as SDKUserMessage,
+          context,
+        );
+
+        expect(updates.at(-1)?.update).toEqual({
+          sessionUpdate: "plan",
+          entries: [{ content: "Check the query", priority: "medium", status }],
+          ...(parentToolUseId
+            ? {
+                _meta: {
+                  claudeCode: {
+                    toolName: name,
+                    parentToolCallId: parentToolUseId,
+                  },
+                },
+              }
+            : {}),
+        });
+      }
+    },
+  );
+
   it.each([false, true])(
     "preserves the MCP result metadata in ACP and stored notifications (isError=%s)",
     async (isError) => {

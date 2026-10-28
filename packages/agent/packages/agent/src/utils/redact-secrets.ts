@@ -219,15 +219,22 @@ export class SecretEventRedactor {
   private heldDots = 0;
   private context = "";
 
+  flush(): Record<string, unknown>[] {
+    const events = this.pending ? [this.pending] : [];
+    this.pending = null;
+    this.active = null;
+    this.chunkKind = null;
+    this.heldDots = 0;
+    this.context = "";
+    return events;
+  }
+
   redact(event: Record<string, unknown>): Record<string, unknown>[] {
     const events: Record<string, unknown>[] = [];
     const chunk = isTextChunk(event);
     const kind = chunk ? event.notification.params.update.sessionUpdate : null;
     if (!chunk || kind !== this.chunkKind) {
-      if (this.pending) events.push(this.pending);
-      this.pending = null;
-      this.active = null;
-      this.context = "";
+      events.push(...this.flush());
     }
     this.chunkKind = kind;
     if (!chunk) {

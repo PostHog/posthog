@@ -438,6 +438,74 @@ describe("SessionLogWriter", () => {
         label: "an unrecognized server diagnostic",
         wireMessages: [{ method: "_posthog/some_new_diagnostic", params: {} }],
       },
+      {
+        // A background sub-agent keeps working while the agent writes.
+        label: "sub-agent tool call",
+        wireMessages: [
+          {
+            method: "session/update",
+            params: {
+              update: {
+                sessionUpdate: "tool_call",
+                toolCallId: "tc-sub",
+                _meta: {
+                  claudeCode: {
+                    toolName: "Bash",
+                    parentToolCallId: "tc-agent",
+                  },
+                },
+              },
+            },
+          },
+        ],
+      },
+      {
+        label: "sub-agent tool call update on the neutral meta channel",
+        wireMessages: [
+          {
+            method: "session/update",
+            params: {
+              update: {
+                sessionUpdate: "tool_call_update",
+                toolCallId: "tc-sub",
+                status: "completed",
+                _meta: {
+                  posthog: { toolName: "Bash", parentToolCallId: "tc-agent" },
+                },
+              },
+            },
+          },
+        ],
+      },
+      ...["posthog", "claudeCode"].flatMap((channel) =>
+        ["agent_message_chunk", "agent_message", "plan"].map(
+          (sessionUpdate) => ({
+            label: `sub-agent ${sessionUpdate} on ${channel}`,
+            wireMessages: [
+              {
+                method: "session/update",
+                params: {
+                  update: {
+                    sessionUpdate,
+                    ...(sessionUpdate === "plan"
+                      ? {
+                          entries: [
+                            {
+                              content: "Check the query",
+                              priority: "medium",
+                              status: "pending",
+                            },
+                          ],
+                        }
+                      : { content: { type: "text", text: "child answer" } }),
+                    _meta: { [channel]: { parentToolCallId: "tc-agent" } },
+                  },
+                },
+              },
+            ],
+          }),
+        ),
+      ),
     ])(
       "keeps a streamed message whole across an interleaved $label",
       async ({ wireMessages }) => {
@@ -872,52 +940,126 @@ describe("SessionLogWriter", () => {
   });
 
   describe("API-path rawInput snapshot coalescing", () => {
-    function rawInputSnapshot(toolCallId: string, rawInput: unknown): string {
-      return makeSessionUpdate("tool_call_update", { toolCallId, rawInput });
+    function rawInputSnapshot(
+      toolCallId: string,
+      rawInput: unknown,
+      _meta?: Record<string, unknown>,
+    ): string {
+      return makeSessionUpdate("tool_call_update", {
+        toolCallId,
+        rawInput,
+        ...(_meta ? { _meta } : {}),
+      });
     }
 
-    it("persists only the last cumulative snapshot, before the completing update", async () => {
-      const sessionId = "s1";
-      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+    it.each([
+      undefined,
+      {
+        claudeCode: {
+          toolName: "mcp__posthog__exec",
+          parentToolCallId: "parent-tool",
+        },
+      },
+      {
+        claudeCode: {
+          toolName: "Bash",
+          parentToolCallId: "parent-tool",
+          bashCommand: "ls",
+        },
+        terminal_info: { terminal_id: "tc1" },
+      },
+      { posthog: { toolName: "Bash", parentToolCallId: "parent-tool" } },
+    ])(
+      "persists only the last cumulative snapshot before completion (meta=%j)",
+      async (_meta) => {
+        const sessionId = "s1";
+        logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
 
-      logWriter.appendRawLine(
-        sessionId,
-        makeSessionUpdate("tool_call", {
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("tool_call", {
+            toolCallId: "tc1",
+            status: "pending",
+          }),
+        );
+        logWriter.appendRawLine(sessionId, rawInputSnapshot("tc1", {}, _meta));
+        logWriter.appendRawLine(
+          sessionId,
+          rawInputSnapshot("tc1", { command: "ls" }, _meta),
+        );
+        logWriter.appendRawLine(
+          sessionId,
+          rawInputSnapshot("tc1", { command: "ls -la" }, _meta),
+        );
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("tool_call_update", {
+            toolCallId: "tc1",
+            status: "completed",
+            rawOutput: { content: [] },
+          }),
+        );
+
+        await logWriter.flush(sessionId);
+
+        const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
+        expect(entries).toHaveLength(3);
+        expect(entries[1].notification.params?.update).toEqual({
+          sessionUpdate: "tool_call_update",
           toolCallId: "tc1",
-          status: "pending",
-        }),
-      );
-      logWriter.appendRawLine(sessionId, rawInputSnapshot("tc1", {}));
-      logWriter.appendRawLine(
-        sessionId,
-        rawInputSnapshot("tc1", { command: "ls" }),
-      );
-      logWriter.appendRawLine(
-        sessionId,
-        rawInputSnapshot("tc1", { command: "ls -la" }),
-      );
-      logWriter.appendRawLine(
-        sessionId,
-        makeSessionUpdate("tool_call_update", {
-          toolCallId: "tc1",
-          status: "completed",
-          rawOutput: { content: [] },
-        }),
-      );
+          rawInput: { command: "ls -la" },
+          ...(_meta ? { _meta } : {}),
+        });
+        expect(
+          (entries[2].notification.params?.update as { status?: string })
+            .status,
+        ).toBe("completed");
+      },
+    );
 
-      await logWriter.flush(sessionId);
+    it.each([
+      { terminal_output: { terminal_id: "tc1", data: "output" } },
+      {
+        claudeCode: {
+          toolName: "Bash",
+          parentToolCallId: "parent-tool",
+          toolResponse: "result",
+        },
+      },
+    ])(
+      "preserves substantive metadata alongside rawInput (meta=%j)",
+      async (_meta) => {
+        const sessionId = "s1";
+        logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+        logWriter.appendRawLine(
+          sessionId,
+          rawInputSnapshot("tc1", { command: "ls" }, _meta),
+        );
+        logWriter.appendRawLine(
+          sessionId,
+          rawInputSnapshot("tc1", { command: "ls -la" }),
+        );
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("tool_call_update", {
+            toolCallId: "tc1",
+            status: "completed",
+          }),
+        );
 
-      const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
-      expect(entries).toHaveLength(3);
-      expect(entries[1].notification.params?.update).toEqual({
-        sessionUpdate: "tool_call_update",
-        toolCallId: "tc1",
-        rawInput: { command: "ls -la" },
-      });
-      expect(
-        (entries[2].notification.params?.update as { status?: string }).status,
-      ).toBe("completed");
-    });
+        await logWriter.flush(sessionId);
+
+        const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
+        expect(entries).toHaveLength(3);
+        expect(entries[0].notification.params?.update).toMatchObject({
+          _meta,
+          rawInput: { command: "ls" },
+        });
+        expect(entries[1].notification.params?.update).toMatchObject({
+          rawInput: { command: "ls -la" },
+        });
+      },
+    );
 
     it("drops the buffered snapshot when a richer update carries rawInput itself", async () => {
       const sessionId = "s1";
@@ -1178,6 +1320,152 @@ describe("SessionLogWriter — local-cache tool_call_update coalescing", () => {
     // biome-ignore lint/suspicious/noExplicitAny: test introspection
     (e.notification as any).params.update;
 
+  it.each([
+    ["claudeCode", "agent_message_chunk"],
+    ["posthog", "agent_message_chunk"],
+    ["claudeCode", "agent_thought_chunk"],
+    ["posthog", "agent_thought_chunk"],
+  ])(
+    "redacts interleaved child streams before local and API persistence (%s, %s)",
+    async (channel, kind) => {
+      const appendTaskRunLog = vi.fn().mockResolvedValue(undefined);
+      writer = new SessionLogWriter({
+        localCachePath: tmp,
+        posthogAPI: { appendTaskRunLog } as unknown as PostHogAPIClient,
+      });
+      writer.register(RUN, { taskId: "t", runId: RUN });
+      const childChunk = (
+        parentToolCallId: string,
+        text: string,
+        eventId: string,
+      ) =>
+        writer.appendRawLine(
+          RUN,
+          makeSessionUpdate(kind, {
+            content: { type: "text", text },
+            _meta: { [channel]: { parentToolCallId } },
+          }),
+          eventId,
+        );
+      writer.appendRawLine(
+        RUN,
+        makeSessionUpdate("agent_message_chunk", {
+          content: { type: "text", text: "The answer is " },
+        }),
+      );
+      childChunk("child-1", "Token: sk-ant-", "child-1-a");
+      childChunk("child-2", "Other child.", "child-2-a");
+      await writer.flush(RUN);
+      expect(JSON.stringify(await readLog())).not.toContain("sk-ant-");
+      expect(JSON.stringify(appendTaskRunLog.mock.calls)).not.toContain(
+        "sk-ant-",
+      );
+
+      childChunk("child-1", "oat01-fake-", "child-1-b");
+      writer.appendRawLine(
+        RUN,
+        makeSessionUpdate("agent_message_chunk", {
+          content: { type: "text", text: "42." },
+        }),
+      );
+      childChunk("child-1", "test-token", "child-1-c");
+      childChunk("child-1", ". Done.", "child-1-d");
+      writer.appendRawLine(
+        RUN,
+        makeSessionUpdate("tool_call", {
+          toolCallId: "child-tool",
+          _meta: { [channel]: { parentToolCallId: "child-1" } },
+        }),
+      );
+      await writer.flush(RUN, { coalesce: true });
+
+      const local = await readLog();
+      const api = appendTaskRunLog.mock.calls.flatMap((call) => call[2]);
+      for (const entries of [local, api]) {
+        const childMessages = entries.filter(
+          (entry: Record<string, unknown>) => {
+            const update = sessionUpdateOf(entry);
+            return (
+              update?.sessionUpdate === kind &&
+              update._meta?.[channel]?.parentToolCallId === "child-1"
+            );
+          },
+        );
+        expect(
+          childMessages
+            .map(
+              (entry: Record<string, unknown>) =>
+                sessionUpdateOf(entry).content.text,
+            )
+            .join(""),
+        ).toBe("Token: [REDACTED]. Done.");
+        expect(
+          childMessages.map((entry: Record<string, unknown>) => entry.event_id),
+        ).toEqual([
+          "child-1-b",
+          ...(kind === "agent_message_chunk" ? ["child-1-c"] : []),
+          "child-1-d",
+        ]);
+        expect(JSON.stringify(entries)).not.toContain("fake-");
+        expect(JSON.stringify(entries)).not.toContain("test-token");
+      }
+      expect(writer.getAgentResponseParts(RUN)).toEqual(["The answer is 42."]);
+    },
+  );
+
+  it.each(["child-event", "child-complete", "turn-flush", "shutdown"])(
+    "persists a child stream's held ordinary text on %s",
+    async (finish) => {
+      writer.appendRawLine(
+        RUN,
+        makeSessionUpdate("agent_message_chunk", {
+          content: { type: "text", text: "Checks" },
+          _meta: { posthog: { parentToolCallId: "child-1" } },
+        }),
+        "child-1-a",
+      );
+      if (finish === "child-event") {
+        writer.appendRawLine(
+          RUN,
+          makeSessionUpdate("tool_call", {
+            toolCallId: "child-tool",
+            _meta: { posthog: { parentToolCallId: "child-1" } },
+          }),
+        );
+      } else if (finish === "child-complete") {
+        writer.appendRawLine(
+          RUN,
+          makeSessionUpdate("tool_call_update", {
+            toolCallId: "child-1",
+            status: "completed",
+          }),
+        );
+      } else if (finish === "turn-flush") {
+        await writer.flush(RUN, { coalesce: true });
+      } else {
+        await writer.flushAll();
+      }
+      const messages = (await readLog()).filter(
+        (entry) =>
+          sessionUpdateOf(entry).sessionUpdate === "agent_message_chunk",
+      );
+      expect(messages).toMatchObject([
+        {
+          event_id: "child-1-a",
+          notification: {
+            params: {
+              update: {
+                content: { text: "Checks" },
+                _meta: { posthog: { parentToolCallId: "child-1" } },
+              },
+            },
+          },
+        },
+      ]);
+      expect(writer.getAgentResponseParts(RUN)).toBeUndefined();
+    },
+  );
+
   it("writes one merged update per call, flushed by a non-tool event", async () => {
     writer.appendRawLine(RUN, update({ content: "a1" }));
     writer.appendRawLine(RUN, update({ content: "a2" }));
@@ -1210,19 +1498,62 @@ describe("SessionLogWriter — local-cache tool_call_update coalescing", () => {
     });
   });
 
-  it("a terminal update merges into buffered snapshots, later fields winning", async () => {
-    writer.appendRawLine(RUN, update({ content: "a1" }));
-    writer.appendRawLine(RUN, update({ content: "a2" }));
-    writer.appendRawLine(
-      RUN,
-      update({ content: "final", status: "completed" }),
-    );
+  it.each(["agent_message_chunk", "agent_thought_chunk"])(
+    "merges tool snapshots across interleaved child %s until completion",
+    async (kind) => {
+      vi.useFakeTimers();
+      try {
+        for (let i = 1; i <= 100; i++) {
+          writer.appendRawLine(
+            RUN,
+            update({
+              rawInput: { text: "x".repeat(i * 1000) },
+              content: `partial ${i}`,
+              _meta: { posthog: { parentToolCallId: "tool-agent" } },
+            }),
+          );
+          writer.appendRawLine(
+            RUN,
+            makeSessionUpdate(kind, {
+              content: { type: "text", text: "Working. " },
+              _meta: { posthog: { parentToolCallId: "text-agent" } },
+            }),
+          );
+        }
 
-    const log = await readLog();
-    expect(log).toHaveLength(1);
-    expect(sessionUpdateOf(log[0]).content).toBe("final");
-    expect(sessionUpdateOf(log[0]).status).toBe("completed");
-  });
+        const streamingLog = (await readLog()).map(sessionUpdateOf);
+        expect(streamingLog).toHaveLength(100);
+        expect(
+          streamingLog.every(
+            (entry) =>
+              entry.sessionUpdate === kind &&
+              entry.content.text === "Working. ",
+          ),
+        ).toBe(true);
+
+        writer.appendRawLine(
+          RUN,
+          update({ content: "final", status: "completed" }),
+        );
+
+        const toolUpdates = (await readLog())
+          .map(sessionUpdateOf)
+          .filter((entry) => entry.sessionUpdate === "tool_call_update");
+        expect(toolUpdates).toEqual([
+          {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "a",
+            rawInput: { text: "x".repeat(100_000) },
+            content: "final",
+            status: "completed",
+            _meta: { posthog: { parentToolCallId: "tool-agent" } },
+          },
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("fields carried only by earlier updates survive the terminal write", async () => {
     // Mirrors the real emission shape: streamed rawInput snapshots carry the
