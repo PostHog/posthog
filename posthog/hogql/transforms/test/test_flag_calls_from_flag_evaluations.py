@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+import pytest
 import time_machine
 
 from django.test import SimpleTestCase
@@ -45,6 +46,13 @@ def _where(*conjuncts: str) -> str:
 
 def _bounded_by(lower_bound: str) -> str:
     return _where(FLAG_CALLED, FLAG_KEY, f"timestamp >= {lower_bound}")
+
+
+def _nested(template: str, depth: int) -> str:
+    expr = "properties.since"
+    for _ in range(depth):
+        expr = template.format(expr)
+    return expr
 
 
 def _joined(where: str) -> str:
@@ -353,8 +361,15 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
             ),
             ("bound_near_year_one", _bounded_by("'0001-01-01'")),
             ("interval_past_datetime_range", _bounded_by("now() - INTERVAL 999999999 YEAR")),
+            # Each level used to evaluate its value twice, so 40 levels took 2^40 steps.
+            ("deeply_nested_start_of_day_of_a_column", _bounded_by(_nested("toStartOfDay({})", 40))),
+            (
+                "deeply_nested_day_interval_of_a_column",
+                _bounded_by(_nested("toStartOfInterval({}, toIntervalDay(1))", 40)),
+            ),
         ]
     )
+    @pytest.mark.timeout(5, func_only=True)
     def test_refuses_a_query_that_breaks_a_condition(self, _name: str, query: str):
         assert self._can_read(query) is False
 

@@ -438,19 +438,22 @@ def _earliest_instant(expr: ast.Expr, now: datetime, timezone: ZoneInfo) -> date
         instant = _earliest_instant(args[0], now, timezone)
         # toDate truncates to a day, and the comparison can read that day in a zone the caller does not name.
         return instant - _DAY_IN_ANY_TIMEZONE if instant is not None else None
-    day_start = _start_of_day(expr, now, timezone)
-    if day_start is not None:
-        return day_start
-    if name in _START_OF_UNITS and args:
-        return _rounded_down(_earliest_instant(args[0], now, timezone), (1, _START_OF_UNITS[name]))
-    if name == "toStartOfInterval" and len(args) >= 2:
-        return _rounded_down(_earliest_instant(args[0], now, timezone), _interval(args[1]))
+    if (name in _START_OF_UNITS and args) or (name == "toStartOfInterval" and len(args) >= 2):
+        # Evaluating the value once keeps nested rounding linear. Each rounding call would otherwise evaluate its
+        # value twice, and the work would double at each level.
+        instant = _earliest_instant(args[0], now, timezone)
+        if instant is None:
+            return None
+        day_start = _start_of_day(expr, instant, timezone)
+        if day_start is not None:
+            return day_start
+        return _rounded_down(instant, (1, _START_OF_UNITS[name]) if name in _START_OF_UNITS else _interval(args[1]))
     return None
 
 
-def _start_of_day(expr: ast.Call, now: datetime, timezone: ZoneInfo) -> datetime | None:
-    """The exact start of the day `toStartOfDay(x)` or `toStartOfInterval(x, toIntervalDay(1))` rounds to, or None
-    for any other call or when the zone it rounds in is unknown."""
+def _start_of_day(expr: ast.Call, instant: datetime, timezone: ZoneInfo) -> datetime | None:
+    """The exact start of the day `toStartOfDay(x)` or `toStartOfInterval(x, toIntervalDay(1))` rounds to, given
+    `instant`, the earliest value of `x`. None for any other call or when the zone it rounds in is unknown."""
     if expr.name == "toStartOfDay" and expr.args:
         zone_index = 1
     elif expr.name == "toStartOfInterval" and len(expr.args) >= 2 and _interval(expr.args[1]) == (1, "Day"):
@@ -461,9 +464,6 @@ def _start_of_day(expr: ast.Call, now: datetime, timezone: ZoneInfo) -> datetime
     # ClickHouse rounds in the zone argument, or else in the zone of the value.
     zones = _zone(expr.args[zone_index]) if len(expr.args) > zone_index else _zones_of(value, timezone)
     if not zones:
-        return None
-    instant = _earliest_instant(value, now, timezone)
-    if instant is None:
         return None
     return min(start_of_day(instant.astimezone(zone)) for zone in zones)
 
