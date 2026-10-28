@@ -4952,7 +4952,7 @@ Diffed against: <https://developers.freshchat.com/api/>
 - [x] `/v2/conversations/{conversation_id}/messages` — message-level data for response time, volume and agent workload analysis (high)
 - [x] `/v2/roles` — lookup resolving the role IDs carried on agents (high)
 - [ ] `/v2/reports/raw` — bulk raw data export - the practical way to land conversation/agent history at scale (medium) — not a readable collection: `POST /reports/raw` submits an async extraction job and `GET /reports/raw/{id}` returns a status plus a link to a generated CSV/JSON file. It needs a mandatory `event` type from a fixed enum, each of which yields a different report schema, over a window capped at one month (24 hours for chat transcripts) and no earlier than 15 months back. There is no single stable table behind it.
-- [ ] `/v2/outbound-messages` — outbound campaign message sends and their delivery state (medium)
+- [x] `/v2/outbound-messages` — outbound campaign message sends and their delivery state (medium)
 - [ ] `/v2/metrics/historical` — vendor-computed historical conversation/agent metrics (medium)
 
 Note: There is no top-level GET /v2/conversations list - conversations are only enumerable per user (/v2/users/{user_id}/conversations), so an implementation must fan out from the users table already synced, then fan out again for messages. /v2/agents/{id} status updates and business-hours/within-bh are write/check endpoints, not collections.
