@@ -287,8 +287,13 @@ impl UrlRewrite {
         }
     }
 
-    /// The bytes with each srcset rebuilt and each URL replaced. Returns the input when it holds none.
-    pub fn apply<'b>(&mut self, bytes: &'b [u8]) -> Cow<'b, [u8]> {
+    /// The bytes with each URL replaced, and in a DOM event each inspected srcset rebuilt. Returns the input when it
+    /// holds none. Only a full snapshot or a mutation holds image slots, so a srcset in any other event, such as a
+    /// custom event's payload with the same value, is left to the rewrite of each URL.
+    pub fn apply<'b>(&mut self, bytes: &'b [u8], dom_event: bool) -> Cow<'b, [u8]> {
+        if !dom_event {
+            return self.replace_urls(bytes);
+        }
         match self.rebuild_srcsets(bytes) {
             Cow::Borrowed(bytes) => self.replace_urls(bytes),
             Cow::Owned(rebuilt) => Cow::Owned(self.replace_urls(&rebuilt).into_owned()),
@@ -423,7 +428,7 @@ mod tests {
     fn rewrite(urls: &[&str], bytes: &str) -> String {
         let urls: Vec<String> = urls.iter().map(|u| (*u).to_owned()).collect();
         let mut rewrite = UrlRewrite::new(&urls, &[], 7, "2026-10", &TEAM_KEY);
-        String::from_utf8(rewrite.apply(bytes.as_bytes()).into_owned()).unwrap()
+        String::from_utf8(rewrite.apply(bytes.as_bytes(), true).into_owned()).unwrap()
     }
 
     fn reference(url: &str) -> String {
@@ -462,7 +467,7 @@ mod tests {
             &TEAM_KEY,
         );
         assert_eq!(
-            String::from_utf8(rewrite.apply(event.as_bytes()).into_owned()).unwrap(),
+            String::from_utf8(rewrite.apply(event.as_bytes(), true).into_owned()).unwrap(),
             format!(
                 r#"{{"srcset":"{ra} 1x,\n{rb} 2x,\t{} 3x"}}"#,
                 declined_marker("non_public_host")
@@ -478,7 +483,7 @@ mod tests {
         let canonical = canonical_strings(hidden.as_bytes());
         let mut rewrite = UrlRewrite::new(&[url.to_owned()], &[], 7, "2026-10", &TEAM_KEY);
         assert_eq!(
-            String::from_utf8(rewrite.apply(&canonical).into_owned()).unwrap(),
+            String::from_utf8(rewrite.apply(&canonical, true).into_owned()).unwrap(),
             format!(
                 r#"{{"src":"{}","alt":"a\nb"}}"#,
                 declined_marker("credential")
@@ -520,7 +525,10 @@ mod tests {
         // A second copy inside a longer URL stays as it is, so the block fails.
         let url = "https://bucket.s3.amazonaws.com/a.png?X-Amz-Signature=abc123";
         let mut rewrite = UrlRewrite::new(&[url.to_owned()], &[], 7, "2026-10", &TEAM_KEY);
-        rewrite.apply(format!(r#"{{"src":"{url}","alt":"x{url}"}}"#).as_bytes());
+        rewrite.apply(
+            format!(r#"{{"src":"{url}","alt":"x{url}"}}"#).as_bytes(),
+            true,
+        );
         assert!(!rewrite.finish());
     }
 }

@@ -157,7 +157,10 @@ pub fn prepare_block(
                     .as_deref()
                     .unwrap_or(&message.inner[event.span.0..event.span.1]),
             );
-            let event_bytes = rewrite.apply(&canonical);
+            // The inspector reads image slots in full snapshots and mutations only.
+            let dom_event =
+                event.kind == Some(2) || (event.kind == Some(3) && event.source == Some(0));
+            let event_bytes = rewrite.apply(&canonical, dom_event);
             out.write_all(&event_bytes)?;
             out.write_all(b"]\n")?;
             let line = (window.len() + event_bytes.len() + 4) as u64;
@@ -925,7 +928,34 @@ mod tests {
             "{lines}"
         );
 
-        // A srcset key outside an image slot, here in a custom event, is no srcset of the DOM and stays as it is.
+        // A srcset key outside an image slot, here in a custom event, is no srcset of the DOM and stays as it is. With
+        // the same value as an inspected image slot, only the slot is rebuilt, and the custom event gets the rewrite of
+        // each URL that every copy of a named URL gets.
+        let value = "https://cdn.example.com/a.png 1x, https://10.0.0.7/a.png 2x";
+        let both = format!(
+            r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[],"removes":[],"texts":[],"attributes":[{{"id":99,"attributes":{{"srcset":"{value}"}}}}]}}}},{{"type":5,"timestamp":2,"data":{{"tag":"app","payload":{{"srcset":"{value}"}}}}}}]"#
+        );
+        let lines = stored_lines(&both, &[]);
+        let reference = crate::urls::url_reference(
+            "https://cdn.example.com/a.png",
+            7,
+            "2026-10",
+            &replay_core_v4::seal::image_url_key(&[6; 32]),
+        )
+        .unwrap()
+        .1;
+        let (dom, custom) = lines.split_once('\n').unwrap();
+        assert!(
+            dom.contains(&format!(r#""srcset":"{reference} 1x""#)),
+            "{dom}"
+        );
+        assert!(
+            custom.contains(&format!(
+                r#""srcset":"{reference} 1x, {} 2x""#,
+                crate::rewrite::declined_marker("non_public_host")
+            )),
+            "{custom}"
+        );
         let custom = r#"[{"type":5,"timestamp":1,"data":{"tag":"app","payload":{"srcset":"https://cdn.example.com/a.png 1x, https://10.0.0.7/a.png 2x"}}}]"#;
         let lines = stored_lines(custom, &[]);
         assert!(
