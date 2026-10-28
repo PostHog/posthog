@@ -213,6 +213,14 @@ fn record(outcome: &str) {
     );
 }
 
+fn set_in_sync(in_sync: bool) {
+    common_metrics::gauge(
+        "ingestion_control_plane_changelog_backup_in_sync",
+        &[],
+        if in_sync { 1.0 } else { 0.0 },
+    );
+}
+
 pub fn object_key(prefix: &str) -> String {
     format!("{}/config-changelog.json", prefix.trim_matches('/'))
 }
@@ -223,11 +231,13 @@ async fn sync(store: &PersonhogStore, backups: &dyn BackupStore, key: &str) -> a
     let backup = backups.get(key, None).await?;
     let (config, _) = store.get_changelog_config_raw_with_revision().await?;
     let Some(config) = config else {
+        set_in_sync(true);
         return Ok(());
     };
     let precondition = match backup {
         Some(object) if unwrap_config(&object.body).ok().as_deref() == Some(config.as_slice()) => {
             record("unchanged");
+            set_in_sync(true);
             return Ok(());
         }
         Some(object) => Precondition::Matches(object.etag),
@@ -239,6 +249,7 @@ async fn sync(store: &PersonhogStore, backups: &dyn BackupStore, key: &str) -> a
     {
         PutOutcome::Written => {
             record("uploaded");
+            set_in_sync(true);
             tracing::info!(key, "backed up config/changelog");
             Ok(())
         }
@@ -282,6 +293,7 @@ async fn watch_once(
 pub async fn run(etcd: Arc<EtcdHandle>, prefix: String, backups: Arc<dyn BackupStore>) {
     let key = object_key(&prefix);
     let mut delay = RETRY_INITIAL;
+    set_in_sync(false);
     loop {
         let started = Instant::now();
         let attempt = async {
@@ -290,6 +302,7 @@ pub async fn run(etcd: Arc<EtcdHandle>, prefix: String, backups: Arc<dyn BackupS
         };
         if let Err(e) = attempt.await {
             record("error");
+            set_in_sync(false);
             tracing::warn!(key, error = %format!("{e:#}"), "config/changelog backup failed; retrying");
         }
         if started.elapsed() > RETRY_MAX {
