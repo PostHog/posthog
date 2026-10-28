@@ -74,6 +74,16 @@ _MEMBER_STOCK_HISTORY_FANOUT = DependentEndpointConfig(
     child_response_actions=_PARENT_GONE,
 )
 
+_MEMBER_RESERVATION_REQUEST_FANOUT = DependentEndpointConfig(
+    parent_name="members",
+    resolve_param="member_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "member_id"},
+    parent_params={"per_page": PAGE_SIZE},
+    child_response_actions=_PARENT_GONE,
+)
+
 
 # EZOfficeInventory exposes no general server-side `updated_after`/`created_after` cursor on its
 # core listing endpoints, and its per-asset history endpoints only paginate (no server-side date
@@ -182,11 +192,12 @@ ENDPOINTS = tuple(EZOFFICEINVENTORY_ENDPOINTS.keys())
 # (`checked_out_assets`, `subgroups`, `labels`, `custom_fields`) have no flat v2 list equivalent
 # and stay v1-only — pinned v1 sources keep serving them.
 #
-# Work orders and the two history tables are v2-only. v1 reaches the same records through
-# `tasks.api`, `assets/<id>/history_paginate.api` and `members/<id>/checkin_checkout_history*.api`,
-# but the v1 docs give no response envelope for any of them, and a guessed `data_selector` yields
-# an empty table rather than an error. The v2 OpenAPI spec names all three, so they are wired
-# there only.
+# Work orders, custom roles, reservation requests and the two history tables are v2-only. v1
+# reaches the same records through `tasks.api`, `assets/<id>/history_paginate.api`,
+# `members/<id>/checkin_checkout_history*.api`, `custom_roles.api` and
+# `members/<id>/reservation_requests.api`, but the v1 docs give no response envelope for any of
+# them, and a guessed `data_selector` yields an empty table rather than an error. The v2 OpenAPI
+# spec names every envelope, so they are wired there only.
 EZOFFICEINVENTORY_V2_ENDPOINTS: dict[str, EZOfficeInventoryEndpointConfig] = {
     "assets": EZOfficeInventoryEndpointConfig(
         name="assets",
@@ -250,6 +261,24 @@ EZOFFICEINVENTORY_V2_ENDPOINTS: dict[str, EZOfficeInventoryEndpointConfig] = {
         fanout=_MEMBER_STOCK_HISTORY_FANOUT,
         # One request per member, so it is opt-in rather than on by default.
         should_sync_default=False,
+    ),
+    "reservation_requests": EZOfficeInventoryEndpointConfig(
+        name="reservation_requests",
+        path="api/v2/members/{member_id}/reservation_requests",
+        # The v2 spec names this envelope in the singular.
+        data_selector="reservation_request",
+        primary_keys=["member_id", "id"],
+        partition_key="created_at",
+        fanout=_MEMBER_RESERVATION_REQUEST_FANOUT,
+        # One request per member, so it is opt-in rather than on by default.
+        should_sync_default=False,
+    ),
+    "custom_roles": EZOfficeInventoryEndpointConfig(
+        name="custom_roles",
+        path="api/v2/custom_roles",
+        data_selector="custom_roles",
+        primary_keys=["id"],
+        partition_key="created_at",
     ),
     "locations": EZOfficeInventoryEndpointConfig(
         name="locations",
