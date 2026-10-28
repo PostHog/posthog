@@ -711,7 +711,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
         (!candidate.querySnapshot ||
             !candidate.catalogMetric ||
             typeof metricContext.id !== 'string' ||
-            typeof metricContext.status !== 'string' ||
+            (metricContext.status !== 'approved' && metricContext.status !== 'proposed') ||
             typeof metricContext.isDrifted !== 'boolean' ||
             typeof metricContext.unit !== 'string' ||
             (metricContext.owner != null && typeof metricContext.owner !== 'string') ||

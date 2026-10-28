@@ -95,6 +95,35 @@ it('restores catalog-copy drafts when nullable metadata was omitted by the API s
     }
 })
 
+it.each(['approved', 'proposed', 'unknown', '', null])('validates copied catalog status %p', (status) => {
+    const metric = {
+        name: 'revenue',
+        definition: { kind: NodeKind.HogQLQuery, query: 'SELECT 42' },
+        id: 'metric-revenue',
+        status: status ?? undefined,
+        is_drifted: false,
+    }
+    const node = catalogMetricWorksheet(metric)!
+    const supported = status === 'approved' || status === 'proposed'
+    expect(node.config.catalogMetricContext?.status).toBe(supported ? status : undefined)
+    const parsed = parseBIEditorState(BIEditorView.BI, {
+        ...node.config,
+        catalogMetricContext: {
+            id: metric.id,
+            status,
+            isDrifted: false,
+            unit: '',
+            owner: null,
+            updatedAt: null,
+        },
+    })
+    if (supported) {
+        expect(parsed?.config.catalogMetricContext?.status).toBe(status)
+    } else {
+        expect(parsed).toBeNull()
+    }
+})
+
 it('only proposes the successfully executed current query, retaining resolved dates and its row cap', () => {
     const node = catalogMetricWorksheet({
         name: 'revenue',

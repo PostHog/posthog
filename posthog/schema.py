@@ -61,6 +61,7 @@ from posthog.schema_enums import (
     BaseMathType as BaseMathType,
     BehavioralEventSource as BehavioralEventSource,
     BIAggregation as BIAggregation,
+    BICatalogMetricStatus as BICatalogMetricStatus,
     BIDateBucket as BIDateBucket,
     BIFilterOperator as BIFilterOperator,
     BillingSpendResponseBreakdownType as BillingSpendResponseBreakdownType,
@@ -996,7 +997,7 @@ class CatalogMetricContext(BaseModel):
     id: str
     isDrifted: bool
     owner: str | None = None
-    status: str
+    status: BICatalogMetricStatus
     unit: str
     updatedAt: str | None = None
 

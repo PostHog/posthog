@@ -31,7 +31,9 @@ export function catalogMetricWorksheet(
             chartType: ChartDisplayType.ActionsTable,
             querySnapshot: source,
             catalogMetric: metric.name,
-            ...(metric.id && metric.status && typeof metric.is_drifted === 'boolean'
+            ...(metric.id &&
+            (metric.status === 'approved' || metric.status === 'proposed') &&
+            typeof metric.is_drifted === 'boolean'
                 ? {
                       catalogMetricContext: {
                           id: metric.id,

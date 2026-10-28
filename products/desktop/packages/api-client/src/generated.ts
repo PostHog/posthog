@@ -4537,6 +4537,7 @@ export namespace Schemas {
         | "minimum"
         | "maximum"
         | "custom";
+    export type BICatalogMetricStatus = "approved" | "proposed";
     export type BICategoryGroup = { name: string; values: Array<string> };
     export type Operator1 = "AND" | "OR";
     export type BIConditionGroup = {
@@ -4548,7 +4549,7 @@ export namespace Schemas {
         id: string;
         isDrifted: boolean;
         owner?: (string | null) | undefined;
-        status: string;
+        status: BICatalogMetricStatus;
         unit: string;
         updatedAt?: (string | null) | undefined;
     };

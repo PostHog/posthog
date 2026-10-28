@@ -10786,11 +10786,19 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type BICatalogMetricStatus = typeof BICatalogMetricStatus[keyof typeof BICatalogMetricStatus];
+
+
+    export const BICatalogMetricStatus = {
+      Approved: 'approved',
+      Proposed: 'proposed',
+    } as const;
+
     export interface CatalogMetricContext {
       id: string;
       isDrifted: boolean;
       owner?: string | null;
-      status: string;
+      status: BICatalogMetricStatus;
       unit: string;
       updatedAt?: string | null;
     }

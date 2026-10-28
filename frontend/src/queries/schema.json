@@ -6222,6 +6222,10 @@
             "enum": ["count", "count_distinct", "sum", "average", "minimum", "maximum", "custom"],
             "type": "string"
         },
+        "BICatalogMetricStatus": {
+            "enum": ["approved", "proposed"],
+            "type": "string"
+        },
         "BICategoryGroup": {
             "additionalProperties": false,
             "properties": {
@@ -6282,7 +6286,7 @@
                             "type": ["string", "null"]
                         },
                         "status": {
-                            "type": "string"
+                            "$ref": "#/definitions/BICatalogMetricStatus"
                         },
                         "unit": {
                             "type": "string"

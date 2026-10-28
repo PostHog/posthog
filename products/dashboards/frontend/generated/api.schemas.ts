@@ -9337,11 +9337,18 @@ export interface DataVisualizationNodeApi {
     version?: number | null
 }
 
+export type BICatalogMetricStatusApi = (typeof BICatalogMetricStatusApi)[keyof typeof BICatalogMetricStatusApi]
+
+export const BICatalogMetricStatusApi = {
+    Approved: 'approved',
+    Proposed: 'proposed',
+} as const
+
 export interface CatalogMetricContextApi {
     id: string
     isDrifted: boolean
     owner?: string | null
-    status: string
+    status: BICatalogMetricStatusApi
     unit: string
     updatedAt?: string | null
 }

@@ -31,6 +31,8 @@ export type BIQueryLimit = 100 | 1000 | 10000 | 50000
 
 export type BISortDirection = 'asc' | 'desc'
 
+export type BICatalogMetricStatus = 'approved' | 'proposed'
+
 export interface BISort {
     key: string
     direction: BISortDirection
@@ -157,7 +159,7 @@ export interface BIConfig {
     /** Catalog metadata at copy time, not a live approval of the worksheet. */
     catalogMetricContext?: {
         id: string
-        status: string
+        status: BICatalogMetricStatus
         isDrifted: boolean
         unit: string
         owner: string | null
