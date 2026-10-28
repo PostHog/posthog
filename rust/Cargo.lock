@@ -6517,6 +6517,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "assignment-coordination",
+ "async-trait",
+ "aws-config",
+ "aws-sdk-s3",
  "axum 0.7.9",
  "chrono",
  "common-alloc",
