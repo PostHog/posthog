@@ -190,7 +190,7 @@ def _execute_and_serialize_insight_query(
 ) -> dict[str, Any]:
     """Run cache/calculate path and return snapshot fields to merge (``query_*`` / ``cache_key`` only)."""
     # Same rule as the export: no query runs for an owner who left.
-    if user is not None and creator_access_revoked(user, team):
+    if creator_access_revoked(user, team):
         error = CreatorLeftOrganizationError()
         return {
             "query_results": None,

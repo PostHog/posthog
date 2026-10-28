@@ -285,15 +285,13 @@ def check_alert_per_series(alert: AlertConfiguration) -> PerSeriesEvaluation | A
 
 
 def check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | None = None) -> AlertEvaluationResult:
-    # The query runs with the owner's access. An alert with no owner runs userless and is left alone.
-    if alert.created_by is not None and creator_access_revoked(alert.created_by, alert.team):
+    # The query runs with the owner's access. A deleted owner leaves `created_by` null and counts as one who left.
+    if creator_access_revoked(alert.created_by, alert.team):
         # Checked before the query, because a query that reads no restricted table still succeeds.
         raise AlertOwnerAccessError(CREATOR_LEFT_DISABLE_REASON)
     try:
         return _check_alert_for_insight(alert, evaluation_id=evaluation_id)
     except TableAccessDeniedError as err:
-        if alert.created_by is None:
-            raise
         raise AlertOwnerAccessError(CREATOR_LOST_ACCESS_DISABLE_REASON) from err
     except DelayedEvaluationUnavailable as err:
         if is_llm_detector_config(alert.detector_config):

@@ -151,9 +151,14 @@ async def _create_alert(
     insight_deleted: bool = False,
     state: str = AlertState.NOT_FIRING,
     detector_config: dict | None = None,
+    created_by: User | None = None,
 ) -> AlertConfiguration:
     @sync_to_async
     def _create() -> AlertConfiguration:
+        # Production always writes an owner, and an alert with none counts as one whose owner was deleted.
+        owner = created_by or User.objects.create_and_join(
+            ateam.organization, f"alert-owner-{uuid.uuid4().hex[:6]}@posthog.com", None
+        )
         insight = Insight.objects.create(
             team=ateam,
             name="insight",
@@ -181,6 +186,7 @@ async def _create_alert(
             schedule_start_time=schedule_start_time,
             state=state,
             detector_config=detector_config,
+            created_by=owner,
         )
         return alert
 

@@ -7,21 +7,23 @@ from posthog.ph_client import ph_scoped_capture
 
 
 class CreatorLeftOrganizationError(Exception):
-    """A background query refused to run because its owner is no longer in the organization."""
+    """A background query refused to run because its owner can no longer access the project."""
 
     def __init__(self) -> None:
-        super().__init__("The owner is no longer in the organization.")
+        super().__init__("The owner no longer has access to this project.")
 
 
 def creator_access_revoked(user: Optional[User], team: Team) -> bool:
     """True when `user` no longer has access to `team`: they were deleted (`user is None`),
-    deactivated, or are no longer a member of the team's org.
+    deactivated, left the team's org, or lost access to the project.
     """
     if user is None:
         return True
     if not user.is_active:
         return True
-    return not OrganizationMembership.objects.filter(organization_id=team.organization_id, user=user).exists()
+    if not OrganizationMembership.objects.filter(organization_id=team.organization_id, user=user).exists():
+        return True
+    return not team.all_users_with_access(user_uuids=[str(user.uuid)]).filter(id=user.id).exists()
 
 
 def report_creator_access_revoked(

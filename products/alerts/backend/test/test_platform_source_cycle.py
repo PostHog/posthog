@@ -81,7 +81,10 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         self.organization.save()
 
     def _alert(self, **overrides: Any) -> AlertConfiguration:
-        return create_insight_alert(self.team, **{"next_check_at": CUTOFF - timedelta(minutes=1), **overrides})
+        # Production always writes an owner, and an alert with none counts as one whose owner was deleted.
+        return create_insight_alert(
+            self.team, **{"next_check_at": CUTOFF - timedelta(minutes=1), "created_by": self.user, **overrides}
+        )
 
     def _copy(self, alert: AlertConfiguration | None, **overrides: Any) -> PlatformConfigurationSnapshot:
         with team_scope(self.team.id):

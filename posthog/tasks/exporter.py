@@ -122,6 +122,7 @@ def export_asset_direct(
     export_source = source or EventSource.EXPORT
 
     try:
+        # Some exports are made with no owner on purpose (logs, activity logs), so only an owned one can lose its owner.
         if exported_asset.created_by is not None and creator_access_revoked(exported_asset.created_by, team):
             raise CreatorLeftOrganizationError()
         assert_export_authorization(exported_asset)

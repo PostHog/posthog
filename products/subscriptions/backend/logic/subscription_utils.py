@@ -65,7 +65,7 @@ def subscription_asset_error_message(asset: ExportedAsset) -> str:
     # Recipients of scheduled subscriptions didn't author the query, so the OOM advice is
     # unactionable. Original text stays on asset.exception/exception_type for our own logs.
     # The raw access error ("You don't have access to table ...") reads as if the recipient lacks access.
-    owner_reason = get_assets_owner_disable_reason([asset.exception_type]) if asset.created_by_id else None
+    owner_reason = get_assets_owner_disable_reason([asset.exception_type])
     if owner_reason is not None:
         return f"{owner_reason.description}."
     is_oom_exception = asset.exception_type == _OOM_EXCEPTION_TYPE or _is_oom_exception_text(asset.exception)
