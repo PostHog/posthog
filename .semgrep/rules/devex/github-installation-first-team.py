@@ -90,7 +90,7 @@ def team_scoped_integration_chained(team_id, installation_id):
 
 def team_scoped_helper(team_id, installation_id):
     # ok: github-installation-first-team
-    return Integration.objects.first_github_for_team_installation(team_id, installation_id)
+    return Integration.objects.with_auth(Integration.AuthType.APP).first_github_for_team_installation(team_id, installation_id)
 
 
 def every_integration(installation_id):

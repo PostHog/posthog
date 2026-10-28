@@ -177,6 +177,21 @@ class IntegrationQuerySet(models.QuerySet["Integration"]):
             Q(config__installation_id=str(installation_id)) | Q(config__installation_id=int(installation_id))
         )
 
+    def first_github_for_team_installation(self, team_id: int, installation_id: str) -> "Integration | None":
+        return (
+            self.filter(team_id=team_id, kind=Integration.IntegrationKind.GITHUB)
+            .for_github_installation_id(installation_id)
+            .first()
+        )
+
+    def first_github_for_user_installation(self, user: User, installation_id: str) -> "Integration | None":
+        user_team_ids = user.teams.values_list("id", flat=True)
+        return (
+            self.filter(team_id__in=user_team_ids, kind=Integration.IntegrationKind.GITHUB)
+            .for_github_installation_id(installation_id)
+            .first()
+        )
+
 
 class IntegrationManager(models.Manager["Integration"]):
     _queryset_class = IntegrationQuerySet
@@ -200,23 +215,6 @@ class IntegrationManager(models.Manager["Integration"]):
         # and only they have `core_filters`. They stay unfiltered, the same as the base manager that
         # cascades, `save()` and `refresh_from_db()` use.
         return hasattr(self, "core_filters")
-
-    def first_github_for_team_installation(self, team_id: int, installation_id: str) -> "Integration | None":
-        return (
-            self.with_auth(IntegrationAuthType.APP)
-            .filter(team_id=team_id, kind=Integration.IntegrationKind.GITHUB)
-            .for_github_installation_id(installation_id)
-            .first()
-        )
-
-    def first_github_for_user_installation(self, user: User, installation_id: str) -> "Integration | None":
-        user_team_ids = user.teams.values_list("id", flat=True)
-        return (
-            self.with_auth(IntegrationAuthType.APP)
-            .filter(team_id__in=user_team_ids, kind=Integration.IntegrationKind.GITHUB)
-            .for_github_installation_id(installation_id)
-            .first()
-        )
 
 
 def integration_kind_choices() -> list[tuple[str, str | Promise]]:

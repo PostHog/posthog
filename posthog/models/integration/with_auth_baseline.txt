@@ -10,7 +10,6 @@
 #   bin/semgrep_ratchet.py --findings findings.json \
 #     --baseline posthog/models/integration/with_auth_baseline.txt --update
 #
-posthog/api/github_callback/team_services.py 3
 products/ai_observability/backend/api/evaluation_reports.py 1
 products/alerts/backend/presentation/views/alert.py 1
 products/alerts_platform/backend/delivery/slack.py 1

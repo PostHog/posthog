@@ -804,7 +804,9 @@ def finish_team_setup(http_request) -> FinishResult:
 
     installation_id_str = str(installation_id)
     if setup_action == "update" and team_id is None and is_valid_github_installation_id(installation_id):
-        existing_for_user = Integration.objects.first_github_for_user_installation(user, installation_id_str)
+        existing_for_user = Integration.objects.with_auth(Integration.AuthType.APP).first_github_for_user_installation(
+            user, installation_id_str
+        )
         if existing_for_user is not None:
             team_id = existing_for_user.team_id
 
@@ -827,7 +829,9 @@ def finish_team_setup(http_request) -> FinishResult:
     # already exists — only create the team's first link for this installation. State-token
     # validation downstream still guards against forged callbacks regardless of membership level.
     existing_team_integration = (
-        Integration.objects.first_github_for_team_installation(team.id, installation_id_str)
+        Integration.objects.with_auth(Integration.AuthType.APP).first_github_for_team_installation(
+            team.id, installation_id_str
+        )
         if is_valid_github_installation_id(installation_id_str)
         else None
     )
@@ -857,7 +861,9 @@ def finish_team_setup(http_request) -> FinishResult:
                 error="invalid_installation_id",
             )
 
-        existing = Integration.objects.first_github_for_team_installation(team.id, installation_id_str)
+        existing = Integration.objects.with_auth(Integration.AuthType.APP).first_github_for_team_installation(
+            team.id, installation_id_str
+        )
         if existing is not None:
             update_result = finish_team_github_setup_update(
                 user=user,
