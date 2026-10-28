@@ -361,7 +361,7 @@ class TestGetStoredPrimaryResult(BaseTest):
                 {"method": "frequentist", "frequentist": {"difference_type": "ABSOLUTE"}},
                 20,
                 [0.02, 0.06],
-                0.2,
+                0.5,
                 True,
             ),
             (
