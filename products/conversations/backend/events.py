@@ -6,6 +6,7 @@ Staff/system actions use the actor's distinct_id; customer actions use the ticke
 Events are sent to the customer's PostHog project via their team's API token.
 """
 
+import uuid
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Literal
@@ -28,6 +29,7 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.settings import SITE_URL
 
 from products.access_control.backend.models.role import Role
+from products.cdp.backend.internal_events import InternalEventEvent, produce_internal_event
 from products.conversations.backend.cache import get_cached_resolved_groups, set_cached_resolved_groups
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, OrganizationIdSource
@@ -35,6 +37,9 @@ from products.conversations.backend.models.constants import Channel, Organizatio
 logger = structlog.get_logger(__name__)
 
 EVENT_SOURCE = "conversations_events"
+
+# Fixed namespace so a retried reply produces the same internal event uuid.
+_TEAM_REPLY_INTERNAL_EVENT_NAMESPACE = uuid.UUID("3f6c2a8e-5b1d-4e7a-9c0f-2d8b7e4a1c6f")
 
 # Events that can carry message text or a customer email. The ticket purge files
 # an event-removal request for this set, scoped to one ticket id.
@@ -615,23 +620,18 @@ def capture_ticket_assigned(
     )
 
 
-def _capture_team_message(
-    ticket: Ticket,
-    message_id: str,
-    message_content: str | None,
-    author: User | None,
-    event_name: str,
-) -> None:
+def _team_message_properties(ticket: Ticket, message_id: str, author: User | None) -> dict:
     properties = _get_ticket_base_properties(ticket)
     properties["message_id"] = message_id
-    if message_content is not None:
-        properties["message_content"] = (message_content or "")[:1000]
     properties["author_type"] = "team"
     properties.update(_get_actor_properties(author, "user"))
     properties.update(_get_customer_properties(ticket, include_distinct_id=True))
     properties.update(_get_assignment_properties(ticket))
     properties.update(_get_sla_properties(ticket, timezone.now()))
+    return properties
 
+
+def _capture_team_message(ticket: Ticket, properties: dict, author: User | None, event_name: str) -> None:
     capture_internal(
         token=ticket.team.api_token,
         event_name=event_name,
@@ -642,6 +642,31 @@ def _capture_team_message(
     )
 
 
+def _produce_team_reply_internal_event(ticket: Ticket, properties: dict, author: User | None) -> None:
+    """Emit the reply as an internal event, so a workflow can trust it.
+
+    Anyone with the public project token can capture `$conversation_message_sent` with any
+    properties, so a workflow that emails the customer must not trigger on that analytics event.
+    Only the server writes to the internal events topic. The reply body stays out, so the payload
+    holds nothing that the analytics event does not already show to project members.
+    """
+    try:
+        produce_internal_event(
+            ticket.team_id,
+            InternalEventEvent(
+                event="$conversation_message_sent",
+                distinct_id=_get_actor_distinct_id(ticket, author, "user"),
+                properties=properties,
+                uuid=str(
+                    uuid.uuid5(_TEAM_REPLY_INTERNAL_EVENT_NAMESPACE, f"{ticket.team_id}:{properties['message_id']}")
+                ),
+            ),
+        )
+    except Exception:
+        # The reply is already saved, and a workflow that misses one notification is better than a failed reply.
+        logger.exception("conversations_team_reply_internal_event_failed", ticket_id=str(ticket.id))
+
+
 def capture_message_sent(
     ticket: Ticket,
     message_id: str,
@@ -649,7 +674,14 @@ def capture_message_sent(
     author: User | None = None,
 ) -> None:
     """Team member sent a public reply on a ticket."""
-    _capture_team_message(ticket, message_id, message_content, author, "$conversation_message_sent")
+    properties = _team_message_properties(ticket, message_id, author)
+    _capture_team_message(
+        ticket,
+        {**properties, "message_content": (message_content or "")[:1000]},
+        author,
+        "$conversation_message_sent",
+    )
+    _produce_team_reply_internal_event(ticket, properties, author)
 
 
 def capture_private_message_sent(
@@ -666,7 +698,9 @@ def capture_private_message_sent(
     The note body is deliberately omitted. Analytics events are queryable by any
     project member, so including it would bypass ticket-level access controls.
     """
-    _capture_team_message(ticket, message_id, None, author, "$conversation_private_message_sent")
+    _capture_team_message(
+        ticket, _team_message_properties(ticket, message_id, author), author, "$conversation_private_message_sent"
+    )
 
 
 def capture_message_received(

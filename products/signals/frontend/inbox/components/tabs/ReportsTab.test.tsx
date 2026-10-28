@@ -198,6 +198,32 @@ describe('ReportsTab', () => {
         }
     })
 
+    it.each<FirstReportStateApi['status']>(['running', 'insufficient_data'])(
+        'hides %s progress when the current filters have reports',
+        async (status) => {
+            mockOnboarding({ status, task_id: 'task-1', task_run_id: 'run-1' }, true)
+            mockReportRows()
+            inboxFiltersLogic.mount()
+            inboxFiltersLogic.actions.setScope(INBOX_SCOPE_ENTIRE_PROJECT)
+            inboxFiltersLogic.actions.setFilters({ ...inboxFiltersLogic.values, stateFilter: ['resolved'] })
+
+            const { container } = render(<ReportsTab />)
+            expect(container.querySelector('[data-attr="inbox-first-report-progress"]')).toBeNull()
+            await waitFor(() => expect(container.querySelector('[data-attr="report-card-resolved"]')).not.toBeNull())
+            expect(container.querySelector('[data-attr="inbox-first-report-progress"]')).toBeNull()
+
+            inboxFiltersLogic.actions.setFilters({ ...inboxFiltersLogic.values, stateFilter: ['held-back'] })
+            await waitFor(() =>
+                expect(container.querySelector('[data-attr="inbox-first-report-progress"]')).not.toBeNull()
+            )
+            expect(container.querySelector('[data-attr="report-card-resolved"]')).toBeNull()
+
+            inboxFiltersLogic.actions.setFilters({ ...inboxFiltersLogic.values, stateFilter: ['needs-decision'] })
+            await waitFor(() => expect(container.querySelector('[data-attr="report-card-needs-pr"]')).not.toBeNull())
+            expect(container.querySelector('[data-attr="inbox-first-report-progress"]')).toBeNull()
+        }
+    )
+
     // Polling flips the state while the card is on screen. The card has to go and the report has to
     // land in the list without a page reload.
     it.each(['none', 'rows', 'counts-and-rows'])(
