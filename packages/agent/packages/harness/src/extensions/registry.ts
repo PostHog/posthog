@@ -8,8 +8,8 @@ import {
   HARNESS_EXTENSION_ENTRYPOINTS,
   type HarnessExtensionName,
 } from "./entrypoints";
-import type { HogBrandingOptions } from "./hog-branding/extension";
-import { createHogBrandingExtension } from "./hog-branding/extension";
+import type { HognessBrandingOptions } from "./hogness-branding/extension";
+import { createHognessBrandingExtension } from "./hogness-branding/extension";
 import type { McpConfig } from "./mcp/config";
 import { createMcpExtension } from "./mcp/extension";
 import { createOrchestrationExtension } from "./orchestration/extension";
@@ -22,7 +22,7 @@ import { createRtkExtension } from "./rtk/extension";
 import { createWebAccessExtension } from "./web-access/extension";
 
 export type HarnessExtensionOptions = PosthogProviderOptions &
-  HogBrandingOptions &
+  HognessBrandingOptions &
   PosthogMcpPolicyOptions & {
     runtimeMcpServers?: McpConfig["mcpServers"];
   };
@@ -33,7 +33,7 @@ interface HarnessExtension {
 }
 
 const EXTENSIONS: HarnessExtension[] = [
-  { name: "hog-branding", create: createHogBrandingExtension },
+  { name: "hogness-branding", create: createHognessBrandingExtension },
   { name: "posthog-provider", create: createPosthogProviderExtension },
   { name: "product-engineer", create: () => createProductEngineerExtension() },
   { name: "current-work", create: () => createCurrentWorkExtension() },
@@ -51,10 +51,21 @@ const EXTENSIONS: HarnessExtension[] = [
   },
 ];
 
+const OPT_IN_EXTENSION_ENV: Partial<Record<HarnessExtensionName, string>> = {
+  rtk: "POSTHOG_RTK",
+  orchestration: "POSTHOG_ORCHESTRATION",
+};
+
+function isExtensionEnabled(name: HarnessExtensionName): boolean {
+  const envName = OPT_IN_EXTENSION_ENV[name];
+  if (!envName) {
+    return true;
+  }
+  return process.env[envName] === "1";
+}
+
 function enabledExtensions(): HarnessExtension[] {
-  return EXTENSIONS.filter(
-    (extension) => extension.name !== "rtk" || process.env.POSTHOG_RTK === "1",
-  );
+  return EXTENSIONS.filter((extension) => isExtensionEnabled(extension.name));
 }
 
 export const HARNESS_EXTENSION_NAMES: readonly string[] = EXTENSIONS.map(

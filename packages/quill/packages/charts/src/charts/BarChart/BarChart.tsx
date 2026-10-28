@@ -49,6 +49,8 @@ export interface BarChartProps<Meta = unknown> {
     theme: ChartTheme
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Right-click counterpart of `onPointClick`. See `ChartProps.onPointContextMenu`. */
+    onPointContextMenu?: (data: PointClickData<Meta>) => void
     /** See `ChartProps.isPointClickable`. */
     isPointClickable?: (dataIndex: number) => boolean
     /** Enables x-axis drag-to-zoom. Vertical bars only — horizontal bars interact along y,
@@ -76,6 +78,7 @@ function BarChartInner<Meta = unknown>({
     theme,
     tooltip,
     onPointClick,
+    onPointContextMenu,
     isPointClickable,
     onDateRangeZoom,
     className,
@@ -111,7 +114,8 @@ function BarChartInner<Meta = unknown>({
         fillStyle: barFillStyle = 'flat',
     } = config?.bars ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
-    const barTrack = trackConfig !== false
+    const solidTrack = trackConfig === 'solid'
+    const barTrack = trackConfig !== false && !solidTrack
     const barTrackHover = trackConfig === true || (typeof trackConfig === 'object' && trackConfig.hover !== false)
 
     const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
@@ -194,6 +198,7 @@ function BarChartInner<Meta = unknown>({
                 stackedSeries,
                 maxBandRange,
                 bandPadding,
+                groupPadding: bandPadding === 0 ? 0 : undefined,
                 fitToHeight,
                 minBandSize: resolvedMinBandSize,
                 minBarSize,
@@ -291,6 +296,7 @@ function BarChartInner<Meta = unknown>({
                 roundStackEnds,
                 barCornerRadius,
                 barTrack,
+                solidTrack,
                 barShadow,
                 barFillStyle,
                 minBarSizeScope,
@@ -305,6 +311,7 @@ function BarChartInner<Meta = unknown>({
             roundStackEnds,
             barCornerRadius,
             barTrack,
+            solidTrack,
             xTickFormatter,
             barShadow,
             barFillStyle,
@@ -447,9 +454,10 @@ function BarChartInner<Meta = unknown>({
                 />
             )}
             onPointClick={onPointClick}
+            onPointContextMenu={onPointContextMenu}
             isPointClickable={isPointClickable}
             onDateRangeZoom={onDateRangeZoom}
-            wrapClickData={onPointClick ? wrapClickData : undefined}
+            wrapClickData={onPointClick || onPointContextMenu ? wrapClickData : undefined}
             resolveHoverIndex={seriesHasTrackCeiling ? resolveHoverIndex : undefined}
             className={className}
             dataAttr={dataAttr}

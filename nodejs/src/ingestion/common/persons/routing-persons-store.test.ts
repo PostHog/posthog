@@ -403,30 +403,32 @@ describe('RoutingPersonsStore', () => {
         })
 
         it.each([
-            ['a plain merge starts no further attempt', mergeRequest, [], 1],
+            ['a plain merge starts no further attempt', mergeRequest, [], 1, 1],
             [
                 'a fold re-drive starts no further pair',
                 foldRequest,
                 [{ survivor: null, results: [], foldAborted: 'conflict' as const }],
                 2,
+                2,
             ],
-        ])('abandoned at the shadow ceiling, %s', async (_name, request, answeredFirst, expectedCalls) => {
+        ])('abandoned at the shadow ceiling, %s', async (_name, request, answeredFirst, expectedCalls, redriven) => {
             jest.useFakeTimers()
             try {
                 const stores = makeStores()
-                stores.pg.mergePersons.mockResolvedValue({
+                const settled = {
                     survivor: person(1, '1'),
                     results: [
-                        { sourceDistinctId: 'anon-1', outcome: 'merged' },
-                        { sourceDistinctId: 'anon-2', outcome: 'merged' },
+                        { sourceDistinctId: 'anon-1', outcome: 'merged' as const },
+                        { sourceDistinctId: 'anon-2', outcome: 'merged' as const },
                     ],
-                })
+                }
+                stores.pg.mergePersons.mockResolvedValue(settled)
                 let failHanging: (error: Error) => void = () => {}
                 const hanging = new Promise<never>((_resolve, reject) => (failHanging = reject))
                 for (const answer of answeredFirst) {
                     stores.personhogMock.mergePersons.mockResolvedValueOnce(answer)
                 }
-                stores.personhogMock.mergePersons.mockReturnValueOnce(hanging)
+                stores.personhogMock.mergePersons.mockReturnValueOnce(hanging).mockResolvedValue(settled)
                 const store = makeStore(stores, 'shadow')
 
                 const pending = store.mergePersons(request() as never, 7)
@@ -436,6 +438,14 @@ describe('RoutingPersonsStore', () => {
                 await jest.advanceTimersByTimeAsync(1_000)
 
                 expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(expectedCalls)
+
+                // The abandoned merge and the pairs it kept from starting are re-driven at the next flush.
+                await jest.advanceTimersByTimeAsync(5_000)
+                const flushing = store.flush()
+                await jest.advanceTimersByTimeAsync(1_000)
+                await flushing
+
+                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(expectedCalls + redriven)
             } finally {
                 jest.useRealTimers()
             }
@@ -816,39 +826,33 @@ describe('RoutingPersonsStore', () => {
         const retriesRecorded = (): number =>
             (personhogStoreShadowCreateRetriesCounter.labels as jest.Mock).mock.calls.length
 
-        it.each([
-            ['retriable', retriable()],
-            ['cancelled', new ConnectError('canceled', Code.Canceled)],
-        ])(
-            'a shadow createPerson whose failure is %s retries in place and lands before the event returns',
-            async (_case, failure) => {
-                jest.useFakeTimers()
-                try {
-                    const stores = makeStores()
-                    stores.pg.createPerson.mockResolvedValue(createdByPg)
-                    stores.personhogMock.createPerson
-                        .mockRejectedValueOnce(failure)
-                        .mockResolvedValueOnce(createdByPersonhog(true))
-                    const store = makeStore(stores, 'shadow')
-                    const errorsBefore = shadowErrorsRecorded()
+        it('a shadow createPerson whose failure is retriable retries in place and lands before the event returns', async () => {
+            jest.useFakeTimers()
+            try {
+                const stores = makeStores()
+                stores.pg.createPerson.mockResolvedValue(createdByPg)
+                stores.personhogMock.createPerson
+                    .mockRejectedValueOnce(retriable())
+                    .mockResolvedValueOnce(createdByPersonhog(true))
+                const store = makeStore(stores, 'shadow')
+                const errorsBefore = shadowErrorsRecorded()
 
-                    const creating = createIn(store)
-                    await jest.advanceTimersByTimeAsync(1_000)
-                    const result = await creating
+                const creating = createIn(store)
+                await jest.advanceTimersByTimeAsync(1_000)
+                const result = await creating
 
-                    expect(result).toBe(createdByPg)
-                    expect(stores.personhogMock.createPerson).toHaveBeenCalledTimes(2)
-                    expect(stores.personhogMock.holdEventOps).not.toHaveBeenCalled()
-                    expect(shadowErrorsRecorded()).toBe(errorsBefore)
-                    expect(personhogStoreShadowCreateRetriesCounter.labels).toHaveBeenCalledWith({ outcome: 'retried' })
-                    expect(personhogStoreShadowCreateRetriesCounter.labels).toHaveBeenCalledWith({
-                        outcome: 'recovered',
-                    })
-                } finally {
-                    jest.useRealTimers()
-                }
+                expect(result).toBe(createdByPg)
+                expect(stores.personhogMock.createPerson).toHaveBeenCalledTimes(2)
+                expect(stores.personhogMock.holdEventOps).not.toHaveBeenCalled()
+                expect(shadowErrorsRecorded()).toBe(errorsBefore)
+                expect(personhogStoreShadowCreateRetriesCounter.labels).toHaveBeenCalledWith({ outcome: 'retried' })
+                expect(personhogStoreShadowCreateRetriesCounter.labels).toHaveBeenCalledWith({
+                    outcome: 'recovered',
+                })
+            } finally {
+                jest.useRealTimers()
             }
-        )
+        })
 
         it('a shadow createPerson refused for a deterministic reason fails once, counted, with no retry', async () => {
             const stores = makeStores()

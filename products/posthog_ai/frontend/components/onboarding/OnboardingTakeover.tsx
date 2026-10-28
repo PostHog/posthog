@@ -32,8 +32,6 @@ export interface OnboardingTakeoverProps {
     stepActions?: Partial<Record<OnboardingStepKey, ReactNode>>
     /** Fires on the close button, Esc, and the backdrop. */
     onDismiss: () => void
-    /** Fires when the user advances past the last step. */
-    onFinish: () => void
     /** Fires when the user replays a step's clip by hand (only reachable when motion is reduced). */
     onReplayMedia?: (step: OnboardingStep) => void
 }
@@ -45,7 +43,6 @@ export function OnboardingTakeover({
     onStepIndexChange,
     stepActions,
     onDismiss,
-    onFinish,
     onReplayMedia,
 }: OnboardingTakeoverProps): JSX.Element | null {
     const step = steps[stepIndex]
@@ -60,14 +57,6 @@ export function OnboardingTakeover({
         },
         [onDismiss]
     )
-
-    const handleNext = useCallback((): void => {
-        if (isLastStep) {
-            onFinish()
-        } else {
-            onStepIndexChange(stepIndex + 1)
-        }
-    }, [isLastStep, onFinish, onStepIndexChange, stepIndex])
 
     if (!step) {
         return null
@@ -143,7 +132,7 @@ export function OnboardingTakeover({
                             <Button
                                 variant="primary"
                                 size="sm"
-                                onClick={handleNext}
+                                onClick={() => onStepIndexChange(stepIndex + 1)}
                                 data-attr="posthog-ai-onboarding-next"
                             >
                                 Next

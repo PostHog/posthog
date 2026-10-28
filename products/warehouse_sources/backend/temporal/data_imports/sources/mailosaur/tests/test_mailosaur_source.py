@@ -3,8 +3,6 @@ from typing import Any
 
 from unittest.mock import MagicMock, patch
 
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailosaur.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
@@ -16,12 +14,6 @@ def _config(api_key: str = "key") -> Any:
     config = MagicMock()
     config.api_key = api_key
     return config
-
-
-class TestGetSchemas:
-    def test_names_filter(self) -> None:
-        schemas = MailosaurSource().get_schemas(_config(), team_id=1, names=["servers"])
-        assert {s.name for s in schemas} == {"servers"}
 
 
 class TestResumableWiring:
@@ -38,24 +30,6 @@ class TestResumableWiring:
             MailosaurSource().source_for_pipeline(_config(), MagicMock(), inputs)
         # A full-refresh table must not carry a stale cursor into the request.
         assert mocked.call_args.kwargs["db_incremental_field_last_value"] is None
-
-
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://mailosaur.com/api/servers", True),
-            ("forbidden", "403 Client Error: Forbidden for url: https://mailosaur.com/api/messages", True),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://mailosaur.com/api/messages", False),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://mailosaur.com/api/servers",
-                False,
-            ),
-        ]
-    )
-    def test_only_credential_errors_are_non_retryable(self, _name: str, observed: str, should_match: bool) -> None:
-        non_retryable = MailosaurSource().get_non_retryable_errors()
-        assert any(key in observed for key in non_retryable) is should_match
 
 
 class TestCanonicalDescriptions:

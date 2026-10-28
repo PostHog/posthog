@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -46,6 +47,8 @@ _CATEGORIES = [
 
 @SourceRegistry.register
 class GNewsSource(ResumableSource[GNewsSourceConfig, GNewsResumeConfig]):
+    codebase_detection = detect(env=("^(G_NEWS|GNEWS)_",))
+
     supported_versions = ("v4",)
     default_version = "v4"
     api_docs_url = "https://gnews.io/docs/v4"
@@ -62,7 +65,7 @@ class GNewsSource(ResumableSource[GNewsSourceConfig, GNewsResumeConfig]):
             name=ExternalDataSourceType.GNEWS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="GNews",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your GNews API key to pull worldwide news articles into the PostHog Data warehouse.
 
 You can find your API key in your [GNews dashboard](https://gnews.io/dashboard).
@@ -83,6 +86,7 @@ The **Search query** drives the `articles` table (keyword search), and the **Cat
                     ),
                     SourceFieldInputConfig(
                         name="query",
+                        sync_setting=True,
                         label="Search query",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -91,6 +95,7 @@ The **Search query** drives the `articles` table (keyword search), and the **Cat
                     ),
                     SourceFieldSelectConfig(
                         name="category",
+                        sync_setting=True,
                         label="Category",
                         required=True,
                         defaultValue="general",
@@ -101,6 +106,7 @@ The **Search query** drives the `articles` table (keyword search), and the **Cat
                     ),
                     SourceFieldInputConfig(
                         name="language",
+                        sync_setting=True,
                         label="Language (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -109,6 +115,7 @@ The **Search query** drives the `articles` table (keyword search), and the **Cat
                     ),
                     SourceFieldInputConfig(
                         name="country",
+                        sync_setting=True,
                         label="Country (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

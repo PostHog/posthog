@@ -6,7 +6,12 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM, REVIEW_MODE_FLASH, REVIEW_MODE_FULL
+from products.review_hog.backend.reviewer.constants import (
+    CONTROL_ARM_SET,
+    DEFAULT_REVIEW_ARM,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
+)
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.persistence import load_pr_snapshot, load_review_arm
 from products.review_hog.backend.reviewer.tools.github_meta import FetchedPR
@@ -89,7 +94,18 @@ class TestFetchDecidesTheTier(BaseTest):
         expected_status = "closed" if state == "closed" else "idle" if complete or skipped else "active"
         assert report.status == expected_status
 
-    @parameterized.expand([("flash", REVIEW_MODE_FLASH, 1), ("full", REVIEW_MODE_FULL, 0)])
+    @parameterized.expand(
+        [
+            ("flash", REVIEW_MODE_FLASH, [10], True, 1, True, False),
+            ("flash_two_parts", REVIEW_MODE_FLASH, [600, 600], True, 2, True, False),
+            ("flash_separate_sessions", REVIEW_MODE_FLASH, [10], False, 1, False, True),
+            ("full", REVIEW_MODE_FULL, [10], True, 0, False, False),
+        ]
+    )
+    @patch(f"{_MODULE}.single_agent_arm_set", return_value="trial")
+    @patch(f"{_MODULE}.delta_reviews_low_risk_follow_ups", return_value=True)
+    @patch(f"{_MODULE}.skips_zero_change_follow_ups", return_value=True)
+    @patch(f"{_MODULE}.standard_coordinator_on")
     @patch(f"{_MODULE}.flash_pipeline_kill_switch_on", return_value=False)
     @patch(f"{_MODULE}._installation_auth", return_value=("tok", None))
     @patch(f"{_MODULE}.PRFetcher")
@@ -97,19 +113,31 @@ class TestFetchDecidesTheTier(BaseTest):
         self,
         _name: str,
         review_mode: str,
+        additions: list[int],
+        coordinator_flag_on: bool,
         expected_parts: int,
+        expected_coordinator: bool,
+        separate_sessions: bool,
         mock_fetcher: MagicMock,
         _auth: MagicMock,
         _kill_switch: MagicMock,
+        coordinator_flag: MagicMock,
+        _zero_change_flag: MagicMock,
+        _delta_flag: MagicMock,
+        _arm_set_flag: MagicMock,
     ) -> None:
         # The workflow fans the lens sessions out over this count, so a fetch that leaves it at the
         # default runs every Flash turn without its lenses and no error shows it. Only the
         # single-agent design fetches test and `.txt` files, so the design must be known first.
         # Its prompt reads a left-out diff against the merge base, so the snapshot must keep it.
-        pr_file = PRFile(filename="a.py", status="modified", additions=10, deletions=0)
+        coordinator_flag.return_value = coordinator_flag_on
+        pr_files = [
+            PRFile(filename=f"d{index}/a.py", status="modified", additions=count, deletions=0)
+            for index, count in enumerate(additions)
+        ]
         merge_base_sha = "f" * 40
         mock_fetcher.return_value.fetch_pr_data.return_value = FetchedPR(
-            pr_metadata=_pr_metadata(), pr_comments=[], pr_files=[pr_file], diff="", merge_base_sha=merge_base_sha
+            pr_metadata=_pr_metadata(), pr_comments=[], pr_files=pr_files, diff="", merge_base_sha=merge_base_sha
         )
         meta = _fetch_and_persist(
             FetchPRDataInput(
@@ -124,10 +152,14 @@ class TestFetchDecidesTheTier(BaseTest):
         )
 
         assert meta.lens_chunk_count == expected_parts
+        assert meta.coordinator is expected_coordinator
+        # The delta review and the arm sets exist only for separate sessions, so other turns stay in control.
+        assert (meta.zero_change_skip, meta.delta_band) == (True, separate_sessions)
+        assert meta.arm_set == ("trial" if separate_sessions else CONTROL_ARM_SET)
         single_agent = review_mode == REVIEW_MODE_FLASH
         assert mock_fetcher.return_value.fetch_pr_data.call_args.kwargs == {
             "review_tests_and_text": single_agent,
-            "with_merge_base": single_agent,
+            "with_merge_base": True,
         }
         snapshot = load_pr_snapshot(team_id=self.team.id, report_id=meta.report_id, head_sha=meta.head_sha)
         assert snapshot is not None and snapshot.merge_base_sha == merge_base_sha

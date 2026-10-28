@@ -3,7 +3,7 @@ from datetime import timedelta
 from zoneinfo import ZoneInfo
 
 import time_machine
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
 from django.test import SimpleTestCase
@@ -16,9 +16,9 @@ from rest_framework import serializers, status
 
 from posthog.api.organization_domain import OrganizationDomainSerializer, OrganizationDomainViewset
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Team
+from posthog.models.scim_request_log import SCIMRequestLog
 
 from ee.api.test.base import APILicensedTest
-from ee.models.scim_request_log import SCIMRequestLog
 
 
 class FakeAnswer:
@@ -31,7 +31,7 @@ class FakeDNSResponse:
         self.response = FakeAnswer(answer)
 
 
-class TestOrganizationDomains(BaseTest):
+class TestOrganizationDomains(SimpleTestCase):
     def test_continuous_verification_task(self):
         """
         Tests the task that re-verifies domains to ensure ownership is maintained.

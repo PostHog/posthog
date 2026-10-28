@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HousecallProSource(ResumableSource[HousecallProSourceConfig, HousecallProResumeConfig]):
+    codebase_detection = detect(env=("^(HOUSECALL_PRO|HOUSECALLPRO)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # No URL path segment, version header, or dated query param — the vendor's API has no
     # meaningful version scheme to pin.
@@ -50,7 +53,7 @@ class HousecallProSource(ResumableSource[HousecallProSourceConfig, HousecallProR
             name=ExternalDataSourceType.HOUSECALLPRO,
             category=DataWarehouseSourceCategory.CRM,
             label="Housecall Pro",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Housecall Pro API key to pull your jobs, customers, and invoices into the PostHog Data warehouse.
 
 API access needs a MAX plan. An account admin can generate a key under **My Apps → All Apps → API Key Management** — choose read-only access for a sync-only key.""",

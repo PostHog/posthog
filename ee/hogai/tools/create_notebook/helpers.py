@@ -144,7 +144,7 @@ async def save_notebook_to_db(
             content=next_content,
             title=title,
             text_content=markdown_content,
-            last_modified_by_id=user.id,
+            user=user,
         )
         if updated_notebook is None:
             raise RuntimeError(f"Notebook {artifact.short_id} disappeared during content update")
@@ -208,7 +208,7 @@ async def save_notebook_to_db(
         team.id,
         artifact.short_id,
         created_by_id=user.id,
-        last_modified_by_id=user.id,
+        user=user,
         title=title,
         content=content,
         text_content=text_content,

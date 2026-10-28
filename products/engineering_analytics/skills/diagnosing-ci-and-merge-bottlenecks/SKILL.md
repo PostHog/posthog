@@ -63,7 +63,7 @@ to take one failing test or red run to a verdict, switch to the `investigating-c
 
 - **`engineering-analytics-sources`**: the team's connected GitHub sources and repos. With more than one of
   either, call it first and pass the chosen entry's `source_id` **and** `repo` to `pull-requests`,
-  `workflow-health`, and `pr-lifecycle`. Passing only `source_id` reads that source's default repo, not the one
+  `workflow-health`, `pr-lifecycle`, and `team-ci-health`. Passing only `source_id` reads that source's default repo, not the one
   you picked. With a single source and repo the tools default to it.
 
 There is no aggregate time-to-merge tool and no "counts" tool — derive those from `pull-requests` (the stuck/failing

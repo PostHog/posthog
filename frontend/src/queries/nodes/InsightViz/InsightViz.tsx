@@ -18,8 +18,9 @@ import { AnyResponseType, DashboardFilter, HogQLVariable, InsightVizNode } from 
 import { QueryContext } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
+import { EditorFilters } from 'products/product_analytics/frontend/insights/editor/EditorFilters'
+
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { EditorFilters } from './EditorFilters'
 import { InsightVizDisplay } from './InsightVizDisplay'
 import { insightVizDataCollectionId, insightVizDataNodeKey } from './insightVizKeys'
 import { getCachedResults } from './utils'
@@ -79,6 +80,7 @@ export function InsightViz({
         query: query.source,
         key: vizKey,
         cachedResults: cachedResults || getCachedResults(insightProps.cachedInsight, query.source),
+        retainResponseOnUnmount: insightProps.retainResponseOnUnmount,
         doNotLoad: insightProps.doNotLoad,
         onData: insightProps.onData,
         loadPriority: insightProps.loadPriority,
@@ -91,7 +93,6 @@ export function InsightViz({
     const showIfFull = !!query.full
     const disableHeader = embedded || !(query.showHeader ?? showIfFull)
     const disableTable = embedded || !(query.showTable ?? showIfFull)
-    const disableCorrelationTable = embedded || !(query.showCorrelationTable ?? showIfFull)
     const disableLastComputation = embedded || !(query.showLastComputation ?? showIfFull)
     const disableLastComputationRefresh = embedded || !(query.showLastComputationRefresh ?? showIfFull)
     const showingFilters = query.showFilters ?? editMode ?? false
@@ -104,7 +105,6 @@ export function InsightViz({
             context={context}
             disableHeader={disableHeader}
             disableTable={disableTable}
-            disableCorrelationTable={disableCorrelationTable}
             disableLastComputation={disableLastComputation}
             disableLastComputationRefresh={disableLastComputationRefresh}
             showingResults={showingResults}

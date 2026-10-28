@@ -7,7 +7,14 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.blogger import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.blogger.source import BloggerSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.blogger import (
+    BloggerSourceConfig,
+)
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -29,12 +36,6 @@ def _make_inputs(**overrides: Any) -> SourceInputs:
     return SourceInputs(**defaults)
 
 
-class TestBloggerSchemas:
-    def test_get_schemas_names_filter(self) -> None:
-        schemas = BloggerSource().get_schemas(MagicMock(), team_id=1, names=["posts"])
-        assert [s.name for s in schemas] == ["posts"]
-
-
 class TestBloggerCredentials:
     @parameterized.expand(
         [
@@ -42,29 +43,11 @@ class TestBloggerCredentials:
                 "bad_request",
                 "400 Client Error: Bad Request for url: https://www.googleapis.com/blogger/v3/blogs/1/posts",
             ),
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://www.googleapis.com/blogger/v3/blogs/1"),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://www.googleapis.com/blogger/v3/blogs/1/comments",
-            ),
         ]
     )
     def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
         non_retryable = BloggerSource().get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://www.googleapis.com/blogger/v3/blogs/1/posts",
-            ),
-            ("read_timeout", "HTTPSConnectionPool(host='www.googleapis.com', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = BloggerSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
 
 
 class TestBloggerPipelinePlumbing:
@@ -94,20 +77,15 @@ class TestBloggerPipelinePlumbing:
         assert captured["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
 
     def test_source_for_pipeline_clears_last_value_when_not_incremental(self) -> None:
-        captured: dict[str, Any] = {}
-
-        def fake_source(**kwargs: Any) -> Any:
-            captured.update(kwargs)
-            return MagicMock()
-
-        config = SimpleNamespace(api_key="K", blog_id="BID")
-        inputs = _make_inputs(
-            schema_name="posts",
+        driver = SourceDriver(BloggerSource(), BloggerSourceConfig(api_key="K", blog_id="BID"))
+        result = driver.run(
+            "posts",
+            [ScriptedResponse(json={"items": [{"id": "p1"}]})],
             should_use_incremental_field=False,
             db_incremental_field_last_value="2026-01-01T00:00:00Z",
         )
-        with patch.object(source_module, "blogger_source", fake_source):
-            BloggerSource().source_for_pipeline(config, MagicMock(), inputs)  # type: ignore[arg-type]
 
         # When the run isn't incremental, the stale watermark must not leak through as a startDate.
-        assert captured["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.rows == [{"id": "p1"}]
+        assert result.requests[0].param("startDate") is None

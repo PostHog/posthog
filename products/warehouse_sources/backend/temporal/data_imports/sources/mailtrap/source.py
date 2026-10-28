@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MailtrapSource(ResumableSource[MailtrapSourceConfig, MailtrapResumeConfig]):
+    codebase_detection = detect(
+        env=("^MAILTRAP_",),
+        npm=("mailtrap",),
+        pypi=("mailtrap",),
+        composer=("railsware/mailtrap-php",),
+        maven=("io.mailtrap:mailtrap-java",),
+        rubygems=("mailtrap",),
+    )
+
     api_docs_url = "https://docs.mailtrap.io/developers"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -50,7 +60,7 @@ class MailtrapSource(ResumableSource[MailtrapSourceConfig, MailtrapResumeConfig]
             name=ExternalDataSourceType.MAILTRAP,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Mailtrap",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Mailtrap API token to pull your email sending data into the PostHog Data warehouse.
 
 You can create an API token under **Settings → API Tokens** in [Mailtrap](https://mailtrap.io). The token needs access to the accounts and sending domains you want to sync; email logs are restricted to the domains the token can access.

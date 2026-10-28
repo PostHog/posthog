@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -46,6 +47,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, WikipediaPageviewsResumeConfig]):
+    codebase_detection = detect(
+        env=("^(WIKIPEDIA_PAGEVIEWS|WIKIPEDIAPAGEVIEWS)_",), npm=("pageviews",), pypi=("mwviews",)
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # `rest_v1` is the version segment of the Wikimedia REST API base path this source calls.
     supported_versions = ("rest_v1",)
@@ -155,6 +160,7 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
                 [
                     SourceFieldInputConfig(
                         name="project",
+                        sync_setting=True,
                         label="Project domain",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -163,6 +169,7 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
                     ),
                     SourceFieldSelectConfig(
                         name="access",
+                        sync_setting=True,
                         label="Access method",
                         required=True,
                         defaultValue="all-access",
@@ -172,6 +179,7 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
                     ),
                     SourceFieldSelectConfig(
                         name="agent",
+                        sync_setting=True,
                         label="Agent type",
                         required=True,
                         defaultValue="user",
@@ -181,6 +189,7 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
                     ),
                     SourceFieldInputConfig(
                         name="article_names",
+                        sync_setting=True,
                         label="Article titles",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -190,6 +199,7 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -199,5 +209,5 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )

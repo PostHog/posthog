@@ -6,7 +6,10 @@ import type { ExperimentHealthApi, ExperimentHealthFindingApi } from '../generat
 import type { ExperimentHealthFindingActionKind, ExperimentHealthFindingCode } from './experimentHealthFindingEvents'
 
 /** A finding of the health panel, from the experiment read or from the exposure answer. */
-export type HealthPanelFinding = Pick<ExperimentHealthFindingApi, 'subcode' | 'severity' | 'title' | 'detail'> & {
+export type HealthPanelFinding = Pick<
+    ExperimentHealthFindingApi,
+    'subcode' | 'severity' | 'title' | 'detail' | 'evidence'
+> & {
     code: ExperimentHealthFindingCode
     actions: ExperimentHealthFindingActionKind[]
 }
@@ -18,12 +21,12 @@ export function hoursSinceStart(startDate: string | null | undefined): number | 
 }
 
 /**
- * The findings of the health panel, or null when the server sent no health findings. Null means that
- * the reader does not have the health findings flag, or that a local flag write dropped stale findings.
- * The page then shows its separate warnings instead of the panel.
+ * The findings of the health panel, or null when the page shows no server findings: the reader does not
+ * have the health findings flag, or the health request is pending or failed. The page then shows its
+ * separate warnings instead of the panel.
  */
 export function healthPanelFindings(
-    health: ExperimentHealthApi | null | undefined,
+    health: ExperimentHealthApi | null,
     exposures: ExperimentExposureQueryResponse | null | undefined,
     isExperimentDraft: boolean
 ): HealthPanelFinding[] | null {

@@ -11,6 +11,7 @@ export interface TodayPaneOptionProps extends Omit<
     value: string
     to: string
     active: boolean
+    variant?: 'default' | 'destructive'
     className?: string
     children: ReactNode
 }
@@ -20,6 +21,7 @@ export function TodayPaneOption({
     value,
     to,
     active,
+    variant = 'default',
     className,
     children,
     ...props
@@ -28,15 +30,18 @@ export function TodayPaneOption({
         <AutocompleteItem
             value={value}
             aria-current={active ? 'page' : undefined}
+            data-variant={variant}
             {...props}
             render={
                 <Button
                     size="row"
+                    variant={variant}
                     left
                     nativeButton={false}
                     render={<LinkPrimitive to={to} />}
                     className={cn(
-                        'w-full min-w-0 font-semibold text-foreground [&>span]:w-full',
+                        'w-full min-w-0 font-semibold [&>span]:w-full',
+                        variant === 'default' && 'text-foreground',
                         'data-highlighted:border-transparent data-highlighted:ring-0',
                         active
                             ? 'bg-fill-selected data-highlighted:bg-fill-selected'

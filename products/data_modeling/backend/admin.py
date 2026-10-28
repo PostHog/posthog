@@ -1,6 +1,6 @@
 from django.conf import settings
 from django.contrib import admin
-from django.http import Http404
+from django.http import Http404, HttpRequest
 from django.shortcuts import render
 from django.urls import path, reverse
 from django.utils.html import format_html
@@ -17,6 +17,15 @@ class DataModelingDAGAdmin(admin.ModelAdmin):
     search_fields = ("id", "name", "team__id", "team__name")
     raw_id_fields = ("team", "created_by")
     readonly_fields = ("id", "created_at", "updated_at", "tiers_link")
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: DAG | None = None) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: DAG | None = None) -> bool:
+        return False
 
     def get_urls(self):
         return [

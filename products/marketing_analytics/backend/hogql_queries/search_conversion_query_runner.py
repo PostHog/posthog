@@ -1,9 +1,13 @@
-from posthog.schema import NativeMarketingSource
+from posthog.schema import MarketingAnalyticsAttributionBreakdown, NativeMarketingSource
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.query import execute_hogql_query
 
-from .attribution_table_query_runner import MarketingAnalyticsAttributionQueryRunner
+from .attribution_base import PERSON_ARRAYS_CTE
+from .attribution_sessions_read import session_ctes
+from .attribution_table_query_runner import _WEIGHT_ALIASES, MarketingAnalyticsAttributionQueryRunner
 from .constants import INTEGRATION_PRIMARY_SOURCE
 
 
@@ -11,8 +15,8 @@ class SearchConversionQueryRunner(MarketingAnalyticsAttributionQueryRunner):
     search_keys: list[str]
 
     @staticmethod
-    def row_key(page: str | None, platform: str) -> str:
-        return f"{platform}:{page or ''}"
+    def row_key(value: str | None, platform: str) -> str:
+        return f"{platform}:{value or ''}"
 
     def additional_session_columns(self) -> set[str]:
         return {"channel_type", "utm_source", "referring_domain", "entry_url", "has_gclid", "has_msclkid"}
@@ -31,17 +35,23 @@ class SearchConversionQueryRunner(MarketingAnalyticsAttributionQueryRunner):
                 "notEmpty(ifNull(events.session.$entry_msclkid, '')) OR notEmpty(extractURLParameter(ifNull({url}, ''), 'msclkid'))",
                 placeholders={"url": url},
             )
+        by_keyword = self.query.breakdownBy == MarketingAnalyticsAttributionBreakdown.TERM
+        value = (
+            parse_expr("lower(trim(ifNull({term}, '')))", placeholders={"term": field("utm_term", "$entry_utm_term")})
+            if by_keyword
+            else parse_expr("cutQueryStringAndFragment(ifNull({url}, ''))", placeholders={"url": url})
+        )
         return parse_expr(
             """
             concat(
                 multiIf(
                     {channel} = 'Paid Search' AND ({source} = {google} OR {has_gclid}), 'GoogleAds',
                     {channel} = 'Paid Search' AND ({source} = {bing} OR {has_msclkid}), 'BingAds',
-                    {channel} = 'Organic Search' AND NOT {has_msclkid}
+                    {include_organic} AND {channel} = 'Organic Search' AND NOT {has_msclkid}
                         AND match(lower(ifNull({referrer}, '')), {google_domain}), 'GoogleSearchConsole',
                     ''
                 ),
-                ':', cutQueryStringAndFragment(ifNull({url}, ''))
+                ':', {value}
             )
             """,
             placeholders={
@@ -55,7 +65,8 @@ class SearchConversionQueryRunner(MarketingAnalyticsAttributionQueryRunner):
                 "has_msclkid": has_msclkid,
                 "referrer": field("referring_domain", "$entry_referring_domain"),
                 "google_domain": ast.Constant(value=r"(^|\.)google\.[a-z.]+$"),
-                "url": url,
+                "include_organic": ast.Constant(value=not by_keyword),
+                "value": value,
             },
         )
 
@@ -73,3 +84,42 @@ class SearchConversionQueryRunner(MarketingAnalyticsAttributionQueryRunner):
             placeholders={"keys": ast.Tuple(exprs=[ast.Constant(value=key) for key in self.search_keys])},
         )
         return query
+
+    def to_conversion_query(self) -> ast.SelectQuery:
+        model = self.config.attribution_mode
+        query = parse_select(
+            """
+            SELECT credit.1 AS breakdown_value, sum(credit.2) AS conversions
+            FROM {conversions}
+            ARRAY JOIN arrayZip(dims, {weights}) AS credit
+            WHERE credit.1 IN {keys}
+            GROUP BY breakdown_value
+            """,
+            placeholders={
+                "conversions": self._build_per_conversion_select(model=model),
+                "weights": ast.Field(chain=[_WEIGHT_ALIASES[model]]),
+                "keys": ast.Tuple(exprs=[ast.Constant(value=key) for key in self.search_keys]),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        query.ctes = session_ctes(self, self.query_date_range)
+        query.ctes[PERSON_ARRAYS_CTE] = ast.CTE(
+            name=PERSON_ARRAYS_CTE, expr=self._person_arrays_select(self.query_date_range), cte_type="subquery"
+        )
+        return query
+
+    def calculate_conversions(self) -> dict[str, float]:
+        # Search needs credit only; visitor reach and report totals would add unused event scans.
+        query = self.to_conversion_query()
+        response = execute_hogql_query(
+            query_type="marketing_analytics_search_conversions_query",
+            query=query,
+            team=self.team,
+            user=self.user,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context or LimitContext.QUERY,
+            context=self._shared_hogql_context,
+            settings=self.get_query_settings(),
+        )
+        return {str(key): float(conversions) for key, conversions in response.results or []}

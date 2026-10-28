@@ -1,5 +1,5 @@
 import { IconCopy, IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
@@ -7,23 +7,15 @@ import type { ReplayObservationApi } from '../generated/api.schemas'
 import {
     type ClassifierScannerConfig,
     type ScorerScannerConfig,
-    SUCCEEDED_OUTPUT_LABEL,
     configFromSnapshot,
     failureKindDescription,
     ineligibleKindDescription,
     parseFailureReason,
     parseIneligibleReason,
 } from '../replay_scanners/types'
-import { markSimilarSearchIntent, similarSearchUrl } from '../search/observationQueries'
-import { RECORDING_ORIGIN, observationFromOriginUrl } from '../utils/breadcrumbs'
 import { citedTextToPlainText, parseCitedSegments } from '../utils/citations'
-import { VERDICT_LABEL, confidenceLevel, isSummaryScannerType, readReasoning, scannerLabel } from '../utils/observation'
-import { CitedMarkdown } from './CitedMarkdown'
+import { VERDICT_LABEL, confidenceLevel, isSummaryScannerType, readReasoning } from '../utils/observation'
 import { LabeledRow } from './LabeledRow'
-import { ObservationProgressBar } from './ObservationProgressBar'
-import { ObservationPrompt } from './ObservationPrompt'
-import { ObservationRetryButton } from './ObservationRetryButton'
-import { ScannerTypeBadge } from './ScannerTypeBadge'
 import { TimestampCitation } from './TimestampCitation'
 
 export function ObservationStatusTag({
@@ -385,127 +377,6 @@ export function IneligibleDetail({ errorReason }: { errorReason: string }): JSX.
                 <LabeledRow label="Details">
                     <p className="text-sm text-default m-0 leading-snug">{parsed.message}</p>
                 </LabeledRow>
-            )}
-        </div>
-    )
-}
-
-export function ObservationDockCard({
-    observation,
-    onSeek,
-    onRetry,
-    retrying = false,
-    returnPath,
-}: {
-    observation: ReplayObservationApi
-    onSeek?: (timestampMs: number) => void
-    onRetry?: () => void
-    retrying?: boolean
-    /** The page the player is on, so the observation's back button returns to it. */
-    returnPath?: string
-}): JSX.Element {
-    const snapshot = observation.scanner_snapshot
-    const scannerType = snapshot?.scanner_type
-    const result = readResult(observation)
-    // The prompt is the question the scan judged, so it gives the verdict its meaning. Show it inline here so a
-    // reader does not have to open the details page to know what "Yes" answered.
-    const prompt = snapshot ? (configFromSnapshot(snapshot)?.prompt ?? null) : null
-    const similarUrl = observation.status === 'succeeded' ? similarSearchUrl(observation) : null
-    // Summarizers excluded: their primary output already is the full text
-    const reasoning =
-        observation.status === 'succeeded' && !isSummaryScannerType(scannerType) ? readReasoning(observation) : null
-
-    return (
-        <div className="border rounded p-3 bg-surface-primary space-y-2">
-            <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                    {observation.status !== 'succeeded' && (
-                        <ObservationStatusTag status={observation.status} errorReason={observation.error_reason} />
-                    )}
-                    <span className="font-semibold text-sm truncate">{scannerLabel(observation)}</span>
-                    {scannerType && (
-                        <span className="shrink-0">
-                            <ScannerTypeBadge scannerType={scannerType} size="small" />
-                        </span>
-                    )}
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                    {observation.status === 'succeeded' && result && <ObservationConfidence result={result} />}
-                    <Link
-                        data-attr="vision-observation-open"
-                        to={observationFromOriginUrl(observation.id, RECORDING_ORIGIN, returnPath)}
-                        className="text-xs whitespace-nowrap"
-                    >
-                        View details
-                    </Link>
-                    {similarUrl && (
-                        <Link
-                            to={similarUrl}
-                            onClick={() => markSimilarSearchIntent(observation)}
-                            className="text-xs whitespace-nowrap"
-                            data-attr="vision-dock-find-similar"
-                        >
-                            Find similar
-                        </Link>
-                    )}
-                </div>
-            </div>
-
-            {observation.status === 'failed' && observation.error_reason && (
-                <div className="space-y-2">
-                    <FailureDetail errorReason={observation.error_reason} />
-                    {onRetry && (
-                        <ObservationRetryButton
-                            status={observation.status}
-                            errorReason={observation.error_reason}
-                            onRetry={onRetry}
-                            loading={retrying}
-                            dataAttr="vision-dock-retry-observation"
-                        />
-                    )}
-                </div>
-            )}
-
-            {observation.status === 'ineligible' && observation.error_reason && (
-                <div className="space-y-2">
-                    <IneligibleDetail errorReason={observation.error_reason} />
-                    {onRetry && (
-                        <ObservationRetryButton
-                            status={observation.status}
-                            errorReason={observation.error_reason}
-                            onRetry={onRetry}
-                            loading={retrying}
-                            dataAttr="vision-dock-retry-observation"
-                        />
-                    )}
-                </div>
-            )}
-
-            {observation.status === 'succeeded' && snapshot && result && (
-                <>
-                    <LabeledRow label={scannerType ? SUCCEEDED_OUTPUT_LABEL[scannerType] : 'Result'}>
-                        <ObservationPrimaryOutput
-                            observation={observation}
-                            compact
-                            showPrompt={false}
-                            onSeek={onSeek}
-                            expandSummary
-                            copyable
-                        />
-                    </LabeledRow>
-                    {prompt && !isSummaryScannerType(scannerType) && (
-                        <ObservationPrompt prompt={prompt} question={observation.prompt_question} />
-                    )}
-                    {reasoning && (
-                        <LabeledRow label="Model reasoning">
-                            <CitedMarkdown text={reasoning} segments={result.reasoning_segments} onSeek={onSeek} />
-                        </LabeledRow>
-                    )}
-                </>
-            )}
-
-            {(observation.status === 'pending' || observation.status === 'running') && (
-                <ObservationProgressBar observationId={observation.id} sessionId={observation.session_id} />
             )}
         </div>
     )

@@ -9,13 +9,13 @@ import re
 import json
 import time
 import uuid
+from collections import deque
 from collections.abc import Callable, Collection, Iterable, Mapping
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import Any, Literal, TypedDict, cast
 from urllib.parse import urlparse
 
-from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Count, F, Func, JSONField, Value
 from django.db.models.functions import Cast
@@ -26,6 +26,10 @@ import requests
 import structlog
 from prometheus_client import Counter
 
+from posthog.cache_utils import cache_for
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.errors import CredentialsServiceFailure
+from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import github_installation_pace_seconds, remember_observed_core_limit
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
@@ -37,7 +41,7 @@ from posthog.utils import safe_cache_add, safe_cache_delete
 
 logger = structlog.get_logger(__name__)
 
-# This client always knows its installation, so it records under source="integration" with a real id.
+# App-JWT and user-OAuth calls made directly by this class record under this source.
 _OBSERVABILITY_SOURCE = "integration"
 
 github_cache_access_counter = Counter(
@@ -45,6 +49,54 @@ github_cache_access_counter = Counter(
     "Number of GitHub integration cache accesses by cache type, repository, and result.",
     labelnames=["integration_id", "cache", "repository", "result"],
 )
+
+CREDENTIALS_CALLER = CredentialsCaller.INTEGRATIONS
+
+
+@frozen
+class GitHubAppJwtCredentials:
+    """What PostHog's GitHub App signs its App JWT with."""
+
+    client_id: str
+    private_key: str = field(repr=False)
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.client_id and self.private_key)
+
+
+@frozen
+class GitHubAppOauthCredentials:
+    """What PostHog's GitHub App exchanges a user authorization code or refresh token with."""
+
+    client_id: str
+    client_secret: str = field(repr=False)
+
+
+@cache_for(timedelta(minutes=5))
+def github_app_jwt_credentials() -> GitHubAppJwtCredentials:
+    """The App's client id and private key, read from the credentials service.
+
+    Cached because an App JWT is signed for every installation token and every App API call. A
+    rotated key reaches each process within five minutes, and GitHub accepts more than one private
+    key per App, so the old key stays valid for that time.
+    """
+    values = get_many_or_settings(["GITHUB_APP_CLIENT_ID", "GITHUB_APP_PRIVATE_KEY"], CREDENTIALS_CALLER)
+    return GitHubAppJwtCredentials(
+        client_id=values["GITHUB_APP_CLIENT_ID"], private_key=values["GITHUB_APP_PRIVATE_KEY"]
+    )
+
+
+def github_app_oauth_credentials() -> GitHubAppOauthCredentials:
+    """The App's client id and secret, read from the credentials service.
+
+    Not cached: they are read only when a person authorizes the App or a user token is refreshed.
+    """
+    values = get_many_or_settings(["GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET"], CREDENTIALS_CALLER)
+    return GitHubAppOauthCredentials(
+        client_id=values["GITHUB_APP_CLIENT_ID"], client_secret=values["GITHUB_APP_CLIENT_SECRET"]
+    )
+
 
 # Repository cache: 1-hour staleness window.
 GITHUB_REPOSITORY_CACHE_TTL_SECONDS = 60 * 60
@@ -80,6 +132,8 @@ GITHUB_ACCOUNT_NAME_HEAL_CLAIM_TTL_SECONDS = 60
 
 # GitHub's add-assignees endpoint caps a single call at 10 logins and silently drops the rest.
 MAX_PR_ASSIGNEES = 10
+# GitHub's request-reviewers endpoint caps a single call at 15 users.
+MAX_PR_REVIEWERS = 15
 
 # GitHub label names cap at 50 characters, and a self-driving pull request only ever carries the one
 # label its team configured, so a longer list is a caller mistake rather than a use we support.
@@ -227,15 +281,15 @@ class GitHubIntegrationBase:
     integration: Any  # Integration | UserIntegration -- subclasses narrow the type
     # Names the table `integration` lives in, so a background task can load the row again.
     is_user_integration: bool = False
-    # Per-subsystem attribution on the shared egress metrics. Product callers construct their client
-    # with their own source (e.g. GitHubIntegration(integration, source="visual_review")) so every
-    # request made through this instance — api_request, verbs, GraphQL — is attributed to them.
-    source: str = _OBSERVABILITY_SOURCE
+    # Per-subsystem attribution on the shared egress metrics. Every caller constructs its client
+    # with its own source (e.g. GitHubIntegration(integration, source="visual_review", ...)) so every
+    # request made through this instance — api_request, verbs, GraphQL — is attributed to it.
+    source: str
     # How sheddable this instance's calls are when the installation's shared budget runs hot.
-    # CRITICAL (the default) is never blocked; deferrable background callers construct with
-    # priority=Priority.BATCH so the egress limiter sheds them first — a denied sheddable call
-    # raises GitHubEgressBudgetExhausted from api_request before anything is sent.
-    priority: Priority = Priority.CRITICAL
+    # Every caller picks it at construction. CRITICAL is never blocked; deferrable background callers
+    # construct with priority=Priority.BATCH so the egress limiter sheds them first — a denied
+    # sheddable call raises GitHubEgressBudgetExhausted from api_request before anything is sent.
+    priority: Priority
 
     @property
     def github_installation_id(self) -> str | None:
@@ -275,8 +329,9 @@ class GitHubIntegrationBase:
         """
         from rest_framework.exceptions import ValidationError
 
-        github_app_client_id = settings.GITHUB_APP_CLIENT_ID
-        github_app_private_key = settings.GITHUB_APP_PRIVATE_KEY
+        credentials = github_app_jwt_credentials()
+        github_app_client_id = credentials.client_id
+        github_app_private_key = credentials.private_key
 
         if not github_app_client_id:
             raise ValidationError("GITHUB_APP_CLIENT_ID is not configured")
@@ -311,6 +366,7 @@ class GitHubIntegrationBase:
             timeout=timeout,
             # requests omits the body entirely when json is None
             json=json_body,
+            priority=Priority.CRITICAL,
         )
 
     @classmethod
@@ -402,7 +458,12 @@ class GitHubIntegrationBase:
         """
         if not installation_id:
             return "skipped"
-        if not settings.GITHUB_APP_CLIENT_ID or not settings.GITHUB_APP_PRIVATE_KEY:
+        try:
+            app_configured = github_app_jwt_credentials().configured
+        except CredentialsServiceFailure:
+            logger.warning("GitHubIntegration: uninstall failed, GitHub App credentials unavailable", exc_info=True)
+            return "failed"
+        if not app_configured:
             logger.warning("GitHubIntegration: uninstall skipped, GitHub App not configured")
             return "skipped"
 
@@ -478,6 +539,7 @@ class GitHubIntegrationBase:
             endpoint="/user/installations/{installation_id}/repositories",
             params={"per_page": 1},
             timeout=10,
+            priority=Priority.CRITICAL,
         )
         if response.status_code == 200:
             return True
@@ -574,12 +636,13 @@ class GitHubIntegrationBase:
 
     def mint_scoped_installation_token(
         self,
-        permissions: Mapping[str, str],
+        permissions: Mapping[str, str] | None,
         repositories: list[str] | None = None,
     ) -> str:
         """Mint an ephemeral installation token downscoped to ``permissions`` (e.g.
         ``{"contents": "read", "metadata": "read"}``) and optionally to ``repositories``
-        (bare repo names, no owner prefix).
+        (bare repo names, no owner prefix). ``None`` permissions keep every permission the
+        installation holds.
 
         The token is returned to the caller and deliberately NOT persisted: the cached
         ``sensitive_config`` token is the shared full-permission credential every other
@@ -592,11 +655,14 @@ class GitHubIntegrationBase:
         if not installation_id:
             raise GitHubIntegrationError("No GitHub App installation id on this integration")
 
-        body: dict[str, Any] = {"permissions": dict(permissions)}
+        body: dict[str, Any] = {}
+        if permissions is not None:
+            body["permissions"] = dict(permissions)
         if repositories:
             body["repositories"] = repositories
 
         response = self.client_request(f"installations/{installation_id}/access_tokens", method="POST", json_body=body)
+        raise_if_github_rate_limited(response)
         try:
             data = response.json()
         except ValueError:
@@ -687,15 +753,17 @@ class GitHubIntegrationBase:
         name = account.get("name") if isinstance(account, dict) else None
         return not name or str(name) == str(installation_id)
 
-    def ensure_account_name(self) -> bool:
-        """Replace a placeholder account name with the real GitHub login, at most once per cooldown.
+    def ensure_account_name(self, *, force_refresh: bool = False) -> bool:
+        """Refresh a placeholder (or suspected stale) login, at most once per cooldown.
 
         Skips installations already marked unavailable, since the lookup would fail the same way.
         Returns True when the name was healed. Persists the attempt timestamp either way so a broken
         installation costs one GitHub call per cooldown window, not one per list request.
         """
         installation_id = self.github_installation_id
-        if not installation_id or self.installation_unavailable() or not self.account_name_needs_heal():
+        if not installation_id or self.installation_unavailable():
+            return False
+        if not force_refresh and not self.account_name_needs_heal():
             return False
         now = int(time.time())
         last_attempt = self.integration.config.get(ACCOUNT_NAME_HEAL_ATTEMPTED_AT_CONFIG_KEY)
@@ -849,6 +917,22 @@ class GitHubIntegrationBase:
             logger.warning("GitHubIntegration: installation PATCH failed", url=url, exc_info=True)
             return None
 
+    def _installation_authenticated_delete(
+        self,
+        url: str,
+        *,
+        endpoint: str,
+        json_body: Mapping[str, object],
+        timeout: int = 10,
+    ) -> requests.Response | None:
+        """DELETE with installation auth for GitHub endpoints that accept a JSON body."""
+        path = url.removeprefix("https://api.github.com")
+        try:
+            return self.api_request("DELETE", path, endpoint=endpoint, json_body=json_body, timeout=timeout)
+        except GitHubIntegrationError:
+            logger.warning("GitHubIntegration: installation DELETE failed", url=url, exc_info=True)
+            return None
+
     def _installation_authenticated_post(
         self,
         url: str,
@@ -866,11 +950,20 @@ class GitHubIntegrationBase:
             logger.warning("GitHubIntegration: installation POST failed", url=url, exc_info=True)
             return None
 
-    def installation_can_access_repository(self, repository: str) -> bool:
+    def installation_can_access_repository(self, repository: str, *, raise_on_transient: bool = False) -> bool:
         """Whether this installation token can access the repo (``GET /repos/{owner}/{repo}`` returns 200)."""
-        response = self._installation_authenticated_get(
-            f"https://api.github.com/repos/{repository}", endpoint="/repos/{owner}/{repo}"
-        )
+        url = f"https://api.github.com/repos/{repository}"
+        response: requests.Response | None
+        if raise_on_transient:
+            response = self.api_request(
+                "GET", url.removeprefix("https://api.github.com"), endpoint="/repos/{owner}/{repo}"
+            )
+            if response.status_code >= 500:
+                raise GitHubIntegrationError(
+                    "GitHub repository access probe failed transiently", status_code=response.status_code
+                )
+        else:
+            response = self._installation_authenticated_get(url, endpoint="/repos/{owner}/{repo}")
         if response is None:
             return False
         return response.status_code == 200
@@ -1220,9 +1313,20 @@ class GitHubIntegrationBase:
                 for entry in (pr.get("assignees") or [])
                 if isinstance(entry, dict) and entry.get("login")
             ],
+            "requested_reviewers": [
+                entry["login"]
+                for entry in (pr.get("requested_reviewers") or [])
+                if isinstance(entry, dict) and entry.get("login")
+            ],
+            "requested_teams": [
+                entry["slug"]
+                for entry in (pr.get("requested_teams") or [])
+                if isinstance(entry, dict) and entry.get("slug")
+            ],
             "created_at": pr.get("created_at"),
             "updated_at": pr.get("updated_at"),
             "merged_at": pr.get("merged_at"),
+            "merged_by": pr.get("merged_by"),
             "closed_at": pr.get("closed_at"),
             "comments": pr.get("comments", 0),
             "review_comments": pr.get("review_comments", 0),
@@ -1231,6 +1335,27 @@ class GitHubIntegrationBase:
             "deletions": pr.get("deletions", 0),
             "changed_files": pr.get("changed_files", 0),
         }
+
+    def get_pull_request_reviews(self, repository: str, pr_number: int) -> list[dict[str, Any]]:
+        if not _is_safe_github_repo_path(repository) or type(pr_number) is not int or pr_number <= 0:
+            raise GitHubIntegrationError("Invalid pull request identity")
+        responses, complete = self._installation_authenticated_get_pages(
+            f"https://api.github.com/repos/{repository}/pulls/{pr_number}/reviews",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+            params={"per_page": 100},
+        )
+        if not complete:
+            raise GitHubIntegrationError("Could not fetch all pull request reviews")
+        reviews: list[dict[str, Any]] = []
+        for response in responses:
+            try:
+                page = response.json()
+            except ValueError as error:
+                raise GitHubIntegrationError("Could not parse pull request reviews") from error
+            if not isinstance(page, list) or any(not isinstance(review, dict) for review in page):
+                raise GitHubIntegrationError("Invalid pull request reviews")
+            reviews.extend(page)
+        return reviews
 
     def get_pull_request_from_url(self, pr_url: str) -> dict[str, Any]:
         """Fetch a pull request by its HTML URL (e.g. ``https://github.com/owner/repo/pull/123``)."""
@@ -1377,6 +1502,157 @@ class GitHubIntegrationBase:
             entry["login"] for entry in (issue.get("assignees") or []) if isinstance(entry, dict) and entry.get("login")
         ]
         return {"success": True, "assignees": assigned}
+
+    def remove_pull_request_assignees(
+        self, repository: str, pr_number: int, assignees: Iterable[str]
+    ) -> dict[str, Any]:
+        """Remove named assignees from a pull request and return the remaining assignees."""
+        unwanted = list(dict.fromkeys(login for login in assignees if login))[:MAX_PR_ASSIGNEES]
+        if not unwanted:
+            return {"success": True, "assignees": []}
+
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        response = self._installation_authenticated_delete(
+            f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/assignees",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/assignees",
+            json_body={"assignees": unwanted},
+        )
+        if response is None:
+            return {"success": False, "error": "Network error unassigning pull request"}
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to unassign pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+        try:
+            issue = response.json()
+        except Exception:
+            issue = {}
+        remaining = [
+            entry["login"] for entry in (issue.get("assignees") or []) if isinstance(entry, dict) and entry.get("login")
+        ]
+        return {"success": True, "assignees": remaining}
+
+    def request_pull_request_reviews(self, repository: str, pr_number: int, reviewers: Iterable[str]) -> dict[str, Any]:
+        """Request reviews from GitHub users on a pull request."""
+        wanted = list(dict.fromkeys(login for login in reviewers if login))
+        if not wanted:
+            return {"success": True, "requested_reviewers": []}
+
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        requested_reviewers: list[str] = []
+        batches = deque(
+            wanted[offset : offset + MAX_PR_REVIEWERS] for offset in range(0, len(wanted), MAX_PR_REVIEWERS)
+        )
+        rejected = 0
+        while batches:
+            batch = batches.popleft()
+            response = self._installation_authenticated_post(
+                f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/requested_reviewers",
+                endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+                json_body={"reviewers": batch},
+            )
+            if response is None:
+                return {"success": False, "error": "Network error requesting pull request reviews"}
+            try:
+                details = response.json() if response.status_code == 422 else {}
+            except Exception:
+                details = {}
+            errors = details.get("errors") if isinstance(details, dict) else None
+            reviewer_validation_failed = any(
+                isinstance(error, dict) and error.get("field") == "reviewers"
+                for error in (errors if isinstance(errors, list) else [])
+            )
+            if response.status_code == 422 and reviewer_validation_failed:
+                if len(batch) == 1:
+                    rejected += 1
+                else:
+                    midpoint = len(batch) // 2
+                    batches.appendleft(batch[midpoint:])
+                    batches.appendleft(batch[:midpoint])
+                continue
+            if response.status_code != 201:
+                return {
+                    "success": False,
+                    "error": f"Failed to request pull request reviews: {response.text}",
+                    "status_code": response.status_code,
+                }
+            try:
+                pull_request = response.json()
+            except Exception:
+                pull_request = {}
+            requested_reviewers.extend(
+                entry["login"]
+                for entry in (pull_request.get("requested_reviewers") or [])
+                if isinstance(entry, dict) and entry.get("login")
+            )
+        if rejected:
+            logger.warning(
+                "GitHubIntegration: review requests rejected",
+                repository=repo_path,
+                pr_number=pr_number,
+                rejected=rejected,
+            )
+        return {"success": True, "requested_reviewers": list(dict.fromkeys(requested_reviewers))}
+
+    def get_removed_pull_request_reviewers(self, repository: str, pr_number: int) -> set[str] | None:
+        """Return removed review recipients, or None when the history is incomplete."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        responses, complete = self._installation_authenticated_get_pages(
+            f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/timeline",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/timeline",
+            params={"per_page": 100},
+        )
+        if not complete:
+            return None
+
+        removed: set[str] = set()
+        for response in responses:
+            try:
+                events = response.json()
+            except Exception:
+                return None
+            if not isinstance(events, list):
+                return None
+            for event in events:
+                if not isinstance(event, dict) or event.get("event") != "review_request_removed":
+                    continue
+                reviewer = event.get("requested_reviewer")
+                if isinstance(reviewer, dict) and isinstance(reviewer.get("login"), str):
+                    removed.add(reviewer["login"].lower())
+        return removed
+
+    def list_submitted_pull_request_reviewers(self, repository: str, pr_number: int) -> dict[str, Any]:
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        responses, complete = self._installation_authenticated_get_pages(
+            f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/reviews",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+            params={"per_page": 100},
+        )
+        if not complete:
+            return {"success": False, "error": "Failed to list pull request reviews"}
+
+        reviewed_by: list[str] = []
+        for response in responses:
+            try:
+                reviews = response.json()
+            except Exception:
+                return {"success": False, "error": "Failed to parse pull request reviews JSON"}
+            if not isinstance(reviews, list):
+                return {"success": False, "error": "Pull request reviews JSON is not a list"}
+            for review in reviews:
+                if not isinstance(review, dict) or review.get("state") not in {
+                    "APPROVED",
+                    "CHANGES_REQUESTED",
+                    "COMMENTED",
+                    "DISMISSED",
+                }:
+                    continue
+                user = review.get("user")
+                if isinstance(user, dict) and isinstance(user.get("login"), str):
+                    reviewed_by.append(user["login"])
+        return {"success": True, "reviewed_by": reviewed_by}
 
     def add_pull_request_labels(self, repository: str, pr_number: int, labels: Iterable[str]) -> dict[str, Any]:
         """Add labels to a pull request. ``repository`` is ``owner/repo`` or a bare repo.
@@ -2477,7 +2753,9 @@ class GitHubIntegrationBase:
                 integration_id=self.integration.id,
                 status_code=response.status_code,
             )
-            raise GitHubIntegrationError("GitHubIntegration: list_repositories non-JSON response")
+            raise GitHubIntegrationError(
+                "GitHubIntegration: list_repositories non-JSON response", status_code=response.status_code
+            )
         if response.status_code == 200 and isinstance(body, dict):
             page_repos = extract_repos(body)
             has_more = len(page_repos) == per_page
@@ -2488,7 +2766,7 @@ class GitHubIntegrationBase:
             status_code=response.status_code,
             error=body if isinstance(body, dict) else None,
         )
-        raise GitHubIntegrationError("GitHubIntegration: failed to list repositories")
+        raise GitHubIntegrationError("GitHubIntegration: failed to list repositories", status_code=response.status_code)
 
     def list_all_repositories(self, *, priority: Priority | None = None) -> list[dict]:
         """Fetch all accessible repositories, paginating through GitHub's API. ``priority`` overrides the client's lane."""

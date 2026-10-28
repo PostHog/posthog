@@ -668,6 +668,14 @@ describe('API helper', () => {
         })
     })
 
+    describe('tracing', () => {
+        it('sends the trace id as one path segment', async () => {
+            await api.tracing.getTrace('a/b?c')
+
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/projects/2/tracing/spans/trace/a%2Fb%3Fc/')
+        })
+    })
+
     describe('tasks', () => {
         it.each([
             ['task/id', 'projects/2/tasks/task%2Fid'],

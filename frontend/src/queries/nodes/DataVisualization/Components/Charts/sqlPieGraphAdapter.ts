@@ -83,7 +83,7 @@ export const buildPieSlices = (
         .map(([label, value], index) => ({
             label,
             value,
-            color: getSeriesColor(index),
+            color: yData[0].settings?.display?.color ?? getSeriesColor(index),
         }))
         .filter((slice) => slice.value > 0)
 }

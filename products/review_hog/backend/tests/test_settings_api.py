@@ -7,8 +7,8 @@ from parameterized import parameterized
 
 from posthog.models import Team, User
 
-from products.review_hog.backend.api.settings import ReviewUserSettingsSerializer
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewUserSettings
+from products.review_hog.backend.presentation.views.settings import ReviewUserSettingsSerializer
 from products.skills.backend.models.skills import LLMSkill
 from products.stamphog.backend.facade.testing import seed_repo_config
 

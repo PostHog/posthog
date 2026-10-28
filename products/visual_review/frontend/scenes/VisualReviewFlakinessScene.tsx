@@ -10,14 +10,17 @@ import {
     LemonTable,
     Link,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ActivityCell } from '../components/FlakinessActivityCell'
 import { MarginCell } from '../components/FlakinessMarginCell'
@@ -25,10 +28,11 @@ import { QuarantineCell } from '../components/FlakinessQuarantineCell'
 import { StateCell } from '../components/FlakinessStateCell'
 import { FLAKE_RATE_DAYS, FlakinessStatRow } from '../components/FlakinessStatRow'
 import { QuarantineAction } from '../components/QuarantineAction'
-import { RepoSwitcher } from '../components/RepoSwitcher'
 import { SnapshotFacetSidebar } from '../components/SnapshotFacetSidebar'
+import { VisualReviewSceneTitle } from '../components/VisualReviewSceneTitle'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { FlakinessEntryApi } from '../generated/api.schemas'
+import { repoFullNameFromParams, splitRepoFullName } from '../lib/repoPaths'
 import {
     DecoratedEntry,
     VisualReviewFlakinessSceneLogicProps,
@@ -38,8 +42,8 @@ import {
 export const scene: SceneExport = {
     component: VisualReviewFlakinessScene,
     logic: visualReviewFlakinessSceneLogic,
-    paramsToProps: ({ params: { repoId } }): VisualReviewFlakinessSceneLogicProps => ({
-        repoId: repoId || '',
+    paramsToProps: ({ params: { repoOwner, repoName } }): VisualReviewFlakinessSceneLogicProps => ({
+        repoFullName: repoFullNameFromParams(repoOwner, repoName),
     }),
 }
 
@@ -55,8 +59,8 @@ export function VisualReviewFlakinessScene(): JSX.Element {
     const {
         overview,
         overviewLoading,
-        repo,
-        repoId,
+        repoNotFound,
+        repoFullName,
         filteredEntries,
         statCounts,
         facetGroups,
@@ -78,6 +82,7 @@ export function VisualReviewFlakinessScene(): JSX.Element {
         quarantineIdentifier,
         unquarantineIdentifier,
     } = useActions(visualReviewFlakinessSceneLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isFiltered =
         filters.typeKeys.length > 0 || filters.areas.length > 0 || filters.teams.length > 0 || filters.search.length > 0
@@ -96,21 +101,29 @@ export function VisualReviewFlakinessScene(): JSX.Element {
         })
     }
 
+    if (repoNotFound) {
+        return <NotFound object="visual review repo" />
+    }
+
     return (
         <SceneContent>
-            <SceneTitleSection
-                name={repo?.repo_full_name ?? 'Visual review'}
-                resourceType={{ type: 'visual_review' }}
+            <VisualReviewSceneTitle
+                repoFullName={repoFullName}
+                activeTab="flakiness"
                 actions={
-                    <div className="flex gap-2 items-center">
-                        <RepoSwitcher repoId={repoId} activeTab="flakiness" />
+                    todayRailNav ? (
+                        <Button variant="outline" render={<LinkPrimitive to={urls.visualReviewSettings()} />}>
+                            <IconGear />
+                            Settings
+                        </Button>
+                    ) : (
                         <LemonButton size="small" type="secondary" icon={<IconGear />} to={urls.visualReviewSettings()}>
                             Settings
                         </LemonButton>
-                    </div>
+                    )
                 }
             />
-            <VisualReviewTabs activeKey="flakiness" repoId={repoId} />
+            <VisualReviewTabs activeKey="flakiness" repoFullName={repoFullName} />
 
             <LemonBanner type="info">
                 A snapshot that renders differently from its baseline either fails the run, or stays under the diff
@@ -234,7 +247,7 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                                             <div className="min-w-0">
                                                 <Link
                                                     to={urls.visualReviewSnapshotHistory(
-                                                        repoId,
+                                                        ...splitRepoFullName(repoFullName),
                                                         entry.run_type,
                                                         entry.identifier
                                                     )}

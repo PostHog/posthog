@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,24 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class StytchSource(ResumableSource[StytchSourceConfig, StytchResumeConfig]):
+    codebase_detection = detect(
+        env=("^STYTCH_", "^NEXT_PUBLIC_STYTCH_PUBLIC_TOKEN$"),
+        npm=("stytch", "@stytch/vanilla-js", "@stytch/react", "@stytch/nextjs", "@stytch/react-native"),
+        pypi=("stytch",),
+        go=(
+            "github.com/stytchauth/stytch-go",
+            "github.com/stytchauth/stytch-go-magic-links",
+            "github.com/stytchauth/stytch-management-go",
+        ),
+        maven=("com.stytch.java:sdk", "com.stytch.sdk:sdk"),
+        rubygems=("stytch",),
+        swiftpm=(
+            "github.com/stytchauth/stytch-ios",
+            "github.com/stytchauth/stytch-ios-dfp",
+            "github.com/stytchauth/stytch-ios-sdk",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -53,7 +72,7 @@ You can find both under [API keys](https://stytch.com/dashboard/api-keys) in you
 Every Stytch project is either a consumer project or a B2B project, and the two have separate tables. The `users` and `sessions` tables are only available for consumer projects, and the `organizations` and `members` tables only for B2B projects.""",
             iconPath="/static/services/stytch.png",
             docsUrl="https://posthog.com/docs/cdp/sources/stytch",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

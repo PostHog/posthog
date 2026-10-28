@@ -98,6 +98,12 @@ const manyStepsFixture = {
     },
 }
 
+// One bar per step, so the step to step conversion chips sit in the gaps between steps.
+export const BarLabels: Story = {
+    render: () => <StoryRender insightFixture={funnelTopToBottomFixture} />,
+    parameters: { featureFlags: [FEATURE_FLAGS.FUNNEL_STEPS_BAR_LABELS] },
+}
+
 // Steps shrink to fit the width instead of scrolling, with the rate on each bar.
 export const BarLabelsManySteps: Story = {
     render: () => <StoryRender insightFixture={manyStepsFixture} width={1520} />,
@@ -127,7 +133,7 @@ export const BreakdownAndCompare: Story = {
 }
 
 // Full insight scene in edit mode — the steps funnel editor, and the funnels query kind's full data pipeline
-const sceneEditWaitForSelector = ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]', '.PayGateMini']
+const sceneEditWaitForSelector = ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]']
 
 export const EditScene: Story = createInsightStory(funnelLeftToRightFixture as any, 'edit')
 EditScene.decorators = [insightSceneMswDecorator]
@@ -158,3 +164,26 @@ EditSceneViewports.parameters = {
     },
 }
 EditSceneViewports.play = waitForFunnelToStabilize
+
+export const AlertThresholds: Story = {
+    render: () => (
+        <StoryRender
+            insightFixture={{
+                ...funnelTopToBottomFixture,
+                query: {
+                    ...funnelTopToBottomFixture.query,
+                    source: {
+                        ...funnelTopToBottomFixture.query.source,
+                        funnelsFilter: {
+                            ...funnelTopToBottomFixture.query.source.funnelsFilter,
+                            goalLines: [
+                                { label: 'Upper threshold', value: 80, borderColor: '#d14343' },
+                                { label: 'Lower threshold', value: 20, borderColor: '#d14343' },
+                            ],
+                        },
+                    },
+                },
+            }}
+        />
+    ),
+}

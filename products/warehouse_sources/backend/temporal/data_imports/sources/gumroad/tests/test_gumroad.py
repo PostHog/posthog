@@ -2,7 +2,8 @@ from datetime import UTC, date, datetime
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, Mock, patch
+import time_machine
+from unittest.mock import patch
 
 import requests
 from parameterized import parameterized
@@ -10,6 +11,15 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
     SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gumroad import (
+    GumroadSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gumroad.gumroad import (
     GumroadResumeConfig,
@@ -22,9 +32,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gumroad.gu
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gumroad.settings import GUMROAD_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.gumroad.source import GumroadSource
 
 
 class TestGumroadTransport:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(GumroadSource(), GumroadSourceConfig(access_token="gumroad-token"))
+
     @parameterized.expand(
         [
             # Gumroad rejects anything that isn't YYYY-MM-DD with a 400, so an ISO datetime
@@ -105,44 +120,88 @@ class TestGumroadTransport:
         response = gumroad_source(access_token="tok", endpoint=endpoint, team_id=1, job_id="job-1")
         assert response.primary_keys == primary_keys
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.gumroad.gumroad.rest_api_resource")
-    def test_resume_state_seeds_paginator_cursor(self, mock_rest_api_resource) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = GumroadResumeConfig(page_key="cursor-9")
-
-        gumroad_source(
-            access_token="tok",
-            endpoint="sales",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
+    def test_resume_state_seeds_paginator_cursor(self) -> None:
+        result = self._driver().run(
+            "sales",
+            [ScriptedResponse(json={"sales": [{"id": "sale-9"}]})],
+            resume_state=GumroadResumeConfig(page_key="cursor-9"),
         )
 
-        assert mock_rest_api_resource.call_args.kwargs["initial_paginator_state"] == {"cursor": "cursor-9"}
+        assert result.raised is None
+        assert result.params("page_key") == ["cursor-9"]
+        assert result.rows == [{"id": "sale-9"}]
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.gumroad.gumroad.rest_api_resource")
-    def test_resume_hook_saves_only_a_real_next_cursor(self, mock_rest_api_resource) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = False
-
-        gumroad_source(
-            access_token="tok",
-            endpoint="sales",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
+    @parameterized.expand(
+        [
+            ("missing_cursor", {"sales": [{"id": "sale-2"}]}),
+            ("null_cursor", {"sales": [{"id": "sale-2"}], "next_page_key": None}),
+            ("empty_cursor", {"sales": [{"id": "sale-2"}], "next_page_key": ""}),
+        ]
+    )
+    def test_resume_hook_saves_only_a_real_next_cursor(self, _name, last_page) -> None:
+        result = self._driver().run(
+            "sales",
+            [
+                ScriptedResponse(json={"sales": [{"id": "sale-1"}], "next_page_key": "cursor-3"}),
+                ScriptedResponse(json=last_page),
+            ],
         )
 
-        resume_hook = mock_rest_api_resource.call_args.kwargs["resume_hook"]
-        resume_hook({"cursor": "cursor-3"})
-        assert manager.save_state.call_args.args[0] == GumroadResumeConfig(page_key="cursor-3")
+        assert result.raised is None
+        assert result.params("page_key") == [None, "cursor-3"]
+        assert result.rows == [{"id": "sale-1"}, {"id": "sale-2"}]
+        assert result.saved_states == [GumroadResumeConfig(page_key="cursor-3")]
 
-        manager.save_state.reset_mock()
-        resume_hook(None)
-        resume_hook({})
-        resume_hook({"cursor": None})
-        manager.save_state.assert_not_called()
+    @parameterized.expand(
+        [
+            (
+                "stops_at_first_unavailable_year_below_last_year",
+                [404, 200, 200, 404],
+                [2025, 2024],
+                None,
+            ),
+            # Gumroad's clock can still be in the previous year, so last year is not yet available.
+            ("skips_unavailable_last_year", [404, 404, 200, 404], [2024], None),
+            ("account_created_this_year", [404, 404, 404], [], None),
+            ("tax_center_disabled", [403], [], "403 Client Error: Forbidden for url"),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 1, 1, 3, 0, tzinfo=UTC), tick=False)
+    def test_earnings_walks_back_through_available_tax_years(
+        self, _name, statuses, expected_years, expected_error
+    ) -> None:
+        script = [
+            ScriptedResponse(status=status, json={"success": True, "year": 2026 - index, "net_cents": 100})
+            if status == 200
+            else ScriptedResponse(status=status, json={"success": False})
+            for index, status in enumerate(statuses)
+        ]
+
+        result = self._driver().run("earnings", script)
+
+        assert result.params("year") == [str(2026 - index) for index in range(len(statuses))]
+        assert [row["year"] for row in result.rows] == expected_years
+        assert all("success" not in row for row in result.rows)
+        if expected_error is None:
+            assert result.raised is None
+        else:
+            assert expected_error in str(result.raised)
+
+    def test_workflow_emails_fan_out_reads_steps_from_each_workflow(self) -> None:
+        result = self._driver().run(
+            "workflow_emails",
+            [
+                ScriptedResponse(json={"success": True, "workflows": [{"id": "wf-1"}, {"id": "wf-2"}]}),
+                ScriptedResponse(
+                    json={"success": True, "workflow": {"id": "wf-1", "emails": [{"id": "e-1", "sent_count": 3}]}}
+                ),
+                ScriptedResponse(json={"success": True, "workflow": {"id": "wf-2", "emails": []}}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v2/workflows", "/v2/workflows/wf-1", "/v2/workflows/wf-2"]
+        assert result.rows == [{"id": "e-1", "sent_count": 3, "workflow_id": "wf-1"}]
 
     @parameterized.expand(
         [
@@ -152,11 +211,9 @@ class TestGumroadTransport:
             (500, False, "unexpected status code"),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.gumroad.gumroad.make_tracked_session")
-    def test_validate_credentials_status_mapping(self, status, expected_valid, message_fragment, mock_session) -> None:
-        mock_session.return_value.get.return_value = Mock(status_code=status)
-
-        is_valid, message = validate_credentials("gumroad-token")
+    def test_validate_credentials_status_mapping(self, status, expected_valid, message_fragment) -> None:
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
+            is_valid, message = validate_credentials("gumroad-token")
 
         assert is_valid is expected_valid
         if message_fragment is None:
@@ -164,14 +221,13 @@ class TestGumroadTransport:
         else:
             assert message is not None and message_fragment in message
 
-        call = mock_session.return_value.get.call_args
         # `/v2/user` is readable by every scope Gumroad issues, so a failure here is the token
         # itself rather than a missing scope.
-        assert call.args[0] == "https://api.gumroad.com/v2/user"
-        assert call.kwargs["headers"]["Authorization"] == "Bearer gumroad-token"
+        assert network.requests_log[0].url == "https://api.gumroad.com/v2/user"
+        assert network.requests_log[0].headers["authorization"] == "Bearer gumroad-token"
         # The probe must refuse redirects so a 3xx can't replay the bearer token off-host.
-        assert mock_session.call_args.kwargs["allow_redirects"] is False
-        assert mock_session.call_args.kwargs["redact_values"] == ("gumroad-token",)
+        assert network.session_options[0]["allow_redirects"] is False
+        assert network.session_options[0]["redact_values"] == ("gumroad-token",)
 
     @parameterized.expand(
         [
@@ -183,23 +239,21 @@ class TestGumroadTransport:
             (500, True),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.gumroad.gumroad.make_tracked_session")
-    def test_check_endpoint_permission_only_treats_403_as_denial(self, status, expected, mock_session) -> None:
-        mock_session.return_value.get.return_value = Mock(status_code=status)
-        assert check_endpoint_permission("gumroad-token", "/v2/sales") is expected
+    def test_check_endpoint_permission_only_treats_403_as_denial(self, status, expected) -> None:
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
+            assert check_endpoint_permission("gumroad-token", "/v2/sales") is expected
+        assert {request.path for request in network.requests_log} == {"/v2/sales"}
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.gumroad.gumroad.make_tracked_session")
-    def test_probe_transport_error_does_not_leak_out(self, mock_session) -> None:
+    def test_probe_transport_error_does_not_leak_out(self) -> None:
         # A DNS/connection failure isn't a permission problem, so it must not raise out of the
         # schema picker / source creation path: the endpoint stays "reachable" and validation
         # reports a connectivity problem rather than blaming the token.
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-
-        assert check_endpoint_permission("gumroad-token", "/v2/sales") is True
-
-        is_valid, message = validate_credentials("gumroad-token")
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
+            assert check_endpoint_permission("gumroad-token", "/v2/sales") is True
+            is_valid, message = validate_credentials("gumroad-token")
         assert is_valid is False
         assert message is not None and "reach Gumroad" in message
+        assert {request.path for request in network.requests_log} == {"/v2/sales", "/v2/user"}
 
     def test_rest_client_config_pins_host_and_blocks_redirects(self) -> None:
         # A redirect off the Gumroad host would otherwise replay the bearer token.

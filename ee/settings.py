@@ -109,7 +109,6 @@ REPLAY_VISION_GEMINI_API_KEY = get_from_env("REPLAY_VISION_GEMINI_API_KEY", "")
 PPLX_API_KEY = get_from_env("PPLX_API_KEY", "")
 AZURE_INFERENCE_ENDPOINT = get_from_env("AZURE_INFERENCE_ENDPOINT", "", type_cast=str)
 AZURE_INFERENCE_CREDENTIAL = get_from_env("AZURE_INFERENCE_CREDENTIAL", "", type_cast=str)
-BRAINTRUST_API_KEY = get_from_env("BRAINTRUST_API_KEY", "")
 
 LLMA_EVAL_OPENAI_API_KEY = get_from_env("LLMA_EVAL_OPENAI_API_KEY", "")
 LLMA_EVAL_OPENAI_BASE_URL = get_from_env("LLMA_EVAL_OPENAI_BASE_URL", "")
@@ -151,21 +150,5 @@ HARMONIC_BASE_URL = get_from_env("HARMONIC_BASE_URL", "https://api.harmonic.ai",
 # Vercel Integration
 VERCEL_CLIENT_INTEGRATION_ID = get_from_env("VERCEL_CLIENT_INTEGRATION_ID", "", type_cast=str)
 VERCEL_CLIENT_INTEGRATION_SECRET = get_from_env("VERCEL_CLIENT_INTEGRATION_SECRET", "", type_cast=str)
+VERCEL_INTEGRATION_SLUG = get_from_env("VERCEL_INTEGRATION_SLUG", "posthog", type_cast=str)
 BILLING_PROVIDER_WEBHOOK_SECRET = get_from_env("BILLING_PROVIDER_WEBHOOK_SECRET", "", type_cast=str)
-
-# SCIM Configuration
-# django-scim2 requires these settings
-SCIM_SERVICE_PROVIDER = {
-    "NETLOC": SITE_URL.replace("http://", "").replace("https://", ""),
-    "AUTHENTICATION_SCHEMES": [
-        {
-            "type": "oauthbearertoken",
-            "name": "OAuth Bearer Token",
-            "description": "Authentication scheme using the OAuth Bearer Token Standard",
-            "specUri": "https://www.rfc-editor.org/rfc/rfc6750.txt",
-            "documentationUri": "https://posthog.com/docs/settings/scim",
-        }
-    ],
-    # User model is already configured via AUTH_USER_MODEL = "posthog.User"
-    "GROUP_MODEL": "products.access_control.backend.models.role.Role",
-}

@@ -6,13 +6,11 @@ from posthog.hogql import ast
 from posthog.hogql.base import Expr
 from posthog.hogql.parser import parse_expr
 
-# Scopes whose rows the REST viewsets restrict per user, which a static predicate cannot express.
+# Scopes whose rows the REST viewsets restrict.
 #
-# `restrict_loop_activity` allows the loops a user may see, computed from live per-loop visibility
-# and object-level RBAC. There is no `system.loops` table to defer that decision to, so SQL drops
-# every Loop row rather than guess. `restrict_canvas_activity` has the same shape, but
-# `system.canvases` already exposes exactly the canvases a caller may read, so Canvas rows defer to
-# it. That table is stricter than the viewset — public channels only, and no soft-deleted rows — so
+# Loop rows are hidden outright, matching `exclude_loop_activity`. `restrict_canvas_activity` is
+# per user, and `system.canvases` already exposes exactly the canvases a caller may read, so Canvas
+# rows defer to it. That table is stricter than the viewset — public channels only, and no soft-deleted rows — so
 # SQL hides a superset of what REST hides, never less. Deferring to it makes activity-log rows depend
 # on the caller's canvas grants, so a read of this table also partitions the query cache on `canvas`
 # (see `_TRANSITIVE_SYSTEM_TABLE_SCOPES`) — a cache hit returns before these predicates ever print.

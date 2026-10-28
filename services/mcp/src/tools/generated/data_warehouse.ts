@@ -58,6 +58,56 @@ const managedWarehouseMonitoringGet = (): ToolBase<
     },
 })
 
+const ManagedWarehouseTrinoMetricHistoryGetSchema = () => {
+    const DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveQueryParams =
+        orvalSchemas.DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveQueryParams()
+    return DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveQueryParams
+}
+
+const managedWarehouseTrinoMetricHistoryGet = (): ToolBase<
+    ReturnType<typeof ManagedWarehouseTrinoMetricHistoryGetSchema>,
+    Schemas.ManagedWarehouseMonitoringSeriesResponse
+> => ({
+    name: 'managed-warehouse-trino-metric-history-get',
+    schema: ManagedWarehouseTrinoMetricHistoryGetSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ManagedWarehouseTrinoMetricHistoryGetSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ManagedWarehouseMonitoringSeriesResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_warehouse/managed-warehouse-trino-monitoring-timeseries/`,
+            query: {
+                metric: params.metric,
+                window: params.window,
+            },
+        })
+        return result
+    },
+})
+
+const ManagedWarehouseTrinoMonitoringGetSchema = () => z.object({})
+
+const managedWarehouseTrinoMonitoringGet = (): ToolBase<
+    ReturnType<typeof ManagedWarehouseTrinoMonitoringGetSchema>,
+    Schemas.ManagedWarehouseTrinoMonitoringSnapshotResponse
+> => ({
+    name: 'managed-warehouse-trino-monitoring-get',
+    schema: ManagedWarehouseTrinoMonitoringGetSchema(),
+    handler: async (
+        context: Context,
+        _params: z.infer<ReturnType<typeof ManagedWarehouseTrinoMonitoringGetSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ManagedWarehouseTrinoMonitoringSnapshotResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_warehouse/managed-warehouse-trino-monitoring/`,
+        })
+        return result
+    },
+})
+
 const SavedQueryColumnAnnotationsCreateSchema = () => {
     const SavedQueryColumnAnnotationsCreateBody = orvalSchemas.SavedQueryColumnAnnotationsCreateBody()
     return SavedQueryColumnAnnotationsCreateBody.extend({
@@ -223,6 +273,42 @@ const sqlVariablesUpdate = (): ToolBase<ReturnType<typeof SqlVariablesUpdateSche
     },
 })
 
+const ViewCheckIncrementalSchema = () => {
+    const WarehouseSavedQueriesCheckIncrementalCreateBody =
+        orvalSchemas.WarehouseSavedQueriesCheckIncrementalCreateBody()
+    return WarehouseSavedQueriesCheckIncrementalCreateBody
+}
+
+const viewCheckIncremental = (): ToolBase<
+    ReturnType<typeof ViewCheckIncrementalSchema>,
+    Schemas.IncrementalEligibility
+> => ({
+    name: 'view-check-incremental',
+    schema: ViewCheckIncrementalSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ViewCheckIncrementalSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.incremental_key !== undefined) {
+            body['incremental_key'] = params.incremental_key
+        }
+        if (params.unique_key !== undefined) {
+            body['unique_key'] = params.unique_key
+        }
+        if (params.lookback_seconds !== undefined) {
+            body['lookback_seconds'] = params.lookback_seconds
+        }
+        const result = await context.api.request<Schemas.IncrementalEligibility>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/check_incremental/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ViewCreateSchema = () => {
     const WarehouseSavedQueriesCreateBody = orvalSchemas.WarehouseSavedQueriesCreateBody()
     return WarehouseSavedQueriesCreateBody.extend({
@@ -258,9 +344,6 @@ const viewCreate = (): ToolBase<
         }
         if (params.folder_id !== undefined) {
             body['folder_id'] = params.folder_id
-        }
-        if (params.dag_id !== undefined) {
-            body['dag_id'] = params.dag_id
         }
         if (params.is_test !== undefined) {
             body['is_test'] = params.is_test
@@ -382,7 +465,7 @@ const ViewRunSchema = () => {
     )
 }
 
-const viewRun = (): ToolBase<ReturnType<typeof ViewRunSchema>, unknown> => ({
+const viewRun = (): ToolBase<ReturnType<typeof ViewRunSchema>, WithPostHogUrl<Schemas.SavedQueryRunResponse>> => ({
     name: 'view-run',
     schema: ViewRunSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ViewRunSchema>>) => {
@@ -391,7 +474,10 @@ const viewRun = (): ToolBase<ReturnType<typeof ViewRunSchema>, unknown> => ({
         if (params.full_refresh !== undefined) {
             body['full_refresh'] = params.full_refresh
         }
-        const result = await context.api.request<unknown>({
+        if (params.direction !== undefined) {
+            body['direction'] = params.direction
+        }
+        const result = await context.api.request<Schemas.SavedQueryRunResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/run/`,
             body,
@@ -417,7 +503,7 @@ const viewRunHistory = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/run_history/`,
         })
-        return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql?open_view=${params.id}`)
     },
 })
 
@@ -464,9 +550,6 @@ const viewUnmaterialize = (): ToolBase<
         if (params.soft_update !== undefined) {
             body['soft_update'] = params.soft_update
         }
-        if (params.dag_id !== undefined) {
-            body['dag_id'] = params.dag_id
-        }
         if (params.is_test !== undefined) {
             body['is_test'] = params.is_test
         }
@@ -475,7 +558,7 @@ const viewUnmaterialize = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/revert_materialization/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql?open_view=${params.id}`)
     },
 })
 
@@ -523,9 +606,6 @@ const viewUpdate = (): ToolBase<
         }
         if (params.edited_history_id !== undefined) {
             body['edited_history_id'] = params.edited_history_id
-        }
-        if (params.dag_id !== undefined) {
-            body['dag_id'] = params.dag_id
         }
         if (params.is_test !== undefined) {
             body['is_test'] = params.is_test
@@ -727,11 +807,14 @@ const warehouseTablesRefreshSchemaCreate = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'managed-warehouse-metric-history-get': managedWarehouseMetricHistoryGet,
     'managed-warehouse-monitoring-get': managedWarehouseMonitoringGet,
+    'managed-warehouse-trino-metric-history-get': managedWarehouseTrinoMetricHistoryGet,
+    'managed-warehouse-trino-monitoring-get': managedWarehouseTrinoMonitoringGet,
     'saved-query-column-annotations-create': savedQueryColumnAnnotationsCreate,
     'saved-query-column-annotations-list': savedQueryColumnAnnotationsList,
     'sql-variables-create': sqlVariablesCreate,
     'sql-variables-delete': sqlVariablesDelete,
     'sql-variables-update': sqlVariablesUpdate,
+    'view-check-incremental': viewCheckIncremental,
     'view-create': viewCreate,
     'view-delete': viewDelete,
     'view-get': viewGet,

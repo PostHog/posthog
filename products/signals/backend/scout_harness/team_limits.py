@@ -10,6 +10,7 @@ path; both sides import from here so the reported caps never drift from what dis
 from __future__ import annotations
 
 import json
+import math
 import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -27,7 +28,11 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
 from products.signals.backend.models import SignalScoutRun
-from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
+from products.signals.backend.scout_harness.limits import (
+    COORDINATOR_INTERVAL_MINUTES,
+    MAX_DISPATCH_SMEAR_SECONDS,
+    MAX_ENABLED_SCOUTS_PER_TEAM,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -262,6 +267,26 @@ class BackgroundBackoff:
         return current + 1
 
 
+TICKS_PER_DAY = 24 * 60 // COORDINATOR_INTERVAL_MINUTES
+
+
+@dataclass(frozen=True)
+class BackgroundBudget:
+    """Parsed `background.budget`: the run budget of the whole background lane in one region.
+
+    `max_runs_per_day` bounds the background runs dispatched in the trailing `DAILY_BUDGET_WINDOW`.
+    `0` stops background dispatch and keeps every config as it is. `max_runs_per_tick` is `None`
+    when unset, so the day spreads evenly across `TICKS_PER_DAY`.
+    """
+
+    max_runs_per_day: int
+    max_runs_per_tick: int | None = None
+
+    def tick_allowance(self, runs_last_24h: int) -> int:
+        tick_cap = self.max_runs_per_tick or math.ceil(self.max_runs_per_day / TICKS_PER_DAY)
+        return max(0, min(self.max_runs_per_day - runs_last_24h, tick_cap))
+
+
 @dataclass(frozen=True)
 class BackgroundEnrollment:
     """Parsed `background` block from the `signals-scout` flag payload.
@@ -280,6 +305,8 @@ class BackgroundEnrollment:
     bands: Mapping[int, BackgroundBand] = field(default_factory=dict)
     # `None` turns the backoff off, so every background config runs at its band interval.
     backoff: BackgroundBackoff | None = None
+    # `None` means no lane budget, so every due background run goes on to the shared tick caps.
+    budget: BackgroundBudget | None = None
 
     def band_interval_minutes(self, band: int | None) -> int | None:
         entry = self.bands.get(band) if band is not None else None
@@ -290,6 +317,10 @@ class BackgroundEnrollment:
 
 def _positive_int_or_none(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
+
+
+def _non_negative_int_or_none(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
 
 
 def _parse_background_bands(raw: object) -> dict[int, BackgroundBand]:
@@ -322,6 +353,21 @@ def _parse_background_backoff(raw: object) -> BackgroundBackoff | None:
     if factor is None or factor < 2 or max_interval_minutes is None:
         return None
     return BackgroundBackoff(factor=factor, max_interval_minutes=max_interval_minutes)
+
+
+def _parse_background_budget(raw: object) -> BackgroundBudget | None:
+    """Parse `background.budget`. A missing or malformed block means no lane budget.
+
+    A malformed `max_runs_per_tick` alone falls back to the even spread and keeps the daily budget.
+    """
+    if not isinstance(raw, dict):
+        return None
+    max_runs_per_day = _non_negative_int_or_none(raw.get("max_runs_per_day"))
+    if max_runs_per_day is None:
+        return None
+    return BackgroundBudget(
+        max_runs_per_day=max_runs_per_day, max_runs_per_tick=_positive_int_or_none(raw.get("max_runs_per_tick"))
+    )
 
 
 def resolve_background_backoff() -> BackgroundBackoff | None:
@@ -380,8 +426,8 @@ def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
     that is not a non-empty string, or a `team_ids` that is not a list of integer ids. A malformed
     `team_ids` must not read as an empty list, because an empty list pauses every background
     config. `enabled` is on only for a literal `true`. An absent or malformed `interval_minutes`,
-    `max_new_teams_per_tick`, `bands` entry, or `backoff` falls back to its default and does not
-    invalidate the block.
+    `max_new_teams_per_tick`, `bands` entry, `backoff`, or `budget` falls back to its default and does
+    not invalidate the block.
     """
     if payload is None:
         return None
@@ -408,6 +454,7 @@ def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
         max_new_teams_per_tick=max_new if max_new is not None else DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK,
         bands=_parse_background_bands(raw.get("bands")),
         backoff=_parse_background_backoff(raw.get("backoff")),
+        budget=_parse_background_budget(raw.get("budget")),
     )
 
 
@@ -566,12 +613,28 @@ DISPATCH_SMEAR_SECONDS_KEY = "dispatch_smear_seconds"
 
 
 def _resolve_dispatch_smear_seconds(payload: dict | None, default: int) -> int:
+    """The smear window from the flag, else `default`, capped at `MAX_DISPATCH_SMEAR_SECONDS`.
+
+    The cap keeps the runs of one tick out of the next tick.
+    """
     if payload is None:
-        return default
+        return min(default, MAX_DISPATCH_SMEAR_SECONDS)
     override = payload.get(DISPATCH_SMEAR_SECONDS_KEY)
     if isinstance(override, int) and not isinstance(override, bool) and override >= 0:
-        return override
-    return default
+        return min(override, MAX_DISPATCH_SMEAR_SECONDS)
+    return min(default, MAX_DISPATCH_SMEAR_SECONDS)
+
+
+# Flag payload key that moves the smear from the coordinator into each child. On, the coordinator
+# starts every child of the tick at once, and each child sleeps a stable per-config delay inside the
+# smear window before it starts work. Off, the coordinator dispatches in paced batches. Absent or
+# malformed → off.
+CHILD_START_DELAY_KEY = "child_start_delay"
+
+
+def _resolve_child_start_delay(payload: dict | None) -> bool:
+    """Whether children carry their own start delay. Only a literal `true` turns it on."""
+    return payload is not None and payload.get(CHILD_START_DELAY_KEY) is True
 
 
 # Flag payload key toggling slot-aligned dispatch anchors (the coordinator's `_slot_anchor`). On,

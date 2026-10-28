@@ -45,6 +45,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 
+from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.signals.backend.models import (
     SignalReportAction,
     SignalScoutConfig,
@@ -57,6 +58,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     discover_canonical_skills,
 )
 from products.signals.backend.scout_harness.prompt import SCOUT_PROJECT_SCAN_GUIDANCE
+from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.team_limits import read_flag_payload, withheld_skills_for_team
 from products.skills.backend.marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from products.skills.backend.models.skills import LLMSkill
@@ -776,7 +778,12 @@ class FleetContext:
 
 def enabled_skill_names(team_id: int) -> list[str]:
     """The project's enabled scout skill names, sorted, as `fleet_snapshot` stores them."""
-    return sorted(SignalScoutConfig.objects.for_team(team_id).filter(enabled=True).values_list("skill_name", flat=True))
+    return sorted(
+        SignalScoutConfig.objects.for_team(team_id)
+        .filter(enabled=True)
+        .exclude(skill_name__in=SYSTEM_SCOUT_NAMES)
+        .values_list("skill_name", flat=True)
+    )
 
 
 def reserved_scout_names(team_id: int) -> frozenset[str]:
@@ -805,11 +812,15 @@ def fleet_context(team_id: int) -> FleetContext:
     enabled_set = set(enabled)
     # A held-back canonical scout is not seeded by the sync path and the config API refuses to
     # enable it, so offering it would surface an unreleased scout behind a Create that must fail.
-    withheld = withheld_skills_for_team(resolve_effective_team_id(team_id))
+    withheld = withheld_skills_for_team(resolve_effective_team_id(team_id)) | SYSTEM_SCOUT_NAMES
+    # Companion helper skills ship in the same manifest but never get a scout config, so Create
+    # could never apply them. The parser pins the scout prefix to scouts only.
     available = tuple(
         (skill.name, skill.description)
         for skill in canonical
-        if skill.name not in enabled_set and skill.name not in withheld
+        if skill.name.startswith(SIGNALS_SCOUT_SKILL_PREFIX)
+        and skill.name not in enabled_set
+        and skill.name not in withheld
     )
     return FleetContext(
         enabled_skill_names=enabled, available_canonical=available, reserved_names=reserved_scout_names(team_id)
@@ -1005,7 +1016,8 @@ def visible_items(
     normal config API disappears without waiting for `mark_suggestion_created`, and its reserved
     names so a custom draft whose name was since taken (a stored skill or a disabled config, which
     Create answers with 409) is hidden too. Canonical items ignore `reserved_names` — a disabled
-    canonical scout is exactly what those items offer to enable."""
+    canonical scout is exactly what those items offer to enable. A canonical item that names a
+    companion skill is hidden, because no scout config exists for Create to enable."""
     enabled = set(enabled_skill_names)
     reserved = set(reserved_names)
     return [
@@ -1016,6 +1028,10 @@ def visible_items(
         and not record.get("created_config_id")
         and record.get("skill_name") not in enabled
         and not (record.get("kind") == "custom" and record.get("skill_name") in reserved)
+        and not (
+            record.get("kind") == "canonical"
+            and not str(record.get("skill_name") or "").startswith(SIGNALS_SCOUT_SKILL_PREFIX)
+        )
     ]
 
 

@@ -114,7 +114,7 @@ type Story = StoryObj<typeof meta>
 
 export const TrunkQuarantineDebt: Story = {
     render: () => <App />,
-    parameters: { pageUrl: urls.engineeringAnalyticsTests() },
+    parameters: { pageUrl: urls.engineeringAnalyticsTests('PostHog/posthog') },
 }
 
 const OWNERS_UNAVAILABLE: TrunkQuarantineDebtApi = {
@@ -126,7 +126,7 @@ const OWNERS_UNAVAILABLE: TrunkQuarantineDebtApi = {
 
 export const TrunkQuarantineDebtOwnersUnavailable: Story = {
     render: () => <App />,
-    parameters: { pageUrl: urls.engineeringAnalyticsTests() },
+    parameters: { pageUrl: urls.engineeringAnalyticsTests('PostHog/posthog') },
     decorators: [
         mswDecorator({
             get: { 'api/projects/:team_id/engineering_analytics/trunk_quarantine/': OWNERS_UNAVAILABLE },
@@ -137,7 +137,7 @@ export const TrunkQuarantineDebtOwnersUnavailable: Story = {
 export const QuarantineLoadError: Story = {
     render: () => <App />,
     parameters: {
-        pageUrl: urls.engineeringAnalyticsTests(),
+        pageUrl: urls.engineeringAnalyticsTests('PostHog/posthog'),
         testOptions: { waitForSelector: '.text-danger' },
     },
     decorators: [

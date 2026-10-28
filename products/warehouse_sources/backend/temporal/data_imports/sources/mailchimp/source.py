@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -13,18 +14,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailchimp import (
     MailchimpSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.mailchimp import (
+    EVENT_TABLE_APPEND_ERROR,
     MailchimpResumeConfig,
     mailchimp_source,
     validate_credentials as validate_mailchimp_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.settings import (
     ENDPOINTS,
+    EVENT_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -32,6 +38,41 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MailchimpSource(ResumableSource[MailchimpSourceConfig, MailchimpResumeConfig]):
+    codebase_detection = detect(
+        env=("^MAILCHIMP_", "^MANDRILL_APIKEY$", "^MCAPI_TOKEN$"),
+        script_hosts=("chimpstatic.com", "downloads.mailchimp.com", "list-manage.com"),
+        npm=(
+            "@mailchimp/mailchimp_marketing",
+            "@mailchimp/mailchimp_transactional",
+            "mandrill-api",
+            "mailchimp-api-v3",
+        ),
+        pypi=("mailchimp-marketing", "mailchimp3", "mailchimp-transactional", "mandrill", "mailchimp"),
+        cargo=("mailchimp_marketing",),
+        cocoapods=("MailchimpSDK", "ChimpKit"),
+        composer=(
+            "mailchimp/marketing",
+            "drewm/mailchimp-api",
+            "mailchimp/marketing-sdk",
+            "mailchimp/transactional",
+            "mailchimp/mailchimp",
+            "mandrill/mandrill",
+            "mailchimp/mc-magento2",
+        ),
+        go=("github.com/mailchimp/mailchimp-marketing-go-sdk",),
+        maven=("com.mailchimp:mailchimp-marketing", "com.github.mailchimp:Mailchimp-SDK-Android"),
+        rubygems=(
+            "MailchimpMarketing",
+            "gibbon",
+            "mailchimp-marketing",
+            "MailchimpTransactional",
+            "mailchimp-api",
+            "mandrill-api",
+            "mailchimp",
+        ),
+        swiftpm=("github.com/mailchimp/mailchimp-marketing-swift-sdk", "github.com/mailchimp/mailchimp-sdk-ios"),
+    )
+
     supported_versions = ("3.0",)
     default_version = "3.0"
     api_docs_url = "https://mailchimp.com/developer/marketing/api/"
@@ -84,6 +125,10 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
             "401 Client Error": "Invalid Mailchimp API key. Please check your API key and try again.",
             "403 Client Error": "Access forbidden. Your API key may lack required permissions.",
             "Invalid Mailchimp API key format": "Invalid API key format. Expected format: key-dc (e.g., abc123-us6)",
+            EVENT_TABLE_APPEND_ERROR: (
+                "Append only replication isn't supported on this table. Switch it to incremental or full table "
+                "replication in its sync settings, then re-enable the sync."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -107,19 +152,7 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in list(ENDPOINTS)
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=EVENT_ENDPOINTS)
 
     def validate_credentials(
         self,
@@ -150,4 +183,5 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
             if inputs.should_use_incremental_field
             else None,
             incremental_field=inputs.incremental_field,
+            sync_type=inputs.sync_type,
         )

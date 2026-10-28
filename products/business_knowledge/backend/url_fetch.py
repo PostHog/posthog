@@ -22,7 +22,7 @@ from dataclasses import dataclass
 import requests
 import structlog
 
-from posthog.security.pinned_requests import PinnedIPAdapter
+from posthog.security.pinned_requests import PinnedIPAdapter, select_pinned_ip
 from posthog.security.url_validation import strip_userinfo, validate_url_and_pin_ips
 
 from .constants import URL_CONNECT_TIMEOUT, URL_MAX_BYTES, URL_MAX_REDIRECTS, URL_READ_TIMEOUT, URL_USER_AGENT
@@ -139,11 +139,13 @@ def _ssrf_safe_get(
                 )
                 raise UrlFetchError("URL is not reachable from this environment.")
 
-            # Pin the first validated IP so requests connects to it directly
+            # select_pinned_ip prefers IPv4. An arbitrary member of pinned_ips can be
+            # an AAAA record, and an IPv4-only worker then fails the connection.
             parsed = urlparse.urlparse(current)
             hostname = (parsed.hostname or "").lower()
-            if verdict.pinned_ips:
-                adapter.pin(hostname, next(iter(verdict.pinned_ips)))
+            chosen_ip = select_pinned_ip(verdict.pinned_ips)
+            if chosen_ip is not None:
+                adapter.pin(hostname, chosen_ip)
 
             merged_headers = dict(headers)
             if etag:

@@ -12,7 +12,7 @@ import { searchPerformanceLogic } from './searchPerformanceLogic'
 import { SearchPerformanceTable } from './SearchPerformanceTable'
 
 export function SearchPerformanceDetail(): JSX.Element {
-    const { selectedRow, detailQuery, detailSourceNotices, compareFilter, hasSearchConsole } =
+    const { wrapText, selectedRow, detailQuery, detailSourceNotices, compareFilter, hasSearchConsole } =
         useValues(searchPerformanceLogic)
     const { selectRow } = useActions(searchPerformanceLogic)
     const organic = selectedRow?.platform === 'GoogleSearchConsole'
@@ -95,6 +95,7 @@ export function SearchPerformanceDetail(): JSX.Element {
                         <SearchPerformanceTable
                             query={detailQuery}
                             metrics="traffic"
+                            wrapText={wrapText}
                             queryKey="marketing-search-detail"
                         />
                     ) : !hasSearchConsole ? (
@@ -108,7 +109,9 @@ export function SearchPerformanceDetail(): JSX.Element {
                             to={urls.dataWarehouseSourceNew(
                                 'GoogleSearchConsole',
                                 `${urls.marketingAnalyticsApp()}?tab=ad-performance`,
-                                'Marketing analytics'
+                                'Marketing analytics',
+                                undefined,
+                                'marketing_analytics_search_detail'
                             )}
                         >
                             Connect Google Search Console

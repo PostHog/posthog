@@ -26,8 +26,9 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
@@ -39,6 +40,7 @@ from products.signals.backend.ranking import scorer
 from products.signals.backend.ranking.inventory import SCORABLE_STATUSES, spine_report_filter
 from products.signals.backend.ranking.model_store import ModelLoadError, ServingSet, load_serving_set
 from products.signals.backend.ranking.overrides import RankingOverrides, read_ranking_overrides
+from products.signals.backend.ranking.serving_manifest import serving_project_vectors_date
 from products.signals.backend.report_embedding_reader import REPORT_EMBEDDINGS_TABLE
 from products.signals.backend.report_embeddings import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_PRODUCT
 
@@ -154,6 +156,7 @@ def _live_vectors(since: datetime.datetime, rendering: str) -> dict[str, tuple[i
             },
             settings=CANDIDATE_VECTORS_QUERY_SETTINGS,
             workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.SIGNALS,
         )
         or [],
     )
@@ -302,6 +305,7 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
         peak_rss_mb=_peak_rss_mb(),
     )
 
+    project_vectors = scorer.pass_project_vectors(serving, list(ids_by_team))
     # A scorer call holds the vectors and matrices of all its reports, so one call scores at most one
     # vector read of one team. Each call persists its scores, so a pass that stops keeps its progress.
     chunks = [
@@ -320,7 +324,13 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
                 continue
             try:
                 outcomes = scorer.score_reports(
-                    team_id, list(report_ids), persist=True, now=now, serving=serving, capture=capture
+                    team_id,
+                    list(report_ids),
+                    persist=True,
+                    now=now,
+                    serving=serving,
+                    capture=capture,
+                    project_vectors=project_vectors,
                 )
             except (scorer.ScoringError, ModelLoadError):
                 # A pass without a served score is worse than no pass.
@@ -335,6 +345,12 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
             scored += sum(1 for outcome in outcomes if outcome.score is not None)
             no_vector += sum(1 for outcome in outcomes if outcome.reason == scorer.NO_VECTOR)
 
+    # The day the pass read, so a stale mirror region day shows in the log.
+    vectors_date = (
+        serving_project_vectors_date(serving.manifest.project_vectors)
+        if project_vectors is not None and project_vectors.available and serving.manifest.project_vectors
+        else None
+    )
     result = ScoreInboxReportsResult(
         candidates=len(candidates),
         scored=scored,
@@ -355,6 +371,8 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
         deferred_teams=result.deferred_teams,
         deferred_reports=result.deferred_reports,
         manifest_version=result.manifest_version,
+        project_vectors_date=vectors_date.isoformat() if vectors_date else None,
+        project_vectors_age_days=(now.date() - vectors_date).days if vectors_date else None,
         override_served=override.served if override else None,
         override_expires_at=override.expires_at.isoformat() if override and override.expires_at else None,
         peak_rss_mb=_peak_rss_mb(),

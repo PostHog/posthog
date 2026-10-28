@@ -5,16 +5,19 @@ import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { userLogic } from 'scenes/userLogic'
 
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
-import { EnrichedReviewer, SignalReport } from '../../types'
+import { EnrichedReviewer, ReviewerRemoval, SignalReport } from '../../types'
 import { removeSuggestedReviewers, ReviewerSearchList } from './ReviewerSearchList'
 import { SuggestedReviewersSectionView } from './SuggestedReviewersSectionView'
 
 export function SuggestedReviewersSection({ report }: { report: SignalReport }): JSX.Element | null {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { displayReviewers, isUpdatingReviewers, reportArtefacts } = useValues(logic)
-    const { updateReviewers } = useActions(logic)
+    const { displayReviewers, isUpdatingReviewers, reportArtefacts, reportClaimant, isReportClaimable, claimSaving } =
+        useValues(logic)
+    const { updateReviewers, setReportClaimed } = useActions(logic)
+    const { user } = useValues(userLogic)
 
     const [addOpen, setAddOpen] = useState(false)
     const baseReviewers = displayReviewers ?? []
@@ -26,13 +29,14 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
         return null
     }
 
-    const removeReviewers = (targets: EnrichedReviewer[]): void =>
+    const removeReviewers = (targets: EnrichedReviewer[], removal?: ReviewerRemoval): void =>
         removeSuggestedReviewers({
             report,
             surface: 'detail_pane',
             targets,
             reviewers: baseReviewers,
             updateReviewers,
+            removal,
         })
 
     return (
@@ -40,6 +44,13 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
             reviewers={baseReviewers}
             disabled={isUpdatingReviewers}
             onRemove={removeReviewers}
+            claim={{
+                claimantUuid: reportClaimant?.uuid ?? null,
+                currentUserUuid: user?.uuid ?? null,
+                claimable: isReportClaimable,
+                saving: claimSaving,
+                onSetClaimed: setReportClaimed,
+            }}
             addControl={
                 <LemonDropdown
                     visible={addOpen}

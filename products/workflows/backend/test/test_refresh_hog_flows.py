@@ -9,11 +9,11 @@ from django.core.management import call_command
 
 from parameterized import parameterized
 
-from posthog.cdp.filters import RUNTIME_CONTRACT
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models import Team
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.filters import RUNTIME_CONTRACT
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 

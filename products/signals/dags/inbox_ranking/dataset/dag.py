@@ -1,6 +1,6 @@
 """Daily modeling dataset for the Self-driving Inbox report-ranking model.
 
-Seven assets on one daily partition, each writing Parquet under the configured S3 prefix:
+Nine assets on one daily partition, each writing Parquet under the configured S3 prefix:
 
     inbox_report_state/v1/dt=D/             Postgres spine + report-state columns
     inbox_report_embeddings/v1/dt=D/        report_id -> small-1536 vector as of snapshot end
@@ -10,14 +10,18 @@ Seven assets on one daily partition, each writing Parquet under the configured S
     inbox_report_title_embeddings/v1/dt=D/  the same shape, for the title-only rendering
     inbox_report_reviewers/v1/dt=D/         one row per suggested reviewer of each spine report
     inbox_user_report_interactions/v1/dt=D/ cumulative interactions at (report, person) grain
+    inbox_project_vectors/v1/dt=D/          per-team mean report vectors of past engagement, by kind
+
+inbox_engagement_export writes no dataset object. It sends the dt=D engagement moments of the other
+region's reports to the serving mirror store, for that region's project vectors.
 
 The first four are report grain and feed one table. inbox_signal_embeddings is signal grain and is
 read on its own, joined to the others by report_id at training time. inbox_report_title_embeddings
-is a report-grain leaf: nothing joins it, and the training side pairs it to inbox_report_embeddings
-by report_id when it measures one rendering against the other. inbox_report_reviewers is a
+is a report-grain leaf: nothing joins it, and no model family trains on it. inbox_report_reviewers is a
 (report, reviewer) leaf with its own schema version: nothing joins it, and the training side pairs
 it to the report tables by report_id. inbox_user_report_interactions is a (report, person) grain
-leaf with its own schema version, so nothing joins it either.
+leaf with its own schema version, so nothing joins it either. inbox_project_vectors is a
+(team, kind) leaf with its own schema version, built from the embeddings and labels snapshots.
 
 Partition dt=D is a full snapshot of the eligible report inventory (promoted or ever-labeled),
 with every label aggregate bounded `event_time < D+1 00:00 UTC`. Label columns are cumulative,
@@ -55,18 +59,23 @@ Point-in-time caveats, per source:
   partition holds today's set, flagged by features_observed_at.
 """
 
+import io
 import json
 import datetime
 from collections.abc import Collection, Iterator, Mapping
 from typing import Any, cast
+from uuid import UUID
 
 from django.db.models import Count, Min
 
 import dagster
 import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
 
 from posthog import settings
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.dags.common import dagster_tags
 from posthog.dataclasses import frozen
@@ -79,6 +88,7 @@ from products.signals.backend.models import (
     SignalReportSuggestedReviewer,
 )
 from products.signals.backend.ranking.inventory import spine_report_filter
+from products.signals.backend.ranking.serving_manifest import serving_engagement_key
 from products.signals.backend.report_embeddings import (
     EMBEDDING_DOCUMENT_TYPE,
     EMBEDDING_PRODUCT,
@@ -95,7 +105,10 @@ from products.signals.dags.inbox_ranking.common import (
     DATASET_VERSION,
     HUMAN_ACTOR_KINDS,
     PARQUET_PART_NAME,
+    ROW_COUNT_METADATA_KEY,
     S3_BUCKET_ENV,
+    SCHEMA_VERSION_METADATA_KEY,
+    SNAPSHOT_DATE_METADATA_KEY,
     dataset_bucket,
     dataset_unconfigured,
     ensure_utc,
@@ -112,11 +125,19 @@ from products.signals.dags.inbox_ranking.common import (
     read_parquet,
     read_parquet_if_exists,
     s3_client,
+    serving_mirror_storage,
     skip_unconfigured,
     snapshot_bounds,
     write_parquet,
 )
 from products.signals.dags.inbox_ranking.consent import training_consent_team_ids
+from products.signals.dags.inbox_ranking.dataset.project_vectors import (
+    EMBEDDING_COLUMNS,
+    LABEL_COLUMNS,
+    PROJECT_VECTORS_SCHEMA_VERSION,
+    project_vectors,
+    teams_with_history,
+)
 from products.signals.dags.inbox_ranking.dataset.queries import (
     LABEL_DEFAULTS,
     LABEL_STREAMS,
@@ -134,6 +155,8 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     USER_LABEL_STREAMS,
     USER_SERVER_ACTIONS_COLUMNS,
     USER_SERVER_ACTIONS_STREAM,
+    USER_STATUS_STREAM,
+    canonical_report_uuid,
     etl_workload,
     hogql_rows,
     labels_team,
@@ -141,7 +164,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     valid_report_uuids,
 )
 
-FEATURE_SCHEMA_VERSION = 9
+FEATURE_SCHEMA_VERSION = 10
 # Apart from FEATURE_SCHEMA_VERSION on purpose: the labels refresh sensor rewrites every labels
 # partition whose stamp is older than that one, and a user-grain change must not set it off.
 USER_INTERACTIONS_SCHEMA_VERSION = 1
@@ -154,10 +177,20 @@ MODEL_DATA_TABLE = "inbox_report_model_data"
 SIGNAL_EMBEDDINGS_TABLE = "inbox_signal_embeddings"
 REVIEWERS_TABLE = "inbox_report_reviewers"
 USER_INTERACTIONS_TABLE = "inbox_user_report_interactions"
+PROJECT_VECTORS_TABLE = "inbox_project_vectors"
+ENGAGEMENT_EXPORT = "inbox_engagement_export"
 
 # The reviewers asset is a leaf with its own columns, so its schema moves apart from
 # FEATURE_SCHEMA_VERSION. The same rule applies: additive nullable columns bump it.
 REVIEWERS_SCHEMA_VERSION = 1
+
+# The engagement export is read in another region, so its shape moves apart from every local snapshot.
+ENGAGEMENT_EXPORT_SCHEMA_VERSION = 1
+# Most labels rows belong to this region's reports. A share below this floor means the local report
+# lookup lost rows, and the export would send this region's report ids to the other region.
+ENGAGEMENT_EXPORT_MIN_LOCAL_SHARE = 0.25
+NO_LOCAL_REPORTS = "no_local_reports"
+LOCAL_SHARE_COLLAPSED = "local_share_collapsed"
 
 COMMON_ASSET_KWARGS: dict[str, Any] = {
     "group_name": "inbox_ranking",
@@ -173,7 +206,7 @@ COMMON_ASSET_KWARGS: dict[str, Any] = {
 }
 
 
-def _tag_dagster_queries(context: dagster.AssetExecutionContext, query_type: str) -> None:
+def tag_dagster_queries(context: dagster.AssetExecutionContext, query_type: str) -> None:
     """Stamp product + feature + dagster run tags into the thread's query tags so every ClickHouse
     query this asset issues (sync_execute and HogQL alike) is attributable in system.query_log.
     Both product and feature are required: sync_execute refuses an untagged query in local dev.
@@ -673,20 +706,68 @@ def _report_teams(report_ids: list[str], snapshot_end: datetime.datetime) -> dic
     return teams
 
 
+@frozen
+class ScopedRows:
+    rows: list[tuple[Any, ...]]
+    dropped: int
+
+
+def scoped_user_status_rows(rows: list[tuple[Any, ...]], report_teams: Mapping[str, int]) -> ScopedRows:
+    """Strip the trailing `status_event_team_id` from each `USER_STATUS_SQL` row, and drop the rows
+    whose tenant is missing or is not the report's team, as `label_provenance_ok` does for the report
+    grain. The pair keeps its other streams. A report outside this region's Postgres is not counted
+    here, because the assembler drops all of its pairs."""
+    kept: list[tuple[Any, ...]] = []
+    dropped = 0
+    for row in rows:
+        *values, status_event_team_id = row
+        report_id = canonical_report_uuid(str(row[0]))
+        team_id = report_teams.get(report_id) if report_id is not None else None
+        if team_id is not None and status_event_team_id != team_id:
+            dropped += 1
+            continue
+        kept.append(tuple(values))
+    return ScopedRows(rows=kept, dropped=dropped)
+
+
+def org_member_distinct_ids(team_ids: Collection[int], distinct_ids: list[str]) -> dict[int, set[str]]:
+    """The given distinct ids that name a member of each team's organization, keyed by team id. One
+    query per chunk of distinct ids covers every organization."""
+    team_orgs = dict(Team.objects.filter(id__in=sorted(team_ids)).values_list("id", "organization_id"))
+    by_org: dict[UUID, set[str]] = {}
+    for chunk in _chunked(distinct_ids):
+        for org_id, distinct_id in OrganizationMembership.objects.filter(
+            organization_id__in=set(team_orgs.values()), user__distinct_id__in=chunk
+        ).values_list("organization_id", "user__distinct_id"):
+            by_org.setdefault(org_id, set()).add(str(distinct_id))
+    return {team_id: by_org.get(org_id, set()) for team_id, org_id in team_orgs.items()}
+
+
+@frozen
+class UserInteractionRows:
+    rows: list[dict[str, Any]]
+    non_member_pairs: int
+
+
 def assemble_user_interaction_rows(
     merged_rows: list[dict[str, Any]],
     report_teams: Mapping[str, int],
     consent_team_ids: Collection[int],
+    team_members: Mapping[int, Collection[str]],
     user_uuids: Mapping[str, str],
-) -> list[dict[str, Any]]:
+) -> UserInteractionRows:
     """Keep the rows whose report exists in this region and belongs to a team opted in to AI
-    training, and add the report's team and the person's uuid. Stricter than the labels asset, which
-    keeps label-only rows, because these rows describe a person. Sorted, so a re-run writes the same
-    object."""
+    training, and whose person is a member of that team's organization. Add the report's team and the
+    person's uuid. Stricter than the labels asset, which keeps label-only rows, because these rows
+    describe a person. Sorted, so a re-run writes the same object."""
     rows: list[dict[str, Any]] = []
+    non_member_pairs = 0
     for merged in merged_rows:
         team_id = report_teams.get(merged["report_id"])
         if team_id is None or team_id not in consent_team_ids:
+            continue
+        if merged["user_distinct_id"] not in team_members.get(team_id, ()):
+            non_member_pairs += 1
             continue
         rows.append(
             {
@@ -695,14 +776,17 @@ def assemble_user_interaction_rows(
                 "user_uuid": user_uuids.get(merged["user_distinct_id"]),
             }
         )
-    return sorted(rows, key=lambda row: (row["report_id"], row["user_distinct_id"]))
+    return UserInteractionRows(
+        rows=sorted(rows, key=lambda row: (row["report_id"], row["user_distinct_id"])),
+        non_member_pairs=non_member_pairs,
+    )
 
 
 @dagster.asset(name=STATE_TABLE, **COMMON_ASSET_KWARGS)
 def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
         return
-    _tag_dagster_queries(context, query_type="inbox_ranking_report_state")
+    tag_dagster_queries(context, query_type="inbox_ranking_report_state")
     partition_key = context.partition_key
     _, snapshot_end = snapshot_bounds(partition_key)
     snapshot_date = datetime.date.fromisoformat(partition_key)
@@ -956,17 +1040,12 @@ def inbox_report_reviewers(context: dagster.AssetExecutionContext) -> None:
     )
 
 
-def _snapshot_report_embeddings(
-    context: dagster.AssetExecutionContext, table: str, rendering: str, query_type: str
-) -> None:
-    """Point-in-time snapshot of one embedding rendering, shared by the report and title assets."""
-    if skip_unconfigured(context):
-        return
-    _tag_dagster_queries(context, query_type=query_type)
-    partition_key = context.partition_key
+def report_embeddings_table(partition_key: str, rendering: str, consent_team_ids: Collection[int]) -> pa.Table:
+    """Point-in-time snapshot of one embedding rendering as of the end of dt=D, for the teams in
+    `consent_team_ids`. Every region's ClickHouse holds only its own reports, so a dag in each region
+    reads its own vectors through this function."""
     _, snapshot_end = snapshot_bounds(partition_key)
     snapshot_date = datetime.date.fromisoformat(partition_key)
-    consent_team_ids = training_consent_team_ids()
 
     # With no consenting team there is no row to read, so the query is not sent.
     results = (
@@ -983,6 +1062,7 @@ def _snapshot_report_embeddings(
                 },
                 settings=REPORT_EMBEDDINGS_QUERY_SETTINGS,
                 workload=etl_workload(),
+                ch_user=ClickHouseUser.SIGNALS,
             )
             or [],
         )
@@ -994,7 +1074,6 @@ def _snapshot_report_embeddings(
     # This is the widest thing the dag holds — a 1536-float vector per live report, fleet-wide — so
     # the intermediate list of row dicts that from_pylist would need is a whole extra copy of it.
     row_count = len(results)
-    tombstones = 0
     report_ids: list[str] = []
     team_ids: list[int] = []
     embeddings: list[list[float] | None] = []
@@ -1003,8 +1082,6 @@ def _snapshot_report_embeddings(
     for index in range(row_count):
         team_id, document_id, embedding, is_tombstone, inserted_at = results[index]
         results[index] = ()
-        if is_tombstone:
-            tombstones += 1
         report_ids.append(str(document_id))
         team_ids.append(int(team_id))
         # Tombstoned vectors embed the fixed retraction text, not report content, so they are
@@ -1014,9 +1091,7 @@ def _snapshot_report_embeddings(
         tombstone_flags.append(bool(is_tombstone))
     del results
 
-    # An empty result still writes an object: a backfilled day from before the rendering was
-    # emitted must read as "present, zero rows" rather than as a missing partition.
-    arrow_table = pa.Table.from_pydict(
+    return pa.Table.from_pydict(
         {
             "snapshot_date": [snapshot_date] * row_count,
             "report_id": report_ids,
@@ -1029,13 +1104,27 @@ def _snapshot_report_embeddings(
         schema=EMBEDDINGS_SCHEMA,
     )
 
+
+def _snapshot_report_embeddings(
+    context: dagster.AssetExecutionContext, table: str, rendering: str, query_type: str
+) -> None:
+    """Write one embedding rendering's snapshot, shared by the report and title assets."""
+    if skip_unconfigured(context):
+        return
+    tag_dagster_queries(context, query_type=query_type)
+    partition_key = context.partition_key
+    consent_team_ids = training_consent_team_ids()
+    # An empty result still writes an object: a backfilled day from before the rendering was
+    # emitted must read as "present, zero rows" rather than as a missing partition.
+    arrow_table = report_embeddings_table(partition_key, rendering, consent_team_ids)
+
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, table, partition_key)
     write_parquet(s3_client(), bucket, key, arrow_table)
     context.add_output_metadata(
         {
-            "rows": dagster.MetadataValue.int(row_count),
-            "tombstones": dagster.MetadataValue.int(tombstones),
+            "rows": dagster.MetadataValue.int(arrow_table.num_rows),
+            "tombstones": dagster.MetadataValue.int(pc.sum(arrow_table.column("is_tombstone")).as_py() or 0),
             "training_consent_teams": dagster.MetadataValue.int(len(consent_team_ids)),
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }
@@ -1105,7 +1194,7 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
     """
     if skip_unconfigured(context):
         return
-    _tag_dagster_queries(context, query_type="inbox_ranking_signal_embeddings")
+    tag_dagster_queries(context, query_type="inbox_ranking_signal_embeddings")
     partition_key = context.partition_key
     window_start, window_end = snapshot_bounds(partition_key)
     snapshot_date = datetime.date.fromisoformat(partition_key)
@@ -1126,6 +1215,7 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
                 },
                 settings=SIGNAL_EMBEDDINGS_QUERY_SETTINGS,
                 workload=etl_workload(),
+                ch_user=ClickHouseUser.SIGNALS,
             )
             or [],
         )
@@ -1217,7 +1307,7 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
 def inbox_report_labels(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
         return
-    _tag_dagster_queries(context, query_type="inbox_ranking_labels")
+    tag_dagster_queries(context, query_type="inbox_ranking_labels")
     partition_key = context.partition_key
     _, snapshot_end = snapshot_bounds(partition_key)
     team = labels_team()
@@ -1268,11 +1358,12 @@ def inbox_user_report_interactions(context: dagster.AssetExecutionContext) -> No
     """Cumulative interactions at (report, person) grain, for user-report affinity models.
 
     A leaf: nothing joins it, so a failure here never fails inbox_report_model_data. The person key
-    is `User.distinct_id`; `user_uuid` is null when that distinct id is not a user in this region.
+    is `User.distinct_id`, and a person who is not a member of the report team's organization gets
+    no row.
     """
     if skip_unconfigured(context):
         return
-    _tag_dagster_queries(context, query_type="inbox_ranking_user_interactions")
+    tag_dagster_queries(context, query_type="inbox_ranking_user_interactions")
     partition_key = context.partition_key
     _, snapshot_end = snapshot_bounds(partition_key)
     team = labels_team()
@@ -1297,6 +1388,8 @@ def inbox_user_report_interactions(context: dagster.AssetExecutionContext) -> No
     consent_team_ids = training_consent_team_ids()
     consented_ids = sorted(report_id for report_id, team_id in report_teams.items() if team_id in consent_team_ids)
     stream_rows[USER_SERVER_ACTIONS_STREAM] = user_server_action_rows(consented_ids, snapshot_end)
+    scoped_status = scoped_user_status_rows(stream_rows[USER_STATUS_STREAM], report_teams)
+    stream_rows[USER_STATUS_STREAM] = scoped_status.rows
 
     merged = merge_label_streams(
         stream_rows,
@@ -1306,10 +1399,12 @@ def inbox_user_report_interactions(context: dagster.AssetExecutionContext) -> No
         defaults=USER_LABEL_DEFAULTS,
     )
     distinct_ids = sorted({row["user_distinct_id"] for row in merged})
+    team_members = org_member_distinct_ids(set(report_teams.values()) & set(consent_team_ids), distinct_ids)
     user_uuids = {
         distinct_id: identity.uuid for distinct_id, identity in user_identities("distinct_id", distinct_ids).items()
     }
-    rows = assemble_user_interaction_rows(merged, report_teams, consent_team_ids, user_uuids)
+    assembled = assemble_user_interaction_rows(merged, report_teams, consent_team_ids, team_members, user_uuids)
+    rows = assembled.rows
 
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, USER_INTERACTIONS_TABLE, partition_key)
@@ -1326,12 +1421,186 @@ def inbox_user_report_interactions(context: dagster.AssetExecutionContext) -> No
             "reports": dagster.MetadataValue.int(len({row["report_id"] for row in rows})),
             "users": dagster.MetadataValue.int(len({row["user_distinct_id"] for row in rows})),
             "excluded_pairs": dagster.MetadataValue.int(len(merged) - len(rows)),
+            "non_member_pairs": dagster.MetadataValue.int(assembled.non_member_pairs),
+            "status_tenant_mismatch_pairs": dagster.MetadataValue.int(scoped_status.dropped),
             **{
                 f"{stream_name}_pairs": dagster.MetadataValue.int(len(stream))
                 for stream_name, stream in stream_rows.items()
             },
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }
+    )
+
+
+@dagster.asset(
+    name=PROJECT_VECTORS_TABLE,
+    # Read after the embeddings snapshot has finished, so its vectors and the snapshot query's do
+    # not share the run pod's memory. Nothing joins this asset, so its failure does not fail the
+    # training table.
+    deps=[EMBEDDINGS_TABLE, LABELS_TABLE],
+    **COMMON_ASSET_KWARGS,
+)
+def inbox_project_vectors(context: dagster.AssetExecutionContext) -> None:
+    """Per-team context vectors as of the partition end, for a report born on the next day."""
+    if skip_unconfigured(context):
+        return
+    partition_key = context.partition_key
+    _, snapshot_end = snapshot_bounds(partition_key)
+    bucket = dataset_bucket()
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    client = s3_client()
+
+    embeddings = read_parquet(
+        client, bucket, partition_object_key(prefix, EMBEDDINGS_TABLE, partition_key), list(EMBEDDING_COLUMNS)
+    )
+    # The snapshot was filtered when it was written. Filter it again, so an opt-out since then counts.
+    consent_team_ids = training_consent_team_ids()
+    consented = embeddings.filter(
+        pc.is_in(embeddings.column("report_team_id"), value_set=pa.array(sorted(consent_team_ids), type=pa.int64()))
+    )
+    excluded_reports = embeddings.num_rows - consented.num_rows
+    del embeddings
+    labels = read_parquet(
+        client, bucket, partition_object_key(prefix, LABELS_TABLE, partition_key), list(LABEL_COLUMNS)
+    )
+    table = project_vectors(labels, consented, snapshot_end)
+
+    key = partition_object_key(prefix, PROJECT_VECTORS_TABLE, partition_key)
+    write_parquet(client, bucket, key, table, schema_version=PROJECT_VECTORS_SCHEMA_VERSION)
+    context.add_output_metadata(
+        {
+            "rows": dagster.MetadataValue.int(table.num_rows),
+            "teams": dagster.MetadataValue.int(len(set(table.column("team_id").to_pylist()))),
+            **{
+                f"teams_with_{kind}_history": dagster.MetadataValue.int(count)
+                for kind, count in teams_with_history(table).items()
+            },
+            "excluded_no_training_consent_reports": dagster.MetadataValue.int(excluded_reports),
+            "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
+        }
+    )
+
+
+def remote_engagement_rows(labels: pa.Table, local_report_ids: Collection[str]) -> pa.Table:
+    """The label rows of reports that do not exist in this region's Postgres.
+
+    Inbox telemetry of every region lands in the US dogfood project, so the labels snapshot holds
+    label-only rows for the other region's reports. A row whose id cannot be a report UUID is
+    dropped too: no region can match it to a report vector."""
+    report_ids = labels.column("report_id").to_pylist()
+    valid_ids = valid_report_uuids(set(report_ids))
+    keep = [report_id in valid_ids and report_id not in local_report_ids for report_id in report_ids]
+    return labels.filter(pa.array(keep, type=pa.bool_()))
+
+
+def engagement_export_refusal(label_rows: int, local_rows: int) -> str | None:
+    """Why the export must not be written, or None. An empty labels table has nothing to leak."""
+    if label_rows == 0:
+        return None
+    if local_rows == 0:
+        return NO_LOCAL_REPORTS
+    if local_rows / label_rows < ENGAGEMENT_EXPORT_MIN_LOCAL_SHARE:
+        return LOCAL_SHARE_COLLAPSED
+    return None
+
+
+@dagster.asset(
+    name=ENGAGEMENT_EXPORT,
+    # Nothing joins this asset, so its failure does not fail the training table.
+    deps=[LABELS_TABLE],
+    **COMMON_ASSET_KWARGS,
+)
+def inbox_engagement_export(context: dagster.AssetExecutionContext) -> None:
+    """Export the UI engagement moments of the other region's reports to the mirror store.
+
+    The other region builds its project vectors from its own report embeddings, but the open,
+    action and dismiss moments exist only in this region's labels snapshot. The export carries
+    only `LABEL_COLUMNS`: report ids and timestamps, no team ids, no text and no vectors. The
+    labels snapshot is cumulative, so each day is a full snapshot as of the end of dt=D.
+    """
+    if skip_unconfigured(context):
+        return
+    mirror_bucket = settings.INBOX_RANKING_SERVING_MIRROR_BUCKET
+    if not mirror_bucket:
+        context.log.info("INBOX_RANKING_SERVING_MIRROR_BUCKET is not set; skipping the engagement export")
+        return
+    partition_key = context.partition_key
+    _, snapshot_end = snapshot_bounds(partition_key)
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+
+    labels = read_parquet(
+        s3_client(), dataset_bucket(), partition_object_key(prefix, LABELS_TABLE, partition_key), list(LABEL_COLUMNS)
+    )
+    # telemetry imports the training modules, which import this module.
+    from products.signals.dags.inbox_ranking.training.telemetry import (  # noqa: PLC0415
+        capture_training_events,
+        engagement_export_event,
+    )
+
+    report_ids = labels.column("report_id").to_pylist()
+    local_report_ids = _report_teams(sorted(valid_report_uuids(set(report_ids))), snapshot_end).keys()
+    local_rows = sum(report_id in local_report_ids for report_id in report_ids)
+    local_share = local_rows / labels.num_rows if labels.num_rows else None
+    table = remote_engagement_rows(labels, local_report_ids)
+    key = serving_engagement_key(prefix, partition_key)
+    skip_reason = engagement_export_refusal(labels.num_rows, local_rows)
+    content = b""
+    written = False
+    if skip_reason is not None:
+        # Nothing is written, so the other region falls back to an older export, then fails on its side.
+        context.log.error(
+            f"engagement export for {partition_key} refused ({skip_reason}): {local_rows} of "
+            f"{labels.num_rows} labels rows have a report in this region"
+        )
+    else:
+        buffer = io.BytesIO()
+        pq.write_table(table, buffer, compression="zstd")
+        content = buffer.getvalue()
+        try:
+            serving_mirror_storage().write(
+                bucket=mirror_bucket,
+                key=key,
+                content=content,
+                extras={
+                    # The mirror bucket is in another account, and its policy refuses a write without this ACL.
+                    "ACL": "bucket-owner-full-control",
+                    "Metadata": {
+                        ROW_COUNT_METADATA_KEY: str(table.num_rows),
+                        SNAPSHOT_DATE_METADATA_KEY: partition_key,
+                        SCHEMA_VERSION_METADATA_KEY: str(ENGAGEMENT_EXPORT_SCHEMA_VERSION),
+                    },
+                },
+            )
+            written = True
+        except Exception as error:
+            # The mirror is another deployment's store, so an outage there only logs. The other region
+            # detects the missing day on its side.
+            context.log.exception(f"engagement export for {partition_key} not written: {error!r}")
+    context.add_output_metadata(
+        {
+            "written": dagster.MetadataValue.bool(written),
+            **({"skip_reason": dagster.MetadataValue.text(skip_reason)} if skip_reason else {}),
+            "rows": dagster.MetadataValue.int(table.num_rows),
+            "excluded_rows": dagster.MetadataValue.int(local_rows),
+            "local_share": dagster.MetadataValue.float(local_share or 0.0),
+            "bytes": dagster.MetadataValue.int(len(content)),
+            "s3_key": dagster.MetadataValue.text(f"s3://{mirror_bucket}/{key}"),
+        }
+    )
+    capture_training_events(
+        context,
+        partition_key,
+        [
+            engagement_export_event(
+                written=written,
+                skip_reason=skip_reason,
+                rows=table.num_rows,
+                excluded_rows=local_rows,
+                local_share=local_share,
+                bytes_written=len(content),
+                schema_version=ENGAGEMENT_EXPORT_SCHEMA_VERSION,
+            )
+        ],
     )
 
 
@@ -1501,6 +1770,8 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
         TITLE_EMBEDDINGS_TABLE,
         REVIEWERS_TABLE,
         USER_INTERACTIONS_TABLE,
+        PROJECT_VECTORS_TABLE,
+        ENGAGEMENT_EXPORT,
     ],
     # The seven label streams run sequentially and each may take its full 600s query timeout, so an
     # hour left a slow-but-valid pass no room for the join, the S3 writes, or an asset retry — and

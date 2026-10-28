@@ -3,6 +3,9 @@
 Commands for emitting signals, tracking pipeline processing, and inspecting grouping results.
 Use these to test grouping strategies against real signal data end-to-end.
 
+For offline grouping and scout safety evaluations with mocked infrastructure, use the
+[pytest suites](../../eval/AGENTS.md), which publish results to offline experiments.
+
 ## Full flow
 
 Always clean up before re-ingesting to avoid stale data mixing with new results.
@@ -182,6 +185,15 @@ ownership and legacy PR links into work artefacts and shared `SignalReportPullRe
 records. `--batch-size` bounds each page; the printed `--after` cursor resumes it.
 The command is idempotent and does not call GitHub, change report state, or enqueue
 reviewers. See `docs/internal/signals-pr-lifecycle.md` for rollout and cleanup.
+
+## Backfilling inbox summary participants
+
+`uv run manage.py backfill_inbox_summary --team-id <id> --dry-run` previews the next
+batch of verified implementation PRs that need participant snapshots. Remove
+`--dry-run` to queue the GitHub refresh. `--limit` bounds each invocation (default
+100, maximum 1000); use the printed `--after` cursor to continue. Run it without a
+cursor again to retry missing snapshots. The worker repairs missing merge times
+before checking the seven-day window. Completed snapshots are skipped.
 
 ## Repairing a report's cached actionability
 

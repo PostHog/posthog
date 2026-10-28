@@ -1,5 +1,6 @@
 from typing import Optional
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -48,6 +49,12 @@ _NEON_HOST_CAPTION = (
 
 @SourceRegistry.register
 class NeonSource(PostgresSource):
+    codebase_detection = detect(
+        env=("^NEON_",),
+        npm=("@neondatabase/serverless", "@neondatabase/api-client", "neonctl", "neon"),
+        pypi=("neon-api",),
+    )
+
     def __init__(self):
         super().__init__(source_name="Neon")
 

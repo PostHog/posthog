@@ -1,27 +1,28 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
-import type { ExperimentLogFilter } from '../agentSearch'
+import { type ExperimentLogFilter, ruledOut } from '../agentSearch'
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
 import { ExperimentLogEntry } from './ExperimentLogEntry'
+import { SectionCard } from './SectionCard'
 import { TrainingRunRow } from './TrainingRunRow'
 
 const FILTER_OPTIONS: { value: ExperimentLogFilter; label: string }[] = [
     { value: 'all', label: 'All' },
-    { value: 'kept', label: 'Kept' },
-    { value: 'discarded', label: 'Discarded' },
+    { value: 'kept', label: 'Improved' },
+    { value: 'discarded', label: 'No gain' },
     { value: 'crashed', label: 'Crashed' },
 ]
 
-/** Every experiment, grouped by training run, newest first. Only the latest run shows its experiments by default. */
+/** Every run, newest first, with its experiments and the approaches it ruled out. Only the latest run shows its experiments by default. */
 export function ExperimentLog(): JSX.Element {
     const { experimentLogGroups, experimentLogFilter, expandedLogRunIds } = useValues(autoresearchPipelineLogic)
     const { setExperimentLogFilter, toggleLogRun } = useActions(autoresearchPipelineLogic)
     return (
-        <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="text-sm font-semibold">Experiment log</div>
+        <SectionCard
+            title="Runs"
+            actions={
                 <LemonSegmentedButton
                     size="xsmall"
                     value={experimentLogFilter}
@@ -29,9 +30,11 @@ export function ExperimentLog(): JSX.Element {
                     options={FILTER_OPTIONS}
                     data-attr="autoresearch-experiment-log-filter"
                 />
-            </div>
+            }
+        >
             {experimentLogGroups.map((group, index) => {
                 const showEntries = index === 0 || expandedLogRunIds.includes(group.run.id)
+                const ruledOutLabels = showEntries ? ruledOut(group.run) : []
                 return (
                     <TrainingRunRow key={group.run.id} run={group.run} runNumber={group.runNumber}>
                         {group.entries.length === 0 ? (
@@ -42,12 +45,8 @@ export function ExperimentLog(): JSX.Element {
                             )
                         ) : showEntries ? (
                             <div className="border-t">
-                                {group.entries.map((entry, entryIndex) => (
-                                    <ExperimentLogEntry
-                                        key={entry.seq}
-                                        entry={entry}
-                                        defaultOpen={index === 0 && entryIndex === 0}
-                                    />
+                                {group.entries.map((entry) => (
+                                    <ExperimentLogEntry key={entry.seq} entry={entry} />
                                 ))}
                             </div>
                         ) : (
@@ -61,9 +60,19 @@ export function ExperimentLog(): JSX.Element {
                                 </LemonButton>
                             </div>
                         )}
+                        {ruledOutLabels.length > 0 && (
+                            <div className="border-t px-3 py-2 flex flex-wrap items-center gap-1 text-xs">
+                                <span className="text-muted">Ruled out:</span>
+                                {ruledOutLabels.map((label, labelIndex) => (
+                                    <LemonTag key={labelIndex} size="small">
+                                        {label}
+                                    </LemonTag>
+                                ))}
+                            </div>
+                        )}
                     </TrainingRunRow>
                 )
             })}
-        </div>
+        </SectionCard>
     )
 }

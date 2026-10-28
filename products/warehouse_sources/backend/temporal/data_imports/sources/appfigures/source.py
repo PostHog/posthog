@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AppfiguresSource(ResumableSource[AppfiguresSourceConfig, AppfiguresResumeConfig]):
+    codebase_detection = detect(env=("^APPFIGURES_",))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://docs.appfigures.com/api/reference/v2"
@@ -50,7 +53,7 @@ class AppfiguresSource(ResumableSource[AppfiguresSourceConfig, AppfiguresResumeC
             name=ExternalDataSourceType.APPFIGURES,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Appfigures",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter an Appfigures Personal Access Token to pull your app-store analytics into the PostHog Data warehouse.
 
 Create an API client and Personal Access Token at [appfigures.com/developers/keys](https://appfigures.com/developers/keys). When creating the client, grant the data sets you want to sync:
@@ -75,6 +78,7 @@ Stores, Categories, and Countries are reference tables that need no data set gra
                     ),
                     SourceFieldInputConfig(
                         name="aso_countries",
+                        sync_setting=True,
                         label="ASO keyword countries (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -103,6 +107,11 @@ Stores, Categories, and Countries are reference tables that need no data set gra
             # account no longer owns one or more products the request covers — no retry fixes that.
             "Some given products are not owned by your account": "Your Appfigures account doesn't own one or more products this sync needs credits for. Check product ownership and available credits in Appfigures, then reconnect.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # _fetch raises this only after its own backoff runs out on a 429 or 5xx. Temporal then
+        # retries the activity, so log it at warning instead of raising an error tracking issue.
+        return {"Appfigures API error (retryable)"}
 
     def get_schemas(
         self,

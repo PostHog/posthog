@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -29,6 +30,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PyPISource(SimpleSource[PyPISourceConfig]):
+    codebase_detection = detect(
+        env=("^(PY_PI|PYPI)_", "^TWINE_USERNAME$", "^TWINE_PASSWORD$", "^UV_PUBLISH_TOKEN$"), pypi=("twine",)
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.pypi.org/api/json/"
 
@@ -42,7 +47,7 @@ class PyPISource(SimpleSource[PyPISourceConfig]):
             name=ExternalDataSourceType.PYPI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="PyPI",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Pull metadata for Python packages from the [PyPI](https://pypi.org) JSON API into the PostHog Data warehouse.
 
 PyPI's read APIs are public, so no credentials are required. There is no list endpoint, so enter the package names you want to track, one per line (or comma-separated). For example:
@@ -61,6 +66,7 @@ Each sync fetches the current metadata for every configured package. PyPI has no
                 [
                     SourceFieldInputConfig(
                         name="packages",
+                        sync_setting=True,
                         label="Packages",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

@@ -37,6 +37,7 @@ from products.signals.backend.scout_harness.suggestions import (
     SuggestionSettings,
     TeamActivity,
     dismiss_suggestion,
+    fleet_context,
     mark_generation_failed,
     mark_suggestion_created,
     parse_suggestion_settings,
@@ -264,6 +265,14 @@ class TestSuggestionPersistence(BaseTest):
         )
         visible = visible_items(row, enabled_skill_names={"signals-scout-error-tracking"})
         self.assertEqual([record["skill_name"] for record in visible], ["signals-scout-checkout-drop"])
+
+    @parameterized.expand([("authoring-scouts",), ("exploring-replay-vision-observations",)])
+    def test_companion_skills_are_never_offered_as_picks(self, companion):
+        self.assertNotIn(companion, {name for name, _ in fleet_context(self.team.id).available_canonical})
+        row = persist_suggestion_batch(
+            self.team.id, [_item(skill_name=companion), _custom()], task_run_id=None, model=None, fleet_snapshot=[]
+        )
+        self.assertEqual([record["skill_name"] for record in visible_items(row)], ["signals-scout-checkout-drop"])
 
     def test_failed_generation_keeps_prior_items_and_counts_toward_breaker(self):
         persist_suggestion_batch(self.team.id, [_item()], task_run_id=None, model=None, fleet_snapshot=[])

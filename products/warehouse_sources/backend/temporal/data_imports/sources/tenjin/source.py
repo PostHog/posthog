@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 import requests
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TenjinSource(ResumableSource[TenjinSourceConfig, TenjinResumeConfig]):
+    codebase_detection = detect(
+        env=("^TENJIN_",),
+        npm=("react-native-tenjin",),
+        cocoapods=("TenjinSDK",),
+        maven=("com.tenjin:android-sdk",),
+        pub=("tenjin_plugin",),
+        swiftpm=(
+            "github.com/tenjin/tenjin-ios-sdk",
+            "github.com/tenjin/tenjin-ionic-sdk",
+            "github.com/tenjin/tenjin-ios-spm",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static report catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -129,7 +143,7 @@ Generate a token in the Tenjin dashboard under Automate > API Access Tokens. The
 Tenjin's Reporting Metrics API returns metrics aggregated per day, so these tables are daily time series rather than user-level events.""",
             iconPath="/static/services/tenjin.png",
             docsUrl="https://posthog.com/docs/cdp/sources/tenjin",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["mobile attribution", "user acquisition", "mmp"],
             fields=cast(
                 list[FieldType],

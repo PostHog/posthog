@@ -134,10 +134,49 @@ class TestSearchIntentEndpoint(APIBaseTest):
         assert flag.call_args.args[0] == "taxonomic-filter-event-match"
         if expected_status == status.HTTP_200_OK:
             assert response.json() == {
-                "matches": [{"name": "$autocapture", "display_name": "Autocapture", "probability": 0.95}]
+                "matches": [{"name": "$autocapture", "display_name": "Autocapture", "probability": 0.95}],
+                "outcome": "matched",
+                "unsent": [],
             }
             assert matcher.call_args.args[0].project_id == self.team.project_id
         if expected_outcome:
             assert report.call_args.args[1:] == ("taxonomic filter event match answered", {"outcome": expected_outcome})
         else:
             report.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "not_ingested",
+                EventMatchAnswer(
+                    matches=[],
+                    outcome=EventMatchOutcome.NOT_INGESTED,
+                    unsent=[EventMatch(name="$screen", label="Screen", probability=0.85)],
+                ),
+                {
+                    "matches": [],
+                    "outcome": "not_ingested",
+                    "unsent": [{"name": "$screen", "display_name": "Screen", "probability": 0.85}],
+                },
+            ),
+            (
+                "only_values",
+                EventMatchAnswer(matches=[], outcome=EventMatchOutcome.ONLY_VALUES),
+                {"matches": [], "outcome": "only_values", "unsent": []},
+            ),
+        ]
+    )
+    def test_tells_the_picker_why_an_answer_is_empty(self, _name, answer, expected) -> None:
+        with (
+            patch(FLAG_CHECK, return_value=True),
+            patch("posthog.api.taxonomic_search_intent.match_core_events", return_value=answer),
+            patch("posthog.api.taxonomic_search_intent.report_user_action"),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/taxonomic_search_intent/match_events/",
+                {"query": "browser capture"},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == expected

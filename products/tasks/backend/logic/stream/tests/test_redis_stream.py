@@ -5,6 +5,10 @@ from uuid import uuid4
 import pytest
 from unittest.mock import patch
 
+from django.test import override_settings
+
+from redis.asyncio.client import Pipeline
+
 from products.tasks.backend.logic.stream.redis_stream import (
     DATA_KEY,
     TASK_RUN_STREAM_COMPLETED_TIMEOUT,
@@ -14,9 +18,11 @@ from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
     TaskRunStreamAlreadyCompleted,
     TaskRunStreamCompletionSequenceMismatch,
+    TaskRunStreamGenerationMismatch,
     TaskRunStreamSequenceGap,
     _stream_id_sort_key,
     get_task_run_stream_completed_key,
+    get_task_run_stream_generation,
     get_task_run_stream_key,
     get_task_run_stream_watched_key,
     publish_task_run_stream_complete,
@@ -45,6 +51,45 @@ async def test_write_event_with_sequence_accepts_next_sequence() -> None:
         assert write.stream_id is not None
         assert await redis_stream.get_last_sequence() == 1
         assert await _read_stream_events(redis_stream) == [{"type": "message"}]
+    finally:
+        await redis_stream.delete_stream()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "write",
+    [
+        pytest.param(lambda stream: stream.write_event_with_sequence({"type": "late"}, 1), id="ingest"),
+        pytest.param(lambda stream: stream.mark_complete_after_sequence(0), id="ingest_complete"),
+        pytest.param(lambda stream: stream.write_event({"type": "late"}), id="relay"),
+        pytest.param(lambda stream: stream.mark_complete(), id="relay_complete"),
+        pytest.param(lambda stream: stream.mark_error("late"), id="relay_error"),
+    ],
+)
+@pytest.mark.parametrize("reset_during_write", [False, True])
+async def test_stream_generation_check_is_atomic(
+    write: Callable[[TaskRunRedisStream], Awaitable[object]], reset_during_write: bool
+) -> None:
+    redis_stream = _new_stream()
+    redis_stream._expected_generation = "original"
+    client = redis_stream._redis_client
+    generation_key = f"{redis_stream._stream_key}:generation"
+    await client.set(generation_key, "original" if reset_during_write else "replacement")
+    get = Pipeline.get
+
+    async def reset_after_read(pipe: Pipeline, key: str) -> bytes | str | None:
+        value = await get(pipe, key)
+        if key == generation_key and value == b"original":
+            await client.set(generation_key, "replacement")
+        return value
+
+    try:
+        with patch("django.conf.settings.TEST", False), patch.object(Pipeline, "get", reset_after_read):
+            with pytest.raises(TaskRunStreamGenerationMismatch):
+                await write(redis_stream)
+        assert await _read_stream_events(redis_stream) == []
+        assert await redis_stream.get_last_sequence() == 0
+        assert not await client.exists(get_task_run_stream_completed_key(redis_stream._stream_key))
     finally:
         await redis_stream.delete_stream()
 
@@ -244,6 +289,7 @@ def test_publish_task_run_stream_event_honors_presence_gating(watched: bool) -> 
         reset_task_run_stream(run_id)
 
 
+@override_settings(TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED=True)
 def test_reset_task_run_stream_keeps_watched_lease() -> None:
     run_id = f"test:{uuid4()}"
     stream_key = get_task_run_stream_key(run_id)
@@ -252,10 +298,14 @@ def test_reset_task_run_stream_keeps_watched_lease() -> None:
     try:
         client.set(watched_key, "1", ex=TASK_RUN_STREAM_WATCHED_TIMEOUT)
         client.xadd(stream_key, {"data": "{}"})
+        generation = get_task_run_stream_generation(run_id)
 
         assert reset_task_run_stream(run_id)
+        assert get_task_run_stream_generation(run_id) != generation
+        assert publish_task_run_stream_complete(run_id, expected_generation=generation)
 
         assert not client.exists(stream_key)
+        assert not client.exists(get_task_run_stream_completed_key(stream_key))
         assert client.exists(watched_key)
     finally:
         client.delete(watched_key)

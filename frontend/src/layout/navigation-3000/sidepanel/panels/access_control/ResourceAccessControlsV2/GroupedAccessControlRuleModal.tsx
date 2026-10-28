@@ -12,7 +12,9 @@ import { ScopeIcon } from './ScopeIcon'
 import { GroupedAccessControlRuleModalLogicProps } from './types'
 
 export function GroupedAccessControlRuleModal(props: { state: GroupedAccessControlRuleModalLogicProps }): JSX.Element {
-    const { modalTitle, loading, canEdit } = useValues(groupedAccessControlRuleModalLogic(props.state))
+    const { modalTitle, loading, canEdit, terraformDisabledReason } = useValues(
+        groupedAccessControlRuleModalLogic(props.state)
+    )
     const { save, close } = useActions(groupedAccessControlRuleModalLogic(props.state))
 
     return (
@@ -22,7 +24,13 @@ export function GroupedAccessControlRuleModal(props: { state: GroupedAccessContr
             title={modalTitle}
             maxWidth="32rem"
             footer={
-                <GroupedAccessControlRuleModalFooter close={close} loading={loading} canEdit={canEdit} onSave={save} />
+                <GroupedAccessControlRuleModalFooter
+                    close={close}
+                    loading={loading}
+                    canEdit={canEdit}
+                    cannotEditReason={terraformDisabledReason}
+                    onSave={save}
+                />
             }
         >
             <GroupedAccessControlRuleModalContent logicProps={props.state} />
@@ -34,6 +42,7 @@ function GroupedAccessControlRuleModalFooter(props: {
     close: () => void
     loading: boolean
     canEdit: boolean
+    cannotEditReason?: string
     onSave: () => void
 }): JSX.Element {
     return (
@@ -47,7 +56,7 @@ function GroupedAccessControlRuleModalFooter(props: {
             </LemonButton>
             <LemonButton
                 type="primary"
-                disabledReason={!props.canEdit ? 'You cannot edit this rule' : undefined}
+                disabledReason={!props.canEdit ? (props.cannotEditReason ?? 'You cannot edit this rule') : undefined}
                 loading={props.loading}
                 onClick={props.onSave}
             >

@@ -357,7 +357,7 @@ const errorTrackingIssuesPartialUpdate = (): ToolBase<
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/issues/${encodeURIComponent(String(params.id))}/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/error_tracking/${result.id}`)
+            return await withPostHogUrl(context, result, `/error-tracking/${result.id}`)
         },
     })
 
@@ -460,6 +460,9 @@ const errorTrackingSettingsUpdate = (): ToolBase<
         }
         if (params.per_issue_rate_limit_bucket_size_minutes !== undefined) {
             body['per_issue_rate_limit_bucket_size_minutes'] = params.per_issue_rate_limit_bucket_size_minutes
+        }
+        if (params.ingestion_enabled !== undefined) {
+            body['ingestion_enabled'] = params.ingestion_enabled
         }
         const result = await context.api.request<Schemas.ErrorTrackingSettings>({
             method: 'PATCH',
@@ -707,7 +710,7 @@ const errorTrackingSymbolSetsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/error_tracking')
+        return await withPostHogUrl(context, filtered, '/error-tracking')
     },
 })
 
@@ -779,7 +782,7 @@ const queryErrorTrackingIssue = (): ToolBase<
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/query/issue/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/error_tracking/${params.issueId}`)
+            return await withPostHogUrl(context, result, `/error-tracking/${params.issueId}`)
         },
     })
 
@@ -833,7 +836,7 @@ const queryErrorTrackingIssueEvents = (): ToolBase<
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/query/issue_events/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/error_tracking/${params.issueId}`)
+            return await withPostHogUrl(context, result, `/error-tracking/${params.issueId}`)
         },
     })
 
@@ -852,6 +855,9 @@ const queryErrorTrackingIssuesList = (): ToolBase<
         handler: async (context: Context, params: z.infer<ReturnType<typeof QueryErrorTrackingIssuesListSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
+            if (params.firstSeenAfter !== undefined) {
+                body['firstSeenAfter'] = params.firstSeenAfter
+            }
             if (params.dateRange !== undefined) {
                 body['dateRange'] = params.dateRange
             }
@@ -936,11 +942,11 @@ const queryErrorTrackingIssuesList = (): ToolBase<
                         ...filtered,
                         results: await Promise.all(
                             (filtered.results ?? []).map((item) =>
-                                withPostHogUrl(context, item, `/error_tracking/${item.id}`)
+                                withPostHogUrl(context, item, `/error-tracking/${item.id}`)
                             )
                         ),
                     },
-                    '/error_tracking'
+                    '/error-tracking'
                 ),
                 [
                     'id',

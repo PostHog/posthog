@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GitBookSource(ResumableSource[GitBookSourceConfig, GitBookResumeConfig]):
+    codebase_detection = detect(env=("^GITBOOK_",), npm=("@gitbook/api", "@gitbook/embed"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://gitbook.com/docs/developers/gitbook-api/api-reference"
 
@@ -49,7 +52,7 @@ class GitBookSource(ResumableSource[GitBookSourceConfig, GitBookResumeConfig]):
             name=ExternalDataSourceType.GITBOOK,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="GitBook",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your GitBook API token to pull your documentation workspace into the PostHog Data warehouse.
 
 You can create a personal access token under **Account settings → Developer** in [GitBook](https://app.gitbook.com/account/developer). The token inherits your account permissions and grants read access to your organizations, spaces, pages, collections, sites, site questions and answers, members, teams, team members, change requests, and comments.

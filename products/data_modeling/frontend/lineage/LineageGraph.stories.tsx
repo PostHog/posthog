@@ -13,7 +13,6 @@ function mockNode(
     partial: Pick<DataModelingNode, 'id' | 'name' | 'type'> & Partial<DataModelingNode>
 ): DataModelingNode {
     return {
-        dag: 'dag-1',
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
         upstream_count: 0,
@@ -27,7 +26,6 @@ function mockEdge(id: string, sourceId: string, targetId: string): DataModelingE
         id,
         source_id: sourceId,
         target_id: targetId,
-        dag: 'dag-1',
         properties: {},
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
@@ -199,6 +197,9 @@ export const Full: Story = {
     render: () => (
         <LineageGraph nodes={GRAPH_NODES} edges={GRAPH_EDGES} currentNodeId="4" variant="full" showControls />
     ),
+    play: async ({ canvasElement }) => {
+        await expectNodeCentered(canvasElement, '4', 'The current node must be centered when the lineage opens')
+    },
 }
 
 export const Canvas: Story = {

@@ -13,6 +13,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.system import SystemTables
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
@@ -26,11 +27,13 @@ from posthog.models import (
     OrganizationMembership,
     Tag,
     Team,
+    User,
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.data_deletion_request import ExecutionMode, RequestStatus, RequestType
 from posthog.models.project import Project
 from posthog.models.scoping import team_scope
+from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.persons_db import persons_db_connection
 from posthog.persons_seed import insert_seed_group, insert_seed_group_type_mapping
 
@@ -102,7 +105,20 @@ from products.messaging.backend.facade.testing import (
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportAction,
+    SignalReportArtefact,
+    SignalReportAssignment,
+    SignalReportCheck,
+    SignalReportPullRequest,
+    SignalReportTask,
+    SignalScoutConfig,
+    SignalScoutEmission,
+    SignalScoutRun,
+)
 from products.surveys.backend.models import Survey, SurveyResponseArchive
+from products.tasks.backend.facade import testing as tasks_testing
 from products.tasks.backend.models import Channel, SandboxEnvironment, Task, TaskRun
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable as DataWarehouseTableModel,
@@ -198,6 +214,33 @@ class TestSystemTablesTeamScoping(BaseTest):
 
         assert "storage_ptr" not in table.fields
         assert "content_hash" not in table.fields
+
+    @parameterized.expand(
+        [
+            ("scout_configs", "rubrics"),
+            ("scout_configs", "status_changed_by_id"),
+            ("scout_configs", "created_by_id"),
+            ("scout_configs", "enabled_by_id"),
+            ("inbox_reports", "metrics"),
+            ("inbox_report_checks", "config"),
+            ("inbox_report_artefacts", "content"),
+            ("inbox_report_actions", "metadata"),
+        ]
+    )
+    def test_viewer_restricted_fields_are_not_queryable(self, table_name, field_name):
+        table = SystemTables().children[table_name].get()
+        assert isinstance(table, Table)
+        assert field_name not in table.fields
+
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=Database.create_for(team=self.team, user=self.user),
+        )
+        with self.assertRaises(QueryError):
+            prepare_and_print_ast(
+                parse_select(f"SELECT {field_name} FROM system.{table_name}"), context, dialect="clickhouse"
+            )
 
     def test_data_deletion_requests_exposes_only_customer_safe_fields(self):
         table = SystemTables().children["data_deletion_requests"].get()
@@ -893,8 +936,98 @@ def _create_tag(team: Team, label: str) -> Tag:
     return Tag.objects.create(team=team, name=f"tag_{label}")
 
 
+def _create_revenue_analytics_config(team: Team, label: str) -> TeamRevenueAnalyticsConfig:
+    return team.revenue_analytics_config
+
+
 def _create_team(team: Team, label: str) -> Team:
     return team
+
+
+def _create_inbox_report(team: Team, label: str) -> SignalReport:
+    return SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title=f"report_{label}")
+
+
+def _create_inbox_report_check(team: Team, label: str) -> SignalReportCheck:
+    return SignalReportCheck.objects.for_team(team.pk).create(
+        team=team,
+        report=_create_inbox_report(team, label),
+        title=f"check_{label}",
+        kind=SignalReportCheck.Kind.AGENT,
+        next_run_at=timezone.now(),
+        expires_at=timezone.now(),
+    )
+
+
+def _create_inbox_report_artefact(team: Team, label: str) -> SignalReportArtefact:
+    return SignalReportArtefact.objects.create(
+        team=team, report=_create_inbox_report(team, label), type="note", content=json.dumps({"note": label})
+    )
+
+
+def _create_inbox_report_action(team: Team, label: str) -> SignalReportAction:
+    return SignalReportAction.objects.for_team(team.pk).create(
+        team=team,
+        report=_create_inbox_report(team, label),
+        user=User.objects.create(email=f"{team.pk}-{label}@example.com"),
+        type="view",
+        last_at=timezone.now(),
+    )
+
+
+def _create_inbox_report_assignment(team: Team, label: str) -> SignalReportAssignment:
+    return SignalReportAssignment.objects.for_team(team.pk).create(team=team, report=_create_inbox_report(team, label))
+
+
+def _create_inbox_report_task(team: Team, label: str) -> SignalReportTask:
+    return SignalReportTask.objects.create(
+        team=team,
+        report=_create_inbox_report(team, label),
+        task=_create_task(team, label),
+        relationship="implementation",
+    )
+
+
+def _create_inbox_report_pull_request(team: Team, label: str) -> SignalReportPullRequest:
+    pull_request = SignalReportPullRequest.objects.for_team(team.pk).create(
+        team=team, repository=f"example/{label}", number=1, url=f"https://example.com/{label}/pull/1"
+    )
+    artefact = _create_inbox_report_artefact(team, label)
+    artefact.pull_request = pull_request
+    artefact.save(update_fields=["pull_request"])
+    return pull_request
+
+
+def _create_scout_config(team: Team, label: str) -> SignalScoutConfig:
+    return SignalScoutConfig.objects.for_team(team.pk).create(team=team, skill_name=f"scout-{label}")
+
+
+def _create_scout_run(team: Team, label: str) -> SignalScoutRun:
+    return SignalScoutRun.objects.for_team(team.pk).create(
+        team=team,
+        task_run=_create_task_run(team, label),
+        scout_config=_create_scout_config(team, label),
+        skill_name=f"scout-{label}",
+        skill_version=1,
+        summary=label,
+    )
+
+
+def _create_scout_run_emission(team: Team, label: str) -> SignalScoutEmission:
+    run = _create_scout_run(team, label)
+    return SignalScoutEmission.objects.for_team(team.pk).create(
+        team=team, scout_run=run, finding_id=label, description=label, source_id=f"run:{run.pk}:finding:{label}"
+    )
+
+
+def _create_task_artifact(team: Team, label: str) -> uuid.UUID:
+    run = _create_task_run(team, label)
+    return tasks_testing.create_task_artifact(
+        team_id=team.pk,
+        task_id=run.task_id,
+        task_run_id=run.pk,
+        name=label,
+    )
 
 
 def _create_usage_metric(team: Team, label: str) -> GroupUsageMetric:
@@ -1016,9 +1149,17 @@ SYSTEM_TABLE_FACTORIES = [
     ("insights", _create_insight),
     ("insight_variables", _create_insight_variable),
     ("integrations", _create_integration),
+    ("inbox_report_actions", _create_inbox_report_action),
+    ("inbox_report_artefacts", _create_inbox_report_artefact),
+    ("inbox_report_assignments", _create_inbox_report_assignment),
+    ("inbox_report_checks", _create_inbox_report_check),
+    ("inbox_report_pull_requests", _create_inbox_report_pull_request),
+    ("inbox_report_tasks", _create_inbox_report_task),
+    ("inbox_reports", _create_inbox_report),
     ("integration_repository_cache", _create_integration_repository_cache_entry),
     ("logs_alerts", _create_logs_alert),
     ("replay_scanners", _create_replay_scanner),
+    ("revenue_analytics_config", _create_revenue_analytics_config),
     ("logs_views", _create_logs_view),
     ("message_categories", _create_message_category),
     ("message_recipient_preferences", _create_message_recipient_preference),
@@ -1027,6 +1168,9 @@ SYSTEM_TABLE_FACTORIES = [
     ("review_queues", _create_review_queue),
     ("sandbox_environments", _create_sandbox_environment),
     ("score_definitions", _create_score_definition),
+    ("scout_configs", _create_scout_config),
+    ("scout_run_emissions", _create_scout_run_emission),
+    ("scout_runs", _create_scout_run),
     ("session_recording_playlists", _create_session_recording_playlist),
     ("session_recordings", _create_session_recording),
     ("source_schemas", _create_source_schema),
@@ -1035,6 +1179,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("surveys", _create_survey),
     ("_task_public_channels", _create_public_task_channel),
     ("tags", _create_tag),
+    ("task_artifacts", _create_task_artifact),
     ("task_runs", _create_task_run),
     ("tasks", _create_task),
     ("teams", _create_team),
@@ -1339,6 +1484,70 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
         assert str(internal_task.pk) not in ids
 
 
+class TestSystemTablesInboxDeletedExclusionIsolation(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand(
+        [
+            ("inbox_report_actions", _create_inbox_report_action),
+            ("inbox_report_artefacts", _create_inbox_report_artefact),
+            ("inbox_report_assignments", _create_inbox_report_assignment),
+            ("inbox_report_checks", _create_inbox_report_check),
+            ("inbox_report_tasks", _create_inbox_report_task),
+        ]
+    )
+    def test_deleted_reports_and_their_children_excluded(self, table_name, factory):
+        live_child = factory(self.team, "live")
+        deleted_child = factory(self.team, "deleted")
+        SignalReport.objects.filter(id=deleted_child.report_id).update(status=SignalReport.Status.DELETED)
+
+        reports = execute_hogql_query("SELECT id FROM system.inbox_reports", team=self.team, user=self.user)
+        children = execute_hogql_query(f"SELECT id FROM system.{table_name}", team=self.team, user=self.user)
+
+        assert {str(row[0]) for row in reports.results} == {str(live_child.report_id)}
+        assert {str(row[0]) for row in children.results} == {str(live_child.pk)}
+
+    def test_hidden_artefacts_and_their_pull_requests_excluded(self):
+        visible = _create_inbox_report_pull_request(self.team, "visible")
+        deleted = _create_inbox_report_pull_request(self.team, "deleted")
+        ranking = _create_inbox_report_pull_request(self.team, "ranking")
+        SignalReport.objects.filter(artefacts__pull_request=deleted).update(status=SignalReport.Status.DELETED)
+        SignalReportArtefact.objects.filter(pull_request=ranking).update(type="ranking_score")
+
+        artefacts = execute_hogql_query(
+            "SELECT a.pull_request_id FROM system.inbox_reports r "
+            "JOIN system.inbox_report_artefacts a ON a.report_id = r.id",
+            team=self.team,
+            user=self.user,
+        )
+        pull_requests = execute_hogql_query(
+            "SELECT id FROM system.inbox_report_pull_requests", team=self.team, user=self.user
+        )
+
+        assert {str(row[0]) for row in artefacts.results} == {str(visible.pk)}
+        assert {str(row[0]) for row in pull_requests.results} == {str(visible.pk)}
+
+
+class TestSystemTablesScoutTrialExclusionIsolation(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_private_trial_runs_and_their_emissions_excluded(self):
+        visible = _create_scout_run_emission(self.team, "visible")
+        trial = _create_scout_run_emission(self.team, "trial")
+        SignalScoutRun.objects.for_team(self.team.pk).filter(id=trial.scout_run_id).update(
+            metadata={"scout_trial": {"version": 1}}
+        )
+        runs = execute_hogql_query("SELECT id FROM system.scout_runs", team=self.team, user=self.user)
+        emissions = execute_hogql_query(
+            "SELECT id, run_id FROM system.scout_run_emissions", team=self.team, user=self.user
+        )
+
+        assert {str(row[0]) for row in runs.results} == {str(visible.scout_run_id)}
+        assert {(str(row[0]), str(row[1])) for row in emissions.results} == {
+            (str(visible.pk), str(visible.scout_run_id))
+        }
+
+
 class TestSystemTablesTaskSpaceVisibilityIsolation(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -1393,14 +1602,25 @@ class TestSystemTablesTaskSpaceVisibilityIsolation(NonAtomicBaseTest):
         TaskRun.objects.create(task=private_task, team=self.team)
         TaskRun.objects.create(task=unfiled_task, team=self.team)
         TaskRun.objects.create(task=deleted_channel_task, team=self.team)
+        for task in (public_task, private_task, unfiled_task, deleted_channel_task):
+            tasks_testing.create_task_artifact(
+                team_id=self.team.pk,
+                task_id=task.pk,
+                task_run_id=TaskRun.objects.get(team=self.team, task=task).pk,
+                name=task.title,
+            )
 
         task_response = execute_hogql_query("SELECT id FROM system.tasks", team=self.team, user=self.user)
         run_response = execute_hogql_query("SELECT id FROM system.task_runs", team=self.team, user=self.user)
         canvas_response = execute_hogql_query("SELECT id FROM system.canvases", team=self.team, user=self.user)
+        artifact_response = execute_hogql_query(
+            "SELECT task_id FROM system.task_artifacts", team=self.team, user=self.user
+        )
 
         assert {str(row[0]) for row in task_response.results} == {str(public_task.id)}
         assert {str(row[0]) for row in run_response.results} == {str(public_run.id)}
         assert {str(row[0]) for row in canvas_response.results} == {str(public_canvas_id)}
+        assert {str(row[0]) for row in artifact_response.results} == {str(public_task.id)}
 
 
 class TestSystemTablesNotebookMarkdown(NonAtomicBaseTest):

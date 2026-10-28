@@ -1,28 +1,17 @@
-import json
 from typing import Any, Optional
-
-import pytest
-from unittest import mock
 
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.vellum.vellum import (
-    VellumResumeConfig,
-    vellum_source,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
 )
-
-# vellum builds the tracked session (capture=False) in its own module and hands it to RESTClient via
-# client_config["session"], so patch it there rather than in rest_client.
-SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.vellum.vellum.make_tracked_session"
-# tenacity sleeps between client retries; patch its clock so retryable-status tests don't wait.
-SLEEP_PATCH = "tenacity.nap.time.sleep"
-
-BASE = "https://api.vellum.ai/v1"
-DOCUMENTS_URL = f"{BASE}/documents"
-WFD_URL = f"{BASE}/workflow-deployments"
-EVENTS_A = f"{BASE}/workflow-deployments/A/execution-events"
-EVENTS_B = f"{BASE}/workflow-deployments/B/execution-events"
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vellum import VellumSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.vellum.source import VellumSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.vellum.vellum import VellumResumeConfig
 
 
 def _resp(
@@ -31,163 +20,162 @@ def _resp(
     results: Optional[list[dict[str, Any]]] = None,
     count: Optional[int] = None,
     body: Optional[dict[str, Any]] = None,
-    url: str = DOCUMENTS_URL,
-) -> requests.Response:
-    resp = requests.Response()
-    resp.status_code = status
-    resp.url = url
-    resp.reason = "OK" if status < 400 else "Error"
+) -> ScriptedResponse:
     if body is None:
         body = {}
         if results is not None:
             body["results"] = results
         if count is not None:
             body["count"] = count
-    resp._content = json.dumps(body).encode()
-    return resp
+    return ScriptedResponse(status=status, json=body)
 
 
-def _make_manager(resume_state: VellumResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[requests.Response]) -> list[dict[str, Any]]:
-    """Wire a mock session; return a list capturing each request's params AT SEND TIME.
-
-    ``request.params`` is one dict mutated in place across pages, so snapshot a copy when each request
-    is prepared instead of inspecting the final state.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _run(endpoint: str, manager: mock.MagicMock) -> Any:
-    return vellum_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+def _run(endpoint: str, script: Script, **kwargs: Any) -> DriveResult:
+    driver = SourceDriver(VellumSource(), VellumSourceConfig(api_key="key"))
+    return driver.run(endpoint, script, **kwargs)
 
 
 class TestOffsetPagination:
-    @mock.patch(SESSION_PATCH)
-    def test_resumes_from_saved_offset(self, MockSession) -> None:
+    def test_resumes_from_saved_offset(self) -> None:
         # A resumed run must skip pages already synced; starting from offset 0 would redo work.
-        session = MockSession.return_value
-        params = _wire(session, [_resp(results=[{"id": "d3"}], count=3)])
+        result = _run(
+            "documents",
+            [_resp(results=[{"id": "d3"}], count=3)],
+            resume_state=VellumResumeConfig(offset=2),
+        )
 
-        _rows(_run("documents", _make_manager(VellumResumeConfig(offset=2))))
-        assert params[0]["offset"] == 2
+        assert result.params("offset") == ["2"]
 
-    @mock.patch(SESSION_PATCH)
-    def test_checkpoint_saved_after_full_page(self, MockSession) -> None:
+    def test_a_run_with_no_saved_state_starts_from_the_first_page(self) -> None:
+        result = _run("documents", [_resp(results=[{"id": "d1"}], count=1)])
+
+        assert result.params("offset") == ["0"]
+
+    def test_checkpoint_saved_after_full_page(self) -> None:
         # After a full page is yielded, the saved offset points at the NEXT page so a crash re-fetches
         # only what wasn't synced; a short page ends the walk without an extra checkpoint.
-        session = MockSession.return_value
         page1 = [{"id": f"d_{i}"} for i in range(100)]
-        _wire(session, [_resp(results=page1, count=101), _resp(results=[{"id": "d_last"}], count=101)])
 
-        manager = _make_manager()
-        _rows(_run("documents", manager))
+        result = _run(
+            "documents",
+            [_resp(results=page1, count=101), _resp(results=[{"id": "d_last"}], count=101)],
+        )
 
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == VellumResumeConfig(offset=100)
+        assert result.saved_states == [VellumResumeConfig(offset=100)]
 
 
 class TestRetries:
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
-    @mock.patch(SLEEP_PATCH, return_value=None)
-    @mock.patch(SESSION_PATCH)
-    def test_retryable_status_codes_retry(self, _name: str, status_code: int, MockSession, _sleep) -> None:
+    def test_retryable_status_codes_retry(self, _name: str, status_code: int) -> None:
         # 429/5xx must be retried, not surfaced — a transient blip shouldn't fail the sync.
-        session = MockSession.return_value
-        _wire(session, [_resp(status=status_code, body={}), _resp(results=[{"id": "d1"}], count=1)])
+        result = _run(
+            "documents",
+            [_resp(status=status_code, body={}), _resp(results=[{"id": "d1"}], count=1)],
+        )
 
-        rows = _rows(_run("documents", _make_manager()))
-        assert [r["id"] for r in rows] == ["d1"]
-        assert session.send.call_count == 2
+        assert [r["id"] for r in result.rows] == ["d1"]
+        assert len(result.requests) == 2
 
-    @mock.patch(SESSION_PATCH)
-    def test_client_error_propagates(self, MockSession) -> None:
+    def test_client_error_propagates(self) -> None:
         # A 403 (bad/insufficient key) must surface at once so get_non_retryable_errors can stop the sync.
-        session = MockSession.return_value
-        _wire(session, [_resp(status=403, body={"detail": "forbidden"})])
+        result = _run("documents", [_resp(status=403, body={"detail": "forbidden"})])
 
-        with pytest.raises(requests.HTTPError):
-            _rows(_run("documents", _make_manager()))
-        assert session.send.call_count == 1
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == 1
 
 
 class TestExecutionEventsFanOut:
-    @mock.patch(SESSION_PATCH)
-    def test_injects_parent_id_into_every_row(self, MockSession) -> None:
-        # The parent id completes the composite key; without it rows from different deployments that
-        # share a span id would collide and every merge would multi-match.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _resp(results=[{"id": "A"}, {"id": "B"}], count=2, url=WFD_URL),
-                _resp(results=[{"span_id": "s1", "start": "2026-01-01T00:00:00Z"}], count=1, url=EVENTS_A),
-                _resp(results=[{"span_id": "s2", "start": "2026-01-02T00:00:00Z"}], count=1, url=EVENTS_B),
-            ],
-        )
-
-        rows = _rows(_run("workflow_execution_events", _make_manager()))
-        assert rows == [
-            {"workflow_deployment_id": "A", "span_id": "s1", "start": "2026-01-01T00:00:00Z"},
-            {"workflow_deployment_id": "B", "span_id": "s2", "start": "2026-01-02T00:00:00Z"},
+    @parameterized.expand(
+        [
+            (
+                "workflow_execution_events",
+                "workflow_deployment_id",
+                "/v1/workflow-deployments",
+                "/v1/workflow-deployments/{}/execution-events",
+                [
+                    {"span_id": "s1", "start": "2026-01-01T00:00:00Z"},
+                    {"span_id": "s2", "start": "2026-01-02T00:00:00Z"},
+                ],
+            ),
+            (
+                "workflow_deployment_releases",
+                "workflow_deployment_id",
+                "/v1/workflow-deployments",
+                "/v1/workflow-deployments/{}/releases",
+                [{"id": "r1", "created": "2026-01-01T00:00:00Z"}, {"id": "r2", "created": "2026-01-02T00:00:00Z"}],
+            ),
+            (
+                "workflow_deployment_release_tags",
+                "workflow_deployment_id",
+                "/v1/workflow-deployments",
+                "/v1/workflow-deployments/{}/release-tags",
+                [{"name": "LATEST", "release": {"id": "r1"}}, {"name": "LATEST", "release": {"id": "r2"}}],
+            ),
+            (
+                "prompt_deployment_release_tags",
+                "prompt_deployment_id",
+                "/v1/deployments",
+                "/v1/deployments/{}/release-tags",
+                [{"name": "PRODUCTION", "release": {"id": "r1"}}, {"name": "PRODUCTION", "release": {"id": "r2"}}],
+            ),
         ]
+    )
+    def test_injects_parent_id_into_every_row(
+        self,
+        endpoint: str,
+        parent_id_field: str,
+        parent_path: str,
+        child_path: str,
+        child_rows: list[dict[str, Any]],
+    ) -> None:
+        # The parent id completes the composite key; without it rows from different deployments that
+        # share a span id or tag name would collide and every merge would multi-match.
+        result = _run(
+            endpoint,
+            [
+                _resp(results=[{"id": "A"}, {"id": "B"}], count=2),
+                _resp(results=[child_rows[0]], count=1),
+                _resp(results=[child_rows[1]], count=1),
+            ],
+        )
 
-    @mock.patch(SESSION_PATCH)
-    def test_non_404_error_propagates(self, MockSession) -> None:
+        assert result.rows == [
+            {parent_id_field: "A", **child_rows[0]},
+            {parent_id_field: "B", **child_rows[1]},
+        ]
+        assert result.paths == [parent_path, child_path.format("A"), child_path.format("B")]
+
+    def test_non_404_error_propagates(self) -> None:
         # Any non-404 child error must fail the whole sync rather than be silently swallowed.
-        session = MockSession.return_value
-        _wire(
-            session,
+        result = _run(
+            "workflow_execution_events",
             [
-                _resp(results=[{"id": "A"}], count=1, url=WFD_URL),
-                _resp(status=403, body={"detail": "forbidden"}, url=EVENTS_A),
+                _resp(results=[{"id": "A"}], count=1),
+                _resp(status=403, body={"detail": "forbidden"}),
             ],
         )
 
-        with pytest.raises(requests.HTTPError):
-            _rows(_run("workflow_execution_events", _make_manager()))
+        assert isinstance(result.raised, requests.HTTPError)
 
-    @mock.patch(SESSION_PATCH)
-    def test_resume_skips_completed_deployment(self, MockSession) -> None:
+    def test_resume_skips_completed_deployment(self) -> None:
         # Resuming with deployment A already recorded complete must not re-walk A — only B is fetched.
-        session = MockSession.return_value
-        _wire(
-            session,
+        result = _run(
+            "workflow_execution_events",
             [
-                _resp(results=[{"id": "A"}, {"id": "B"}], count=2, url=WFD_URL),
-                _resp(results=[{"span_id": "s2", "start": "2026-01-02T00:00:00Z"}], count=1, url=EVENTS_B),
+                _resp(results=[{"id": "A"}, {"id": "B"}], count=2),
+                _resp(results=[{"span_id": "s2", "start": "2026-01-02T00:00:00Z"}], count=1),
             ],
+            resume_state=VellumResumeConfig(
+                fanout_state={
+                    "completed": ["/workflow-deployments/A/execution-events"],
+                    "current": None,
+                    "child_state": None,
+                }
+            ),
         )
 
-        resume = VellumResumeConfig(
-            fanout_state={
-                "completed": ["/workflow-deployments/A/execution-events"],
-                "current": None,
-                "child_state": None,
-            }
-        )
-        rows = _rows(_run("workflow_execution_events", _make_manager(resume)))
-        assert rows == [{"workflow_deployment_id": "B", "span_id": "s2", "start": "2026-01-02T00:00:00Z"}]
+        assert result.rows == [{"workflow_deployment_id": "B", "span_id": "s2", "start": "2026-01-02T00:00:00Z"}]
+        assert result.paths == ["/v1/workflow-deployments", "/v1/workflow-deployments/B/execution-events"]
 
 
 class TestSourceResponse:
@@ -198,13 +186,17 @@ class TestSourceResponse:
             ("document_indexes", ["id"], "created"),
             ("documents", ["id"], None),
             ("workflow_execution_events", ["workflow_deployment_id", "span_id"], "start"),
+            ("workflow_deployment_releases", ["workflow_deployment_id", "id"], "created"),
+            ("workflow_deployment_release_tags", ["workflow_deployment_id", "name"], None),
+            ("prompt_deployment_release_tags", ["prompt_deployment_id", "name"], None),
         ]
     )
-    @mock.patch(SESSION_PATCH)
     def test_primary_keys_and_partitioning(
-        self, endpoint: str, expected_pks: list[str], expected_partition: str | None, MockSession
+        self, endpoint: str, expected_pks: list[str], expected_partition: str | None
     ) -> None:
-        response = _run(endpoint, _make_manager())
+        response = _run(endpoint, [_resp(results=[], count=0)]).response
+
+        assert response is not None
         assert response.primary_keys == expected_pks
         assert response.partition_keys == ([expected_partition] if expected_partition else None)
         assert response.partition_mode == ("datetime" if expected_partition else None)

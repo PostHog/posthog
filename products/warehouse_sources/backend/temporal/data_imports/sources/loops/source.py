@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LoopsSource(ResumableSource[LoopsSourceConfig, LoopsResumeConfig]):
+    codebase_detection = detect(
+        env=("^LOOPS_API_KEY$",), npm=("loops",), composer=("loops-so/loops",), rubygems=("loops_sdk",)
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     api_docs_url = "https://loops.so/docs/api-reference/intro"
@@ -47,7 +52,7 @@ class LoopsSource(ResumableSource[LoopsSourceConfig, LoopsResumeConfig]):
             name=ExternalDataSourceType.LOOPS,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Loops",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["loops.so", "email"],
             caption="""Enter your Loops API key to sync your campaigns, transactional emails, mailing lists and other account data into the PostHog Data warehouse.
 

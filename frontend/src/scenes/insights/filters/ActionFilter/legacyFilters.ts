@@ -2,7 +2,7 @@ import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters
 import { uuid } from 'lib/utils/dom'
 
 import { AnyEntityNode, GroupNode, NodeKind } from '~/queries/schema/schema-general'
-import { ActionFilter, Entity, EntityTypes, FilterType } from '~/types'
+import { ActionFilter, EntityTypes, FilterType } from '~/types'
 
 import {
     SeriesNode,
@@ -73,6 +73,15 @@ function legacyFilterToSeriesNode(filter: ActionFilter, warehouseKind: Warehouse
     return { ...shared, kind, event: filter.id } as SeriesNode
 }
 
+/** Keys the defaults leave out stay unset, so an events default with no `id` keeps the project's default event. */
+export function legacyFilterToSeriesDefaults(
+    defaults: Record<string, any>,
+    warehouseKind: WarehouseSeriesNodeKind = NodeKind.DataWarehouseNode
+): Partial<SeriesNode> {
+    const node = legacyFilterToSeriesNode(defaults as ActionFilter, warehouseKind)
+    return Object.fromEntries(Object.entries(node).filter(([, value]) => value !== undefined)) as Partial<SeriesNode>
+}
+
 /** Sorted by the `order` fields, which the editor then carries as the array index. */
 export function legacyFiltersToSeries(
     filters: Partial<FilterType> | undefined,
@@ -139,8 +148,6 @@ export type LocalFilter = ActionFilter & {
     [key: string]: any
 }
 
-export type BareEntity = Pick<Entity, 'id' | 'name'>
-
 export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
     const localFilters = [
         ...(filters[EntityTypes.ACTIONS] || []),
@@ -159,20 +166,4 @@ export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
               }
             : { ...filter, uuid: uuid() }
     )
-}
-
-export function toFilters(localFilters: LocalFilter[]): FilterType {
-    const filters = localFilters.map((filter, index) => ({
-        ...filter,
-        order: index,
-        // The first step of a funnel cannot be optional
-        optionalInFunnel: index == 0 ? undefined : filter.optionalInFunnel,
-    }))
-
-    return {
-        [EntityTypes.ACTIONS]: filters.filter((filter) => filter.type === EntityTypes.ACTIONS),
-        [EntityTypes.EVENTS]: filters.filter((filter) => filter.type === EntityTypes.EVENTS),
-        [EntityTypes.DATA_WAREHOUSE]: filters.filter((filter) => filter.type === EntityTypes.DATA_WAREHOUSE),
-        [EntityTypes.GROUPS]: filters.filter((filter) => filter.type === EntityTypes.GROUPS),
-    } as FilterType
 }

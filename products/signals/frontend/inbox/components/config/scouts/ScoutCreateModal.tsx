@@ -319,7 +319,10 @@ export function ScoutCreateModal({
                         ) : null}
                         {scheduleMode === SCOUT_DAILY_AT_SCHEDULE_MODE ||
                         scheduleMode === SCOUT_WEEKLY_ON_SCHEDULE_MODE ? (
-                            <LemonField.Pure label="Run time" help={`Uses the project timezone (${projectTimezone})`}>
+                            <LemonField.Pure
+                                label="Run time"
+                                help={`Uses the project timezone (${projectTimezone}). Starts within 20 minutes of this time.`}
+                            >
                                 <LemonInput
                                     type="time"
                                     step={60}

@@ -10,12 +10,14 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useAnimatedPresence } from 'lib/hooks/useAnimatedPresence'
 import { cn } from 'lib/utils/css-classes'
 
+import { useThreadSkin } from 'products/posthog_ai/frontend/api/logics'
 import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { SuggestionGroup, maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { InputFormArea, SandboxModeBadge } from './InputFormArea'
 import { QuestionInput } from './QuestionInput'
+import { QuillQuestionInput } from './QuillQuestionInput'
 
 export function SidebarQuestionInput({
     isSticky = false,
@@ -25,6 +27,7 @@ export function SidebarQuestionInput({
     sidePanel?: boolean
 }): JSX.Element | null {
     const { focusCounter, threadVisible } = useValues(maxLogic)
+    const skin = useThreadSkin()
 
     // Use raw state values instead of selector to ensure re-renders on state changes
     const {
@@ -73,12 +76,38 @@ export function SidebarQuestionInput({
 
     // Show form area directly when there's a pending form/approval (even if showInput is false)
     if (activeMultiQuestionForm || hasApprovalToShow || hasSandboxPermissionToShow) {
+        if (skin === 'quill') {
+            return (
+                <div
+                    data-quill
+                    className="w-full max-w-180 self-center px-3 mx-auto bg-[var(--background)]/50 backdrop-blur-sm"
+                >
+                    <div className="rounded-lg border border-border bg-card">
+                        <InputFormArea />
+                    </div>
+                </div>
+            )
+        }
         return (
             <div className="w-full max-w-180 self-center px-3 mx-auto bg-[var(--scene-layout-background)]/50 backdrop-blur-sm">
                 <div className="border border-primary rounded-lg bg-surface-primary">
                     <InputFormArea />
                 </div>
             </div>
+        )
+    }
+
+    if (skin === 'quill') {
+        return (
+            <QuillQuestionInput
+                isSticky={isSticky}
+                textAreaRef={textAreaRef}
+                containerClassName={cn('mx-auto self-center backdrop-blur-sm z-50', sidePanel && 'px-0')}
+                isThreadVisible={threadVisible}
+            >
+                <SandboxModeBadge />
+                <SuggestionsList />
+            </QuillQuestionInput>
         )
     }
 

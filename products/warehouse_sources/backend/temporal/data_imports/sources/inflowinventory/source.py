@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InflowinventorySource(ResumableSource[InflowinventorySourceConfig, InflowInventoryResumeConfig]):
+    codebase_detection = detect(env=("^INFLOWINVENTORY_",))
+
     # Oldest → newest. inFlow's version is a request input (the Accept header), so each pin keeps
     # sending its own label; new sources default to the current stable version.
     supported_versions = (
@@ -64,7 +67,7 @@ class InflowinventorySource(ResumableSource[InflowinventorySourceConfig, InflowI
             name=ExternalDataSourceType.INFLOWINVENTORY,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Inflowinventory",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your inFlow Inventory company ID and API key to pull your inventory and order data into the PostHog Data warehouse.
 
 Find your company ID and create an API key on the **Integrations** page in [inFlow](https://www.inflowinventory.com/). API access requires a paid plan with the API add-on, and the key is only shown once — copy it before leaving the page.

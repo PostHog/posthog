@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class XmattersSource(ResumableSource[XmattersSourceConfig, XmattersResumeConfig]):
+    codebase_detection = detect(env=("^XMATTERS_",))
+
     api_docs_url = "https://help.xmatters.com/xmapi/index.html"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -90,7 +93,7 @@ Use HTTP Basic auth with a REST Web Service User (or an API key as the username 
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

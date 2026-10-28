@@ -22,9 +22,21 @@ export interface insightsModelActions {
     insightSaved: (shortId: InsightShortId) => {
         shortId: InsightShortId
     }
-    insightsAddedToDashboard: ({ dashboardId, insightIds }: { dashboardId: number; insightIds: number[] }) => {
+    insightsAddedToDashboard: ({
+        dashboardId,
+        tiles,
+    }: {
         dashboardId: number
-        insightIds: number[]
+        tiles: {
+            id: number
+            insightId: number
+        }[]
+    }) => {
+        dashboardId: number
+        tiles: {
+            id: number
+            insightId: number
+        }[]
     }
     renameInsight: (item: InsightModel) => {
         item: InsightModel<Node<Record<string, any>>>
@@ -57,9 +69,15 @@ export const insightsModel = kea<insightsModelType>([
         // TODO: this duplicates the insight but not the dashboard tile (e.g. if duplicated from dashboard you lose tile color
         duplicateInsight: (item: InsightModel) => ({ item }),
         duplicateInsightSuccess: (item: InsightModel) => ({ item }),
-        insightsAddedToDashboard: ({ dashboardId, insightIds }: { dashboardId: number; insightIds: number[] }) => ({
+        insightsAddedToDashboard: ({
             dashboardId,
-            insightIds,
+            tiles,
+        }: {
+            dashboardId: number
+            tiles: { id: number; insightId: number }[]
+        }) => ({
+            dashboardId,
+            tiles,
         }),
     })),
     listeners(({ actions }) => ({

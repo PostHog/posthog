@@ -85,6 +85,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "unsubscribes": "Number of unsubscribes recorded against this group.",
         },
     },
+    "unsubscribe_group_suppressions": {
+        "description": "Membership rows of unsubscribe groups: one row per email address suppressed from a group.",
+        "docs_url": "https://www.twilio.com/docs/sendgrid/api-reference/suppressions-suppressions/retrieve-all-suppressions",
+        "columns": {
+            "email": "The email address that was suppressed.",
+            "group_id": "The id of the unsubscribe group that this email address belongs to.",
+            "group_name": "The name of the unsubscribe group that this email address belongs to.",
+            "created_at": "Time at which the suppression was created, as a Unix timestamp.",
+        },
+    },
     "marketing_lists": {
         "description": "Marketing contact lists used to segment recipients for campaigns.",
         "docs_url": "https://www.twilio.com/docs/sendgrid/api-reference/lists/get-all-lists",
@@ -92,6 +102,44 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "id": "Unique identifier for the list.",
             "name": "Name of the list.",
             "contact_count": "Number of contacts on the list.",
+        },
+    },
+    "singlesends": {
+        "description": "Single Sends: one-time Marketing Campaigns emails sent to lists or segments.",
+        "docs_url": "https://www.twilio.com/docs/sendgrid/api-reference/single-sends/get-all-single-sends",
+        "columns": {
+            "id": "Unique identifier for the Single Send.",
+            "name": "Name of the Single Send.",
+            "status": "Current status of the Single Send: draft, scheduled, or triggered.",
+            "categories": "Categories associated with the Single Send.",
+            "send_at": "Time at which the Single Send is scheduled to send, in ISO 8601 format.",
+            "is_abtest": "Whether the A/B test feature is turned on for the Single Send.",
+            "abtest": "Summary of the A/B test settings of the Single Send.",
+            "created_at": "Time at which the Single Send was created, in ISO 8601 format.",
+            "updated_at": "Time at which the Single Send was last updated, in ISO 8601 format.",
+        },
+    },
+    "singlesend_stats": {
+        "description": "Lifetime engagement statistics for each Single Send, such as requests, deliveries, opens, and clicks.",
+        "docs_url": "https://www.twilio.com/docs/sendgrid/api-reference/marketing-campaign-stats/get-all-single-sends-stats",
+        "columns": {
+            "id": "Unique identifier for the Single Send that the statistics are for.",
+            "ab_variation": "The A/B variation of the statistics, or all when the statistics cover every variation.",
+            "ab_phase": "The A/B phase of the statistics (send, test, or all).",
+            "aggregation": "The time unit that the statistics are rolled up to, total for lifetime totals.",
+            "stats": "The metrics: requests, delivered, opens, unique_opens, clicks, unique_clicks, bounces, bounce_drops, invalid_emails, spam_reports, spam_report_drops, and unsubscribes.",
+        },
+    },
+    "singlesend_link_stats": {
+        "description": "Click counts for each link in each Single Send.",
+        "docs_url": "https://www.twilio.com/docs/sendgrid/api-reference/marketing-campaign-stats/get-single-send-click-tracking-stats-by-id",
+        "columns": {
+            "singlesend_id": "Unique identifier for the Single Send that contains the link.",
+            "url": "The URL of the clicked link, including any custom fields in the URL.",
+            "url_location": "The position of the link in the email, numbered from the top down starting at 0.",
+            "ab_variation": "The A/B variation of the statistics, or all when the statistics cover every variation.",
+            "ab_phase": "The A/B phase of the statistics (send, test, or all).",
+            "clicks": "Number of clicks on this link.",
         },
     },
     "templates": {

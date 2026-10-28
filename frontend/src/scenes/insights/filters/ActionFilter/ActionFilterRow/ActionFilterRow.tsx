@@ -803,9 +803,9 @@ export function ActionFilterRow({
                             isWarehouseSeriesNode(node)
                                 ? {
                                       kind: NodeKind.HogQLQuery,
-                                      query: `select ${
-                                          (node as { aggregation_target_field?: string }).aggregation_target_field
-                                      } from ${node.table_name}`,
+                                      // The SQL check appends the filter expression to this select list. Select a
+                                      // constant, because only some warehouse node kinds carry an aggregation target.
+                                      query: `select 1 from ${node.table_name}`,
                                   }
                                 : undefined
                         }

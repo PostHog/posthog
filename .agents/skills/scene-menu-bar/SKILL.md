@@ -80,14 +80,14 @@ visible (greyed out, `cursor-not-allowed`) so the menu set still communicates th
 capabilities to the user.
 
 For menus whose children may render null at runtime (the most common case is
-`<SceneMenuBarFileItems>`, which returns null when no project-tree entry is registered),
+`<SceneMenuBarFileItems>`, which returns null when `sceneFileLogic.hasFileItems` is false: no project-tree
+entry is registered, or the Today layout is on),
 the parent **cannot detect** that the popup will be empty. You must either:
 
 1. **Pass `disabled` explicitly** based on the same value the children depend on, e.g.:
 
    ```tsx
-   const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
-   const hasFileItems = !!projectTreeRefEntry
+   const { hasFileItems } = useValues(sceneFileLogic)
    <SceneMenuBarMenu label="File" disabled={!hasFileItems}>
        {hasFileItems && <SceneMenuBarFileItems dataAttrKey="…" />}
    </SceneMenuBarMenu>
@@ -133,7 +133,7 @@ See `saveTagsInline` in `frontend/src/scenes/feature-flags/featureFlagLogic.ts`.
 
 Use `<SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />` at the bottom of File
 (before the destructive separator) to render Open in project tree, Move to folder,
-Add/Remove starred. It auto-hides when no project-tree entry is registered.
+Add/Remove starred. It auto-hides when `sceneFileLogic.hasFileItems` is false.
 
 ### Right cluster
 
@@ -153,7 +153,7 @@ attribute is set on the wrapper for debugging.
 ## Scenes already migrated
 
 - Feature Flag — `frontend/src/scenes/feature-flags/FeatureFlag.tsx`
-- Insight — `frontend/src/scenes/insights/SidePanel/InsightSceneMenuBar.tsx`
+- Insight — `products/product_analytics/frontend/insights/insightScene/sidePanel/InsightSceneMenuBar.tsx`
 - Dashboard — `frontend/src/scenes/dashboard/DashboardSceneMenuBar.tsx`
 
 When migrating a new scene, follow the `<Scene>SceneMenuBar.tsx` pattern (component

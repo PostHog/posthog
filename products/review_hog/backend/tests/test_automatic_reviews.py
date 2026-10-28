@@ -82,7 +82,7 @@ def _payload(
 
 
 def _label_payload(
-    *, label: str = "reviewhog", sender: str = "OctoCat", sender_type: str = "User", login: str = "OctoCat"
+    *, label: str = "posthog-review", sender: str = "OctoCat", sender_type: str = "User", login: str = "OctoCat"
 ) -> dict[str, object]:
     return {
         **_payload(action="labeled", login=login),
@@ -105,7 +105,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
         dispatcher = WebhookDispatcher(ConsumerRegistry(providers=SPECS, consumers=WEBHOOK_CONSUMERS))
         self.enterContext(patch("posthog.ingress.views.get_dispatcher", return_value=dispatcher))
         self.secret = self.enterContext(
-            patch("posthog.ingress.github.provider.get_instance_setting", return_value=_SECRET)
+            patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value=_SECRET)
         )
 
     def _cache_summary(
@@ -220,16 +220,17 @@ class TestAuthoredPRWebhook(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("person_adds_the_label", "reviewhog", "OctoCat", "User", True),
-            ("label_name_ignores_case", "ReviewHog", "OctoCat", "User", True),
+            ("person_adds_the_label", "posthog-review", "OctoCat", "User", True),
+            ("person_adds_the_retired_label", "reviewhog", "OctoCat", "User", False),
+            ("label_name_ignores_case", "PostHog-Review", "OctoCat", "User", True),
             # The task explains the refusal on the pull request and removes the label.
-            ("bot_adds_the_label", "reviewhog", "renovate[bot]", "Bot", True),
+            ("bot_adds_the_label", "posthog-review", "renovate[bot]", "Bot", True),
             ("another_label", "bug", "OctoCat", "User", False),
         ]
     )
     @patch(_QUEUE)
     @patch(_LABEL_QUEUE)
-    def test_the_reviewhog_label_queues_a_label_review(
+    def test_a_review_label_queues_a_label_review(
         self,
         _name: str,
         label: str,
@@ -507,11 +508,32 @@ class TestLabelReviewTask(BaseTest):
             user_id=self.user.id if run_as == "author" else self.connector.id,
             publish=True,
             trigger_source="label",
+            review_mode="flash",
         )
 
-    @parameterized.expand([("another_bot", "renovate[bot]", False), ("stamphog_hands_off", "stamphog[bot]", True)])
-    def test_only_stamphog_may_label_as_a_bot(self, _name: str, sender: str, starts: bool) -> None:
-        self._run(_label_payload(sender=sender, sender_type="Bot"))
+    def test_a_label_after_a_published_deep_review_runs_deep(self) -> None:
+        # A Standard request after a published Deep review is dropped, so the label would do nothing.
+        ReviewReport.objects.for_team(self.team.id).create(
+            team=self.team,
+            repository="posthog/posthog",
+            pr_number=42,
+            head_branch="feature",
+            base_branch="master",
+            published_heads_by_mode={"full": _HEAD_SHA},
+        )
+
+        self._run(_label_payload())
+
+        assert self.start.call_args.kwargs["review_mode"] == "full"
+
+    @parameterized.expand(
+        [
+            ("another_bot", "posthog-review", "renovate[bot]", False),
+            ("stamphog_hands_off", "posthog-review", "stamphog[bot]", True),
+        ]
+    )
+    def test_only_stamphog_may_label_as_a_bot(self, _name: str, label: str, sender: str, starts: bool) -> None:
+        self._run(_label_payload(label=label, sender=sender, sender_type="Bot"))
 
         assert self.start.called == starts
         calls = [(call.args[0], call.args[1]) for call in self.github.call_args_list]
@@ -519,7 +541,7 @@ class TestLabelReviewTask(BaseTest):
             assert calls == []
         else:
             assert calls == [
-                ("DELETE", "/repos/PostHog/posthog/issues/42/labels/reviewhog"),
+                ("DELETE", "/repos/PostHog/posthog/issues/42/labels/posthog-review"),
                 ("POST", "/repos/PostHog/posthog/issues/42/comments"),
             ]
 
@@ -527,7 +549,12 @@ class TestLabelReviewTask(BaseTest):
         queued = self._queued_event(_label_payload(sender="renovate[bot]", sender_type="Bot"))
         gone = GitHubAPIError("gone", status=404)
         # The second POST fails after GitHub stored the comment, so the third run finds it and skips.
-        self.github.side_effect = [GitHubAPIError("boom", status=502), gone, GitHubAPIError("boom", status=502), gone]
+        self.github.side_effect = [
+            GitHubAPIError("boom", status=502),
+            gone,
+            GitHubAPIError("boom", status=502),
+            gone,
+        ]
         posted = {"body": BOT_LABEL_COMMENT, "user": {"login": "posthog[bot]", "type": "Bot"}}
         self.github_comments.side_effect = [[], [posted]]
 

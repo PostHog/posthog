@@ -26,10 +26,8 @@ This directory contains global workflow templates that are stored in code and ve
 
      ```python
      TEMPLATE_FILES = [
-         "announce_a_new_feature_template.json",
-         "onboarding_started_but_not_completed_template.json",
-         "trial_started_upgrade_nudge_template.json",
          "welcome_email_sequence_template.json",
+         "support-ticket-notification.json",
          "your_new_template.json",  # Add this line
      ]
      ```

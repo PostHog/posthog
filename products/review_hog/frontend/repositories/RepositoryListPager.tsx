@@ -2,13 +2,19 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { ReviewHogRepositoryOverviewRetrieveView } from 'products/review_hog/frontend/generated/api.schemas'
+
 import { PANE_LEFT, PANE_ROW } from './paneClasses'
 import { REPOSITORIES_PAGE_SIZE, reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 
 export function RepositoryListPager(): JSX.Element | null {
-    const { overview, page, pageCount, overviewLoading } = useValues(reviewHogRepositoriesLogic)
+    const { overview, page, pageCount, overviewLoading, requestView } = useValues(reviewHogRepositoriesLogic)
     const { setPage } = useActions(reviewHogRepositoriesLogic)
     if (!overview || overview.total === 0) {
+        return null
+    }
+    // A closed fold leaves the few repositories that differ, which rarely need a second page.
+    if (requestView === ReviewHogRepositoryOverviewRetrieveView.Differs && pageCount <= 1) {
         return null
     }
     const first = page * REPOSITORIES_PAGE_SIZE + 1
@@ -21,8 +27,7 @@ export function RepositoryListPager(): JSX.Element | null {
                 <span translate="no">
                     {first}-{last} of {overview.total}
                 </span>{' '}
-                repositories. Nothing is saved for a repository unless it is selected, has an exception, or has a
-                personal choice.
+                repositories
             </span>
             <span className="flex gap-1">
                 <LemonButton

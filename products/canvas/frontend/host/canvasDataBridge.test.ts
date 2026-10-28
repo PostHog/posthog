@@ -1,6 +1,6 @@
 import api from 'lib/api'
 
-import { canvasesActionsInvoke, canvasesActionsRetrieve } from '../generated/api'
+import { canvasesActionsInvoke, canvasesActionsRetrieve, canvasesToolsInvoke } from '../generated/api'
 import { CanvasDataBridge } from './canvasDataBridge'
 
 jest.mock('../generated/api')
@@ -38,15 +38,37 @@ describe('CanvasDataBridge query routing', () => {
         expect(api.query).not.toHaveBeenCalled()
     })
 
+    const tags = { productKey: 'canvas', scene: 'Canvas' }
+
     test.each([
-        { query: { kind: 'TrendsQuery', series: [{ kind: 'EventsNode', event: '$pageview' }] } },
-        { query: { kind: 'HogQLQuery', query: 'SELECT 1' } },
-        { hogql: 'SELECT 1' },
-    ])('runs a supported query: %j', async (input) => {
+        {
+            input: { query: { kind: 'TrendsQuery', series: [{ kind: 'EventsNode', event: '$pageview' }] } },
+            sent: { kind: 'TrendsQuery', series: [{ kind: 'EventsNode', event: '$pageview' }], tags },
+        },
+        {
+            input: { query: { kind: 'HogQLQuery', query: 'SELECT 1', tags: { productKey: 'spoofed', name: 'n' } } },
+            sent: { kind: 'HogQLQuery', query: 'SELECT 1', tags: { ...tags, name: 'n' } },
+        },
+        {
+            input: { query: { kind: 'DataTableNode', source: { kind: 'HogQLQuery', query: 'SELECT 1' } } },
+            sent: { kind: 'DataTableNode', source: { kind: 'HogQLQuery', query: 'SELECT 1', tags }, tags },
+        },
+        {
+            input: { query: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } } },
+            sent: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [], tags } },
+        },
+        {
+            input: { query: { kind: 'InsightActorsQuery', source: { kind: 'TrendsQuery', series: [] } } },
+            sent: { kind: 'InsightActorsQuery', source: { kind: 'TrendsQuery', series: [], tags }, tags },
+        },
+        {
+            input: { query: { kind: 'WebAnalyticsExternalSummaryQuery', dateRange: {} } },
+            sent: { kind: 'WebAnalyticsExternalSummaryQuery', dateRange: {} },
+        },
+        { input: { hogql: 'SELECT 1' }, sent: { kind: 'HogQLQuery', query: 'SELECT 1', tags } },
+    ])('runs a supported query tagged as canvas: %j', async ({ input, sent }) => {
         await expect(bridge().handle('query', input)).resolves.toEqual({ results: [], columns: [] })
-        expect(api.query).toHaveBeenCalledWith(input.query ?? { kind: 'HogQLQuery', query: input.hogql }, {
-            refresh: 'blocking',
-        })
+        expect(api.query).toHaveBeenCalledWith(sent, { refresh: 'blocking' })
     })
 })
 
@@ -63,7 +85,7 @@ describe('CanvasDataBridge action confirmation', () => {
             description: 'Check the example chart.',
             idempotency_key: 'one',
         }
-        jest.mocked(canvasesActionsRetrieve).mockResolvedValue({ actions: [action] })
+        jest.mocked(canvasesActionsRetrieve).mockResolvedValue({ actions: [action], tools: [] })
         jest.mocked(canvasesActionsInvoke)
             .mockReset()
             .mockResolvedValue({ verb: action.verb, result: { task_id: 'task-1' } })
@@ -96,5 +118,54 @@ describe('CanvasDataBridge action confirmation', () => {
             expect(canvasesActionsInvoke).not.toHaveBeenCalled()
         }
         expect(confirmAction).toHaveBeenCalledWith({ action, payload })
+    })
+
+    const writeTool = {
+        name: 'feature-flag-enable',
+        title: 'Enable feature flag',
+        summary: 'Enable feature flag',
+        read_only: false,
+        destructive: false,
+    }
+    const readTool = { ...writeTool, name: 'feature-flag-get-definition', read_only: true }
+
+    test.each([
+        // A canvas must not change data from a load or render, so reads take read-only tools only.
+        { method: 'toolRead', tool: writeTool, allowed: true, error: 'changes data' },
+        { method: 'toolCall', tool: writeTool, allowed: false, error: 'Canvas tool call canceled' },
+        { method: 'toolCall', tool: writeTool, allowed: true, error: null },
+        { method: 'toolRead', tool: readTool, allowed: false, error: null },
+    ])('$method of $tool.name with approval $allowed', async ({ method, tool, allowed, error }) => {
+        jest.mocked(canvasesActionsRetrieve).mockResolvedValue({ actions: [], tools: [writeTool, readTool] })
+        jest.mocked(canvasesToolsInvoke)
+            .mockReset()
+            .mockResolvedValue({ tool: tool.name, result: { id: 7 } })
+        const confirmAction = jest.fn(async () => allowed)
+        const bridge = new CanvasDataBridge(
+            () => ({
+                projectId: '1',
+                canvasId: 'canvas-1',
+                sourceVersionId: 'v1',
+                captureToken: null,
+                distinctId: null,
+            }),
+            {
+                confirmAction,
+                confirmAgentRequest: jest.fn(),
+                requestConnectorPermission: jest.fn(),
+                hasUserActivation: () => true,
+            }
+        )
+
+        const result = bridge.handle(method, { tool: tool.name, arguments: { id: 7 } })
+
+        if (error) {
+            await expect(result).rejects.toThrow(error)
+            expect(canvasesToolsInvoke).not.toHaveBeenCalled()
+        } else {
+            await expect(result).resolves.toEqual({ id: 7 })
+            expect(canvasesToolsInvoke).toHaveBeenCalledWith('1', 'canvas-1', { tool: tool.name, arguments: { id: 7 } })
+        }
+        expect(confirmAction).toHaveBeenCalledTimes(method === 'toolCall' && !tool.read_only ? 1 : 0)
     })
 })

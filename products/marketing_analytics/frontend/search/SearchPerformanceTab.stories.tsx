@@ -13,7 +13,7 @@ import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-ana
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
 import { mswDecorator } from '~/mocks/browser'
-import { MockSignature, Mocks } from '~/mocks/utils'
+import { MockResolverInfo, MockSignature, Mocks } from '~/mocks/utils'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import {
     AttributionMode,
@@ -240,32 +240,34 @@ const MOCKS: Mocks = {
                         )
                         .map((row) => ({
                             ...row,
-                            posthogConversions: query.includePostHogConversions
-                                ? [
-                                      {
-                                          id: 'signup',
-                                          name: 'Signups',
-                                          conversions: 24,
-                                          costPerConversion: row.cost == null ? null : row.cost / 24,
-                                          previousConversions: query.compareFilter?.compare ? 20 : null,
-                                          previousCostPerConversion:
-                                              query.compareFilter?.compare && row.cost != null
-                                                  ? (row.cost * 1.1) / 20
-                                                  : null,
-                                      },
-                                      {
-                                          id: 'purchase',
-                                          name: 'Purchases',
-                                          conversions: 6,
-                                          costPerConversion: row.cost == null ? null : row.cost / 6,
-                                          previousConversions: query.compareFilter?.compare ? 8 : null,
-                                          previousCostPerConversion:
-                                              query.compareFilter?.compare && row.cost != null
-                                                  ? (row.cost * 1.1) / 8
-                                                  : null,
-                                      },
-                                  ]
-                                : undefined,
+                            posthogConversions:
+                                query.includePostHogConversions &&
+                                (query.breakdown === 'page' || row.platform !== 'GoogleSearchConsole')
+                                    ? [
+                                          {
+                                              id: 'signup',
+                                              name: 'Signups',
+                                              conversions: 24,
+                                              costPerConversion: row.cost == null ? null : row.cost / 24,
+                                              previousConversions: query.compareFilter?.compare ? 20 : null,
+                                              previousCostPerConversion:
+                                                  query.compareFilter?.compare && row.cost != null
+                                                      ? (row.cost * 1.1) / 20
+                                                      : null,
+                                          },
+                                          {
+                                              id: 'purchase',
+                                              name: 'Purchases',
+                                              conversions: 6,
+                                              costPerConversion: row.cost == null ? null : row.cost / 6,
+                                              previousConversions: query.compareFilter?.compare ? 8 : null,
+                                              previousCostPerConversion:
+                                                  query.compareFilter?.compare && row.cost != null
+                                                      ? (row.cost * 1.1) / 8
+                                                      : null,
+                                          },
+                                      ]
+                                    : undefined,
                             previous: query.compareFilter?.compare
                                 ? {
                                       clicks: row.clicks * 0.8,
@@ -325,7 +327,10 @@ const meta: Meta<typeof SearchPerformanceTab> = {
         mockDate: '2025-02-15T12:00:00Z',
         msw: { mocks: MOCKS },
         pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&date_from=-7d`,
-        featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS],
+        featureFlags: [
+            FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS,
+        ],
     },
 }
 export default meta
@@ -406,21 +411,23 @@ export const MixedWithPosition: Story = {
         await expect(canvas.queryByRole('checkbox', { name: 'Show position' })).not.toBeInTheDocument()
     },
 }
+const ORGANIC_TRAFFIC_MOCKS = {
+    get: {
+        '/api/environments/:team_id/external_data_sources/': {
+            results: SOURCES.filter((source) => source.source_type === 'GoogleSearchConsole'),
+            count: 1,
+            next: null,
+            previous: null,
+        },
+    },
+} satisfies Mocks
+
 export const OrganicTraffic: Story = {
     ...Comparison,
     parameters: {
         ...Comparison.parameters,
         msw: {
-            mocks: {
-                get: {
-                    '/api/environments/:team_id/external_data_sources/': {
-                        results: SOURCES.filter((source) => source.source_type === 'GoogleSearchConsole'),
-                        count: 1,
-                        next: null,
-                        previous: null,
-                    },
-                },
-            },
+            mocks: ORGANIC_TRAFFIC_MOCKS,
         },
     },
 }
@@ -511,8 +518,9 @@ export const StaleAggregate: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await expect(await canvas.findByText(/Showing query-and-page data instead/)).toBeVisible()
-        await expect(await canvas.findByText('1,240')).toBeVisible()
+        await expect(await canvas.findByText(/search_analytics_by_query is out of date/)).toBeVisible()
+        await expect(await canvas.findByText('840')).toBeVisible()
+        await expect(canvas.queryByText('1,240')).toBeNull()
     },
 }
 export const UnavailableSources: Story = {
@@ -550,19 +558,21 @@ export const UnavailableSourcesNarrow: Story = {
     ...UnavailableSources,
     decorators: Narrow.decorators,
 }
+const ONLY_GOOGLE_ADS_MOCKS = {
+    get: {
+        '/api/environments/:team_id/external_data_sources/': {
+            results: SOURCES.filter((source) => source.source_type === 'GoogleAds'),
+            count: 1,
+            next: null,
+            previous: null,
+        },
+    },
+} satisfies Mocks
+
 export const OnlyGoogleAds: Story = {
     parameters: {
         msw: {
-            mocks: {
-                get: {
-                    '/api/environments/:team_id/external_data_sources/': {
-                        results: SOURCES.filter((source) => source.source_type === 'GoogleAds'),
-                        count: 1,
-                        next: null,
-                        previous: null,
-                    },
-                },
-            },
+            mocks: ONLY_GOOGLE_ADS_MOCKS,
         },
     },
 }
@@ -589,10 +599,14 @@ export const PlacementUnavailable: Story = {
         expect((await canvas.findAllByRole('button', { name: 'product analytics' })).length).toBeGreaterThan(0)
     },
 }
+const EMPTY_MOCKS = {
+    post: { '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': { results: [] } },
+} satisfies Mocks
+
 export const Empty: Story = {
     parameters: {
         msw: {
-            mocks: { post: { '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': { results: [] } } },
+            mocks: EMPTY_MOCKS,
         },
     },
 }
@@ -608,8 +622,8 @@ export const EmptyGoogleAds: Story = {
     parameters: {
         msw: {
             mocks: {
-                get: OnlyGoogleAds.parameters!.msw.mocks.get,
-                post: Empty.parameters!.msw.mocks.post,
+                get: ONLY_GOOGLE_ADS_MOCKS.get,
+                post: EMPTY_MOCKS.post,
             },
         },
     },
@@ -618,8 +632,8 @@ export const EmptyOrganic: Story = {
     parameters: {
         msw: {
             mocks: {
-                get: OrganicTraffic.parameters!.msw.mocks.get,
-                post: Empty.parameters!.msw.mocks.post,
+                get: ORGANIC_TRAFFIC_MOCKS.get,
+                post: EMPTY_MOCKS.post,
             },
         },
     },
@@ -773,6 +787,35 @@ export const NarrowPositionMetrics: Story = {
 
 export const PostHogConversions: Story = {
     ...Comparison,
+    parameters: {
+        ...Comparison.parameters,
+        msw: {
+            mocks: {
+                ...MOCKS,
+                post: {
+                    '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': async (
+                        info: MockResolverInfo
+                    ) => {
+                        const resolver = MOCKS.post!['/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/']
+                        const result = typeof resolver === 'function' ? await resolver(info) : resolver
+                        const [status, response] = result as [number, { results: MarketingAnalyticsSearchRow[] }]
+                        return [
+                            status,
+                            {
+                                ...response,
+                                results: response.results.map((row) => ({
+                                    ...row,
+                                    page: row.page
+                                        ? `${row.page}/guides/understanding-search-performance-and-conversion-attribution?campaign=organic-search`
+                                        : row.page,
+                                })),
+                            },
+                        ]
+                    },
+                },
+            },
+        },
+    },
     render: function Render(): JSX.Element {
         const { includeConversionGoals } = useValues(marketingAnalyticsLogic)
         const { setAdPerformanceConversionGoals } = useActions(marketingAnalyticsLogic)
@@ -818,6 +861,35 @@ export const PostHogConversions: Story = {
     },
 }
 
+export const PostHogConversionsFlagOff: Story = {
+    ...PostHogConversions,
+    parameters: {
+        ...PostHogConversions.parameters,
+        featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS],
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...teamLogic.values.currentTeam!,
+            marketing_analytics_config: {
+                conversion_goals: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: 'purchase',
+                        conversion_goal_id: 'purchase-goal',
+                        conversion_goal_name: 'Purchases',
+                        schema_map: {},
+                    },
+                ],
+            },
+        })
+        await userEvent.click(await canvas.findByText('Landing pages'))
+        await userEvent.click(await canvas.findByText('Conversions'))
+        await expect(canvas.findByText('Reported conversions')).resolves.toBeVisible()
+        expect(canvas.queryByText('Cost per Purchases')).not.toBeInTheDocument()
+    },
+}
+
 export const PostHogConversionsNarrow: Story = {
     ...PostHogConversions,
     decorators: [
@@ -827,6 +899,22 @@ export const PostHogConversionsNarrow: Story = {
             </div>
         ),
     ],
+}
+
+export const KeywordPostHogConversions: Story = {
+    ...PostHogConversions,
+    play: async (context) => {
+        await PostHogConversions.play?.(context)
+        const canvas = within(context.canvasElement)
+        await userEvent.click(canvas.getByRole('button', { name: 'Keywords and queries' }))
+        await expect(canvas.findByText(/Paid keywords are matched/)).resolves.toBeVisible()
+        await expect(canvas.findByRole('columnheader', { name: /Cost per Purchases/ })).resolves.toBeVisible()
+    },
+}
+
+export const KeywordPostHogConversionsNarrow: Story = {
+    ...KeywordPostHogConversions,
+    decorators: PostHogConversionsNarrow.decorators,
 }
 
 function conversionLoadingMock(state: 'loading' | 'error'): MockSignature {
@@ -910,4 +998,20 @@ export const PostHogConversionsError: Story = {
         ).resolves.toBeVisible()
         await expect(within(canvasElement).findByText('00000000-0000-4000-8000-000000000000')).resolves.toBeVisible()
     },
+}
+
+export const WrappedLandingPages: Story = {
+    ...PostHogConversions,
+    play: async (context) => {
+        await PostHogConversions.play?.(context)
+        const canvas = within(context.canvasElement)
+        await userEvent.click(canvas.getByRole('button', { name: 'Table options' }))
+        await userEvent.click(within(document.body).getByRole('switch', { name: 'Wrap text' }))
+        await userEvent.keyboard('{Escape}')
+    },
+}
+
+export const WrappedLandingPagesNarrow: Story = {
+    ...WrappedLandingPages,
+    decorators: PostHogConversionsNarrow.decorators,
 }

@@ -33,6 +33,7 @@ from products.warehouse_sources_queue.backend.core.metrics import (
     ConsumerMetrics,
     make_consumer_metrics,
 )
+from products.warehouse_sources_queue.backend.core.overlap import GroupJobState, OverlapPolicy, overlap_allows
 from products.warehouse_sources_queue.backend.core.scheduler_state import (
     DecisionRecord,
     DueSchedule,
@@ -70,6 +71,7 @@ __all__ = [
     "Fail",
     "FollowerSpec",
     "GenericJobAdapter",
+    "GroupJobState",
     "HealthState",
     "Job",
     "JobConsumer",
@@ -77,6 +79,7 @@ __all__ = [
     "JobHandler",
     "JobsTable",
     "Outcome",
+    "OverlapPolicy",
     "OwnershipLostError",
     "PendingBatch",
     "PermanentBatchApplyError",
@@ -86,5 +89,6 @@ __all__ = [
     "Success",
     "latest_status_lateral",
     "make_consumer_metrics",
+    "overlap_allows",
     "start_health_server",
 ]

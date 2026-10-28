@@ -1,9 +1,8 @@
 from django.test import TestCase
 
-from posthog.cdp.templates.fixtures import template_slack as slack_template
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
-
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.templates.fixtures import template_slack as slack_template
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 
 
 class TestHogFunctionTemplate(TestCase):
@@ -72,7 +71,7 @@ class TestHogFunctionTemplate(TestCase):
 
     def test_update_existing_template(self):
         """Test updating an existing template with new content"""
-        from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+        from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
         # First create a simple template
         original_dto = HogFunctionTemplateDC(

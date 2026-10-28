@@ -28,6 +28,18 @@ class _XInternalMarkerViewSet(viewsets.ViewSet):
         return Response({"ok": True})
 
 
+def _thing_viewset(operation_id: str, *, org_paths_are_not_duplicates: bool) -> type[viewsets.ViewSet]:
+    class ThingViewSet(viewsets.ViewSet):
+        scope_object = "project"
+        schema_org_paths_are_not_duplicates = org_paths_are_not_duplicates
+
+        @extend_schema(operation_id=operation_id, responses={200: _XInternalMarkerSerializer})
+        def list(self, request: Request) -> Response:
+            return Response({"ok": True})
+
+    return ThingViewSet
+
+
 @extend_schema(responses={200: _XInternalMarkerSerializer}, extensions={"x-internal": True})
 class _XInternalClassMarkerViewSet(viewsets.ViewSet):
     scope_object = "project"
@@ -55,6 +67,21 @@ class _RequestDependentScopesViewSet(viewsets.ViewSet):
 
 
 class TestAPIDocsSchema(APIBaseTest):
+    @parameterized.expand([("duplicate", False, True), ("not_a_duplicate", True, False)])
+    def test_org_path_sharing_a_project_suffix(self, _name: str, opted_out: bool, deprecated: bool) -> None:
+        org_view = _thing_viewset("thing_list", org_paths_are_not_duplicates=opted_out)
+        project_view = _thing_viewset("project_thing_list", org_paths_are_not_duplicates=False)
+        patterns = [
+            path("api/organizations/<str:parent_lookup_organization_id>/thing/", org_view.as_view({"get": "list"})),
+            path("api/projects/<str:parent_lookup_team_id>/thing/", project_view.as_view({"get": "list"})),
+        ]
+
+        schema = SchemaGenerator(patterns=patterns).get_schema(request=None, public=True)
+
+        operation = schema["paths"]["/api/organizations/{organization_id}/thing/"]["get"]
+        assert operation.get("deprecated", False) is deprecated
+        assert operation["operationId"] == ("org_thing_list" if deprecated else "thing_list")
+
     def test_retired_project_environments_route_is_not_in_schema(self) -> None:
         self.client.logout()
 

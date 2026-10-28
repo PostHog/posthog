@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -54,6 +55,8 @@ MISSING_TARGET_BRANCH_ERROR = (
 
 @SourceRegistry.register
 class TrunkIoSource(ResumableSource[TrunkIoSourceConfig, TrunkIoResumeConfig]):
+    codebase_detection = detect(env=("^TRUNK_API_TOKEN$", "^TRUNK_ORG_URL_SLUG$"), npm=("@trunkio/launcher",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.trunk.io/flaky-tests/api"
 
@@ -213,6 +216,7 @@ Create an API token in the Trunk app under Settings > Organization > General > A
                     ),
                     SourceFieldInputConfig(
                         name="repo_owner",
+                        sync_setting=True,
                         label="Repository owner",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -221,6 +225,7 @@ Create an API token in the Trunk app under Settings > Organization > General > A
                     ),
                     SourceFieldInputConfig(
                         name="repo_name",
+                        sync_setting=True,
                         label="Repository name",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -229,6 +234,7 @@ Create an API token in the Trunk app under Settings > Organization > General > A
                     ),
                     SourceFieldInputConfig(
                         name="merge_queue_target_branch",
+                        sync_setting=True,
                         label="Merge queue target branch",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -238,5 +244,5 @@ Create an API token in the Trunk app under Settings > Organization > General > A
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

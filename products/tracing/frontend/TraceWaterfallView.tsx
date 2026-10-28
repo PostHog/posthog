@@ -10,6 +10,16 @@ import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 
+import {
+    buildSpanTree,
+    collectCollapsibleSpanIds,
+    connectorLinesOf,
+    countDescendants,
+    flattenTree,
+    getTimelineTicks,
+    parseTimestampUs,
+    type SpanNode,
+} from './spanTree'
 import type { Span } from './types'
 
 interface TraceWaterfallViewProps {
@@ -24,147 +34,6 @@ interface TraceWaterfallViewProps {
     onLoadMore?: () => void
 }
 
-interface SpanNode {
-    span: Span
-    children: SpanNode[]
-    depth: number
-    isLastChild: boolean
-    connectorLines: boolean[]
-    /** A placeholder for a parent span that is not in the trace. Its children are the spans that point to it. */
-    isMissingParent?: boolean
-}
-
-const MISSING_PARENT_LABEL = '<parent span missing>'
-
-function missingParentNode(parentSpanId: string, child: Span): SpanNode {
-    return {
-        span: {
-            uuid: `missing-parent-${parentSpanId}`,
-            trace_id: child.trace_id,
-            span_id: parentSpanId,
-            parent_span_id: '',
-            name: MISSING_PARENT_LABEL,
-            kind: 0,
-            service_name: '',
-            status_code: 0,
-            timestamp: child.timestamp,
-            end_time: child.timestamp,
-            duration_nano: 0,
-            is_root_span: false,
-            matched_filter: true,
-            attributes: {},
-            resource_attributes: {},
-        },
-        children: [],
-        depth: 0,
-        isLastChild: false,
-        connectorLines: [],
-        isMissingParent: true,
-    }
-}
-
-// A root span has the all-zero OTel parent id, which the API returns as hex ("0000000000000000"), not "".
-function parentSpanIdOf(span: Span): string | null {
-    if (span.is_root_span || !span.parent_span_id || /^0+$/.test(span.parent_span_id)) {
-        return null
-    }
-    return span.parent_span_id
-}
-
-function buildSpanTree(spans: Span[]): SpanNode[] {
-    const byId = new Map<string, SpanNode>()
-    const missingParents = new Map<string, SpanNode>()
-    const roots: SpanNode[] = []
-
-    for (const span of spans) {
-        byId.set(span.span_id, { span, children: [], depth: 0, isLastChild: false, connectorLines: [] })
-    }
-
-    for (const node of byId.values()) {
-        const parentSpanId = parentSpanIdOf(node.span)
-        if (parentSpanId && byId.has(parentSpanId)) {
-            const parent = byId.get(parentSpanId)!
-            parent.children.push(node)
-        } else if (parentSpanId) {
-            let placeholder = missingParents.get(parentSpanId)
-            if (!placeholder) {
-                placeholder = missingParentNode(parentSpanId, node.span)
-                missingParents.set(parentSpanId, placeholder)
-                roots.push(placeholder)
-            }
-            placeholder.children.push(node)
-            // The placeholder sorts with the other roots by its earliest child.
-            if (parseTimestampUs(node.span.timestamp) < parseTimestampUs(placeholder.span.timestamp)) {
-                placeholder.span.timestamp = node.span.timestamp
-                placeholder.span.end_time = node.span.timestamp
-            }
-        } else {
-            roots.push(node)
-        }
-    }
-
-    function setDepths(nodes: SpanNode[], depth: number, parentConnectors: boolean[]): void {
-        for (let i = 0; i < nodes.length; i++) {
-            const node = nodes[i]
-            node.depth = depth
-            node.isLastChild = i === nodes.length - 1
-            node.connectorLines = [...parentConnectors]
-            node.children.sort((a, b) => new Date(a.span.timestamp).getTime() - new Date(b.span.timestamp).getTime())
-            setDepths(node.children, depth + 1, [...parentConnectors, !node.isLastChild])
-        }
-    }
-    setDepths(roots, 0, [])
-
-    return roots
-}
-
-function sortChildren(nodes: SpanNode[]): SpanNode[] {
-    return [...nodes].sort((a, b) => parseTimestampUs(a.span.timestamp) - parseTimestampUs(b.span.timestamp))
-}
-
-function countDescendants(node: SpanNode): number {
-    let total = 0
-    for (const child of node.children) {
-        total += 1 + countDescendants(child)
-    }
-    return total
-}
-
-/** Depth-first flatten for rendering, skipping the subtree of any collapsed span. */
-function flattenTree(nodes: SpanNode[], collapsedSpanIds: Set<string>): SpanNode[] {
-    const result: SpanNode[] = []
-    function walk(node: SpanNode): void {
-        result.push(node)
-        if (collapsedSpanIds.has(node.span.span_id)) {
-            return
-        }
-        for (const child of sortChildren(node.children)) {
-            walk(child)
-        }
-    }
-    for (const root of sortChildren(nodes)) {
-        walk(root)
-    }
-    return result
-}
-
-/** span_ids of every node that has children — the set of spans that can be collapsed. */
-function collectCollapsibleSpanIds(nodes: SpanNode[]): Set<string> {
-    const ids = new Set<string>()
-    function walk(node: SpanNode): void {
-        if (node.children.length > 0) {
-            ids.add(node.span.span_id)
-        }
-        for (const child of node.children) {
-            walk(child)
-        }
-    }
-    for (const root of nodes) {
-        walk(root)
-    }
-    return ids
-}
-
 export function formatDuration(durationNano: number): string {
     const us = durationNano / 1_000
     if (us < 100) {
@@ -177,54 +46,11 @@ export function formatDuration(durationNano: number): string {
     return `${(ms / 1000).toFixed(2)}s`
 }
 
-/**
- * Parse an ISO 8601 timestamp string to microseconds since epoch.
- * `Date.getTime()` only gives millisecond resolution, losing sub-ms
- * precision from timestamps like "2024-01-15T10:30:00.123456Z".
- */
-function parseTimestampUs(iso: string): number {
-    const ms = new Date(iso).getTime()
-    // Extract fractional seconds beyond milliseconds
-    const dot = iso.indexOf('.')
-    if (dot === -1) {
-        return ms * 1_000
-    }
-    // Find the end of fractional digits (before 'Z')
-    const fracEnd = iso.search(/[Z+-](\d\d:\d\d)?$/i)
-    if (fracEnd === -1) {
-        return ms * 1_000
-    }
-    const fracStr = iso.slice(dot + 1, fracEnd)
-    // Pad or truncate to 6 digits (microseconds)
-    const padded = fracStr.padEnd(6, '0').slice(0, 6)
-    const totalUs = parseInt(padded, 10)
-    // ms already includes the first 3 fractional digits, so add the remaining sub-ms part
-    const subMsUs = totalUs % 1_000
-    return ms * 1_000 + subMsUs
-}
-
 export function buildServiceColorMap(spans: Span[]): Map<string, number> {
     const services = [...new Set(spans.map((s) => s.service_name))].sort()
     const map = new Map<string, number>()
     services.forEach((service, i) => map.set(service, i))
     return map
-}
-
-/** Generate evenly spaced tick marks for the timeline (in microseconds) */
-function getTimelineTicks(durationUs: number): number[] {
-    if (durationUs <= 0) {
-        return []
-    }
-    const targetTickCount = 5
-    const rawInterval = durationUs / targetTickCount
-    const magnitude = Math.pow(10, Math.floor(Math.log10(rawInterval)))
-    const niceIntervals = [1, 2, 5, 10]
-    const interval = niceIntervals.find((n) => n * magnitude >= rawInterval)! * magnitude
-    const ticks: number[] = []
-    for (let t = interval; t < durationUs; t += interval) {
-        ticks.push(t)
-    }
-    return ticks
 }
 
 const INDENT_PX = 16
@@ -277,11 +103,12 @@ function TreeIndent({ node }: { node: SpanNode }): JSX.Element | null {
     }
 
     const mid = INDENT_PX / 2
+    const connectorLines = connectorLinesOf(node)
 
     return (
         <span className="flex shrink-0 items-stretch self-stretch overflow-visible">
             {/* Continuation lines for ancestor levels */}
-            {node.connectorLines.slice(0, -1).map((hasContinuation, i) => (
+            {connectorLines.slice(0, -1).map((hasContinuation, i) => (
                 <span
                     key={i}
                     className="shrink-0 relative overflow-visible"

@@ -9,6 +9,7 @@ import psycopg
 from products.warehouse_sources_queue.backend.core.batch_consumer import BatchConsumerConfig, _group_by_key
 from products.warehouse_sources_queue.backend.core.generic_jobs import JOB_LEASE_TABLE, JOB_TABLE, Job, JobsTable
 from products.warehouse_sources_queue.backend.core.jobs_db import PendingBatch
+from products.warehouse_sources_queue.backend.core.overlap import GroupJobState, OverlapPolicy, overlap_allows
 from products.warehouse_sources_queue.backend.sdk.jobs import (
     Fail,
     FollowerSpec,
@@ -116,6 +117,134 @@ class TestEnqueueDedup:
         )
         assert len(ids) == 2
         assert await JobsTable.get_claimable_count(conn, lane=LANE, kinds=[KIND]) == 2
+
+
+@pytest.mark.parametrize(
+    "policy,has_running,has_pending,expected",
+    [
+        pytest.param(OverlapPolicy.SKIP, False, False, True, id="skip_idle_group"),
+        pytest.param(OverlapPolicy.SKIP, True, False, False, id="skip_running"),
+        pytest.param(OverlapPolicy.SKIP, False, True, False, id="skip_pending"),
+        pytest.param(OverlapPolicy.SKIP, True, True, False, id="skip_running_and_pending"),
+        pytest.param(OverlapPolicy.BUFFER_ONE, False, False, True, id="buffer_one_idle_group"),
+        pytest.param(OverlapPolicy.BUFFER_ONE, True, False, True, id="buffer_one_running_buffers"),
+        pytest.param(OverlapPolicy.BUFFER_ONE, False, True, False, id="buffer_one_pending"),
+        pytest.param(OverlapPolicy.BUFFER_ONE, True, True, False, id="buffer_one_running_and_pending"),
+    ],
+)
+def test_overlap_allows(policy: OverlapPolicy, has_running: bool, has_pending: bool, expected: bool) -> None:
+    assert overlap_allows(policy, GroupJobState(has_running=has_running, has_pending=has_pending)) is expected
+
+
+async def _seed_job(
+    conn: psycopg.AsyncConnection[Any],
+    *,
+    state: str,
+    superseded: bool = False,
+    age: str | None = None,
+    **overrides: Any,
+) -> None:
+    job_id = await _insert(conn, **overrides)
+    if state != "pending":
+        await JobsTable.update_status(conn, job_id=job_id, job_state=state, attempt=1)
+    async with conn.cursor() as cur:
+        await cur.execute(
+            f"""
+            UPDATE {JOB_TABLE}
+            SET superseded = %(superseded)s,
+                created_at = CASE WHEN %(age)s::interval IS NULL THEN created_at ELSE now() - %(age)s::interval END
+            WHERE id = %(id)s
+            """,
+            {"superseded": superseded, "age": age, "id": job_id},
+        )
+
+
+IDLE = GroupJobState()
+RUNNING = GroupJobState(has_running=True)
+PENDING = GroupJobState(has_pending=True)
+
+
+@pytest.mark.django_db(transaction=True)
+class TestOverlapPolicy:
+    @pytest.mark.parametrize("policy", list(OverlapPolicy))
+    @pytest.mark.parametrize(
+        "seed,expected_state",
+        [
+            pytest.param(None, IDLE, id="no_job"),
+            pytest.param({"state": "pending"}, PENDING, id="pending"),
+            pytest.param({"state": "executing"}, RUNNING, id="executing"),
+            pytest.param({"state": "waiting_retry"}, RUNNING, id="waiting_retry"),
+            pytest.param({"state": "succeeded"}, IDLE, id="succeeded"),
+            pytest.param({"state": "failed"}, IDLE, id="failed"),
+            pytest.param({"state": "pending", "superseded": True}, IDLE, id="superseded_pending"),
+            pytest.param({"state": "executing", "superseded": True}, IDLE, id="superseded_executing"),
+            pytest.param({"state": "waiting"}, IDLE, id="waiting_is_never_claimed"),
+            pytest.param({"state": "pending", "age": "7 days"}, IDLE, id="pending_past_claim_eligibility"),
+            pytest.param({"state": "waiting_retry", "age": "7 days"}, IDLE, id="waiting_retry_past_claim_eligibility"),
+            pytest.param({"state": "executing", "age": "7 days"}, RUNNING, id="executing_inside_partition_window"),
+            pytest.param({"state": "executing", "age": "15 days"}, IDLE, id="executing_past_partition_window"),
+            pytest.param({"state": "pending", "kind": "test.other"}, IDLE, id="other_kind"),
+            pytest.param({"state": "pending", "lane": "other"}, IDLE, id="other_lane"),
+            pytest.param({"state": "pending", "group_key": "1:group-2"}, IDLE, id="other_group"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_live_state_and_insert_guard_agree(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        policy: OverlapPolicy,
+        seed: dict[str, Any] | None,
+        expected_state: GroupJobState,
+    ) -> None:
+        group_key = JOB_DEFAULTS["group_key"]
+        if seed is not None:
+            await _seed_job(conn, **seed)
+
+        states = await JobsTable.get_group_job_states(conn, kind=KIND, lane=LANE, group_keys=[group_key, "1:absent"])
+        assert states == {group_key: expected_state, "1:absent": IDLE}
+
+        inserted = await _try_insert(conn, overlap_policy=policy)
+        assert (inserted is not None) is overlap_allows(policy, expected_state)
+
+    @pytest.mark.asyncio
+    async def test_lookup_reads_many_groups_in_one_call(self, conn: psycopg.AsyncConnection[Any]) -> None:
+        await _seed_job(conn, state="executing", group_key="1:a", dedup_key="a-running")
+        await _seed_job(conn, state="pending", group_key="1:a", dedup_key="a-pending")
+        await _seed_job(conn, state="pending", group_key="1:b", dedup_key="b-pending")
+        await _seed_job(conn, state="succeeded", group_key="1:c", dedup_key="c-done")
+
+        states = await JobsTable.get_group_job_states(conn, kind=KIND, lane=LANE, group_keys=["1:a", "1:b", "1:c"])
+
+        assert states == {"1:a": GroupJobState(has_running=True, has_pending=True), "1:b": PENDING, "1:c": IDLE}
+
+    @pytest.mark.parametrize(
+        "policy,expected_jobs",
+        [
+            pytest.param(OverlapPolicy.SKIP, 1, id="skip_refuses_behind_running"),
+            pytest.param(OverlapPolicy.BUFFER_ONE, 2, id="buffer_one_buffers_exactly_one"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_repeated_enqueue_behind_a_running_job(
+        self, conn: psycopg.AsyncConnection[Any], policy: OverlapPolicy, expected_jobs: int
+    ) -> None:
+        await _seed_job(conn, state="executing")
+        for _ in range(3):
+            await _try_insert(conn, overlap_policy=policy)
+
+        async with conn.cursor() as cur:
+            await cur.execute(f"SELECT count(*) FROM {JOB_TABLE}")
+            assert await cur.fetchone() == (expected_jobs,)
+
+    @pytest.mark.parametrize("policy", list(OverlapPolicy))
+    @pytest.mark.asyncio
+    async def test_policy_insert_keeps_the_dedup_guard(
+        self, conn: psycopg.AsyncConnection[Any], policy: OverlapPolicy
+    ) -> None:
+        await _seed_job(conn, state="succeeded", dedup_key="k1")
+
+        assert await _try_insert(conn, dedup_key="k1", overlap_policy=policy) is None
+        assert await _try_insert(conn, dedup_key="k2", overlap_policy=policy) is not None
 
 
 @pytest.mark.django_db(transaction=True)

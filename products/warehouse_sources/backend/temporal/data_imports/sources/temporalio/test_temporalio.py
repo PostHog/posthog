@@ -139,6 +139,9 @@ class TestTransientRPCRetry:
             ("namespace rate limit exceeded", RPCStatusCode.RESOURCE_EXHAUSTED),
             ("downstream duration timeout", RPCStatusCode.DEADLINE_EXCEEDED),
             ("dns error", RPCStatusCode.UNAVAILABLE),
+            # tonic's generic fallback for a broken connection — UNKNOWN with no more specific
+            # h2/cancellation detail available — must still be ridden out in-process.
+            ("transport error", RPCStatusCode.UNKNOWN),
         ],
     )
     @patch(

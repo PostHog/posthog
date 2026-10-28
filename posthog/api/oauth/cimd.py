@@ -983,8 +983,7 @@ def _cimd_provisioning_defaults_for(app: OAuthApplication) -> "ProvisioningConfi
     Deliberately narrow. Creating accounts and provisioning resources is the whole point of
     self-serve registration, so those are turned on; no other capability is, because a partner
     that vouched for itself by publishing a document is not the same as one PostHog decided to
-    trust. GitHub grants, wizard runs, deep links and skipped consent are granted by an admin or
-    not at all.
+    trust. Deep links and skipped consent are granted by an admin or not at all.
 
     No rate limits are written here: budgets are derived per request from the partner's tier
     (auth method x verification), so registration and verification change what the partner
@@ -996,7 +995,12 @@ def _cimd_provisioning_defaults_for(app: OAuthApplication) -> "ProvisioningConfi
     the same thing.
     """
     return app.provisioning.model_copy(
-        update={"active": True, "can_create_accounts": True, "can_provision_resources": True}
+        update={
+            "active": True,
+            "can_create_accounts": True,
+            "can_provision_resources": True,
+            "partner_since": timezone.now(),
+        }
     )
 
 

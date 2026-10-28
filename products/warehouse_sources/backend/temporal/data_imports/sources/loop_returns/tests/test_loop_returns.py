@@ -1,20 +1,26 @@
 import json
-from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 from requests import Request, Response
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.loopreturns import (
+    LoopReturnsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.loop_returns import (
     LoopReturnsPaginator,
     LoopReturnsResumeConfig,
     endpoint_permissions,
-    loop_returns_source,
     next_cursor,
     resolve_window_start,
     validate_credentials,
@@ -23,25 +29,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.loop_retur
     LOOP_RETURNS_ENDPOINTS,
     RETURN_STATES,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.source import LoopReturnsSource
 
 WINDOW_START = datetime(2024, 1, 1, tzinfo=UTC)
 API_KEY = "loop_test_key"
 API_VERSION = "v1"
-
-
-class FakeResumableSourceManager(ResumableSourceManager[LoopReturnsResumeConfig]):
-    def __init__(self, state: Optional[LoopReturnsResumeConfig] = None) -> None:
-        self.state = state
-        self.saved: list[LoopReturnsResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self.state is not None
-
-    def load_state(self) -> Optional[LoopReturnsResumeConfig]:
-        return self.state
-
-    def save_state(self, data: LoopReturnsResumeConfig) -> None:
-        self.saved.append(data)
 
 
 def _http_response(body: Any, status_code: int = 200) -> Response:
@@ -180,151 +172,216 @@ class TestResolveWindowStart:
 
 
 class TestLoopReturnsSource:
-    def _drive(
-        self,
-        endpoint: str,
-        responses: list[Response],
-        manager: Optional[FakeResumableSourceManager] = None,
-        **kwargs: Any,
-    ) -> tuple[list[dict[str, Any]], list[Any], FakeResumableSourceManager]:
-        manager = manager or FakeResumableSourceManager()
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            source_response = loop_returns_source(
-                api_key=API_KEY,
-                endpoint=endpoint,
-                team_id=1,
-                job_id="job-1",
-                api_version=API_VERSION,
-                resumable_source_manager=manager,
-                now=WINDOW_START,
-                **kwargs,
-            )
-            rows = [row for batch in cast(Iterable[Any], source_response.items()) for row in batch]
-
-        return sent_params, rows, manager
+    @staticmethod
+    def _driver(start_date: str | None = None) -> SourceDriver:
+        return SourceDriver(LoopReturnsSource(), LoopReturnsSourceConfig(api_key=API_KEY, start_date=start_date))
 
     def test_an_incremental_run_starts_at_the_watermark_and_windows_on_the_chosen_field(self) -> None:
-        sent_params, _, _ = self._drive(
+        result = self._driver().run(
             "returns",
-            [_http_response({"returns": [], "nextPageUrl": None}) for _ in RETURN_STATES],
+            always(ScriptedResponse(json={"returns": [], "nextPageUrl": None})),
             should_use_incremental_field=True,
             db_incremental_field_last_value="2023-12-25T00:00:00Z",
             incremental_field="updated_at",
+            api_version=API_VERSION,
         )
 
-        assert sent_params[0]["from"] == "2023-12-25T00:00:00.000Z"
-        assert sent_params[0]["filter"] == "updated_at"
+        assert result.raised is None
+        assert result.requests[0].param("from") == "2023-12-25T00:00:00.000Z"
+        assert result.requests[0].param("filter") == "updated_at"
 
     def test_a_resumed_run_picks_up_at_the_saved_state_pass(self) -> None:
-        manager = FakeResumableSourceManager(
-            LoopReturnsResumeConfig(window_start="2023-12-31T12:00:00.000Z", state_index=3, cursor="c9")
-        )
-        sent_params, _, _ = self._drive(
+        start = (datetime.now(UTC) - timedelta(days=2)).replace(hour=0, minute=0, second=0, microsecond=0)
+        resumed_window_start = start + timedelta(hours=12)
+        result = self._driver(start.strftime("%Y-%m-%dT%H:%M:%SZ")).run(
             "returns",
-            [_http_response({"returns": [], "nextPageUrl": None}) for _ in range(2)],
-            manager=manager,
-            start_date="2023-12-31T00:00:00Z",
+            always(ScriptedResponse(json={"returns": [], "nextPageUrl": None})),
+            resume_state=LoopReturnsResumeConfig(
+                window_start=resumed_window_start.strftime("%Y-%m-%dT%H:%M:%S.000Z"), state_index=3, cursor="c9"
+            ),
+            api_version=API_VERSION,
         )
 
-        assert sent_params[0]["state"] == RETURN_STATES[3]
-        assert sent_params[0]["cursor"] == "c9"
-        assert sent_params[0]["from"] == "2023-12-31T12:00:00.000Z"
+        assert result.raised is None
+        assert result.requests[0].param("state") == RETURN_STATES[3]
+        assert result.requests[0].param("cursor") == "c9"
+        assert result.requests[0].param("from") == resumed_window_start.strftime("%Y-%m-%dT%H:%M:%S.000Z")
         # The next pass restarts at the configured start date, not the resumed window.
-        assert sent_params[1]["from"] == "2023-12-31T00:00:00.000Z"
+        assert result.requests[1].param("from") == start.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
     def test_destinations_are_not_resumed_or_windowed(self) -> None:
-        manager = FakeResumableSourceManager(
-            LoopReturnsResumeConfig(window_start="2023-12-31T00:00:00.000Z", state_index=2, cursor="c9")
+        result = self._driver().run(
+            "destinations",
+            [ScriptedResponse(json={"destinations": []})],
+            resume_state=LoopReturnsResumeConfig(window_start="2023-12-31T00:00:00.000Z", state_index=2, cursor="c9"),
+            api_version=API_VERSION,
         )
-        sent_params, _, _ = self._drive("destinations", [_http_response({"destinations": []})], manager=manager)
 
-        assert sent_params == [{}]
-        assert manager.saved == []
+        assert result.raised is None
+        assert result.queries == [{}]
+        assert result.saved_states == []
+
+    @pytest.mark.parametrize(
+        ("label", "last_next_page_url"),
+        [
+            ("null_next_link", None),
+        ],
+    )
+    def test_a_cursor_endpoint_walks_pages_until_the_next_link_ends(
+        self, label: str, last_next_page_url: str | None
+    ) -> None:
+        result = self._driver().run(
+            "orders",
+            [
+                ScriptedResponse(
+                    json={
+                        "orders": [{"id": 1}, {"id": 2}],
+                        "next_page_url": "https://api.loopreturns.com/api/v1/orders?cursor=c1",
+                    }
+                ),
+                ScriptedResponse(json={"orders": [{"id": 3}], "next_page_url": last_next_page_url}),
+            ],
+            api_version=API_VERSION,
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [1, 2, 3]
+        assert result.params("cursor") == [None, "c1"]
+        # Our own page size and sort stay on every page, whatever Loop's next link carries.
+        assert result.params("limit") == ["250", "250"]
+        assert result.params("sort_order") == ["asc", "asc"]
+        assert result.saved_states == [LoopReturnsResumeConfig(cursor="c1")]
+
+    @pytest.mark.parametrize(
+        ("label", "second_link", "message"),
+        [
+            ("repeated_cursor", "https://api.loopreturns.com/api/v1/orders?cursor=c1", "not advancing"),
+            ("link_without_cursor", "https://api.loopreturns.com/api/v1/orders?limit=250", "no usable cursor"),
+        ],
+    )
+    def test_a_cursor_endpoint_fails_when_the_next_link_cannot_be_followed(
+        self, label: str, second_link: str, message: str
+    ) -> None:
+        result = self._driver().run(
+            "orders",
+            [
+                ScriptedResponse(
+                    json={"orders": [{"id": 1}], "next_page_url": "https://api.loopreturns.com/api/v1/orders?cursor=c1"}
+                ),
+                ScriptedResponse(json={"orders": [{"id": 2}], "next_page_url": second_link}),
+            ],
+            api_version=API_VERSION,
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert message in str(result.raised)
+
+    def test_a_resumed_cursor_endpoint_starts_at_the_saved_cursor(self) -> None:
+        result = self._driver().run(
+            "customers",
+            [ScriptedResponse(json={"customers": [{"id": 7}], "next_page_url": None})],
+            resume_state=LoopReturnsResumeConfig(cursor="c5"),
+            api_version=API_VERSION,
+        )
+
+        assert result.raised is None
+        assert result.params("cursor") == ["c5"]
+        assert [row["id"] for row in result.rows] == [7]
+
+    def test_product_variants_fan_out_over_every_product(self) -> None:
+        result = self._driver().run(
+            "product_variants",
+            route(
+                {
+                    "/products": [
+                        ScriptedResponse(json={"products": [{"id": 10}, {"id": 20}], "next_page_url": None}),
+                    ],
+                    "/products/10/product-variants": [
+                        ScriptedResponse(
+                            json={
+                                "product_variants": [{"id": 1}],
+                                "next_page_url": "https://api.loopreturns.com/api/v1/products/10/product-variants?cursor=v1",
+                            }
+                        ),
+                        ScriptedResponse(json={"product_variants": [{"id": 2}], "next_page_url": None}),
+                    ],
+                    # A product deleted after the product listing ran.
+                    "/products/20/product-variants": [ScriptedResponse(status=404, json={"message": "Not found"})],
+                }
+            ),
+            api_version=API_VERSION,
+        )
+
+        assert result.raised is None
+        assert [(row["product_id"], row["id"]) for row in result.rows] == [(10, 1), (10, 2)]
+        assert all("_products_id" not in row for row in result.rows)
+        assert result.paths == [
+            "/api/v1/products",
+            "/api/v1/products/10/product-variants",
+            "/api/v1/products/10/product-variants",
+            "/api/v1/products/20/product-variants",
+        ]
+        assert result.params("cursor") == [None, None, "v1", None]
+        assert result.saved_states == []
 
 
 class TestCredentialValidation:
-    def _session(self, responses: list[Response]) -> MagicMock:
-        session = MagicMock()
-        session.get.side_effect = responses
-        return session
-
     @pytest.mark.parametrize(
         ("label", "status_codes", "expected_valid"),
         [
             ("returns_readable", [200], True),
             # A key scoped only for destinations still works, just for fewer tables.
             ("returns_denied_destinations_readable", [401, 200], True),
-            ("everything_denied", [401, 401], False),
-            ("forbidden", [403, 403], False),
-            ("server_error", [500, 500], False),
+            # One probe per scope: returns, destinations, orders, products, then customers.
+            ("only_customers_readable", [401, 401, 401, 401, 200], True),
+            ("everything_denied", [401] * 5, False),
+            ("forbidden", [403] * 5, False),
+            ("server_error", [500], False),
         ],
     )
     def test_validate_credentials(self, label: str, status_codes: list[int], expected_valid: bool) -> None:
-        responses = [_http_response({}, status_code=code) for code in status_codes]
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.loop_returns.make_tracked_session",
-            return_value=self._session(responses),
-        ):
+        responses = [ScriptedResponse(status=code, json={}) for code in status_codes]
+        script = always(responses[0]) if status_codes == [500] else responses
+        with scripted_network(script):
             is_valid, error = validate_credentials(API_KEY, API_VERSION)
 
         assert is_valid is expected_valid
         assert (error is None) is expected_valid
 
     def test_a_denied_key_names_the_scope_to_add(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.loop_returns.make_tracked_session",
-            return_value=self._session([_http_response({}, status_code=401) for _ in range(2)]),
-        ):
+        with scripted_network(always(ScriptedResponse(status=401))):
             _, error = validate_credentials(API_KEY, API_VERSION)
 
         assert error is not None
         assert "Returns" in error
 
-    def test_validating_one_schema_probes_only_that_endpoint(self) -> None:
-        session = self._session([_http_response({"destinations": []})])
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.loop_returns.make_tracked_session",
-            return_value=session,
-        ):
-            is_valid, error = validate_credentials(API_KEY, API_VERSION, schema_name="destinations")
+    @pytest.mark.parametrize(
+        ("schema_name", "expected_url"),
+        [
+            ("destinations", "https://api.loopreturns.com/api/v1/destinations"),
+            # A variant request needs a product id, so the product list stands in for it.
+            ("product_variants", "https://api.loopreturns.com/api/v1/products?limit=1"),
+        ],
+    )
+    def test_validating_one_schema_probes_only_that_endpoint(self, schema_name: str, expected_url: str) -> None:
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            is_valid, error = validate_credentials(API_KEY, API_VERSION, schema_name=schema_name)
 
         assert (is_valid, error) == (True, None)
-        assert session.get.call_args.args[0] == "https://api.loopreturns.com/api/v1/destinations"
+        assert [request.url for request in network.requests_log] == [expected_url]
 
     def test_a_network_failure_is_reported_not_raised(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = RequestsConnectionError("no route to host")
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.loop_returns.make_tracked_session",
-            return_value=session,
-        ):
+        with scripted_network(always(RequestsConnectionError("no route to host"))):
             is_valid, error = validate_credentials(API_KEY, API_VERSION)
 
         assert is_valid is False
         assert error is not None and "no route to host" in error
 
     def test_endpoint_permissions_reports_each_table_separately(self) -> None:
-        responses = [_http_response({}, status_code=200), _http_response({}, status_code=401)]
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.loop_returns.make_tracked_session",
-            return_value=self._session(responses),
-        ):
+        responses = [ScriptedResponse(status=200, json={}), ScriptedResponse(status=401, json={})]
+        with scripted_network(responses):
             permissions = endpoint_permissions(API_KEY, API_VERSION, ["returns", "destinations"])
 
         assert permissions["returns"] is None
         assert permissions["destinations"] is not None
-        assert "Destinations (Read)" in cast(str, permissions["destinations"])
+        assert "Destinations (Read)" in str(permissions["destinations"])

@@ -434,9 +434,10 @@ mod tests {
 
     // Pins the hogvm crate's error formats the Node callers (rust-vm.ts isUnsupportedByRustVm)
     // match on to fall back to the Node VM: `Unknown function <name>` for calling a function the
-    // VM doesn't know, `Unknown Global <chain>` for an unresolvable global chain.
+    // VM doesn't know, `Unknown Global <chain>` for an unresolvable global chain, and
+    // `Not implemented: <what>` for an opcode or input shape the VM has no implementation for.
     #[test]
-    fn unknown_name_error_prefixes_are_the_node_fallback_contract() {
+    fn error_prefixes_are_the_node_fallback_contract() {
         let results = run_batch(
             &call_fn_program("someFunctionNobodyImplements", "x"),
             &[json!({})],
@@ -455,6 +456,26 @@ mod tests {
             .as_deref()
             .unwrap()
             .starts_with("Unknown Global "));
+
+        // extract('year', '2024'): a bare year is an ISO form only luxon reads
+        let extract_bare_year = vec![
+            json!("_H"),
+            json!(1),
+            json!(32),
+            json!("year"),
+            json!(32),
+            json!("2024"),
+            json!(2),
+            json!("extract"),
+            json!(2),
+            json!(38),
+        ];
+        let results = run_batch(&extract_bare_year, &[json!({})], false, None);
+        assert!(results[0]
+            .error
+            .as_deref()
+            .unwrap()
+            .starts_with("Not implemented: "));
     }
 
     #[test]
@@ -548,6 +569,43 @@ mod tests {
             None,
         );
         assert_eq!(results[0].result, Some(json!(false)));
+    }
+
+    #[test]
+    fn parse_user_agent_returns_an_object_for_a_string_and_null_otherwise() {
+        let results = run_batch(
+            &call_fn_program("parseUserAgent", "curl/8.4.0"),
+            &[json!({})],
+            false,
+            None,
+        );
+        assert_eq!(
+            results[0].result,
+            Some(json!({
+                "browser": "curl",
+                "browserVersion": "8.4.0",
+                "os": null,
+                "browserType": "bot-device",
+                "device": "",
+                "deviceType": "Desktop",
+            }))
+        );
+        let results = run_batch(
+            &[
+                json!("_H"),
+                json!(1),
+                json!(33),
+                json!(42),
+                json!(2),
+                json!("parseUserAgent"),
+                json!(1),
+                json!(38),
+            ],
+            &[json!({})],
+            false,
+            None,
+        );
+        assert_eq!(results[0].result, Some(Value::Null));
     }
 
     #[test]

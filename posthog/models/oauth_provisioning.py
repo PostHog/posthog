@@ -17,6 +17,7 @@ to an operator as a capability that was granted.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -68,10 +69,6 @@ class ProvisioningConfig(BaseModel):
 
     can_create_accounts: bool = False
     can_provision_resources: bool = False
-    # Exchanging GitHub OAuth codes and starting cloud wizard runs both act well beyond ordinary
-    # provisioning, so neither follows from being a partner - each is granted on its own.
-    can_use_github_grants: bool = False
-    can_start_wizard_runs: bool = False
 
     # Only for partners trusted enough that the blast radius of the app being compromised is
     # understood: a deep link mints a full web session, and skipping consent links an existing
@@ -84,7 +81,25 @@ class ProvisioningConfig(BaseModel):
 
     # Staff-only. Billing refuses to move an organization to partner billing once the organization
     # has its own Stripe customer, so the partner's organizations must not start self-serve billing.
-    pays_for_customers: bool = False
+    pays_for_customers: bool = Field(
+        default=False,
+        description=(
+            "The partner pays for the organizations it creates, and those organizations can't set up their "
+            "own billing. A provisioning partner needs private_key_jwt client authentication before it can pay."
+        ),
+    )
+
+    # Staff-only, so support can move one partner's deadline without a deploy.
+    unsigned_allowed_until: datetime | None = Field(
+        default=None,
+        description=(
+            "Until when this partner may send provisioning requests without a private_key_jwt signature. "
+            "Replaces the shared grace period for this partner. Blank uses the shared grace period."
+        ),
+    )
+
+    # Stamped at promotion, because the app row can predate the partnership by any amount.
+    partner_since: datetime | None = None
 
     # Per-endpoint hourly overrides, keyed by rate-limit endpoint name. An absent key
     # means the tier-derived budget applies; UNLIMITED_OVERRIDE disables the limit.
@@ -110,3 +125,16 @@ class ProvisioningConfig(BaseModel):
                 continue
             limits[str(key)] = UNLIMITED_OVERRIDE if parsed <= 0 else parsed
         return limits
+
+    @field_validator("unsigned_allowed_until", "partner_since")
+    @classmethod
+    def _read_naive_datetime_as_utc(cls, value: datetime | None) -> datetime | None:
+        # Compared with the aware current time on every request, where a naive value would raise.
+        if value is None or value.tzinfo is not None:
+            return value
+        return value.replace(tzinfo=UTC)
+
+
+PROVISIONING_CAPABILITIES: tuple[str, ...] = tuple(
+    name for name, info in ProvisioningConfig.model_fields.items() if info.annotation is bool
+)

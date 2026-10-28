@@ -4,11 +4,15 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigConverter,
+    SourceFieldSelectConfigOption,
     SourceFieldSSHTunnelConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
@@ -87,6 +91,17 @@ class MSSQLSource(
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
 ):
+    codebase_detection = detect(
+        env=("^MSSQL_",),
+        npm=("mssql", "tedious"),
+        pypi=("pymssql", "mssql-python", "mssql-django"),
+        cargo=("tiberius",),
+        go=("github.com/microsoft/go-mssqldb", "github.com/denisenkom/go-mssqldb"),
+        hex=("tds",),
+        maven=("com.microsoft.sqlserver:mssql-jdbc", "com.microsoft.sqlserver:mssql-jdbc_auth"),
+        rubygems=("tiny_tds", "activerecord-sqlserver-adapter"),
+    )
+
     @property
     def get_implementation(self) -> MSSQLImplementation:
         return _MSSQL_IMPLEMENTATION
@@ -338,11 +353,27 @@ class MSSQLSource(
                     ),
                     SourceFieldInputConfig(
                         name="schema",
+                        sync_setting=True,
                         label="Schema",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="Leave blank to import all schemas",
                         secret=False,
+                    ),
+                    SourceFieldSelectConfig(
+                        name="require_encryption",
+                        label="Require encryption?",
+                        required=True,
+                        defaultValue="false",
+                        converter=SourceFieldSelectConfigConverter.STR_TO_BOOL,
+                        caption=(
+                            "Refuse to connect unless the connection to your database is encrypted. "
+                            "PostHog does not verify the SQL Server certificate."
+                        ),
+                        options=[
+                            SourceFieldSelectConfigOption(label="Yes", value="true"),
+                            SourceFieldSelectConfigOption(label="No", value="false"),
+                        ],
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],

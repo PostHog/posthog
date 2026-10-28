@@ -10,11 +10,14 @@ from rest_framework.exceptions import ValidationError
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GoogleAdsIntegration,
+    GoogleAdsQuotaExhaustedError,
+    GoogleAdsScopeInsufficientError,
     Integration,
     OauthIntegration,
     google_ads_hierarchy_level,
 )
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -23,6 +26,9 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigConverter,
+    SourceFieldSelectConfigOption,
     SourceFieldSwitchGroupConfig,
     SuggestedTable,
 )
@@ -47,6 +53,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
     GoogleAdsSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.change_events import (
+    CHANGE_EVENT_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.configs import (
     GOOGLE_ADS_INITIAL_BACKFILL_DAYS,
@@ -95,6 +104,27 @@ _SCOPE_INSUFFICIENT_ERROR = (
 class GoogleAdsSource(
     ResumableSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, GoogleAdsResumeConfig], OAuthMixin
 ):
+    codebase_detection = detect(
+        env=("^GOOGLE_ADS_", "^GAARF_"),
+        script_hosts=("www.googleadservices.com", "googleads.g.doubleclick.net"),
+        npm=("google-ads-api", "google-ads-node", "google-ads-api-report-fetcher", "@types/google-ads-scripts"),
+        pypi=("google-ads", "google-ads-mcp", "google-ads-api-report-fetcher", "google-ads-stubs"),
+        cargo=("googleads-rs",),
+        cocoapods=("GoogleAdsOnDeviceConversion",),
+        composer=("googleads/google-ads-php",),
+        go=("github.com/shenzhencenter/google-ads-pb",),
+        maven=(
+            "com.google.api-ads:google-ads",
+            "com.google.api-ads:google-ads-bom",
+            "com.google.api-ads:google-ads-shadowjar",
+            "com.google.api-ads:google-ads-stubs-lib",
+            "com.google.api-ads:adwords-axis",
+            "com.google.api-ads:adwords-lib",
+        ),
+        rubygems=("google-ads-googleads", "google-adwords-api"),
+        swiftpm=("github.com/googleads/google-ads-on-device-conversion-ios-sdk",),
+    )
+
     supported_versions = ("v23", "v24", "v25")
     default_version = "v25"
     api_docs_url = "https://developers.google.com/google-ads/api/docs/release-notes"
@@ -223,7 +253,7 @@ class GoogleAdsSource(
             SourceSchema(
                 name=endpoint,
                 supports_incremental=ads_incremental_fields.get(endpoint, None) is not None,
-                supports_append=ads_incremental_fields.get(endpoint, None) is not None,
+                supports_append=endpoint != "change_event" and ads_incremental_fields.get(endpoint, None) is not None,
                 incremental_fields=[
                     {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
                     for column_name, column_type in ads_incremental_fields.get(endpoint, [])
@@ -233,7 +263,9 @@ class GoogleAdsSource(
                 # Only the incremental stats tables (those with a segments.date filter) need the
                 # lookback; the full-refresh dimension tables re-read everything each run anyway.
                 default_incremental_lookback_seconds=(
-                    GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS
+                    CHANGE_EVENT_LOOKBACK_SECONDS
+                    if endpoint == "change_event"
+                    else GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS
                     if ads_incremental_fields.get(endpoint, None) is not None
                     else None
                 ),
@@ -275,6 +307,7 @@ class GoogleAdsSource(
             db_incremental_field_last_value_before_lookback=inputs.db_incremental_field_last_value_before_lookback,
             history_start=inputs.history_start,
             requested_start=config.start_date if isinstance(config, GoogleAdsSourceConfig) else None,
+            skip_removed=isinstance(config, GoogleAdsSourceConfig) and config.skip_removed_keywords,
         )
 
     @property
@@ -309,6 +342,7 @@ class GoogleAdsSource(
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         caption=(
                             "Earliest date to import, as YYYY-MM-DD. On a source that has already "
@@ -320,6 +354,24 @@ class GoogleAdsSource(
                         required=False,
                         placeholder="2020-01-01",
                         secret=False,
+                    ),
+                    SourceFieldSelectConfig(
+                        name="skip_removed_keywords",
+                        sync_setting=True,
+                        label="Skip removed keywords?",
+                        caption=(
+                            "Leave out keywords that are removed, or that sit in a removed ad group or "
+                            "campaign, from the keyword and ad group criterion tables. Every sync reads "
+                            "these tables in full, so removed keywords count towards your billed row "
+                            "usage on each sync."
+                        ),
+                        required=True,
+                        defaultValue="false",
+                        converter=SourceFieldSelectConfigConverter.STR_TO_BOOL,
+                        options=[
+                            SourceFieldSelectConfigOption(label="Yes", value="true"),
+                            SourceFieldSelectConfigOption(label="No", value="false"),
+                        ],
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="is_mcc_account",
@@ -383,6 +435,9 @@ class GoogleAdsSource(
 
         try:
             accounts = GoogleAdsIntegration(integration).list_google_ads_accessible_accounts()
+        except GoogleAdsScopeInsufficientError as e:
+            # Reconnecting alone repeats the same consent screen, so name the permission to allow.
+            raise IntegrationAccountListingError(_SCOPE_INSUFFICIENT_ERROR) from e
         except ValidationError as e:
             # Raised only for a 401/403 from Google: revoked credentials, or the connected account
             # lost access.
@@ -396,6 +451,12 @@ class GoogleAdsSource(
             # a clean message instead of the raw connection error.
             raise IntegrationAccountListingError(
                 "Google Ads did not respond in time while listing your accounts. Please try again."
+            ) from e
+        except GoogleAdsQuotaExhaustedError as e:
+            # Unlike the sync path, no Temporal activity retries this interactive call, so a 429
+            # otherwise surfaces as an unhandled 500 instead of something the user can act on.
+            raise IntegrationAccountListingError(
+                "Google Ads rate-limited this request. Please wait a moment and try again."
             ) from e
 
         names_by_id = {account["id"]: account["name"] for account in accounts}

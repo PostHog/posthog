@@ -13,23 +13,34 @@ from parameterized import parameterized
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 
-from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
+from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.reviewer.artefact_content import (
+    ReviewIssueFinding,
+    TurnMarkerArtefact,
+    ValidationVerdict,
+)
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.models.perspective_selection import ChunkPerspectiveSelection
+from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.models.thread_resolution import CommitHold
-from products.review_hog.backend.reviewer.persistence import persist_findings, persist_verdict, upsert_review_report
+from products.review_hog.backend.reviewer.persistence import (
+    persist_chunk_set,
+    persist_findings,
+    persist_verdict,
+    upsert_review_report,
+)
 from products.review_hog.backend.reviewer.progress import SnapshotStats, TurnStats, run_outcome_markers
-from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_SINGLE_AGENT
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.status_comment import (
     FinalizeStatusCommentInput,
     _splice_resolution_row,
     ensure_status_comment,
     fail_status_comment,
+    failure_marker,
     finalize_status_comment,
     maybe_refresh_status_comment,
     render_final_body,
@@ -43,6 +54,7 @@ from products.review_hog.backend.reviewer.status_comment import (
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised
 from products.review_hog.backend.temporal.activities import _fail_run
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 
 _MODULE = "products.review_hog.backend.reviewer.status_comment"
 _REQUEST = f"{_MODULE}.github_api_request"
@@ -399,6 +411,16 @@ class TestMaybeRefreshStatusComment(BaseTest):
         report.refresh_from_db()
         assert report.status_comment_edited_at is not None and report.status_comment_edited_at > before
 
+    def test_a_standard_turn_leaves_an_earlier_status_comment_alone(
+        self, mock_request: MagicMock, mock_integration: MagicMock
+    ) -> None:
+        _wire_auth(mock_integration)
+        report = self._report(comment_id=555, edited_ago=timedelta(minutes=5))
+
+        maybe_refresh_status_comment(self.team.id, str(report.id), review_mode=REVIEW_MODE_FLASH)
+
+        mock_request.assert_not_called()
+
 
 @patch(_INTEGRATION)
 @patch(_REQUEST)
@@ -497,6 +519,41 @@ class TestFinalizeStatusComment(BaseTest):
         # leave a dead Standard run reading as a Deep one.
         assert body.startswith("### PostHog Review · Standard · couldn't finish reviewing ")
         assert "1 kept, 0 dismissed" in body
+
+    def test_a_failed_rerun_after_an_unpublished_turn_names_the_step_it_died_in(
+        self, mock_request: MagicMock, mock_integration: MagicMock
+    ) -> None:
+        _wire_auth(mock_integration)
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        report.status_comment_id = 555
+        report.run_count = 1
+        report.head_sha = report.completed_head_sha = "a" * 40
+        report.save(update_fields=["status_comment_id", "run_count", "head_sha", "completed_head_sha"])
+        ReviewReportArtefact.add_turn_marker(
+            team_id=self.team.id,
+            report_id=report_id,
+            content=TurnMarkerArtefact(
+                head_sha=report.head_sha,
+                run_index=2,
+                review_mode=REVIEW_MODE_FULL,
+                reviewhog_version="v",
+                reviewhog_fingerprint="f",
+                review_design=REVIEW_DESIGN_PIPELINE,
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+        persist_chunk_set(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha=report.head_sha,
+            chunks=ChunksList(chunks=[Chunk(chunk_id=0, files=[FileInfo(filename="a.py")])]),
+        )
+
+        _fail_run(self.team.id, report_id, review_mode=REVIEW_MODE_FULL)
+
+        body = mock_request.call_args.kwargs["json"]["body"]
+        assert 'The review failed at "Pick perspectives".' in body
 
 
 _DONE_BODY = f"### reviewed\n\n| Step | Status | Result |\n|---|---|---|\n| Publish | done | 1 posted |\n\n{status_marker('rid')}"
@@ -727,3 +784,84 @@ class TestFailRun(BaseTest):
         assert [(m.outcome, m.reason, m.run_index, m.review_mode, m.head_sha) for m in markers] == [
             ("failed", "review_failed", expected_run_index, "flash", report.head_sha)
         ]
+
+
+class TestFailedTurnNotice(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "standard_posts_a_failure_comment",
+                REVIEW_MODE_FLASH,
+                False,
+                False,
+                True,
+                ["/repos/o/r/issues/123/comments"],
+                [],
+            ),
+            # An activity retry finds the comment it already posted for this head.
+            ("standard_posts_once_per_head", REVIEW_MODE_FLASH, False, True, True, [], []),
+            # Temporal retries the turn, and a retry that succeeds must not sit next to a failure notice.
+            ("standard_waits_for_the_last_attempt", REVIEW_MODE_FLASH, False, False, False, [], []),
+            # A Standard turn never edits the status comment an earlier Deep turn left on the report.
+            (
+                "deep_edits_the_status_comment",
+                REVIEW_MODE_FULL,
+                True,
+                False,
+                True,
+                [],
+                ["/repos/o/r/issues/comments/555"],
+            ),
+            # A Standard run that started before the reactions path posted a status comment of its own.
+            (
+                "legacy_standard_edits_its_status_comment",
+                REVIEW_MODE_FLASH,
+                True,
+                False,
+                True,
+                [],
+                ["/repos/o/r/issues/comments/555"],
+            ),
+        ]
+    )
+    @patch(_INTEGRATION)
+    @patch(_PAGINATED)
+    @patch(_REQUEST)
+    def test_failed_turn_tells_the_pr_once(
+        self,
+        _name: str,
+        review_mode: str,
+        uses_status_comment: bool,
+        already_posted: bool,
+        last_attempt: bool,
+        expected_posts: list[str],
+        expected_patches: list[str],
+        mock_request: MagicMock,
+        mock_paginated: MagicMock,
+        mock_integration: MagicMock,
+    ) -> None:
+        _wire_auth(mock_integration)
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        report.status_comment_id = 555
+        report.head_sha = "sha-1"
+        report.save(update_fields=["status_comment_id", "head_sha"])
+        marker = failure_marker(report_id, "sha-1")
+        existing = [{"id": 9, "body": f"x\n{marker}", "user": {"login": "posthog[bot]", "type": "Bot"}}]
+        mock_paginated.return_value = iter(existing if already_posted else [])
+
+        _fail_run(
+            self.team.id,
+            report_id,
+            review_mode=review_mode,
+            last_attempt=last_attempt,
+            uses_status_comment=uses_status_comment,
+        )
+
+        assert _posts(mock_request) == expected_posts
+        assert _patches(mock_request) == expected_patches
+        if expected_posts:
+            body = mock_request.call_args.kwargs["json"]["body"]
+            assert body.startswith("### PostHog Review · Standard · couldn't review `sha-1`")
+            assert "Push a new commit to run it again." in body
+            assert body.endswith(marker)

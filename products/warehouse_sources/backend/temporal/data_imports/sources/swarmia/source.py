@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SwarmiaSource(ResumableSource[SwarmiaSourceConfig, SwarmiaResumeConfig]):
+    codebase_detection = detect(env=("^SWARMIA_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -46,7 +49,7 @@ class SwarmiaSource(ResumableSource[SwarmiaSourceConfig, SwarmiaResumeConfig]):
             name=ExternalDataSourceType.SWARMIA,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Swarmia",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["dora", "engineering metrics", "developer productivity"],
             caption="""Enter your Swarmia API token to pull your engineering metrics reports (pull requests, DORA, investment balance, software capitalization, and effort) into the PostHog Data warehouse.
 

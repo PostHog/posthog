@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Final
 
 from posthog.dataclasses import frozen
 
+from products.review_hog.backend.facade.contracts import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, ReportedPriority
 from products.review_hog.backend.reviewer.review_design import (
     REVIEW_DESIGN_PIPELINE,
@@ -73,13 +74,6 @@ DEFAULT_REVIEW_ARM = ReviewArm(
 )
 
 
-# REVIEW MODE
-# What a single turn runs on, chosen per trigger and carried in the workflow input, never persisted on
-# the report: a flash turn must not change what the PR's next normal review runs on. Plain strings so
-# Temporal payloads stay forward/backward-compatible across deploys, like the trigger sources.
-REVIEW_MODE_FULL = "full"
-REVIEW_MODE_FLASH = "flash"
-
 # REVIEW DESIGN
 # The design a Flash turn runs on by default. Full turns always run on the pipeline. The
 # `reviewhog-flash-pipeline-kill-switch` feature flag overrides it without a deploy
@@ -114,12 +108,12 @@ def select_review_design(review_mode: str, *, kill_switch_on: bool) -> ReviewDes
 REVIEWHOG_VERSIONS: dict[tuple[str, str], tuple[int, int]] = {
     (REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE): (1, 4),
     (REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE): (1, 4),
-    (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 2),
+    (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 3),
 }
 
 
 def reviewhog_version_for_mode(review_mode: str, review_design: str = REVIEW_DESIGN_PIPELINE) -> str:
-    """The version id a turn of this mode and design reports, like a model id: `reviewhog-flash-2-2`."""
+    """The version id a turn of this mode and design reports, like a model id: `reviewhog-flash-2-3`."""
     major, minor = REVIEWHOG_VERSIONS[(review_mode, review_design)]
     return f"reviewhog-{review_mode}-{major}-{minor}"
 
@@ -137,7 +131,7 @@ FLASH_ARM = ReviewArm(
 LEGACY_FLASH_MODE_MESSAGE_PREFIX = "FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review\n"
 
 
-# Every single-agent session runs on this arm, whatever the user's Flash effort setting.
+# The control arm set runs every single-agent session on this arm, whatever the user's Flash effort setting.
 SINGLE_AGENT_FLASH_ARM = ReviewArm(
     runtime_adapter=RuntimeAdapter.CODEX,
     model="gpt-6.1-sol",
@@ -150,10 +144,41 @@ SINGLE_AGENT_PASS_NUMBER = 2000
 SINGLE_AGENT_CHUNK_ID = 1
 SINGLE_AGENT_SOURCE = "flash-single-agent"
 
+
+@frozen
+class SingleAgentArms:
+    """The arms of one single-agent turn: one for the main session, one for every lens session."""
+
+    main: ReviewArm
+    lens: ReviewArm
+
+    def for_pass(self, pass_number: int) -> ReviewArm:
+        return self.main if pass_number == SINGLE_AGENT_PASS_NUMBER else self.lens
+
+
+CONTROL_ARM_SET = "control"
+
+# The `reviewhog-single-agent-arms` flag variant picks a set per PR (`reviewer/feature_flags.py`). Events carry only
+# the name, so every name but control keeps its arms for life. A turn in flight reads its arms by name, so a row
+# leaves only after its variant has been off for a day.
+SINGLE_AGENT_ARM_SETS: dict[str, SingleAgentArms] = {
+    CONTROL_ARM_SET: SingleAgentArms(main=SINGLE_AGENT_FLASH_ARM, lens=SINGLE_AGENT_FLASH_ARM),
+    "gpt-6-1-terra": SingleAgentArms(
+        main=replace(SINGLE_AGENT_FLASH_ARM, model="gpt-6.1-terra", reasoning_effort=ReasoningEffort.HIGH),
+        lens=replace(SINGLE_AGENT_FLASH_ARM, model="gpt-6.1-terra"),
+    ),
+}
+
+
+def single_agent_arms(arm_set: str) -> SingleAgentArms:
+    """The arms of a named set. A name no longer in the table, on a turn that started before a deploy, runs the control set."""
+    return SINGLE_AGENT_ARM_SETS.get(arm_set, SINGLE_AGENT_ARM_SETS[CONTROL_ARM_SET])
+
+
 # Hidden marker stamped on every ReviewHog inline finding comment (publish_review._format_issue_comment)
 # so the resolution stage can recognize its own threads by content. Installation bot logins vary per
 # deployment, so there is no stable login to match on; this marker is the reliable signal. Same
-# HTML-comment style as the review-body / promo / status markers, invisible in rendered markdown.
+# HTML-comment style as the review-body and status markers, invisible in rendered markdown.
 REVIEW_HOG_FINDING_MARKER = "<!-- reviewhog:finding -->"
 
 # A long list would bury the turn's own outcome, so the status comment shows this many of the findings other
@@ -170,6 +195,16 @@ FLASH_MAX_FINDINGS_CEILING = 10
 FLASH_MUST_FIX_CAP_MULTIPLIER = 2
 # A finding on a line next to a change is often about that change.
 FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES = 3
+
+
+# The first review keeps more of what it finds. A finding the cap cuts is recorded only as a dropped finding, so
+# a later turn finds it again and posts it on its own, one push at a time.
+FLASH_FIRST_REVIEW_CAP_MULTIPLIER = 2
+# Turns up to this run review the whole pull request. Run 1 does this with the larger cap above. Each later
+# automatic turn only comments on what its push changed, plus must-fix anywhere, so a fix push draws findings
+# about the fix and not new opinions on code that earlier turns already covered. A review someone requests
+# (comment, label, or UI) is not limited this way and reviews the whole pull request.
+FLASH_WHOLE_PR_TURNS = 1
 
 
 def flash_max_findings(lens_part_count: int) -> int:
@@ -210,6 +245,10 @@ FLASH_LENSES: dict[str, FlashLens] = {
     ),
 }
 
+# One sub-agent per review unit: the main review and every lens part. Codex runs only 3 sub-agents
+# at once by default, so a larger PR would lose the lenses past that.
+COORDINATOR_MAX_SUBAGENTS = 1 + len(FLASH_LENSES) * FLASH_LENS_MAX_CHUNKS
+
 
 def is_single_agent_pass(pass_number: int) -> bool:
     """Whether a persisted review result came from a single-agent session, the main one or a lens.
@@ -234,10 +273,14 @@ def review_arm_for_mode(
     *,
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value,
     review_design: str = REVIEW_DESIGN_PIPELINE,
+    arm_set: str = CONTROL_ARM_SET,
 ) -> ReviewArm:
-    """The arm a turn's review units run on: the flash arm for a flash turn, else the report's own."""
+    """The arm a turn's review units run on: the flash arm for a flash turn, else the report's own.
+
+    A single-agent turn answers with its main session's arm.
+    """
     if review_design == REVIEW_DESIGN_SINGLE_AGENT:
-        return SINGLE_AGENT_FLASH_ARM
+        return single_agent_arms(arm_set).main
     return flash_arm_for_effort(flash_reasoning_effort) if review_mode == REVIEW_MODE_FLASH else persisted
 
 
@@ -442,6 +485,9 @@ FAN_OUT_FAILURE_FLOOR = 0.70
 NON_RETRYABLE_UNIT_FAILURE_CATEGORIES = frozenset(
     {"upstream_request_rejected", "task_spend_limit", "subscription_usage_limit", "content_block_rejection"}
 )
+# Limits on the run rather than on the model, so a session that hits one on a trial arm would hit it on the
+# control arm too and does not fall back.
+RUN_LIMIT_FAILURE_CATEGORIES = frozenset({"task_spend_limit", "subscription_usage_limit"})
 
 # Attempts for a chunk's warm validation session. Retries are cheap — skip-resume re-validates only
 # issues without a persisted verdict. On the final attempt a failed turn is skipped, not raised.

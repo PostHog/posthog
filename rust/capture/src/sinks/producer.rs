@@ -1,4 +1,5 @@
 use common_types::CapturedEventHeaders;
+use futures::channel::oneshot::Canceled;
 use metrics::{counter, histogram};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
@@ -60,35 +61,9 @@ impl Future for DeliveryAckFuture {
                 // Mark before recording so a panic inside the match still disables Drop.
                 self.recorded = true;
                 let elapsed_ms = self.started.elapsed().as_secs_f64() * 1000.0;
-                let (outcome, mapped) = match result {
-                    Err(_) => {
-                        // Cancelled due to timeout while retrying
-                        metrics::counter!("capture_kafka_produce_errors_total").increment(1);
-                        error!("failed to produce to Kafka before write timeout");
-                        ("cancelled", Err(CaptureError::RetryableSinkError))
-                    }
-                    Ok(Err((
-                        KafkaError::MessageProduction(RDKafkaErrorCode::MessageSizeTooLarge),
-                        _,
-                    ))) => {
-                        report_dropped_events("kafka_message_size", 1);
-                        (
-                            "too_large",
-                            Err(CaptureError::EventTooBig(
-                                "Event rejected by kafka broker during ack".to_string(),
-                            )),
-                        )
-                    }
-                    Ok(Err((err, _))) => {
-                        metrics::counter!("capture_kafka_produce_errors_total").increment(1);
-                        error!("failed to produce to Kafka: {err:#}");
-                        ("broker_err", Err(CaptureError::RetryableSinkError))
-                    }
-                    Ok(Ok(_)) => {
-                        metrics::counter!("capture_events_ingested_total").increment(1);
-                        ("ok", Ok(()))
-                    }
-                };
+                let (outcome, mapped) = ack_outcome(
+                    result.map(|delivery| delivery.map(|_| ()).map_err(|(err, _)| err)),
+                );
                 histogram!(
                     "capture_kafka_produce_ack_duration_ms",
                     "outcome" => outcome,
@@ -97,6 +72,53 @@ impl Future for DeliveryAckFuture {
                 .record(elapsed_ms);
                 Poll::Ready(mapped)
             }
+        }
+    }
+}
+
+fn ack_outcome(
+    result: Result<Result<(), KafkaError>, Canceled>,
+) -> (&'static str, Result<(), CaptureError>) {
+    match result {
+        Err(Canceled) => {
+            // The producer was dropped before the delivery report arrived, so
+            // the record may or may not have been written.
+            metrics::counter!("capture_kafka_produce_errors_total").increment(1);
+            error!("Kafka producer dropped before the delivery report arrived");
+            ("cancelled", Err(CaptureError::RetryableSinkError))
+        }
+        Ok(Err(KafkaError::MessageProduction(RDKafkaErrorCode::MessageSizeTooLarge))) => {
+            report_dropped_events("kafka_message_size", 1);
+            (
+                "too_large",
+                Err(CaptureError::EventTooBig(
+                    "Event rejected by kafka broker during ack".to_string(),
+                )),
+            )
+        }
+        Ok(Err(err)) => {
+            metrics::counter!("capture_kafka_produce_errors_total").increment(1);
+            error!("failed to produce to Kafka: {err:#}");
+            ("broker_err", Err(CaptureError::RetryableSinkError))
+        }
+        Ok(Ok(())) => {
+            metrics::counter!("capture_events_ingested_total").increment(1);
+            ("ok", Ok(()))
+        }
+    }
+}
+
+fn send_error(err: &KafkaError) -> CaptureError {
+    match err.rdkafka_error_code() {
+        Some(RDKafkaErrorCode::MessageSizeTooLarge) => {
+            report_dropped_events("kafka_message_size", 1);
+            CaptureError::EventTooBig("Event rejected by kafka during send".to_string())
+        }
+        _ => {
+            // Use error counter, not dropped counter - this is retryable
+            counter!("capture_kafka_produce_errors_total").increment(1);
+            error!("failed to produce event: {err:#}");
+            CaptureError::RetryableSinkError
         }
     }
 }
@@ -150,20 +172,7 @@ impl<C: rdkafka::ClientContext + Send + Sync + 'static> KafkaProducer for RdKafk
                 topic,
                 recorded: false,
             }),
-            Err((e, _)) => match e.rdkafka_error_code() {
-                Some(RDKafkaErrorCode::MessageSizeTooLarge) => {
-                    report_dropped_events("kafka_message_size", 1);
-                    Err(CaptureError::EventTooBig(
-                        "Event rejected by kafka during send".to_string(),
-                    ))
-                }
-                _ => {
-                    // Use error counter, not dropped counter - this is retryable
-                    counter!("capture_kafka_produce_errors_total").increment(1);
-                    error!("failed to produce event: {e:#}");
-                    Err(CaptureError::RetryableSinkError)
-                }
-            },
+            Err((e, _)) => Err(send_error(&e)),
         }
     }
 
@@ -242,5 +251,33 @@ impl KafkaProducer for MockKafkaProducer {
 
     fn flush(&self) -> Result<(), KafkaError> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancelled_ack_is_retriable() {
+        let (outcome, mapped) = ack_outcome(Err(Canceled));
+
+        assert_eq!(outcome, "cancelled");
+        assert!(
+            matches!(mapped, Err(CaptureError::RetryableSinkError)),
+            "{mapped:?}"
+        );
+    }
+
+    #[test]
+    fn queue_full_send_is_retriable() {
+        let err = KafkaError::MessageProduction(RDKafkaErrorCode::QueueFull);
+
+        let mapped = send_error(&err);
+
+        assert!(
+            matches!(mapped, CaptureError::RetryableSinkError),
+            "{mapped:?}"
+        );
     }
 }

@@ -1,8 +1,9 @@
 from uuid import UUID
 
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -13,7 +14,17 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from products.business_knowledge.backend import logic
 from products.business_knowledge.backend.api.serializers import _derive_scope_globs
 from products.business_knowledge.backend.constants import CLASSIFY_MAX_ATTEMPTS
-from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource, SafetyVerdict
+from products.business_knowledge.backend.models import (
+    KnowledgeChunk,
+    KnowledgeDocument,
+    KnowledgeLibrary,
+    KnowledgeLibraryRepository,
+    KnowledgeLibrarySource,
+    KnowledgeSource,
+    SafetyVerdict,
+    SourceStatus,
+    SourceType,
+)
 
 
 @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -358,6 +369,133 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_deleting_a_library_keeps_the_source(self, _ff) -> None:
+        created = self.client.post(self.url, {"name": "Docs", "text": "Pricing is public."}, format="json")
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        source_id = created.json()["id"]
+        library = self.client.post(self._libraries_url(), {"name": "Docs"}, format="json")
+        assert library.status_code == status.HTTP_201_CREATED, library.content
+        library_id = library.json()["id"]
+        patched = self.client.patch(f"{self.url}{source_id}/", {"library_ids": [library_id]}, format="json")
+        assert patched.status_code == status.HTTP_200_OK, patched.content
+        assert patched.json()["library_ids"] == [library_id]
+
+        deleted = self.client.delete(f"{self._libraries_url()}{library_id}/")
+
+        assert deleted.status_code == status.HTTP_204_NO_CONTENT
+        assert KnowledgeSource.objects.unscoped().filter(id=source_id).exists()
+        assert KnowledgeDocument.objects.unscoped().filter(source_id=source_id).exists()
+        assert KnowledgeChunk.objects.unscoped().filter(source_id=source_id).exists()
+        assert not KnowledgeLibrary.objects.unscoped().filter(id=library_id).exists()
+        assert not KnowledgeLibrarySource.objects.unscoped().filter(source_id=source_id).exists()
+
+    def test_library_ids_patch_succeeds_while_a_url_source_is_refreshing(self, _ff) -> None:
+        created = self.client.post(self.url, {"name": "Docs", "text": "Pricing is public."}, format="json")
+        source_id = created.json()["id"]
+        KnowledgeSource.objects.unscoped().filter(id=source_id).update(
+            source_type=SourceType.URL, status=SourceStatus.PROCESSING
+        )
+        library = self.client.post(self._libraries_url(), {"name": "Docs"}, format="json")
+        library_id = library.json()["id"]
+
+        patched = self.client.patch(f"{self.url}{source_id}/", {"library_ids": [library_id]}, format="json")
+
+        assert patched.status_code == status.HTTP_200_OK, patched.content
+        assert patched.json()["library_ids"] == [library_id]
+
+    @parameterized.expand([("source",), ("library",)])
+    def test_a_rejected_patch_keeps_the_old_name(self, _ff, target: str) -> None:
+        created = self.client.post(self.url, {"name": "Docs", "text": "Pricing is public."}, format="json")
+        library = self.client.post(self._libraries_url(), {"name": "Docs"}, format="json")
+        unknown_id = "11111111-1111-1111-1111-111111111111"
+        if target == "source":
+            url = f"{self.url}{created.json()['id']}/"
+            payload = {"name": "Renamed", "library_ids": [unknown_id]}
+        else:
+            url = f"{self._libraries_url()}{library.json()['id']}/"
+            payload = {"name": "Renamed", "source_ids": [unknown_id]}
+
+        response = self.client.patch(url, payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert self.client.get(url).json()["name"] == "Docs"
+
+    def test_list_rejects_library_and_unfiled_together(self, _ff) -> None:
+        response = self.client.get(self.url, {"library_id": "11111111-1111-1111-1111-111111111111", "unfiled": "true"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_library_from_another_team_is_not_found(self, _ff) -> None:
+        from posthog.models.organization import Organization
+        from posthog.models.project import Project
+        from posthog.models.team import Team
+
+        from products.business_knowledge.backend.libraries import create_library
+
+        other_org = Organization.objects.create(name="other_org")
+        other_project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=other_org)
+        other_team = Team.objects.create(id=other_project.id, project=other_project, organization=other_org)
+        library = create_library(other_team.id, "Theirs")
+
+        retrieve = self.client.get(f"{self._libraries_url()}{library.id}/")
+        search = self.client.get(
+            f"/api/projects/{self.team.id}/business_knowledge/documents/search/",
+            {"query": "pricing", "library_id": str(library.id)},
+        )
+
+        assert retrieve.status_code == status.HTTP_404_NOT_FOUND
+        assert search.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("products.business_knowledge.backend.api.libraries.has_github_repos_feature_flag", return_value=True)
+    def test_parent_repo_replace_keeps_a_child_only_link(self, _ff, _repos_flag) -> None:
+        from posthog.models.integration import Integration
+        from posthog.models.scoping import team_scope
+        from posthog.models.team import Team
+        from posthog.models.team.extensions import get_or_create_team_extension
+
+        from products.business_knowledge.backend.models import TeamBusinessKnowledgeConfig
+
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="inst-parent",
+            config={"account": {"name": "Acme"}},
+            created_by=self.user,
+        )
+        parent_config = get_or_create_team_extension(self.team, TeamBusinessKnowledgeConfig)
+        parent_config.github_integration_id = integration.id
+        parent_config.github_repos = ["acme/parent", "acme/shared"]
+        parent_config.save(update_fields=["github_integration_id", "github_repos"])
+        child = Team.objects.create(
+            organization=self.organization,
+            parent_team=self.team,
+            project=self.team.project,
+            name="Child environment",
+        )
+        child_config = get_or_create_team_extension(child, TeamBusinessKnowledgeConfig)
+        child_config.github_repos = ["acme/child-only"]
+        child_config.save(update_fields=["github_repos"])
+        library = self.client.post(self._libraries_url(), {"name": "Repos"}, format="json")
+        library_id = library.json()["id"]
+        with team_scope(self.team.id, canonical=True):
+            KnowledgeLibraryRepository.objects.create(
+                team_id=self.team.id, library_id=library_id, repo="acme/child-only"
+            )
+
+        replaced = self.client.patch(
+            f"{self._libraries_url()}{library_id}/",
+            {"repos": ["acme/parent"]},
+            format="json",
+        )
+
+        assert replaced.status_code == status.HTTP_200_OK, replaced.content
+        assert replaced.json()["repos"] == ["acme/parent"]
+        assert set(
+            KnowledgeLibraryRepository.objects.unscoped().filter(library_id=library_id).values_list("repo", flat=True)
+        ) == {"acme/parent", "acme/child-only"}
+
+    def _libraries_url(self) -> str:
+        return f"/api/projects/{self.team.id}/business_knowledge/libraries/"
 
     def test_lists_live_indexed_urls(self, _ff) -> None:
         from posthog.models.team import Team
@@ -758,7 +896,7 @@ class TestKnowledgeDocumentSearchScopes(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
-class TestDeriveScopeGlobs(BaseTest):
+class TestDeriveScopeGlobs(SimpleTestCase):
     @parameterized.expand(
         [
             ("subpath", "https://posthog.com/docs/support", ["/docs/support", "/docs/support/*"]),

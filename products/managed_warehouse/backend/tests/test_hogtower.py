@@ -298,12 +298,20 @@ class TestWarehouseRoutes:
         {
             ("GET", f"{W}/monitoring/snapshot"): (200, {"sessions": 1}),
             ("GET", f"{W}/monitoring/series"): (200, {"points": []}),
+            ("GET", f"{W}/monitoring/trino/snapshot"): (200, {"queries": []}),
+            ("GET", f"{W}/monitoring/trino/series"): (200, {"points": []}),
         }
     )
-    def test_monitoring_is_passed_through(self, fake: FakeHogtower) -> None:
-        assert _mapped("GET", "/monitoring/snapshot").json() == {"sessions": 1}
+    @pytest.mark.parametrize("engine", ["duckdb", "trino"])
+    def test_monitoring_is_passed_through(self, fake: FakeHogtower, engine: str) -> None:
+        prefix = "/monitoring/trino" if engine == "trino" else "/monitoring"
+        snapshot: dict[str, object] = {"queries": []} if engine == "trino" else {"sessions": 1}
+        response = _mapped("GET", f"{prefix}/snapshot")
+        assert (response.status_code, response.json()) == (200, snapshot)
         params = {"metric": "query_rate", "window": "1h"}
-        assert _mapped("GET", "/monitoring/series", params=params).json() == {"points": []}
+        response = _mapped("GET", f"{prefix}/series", params=params)
+        assert (response.status_code, response.json()) == (200, {"points": []})
+        assert fake.paths == [("GET", f"{W}{prefix}/snapshot"), ("GET", f"{W}{prefix}/series")]
         assert fake.calls[1]["params"] == params
 
 

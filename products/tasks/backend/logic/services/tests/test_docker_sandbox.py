@@ -200,7 +200,7 @@ def test_start_agent_server_stages_the_codex_run_token_again_for_the_branchless_
             repository=None, task_id="t1", run_id="r1", branch="feature", codex_run_token="run-token"
         )
 
-    token_writes = [call for call in write_file.call_args_list if call.args[0] == "/tmp/agent-codex-run-token"]
+    token_writes = [call for call in write_file.call_args_list if call.args[0] == "/run/posthog/agent-codex-run-token"]
     assert len(token_writes) == 2
 
 
@@ -212,7 +212,7 @@ def test_start_agent_server_launch_failure_is_captured(_name: str, capabilities:
 
     def execute(command: str, **kwargs) -> ExecutionResult:
         # Only the launch fails; the bundled-skills clear and the launch prep that precede it succeed.
-        if ENV_DISABLE_BUNDLED_SKILLS in command:
+        if ENV_DISABLE_BUNDLED_SKILLS in command or AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX in command:
             return _preflight_result(capabilities)
         if command.startswith("chmod "):
             return _ok_result()

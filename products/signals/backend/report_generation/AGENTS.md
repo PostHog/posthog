@@ -7,15 +7,16 @@ It is exercised locally via management commands, and it is also used by the prod
 
 - `select_repo.py`
   Selects the most relevant GitHub repository for a set of signals.
-  - If the team has 0 repos: returns `None` (report goes to `pending_input`).
-  - If the team has 1 repo: returns it directly (no sandbox needed).
-  - If the team has N repos: spawns a sandbox agent that uses `gh` CLI to explore candidates and pick the best match. Uses `PostHog/.github` as a small dummy repo for the sandbox clone, since the agent only needs `gh` CLI access (not the repo itself).
+  - If no eligible repo passes the source-visibility check: returns `None` (report goes to `pending_input`).
+  - If 1 eligible repo passes the source-visibility check: returns it directly (no sandbox needed).
+  - If multiple eligible repos pass the source-visibility check: spawns a sandbox agent that uses `gh` CLI to explore candidates and pick the best match. Uses `PostHog/.github` as a small dummy repo for the sandbox clone, since the agent only needs `gh` CLI access (not the repo itself).
   - Output: `RepoSelectionResult(repository: str | None, reason: str)`.
   - Persisted as a `repo_selection` artefact on the report (by the caller activity, not here).
   - On re-promotion, the activity reuses the previous artefact instead of re-running selection.
-  - A repository the signals name themselves is pinned before the agent runs. See `source_repository.py`.
+  - A source repository is the agent's default when eligible. Code ownership, applicable routing rules, and past corrections can override it; matching paths alone do not establish ownership. Equally plausible candidates favor the source. See `source_repository.py`.
+  - Before the shortcut or agent runs, a source not confirmed public restricts destinations to itself when eligible or to confirmed-private candidates. Missing or non-boolean visibility is unconfirmed. The restricted candidates also govern result validation.
 - `source_repository.py`
-  The repository a report's signals were filed against. A GitHub issue names its own repository in its URL, so `select_repo.py` pins it: the selector returns it when the team can reach it, and `repository=None` carrying the mismatch when it cannot, so a PR never lands in a repository the report never pointed at. Only one unambiguous repository counts; issues from two repositories name neither.
+  The repository a report's signals were filed against. A single unambiguous GitHub issue repository supplies a selection default; issues from two repositories supply none. An unavailable source can still route to an eligible confirmed-private repository, or to any eligible repository when the source is confirmed public.
 - `research.py`
   Orchestrates a multi-turn sandbox session over a report's signals.
   The agent researches each signal, then produces:
@@ -31,7 +32,10 @@ It is exercised locally via management commands, and it is also used by the prod
   The repository used for research is tracked separately via the `repo_selection` artefact.
 
 - `ownership_reviewers.py`
-  Matches a finding's relevant code paths against the repository's `owners.yaml` and CODEOWNERS on the connected GitHub repository. When both name different project members, it suggests the `owners.yaml` owner first and the CODEOWNERS owner second. A human reviewer edit prevents subsequent research runs from replacing the selection.
+  Matches a finding's relevant code paths against the repository's `owners.yaml` and CODEOWNERS on the connected GitHub repository. When both name different project members, it suggests the `owners.yaml` owner first and the CODEOWNERS owner second. The artefact write path preserves human pins, exclusions, and confirmed lists during later research.
+
+- `research_reviewers.py`
+  Validates research reviewer decisions against active project members. The `signals-research-reviewer-selection` flag enables this step. Research checks each candidate against the affected behavior, using ownership, substantive work, and scoped corrections. It cites that evidence and returns up to three member UUIDs, or none when evidence is insufficient. Research picks are the report recipients and the ordered candidates for one PR owner. The PR worker chooses the first eligible person with a linked GitHub account and assignment enabled; it never adds a candidate outside the report. Autostart independently confirms the same member through the ownership and commit resolver before applying personal thresholds. Confirmation uses current project access and a linked GitHub identity. Lookup failures retain the existing team fallback and no-runner behavior. An empty decision clears automatic suggestions and records its reason. Missing, malformed, or entirely rejected decisions retain valid existing recipients and record failure; they never invoke the legacy selector while selection is enabled. The artefact write path rechecks access and corrections before saving. Lookup failures leave report findings intact. Human corrections take precedence. Unchanged accepted content does not add reviewer rows. Telemetry records the resolution outcome and whether notification already occurred.
 
 - `team_membership.py`
   Resolves which teams a person belongs to, so a report can be routed at a team slug rather than at a name. Provider-neutral by design (a membership is a slug, a display name, and whether the person maintains the team); the synced GitHub org roster read through the engineering_analytics facade is the only source behind it today.
@@ -43,7 +47,7 @@ It is exercised locally via management commands, and it is also used by the prod
   - Called after the artefact write commits (via `transaction.on_commit` where a transaction is open), never in-transaction: the research activity (`source="pipeline"`), scout report creation and reviewer edits (`"scout"` / `"scout_edit"`), custom-agent persistence (`"custom_agent"`), the app reviewers PUT (`"user_edit"`), and the artefacts POST (`"api"`).
   - Best-effort: failures are logged and never break report generation.
   - Delivery is at-least-once (activity retries re-fire an identical payload) and reviewer edits legitimately re-fire with the new list, so consumers read report state as the latest event per `report_id`, never by counting raw events.
-  - Also emits `signals_suggested_reviewers_unresolved` when a pipeline run resolves no reviewers at all (nothing is persisted for an empty list, so this is the only record of why): the `outcome` (`no_repository`, `no_commit_hashes`, `no_github_integration`, `github_rate_limited`, `no_commit_authors`, `only_bot_authors`, `no_candidates`) plus lookup counters from `ReviewerResolutionDiagnostics` in `resolve_reviewers.py`. Same latest-per-`report_id` read contract, which is why a re-promotion that resolves nobody stays silent when the report's previous reviewers remain its live set.
+  - Also emits `signals_suggested_reviewers_unresolved` when the legacy resolver returns no reviewers (that path persists no empty list, so this is the only record of why): the `outcome` (`no_repository`, `no_commit_hashes`, `no_github_integration`, `github_rate_limited`, `no_commit_authors`, `only_bot_authors`, `no_candidates`) plus lookup counters from `ReviewerResolutionDiagnostics` in `resolve_reviewers.py`. Same latest-per-`report_id` read contract, which is why a re-promotion that resolves nobody stays silent when the report's previous reviewers remain its live set.
   - Two outcomes read narrower than they are: `no_github_integration` also covers an access probe that failed transiently, and `no_repository` never reaches this event (the summary workflow bails to `repo_selection_required` before research runs) — see the comment on `ReviewerResolutionOutcome`.
 - `fixtures/analyze_report_funnel_research_output.json`
   Saved previous research output used by local `update` testing.
@@ -79,6 +83,8 @@ In production, the `update` path is triggered automatically when a `ready` repor
 
 This module is intentionally prompt-orchestration only.
 Production persistence is handled outside `run_multi_turn_research()`, in the caller activity, so this module stays isolated from report DB writes.
+Monitoring metric definitions are offered only with `signals-report-monitoring` enabled. The shared writer validates the reference period, scaling policy, and baseline period. Disabled research contexts omit stored Monitoring definitions. When metrics are enabled, the research, presentation, and verification prompts prefer supported metric checks and evidence-backed shorter windows. Read [Monitoring metric definitions](../../../../docs/internal/signals-pr-lifecycle.md#monitoring-metric-definitions) when changing this contract; execution and final outcomes ship separately.
+
 Fix verification is best-effort. Generation failures do not fail completed research, but cancellation still does.
 Presentation receives the current follow-up checks as untrusted evidence. When verification proposes metric checks, it can return a separate `checks_summary` with Expected impact prose aligned with those goals and baselines, preserving other sections and chart markers. The transition applies that summary only if the matching check reconciliation succeeds. Omitted waits inherit the referenced check’s wait before generating the verification note. Invalid optional check specs leave the presentation summary and existing checks intact.
 
@@ -124,6 +130,13 @@ A figure with no event or action query behind it, such as a database statistic, 
 **`unit` is one word.** A non-currency unit is one lowercase word, such as `users`, `sessions`, `failure`, `ms`, or `s`. A `%` unit is redundant. Revenue uses an uppercase ISO currency code such as `USD`.
 
 The caller activity passes `has_business_knowledge=True` when the team's business knowledge product is both feature-flagged on and has at least one READY source (via `products.business_knowledge.backend.logic.is_available_for_team`). When true, the research prompt includes a `## Business knowledge` block that instructs the agent to search the team's curated knowledge base via MCP tools.
+
+### Tags
+
+The presentation step can also return `tags`, the report's whole slug tag set. The prompt shows the report's current tags and the team's most-used report tags (`report_tags.team_tag_vocabulary`, a query that reads only the team's newest 500 reports), so a run reuses a tag before it invents a near duplicate.
+
+- **A bad tag never fails the run.** `ReportPresentationOutput` coerces `tags` through `report_tags.coerce_report_tags`: it drops each tag that does not normalize and keeps the first `SignalReport.MAX_TAGS`, with a warning. A value that is not a list reads as omitted.
+- **Each pass replaces the whole set, atomically with the prose.** The ready and pending-input transitions write `tags` with the title and summary. `None` (an omitted field, the no-repo branch, or an older workflow history) keeps the stored set.
 
 ### Fleet steering
 

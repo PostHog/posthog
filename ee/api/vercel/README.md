@@ -30,19 +30,28 @@ Create a `.env.vercel` file in the PostHog root directory with your ngrok URL (c
 LOCAL_HTTPS=1
 DEBUG=1
 
-# ngrok tunnel URLs for HTTPS local development (update with your ngrok URL)
+# ngrok tunnel URL for HTTPS local development (update with your ngrok URL)
 SITE_URL=https://your-ngrok-tunnel.ngrok-free.dev
-JS_URL=https://your-ngrok-tunnel.ngrok-free.dev
+# Keep Vite on localhost: the browser loads dev assets from it directly, not through the tunnel
+JS_URL=http://localhost:8234
 WEBPACK_HOT_RELOAD_HOST=0.0.0.0
+
+# Trust ngrok's X-Forwarded-Proto so Django treats tunneled requests as HTTPS
+IS_BEHIND_PROXY=1
+TRUST_ALL_PROXIES=1
 
 # Vercel integration credentials (automatically loaded from 1Password)
 VERCEL_CLIENT_INTEGRATION_ID="op://General/Vercel Client Integration Secret/client id"
 VERCEL_CLIENT_INTEGRATION_SECRET="op://General/Vercel Client Integration Secret/client secret"
+
+# URL slug of your Vercel integration, from vercel.com/integrations/<slug> (defaults to the production slug "posthog")
+VERCEL_INTEGRATION_SLUG=your-integration-slug
 ```
 
 **Notes**:
 
-- If you need to configure CORS for ngrok (e.g., for hot reload or asset loading), you can temporarily modify `frontend/vite.config.ts` to add your ngrok domain to the `cors.origin` array and `allowedHosts`. **Do not commit these changes** - they are for local development only.
+- The first time the tunneled page loads, Chrome asks to let the site access apps on this device. Allow it, or the page stays blank because the Vite requests to `localhost:8234` never start.
+- Start the stack inside flox so `pnpm` is on the path: `flox activate -- op run --env-file=.env.vercel -- hogli up -d`. The stack starts its own ngrok tunnel, so don't run a second one.
 
 ## Step 3: Configure Vercel Integration Settings
 
@@ -92,11 +101,13 @@ Vercel marketplace integrations have two separate flows:
 When a user clicks "Link Existing Account" in the Vercel Marketplace:
 
 1. Vercel opens a popup to our **Redirect URL** (`/connect/vercel/callback`) with an OAuth code
-2. PostHog exchanges the code for an access token via `POST /v2/oauth/access_token`
-3. If the user isn't logged in, they're redirected to `/login` first
-4. The user selects which PostHog organization to link
-5. An `OrganizationIntegration` record is created with `type=connectable`
-6. The popup closes and returns the user to Vercel
+2. The Marketplace request has no `state`, so PostHog sends the popup to Vercel's external install page (`https://vercel.com/integrations/{VERCEL_INTEGRATION_SLUG}/new`) with a random `state`, and stores the same value in a host-only `__Host-` cookie. PostHog keeps the Marketplace's `next` link for the return, and a browser holds at most a few pending `state` cookies
+3. Vercel returns to the Redirect URL with `source=external`, a new code, and the same `state`. PostHog rejects the request when the browser has no matching cookie, or when the request has no `state`
+4. PostHog exchanges the code for an access token via `POST /v2/oauth/access_token`
+5. If the user isn't logged in, they're redirected to `/login` first
+6. The user selects which PostHog organization to link
+7. An `OrganizationIntegration` record is created with `type=connectable`
+8. The popup closes and returns the user to Vercel
 
 Billing stays with PostHog for connected accounts - no billing provider migration is needed.
 
@@ -240,6 +251,7 @@ Before releasing changes to the Vercel integration, manually verify the followin
 
 **Expected**:
 
+- [ ] Popup passes through Vercel's install page once, then returns to `/connect/vercel/callback` with a `state` parameter
 - [ ] Popup opens to PostHog login page (if not already logged in)
 - [ ] After login, org selector is shown with orgs where user is admin/owner
 - [ ] Already-linked orgs are not available for selection

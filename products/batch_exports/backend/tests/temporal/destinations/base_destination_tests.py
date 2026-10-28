@@ -28,11 +28,15 @@ from posthog.temporal.common.logger import BATCH_EXPORT_WORKFLOW_TYPES as LOGGER
 
 from products.batch_exports.backend.models.batch_export import BatchExport
 from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
     BackfillDetails,
     BaseBatchExportInputs,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
     BatchExportField,
-    BatchExportModel,
+    BatchExportPersonsModel,
     BatchExportSchema,
+    BatchExportSessionsModel,
 )
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
@@ -102,8 +106,7 @@ class BaseDestinationTest(ABC):
         data_interval_end: dt.datetime,
         interval: str,
         batch_export: BatchExport,
-        batch_export_model: BatchExportModel | None = None,
-        batch_export_schema: BatchExportSchema | None = None,
+        batch_export_model: AnyBatchExportModel | None = None,
         backfill_details: BackfillDetails | None = None,
         **override_config,
     ):
@@ -114,7 +117,6 @@ class BaseDestinationTest(ABC):
             data_interval_end=data_interval_end.isoformat(),
             interval=interval,
             batch_export_model=batch_export_model,
-            batch_export_schema=batch_export_schema,
             backfill_details=backfill_details,
             integration_id=batch_export.destination.integration_id,
             **{**batch_export.destination.config, **override_config},
@@ -213,7 +215,7 @@ async def _get_records_from_clickhouse(
     data_interval_end: dt.datetime,
     exclude_events: list[str] | None,
     include_events: list[str] | None,
-    batch_export_model: BatchExportModel | BatchExportSchema | None,
+    batch_export_model: AnyBatchExportModel | BatchExportSchema | None,
     backfill_details: BackfillDetails | None,
     expected_fields: list[str] | None,
     destination_default_fields: list[BatchExportField],
@@ -222,15 +224,18 @@ async def _get_records_from_clickhouse(
     """Get records from ClickHouse."""
     json_columns = json_columns or []
     if batch_export_model is not None:
-        if isinstance(batch_export_model, BatchExportModel):
+        if isinstance(batch_export_model, AnyBatchExportModel):
             model_name = batch_export_model.name
-            fields = batch_export_model.schema["fields"] if batch_export_model.schema is not None else None
-            filters = batch_export_model.filters
-            extra_query_parameters = (
-                batch_export_model.schema["values"] if batch_export_model.schema is not None else None
+            schema = batch_export_model.schema if isinstance(batch_export_model, BatchExportEventsCustomModel) else None
+            fields = schema["fields"] if schema is not None else None
+            filters = (
+                batch_export_model.filters
+                if isinstance(batch_export_model, BatchExportEventsModel | BatchExportEventsCustomModel)
+                else None
             )
+            extra_query_parameters = schema["values"] if schema is not None else None
         else:
-            model_name = "custom"
+            model_name = "events"
             fields = batch_export_model["fields"]
             filters = None
             extra_query_parameters = batch_export_model["values"]
@@ -299,7 +304,7 @@ async def assert_clickhouse_records_in_destination(
     data_interval_start: dt.datetime,
     data_interval_end: dt.datetime,
     inputs: BaseBatchExportInputs,
-    batch_export_model: BatchExportModel | BatchExportSchema | None = None,
+    batch_export_model: AnyBatchExportModel | BatchExportSchema | None = None,
     backfill_details: BackfillDetails | None = None,
     expected_fields: list[str] | None = None,
     exclude_events: list[str] | None = None,
@@ -331,7 +336,7 @@ async def assert_clickhouse_records_in_destination(
 
     # Determine sort key based on model
     sort_key = "uuid"
-    if isinstance(batch_export_model, BatchExportModel):
+    if isinstance(batch_export_model, AnyBatchExportModel):
         if batch_export_model.name == "persons":
             sort_key = "person_id"
         elif batch_export_model.name == "sessions":
@@ -377,8 +382,7 @@ class CommonWorkflowTests:
 
     # Common test models used across destinations
     TEST_MODELS = [
-        BatchExportModel(
-            name="a-custom-model",
+        BatchExportEventsCustomModel(
             schema={
                 "fields": [
                     {"expression": "uuid", "alias": "uuid"},
@@ -390,17 +394,15 @@ class CommonWorkflowTests:
                 "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
             },
         ),
-        BatchExportModel(name="events", schema=None),
-        BatchExportModel(
-            name="events",
-            schema=None,
+        BatchExportEventsModel(),
+        BatchExportEventsModel(
             filters=[
                 {"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]},
                 {"key": "$os", "operator": "exact", "type": "event", "value": ["Mac OS X"]},
             ],
         ),
-        BatchExportModel(name="persons", schema=None),
-        BatchExportModel(name="sessions", schema=None),
+        BatchExportPersonsModel(),
+        BatchExportSessionsModel(),
         {
             "fields": [
                 {"expression": "uuid", "alias": "uuid"},
@@ -485,7 +487,7 @@ class CommonWorkflowTests:
         destination_test: BaseDestinationTest,
         interval: str,
         exclude_events: list[str] | None,
-        model: BatchExportModel | BatchExportSchema | None,
+        model: AnyBatchExportModel | BatchExportSchema | None,
         generate_test_data,
         data_interval_start: dt.datetime,
         data_interval_end: dt.datetime,
@@ -498,24 +500,22 @@ class CommonWorkflowTests:
 
         We test this for all models using a single interval.
         """
-        if isinstance(model, BatchExportModel) and model.name != "events" and exclude_events is not None:
+        if isinstance(model, AnyBatchExportModel) and model.name != "events" and exclude_events is not None:
             pytest.skip(
                 f"Unnecessary test case as batch export model '{model.name}' is not affected by 'exclude_events'"
             )
 
-        batch_export_schema: BatchExportSchema | None = None
-        batch_export_model: BatchExportModel | None = None
-        if isinstance(model, BatchExportModel):
+        batch_export_model: AnyBatchExportModel | None = None
+        if isinstance(model, AnyBatchExportModel):
             batch_export_model = model
         elif model is not None:
-            batch_export_schema = model
+            batch_export_model = BatchExportEventsCustomModel(schema=model)
 
         inputs = destination_test.create_batch_export_inputs(
             team_id=ateam.pk,
             data_interval_end=data_interval_end,
             interval=interval,
             batch_export=batch_export_for_destination,
-            batch_export_schema=batch_export_schema,
             batch_export_model=batch_export_model,
         )
 
@@ -531,7 +531,7 @@ class CommonWorkflowTests:
             or run.records_completed == len(persons_to_export_created)
             or run.records_completed
             == len([event for event in events_to_export_created if event["properties"] is not None])
-            or (isinstance(model, BatchExportModel) and model.name == "sessions" and run.records_completed <= 1)
+            or (isinstance(model, AnyBatchExportModel) and model.name == "sessions" and run.records_completed <= 1)
         )
 
         await assert_clickhouse_records_in_destination(
@@ -539,7 +539,7 @@ class CommonWorkflowTests:
             team_id=ateam.pk,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
-            batch_export_model=batch_export_model or batch_export_schema,
+            batch_export_model=batch_export_model,
             exclude_events=exclude_events,
             inputs=inputs,
             integration=integration,
@@ -560,7 +560,7 @@ class CommonWorkflowTests:
             team_id=ateam.pk,
             data_interval_end=data_interval_end,
             interval="hour",
-            batch_export_model=BatchExportModel(name="events", schema=None),
+            batch_export_model=BatchExportEventsModel(),
             batch_export=batch_export_for_destination,
         )
 
@@ -598,7 +598,7 @@ class CommonWorkflowTests:
             team_id=ateam.pk,
             data_interval_end=data_interval_end,
             interval="hour",
-            batch_export_model=BatchExportModel(name="events", schema=None),
+            batch_export_model=BatchExportEventsModel(),
             batch_export=batch_export_for_destination,
         )
 
@@ -633,7 +633,7 @@ class CommonWorkflowTests:
             team_id=ateam.pk,
             data_interval_end=data_interval_end,
             interval="hour",
-            batch_export_model=BatchExportModel(name="events", schema=None),
+            batch_export_model=BatchExportEventsModel(),
             batch_export=batch_export_for_destination,
         )
 

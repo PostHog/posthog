@@ -10,18 +10,24 @@ import { ExternalDataSchemaStatus } from '~/types'
 import { MarketingSourceStatus, marketingAnalyticsLogic } from '../logic/marketingAnalyticsLogic'
 import { nativeSourceDisplayLabel } from '../logic/utils'
 
-export const MarketingAnalyticsSourceStatusBanner = (): JSX.Element | null => {
+export const MarketingAnalyticsSourceStatusBanner = ({
+    hiddenSourceIds = [],
+}: {
+    hiddenSourceIds?: string[]
+}): JSX.Element | null => {
     const { allAvailableSourcesWithStatus, sourceValidationError } = useValues(marketingAnalyticsLogic)
 
-    const sourcesWithIssues = allAvailableSourcesWithStatus.filter(
-        (source) =>
-            source.status === 'Running' ||
-            source.status === 'Failed' ||
-            source.status === 'Paused' ||
-            source.status === 'Cancelled' ||
-            source.status === MarketingSourceStatus.Error ||
-            source.status === MarketingSourceStatus.Warning
-    )
+    const sourcesWithIssues = allAvailableSourcesWithStatus
+        .filter((source) => !hiddenSourceIds.includes(source.id))
+        .filter(
+            (source) =>
+                source.status === 'Running' ||
+                source.status === 'Failed' ||
+                source.status === 'Paused' ||
+                source.status === 'Cancelled' ||
+                source.status === MarketingSourceStatus.Error ||
+                source.status === MarketingSourceStatus.Warning
+        )
 
     if (sourcesWithIssues.length === 0 && !sourceValidationError) {
         return null

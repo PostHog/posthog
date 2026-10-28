@@ -53,7 +53,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, Trigger
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, is_scout_sandbox_request
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     ComposeTicketBurstThrottle,
@@ -292,7 +292,9 @@ class ComposeTicketSerializer(serializers.Serializer):
         help_text="Email subject line.",
     )
     email_config_id = serializers.UUIDField(
-        help_text="ID of the EmailChannel to send from.",
+        required=False,
+        allow_null=True,
+        help_text="ID of the support email channel to send from. Omit it to send from the team's default support channel.",
     )
     message = serializers.CharField(
         max_length=5000,
@@ -783,6 +785,16 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
     # Which search branch safely_get_queryset applied, for the latency histogram.
     _search_path: str | None = None
+
+    def check_permissions(self, request: Request) -> None:
+        super().check_permissions(request)
+        if is_scout_sandbox_request(request):
+            if self.action in {"compose", "note", "delete_note"}:
+                raise PermissionDenied(
+                    "Scouts can add private notes but cannot compose emails or change existing notes."
+                )
+            if self.action in {"update", "partial_update"} and "anonymous_traits" in request.data:
+                raise PermissionDenied("Scouts cannot change customer identity fields.")
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
@@ -1711,6 +1723,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
     def _create_message(self, ticket: Ticket, *, message: str, rich_content: object, is_private: bool) -> Response:
         request = self.request
+        if is_scout_sandbox_request(request) and not is_private:
+            raise PermissionDenied("Scouts can only add private notes. Set is_private to true.")
+
         item_context = {"author_type": "support", "is_private": is_private}
 
         def create_comment() -> Comment:
@@ -1918,6 +1933,22 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        try:
+            message_id = uuid.UUID(data["message_id"])
+        except ValueError:
+            message_id = None
+        if (
+            message_id
+            and Comment.objects.filter(
+                id=message_id,
+                team_id=self.team_id,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                item_context__automated_update_key__isnull=False,
+            ).exists()
+        ):
+            raise ValidationError({"message_id": "Automated updates cannot receive AI feedback."})
+
         ai_triage = ticket.ai_triage or {}
         trace_id = ai_triage.get("ai_trace_id")
         distinct_id = f"reviewer:{request.user.distinct_id}"
@@ -2030,15 +2061,18 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 
-        email_config = EmailChannel.objects.filter(
-            id=data["email_config_id"],
-            team=team,
-            kind=EmailChannelKind.SUPPORT,
-            domain_verified=True,
-        ).first()
+        email_configs = EmailChannel.objects.filter(team=team, kind=EmailChannelKind.SUPPORT, domain_verified=True)
+        if data.get("email_config_id"):
+            email_config = email_configs.filter(id=data["email_config_id"]).first()
+        else:
+            email_config = email_configs.filter(is_default=True).first()
         if not email_config:
             return Response(
-                {"detail": "Email configuration not found or domain not verified."},
+                {
+                    "detail": "Email configuration not found or domain not verified."
+                    if data.get("email_config_id")
+                    else "No default support email channel with a verified domain. Pass email_config_id."
+                },
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 

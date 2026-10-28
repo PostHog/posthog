@@ -45,6 +45,15 @@ posthog:skill-get {"skill_name": "signals-scout-error-tracking"}
 # New idea to test: create the complete definition and config, paused.
 posthog:scout-create {"name": "signals-scout-<scope>", "description": "...", "body": "...", "config": {"enabled": false, "run_interval_minutes": 120}}
 
+# New scout with a product-specific output: scout-create always grants the report tools,
+# so create the skill without them and register its config separately, with the write grant
+# its output needs (see report-contract.md). Make both calls on the parent project: from a child
+# environment, select the parent project first. Where switch-project is not exposed, connect to the parent
+# project directly (see report-contract.md).
+posthog:switch-project {"projectId": <parent project id>}   # only when the active context is a child environment
+posthog:skill-create {"name": "<scope>-scout", "description": "...", "body": "..."}
+posthog:scout-config-create {"skill_name": "<scope>-scout", "run_interval_minutes": 120, "write_scopes": ["<object>:write"]}
+
 # Adapt an existing per-team scout — use the SMALLEST primitive (find/replace, not full-body)
 posthog:skill-get {"skill_name": "signals-scout-<scope>"}          # get current version first
 posthog:skill-update {"skill_name": "signals-scout-<scope>", "base_version": N, "edits": [{"old": "...", "new": "..."}]}

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AvalaraSource(ResumableSource[AvalaraSourceConfig, AvalaraResumeConfig]):
+    codebase_detection = detect(
+        env=("^AVALARA_",),
+        npm=("avatax",),
+        pypi=("avalara",),
+        composer=("avalara/avataxclient", "avalara/avalara_sdk", "avalara/avatax", "avalara/avatax-magento"),
+        maven=("net.avalara.avatax:avatax-rest-v2-api-java_2.11",),
+        rubygems=("avatax", "Avatax_AddressService", "Avatax_TaxService", "avalara_sdk"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -70,7 +80,7 @@ class AvalaraSource(ResumableSource[AvalaraSourceConfig, AvalaraResumeConfig]):
 Use your AvaTax account ID and a license key (found under Settings > License and API Keys). Generating a new license key immediately revokes the previous one. Sandbox and production credentials only work against their matching environment, so pick the one your account was created in.""",
             docsUrl="https://posthog.com/docs/cdp/sources/avalara",
             iconPath="/static/services/avalara.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["avatax", "tax", "sales tax", "sales-tax"],
             fields=cast(
                 list[FieldType],

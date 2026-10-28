@@ -1,6 +1,10 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.langsmith import (
     LangSmithSourceConfig,
 )
@@ -60,19 +64,16 @@ class TestLangSmithSource:
         assert kwargs["enabled_columns"] == ["id", "start_time"]
 
     def test_source_for_pipeline_drops_incremental_value_on_full_refresh(self):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "runs"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-06-01T00:00:00Z"
+        result = SourceDriver(self.source, self.config).run(
+            "runs",
+            [ScriptedResponse(json=[{"id": "session-1"}]), ScriptedResponse(json={"runs": []})],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value="2026-06-01T00:00:00Z",
+        )
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.source.langsmith_source"
-        ) as langsmith_source:
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        _, kwargs = langsmith_source.call_args
         # A stale watermark must not leak into a full-refresh run.
-        assert kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert "start_time" not in result.requests[1].json()
 
     def test_rejected_request_is_non_retryable(self):
         # A 4xx means LangSmith rejected the request we built, so every retry re-sends the same

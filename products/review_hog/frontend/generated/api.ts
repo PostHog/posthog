@@ -233,7 +233,7 @@ export const getReviewHogProjectSettingsRetrieveUrl = (projectId: string) => {
 
 /**
  * The project rule for automatic Standard reviews, bot pull requests, the Deep review defaults, and the connected GitHub installations.
- * @summary Get the project's ReviewHog rule
+ * @summary Get the project's code review rule
  */
 export const reviewHogProjectSettingsRetrieve = async (
     projectId: string,
@@ -251,7 +251,7 @@ export const getReviewHogProjectSettingsPartialUpdateUrl = (projectId: string) =
 
 /**
  * Partially update the project rule. Only the provided fields change. Project admins only.
- * @summary Update the project's ReviewHog rule
+ * @summary Update the project's code review rule
  */
 export const reviewHogProjectSettingsPartialUpdate = async (
     projectId: string,
@@ -559,7 +559,7 @@ export const getReviewHogReviewsListUrl = (projectId: string, params?: ReviewHog
 }
 
 /**
- * Recent ReviewHog reviews on this project: actively running reviews first (with the in-flight turn's stage), then the most recent completed ones — at most `limit` rows (default 5), plus `has_more` for whether a larger `limit` would reveal more. By default only the requesting user's reviews; `scope=everyone` lists every review on the project.
+ * Recent code reviews on this project: actively running reviews first (with the in-flight turn's stage), then the most recent completed ones — at most `limit` rows (default 5), plus `has_more` for whether a larger `limit` would reveal more. By default only the requesting user's reviews; `scope=everyone` lists every review on the project.
  * @summary List recent reviews
  */
 export const reviewHogReviewsList = async (
@@ -594,7 +594,7 @@ export const getReviewHogReviewsRetrieveUrl = (
 }
 
 /**
- * One completed ReviewHog review on this project, with one turn's validated findings, the findings the validator dismissed (and why), and the review body published to GitHub. The latest completed turn by default; `run_index` reads an older one. `in_progress`, `progress`, and the resolution fields describe the report now, whatever the turn. Project-wide, so reviews listed under `scope=everyone` can be opened too.
+ * One completed code review on this project, with one turn's validated findings, the findings the validator dismissed (and why), and the review body published to GitHub. The latest completed turn by default; `run_index` reads an older one. `in_progress`, `progress`, and the resolution fields describe the report now, whatever the turn. Project-wide, so reviews listed under `scope=everyone` can be opened too.
  * @summary Retrieve one review's detail
  */
 export const reviewHogReviewsRetrieve = async (
@@ -663,7 +663,7 @@ export const getReviewHogReviewsPrStatusRetrieveUrl = (
 }
 
 /**
- * Where a pull request's ReviewHog runs stand: `state`, the latest completed review turn, and the latest Resolve run. Works for any pull request on the project, also ones the caller did not trigger. Pass the `requested_at` and `head_sha` the trigger returned, and the `run_mode` it was called with, to get `request_outcome`, which says when that request is done.
+ * Where a pull request's review runs stand: `state`, the latest completed review turn, and the latest Resolve run. Works for any pull request on the project, also ones the caller did not trigger. Pass the `requested_at` and `head_sha` the trigger returned, and the `run_mode` it was called with, to get `request_outcome`, which says when that request is done.
  * @summary Look up a pull request's review status
  */
 export const reviewHogReviewsPrStatusRetrieve = async (
@@ -697,7 +697,7 @@ export const getReviewHogReviewsTableRetrieveUrl = (
 }
 
 /**
- * ReviewHog reviews on this project as a paginated table: reviews with a completed turn plus reviews with a run in flight, ordered by last activity, so a review that starts or finishes moves to the top. Pages with `limit` and `offset`; `count` is the total across pages. Filters by `repository`, `review_mode`, `status`, and `published`. `running_count` counts the running reviews under every filter except `status`. By default only the requesting user's reviews; `scope=everyone` lists every review on the project.
+ * Code reviews on this project as a paginated table: reviews with a completed turn plus reviews with a run in flight, ordered by last activity, so a review that starts or finishes moves to the top. Pages with `limit` and `offset`; `count` is the total across pages. Filters by `repository`, `review_mode`, `status`, and `published`. `running_count` counts the running reviews under every filter except `status`. By default only the requesting user's reviews; `scope=everyone` lists every review on the project.
  * @summary List reviews as a paginated table
  */
 export const reviewHogReviewsTableRetrieve = async (
@@ -716,7 +716,7 @@ export const getReviewHogReviewsTriggerCreateUrl = (projectId: string) => {
 }
 
 /**
- * Start a ReviewHog review of any pull request the project's GitHub App installation can access, and publish it back to the PR. The run appears under the requesting user's recent reviews. A Deep review uses the requester's enabled perspectives, blind-spot check, validator, and urgency threshold; a Standard review uses none of them. Resolution writes to the branch only when the pull request owner opted in, whoever asks. `run_mode` picks the variant: 'review' is a Deep review that chains the resolution stage per the owner's resolve_comments setting, 'review_only' is a Deep review without resolving, 'resolve_only' runs resolution only, and 'flash' is a lower-cost Standard review that never resolves comments and is refused after a published Deep review. Nonexistent, closed, and fork PRs are rejected synchronously. A PR whose current commit already has a published review in the requested mode returns 'already_reviewed' without starting a run (resolve_only skips that check, because settling threads on a reviewed head is its whole point). A request while a review runs is queued on that PR's run. Otherwise non-blocking: returns immediately with the PR's head, the review's id when one exists, and whether resolution will run, while the run executes in the worker.
+ * Start a PostHog Review run on any pull request the project's GitHub App installation can access, and publish it back to the PR. The run appears under the requesting user's recent reviews. A Deep review uses the requester's enabled perspectives, blind-spot check, validator, and urgency threshold; a Standard review uses none of them. Resolution writes to the branch only when the pull request owner opted in, whoever asks. `run_mode` picks the variant: 'review' is a Deep review that chains the resolution stage per the owner's resolve_comments setting, 'review_only' is a Deep review without resolving, 'resolve_only' runs resolution only, and 'flash' is a lower-cost Standard review that never resolves comments and is refused after a published Deep review. Nonexistent, closed, and fork PRs are rejected synchronously. A PR whose current commit already has a published review in the requested mode returns 'already_reviewed' without starting a run (resolve_only skips that check, because settling threads on a reviewed head is its whole point). A request while a review runs is queued on that PR's run. Otherwise non-blocking: returns immediately with the PR's head, the review's id when one exists, and whether resolution will run, while the run executes in the worker.
  * @summary Start a review of a pull request
  */
 export const reviewHogReviewsTriggerCreate = async (
@@ -737,8 +737,8 @@ export const getReviewHogSettingsRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * Fetch the requesting user's effective ReviewHog preferences for this project, and where each value comes from.
- * @summary Get the user's ReviewHog settings
+ * Fetch the requesting user's effective code review preferences for this project, and where each value comes from.
+ * @summary Get the user's code review settings
  */
 export const reviewHogSettingsRetrieve = async (
     projectId: string,
@@ -755,8 +755,8 @@ export const getReviewHogSettingsPartialUpdateUrl = (projectId: string) => {
 }
 
 /**
- * Partially update the requesting user's ReviewHog preferences for this project. Only the provided fields change. A value equal to the inherited one clears the user's own value.
- * @summary Update the user's ReviewHog settings
+ * Partially update the requesting user's code review preferences for this project. Only the provided fields change. A value equal to the inherited one clears the user's own value.
+ * @summary Update the user's code review settings
  */
 export const reviewHogSettingsPartialUpdate = async (
     projectId: string,

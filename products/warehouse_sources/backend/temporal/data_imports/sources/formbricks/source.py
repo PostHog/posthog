@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,6 +40,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FormbricksSource(ResumableSource[FormbricksSourceConfig, FormbricksResumeConfig]):
+    codebase_detection = detect(
+        env=("^FORMBRICKS_",),
+        npm=("@formbricks/js", "@formbricks/react-native", "@formbricks/api"),
+        cocoapods=("FormbricksSDK",),
+        maven=("com.formbricks:android",),
+        pub=("formbricks",),
+        swiftpm=("github.com/formbricks/ios",),
+    )
+
     supported_versions = FORMBRICKS_SUPPORTED_VERSIONS
     default_version = FORMBRICKS_DEFAULT_VERSION
     api_docs_url = "https://formbricks.com/docs/api-reference/rest-api"
@@ -61,7 +71,7 @@ class FormbricksSource(ResumableSource[FormbricksSourceConfig, FormbricksResumeC
             name=ExternalDataSourceType.FORMBRICKS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Formbricks",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Sync surveys, responses, contacts, and more from Formbricks into the PostHog Data warehouse.
 
 Create an API key under **Organization settings → API keys** in Formbricks. API keys are scoped to a single environment, so the connector imports that environment's data.

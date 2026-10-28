@@ -25,6 +25,7 @@ import type {
     ExperimentVariantsReadoutApi,
     InlineScanRequestApi,
     InlineScanResponseApi,
+    ObservationFeedDismissalApi,
     ObservationRequestApi,
     ObservationSearchResponseApi,
     ObservationSignalReportApi,
@@ -45,6 +46,7 @@ import type {
     ReplayScannerBackfillApi,
     RetryResponseApi,
     ScannerCreatorsResponseApi,
+    ScannerDashboardResponseApi,
     ScannerImpactApi,
     ScannerScoutCreateApi,
     ScannerScoutCreateResponseApi,
@@ -53,8 +55,6 @@ import type {
     ScoutReportApi,
     SearchSuggestionsQueryApi,
     SearchSuggestionsResponseApi,
-    SuggestTagsRequestApi,
-    SuggestTagsResponseApi,
     VisionAlertConfigurationApi,
     VisionAlertConfigurationDetailApi,
     VisionAlertCreateDestinationApi,
@@ -78,6 +78,7 @@ import type {
     VisionScannersObservationsThumbnailRetrieveParams,
     VisionScannersWatchFeedRetrieveParams,
     VisionSpendSeriesApi,
+    WatchFeedImpressionsApi,
     WatchFeedResponseApi,
 } from './api.schemas'
 
@@ -376,6 +377,45 @@ export const visionObservationsCreateTaskCreate = async (
     return apiMutator<CreateTaskFromObservationResponseApi>(getVisionObservationsCreateTaskCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getVisionObservationsFeedDismissalCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/feed_dismissal/`
+}
+
+/**
+ * Mark this observation not useful for the calling user, with an optional reason. What to watch stops showing it to that user. Sending it again replaces the reason.
+ */
+export const visionObservationsFeedDismissalCreate = async (
+    projectId: string,
+    id: string,
+    observationFeedDismissalApi?: ObservationFeedDismissalApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionObservationsFeedDismissalCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(observationFeedDismissalApi),
+    })
+}
+
+export const getVisionObservationsFeedDismissalDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/feed_dismissal/`
+}
+
+/**
+ * Undo the calling user's not-useful mark, so What to watch can show the observation again.
+ */
+export const visionObservationsFeedDismissalDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionObservationsFeedDismissalDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -811,6 +851,28 @@ export const visionScannersBulkObserveCreate = async (
     })
 }
 
+export const getVisionScannersCreateDashboardCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${id}/create_dashboard/`
+}
+
+/**
+ * Create a dashboard that charts this scanner's observations, and link it to the scanner.
+ *
+ * The tiles depend on the scanner type: who the scanner matched, which accounts they belong to,
+ * type-specific breakdowns, and the latest matching recordings. Calling it again returns the
+ * existing dashboard rather than a second one.
+ */
+export const visionScannersCreateDashboardCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ScannerDashboardResponseApi> => {
+    return apiMutator<ScannerDashboardResponseApi>(getVisionScannersCreateDashboardCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getVisionScannersDuplicateCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/vision/scanners/${id}/duplicate/`
 }
@@ -1155,6 +1217,55 @@ export const visionScannersObservationsCreateTaskCreate = async (
     )
 }
 
+export const getVisionScannersObservationsFeedDismissalCreateUrl = (
+    projectId: string,
+    scannerId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/feed_dismissal/`
+}
+
+/**
+ * Mark this observation not useful for the calling user, with an optional reason. What to watch stops showing it to that user. Sending it again replaces the reason.
+ */
+export const visionScannersObservationsFeedDismissalCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    observationFeedDismissalApi?: ObservationFeedDismissalApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionScannersObservationsFeedDismissalCreateUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(observationFeedDismissalApi),
+    })
+}
+
+export const getVisionScannersObservationsFeedDismissalDestroyUrl = (
+    projectId: string,
+    scannerId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/feed_dismissal/`
+}
+
+/**
+ * Undo the calling user's not-useful mark, so What to watch can show the observation again.
+ */
+export const visionScannersObservationsFeedDismissalDestroy = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionScannersObservationsFeedDismissalDestroyUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getVisionScannersObservationsLabelCreateUrl = (projectId: string, scannerId: string, id: string) => {
     return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/label/`
 }
@@ -1450,7 +1561,7 @@ export const getVisionScannersDraftCreateUrl = (projectId: string) => {
 }
 
 /**
- * Draft a full scanner configuration from a natural-language goal, for the goal-based creation flow.
+ * Draft a full scanner configuration from a natural-language goal and a monthly credit budget.
  */
 export const visionScannersDraftCreate = async (
     projectId: string,
@@ -1529,26 +1640,6 @@ export const visionScannersStatsRetrieve = async (
     })
 }
 
-export const getVisionScannersSuggestTagsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/vision/scanners/suggest_tags/`
-}
-
-/**
- * Suggest classifier tags grounded in the scanner's own observations and the org's product data.
- */
-export const visionScannersSuggestTagsCreate = async (
-    projectId: string,
-    suggestTagsRequestApi: SuggestTagsRequestApi,
-    options?: RequestInit
-): Promise<SuggestTagsResponseApi> => {
-    return apiMutator<SuggestTagsResponseApi>(getVisionScannersSuggestTagsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(suggestTagsRequestApi),
-    })
-}
-
 export const getVisionScannersWatchFeedRetrieveUrl = (
     projectId: string,
     params?: VisionScannersWatchFeedRetrieveParams
@@ -1579,5 +1670,25 @@ export const visionScannersWatchFeedRetrieve = async (
     return apiMutator<WatchFeedResponseApi>(getVisionScannersWatchFeedRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getVisionScannersWatchFeedImpressionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/watch_feed_impressions/`
+}
+
+/**
+ * Record that the calling user saw these cards in What to watch, so the feed ranks them lower next time.
+ */
+export const visionScannersWatchFeedImpressionsCreate = async (
+    projectId: string,
+    watchFeedImpressionsApi: WatchFeedImpressionsApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionScannersWatchFeedImpressionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(watchFeedImpressionsApi),
     })
 }

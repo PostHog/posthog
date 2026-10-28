@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import activate_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.fake_network import (
+    SCRIPTED_REQUEST_LIMIT,
     RecordedRequest,
     RunStopped,
     fake_environment,
@@ -23,7 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     Script,
     ScriptedResponder,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 
 @frozen
@@ -39,7 +41,16 @@ class DriveResult:
     saved_states: list[Any]
     # Each cursor that reached storage, so a cursor saved after the last row does not appear.
     committed_states: list[Any]
+    # The cursor left in storage when the run ended. None when the source cleared it, or never saved one.
+    final_state: Any
+    # The cursor left after the pipeline ran the response's `on_complete` hook, which it does only
+    # after a clean run. Equal to `final_state` when the run raised or the response has no hook.
+    completed_state: Any
     raised: BaseException | None
+    # What `source_for_pipeline` returned: the name, the keys, the partitioning and the sort mode.
+    response: SourceResponse | None
+    # The keyword arguments of each `make_tracked_session` call, such as `redact_values`.
+    session_options: list[dict[str, Any]]
 
     @property
     def urls(self) -> list[str]:
@@ -66,6 +77,9 @@ class SourceDriver:
     source's config and inputs plumbing as well as its fetching. It also stands in for the pipeline
     around the run: it commits the resume cursor when the source hands over a row or reaches a safe
     point, which is what makes a cursor saved after the last row fail to persist, as in production.
+
+    The schema is never a webhook schema, so a source that can read webhook rows polls the API
+    instead, as it does before its webhook is live.
     """
 
     def __init__(self, source: _BaseSource[Any], config: Any) -> None:
@@ -85,15 +99,16 @@ class SourceDriver:
         `script` answers the requests, in order or by request. `resume_state` is a cursor a previous
         attempt left behind, so the source resumes from it. Other keywords go to `source_inputs`.
         """
-        with fake_environment(ScriptedResponder(script)) as network:
+        with fake_environment(ScriptedResponder(script), SCRIPTED_REQUEST_LIMIT) as network:
             built = source_inputs(schema_name, **inputs)
             saved: list[Any] = []
             committed: list[Any] = []
             rows: list[Any] = []
             items: list[Any] = []
             raised: BaseException | None = None
+            response: SourceResponse | None = None
 
-            with self._recording_saves(saved):
+            with self._recording_saves(saved), _webhooks_off():
                 manager = self._manager(built)
                 if manager is not None and resume_state is not None:
                     manager.save_state(resume_state)
@@ -135,13 +150,23 @@ class SourceDriver:
                 except (Exception, RunStopped) as error:
                     raised = error
 
+                final_state = manager.load_state() if manager is not None else None
+                completed_state = final_state
+                if raised is None and response is not None and response.on_complete is not None:
+                    response.on_complete()
+                    completed_state = manager.load_state() if manager is not None else None
+
             return DriveResult(
                 rows=rows,
                 items=items,
                 requests=list(network.requests_log),
                 saved_states=saved,
                 committed_states=committed,
+                final_state=final_state,
+                completed_state=completed_state,
                 raised=raised,
+                response=response,
+                session_options=list(network.session_options),
             )
 
     def _manager(self, inputs: SourceInputs) -> ResumableSourceManager[Any] | None:
@@ -169,6 +194,29 @@ class SourceDriver:
         with contextlib.ExitStack() as stack:
             stack.enter_context(_patched(ResumableSourceManager, "save_state", save_state))
             yield
+
+
+_REAL_WEBHOOK_CHECKS = {
+    "webhook_enabled": WebhookSourceManager.webhook_enabled,
+    "schema_is_webhook": WebhookSourceManager.schema_is_webhook,
+}
+
+
+@contextlib.contextmanager
+def _webhooks_off() -> Iterator[None]:
+    """Answer the webhook checks as for a schema with no webhook, which they otherwise read from the database.
+
+    A check a test has patched itself, for example to turn the webhook on, keeps the test's answer.
+    """
+
+    async def no_webhook(self: WebhookSourceManager, *args: Any, **kwargs: Any) -> bool:
+        return False
+
+    with contextlib.ExitStack() as stack:
+        for name, real in _REAL_WEBHOOK_CHECKS.items():
+            if getattr(WebhookSourceManager, name) is real:
+                stack.enter_context(_patched(WebhookSourceManager, name, no_webhook))
+        yield
 
 
 @contextlib.contextmanager

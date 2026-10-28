@@ -6,6 +6,7 @@ import { logger, serializeError } from '~/common/utils/logger'
 import { Team } from '~/types'
 
 import { HogFunctionFilters } from '../../types'
+import { isTimeoutError } from '../../utils/cdp-fetch'
 
 export interface BlastRadiusResponse {
     users_affected: number
@@ -60,16 +61,6 @@ export class AudienceFetchTimeoutError extends Error {
                 `inside CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS.`
         )
     }
-}
-
-// AbortSignal.timeout rejects with a TimeoutError. undici reports some aborts as an
-// AbortError, and can wrap either one in `cause`.
-const TIMEOUT_ERROR_NAMES = ['TimeoutError', 'AbortError']
-
-const isTimeoutError = (error: unknown): boolean => {
-    const name = (error as { name?: string } | null)?.name
-    const causeName = (error as { cause?: { name?: string } } | null)?.cause?.name
-    return TIMEOUT_ERROR_NAMES.includes(name ?? '') || TIMEOUT_ERROR_NAMES.includes(causeName ?? '')
 }
 
 /**

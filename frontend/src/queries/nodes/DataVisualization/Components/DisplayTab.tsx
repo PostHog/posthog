@@ -64,7 +64,7 @@ const LINE_STYLE_OPTIONS: { value: 'smooth' | 'linear'; label: string }[] = [
 export const DisplayTab = (): JSX.Element => {
     const { effectiveVisualizationType, xData, yData, dataVisualizationProps } = useValues(dataVisualizationLogic)
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
-    const { goalLines, chartSettings } = useValues(displayLogic)
+    const { goalLines, chartSettings, query } = useValues(displayLogic)
     const { addGoalLine, updateGoalLine, removeGoalLine, updateChartSettings } = useActions(displayLogic)
 
     const isStackedBarChart = effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
@@ -265,10 +265,10 @@ export const DisplayTab = (): JSX.Element => {
                                         updateChartSettings({ showLegend: value })
                                     }}
                                 />
-                                <div className="flex flex-col gap-1">
+                                <div className="flex items-center justify-between gap-2">
                                     <LemonLabel>Legend position</LemonLabel>
                                     <LemonSelect
-                                        className="w-full"
+                                        size="xsmall"
                                         value={
                                             chartSettings.legendPosition ??
                                             (isProportionBar ? 'bottom' : isPieChart ? 'right' : 'top')
@@ -278,7 +278,6 @@ export const DisplayTab = (): JSX.Element => {
                                             showLegend ? undefined : 'Turn the legend on to set its position'
                                         }
                                         onChange={(value) => updateChartSettings({ legendPosition: value })}
-                                        fullWidth
                                     />
                                 </div>
                                 {isBoxPlot && (
@@ -380,6 +379,118 @@ export const DisplayTab = (): JSX.Element => {
                                                     }}
                                                 />
                                             </>
+                                        )}
+                                        {chartSettings.showValuesOnSeries && !isSingleAxisChart && (
+                                            <>
+                                                {!isLineChart && (
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <LemonLabel>Value position</LemonLabel>
+                                                        <LemonSelect
+                                                            size="xsmall"
+                                                            value={chartSettings.valueLabelPosition ?? 'end'}
+                                                            options={[
+                                                                { value: 'end', label: 'At the end' },
+                                                                { value: 'center', label: 'Inside' },
+                                                            ]}
+                                                            onChange={(valueLabelPosition) =>
+                                                                updateChartSettings({ valueLabelPosition })
+                                                            }
+                                                        />
+                                                    </div>
+                                                )}
+                                                <LemonSwitch
+                                                    label="Value background"
+                                                    checked={chartSettings.valueLabelBackground ?? true}
+                                                    onChange={(valueLabelBackground) =>
+                                                        updateChartSettings({ valueLabelBackground })
+                                                    }
+                                                />
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <LemonLabel>Value font size</LemonLabel>
+                                                    <LemonSelect
+                                                        size="xsmall"
+                                                        value={chartSettings.valueLabelFontSize ?? 12}
+                                                        options={[8, 10, 12, 14, 16, 20, 24, 32].map((value) => ({
+                                                            value,
+                                                            label: `${value}px`,
+                                                        }))}
+                                                        onChange={(valueLabelFontSize) =>
+                                                            updateChartSettings({ valueLabelFontSize })
+                                                        }
+                                                    />
+                                                </div>
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <LemonLabel>Value rotation</LemonLabel>
+                                                    <LemonSelect
+                                                        size="xsmall"
+                                                        value={chartSettings.valueLabelRotation ?? 0}
+                                                        options={[0, -45, -90, 45, 90].map((value) => ({
+                                                            value,
+                                                            label: `${value}°`,
+                                                        }))}
+                                                        onChange={(valueLabelRotation) =>
+                                                            updateChartSettings({ valueLabelRotation })
+                                                        }
+                                                    />
+                                                </div>
+                                            </>
+                                        )}
+                                        {(isStackedBarChart ||
+                                            isHorizontalBarChart ||
+                                            effectiveVisualizationType === ChartDisplayType.ActionsBar) && (
+                                            <div className="flex items-center justify-between gap-2">
+                                                <LemonLabel>Bar spacing</LemonLabel>
+                                                <LemonSelect
+                                                    size="xsmall"
+                                                    value={chartSettings.barGap ?? 0.2}
+                                                    options={[
+                                                        { value: 0, label: 'None' },
+                                                        { value: 0.1, label: 'Small' },
+                                                        { value: 0.2, label: 'Medium' },
+                                                        { value: 0.4, label: 'Large' },
+                                                    ]}
+                                                    onChange={(barGap) => updateChartSettings({ barGap })}
+                                                />
+                                            </div>
+                                        )}
+                                        {isDateXAxis && (
+                                            <div className="flex flex-col gap-1">
+                                                <LemonLabel>Date format</LemonLabel>
+                                                <LemonInput
+                                                    value={chartSettings.xAxisDateFormat ?? ''}
+                                                    placeholder="Automatic"
+                                                    onChange={(xAxisDateFormat) =>
+                                                        updateChartSettings({
+                                                            xAxisDateFormat: xAxisDateFormat || undefined,
+                                                        })
+                                                    }
+                                                    data-attr="chart-date-format"
+                                                />
+                                                <span className="text-xs text-secondary">
+                                                    For example, YYYY-MM-DD, MMM YYYY, or DD/MM/YYYY.
+                                                </span>
+                                            </div>
+                                        )}
+                                        {!isSingleAxisChart && (
+                                            <div className="flex items-center justify-between gap-2">
+                                                <LemonLabel>Tick label rotation</LemonLabel>
+                                                <LemonSelect
+                                                    size="xsmall"
+                                                    value={chartSettings.xAxisTickRotation ?? null}
+                                                    options={[
+                                                        { value: null, label: 'Automatic' },
+                                                        ...[0, -45, -90, 45, 90].map((value) => ({
+                                                            value,
+                                                            label: `${value}°`,
+                                                        })),
+                                                    ]}
+                                                    onChange={(xAxisTickRotation) =>
+                                                        updateChartSettings({
+                                                            xAxisTickRotation: xAxisTickRotation ?? undefined,
+                                                        })
+                                                    }
+                                                />
+                                            </div>
                                         )}
                                         {isLineChart && (
                                             <div className="flex flex-col gap-1">
@@ -527,7 +638,9 @@ export const DisplayTab = (): JSX.Element => {
                               key: 'goals',
                               header: (
                                   <div className="flex items-center gap-1 flex-1">
-                                      <span className="flex-1">Goals</span>
+                                      <span className="flex-1">
+                                          {query.kind === 'BIVisualizationNode' ? 'Reference lines' : 'Goals'}
+                                      </span>
                                       {goalLines.length > 0 && (
                                           <LemonBadge.Number status="muted" size="small" count={goalLines.length} />
                                       )}
@@ -537,6 +650,12 @@ export const DisplayTab = (): JSX.Element => {
                               content: (
                                   <>
                                       <GoalLinesList
+                                          allowCalculations={query.kind === 'BIVisualizationNode'}
+                                          calculationDisabledReason={
+                                              isStackedBarChart && chartSettings.stackBars100
+                                                  ? 'Calculated lines are hidden on 100% stacked charts. Use a constant or turn off percentage stacking.'
+                                                  : undefined
+                                          }
                                           goalLines={goalLines}
                                           removeGoalLine={removeGoalLine}
                                           updateGoalLine={updateGoalLine}
@@ -547,8 +666,20 @@ export const DisplayTab = (): JSX.Element => {
                                           icon={<IconPlusSmall />}
                                           fullWidth
                                       >
-                                          Add goal line
+                                          {query.kind === 'BIVisualizationNode'
+                                              ? 'Add reference line'
+                                              : 'Add goal line'}
                                       </LemonButton>
+                                      {query.kind === 'BIVisualizationNode' && (
+                                          <p className="text-xs text-secondary mt-2 mb-0">
+                                              Calculations use returned marks on the left axis after aggregation and
+                                              table calculations. Per series adds a line for each color group or
+                                              measure. Result limits apply.
+                                              {isStackedBarChart && chartSettings.stackBars100 && (
+                                                  <span> Calculated lines are hidden on 100% stacked charts.</span>
+                                              )}
+                                          </p>
+                                      )}
                                   </>
                               ),
                           }

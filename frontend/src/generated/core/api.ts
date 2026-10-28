@@ -15,6 +15,7 @@ import type {
     CIMDVerificationTokenCreateApi,
     CIMDVerificationTokenWithValueApi,
     CimdVerificationTokensListParams,
+    ConnectedAppApi,
     DataDeletionPreviewApi,
     DataDeletionRequestApi,
     DataDeletionRequestCreateApi,
@@ -35,8 +36,11 @@ import type {
     ExportsListParams,
     FileSystemApi,
     FileSystemDestroyParams,
+    FileSystemFrequentListParams,
     FileSystemHomeFolderApi,
     FileSystemListParams,
+    FileSystemRankedSearchResponseApi,
+    FileSystemSearchRetrieveParams,
     FileSystemShortcutApi,
     FileSystemShortcutBulkUpdateApi,
     FileSystemShortcutListParams,
@@ -105,8 +109,8 @@ import type {
     ToolbarEntitlementsApi,
     TwoFactorStatusApi,
     UploadedMediaApi,
-    UploadedMediaCreate201,
     UploadedMediaCreateBody,
+    UploadedMediaCreatedApi,
     UploadedMediaListParams,
     UploadedMediaStartUploadApi,
     UploadedMediaUploadStartedApi,
@@ -149,6 +153,36 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getOauthConnectedAppsListUrl = () => {
+    return `/api/oauth/connected-apps/`
+}
+
+/**
+ * Returns all OAuth applications that can currently act as the requesting user, whether they hold an unexpired access token or an unrevoked refresh token.
+ * @summary List connected OAuth applications
+ */
+export const oauthConnectedAppsList = async (options?: RequestInit): Promise<ConnectedAppApi[]> => {
+    return apiMutator<ConnectedAppApi[]>(getOauthConnectedAppsListUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getOauthConnectedAppsRevokeCreateUrl = (id: string) => {
+    return `/api/oauth/connected-apps/${id}/revoke/`
+}
+
+/**
+ * Revokes all tokens and grants for the specified application for the current user.
+ * @summary Revoke a connected OAuth application
+ */
+export const oauthConnectedAppsRevokeCreate = async (id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getOauthConnectedAppsRevokeCreateUrl(id), {
+        ...options,
+        method: 'POST',
+    })
+}
 
 export const getCimdVerificationTokensListUrl = (organizationId: string, params?: CimdVerificationTokensListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -1913,6 +1947,36 @@ export const fileSystemCountByPathCreate = async (
     })
 }
 
+export const getFileSystemFrequentListUrl = (projectId: string, params?: FileSystemFrequentListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/file_system/frequent/?${stringifiedParams}`
+        : `/api/projects/${projectId}/file_system/frequent/`
+}
+
+/**
+ * @summary List frequently viewed files
+ */
+export const fileSystemFrequentList = async (
+    projectId: string,
+    params?: FileSystemFrequentListParams,
+    options?: RequestInit
+): Promise<FileSystemApi[]> => {
+    return apiMutator<FileSystemApi[]>(getFileSystemFrequentListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getFileSystemHomeFolderCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/file_system/home_folder/`
 }
@@ -1952,6 +2016,37 @@ export const fileSystemLogViewCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(fileSystemApi),
+    })
+}
+
+export const getFileSystemSearchRetrieveUrl = (projectId: string, params: FileSystemSearchRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/file_system/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/file_system/search/`
+}
+
+/**
+ * Ranks entries by words matched, typos, word proximity, name before folder, exact words, word position, exactness, the user's recent views, and recency.
+ * @summary Search files by relevance
+ */
+export const fileSystemSearchRetrieve = async (
+    projectId: string,
+    params: FileSystemSearchRetrieveParams,
+    options?: RequestInit
+): Promise<FileSystemRankedSearchResponseApi> => {
+    return apiMutator<FileSystemRankedSearchResponseApi>(getFileSystemSearchRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -2790,7 +2885,7 @@ export const uploadedMediaCreate = async (
     projectId: string,
     uploadedMediaCreateBody?: UploadedMediaCreateBody,
     options?: RequestInit
-): Promise<UploadedMediaCreate201> => {
+): Promise<UploadedMediaCreatedApi> => {
     const formData = new FormData()
     if (uploadedMediaCreateBody?.image !== undefined) {
         formData.append(`image`, uploadedMediaCreateBody.image)
@@ -2799,10 +2894,24 @@ export const uploadedMediaCreate = async (
         formData.append(`purpose`, uploadedMediaCreateBody.purpose)
     }
 
-    return apiMutator<UploadedMediaCreate201>(getUploadedMediaCreateUrl(projectId), {
+    return apiMutator<UploadedMediaCreatedApi>(getUploadedMediaCreateUrl(projectId), {
         ...options,
         method: 'POST',
         body: formData,
+    })
+}
+
+export const getUploadedMediaDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/uploaded_media/${id}/`
+}
+
+/**
+ * Remove an image from its media library. It stops appearing in the library list, but its URL keeps working, so content that already uses it (a sent email, a live template) is not broken.
+ */
+export const uploadedMediaDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getUploadedMediaDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

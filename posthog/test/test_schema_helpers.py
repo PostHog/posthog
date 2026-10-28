@@ -1,6 +1,6 @@
 from typing import Any
 
-from django.test.testcases import SimpleTestCase, TestCase
+from django.test.testcases import SimpleTestCase
 
 from parameterized import parameterized
 from pydantic import BaseModel
@@ -51,7 +51,7 @@ class TestBIQuerySchema(SimpleTestCase):
         self.assertEqual(serialized["source"], {"query": source_query["query"]})
 
 
-class TestSchemaHelpers(TestCase):
+class TestSchemaHelpers(SimpleTestCase):
     maxDiff = None
 
     def test_serializes_to_differing_json_for_default_value(self):

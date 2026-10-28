@@ -10,7 +10,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import type { SubscriptionApi, SubscriptionTargetEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { mcpRecurringReportsLogic } from './mcpRecurringReportsLogic'
 import { countSaved, NotificationTypeRow } from './NotificationTypesTable'
@@ -51,7 +51,12 @@ function SavedReportRow({ report }: { report: SubscriptionApi }): JSX.Element {
 
 // `mayExist` covers a cut list too: a match may sit past the page limit, so the row must not push
 // a primary "Set up" that creates a duplicate.
-function reportAction(report: MCPRecurringReport, mayExist: boolean, aiSubscriptionsEnabled: boolean): JSX.Element {
+function reportAction(
+    report: MCPRecurringReport,
+    mayExist: boolean,
+    aiSubscriptionsEnabled: boolean,
+    targetType: SubscriptionTargetEnumApi | null
+): JSX.Element {
     if (!aiSubscriptionsEnabled) {
         return (
             <LemonButton
@@ -70,7 +75,7 @@ function reportAction(report: MCPRecurringReport, mayExist: boolean, aiSubscript
             type={mayExist ? 'secondary' : 'primary'}
             size="small"
             icon={mayExist ? <IconPlus /> : undefined}
-            to={urlForRecurringReport(report)}
+            to={urlForRecurringReport(report, targetType)}
             data-attr={`mcp-analytics-recurring-report-${report.key}`}
         >
             {mayExist ? 'Add' : 'Set up'}
@@ -94,7 +99,7 @@ export interface RecurringReportRows {
 export function useRecurringReportRows(): RecurringReportRows {
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
     const { receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { reportsByTemplateTitle, otherReports, reportsLoaded, reportsFailed, reportsTruncated } =
+    const { reportsByTemplateTitle, otherReports, reportsLoaded, reportsFailed, reportsTruncated, defaultTargetType } =
         useValues(mcpRecurringReportsLogic)
     const { loadReports } = useActions(mcpRecurringReportsLogic)
     // An unresolved flag reads as off, so the row would offer "Turn on early access" to someone who
@@ -121,7 +126,12 @@ export function useRecurringReportRows(): RecurringReportRows {
             ),
             cadence: report.frequency,
             saved: ready ? countSaved(saved, reportsTruncated) : undefined,
-            action: reportAction(report, saved.length > 0 || reportsTruncated, aiSubscriptionsEnabled),
+            action: reportAction(
+                report,
+                saved.length > 0 || reportsTruncated,
+                aiSubscriptionsEnabled,
+                defaultTargetType
+            ),
             preview: <RecurringReportDetails covers={report.covers} prompt={report.prompt} />,
             savedRows: saved.map((report) => <SavedReportRow key={report.id} report={report} />),
         }

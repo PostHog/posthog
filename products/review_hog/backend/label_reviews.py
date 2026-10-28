@@ -1,4 +1,5 @@
-"""The label trigger: the `reviewhog` label on a pull request starts a Full review.
+"""The label trigger: the `posthog-review` label on a pull request starts a Standard review, or a Deep one
+once the pull request has a published Deep review.
 
 The PostHog GitHub App's own `labeled` delivery starts it, so the trigger works in every repository the
 app is installed on and a project owns (`ownership.py`). One label add is one review: pushes do not
@@ -19,12 +20,16 @@ from prometheus_client import Counter
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.team import Team
 from posthog.otel_metrics import OtelInstrumentFactory
+from posthog.permissions import posthog_feature_flag_enabled
 
 from products.review_hog.backend.automatic_reviews import connector_user_id
 from products.review_hog.backend.ownership import RepositoryOwnership, RepositoryRef
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
-from products.review_hog.backend.pull_request_events import REVIEWHOG_LABEL
+from products.review_hog.backend.pull_request_events import REVIEW_LABEL
+from products.review_hog.backend.review_request_rules import trigger_review_mode
+from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.persistence import lift_review_tier_for_joined_trigger
 from products.review_hog.backend.reviewer.tools.github_client import (
     GitHubAPIError,
@@ -40,9 +45,55 @@ _otel = OtelInstrumentFactory("review_hog")
 STAMPHOG_BOT_LOGIN = "stamphog[bot]"
 
 BOT_LABEL_COMMENT = (
-    f"ReviewHog reviews start only when a person adds the `{REVIEWHOG_LABEL}` label, so this label from a bot "
-    "was removed. Add it again yourself to start a review."
+    f"PostHog Review starts a review only when a person adds the `{REVIEW_LABEL}` label. A bot added it here, "
+    "so the label was removed. Add the label yourself to start a review."
 )
+
+# The rollout flag of `@posthog` pull request comments (products/commands). Read here by key,
+# because the commands product already depends on this product.
+COMMENT_COMMANDS_FLAG = "github-commands"
+
+
+def comment_commands_enabled(team_id: int) -> bool:
+    """Whether `@posthog` comments run for this project's organization, so the review may point to them."""
+    organization_id = Team.objects.values_list("organization_id", flat=True).filter(id=team_id).first()
+    if organization_id is None:
+        return False
+    return posthog_feature_flag_enabled(
+        COMMENT_COMMANDS_FLAG, f"review-hog-team-{team_id}", organization_id=organization_id, team_id=team_id
+    )
+
+
+def label_commands_hint(review_mode: str) -> str:
+    """The note a label-started review ends with: which review the label ran, and the commands for more."""
+    if review_mode == REVIEW_MODE_FLASH:
+        return (
+            f"This Standard review started from the `{REVIEW_LABEL}` label. Comment `@posthog review --deep` "
+            "for a Deep review, or `@posthog help` to see all commands."
+        )
+    return f"This Deep review started from the `{REVIEW_LABEL}` label. Comment `@posthog help` to see all commands."
+
+
+def draft_review_notice(comment_commands_on: bool) -> str:
+    """The note an automatic review of a draft ends with: the push gate skips the draft's later pushes."""
+    trigger = "Comment `@posthog review`" if comment_commands_on else f"Add the `{REVIEW_LABEL}` label"
+    return (
+        "This is the only automatic review while this pull request is a draft. "
+        f"{trigger} to review new changes sooner. "
+        "Otherwise, a review of the new changes runs when you mark it ready for review."
+    )
+
+
+def first_review_note(review_link: str, deep_command: bool) -> str:
+    """The note the first review on a pull request ends with: where to see the review, and how to ask for Deep."""
+    note = f"See this review and its findings in [PostHog Review]({review_link})."
+    if deep_command:
+        note = (
+            f"{note} Comment `@posthog review --deep` for a Deep review. "
+            "A Deep review takes longer and looks deeper than a Standard review."
+        )
+    return note
+
 
 LabelReviewOutcome = Literal[
     "repository_not_added",
@@ -109,7 +160,7 @@ class LabelReview:
         try:
             github_api_request(
                 "DELETE",
-                f"/repos/{self.repository}/issues/{self.pr_number}/labels/{REVIEWHOG_LABEL}",
+                f"/repos/{self.repository}/issues/{self.pr_number}/labels/{REVIEW_LABEL}",
                 token=token,
                 installation_id=self.installation_id,
                 endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
@@ -178,13 +229,17 @@ class LabelReview:
         joins_running_review = workflow_running(
             review_pr_workflow_id(team_id=team_id, owner=github_owner, repo=github_repo, pr_number=self.pr_number)
         )
+        review_mode = trigger_review_mode(team_id, self.repository, self.pr_number)
         start_review_pr_workflow(
             pr_url=f"https://github.com/{self.repository}/pull/{self.pr_number}",
             team_id=team_id,
             user_id=run_user_id,
             publish=True,
             trigger_source=TRIGGER_LABEL,
+            review_mode=review_mode,
         )
-        if joins_running_review:
+        # Standard is excluded for the same reason as on the comment path: the lift rewrites the
+        # persisted arm, so the cheaper review must not raise what later turns cost.
+        if joins_running_review and review_mode == REVIEW_MODE_FULL:
             lift_review_tier_for_joined_trigger(team_id=team_id, repository=self.repository, pr_number=self.pr_number)
         _observe("started")

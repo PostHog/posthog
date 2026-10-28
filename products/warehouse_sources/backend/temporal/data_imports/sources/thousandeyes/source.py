@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,6 +40,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ThousandeyesSource(ResumableSource[ThousandeyesSourceConfig, ThousandeyesResumeConfig]):
+    codebase_detection = detect(
+        env=("^THOUSANDEYES_", "^TE_TOKEN$"),
+        pypi=("thousandeyes-sdk-core",),
+        go=("github.com/thousandeyes/thousandeyes-sdk-go", "github.com/thousandeyes/thousandeyes-cli"),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = ("v7",)
     default_version = "v7"
@@ -55,7 +62,7 @@ class ThousandeyesSource(ResumableSource[ThousandeyesSourceConfig, ThousandeyesR
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cisco ThousandEyes",
             iconPath="/static/services/thousandeyes.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Create an API token in Manage > Account Settings > Users and Roles > Profile > User API Tokens. "
             "Alerts and initial HTTP results cover the last 30 days. Sync at least every 30 days to avoid gaps.",
             fields=cast(

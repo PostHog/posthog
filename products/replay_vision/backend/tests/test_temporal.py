@@ -43,7 +43,7 @@ from posthog.session_recordings.session_recording_v2_service import RecordingBlo
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import _ObservationState, stream_observation_progress
-from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS, observation_credits_for_model
 from products.replay_vision.backend.enqueue_claims import (
     _RELEASE_GRACE_SECONDS,
     pending_enqueue_claims_for_scanner,
@@ -502,7 +502,7 @@ class TestCreateObservationActivity:
     def test_skips_insert_when_monthly_quota_exhausted(self) -> None:
         scanner = _make_scanner()
         with patch(
-            "products.replay_vision.backend.temporal.activities.create_observation.quota_state"
+            "products.replay_vision.backend.temporal.activities.create_observation.quota_state_for_cap"
         ) as mock_snapshot:
             mock_snapshot.return_value = QuotaSnapshot(
                 credit_limit=5,
@@ -549,6 +549,28 @@ class TestCreateObservationActivity:
 
     @parameterized.expand(
         [
+            # Billing allows far more spend, so only the free credits stop the scanner.
+            ("free_credits_bind", 1_000_000, FREE_TIER_MONTHLY_CREDITS, "free_credits"),
+            # The org's own limit sits below the free credits, so it is the org that is out.
+            ("org_limit_binds", 1_000, 1_000, "quota"),
+        ]
+    )
+    def test_free_only_refusal_names_what_stopped_it(
+        self, _name: str, org_limit: int, spent: int, expected_reason: str
+    ) -> None:
+        scanner = _make_scanner(free_only=True)
+        seed_scanner_spend(_make_scanner(team=scanner.team, name="spender"), spent)
+        with (
+            patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", org_limit),
+            patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.posthoganalytics.capture"
+            ) as capture,
+        ):
+            assert self._admit(scanner, "sess-free").was_created is False
+        assert [c.kwargs["properties"]["reason"] for c in capture.call_args_list] == [expected_reason]
+
+    @parameterized.expand(
+        [
             ("quota", 5, 5),
             ("consent", None, None),
         ]
@@ -568,7 +590,7 @@ class TestCreateObservationActivity:
         # consent is checked first.
         with (
             patch(
-                "products.replay_vision.backend.temporal.activities.create_observation.quota_state",
+                "products.replay_vision.backend.temporal.activities.create_observation.quota_state_for_cap",
                 return_value=QuotaSnapshot(
                     credit_limit=5,
                     credits_used=5,
@@ -884,8 +906,7 @@ class TestCreateObservationActivity:
         release.assert_called_once()
 
     def test_concurrent_admissions_for_two_capped_scanners_do_not_serialize_each_other(self) -> None:
-        # The admission lock is per scanner row: two different capped scanners on one team must both
-        # admit their own observation, with no cross-scanner budget bleed or lock coupling.
+        # Two capped scanners on one team must both admit their own observation, with no cross-scanner budget bleed.
         credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
         scanner_a = _make_scanner(credit_limit=credits)
         scanner_b = ReplayScanner.objects.create(
@@ -927,34 +948,70 @@ class TestCreateObservationActivity:
 
         assert created == {"sibling-a": True, "sibling-b": True}
 
-    def test_retry_near_the_cap_reclaims_its_own_pending_row(self) -> None:
+    @parameterized.expand([("uncapped", None, False), ("capped", 1_000, False), ("free_only", None, True)])
+    def test_concurrent_admissions_across_scanners_cannot_exceed_org_credit_limit(
+        self, _name: str, scanner_limit: int | None, free_only: bool
+    ) -> None:
+        # Without the org-level admission, both pass the unlocked quota read and bill past the limit.
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
+        scanner_a = _make_scanner(credit_limit=scanner_limit, free_only=free_only)
+        scanner_b = _make_scanner(
+            team=scanner_a.team, name="org-sibling", credit_limit=scanner_limit, free_only=free_only
+        )
+        # Free-only scanners race for the last free credits while billing still allows far more spend.
+        org_limit = credits
+        if free_only:
+            seed_scanner_spend(_make_scanner(team=scanner_a.team, name="spender"), FREE_TIER_MONTHLY_CREDITS - credits)
+            org_limit = 1_000_000
+        barrier = threading.Barrier(2)
+        created: dict[str, bool] = {}
+
+        def admit(scanner: ReplayScanner, session_id: str) -> None:
+            barrier.wait()
+            try:
+                created[session_id] = self._admit(scanner, session_id).was_created
+            except ApplicationError as e:
+                if e.type != SCANNER_ADMISSION_BUSY_ERROR_TYPE:
+                    raise
+                created[session_id] = False
+            finally:
+                connections.close_all()
+
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", org_limit):
+            threads = [
+                threading.Thread(target=admit, args=(scanner_a, "org-race-a")),
+                threading.Thread(target=admit, args=(scanner_b, "org-race-b")),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=30)
+        assert not any(thread.is_alive() for thread in threads)
+
+        assert sorted(created.values()) == [False, True]
+        assert ReplayObservation.objects.filter(team=scanner_a.team, status=ObservationStatus.PENDING).count() == 1
+
+    @parameterized.expand([("scanner_cap", True), ("org_limit", False)])
+    def test_retry_near_the_cap_reclaims_its_own_pending_row(self, _name: str, scanner_capped: bool) -> None:
         # A Temporal retry whose first attempt committed the insert but lost the result must get its
         # row back: that row's own reservation fills the budget, so a plain refusal would strand it
         # PENDING forever while the workflow gives up.
         credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
-        scanner = _make_scanner(credit_limit=credits)
-        first_attempt = create_observation_activity(
-            CreateObservationInputs(
-                scanner_id=scanner.id,
-                team_id=scanner.team_id,
-                session_id="sess-retry",
-                triggered_by=ObservationTrigger.SCHEDULE,
-                triggered_by_user_id=None,
-                workflow_id="wf-retry",
-            )
+        scanner = _make_scanner(credit_limit=credits if scanner_capped else None)
+        inputs = CreateObservationInputs(
+            scanner_id=scanner.id,
+            team_id=scanner.team_id,
+            session_id="sess-retry",
+            triggered_by=ObservationTrigger.SCHEDULE,
+            triggered_by_user_id=None,
+            workflow_id="wf-retry",
         )
-        assert first_attempt.was_created is True
-
-        second_attempt = create_observation_activity(
-            CreateObservationInputs(
-                scanner_id=scanner.id,
-                team_id=scanner.team_id,
-                session_id="sess-retry",
-                triggered_by=ObservationTrigger.SCHEDULE,
-                triggered_by_user_id=None,
-                workflow_id="wf-retry",
-            )
-        )
+        with patch(
+            "products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000 if scanner_capped else credits
+        ):
+            first_attempt = create_observation_activity(inputs)
+            assert first_attempt.was_created is True
+            second_attempt = create_observation_activity(inputs)
 
         assert second_attempt.observation_id == first_attempt.observation_id
         assert second_attempt.was_created is True
@@ -976,9 +1033,7 @@ class TestEgressConsentRecheck:
         team = await sync_to_async(self._team_without_consent)()
         # The activity derives the team from the asset row (no team_id in the payload), so it must exist.
         asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4")
-        with patch(
-            "products.replay_vision.backend.temporal.activities.upload_video_to_gemini.RawGenAIClient"
-        ) as mock_client:
+        with patch("products.replay_vision.backend.gemini_client.RawGenAIClient") as mock_client:
             with pytest.raises(ConsentWithdrawnError) as exc_info:
                 await ActivityEnvironment().run(
                     upload_video_to_gemini_activity,
@@ -3663,10 +3718,12 @@ class TestUploadedFileNotActive:
             state=types.FileState.FAILED,
             error=types.FileStatus(code=code, message="the provider quoted 'wf-secret-name' back at us"),
         )
-        with patch(
-            "products.replay_vision.backend.temporal.activities.upload_video_to_gemini.RawGenAIClient"
-        ) as mock_client:
+        with (
+            patch("products.replay_vision.backend.gemini_client.RawGenAIClient") as mock_client,
+            patch("products.replay_vision.backend.gemini_client.genai.AsyncClient"),
+        ):
             mock_client.return_value.files.upload.return_value = failed_file
+            mock_client.return_value.aio.aclose = AsyncMock()
             with patch(
                 "products.replay_vision.backend.temporal.activities.upload_video_to_gemini.track_uploaded_file",
                 AsyncMock(),
@@ -3681,6 +3738,72 @@ class TestUploadedFileNotActive:
         assert exc_info.value.non_retryable is expected_non_retryable
         # The provider's message can quote request content, so only the shape of the failure reaches the user.
         assert exc_info.value.message == f"The AI provider could not process the video (error code {code})"
+
+
+@pytest.mark.django_db(transaction=True)
+class TestUploadThroughTheGateway:
+    @staticmethod
+    def _team() -> Team:
+        org = Organization.objects.create(name="gateway-upload-org")
+        return Team.objects.create(organization=org, name="gateway-upload-team")
+
+    @pytest.mark.asyncio
+    async def test_the_upload_runs_on_the_teams_client_and_closes_it(self) -> None:
+        team = await sync_to_async(self._team)()
+        asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
+        uri = "https://generativelanguage.googleapis.com/v1beta/files/abc"
+        gemini = MagicMock()
+        gemini.aclose = AsyncMock()
+        gemini.raw.files.upload.return_value = types.File(name="files/abc", state=types.FileState.PROCESSING)
+        gemini.raw.files.get.return_value = types.File(
+            name="files/abc", state=types.FileState.ACTIVE, uri=uri, mime_type="video/mp4"
+        )
+        module = "products.replay_vision.backend.temporal.activities.upload_video_to_gemini"
+        with (
+            patch(f"{module}.replay_gemini_client", new=AsyncMock(return_value=gemini)) as factory,
+            patch(f"{module}.track_uploaded_file", AsyncMock()),
+            patch(f"{module}.asyncio.sleep", AsyncMock()),
+        ):
+            uploaded = await ActivityEnvironment().run(
+                upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
+            )
+
+        factory.assert_awaited_once_with(team.id)
+        upload = gemini.raw.files.upload.call_args.kwargs
+        assert "http_options" not in upload and upload["config"].http_options is None
+        assert upload["config"].mime_type == "video/mp4"
+        gemini.raw.files.get.assert_called_once_with(name="files/abc")
+        assert (uploaded.file_uri, uploaded.gemini_file_name) == (uri, "files/abc")
+        gemini.aclose.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_flag_off_uploads_direct_with_the_gateway_configured(self) -> None:
+        team = await sync_to_async(self._team)()
+        asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
+        module = "products.replay_vision.backend.temporal.activities.upload_video_to_gemini"
+        gateway_settings = {
+            "AI_GATEWAY_URL": "https://ai-gateway.example/v1",
+            "AI_GATEWAY_API_KEY": "phs_gateway",
+            "REPLAY_VISION_GEMINI_API_KEY": "replay-vision-google-key",
+        }
+        with (
+            override_settings(**gateway_settings),
+            patch("products.replay_vision.backend.gemini_client.feature_enabled_or_false", return_value=False),
+            patch("products.replay_vision.backend.gemini_client.build_gemini_client") as build,
+            patch("products.replay_vision.backend.gemini_client.RawGenAIClient") as raw_client,
+            patch(f"{module}.track_uploaded_file", AsyncMock()),
+        ):
+            raw_client.return_value.aio.aclose = AsyncMock()
+            raw_client.return_value.files.upload.return_value = types.File(
+                name="files/abc", state=types.FileState.ACTIVE, uri="https://g/files/abc"
+            )
+            uploaded = await ActivityEnvironment().run(
+                upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
+            )
+
+        raw_client.assert_called_once_with(api_key="replay-vision-google-key")
+        build.assert_not_called()
+        assert uploaded.gemini_file_name == "files/abc"
 
 
 class TestGeminiErrorRedaction:

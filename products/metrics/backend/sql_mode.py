@@ -14,6 +14,7 @@ the bucket interval.
 
 import math
 import datetime as dt
+from collections.abc import Mapping
 from typing import Any
 
 from posthog.hogql import ast
@@ -29,7 +30,7 @@ from posthog.hogql.database.schema.metrics import (
     MetricsTable,
 )
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor
@@ -113,13 +114,18 @@ def _assert_reads_only_metrics_tables(team: Team, query: ast.SelectQuery | ast.S
         )
 
 
-def build_metrics_sql_query(
-    team: Team, sql: str, date_from: dt.datetime, date_to: dt.datetime, interval: str | None
-) -> ast.SelectQuery:
-    """Parse the insight's SQL with the date placeholders filled in, wrapped in the row limit."""
+def _parse_metrics_sql(
+    team: Team,
+    sql: str,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    interval: str | None,
+    variables: Mapping[str, ast.Expr] | None,
+) -> ast.SelectQuery | ast.SelectSetQuery:
     resolved = _resolve_interval(date_from, date_to, interval)
     step = _interval_step(resolved)
     placeholders: dict[str, ast.Expr] = {
+        **(variables or {}),
         "date_from": ast.Constant(value=_align_to_interval(date_from, resolved, tzinfo=team.timezone_info)),
         "date_to": ast.Constant(value=date_to),
         "interval": _interval_expr(resolved),
@@ -127,6 +133,19 @@ def build_metrics_sql_query(
     }
     inner = parse_select(sql, placeholders=placeholders)
     _assert_reads_only_metrics_tables(team, inner)
+    return inner
+
+
+def build_metrics_sql_query(
+    team: Team,
+    sql: str,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    interval: str | None,
+    variables: Mapping[str, ast.Expr] | None = None,
+) -> ast.SelectQuery:
+    """Parse the insight's SQL with the date and variable placeholders filled in, wrapped in the row limit."""
+    inner = _parse_metrics_sql(team, sql, date_from, date_to, interval, variables)
     wrapped = parse_select(
         "SELECT * FROM {inner} LIMIT {row_limit}",
         placeholders={"inner": inner, "row_limit": ast.Constant(value=_SQL_ROW_LIMIT)},
@@ -170,9 +189,14 @@ def _on_interval_starts(times: list[Any], interval: str, team: Team) -> bool:
 
 
 def run_metrics_sql(
-    team: Team, sql: str, date_from: dt.datetime, date_to: dt.datetime, interval: str | None
+    team: Team,
+    sql: str,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    interval: str | None,
+    variables: Mapping[str, ast.Expr] | None = None,
 ) -> list[MetricSeries]:
-    query = build_metrics_sql_query(team, sql, date_from, date_to, interval)
+    query = build_metrics_sql_query(team, sql, date_from, date_to, interval, variables)
     response = execute_hogql_query(
         query_type="MetricsSQLQuery",
         query=query,
@@ -215,3 +239,74 @@ def run_metrics_sql(
         ],
         fill=0.0 if on_interval_starts else None,
     )
+
+
+_VARIABLE_VALUE_COLUMN = "__variable_value"
+
+
+def _is_by_name(query: ast.SelectQuery | ast.SelectSetQuery) -> bool:
+    if not isinstance(query, ast.SelectSetQuery):
+        return False
+    return (
+        any(node.set_operator.endswith("BY NAME") for node in query.subsequent_select_queries)
+        or _is_by_name(query.initial_select_query)
+        or any(_is_by_name(node.select_query) for node in query.subsequent_select_queries)
+    )
+
+
+def _name_first_column(query: ast.SelectQuery | ast.SelectSetQuery) -> str:
+    """The name of the first column, aliased when it has none. The other columns stay, so ORDER BY can use them."""
+    select_query = query
+    while isinstance(select_query, ast.SelectSetQuery):
+        select_query = select_query.initial_select_query
+    if not select_query.select:
+        raise ExposedHogQLError("A SQL variable query must select the values in its first column.")
+    first = select_query.select[0]
+    if isinstance(first, ast.Field) and first.chain[-1] == "*":
+        raise ExposedHogQLError("A SQL variable query must name its first column. SELECT * is not supported.")
+    if isinstance(first, ast.Alias):
+        return first.alias
+    if _is_by_name(query):
+        # The other queries of the set match the first column by its name, so it keeps that name.
+        if isinstance(first, ast.Field) and len(first.chain) == 1 and isinstance(first.chain[0], str):
+            return first.chain[0]
+        raise ExposedHogQLError("A SQL variable query with a BY NAME set must name its first column with AS.")
+    select_query.select[0] = ast.Alias(alias=_VARIABLE_VALUE_COLUMN, expr=first)
+    return _VARIABLE_VALUE_COLUMN
+
+
+def run_metrics_sql_values(
+    team: Team,
+    sql: str,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    limit: int,
+    variables: Mapping[str, ast.Expr] | None = None,
+    max_length: int | None = None,
+) -> list[str]:
+    """ClickHouse removes duplicates, drops values longer than `max_length` and stops at the limit, so only the
+    returned values leave the database."""
+    inner = _parse_metrics_sql(team, sql, date_from, date_to, None, variables)
+    name = _name_first_column(inner)
+    query = parse_select(
+        "SELECT DISTINCT {value} FROM {inner} WHERE {short} LIMIT {limit}",
+        placeholders={
+            "value": ast.Field(chain=[name]),
+            "inner": inner,
+            "short": parse_expr(
+                "lengthUTF8(toString({value})) <= {max_length}",
+                placeholders={"value": ast.Field(chain=[name]), "max_length": ast.Constant(value=max_length)},
+            )
+            if max_length is not None
+            else ast.Constant(value=True),
+            "limit": ast.Constant(value=limit),
+        },
+    )
+    response = execute_hogql_query(
+        query_type="MetricsSQLVariableQuery",
+        query=query,
+        team=team,
+        workload=Workload.LOGS,
+        settings=_QUERY_SETTINGS,
+    )
+    return [str(row[0]) for row in response.results or [] if row and row[0] is not None]

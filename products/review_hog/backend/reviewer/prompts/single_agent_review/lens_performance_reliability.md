@@ -1,5 +1,5 @@
 <!--
-DevEx-owned system prompt of the performance and reliability lens session of the single-agent Flash review.
+DevEx-owned guidelines of the performance and reliability lens session of the single-agent Flash review.
 The builder strips this comment before sending the text.
 
 The perspective text is a copy of products/review_hog/skills/review-hog-perspective-performance-reliability/SKILL.md,

@@ -1,7 +1,9 @@
 from typing import Optional, cast
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE, is_databricks_workspace_host
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -14,10 +16,13 @@ from products.warehouse_sources.backend.facade.source_config import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.databricks.databricks import (
+    DATABRICKS_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
     DatabricksImplementation,
     clean_databricks_host,
+    run_schema_discovery_with_deadline,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.databricks import (
     DatabricksSourceConfig,
@@ -54,6 +59,29 @@ DatabricksErrors = {
 
 @SourceRegistry.register
 class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^DATABRICKS_",),
+        npm=("@databricks/sql",),
+        pypi=("databricks-sql-connector", "databricks-sdk", "databricks-connect", "databricks-cli"),
+        go=(
+            "github.com/databricks/databricks-sdk-go",
+            "github.com/databricks/databricks-sql-go",
+            "github.com/databricks/databricks-grafana-datasource",
+            "github.com/databricks/databricks-sql-kernel-bindings",
+        ),
+        maven=(
+            "com.databricks:databricks-sdk-java",
+            "com.databricks:databricks-jdbc",
+            "com.databricks:databricks-connect",
+            "com.databricks:databricks-connect_2.13",
+            "com.databricks:databricks-dbutils-scala-parent_2.12",
+            "com.databricks:databricks-dbutils-scala-parent_2.13",
+            "com.databricks:databricks-dbutils-scala_2.12",
+            "com.databricks:databricks-dbutils-scala_2.13",
+            "com.databricks:databricks-jdbc-thin",
+        ),
+    )
+
     api_docs_url = "https://docs.databricks.com/aws/en/dev-tools/python-sql-connector"
 
     @property
@@ -73,7 +101,7 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
             caption="Enter your Databricks SQL warehouse credentials to automatically pull your Databricks data into the PostHog Data warehouse. Requires a Unity Catalog catalog.",
             iconPath="/static/services/databricks.png",
             docsUrl="https://posthog.com/docs/cdp/sources/databricks",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["delta lake", "spark", "unity catalog", "sql warehouse"],
             fields=cast(
                 list[FieldType],
@@ -155,6 +183,7 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
                     ),
                     SourceFieldInputConfig(
                         name="schema",
+                        sync_setting=True,
                         label="Schema (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -175,6 +204,8 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
         return {
             **self.default_non_retryable_errors(),
             "Invalid access token": "Databricks rejected the access token. Check that the personal access token is correct and has not expired or been revoked, then resync.",
+            # Raised by `DatabricksImplementation.connect` for a stored host outside the Databricks DNS zones.
+            "is not a Databricks workspace hostname": "This source's server hostname is not a Databricks workspace hostname. Update it to the server hostname from your SQL warehouse's connection details, then resync.",
             "invalid_client": "Databricks rejected the service principal credentials. Check the client ID and client secret, and that the service principal still exists, then resync.",
             # Unity Catalog error classes are stable identifiers; the object names around them are volatile.
             "CATALOG_NOT_FOUND": "The configured catalog no longer exists in Databricks, or your credentials lost USE CATALOG on it. Check the catalog and grants, then resync.",
@@ -196,7 +227,41 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
             # something PostHog's retries can fix. Matched on Databricks' own stable error class,
             # not the redacted JDBC URL around it.
             "[FAILED_JDBC.CONNECTION]": "Databricks couldn't connect to a federated database backing a table you're syncing (a Lakehouse Federation connection). Check that the underlying database is reachable and its connection details in Databricks are still correct, then resync.",
+            # Raised when a synced view's underlying table was altered (a column renamed or dropped)
+            # and the view's own SELECT no longer resolves — a stale view definition on the
+            # customer's side that every retry fails identically until they recreate it. Matched on
+            # Databricks' own stable error class, not the view/column names or the CREATE OR REPLACE
+            # statement it suggests around it.
+            "[INCOMPATIBLE_VIEW_SCHEMA_CHANGE]": "A view this source syncs has an incompatible schema change in Databricks — its underlying table was altered and the view's query can no longer resolve a column. Recreate the view in Databricks to match the new schema, then resync.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # Raised when the SQL warehouse auto-suspended (or was manually stopped) while a
+        # command was in flight. Databricks auto-starts a stopped warehouse on the next query
+        # by default, so the fresh connection Temporal opens on its next retry attempt usually
+        # finds the warehouse running again.
+        return {"was stopped."}
+
+    def get_schemas(
+        self,
+        config: DatabricksSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        return run_schema_discovery_with_deadline(
+            lambda: super(DatabricksSource, self).get_schemas(
+                config,
+                team_id,
+                with_counts=with_counts,
+                names=names,
+                force_refresh=force_refresh,
+                api_version=api_version,
+            ),
+            timeout_seconds=DATABRICKS_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
+        )
 
     def validate_credentials(
         self,
@@ -213,8 +278,12 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
         ):
             return False, "Missing required parameters: client ID, client secret"
 
+        host = clean_databricks_host(config.host)
+        if not is_databricks_workspace_host(host):
+            return False, NOT_A_DATABRICKS_HOST_MESSAGE
+
         # Block SSRF to internal hosts before any OAuth/SQL request reaches the pasted host.
-        valid_host, host_error = self.is_database_host_valid(clean_databricks_host(config.host), team_id)
+        valid_host, host_error = self.is_database_host_valid(host, team_id)
         if not valid_host:
             return valid_host, host_error
 

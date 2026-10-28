@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwinSource(ResumableSource[AwinSourceConfig, AwinResumeConfig]):
+    codebase_detection = detect(env=("^AWIN_",), script_hosts=("www.dwin1.com",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     api_docs_url = "https://developer.awin.com/apidocs"
@@ -49,7 +52,7 @@ class AwinSource(ResumableSource[AwinSourceConfig, AwinResumeConfig]):
             name=ExternalDataSourceType.AWIN,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Awin",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Awin API token to pull your Awin affiliate data into the PostHog Data warehouse.
 
 Create a personal OAuth2 token from the [Awin API settings](https://ui.awin.com/awin-api). The same token grants access to every publisher account your user can see.""",

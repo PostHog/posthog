@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,6 +41,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CalComSource(ResumableSource[CalComSourceConfig, CalComResumeConfig]):
+    codebase_detection = detect(
+        env=("^CALCOM_", "^CAL_API_KEY$"),
+        script_hosts=("app.cal.com",),
+        npm=("@calcom/embed-react", "@calcom/embed-snippet", "@calcom/embed-core", "@calcom/atoms"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -55,7 +62,7 @@ class CalComSource(ResumableSource[CalComSourceConfig, CalComResumeConfig]):
             name=ExternalDataSourceType.CALCOM,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Cal.com",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Cal.com API key to pull your scheduling data into the PostHog Data warehouse.
 
 You can create an API key under **Settings → Security → API keys** in [Cal.com](https://app.cal.com/settings/developer/api-keys). The key grants read access to your bookings, attendees, event types, schedules, teams, and webhooks.

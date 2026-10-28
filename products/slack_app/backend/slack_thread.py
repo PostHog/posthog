@@ -2,6 +2,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from enum import StrEnum
+from functools import cached_property
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -9,11 +10,23 @@ import structlog
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
 from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
+from products.slack_app.backend.logic.feature_tips.offer import TipRequest, offer_feature_tip
+from products.slack_app.backend.logic.interview_recruitment import FrustrationInviteRequest, offer_frustration_invite
+from products.slack_app.backend.logic.reply_suggestions import (
+    ReplySuggestionAttribution,
+    SuggestedReply,
+    clear_open_suggestions,
+    remember_open_suggestions,
+    reply_suggestions_block,
+    reply_suggestions_fallback_text,
+    suggest_replies,
+)
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
     app_home_url,
@@ -31,8 +44,11 @@ from products.slack_app.backend.services.slack_messages import (
     slack_message_exists,
     turn_feedback_block,
 )
+from products.slack_app.backend.services.task_notifications import task_slack_notifications_muted
 
 if TYPE_CHECKING:
+    from posthog.models.user import User
+
     from products.slack_app.backend.models import SlackThreadTaskMapping
 
 logger = structlog.get_logger(__name__)
@@ -158,6 +174,8 @@ class SlackThreadContext:
     thread_ts: str
     user_message_ts: str | None = None
     mentioning_slack_user_id: str | None = None
+    # The mention that opened the run. Only the run's first turn answers it.
+    person_message: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -169,6 +187,8 @@ class SlackThreadContext:
             d["user_message_ts"] = self.user_message_ts
         if self.mentioning_slack_user_id is not None:
             d["mentioning_slack_user_id"] = self.mentioning_slack_user_id
+        if self.person_message is not None:
+            d["person_message"] = self.person_message
         return d
 
     @classmethod
@@ -179,6 +199,7 @@ class SlackThreadContext:
             thread_ts=data["thread_ts"],
             user_message_ts=data.get("user_message_ts"),
             mentioning_slack_user_id=data.get("mentioning_slack_user_id"),
+            person_message=data.get("person_message"),
         )
 
     @classmethod
@@ -192,6 +213,20 @@ class SlackThreadContext:
             user_message_ts=user_message_ts,
             mentioning_slack_user_id=mapping.mentioning_slack_user_id,
         )
+
+
+def _response_ts(response: Any) -> str | None:
+    ts = response.get("ts") if response is not None else None
+    return ts if isinstance(ts, str) else None
+
+
+@frozen
+class _PostedAnswer:
+    """The last message of a plain answer, kept so the reply buttons can join it after it is posted."""
+
+    ts: str
+    text: str
+    blocks: list[dict[str, Any]]
 
 
 def _pr_buttons(pr_url: str, task_url: str | None) -> list[dict[str, Any]]:
@@ -222,12 +257,16 @@ class SlackThreadHandler:
         run_footer: RunFooter | None = None,
         actor_slack_user_id: str | None = None,
         turn_trace_id: str | None = None,
+        turn_person_message: str | None = None,
     ) -> None:
         self.context = context
         self.run_footer = run_footer or RunFooter()
+        self.task_run_id = self.run_footer.run_id
         # Beside the footer rather than in it: a trace id belongs to one turn, and the
         # next turn in the same thread has its own.
         self.turn_trace_id = turn_trace_id
+        # What the person said to start this turn, so reply suggestions know what they asked for.
+        self.turn_person_message = turn_person_message
         # Who this reply is for, which can differ from the task creator because a thread
         # outlives its opener.
         self.actor_slack_user_id = actor_slack_user_id or context.mentioning_slack_user_id
@@ -235,6 +274,9 @@ class SlackThreadHandler:
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
         self._fork_flag: bool | None = None
+        self._last_answer: _PostedAnswer | None = None
+        # Safe to keep for the handler's life: each activity call builds a fresh handler.
+        self._muted_cache: dict[tuple[str | None, bool], bool] = {}
         self.stream_ended = False
 
     @classmethod
@@ -245,18 +287,50 @@ class SlackThreadHandler:
         *,
         actor_slack_user_id: str | None = None,
         turn_trace_id: str | None = None,
+        turn_person_message: str | None = None,
     ) -> "SlackThreadHandler":
         """A handler whose footer describes ``run_id``.
 
         The footer's project segment is judged against the install this context posts through,
         so the footer always loads with ``context.integration_id``.
         """
-        return cls(
+        handler = cls(
             context,
             load_run_footer(run_id, integration_id=context.integration_id),
             actor_slack_user_id=actor_slack_user_id,
             turn_trace_id=turn_trace_id,
+            turn_person_message=turn_person_message,
         )
+
+        handler.task_run_id = str(run_id) if run_id is not None else None
+        return handler
+
+    def notification_target(self, slack_user_id: str | None) -> str | None:
+        if not self.task_run_id:
+            return slack_user_id
+        if self._notifications_muted(slack_user_id, private_only=False):
+            return None
+        return slack_user_id
+
+    def notification_text(self, text: str, slack_user_id: str | None) -> str:
+        if slack_user_id and self.notification_target(slack_user_id) is None:
+            return re.sub(rf"^\s*<@{re.escape(slack_user_id)}(?:\|[^>]+)?>\s*", "", text, count=1)
+        return text
+
+    def proactive_notifications_muted(self) -> bool:
+        return self._notifications_muted(self.context.mentioning_slack_user_id, private_only=True)
+
+    def _notifications_muted(self, slack_user_id: str | None, *, private_only: bool) -> bool:
+        key = (slack_user_id, private_only)
+        if key not in self._muted_cache:
+            self._muted_cache[key] = task_slack_notifications_muted(
+                integration_id=self.context.integration_id,
+                channel=self.context.channel,
+                thread_ts=self.context.thread_ts,
+                slack_user_id=slack_user_id,
+                private_only=private_only,
+            )
+        return self._muted_cache[key]
 
     def _get_integration(self) -> Integration:
         if self._integration is None:
@@ -395,7 +469,9 @@ class SlackThreadHandler:
 
     def update_reaction(self, emoji: str) -> None:
         """Swap the reaction on the user's mention message."""
-        target_ts = self.context.user_message_ts or self.context.thread_ts
+        target_ts = self.context.user_message_ts
+        if not target_ts:
+            return
         try:
             client = self._get_client()
             try:
@@ -419,7 +495,8 @@ class SlackThreadHandler:
         """chat.startStream in plan-block mode. Seed with plan-block steps, a
         markdown_text chunk, or both. The plan block stays where its first step
         lands, and later task_update chunks change that block in place."""
-        if not self.actor_slack_user_id:
+        recipient = self.notification_target(self.actor_slack_user_id)
+        if not recipient:
             return None
         if first_markdown_text:
             first_markdown_text = self._with_leading_mention(first_markdown_text)
@@ -437,7 +514,7 @@ class SlackThreadHandler:
             response = client.chat_startStream(
                 channel=self.context.channel,
                 thread_ts=self.context.thread_ts,
-                recipient_user_id=self.actor_slack_user_id,
+                recipient_user_id=recipient,
                 recipient_team_id=integration.integration_id,
                 task_display_mode="plan",
                 chunks=chunks,
@@ -472,14 +549,15 @@ class SlackThreadHandler:
 
     def stop_status_stream(
         self,
-        ts: str,
+        ts: str | None,
         complete_task_id: str | None = None,
         complete_task_title: str | None = None,
         final_markdown: str | None = None,
         plan_title: str | None = None,
         append_attachments: Callable[[], None] | None = None,
         mention_sent: bool = False,
-    ) -> None:
+        reply_suggestions_for: str | None = None,
+    ) -> bool:
         """Final flush: mark the last plan-block step complete, stream the answer, then chat.stopStream.
 
         The answer starts with the @-mention, so the one notification lands with it. With no
@@ -488,8 +566,21 @@ class SlackThreadHandler:
         chart cards sit under the text that describes them. The provenance footer is a `blocks`
         chunk because a `context` block is the only way to get muted text.
 
-        When Slack already closed the stream, the answer goes out as a plain thread reply,
-        and nothing else is sent to the closed stream."""
+        With no stream timestamp, the answer goes out as an ordinary thread reply.
+        When Slack already closed the stream, the answer also goes out as a plain thread reply,
+        and nothing else is sent to the closed stream.
+
+        Returns whether the answer reached the thread.
+        """
+        if ts is None:
+            self.stream_ended = True
+            delivered = False
+            if final_markdown:
+                delivered = self._post_answer_outside_stream(final_markdown)
+                if delivered:
+                    self.offer_reply_suggestions(reply_suggestions_for)
+                self.capture_reply_posted(ReplyKind.ANSWER, delivered=delivered)
+            return delivered
         answer_chunks: list[dict[str, Any]] = []
         if plan_title:
             answer_chunks.append(_plan_update_chunk(plan_title))
@@ -502,13 +593,20 @@ class SlackThreadHandler:
         if self.stream_ended:
             if final_markdown:
                 answer_delivered = self._post_answer_outside_stream(final_markdown)
+            if answer_delivered:
+                self.offer_reply_suggestions(reply_suggestions_for)
         else:
             self._close_stream(
-                ts, final_markdown=final_markdown, mention_sent=mention_sent, append_attachments=append_attachments
+                ts,
+                final_markdown=final_markdown,
+                mention_sent=mention_sent,
+                append_attachments=append_attachments,
+                reply_suggestions_for=reply_suggestions_for if answer_delivered else None,
             )
         # A turn stopped before it answered still closes its stream, which then holds only status lines.
         if final_markdown or mention_sent:
             self.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
+        return answer_delivered
 
     def _close_stream(
         self,
@@ -517,15 +615,17 @@ class SlackThreadHandler:
         final_markdown: str | None,
         mention_sent: bool,
         append_attachments: Callable[[], None] | None,
+        reply_suggestions_for: str | None = None,
     ) -> None:
         if append_attachments is not None:
             try:
                 append_attachments()
             except Exception as e:
                 logger.warning("slack_app_status_stream_attachments_failed", error=str(e))
+        placed = self._append_reply_suggestions(ts, reply_suggestions_for) if reply_suggestions_for else []
 
         final_chunks: list[dict[str, Any]] = []
-        recipient = self.actor_slack_user_id
+        recipient = self.notification_target(self.actor_slack_user_id)
         if recipient and not final_markdown and not mention_sent:
             # Newlines keep the mention off the tail of the last streamed prose chunk.
             final_chunks.append({"type": "markdown_text", "text": f"\n\n<@{recipient}>"})
@@ -536,6 +636,8 @@ class SlackThreadHandler:
         if footer:
             self._append_trailing_blocks(ts)
         self._stop_stream(ts)
+        if placed:
+            self._record_suggestions_placed(ts, placed, placement="answer")
 
     def _stop_stream(self, ts: str) -> None:
         if self.stream_ended:
@@ -558,7 +660,8 @@ class SlackThreadHandler:
         return all(posted)
 
     def _with_leading_mention(self, markdown: str) -> str:
-        return leading_mention_prefix(markdown, self.actor_slack_user_id) + markdown
+        markdown = self.notification_text(markdown, self.actor_slack_user_id)
+        return leading_mention_prefix(markdown, self.notification_target(self.actor_slack_user_id)) + markdown
 
     def attach_files(self, ts: str, file_ids: list[str]) -> bool:
         """Attach uploaded files to a message whose stream has closed, keeping its blocks and text.
@@ -664,6 +767,7 @@ class SlackThreadHandler:
         becomes visible, and it is the only surface guaranteed to reach someone
         who only ever talks to @PostHog from Slack.
         """
+        reply_target_slack_user_id = self.notification_target(reply_target_slack_user_id)
         mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
         header = f"{mention_prefix}*Pull request opened* :rocket:"
 
@@ -689,6 +793,7 @@ class SlackThreadHandler:
         It leaves any progress message alone, because the run can still be working.
         Returns whether the card went out. A Slack failure is logged, never raised.
         """
+        reply_target_slack_user_id = self.notification_target(reply_target_slack_user_id)
         mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
         outcome = "*Pull request merged* :tada:" if merged else "*Pull request closed without merging*"
         header = f"{mention_prefix}{outcome}"
@@ -799,7 +904,11 @@ class SlackThreadHandler:
         footer = self._footer_block() if with_footer and fits_in_a_block else None
         blocks = self._answer_blocks(text, footer, markdown=markdown)
         try:
-            return self._post_in_thread(text=text, blocks=blocks) is not None
+            response = self._post_in_thread(text=text, blocks=blocks)
+            ts = _response_ts(response)
+            if footer and blocks and ts:
+                self._last_answer = _PostedAnswer(ts=ts, text=text, blocks=blocks)
+            return response is not None
         except SlackApiError as e:
             # Slack rejects a request whose blocks are invalid outright — the `text`
             # fallback does not rescue it — so the answer would go down with its footer.
@@ -922,6 +1031,138 @@ class SlackThreadHandler:
             logger.exception("slack_completion_post_failed", error=str(e))
             return False
 
+    def _session_id(self) -> str:
+        return slack_session_id(self._get_integration().integration_id, self.context.channel, self.context.thread_ts)
+
+    @cached_property
+    def _actor_posthog_user(self) -> "User | None":
+        # Deferred: api.py imports the temporal.ai workflows, which this module's importers do not otherwise load.
+        from products.slack_app.backend.api import resolve_posthog_user_from_event  # noqa: PLC0415
+
+        if not self.actor_slack_user_id:
+            return None
+        integration = self._get_integration()
+        try:
+            return resolve_posthog_user_from_event(
+                slack_user_id=self.actor_slack_user_id,
+                probe_integration=integration,
+                candidate_integrations=[integration],
+            )
+        except Exception:
+            logger.warning("slack_app_actor_lookup_failed", exc_info=True)
+            return None
+
+    def _suggestions_block(self, answer_markdown: str) -> tuple[list[SuggestedReply], dict[str, Any]] | None:
+        integration = self._get_integration()
+        posthog_user = self._actor_posthog_user
+        attribution = ReplySuggestionAttribution(
+            trace_id=self.turn_trace_id,
+            session_id=self._session_id(),
+            distinct_id=posthog_user.distinct_id if posthog_user else None,
+            task_id=self.run_footer.task_id,
+            run_id=self.run_footer.run_id,
+        )
+        suggestions = suggest_replies(answer_markdown, attribution, self.turn_person_message)
+        if not suggestions:
+            return None
+        return suggestions, reply_suggestions_block(integration.id, suggestions, self.turn_trace_id)
+
+    def _append_reply_suggestions(self, ts: str, answer_markdown: str) -> list[SuggestedReply]:
+        """Add the buttons to an open stream, under the answer and its attachments and above the footer."""
+        offered = self._suggestions_block(answer_markdown)
+        if offered is None:
+            return []
+        suggestions, block = offered
+        # An append of its own, so a block Slack rejects costs the buttons alone, never the footer.
+        appended = self._append_chunks(
+            ts, [{"type": "blocks", "blocks": [block]}], "slack_app_reply_suggestions_append_failed"
+        )
+        return suggestions if appended else []
+
+    def offer_reply_suggestions(self, answer_markdown: str | None) -> None:
+        """Add the buttons to the answer's last message, right under the answer text.
+
+        They post as a message of their own only when the answer has no message to extend:
+        a plain-text answer with no blocks, or an answer composed with chart cards.
+        """
+        offered = self._suggestions_block(answer_markdown) if answer_markdown else None
+        if offered is None:
+            return
+        suggestions, block = offered
+        answer = self._last_answer
+        if answer is not None:
+            try:
+                self._get_client().chat_update(
+                    channel=self.context.channel,
+                    ts=answer.ts,
+                    text=answer.text,
+                    blocks=[answer.blocks[0], block, *answer.blocks[1:]],
+                )
+                self._record_suggestions_placed(answer.ts, suggestions, placement="answer")
+                return
+            except Exception as e:
+                logger.warning("slack_app_reply_suggestions_update_failed", error=str(e))
+        try:
+            response = self._post_in_thread(text=reply_suggestions_fallback_text(suggestions), blocks=[block])
+        except Exception as e:
+            logger.warning("slack_app_reply_suggestions_post_failed", error=str(e))
+            return
+        ts = _response_ts(response)
+        if ts:
+            self._record_suggestions_placed(ts, suggestions, placement="separate")
+
+    def _record_suggestions_placed(self, message_ts: str, suggestions: list[SuggestedReply], *, placement: str) -> None:
+        integration = self._get_integration()
+        clear_open_suggestions(self._get_client(), integration.id, self.context.channel, self.context.thread_ts)
+        remember_open_suggestions(integration.id, self.context.channel, self.context.thread_ts, message_ts)
+        capture_slack_event(
+            integration,
+            "slack app reply suggestions posted",
+            slack_user_id=self.actor_slack_user_id,
+            posthog_user=self._actor_posthog_user,
+            suggestion_count=len(suggestions),
+            placement=placement,
+            slack_session_id=self._session_id(),
+            ai_trace_id=self.turn_trace_id,
+            task_id=self.run_footer.task_id,
+            run_id=self.run_footer.run_id,
+        )
+
+    def offer_feature_tip(self) -> None:
+        """Offer one private prompt under the answer: an interview invitation if the reader is frustrated, else a tip."""
+        if not self.actor_slack_user_id:
+            return
+        try:
+            if offer_frustration_invite(
+                FrustrationInviteRequest(
+                    integration=self._get_integration(),
+                    slack_user_id=self.actor_slack_user_id,
+                    posthog_user=self._actor_posthog_user,
+                    channel=self.context.channel,
+                    thread_ts=self.context.thread_ts,
+                    signal="message",
+                    person_message=self.turn_person_message,
+                    trace_id=self.turn_trace_id,
+                )
+            ):
+                return
+        except Exception:
+            logger.warning("slack_app_interview_invite_failed", exc_info=True)
+        try:
+            offer_feature_tip(
+                TipRequest(
+                    integration=self._get_integration(),
+                    slack_user_id=self.actor_slack_user_id,
+                    posthog_user=self._actor_posthog_user,
+                    channel=self.context.channel,
+                    thread_ts=self.context.thread_ts,
+                    person_message=self.turn_person_message,
+                    trace_id=self.turn_trace_id,
+                )
+            )
+        except Exception:
+            logger.warning("slack_app_feature_tip_failed", exc_info=True)
+
     def capture_reply_posted(self, reply_kind: ReplyKind, *, delivered: bool) -> None:
         """Capture a reply the run posted to this thread, so a mention can be followed to its answer.
 
@@ -929,28 +1170,18 @@ class SlackThreadHandler:
         is the join between the two events. The reader is resolved the way the mention event resolves
         it, so both events land on the same person.
         """
-        # Deferred: api.py imports the temporal.ai workflows, which this module's importers do not otherwise load.
-        from products.slack_app.backend.api import resolve_posthog_user_from_event  # noqa: PLC0415
-
         try:
-            integration = self._get_integration()
-            actor = self.actor_slack_user_id
             capture_slack_event(
-                integration,
+                self._get_integration(),
                 "slack app reply posted",
-                slack_user_id=actor,
-                posthog_user=resolve_posthog_user_from_event(
-                    slack_user_id=actor, probe_integration=integration, candidate_integrations=[integration]
-                )
-                if actor
-                else None,
+                slack_user_id=self.actor_slack_user_id,
+                posthog_user=self._actor_posthog_user,
                 reply_kind=str(reply_kind),
                 delivered=delivered,
-                slack_session_id=slack_session_id(
-                    integration.integration_id, self.context.channel, self.context.thread_ts
-                ),
+                slack_session_id=self._session_id(),
                 task_id=self.run_footer.task_id,
                 run_id=self.run_footer.run_id,
+                chart_links=self.run_footer.chart_links,
             )
         except Exception:
             logger.warning("slack_app_reply_posted_capture_failed", reply_kind=str(reply_kind), exc_info=True)

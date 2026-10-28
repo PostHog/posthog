@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { KeyboardEvent, useEffect, useRef, useState } from 'react'
 
-import { IconSend, IconTrash } from '@posthog/icons'
+import { IconCheck, IconSend, IconTrash } from '@posthog/icons'
 import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
 
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
@@ -68,6 +68,7 @@ export function getNotebookDiscussionCommentTitle(node: NotebookComponentBlockNo
 export function NotebookDiscussionComment({
     node,
     mode,
+    notebookMode,
     updateProps,
     deleteNode,
 }: NotebookComponentRenderProps): JSX.Element {
@@ -77,7 +78,8 @@ export function NotebookDiscussionComment({
     const [draft, setDraft] = useState('')
     const [isHovered, setIsHovered] = useState(false)
     const repliesRef = useRef<HTMLDivElement | null>(null)
-    const isEditable = mode === 'edit'
+    const isEditable = (notebookMode ?? mode) === 'edit'
+    const isResolved = node.props.resolved === true
     const draftText = draft.trim()
 
     // Light up the anchored highlight while the cursor is over the thread.
@@ -102,7 +104,7 @@ export function NotebookDiscussionComment({
     }, [replies.length])
 
     const submitReply = (): void => {
-        if (!draftText || !isEditable) {
+        if (!draftText || !isEditable || isResolved) {
             return
         }
 
@@ -134,6 +136,7 @@ export function NotebookDiscussionComment({
             data-attr="notebook-discussion-comment"
         >
             <div className="MarkdownNotebook__discussion-comment-replies" ref={repliesRef}>
+                {isResolved ? <div className="text-muted">Resolved</div> : null}
                 {replies.map((reply) => (
                     <div key={reply.id} className="MarkdownNotebook__discussion-comment-reply">
                         <ProfilePicture user={{ first_name: reply.author }} size="sm" />
@@ -158,39 +161,49 @@ export function NotebookDiscussionComment({
             </div>
             {isEditable ? (
                 <div className="MarkdownNotebook__discussion-comment-composer">
-                    <div className="flex flex-col rounded input-like">
-                        <textarea
-                            className="LemonTextArea MarkdownNotebook__discussion-comment-input w-full rounded"
-                            value={draft}
-                            onChange={(event) => {
-                                event.stopPropagation()
-                                setDraft(event.currentTarget.value)
-                            }}
-                            onKeyDown={handleComposerKeyDown}
-                            placeholder={replies.length ? 'Reply...' : 'Comment...'}
-                            rows={1}
-                            autoFocus={wasNotebookNodeJustInserted(node.id)}
-                            data-attr="notebook-discussion-comment-input"
-                        />
-                    </div>
-                    <div className="MarkdownNotebook__discussion-comment-actions">
-                        {isEditable ? (
-                            <LemonButton
-                                size="xsmall"
-                                icon={<IconTrash />}
-                                tooltip="Delete thread"
-                                aria-label="Delete thread"
-                                onClick={deleteNode}
+                    {!isResolved ? (
+                        <div className="flex flex-col rounded input-like">
+                            <textarea
+                                className="LemonTextArea MarkdownNotebook__discussion-comment-input w-full rounded"
+                                value={draft}
+                                onChange={(event) => {
+                                    event.stopPropagation()
+                                    setDraft(event.currentTarget.value)
+                                }}
+                                onKeyDown={handleComposerKeyDown}
+                                placeholder={replies.length ? 'Reply...' : 'Comment...'}
+                                rows={1}
+                                autoFocus={wasNotebookNodeJustInserted(node.id)}
+                                data-attr="notebook-discussion-comment-input"
                             />
-                        ) : null}
+                        </div>
+                    ) : null}
+                    <div className="MarkdownNotebook__discussion-comment-actions">
                         <LemonButton
                             size="xsmall"
-                            type="primary"
-                            icon={<IconSend />}
-                            onClick={submitReply}
-                            disabledReason={draftText ? undefined : 'Write a reply first'}
-                            aria-label="Send reply"
+                            icon={<IconCheck />}
+                            onClick={() => updateProps({ resolved: !isResolved })}
+                            data-attr="notebook-discussion-comment-resolve"
+                        >
+                            {isResolved ? 'Reopen' : 'Resolve'}
+                        </LemonButton>
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconTrash />}
+                            tooltip="Delete thread"
+                            aria-label="Delete thread"
+                            onClick={deleteNode}
                         />
+                        {!isResolved ? (
+                            <LemonButton
+                                size="xsmall"
+                                type="primary"
+                                icon={<IconSend />}
+                                onClick={submitReply}
+                                disabledReason={draftText ? undefined : 'Write a reply first'}
+                                aria-label="Send reply"
+                            />
+                        ) : null}
                     </div>
                 </div>
             ) : null}

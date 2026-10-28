@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -30,6 +31,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AhaSource(ResumableSource[AhaSourceConfig, AhaResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v1",)
@@ -51,7 +54,7 @@ class AhaSource(ResumableSource[AhaSourceConfig, AhaResumeConfig]):
             name=ExternalDataSourceType.AHA,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Aha!",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Aha! account domain and API key to pull your Aha! data into the PostHog Data warehouse.
 
 Create an API key under **Settings → Personal → Developer → API keys** in your Aha! account. The key inherits your account permissions, so it can read every record you can see.""",

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -30,6 +31,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
+    codebase_detection = detect(env=("^(ALPHA_VANTAGE|ALPHAVANTAGE)_",), pypi=("alpha-vantage",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://www.alphavantage.co/documentation/"
 
@@ -121,7 +124,7 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
             name=ExternalDataSourceType.ALPHAVANTAGE,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Alpha Vantage",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["stocks", "market data", "financial", "equities", "fundamentals"],
             caption="""Enter your Alpha Vantage API key and the stock symbols you want to track to pull market data and company fundamentals into the PostHog Data warehouse.
 
@@ -143,6 +146,7 @@ Note: the free tier is limited to roughly 25 requests per day, and each selected
                     ),
                     SourceFieldInputConfig(
                         name="symbols",
+                        sync_setting=True,
                         label="Symbols (comma-separated)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

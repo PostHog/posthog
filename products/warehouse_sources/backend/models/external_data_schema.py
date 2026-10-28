@@ -50,6 +50,9 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 type IncrementalFieldValue = str | int | float | None
+# A stored cursor after process_incremental_value: the serialized form above, widened by the
+# datetime or date a DateTime, Timestamp or Date field parses to.
+type ProcessedIncrementalValue = datetime | date | str | int | float
 
 # Sync type strings that early clients wrote to the column. They name a real mode, so they map to it.
 LEGACY_SYNC_TYPE_ALIASES: dict[str, ExternalDataSchemaSyncType] = {
@@ -80,6 +83,10 @@ def resolve_sync_type(value: str | None) -> ExternalDataSchemaSyncType | None:
 # Recorded as the job's latest_error, which the syncs UI shows to the customer.
 SYNC_DISABLED_JOB_ERROR = "Sync stopped because syncing was turned off"
 SCHEMA_DELETED_JOB_ERROR = "Sync stopped because the table was deleted"
+WORKER_RESTART_ERROR_MESSAGE = (
+    "This sync run was interrupted too many times by restarts on PostHog's side, so it did not finish. "
+    "It will run again automatically. No action is needed."
+)
 AUTO_DISABLED_JOB_ERROR = "Sync stopped because of an error that retrying would not fix"
 
 # `Any_Source_Errors` rewrites the raised exception into this copy, so a blocked schema carries it
@@ -213,7 +220,7 @@ STAGED_CURSOR_PENDING_LIMIT = MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION
 # The key, inside a staged cursor, for the incremental value a later attempt of the same workflow
 # run can resume after. It differs from the staged `last_value`, which the loader promotes only
 # when the whole run completes.
-STAGED_RESUME_VALUE_KEY = "resume_value"
+STAGED_RESUME_VALUE_KEY = "ordered_resume_value"
 
 # The key, inside a staged cursor, for the run whose queue rows the resume value actually describes.
 # An attempt that only inherits the value from an earlier attempt, without queuing a batch of its
@@ -225,6 +232,11 @@ STAGED_RESUME_OWNER_KEY = "resume_owner_run_uuid"
 # owns the value (see `pipeline_v3/load/append_rollback.py`). A reset deletes the table, so it
 # drops the key too.
 APPEND_RUN_MARKER_KEY = "append_run_in_progress"
+
+# The key for the newest watermark that a loaded prefix of batches moved, with the job that loaded
+# them and the rows that job had synced through the prefix. A later attempt of the same job reads
+# only the rows above that watermark, so it keeps that row count instead of counting from zero.
+PREFIX_PROMOTION_KEY = "incremental_prefix_promotion"
 
 
 class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
@@ -318,7 +330,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     # See `sources/common/history_window.py`. A column rather than a `sync_type_config` key
     # because it has to outlive a reset, and clearing that blob is what a reset is for.
     history_start = models.DateTimeField(null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "verified_primary_keys": list[str] | None, "source_cursor": { "kind": str, "data": dict }, "max_partition_bytes": int, "partition_measurement": { "job_id": str, "phase": "pre_extraction" | "post_load", "budget": int, "healthy": bool }, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict }, "query_folder_state": { "<table>__query": { "active": str, "active_since": iso8601 str, "active_job_id": str, "history_since": iso8601 str, "inactive_since": { str: iso8601 str } } }, "registered_schema_fingerprint": str }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "verified_primary_keys": list[str] | None, "source_cursor": { "kind": str, "data": dict }, "max_partition_bytes": int, "partition_measurement": { "job_id": str, "phase": "pre_extraction" | "post_load", "budget": int, "split_budget": int, "healthy": bool }, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict }, "query_folder_state": { "<table>__query": { "active": str, "active_since": iso8601 str, "active_job_id": str, "history_since": iso8601 str, "inactive_since": { str: iso8601 str } } }, "registered_schema_fingerprint": str }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -576,6 +588,10 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         return "consolidated"
 
     @property
+    def keeps_history(self) -> bool:
+        return self.is_cdc and self.cdc_table_mode in ("cdc_only", "both")
+
+    @property
     def should_use_incremental_field(self):
         return self.is_incremental or self.is_append or self.is_webhook
 
@@ -583,7 +599,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     def table_row_count_is_cumulative(self) -> bool:
         # These sync types append/merge into the warehouse table across runs, so its true size is the
         # full table count — not the latest run's row_count, which is only that run's delta. Full refresh
-        # replaces the whole table, so there the run's row_count already equals the table size.
+        # replaces the whole table, so there the run's row_count equals the table size unless the run
+        # resumed: a resumed run counts only the rows of its last attempt.
         return self.should_use_incremental_field or self.is_cdc or self.is_xmin
 
     @property
@@ -916,7 +933,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         in one activity converges across attempts rather than giving up terminally. Cleared once temp
         is fully built (a swap is staged) or when the controller gives up. Shape:
         {"temp_uri": str, "rows_written": int, "target": dict, "live_version": int, "held_at": str,
-        "budget_exhausted": bool}.
+        "budget_exhausted": bool, "sliced": bool}.
         """
         if self.sync_type_config:
             marker = self.sync_type_config.get("repartition_rewrite", None)
@@ -1028,7 +1045,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         )
         return self.sync_type_config.get("repartition_claim") == claim
 
-    def abandon_repartition_if_claimed(self, claim_token: str) -> bool:
+    def abandon_repartition_if_claimed(self, claim_token: str, *, stamp_cooldown: bool = True) -> bool:
         from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
 
         def _write(config: dict[str, Any]) -> None:
@@ -1039,7 +1056,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
                 return
             for key in ("repartition_pending", "repartition_swap", "repartition_rewrite"):
                 config.pop(key, None)
-            config["last_repartition_at"] = timezone.now().isoformat()
+            if stamp_cooldown:
+                config["last_repartition_at"] = timezone.now().isoformat()
 
         self.sync_type_config = retry_on_db_connection_drop(
             lambda: update_sync_type_config_keys(schema_id=self.id, team_id=self.team_id, mutate=_write)
@@ -1053,6 +1071,14 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
                 for key in ("repartition_pending", "repartition_swap", "repartition_rewrite")
             )
         )
+
+    def disable_repartition_slicing(self) -> None:
+        def _write(config: dict[str, Any]) -> None:
+            pending = config.get("repartition_pending")
+            if isinstance(pending, dict):
+                pending["slice_disabled"] = True
+
+        self.sync_type_config = update_sync_type_config_keys(schema_id=self.id, team_id=self.team_id, mutate=_write)
 
     def clear_repartition_swap(self) -> None:
         self.sync_type_config.pop("repartition_swap", None)
@@ -1228,6 +1254,50 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         self.sync_type_config = update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
         return found
 
+    def promote_loaded_prefix_value(
+        self, *, run_uuid: str, job_id: str, field: str, value: Any, job_rows_synced: int
+    ) -> bool:
+        """Move `incremental_field_last_value` up to the value that a loaded prefix of `run_uuid` covers.
+
+        Returns True when the watermark moved. It moves only forward, and only while the run still
+        has a staged cursor at or above `value` for the same incremental field. A reset drops the
+        staged cursors, so a run that loads late never moves the watermark of the table that replaced
+        its own. A pair of values that cannot be compared keeps the current watermark.
+        """
+        moved = False
+
+        def mutate(config: dict[str, Any]) -> None:
+            nonlocal moved
+            if config.get("incremental_field") != field:
+                return
+            staged = _staged_cursor_of_run(config, run_uuid)
+            if staged is None or "last_value" not in staged:
+                return
+            field_type = config.get("incremental_field_type")
+            staged_comparison = _compare_incremental_values(staged["last_value"], value, field_type)
+            if staged_comparison is None or staged_comparison < 0:
+                return
+            current = config.get("incremental_field_last_value")
+            if current is not None:
+                comparison = _compare_incremental_values(current, value, field_type)
+                if comparison is None or comparison >= 0:
+                    return
+            config["incremental_field_last_value"] = value
+            config[PREFIX_PROMOTION_KEY] = {
+                "job_id": job_id,
+                "run_uuid": run_uuid,
+                "value": value,
+                "rows_synced": job_rows_synced,
+            }
+            moved = True
+
+        self.sync_type_config = update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
+        return moved
+
+    def serialize_incremental_value(self, value: Any) -> Any:
+        """Encode a cursor value the way the staged and the promoted watermark values store it."""
+        return self._serialize_incremental_value(value)
+
     def _serialize_incremental_value(self, value: Any) -> Any:
         incremental_field_type = self.sync_type_config.get("incremental_field_type")
         if "numpy" in sys.modules:
@@ -1308,6 +1378,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             "incremental_field_earliest_value",
             "incremental_staged",
             "incremental_staged_pending",
+            PREFIX_PROMOTION_KEY,
             APPEND_RUN_MARKER_KEY,
             "partitioning_enabled",
             "partition_size",
@@ -1501,6 +1572,55 @@ def _park_displaced_staged_cursor(config: dict[str, Any], staged: dict[str, Any]
     config["incremental_staged_pending"] = pending[-STAGED_CURSOR_PENDING_LIMIT:]
 
 
+def attempt_run_uuid(workflow_run_id: str, attempt: int) -> str:
+    """The run id that one import attempt stages its cursor and queues its batches under."""
+    return f"{workflow_run_id}-a{attempt}"
+
+
+def attempt_of(run_uuid: str) -> tuple[str, int] | None:
+    """Split a run id from `attempt_run_uuid` into its workflow run id and attempt, or None."""
+    workflow_run_id, separator, attempt = run_uuid.rpartition("-a")
+    if not separator or not workflow_run_id or not attempt.isdigit():
+        return None
+    return workflow_run_id, int(attempt)
+
+
+def _staged_attempts_of_run(config: dict[str, Any], workflow_run_id: str) -> list[tuple[dict[str, Any], int]]:
+    """Each staged cursor, live or parked, that an attempt of `workflow_run_id` wrote, with its attempt."""
+    attempts: list[tuple[dict[str, Any], int]] = []
+    for staged in (config.get("incremental_staged") or {}, *config.get("incremental_staged_pending", [])):
+        run_uuid = staged.get("run_uuid")
+        parsed = attempt_of(run_uuid) if isinstance(run_uuid, str) else None
+        if parsed is not None and parsed[0] == workflow_run_id:
+            attempts.append((staged, parsed[1]))
+    return attempts
+
+
+def _staged_cursor_of_run(config: dict[str, Any], run_uuid: str) -> dict[str, Any] | None:
+    """The staged cursor of `run_uuid`, live or parked, without removing it."""
+    for staged in (config.get("incremental_staged") or {}, *config.get("incremental_staged_pending", [])):
+        if staged.get("run_uuid") == run_uuid:
+            return staged
+    return None
+
+
+def prefix_promotion_rows_synced(config: dict[str, Any], job_id: str) -> int | None:
+    """The rows `job_id` synced through the loaded prefix that set the stored watermark, or None.
+
+    None when the stored watermark did not come from a loaded prefix of this job, so a new attempt
+    of the job reads the rows that the count would cover again.
+    """
+    promotion = config.get(PREFIX_PROMOTION_KEY)
+    if not isinstance(promotion, dict) or promotion.get("job_id") != job_id:
+        return None
+    if "value" not in promotion or promotion["value"] != config.get("incremental_field_last_value"):
+        return None
+    rows_synced = promotion.get("rows_synced")
+    if isinstance(rows_synced, bool) or not isinstance(rows_synced, int) or rows_synced < 0:
+        return None
+    return rows_synced
+
+
 def _drop_parked_staged_cursor(config: dict[str, Any], run_uuid: str) -> dict[str, Any] | None:
     """Remove the parked cursor of `run_uuid` and return it, or None when the run has none."""
     pending = config.get("incremental_staged_pending", [])
@@ -1527,16 +1647,11 @@ def staged_handoff_resume_point(config: dict[str, Any], workflow_run_id: str | N
     """
     if not workflow_run_id:
         return None
-    prefix = f"{workflow_run_id}-a"
     newest: dict[str, Any] | None = None
     newest_attempt = 0
-    for staged in (config.get("incremental_staged") or {}, *config.get("incremental_staged_pending", [])):
-        run_uuid = staged.get("run_uuid")
-        if not isinstance(run_uuid, str) or not run_uuid.startswith(prefix):
-            continue
-        attempt = run_uuid.removeprefix(prefix)
-        if attempt.isdigit() and int(attempt) > newest_attempt:
-            newest, newest_attempt = staged, int(attempt)
+    for staged, attempt in _staged_attempts_of_run(config, workflow_run_id):
+        if attempt > newest_attempt:
+            newest, newest_attempt = staged, attempt
     if newest is None:
         return None
     owner_run_uuid = newest.get(STAGED_RESUME_OWNER_KEY) or newest["run_uuid"]
@@ -1552,6 +1667,54 @@ def staged_handoff_resume_value(config: dict[str, Any], workflow_run_id: str | N
     """
     point = staged_handoff_resume_point(config, workflow_run_id)
     return None if point is None else point[1]
+
+
+def staged_run_last_value(config: dict[str, Any], workflow_run_id: str | None) -> ProcessedIncrementalValue | None:
+    """The newest `last_value` that any attempt of `workflow_run_id` staged, or None.
+
+    A resumed attempt of a descending source reads only rows older than the rows that the earlier
+    attempts read, so it must start from their newest value. Each attempt stages the newest value
+    of the whole run so far, so the value survives when the parked list drops the attempt that read
+    the newest row.
+    """
+    if not workflow_run_id:
+        return None
+    field_type = config.get("incremental_field_type")
+    newest: ProcessedIncrementalValue | None = None
+    # Newest attempt first: for a pair the comparator cannot order, the newest attempt wins, the same
+    # rule that `_advance_promoted_cursor` applies.
+    for staged, attempt in sorted(_staged_attempts_of_run(config, workflow_run_id), key=lambda item: -item[1]):
+        if staged.get("last_value") is None:
+            continue
+        try:
+            candidate = process_incremental_value(staged["last_value"], field_type)
+        except Exception:
+            # A value that does not parse must not fail the attempt at startup. The attempt then
+            # starts from an older value, which can only make the next run read rows again.
+            logger.warning(
+                "staged_run_last_value_unparseable",
+                run_uuid=staged.get("run_uuid"),
+                attempt=attempt,
+                incremental_field_type=field_type,
+                exc_info=True,
+            )
+            continue
+        if candidate is None:
+            continue
+        if newest is None:
+            newest = candidate
+            continue
+        comparison = _compare_incremental_values(newest, candidate, field_type)
+        if comparison is None:
+            logger.warning(
+                "staged_run_last_value_unordered",
+                run_uuid=staged.get("run_uuid"),
+                attempt=attempt,
+                incremental_field_type=field_type,
+            )
+        elif comparison < 0:
+            newest = candidate
+    return newest
 
 
 def _advance_promoted_cursor(
@@ -1882,6 +2045,27 @@ def release_repartition_hold_if_claimed(schema: ExternalDataSchema, *, claim_tok
     schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
 
 
+def mark_repartition_dropping_if_claimed(schema: ExternalDataSchema, *, claim_token: str) -> int | None:
+    """Count one failed drop of the pending target while `claim_token` still owns the schema.
+
+    Returns the drop attempts so far, or None when a newer attempt owns the schema. A target marked
+    `dropping` is never promoted by a reset (see `pending_scheme_for_table_replacement`).
+    """
+    drop_attempts: int | None = None
+
+    def _write(config: dict[str, Any]) -> None:
+        nonlocal drop_attempts
+        claim = config.get("repartition_claim")
+        pending = config.get("repartition_pending")
+        if not (claim and claim.get("token") == claim_token) or not isinstance(pending, dict):
+            return
+        drop_attempts = int(pending.get("drop_attempts", 0)) + 1
+        pending.update({"dropping": True, "drop_attempts": drop_attempts})
+
+    schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+    return drop_attempts
+
+
 def clear_repartition_checkpoint_if_claimed(schema: ExternalDataSchema, *, claim_token: str, temp_uri: str) -> bool:
     """Remove the rewrite checkpoint for `temp_uri` while `claim_token` still owns the schema.
 
@@ -2048,10 +2232,11 @@ def pending_scheme_for_table_replacement(config: dict[str, Any]) -> dict[str, An
 
     None while a swap is staged, because the temp table can then be the only intact copy and the
     swap recovery owns the scheme. None when an operator pinned a scheme, because that pin is the
-    newer decision. A marker with no keys holds bookkeeping only and describes no scheme.
+    newer decision. A marker with no keys holds bookkeeping only and describes no scheme. A target that
+    the activity is dropping (`dropping`) describes no table either.
     """
     pending = config.get("repartition_pending")
-    if not isinstance(pending, dict) or not pending.get("partition_keys"):
+    if not isinstance(pending, dict) or not pending.get("partition_keys") or pending.get("dropping"):
         return None
     if config.get("repartition_swap") is not None:
         return None
@@ -2170,11 +2355,86 @@ def get_schemas_for_direct_reconciliation(
 # offering the new name as a separate one.
 SCHEMA_RESOURCE_ID_METADATA_KEY = "source_resource_id"
 
+# Set to True in a schema's `schema_metadata` when the schema reads a definition PostHog stored on it,
+# not one that discovery reports (a self-managed table moved into an object storage source reads the
+# exact files of its old URL pattern). Discovery can't report such a schema, so it must not disable it.
+SCHEMA_PINNED_METADATA_KEY = "pinned"
+# Set in a schema's `schema_metadata` to the self-managed table that the schema's first sync replaces.
+# The schema does not link to that table before the sync, so the table stays as it is until then.
+SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY = "self_managed_table"
+
+
+@frozen
+class SelfManagedTableRef:
+    """The self-managed table a schema replaces, and the files the schema was pinned to read."""
+
+    table_id: str
+    url_pattern: str
+    format: str
+    # Set when an operator abandoned the migration of the table.
+    abandon_reason: str | None = None
+
+    def to_metadata(self) -> dict[str, Any]:
+        metadata = {"table_id": self.table_id, "url_pattern": self.url_pattern, "format": self.format}
+        if self.abandon_reason is not None:
+            metadata["abandon_reason"] = self.abandon_reason
+        return metadata
+
+
+def _schema_metadata(schema: "ExternalDataSchema") -> dict[str, Any]:
+    metadata = (schema.sync_type_config or {}).get("schema_metadata")
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def is_pinned_schema(schema: "ExternalDataSchema") -> bool:
+    return _schema_metadata(schema).get(SCHEMA_PINNED_METADATA_KEY) is True
+
+
+def self_managed_table_ref(schema: "ExternalDataSchema") -> SelfManagedTableRef | None:
+    ref = _schema_metadata(schema).get(SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY)
+    if not isinstance(ref, dict):
+        return None
+    table_id, url_pattern, table_format = ref.get("table_id"), ref.get("url_pattern"), ref.get("format")
+    if not (isinstance(table_id, str) and isinstance(url_pattern, str) and isinstance(table_format, str)):
+        return None
+    reason = ref.get("abandon_reason")
+    return SelfManagedTableRef(
+        table_id=table_id,
+        url_pattern=url_pattern,
+        format=table_format,
+        abandon_reason=reason if isinstance(reason, str) else None,
+    )
+
 
 def _resource_id(metadata: object) -> str | None:
     if isinstance(metadata, dict) and metadata.get(SCHEMA_RESOURCE_ID_METADATA_KEY) is not None:
         return str(metadata[SCHEMA_RESOURCE_ID_METADATA_KEY])
     return None
+
+
+def discovered_schema_finder(
+    discovered: Iterable["SourceSchema"],
+) -> Callable[[str, object], "SourceSchema | None"]:
+    """Return a lookup that finds the discovered schema for a stored one: by its stable resource id
+    first, then by name.
+
+    A renamed resource keeps its id but not its name, so a match by name alone misses it. Build one
+    lookup per discovery, so that matching many stored schemas costs one dict read each."""
+    by_resource_id: dict[str, SourceSchema] = {}
+    by_name: dict[str, SourceSchema] = {}
+    for discovered_schema in discovered:
+        resource_id = _resource_id(discovered_schema.schema_metadata)
+        if resource_id is not None:
+            by_resource_id.setdefault(resource_id, discovered_schema)
+        by_name.setdefault(discovered_schema.name, discovered_schema)
+
+    def find(stored_name: str, stored_metadata: object) -> "SourceSchema | None":
+        stored_resource_id = _resource_id(stored_metadata)
+        if stored_resource_id is not None and stored_resource_id in by_resource_id:
+            return by_resource_id[stored_resource_id]
+        return by_name.get(stored_name)
+
+    return find
 
 
 def _renamed_schema_names(
@@ -2338,10 +2598,16 @@ def sync_old_schemas_with_new_schemas(
 
     for schema in schemas_to_create:
         seeded_metadata = (schema_metadata_by_name or {}).get(schema)
-        deleted_obj = (
-            ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, name=schema, deleted=True)
-            .order_by("-updated_at", "-created_at")
-            .first()
+        deleted_obj = next(
+            (
+                row
+                for row in ExternalDataSchema.objects.filter(
+                    team_id=team_id, source_id=source_id, name=schema, deleted=True
+                ).order_by("-updated_at", "-created_at")
+                # A deleted migration schema records that its table stays self-managed, so discovery must not revive it.
+                if SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY not in _schema_metadata(row)
+            ),
+            None,
         )
         if deleted_obj is not None:
             deleted_obj.deleted = False
@@ -2380,6 +2646,8 @@ def sync_old_schemas_with_new_schemas(
             team_id=team_id, name=schema, source_id=source_id, deleted=False
         )
         for s in schemas_to_check:
+            if is_pinned_schema(s):
+                continue
             # Only rows nobody enabled disappear entirely. A user-enabled row survives as visibly
             # disabled, because soft-deleting it would silently discard the user's selection (e.g.
             # a scope-gated table the source stopped offering before its first successful sync).

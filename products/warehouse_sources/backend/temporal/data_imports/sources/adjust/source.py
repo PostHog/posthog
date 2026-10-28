@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 import requests
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,30 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AdjustSource(ResumableSource[AdjustSourceConfig, AdjustResumeConfig]):
+    codebase_detection = detect(
+        script_hosts=("cdn.adjust.com",),
+        npm=("@adjustcom/adjust-web-sdk", "react-native-adjust"),
+        cocoapods=("Adjust", "AdjustAdobeExtension"),
+        maven=(
+            "com.adjust.sdk:adjust-android",
+            "com.adjust.sdk:adjust-android-criteo",
+            "com.adjust.sdk:adjust-android-google-lvl",
+            "com.adjust.sdk:adjust-android-huawei-referrer",
+            "com.adjust.sdk:adjust-android-imei",
+            "com.adjust.sdk:adjust-android-meta-referrer",
+            "com.adjust.sdk:adjust-android-oaid",
+            "com.adjust.sdk:adjust-android-samsung-clouddev",
+            "com.adjust.sdk:adjust-android-samsung-referrer",
+            "com.adjust.sdk:adjust-android-sociomantic",
+            "com.adjust.sdk:adjust-android-vivo-referrer",
+            "com.adjust.sdk:adjust-android-webbridge",
+            "com.adjust.sdk:adjust-android-xiamoi-referrer",
+            "com.adjust.sdk:adjust-android-xiaomi-referrer",
+        ),
+        pub=("adjust_sdk",),
+        swiftpm=("github.com/adjust/ios_sdk", "github.com/adjust/adjust_signature_sdk"),
+    )
+
     # The Report Service API carries no version token in its path, headers, or params, so there is
     # no vendor version to pin.
     api_docs_url = "https://dev.adjust.com/en/api/rs-api/"
@@ -79,7 +104,7 @@ Find your API token in the Adjust dashboard under your account menu > Account se
 Adjust's Report Service API returns metrics aggregated per day, so these tables are daily time series rather than user-level events. Raw user-level data needs server callbacks or a cloud storage upload, which can't be set up through the API.""",
             iconPath="/static/services/adjust.png",
             docsUrl="https://posthog.com/docs/cdp/sources/adjust",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["mobile attribution", "mmp"],
             fields=cast(
                 list[FieldType],
@@ -94,6 +119,7 @@ Adjust's Report Service API returns metrics aggregated per day, so these tables 
                     ),
                     SourceFieldInputConfig(
                         name="app_tokens",
+                        sync_setting=True,
                         label="App tokens (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

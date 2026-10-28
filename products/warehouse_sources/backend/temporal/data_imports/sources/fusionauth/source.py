@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,9 +32,43 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+_SEARCH_WINDOW_DESCRIPTION = "Full sync only; the search API's result window is capped at ~10,000 rows."
+_PER_USER_DESCRIPTION = "Full sync only; read for the first ~10,000 users the user search returns."
+
+SCHEMA_DESCRIPTIONS: dict[str, str] = {
+    "Users": _SEARCH_WINDOW_DESCRIPTION,
+    "Entities": _SEARCH_WINDOW_DESCRIPTION,
+    "UserRegistrations": _PER_USER_DESCRIPTION,
+    "UserConsents": _PER_USER_DESCRIPTION,
+    "UserActionLogs": _PER_USER_DESCRIPTION,
+}
+
 
 @SourceRegistry.register
 class FusionAuthSource(ResumableSource[FusionAuthSourceConfig, FusionAuthResumeConfig]):
+    codebase_detection = detect(
+        env=("^FUSIONAUTH_", "^FUSION_AUTH_"),
+        npm=(
+            "@fusionauth/typescript-client",
+            "@fusionauth/react-sdk",
+            "@fusionauth/vue-sdk",
+            "@fusionauth/angular-sdk",
+        ),
+        pypi=("fusionauth-client",),
+        composer=("fusionauth/fusionauth-client",),
+        go=("github.com/FusionAuth/go-client",),
+        maven=(
+            "io.fusionauth:fusionauth-java-client",
+            "io.fusionauth:fusionauth-android-sdk",
+            "io.fusionauth:fusionauth-jwt",
+            "io.fusionauth:fusionauth-plugin-api",
+            "io.fusionauth:fusionauth-spring-security",
+        ),
+        pub=("fusionauth_dart_client",),
+        rubygems=("fusionauth_client",),
+        swiftpm=("github.com/fusionauth/fusionauth-swift-sdk",),
+    )
+
     api_docs_url = "https://fusionauth.io/docs/apis/"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -53,7 +88,7 @@ class FusionAuthSource(ResumableSource[FusionAuthSourceConfig, FusionAuthResumeC
             name=ExternalDataSourceType.FUSIONAUTH,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="FusionAuth",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your FusionAuth instance's base URL and an API key to pull your FusionAuth data into the PostHog Data warehouse.
 
 You can create an API key in the FusionAuth admin UI under **Settings > API Keys**.
@@ -120,9 +155,7 @@ Audit logs, event logs, and login records require the Elasticsearch search engin
                 supports_incremental=bool(FUSIONAUTH_ENDPOINTS[endpoint].incremental_fields),
                 supports_append=bool(FUSIONAUTH_ENDPOINTS[endpoint].incremental_fields),
                 incremental_fields=FUSIONAUTH_ENDPOINTS[endpoint].incremental_fields,
-                description="Full sync only; the search API's result window is capped at ~10,000 rows."
-                if endpoint == "Users"
-                else None,
+                description=SCHEMA_DESCRIPTIONS.get(endpoint),
             )
             for endpoint in ENDPOINTS
         ]

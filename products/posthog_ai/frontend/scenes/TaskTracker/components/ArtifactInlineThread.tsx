@@ -5,8 +5,8 @@ import { cn } from '@posthog/quill-primitives'
 
 import { threadAnchorLabel } from '../artifactComments'
 import { TaskArtifactCommentsLogicProps, taskArtifactCommentsLogic } from '../taskArtifactCommentsLogic'
-import { ArtifactCommentComposer } from './ArtifactCommentComposer'
 import { ArtifactCommentThreadEntries } from './ArtifactCommentThreadEntries'
+import { ArtifactReplyComposer } from './ArtifactReplyComposer'
 
 export const INLINE_THREAD_WIDTH_PX = 320
 
@@ -22,8 +22,8 @@ export function ArtifactInlineThread({
     style: CSSProperties
     className?: string
 }): JSX.Element | null {
-    const { activeThreadId, threads, drafts, writing } = useValues(taskArtifactCommentsLogic(logicProps))
-    const { activateThread, replyToThread, setDraft } = useActions(taskArtifactCommentsLogic(logicProps))
+    const { activeThreadId, threads } = useValues(taskArtifactCommentsLogic(logicProps))
+    const { activateThread } = useActions(taskArtifactCommentsLogic(logicProps))
     const ref = useRef<HTMLDivElement>(null)
     const thread = threads?.find((candidate) => candidate.root.id === activeThreadId) ?? null
     const open = !!thread
@@ -76,18 +76,7 @@ export function ArtifactInlineThread({
             </div>
             {!thread.resolved && (
                 <div className="border-t border-border p-2">
-                    <ArtifactCommentComposer
-                        value={drafts[rootId] ?? ''}
-                        onChange={(value) => setDraft(rootId, value)}
-                        onSubmit={() => replyToThread(rootId)}
-                        saving={writing === rootId}
-                        busy={!!writing && writing !== rootId}
-                        label="Reply"
-                        placeholder="Reply"
-                        submitLabel="Reply"
-                        rows={2}
-                        dataAttr="task-artifact-comment-reply"
-                    />
+                    <ArtifactReplyComposer logicProps={logicProps} rootId={rootId} rows={2} />
                 </div>
             )}
         </div>

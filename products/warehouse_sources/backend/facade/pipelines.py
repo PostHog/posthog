@@ -20,6 +20,7 @@ _LAZY = {
     "emit_data_import_app_metrics": "metrics",
     "BatchQueue": "products.warehouse_sources_queue.backend.core.jobs_db",
     "mark_job_failed_if_not_terminal": "pipelines.pipeline_v3.postgres_queue.consumer",
+    "destination_named_in_failure": "pipelines.pipeline_v3.destinations_load.errors",
     "release_v3_pipeline_lock": "pipelines.pipeline_v3.sync_lock",
     "CDCExtractionInput": "cdc.workflows",
     "SyncNewSchemasActivityInputs": "workflow_activities.sync_new_schemas",

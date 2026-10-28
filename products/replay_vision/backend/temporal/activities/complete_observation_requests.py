@@ -4,21 +4,26 @@ from temporalio import activity
 
 from posthog.sync import database_sync_to_async
 
-from products.replay_vision.backend.observation_requests import complete_settled_requests, start_waiting_requests
-from products.replay_vision.backend.temporal.constants import REAPER_OP_TIMEOUT
+from products.replay_vision.backend.temporal.constants import COMPLETE_OBSERVATION_REQUESTS_TIMEOUT
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.query_budget import bounded_queries
 
 
 @database_sync_to_async
 def _complete_observation_requests() -> int:
+    # Deferred: observation_requests reaches scanner_config, which imports this package while it loads.
+    from products.replay_vision.backend.observation_requests import (  # noqa: PLC0415
+        complete_settled_requests,
+        start_waiting_requests,
+    )
+
     # Isolated so a failure in one sweep still lets the other run; each also keeps to its own time budget.
-    with bounded_queries(REAPER_OP_TIMEOUT):
+    with bounded_queries(COMPLETE_OBSERVATION_REQUESTS_TIMEOUT) as query_deadline:
         try:
             start_waiting_requests()
         except Exception:
             activity.logger.exception("Starting waiting observation requests failed")
-        return complete_settled_requests()
+        return complete_settled_requests(query_deadline=query_deadline)
 
 
 @activity.defn

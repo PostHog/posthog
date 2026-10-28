@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HyperspellSource(ResumableSource[HyperspellSourceConfig, HyperspellResumeConfig]):
+    codebase_detection = detect(
+        env=("^HYPERSPELL_",),
+        npm=("hyperspell", "@hyperspell/hyperspell"),
+        pypi=("hyperspell",),
+        go=("github.com/hyperspell/hyperspell-go", "github.com/hyperspell/hyperspell-cli"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.hyperspell.com/api-reference/introduction"
 
@@ -56,7 +64,7 @@ class HyperspellSource(ResumableSource[HyperspellSourceConfig, HyperspellResumeC
             name=ExternalDataSourceType.HYPERSPELL,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Hyperspell",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Hyperspell API key to pull your app's memories, connections, and extracted entities into the PostHog Data warehouse.
 
 Create an API key in the [Hyperspell dashboard](https://app.hyperspell.com/). Keys are region-specific, so pick the region your Hyperspell app lives in.

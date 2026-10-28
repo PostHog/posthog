@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KongKonnectSource(ResumableSource[KongKonnectSourceConfig, KongKonnectResumeConfig]):
+    codebase_detection = detect(
+        env=("^KONNECT_", "^DECK_KONNECT_"),
+        go=("github.com/Kong/sdk-konnect-go", "github.com/Kong/konnect-orchestrator"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -62,7 +68,7 @@ class KongKonnectSource(ResumableSource[KongKonnectSourceConfig, KongKonnectResu
             name=ExternalDataSourceType.KONGKONNECT,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Kong Inc. (Kong Konnect)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter a Kong Konnect access token to pull your gateway's Advanced Analytics API request logs, plus the control planes, gateway entities, consumer groups, API products, Service Catalog scorecards, and identity realm consumers behind them, into the PostHog Data warehouse.
 
 Create a **Personal Access Token** under **Konnect → Personal access tokens**, or a **System Account access token** for a service identity. Either is sent as a bearer token.
@@ -99,6 +105,7 @@ How far back the initial sync can reach depends on your Konnect plan's Advanced 
                     ),
                     SourceFieldInputConfig(
                         name="lookback_days",
+                        sync_setting=True,
                         label="Initial sync window (days)",
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,

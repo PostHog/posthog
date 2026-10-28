@@ -1,34 +1,43 @@
-import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode, urljoin, urlsplit
 
 from requests import Response
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BaseNextUrlPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.settings import RIPPLING_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.settings import (
+    PAGE_SIZE,
+    RIPPLING_ENDPOINTS,
+    RipplingEndpointConfig,
+)
 
 RIPPLING_BASE_URL = "https://rest.ripplingapis.com"
 RIPPLING_HOST = urlsplit(RIPPLING_BASE_URL).netloc
-# Rippling list pages cap at 100 items.
-PAGE_SIZE = 100
 
 
-@dataclasses.dataclass
+@frozen
 class RipplingResumeConfig:
     # Rippling cursor pagination returns a `next_link` URL (sometimes relative);
     # we persist it absolutized, so it's all we need to pick back up.
-    next_url: str
+    next_url: str | None = None
+    # Fan-out endpoints checkpoint the framework's per-parent state instead.
+    fanout_state: dict[str, Any] | None = None
 
 
 def _format_filter_timestamp(value: Any) -> str:
@@ -42,22 +51,23 @@ def _format_filter_timestamp(value: Any) -> str:
 
 
 def _build_params(
+    config: RipplingEndpointConfig,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> dict[str, Any]:
     params: dict[str, Any] = {"limit": PAGE_SIZE}
 
-    if should_use_incremental_field and db_incremental_field_last_value is not None:
-        cursor_field = incremental_field or "updated_at"
+    if should_use_incremental_field and config.incremental_fields and db_incremental_field_last_value is not None:
+        cursor_field = incremental_field or config.default_incremental_field
         params["filter"] = f"{cursor_field} ge {_format_filter_timestamp(db_incremental_field_last_value)}"
         # Ascending order on the cursor field so the incremental watermark
         # advances monotonically as pages are consumed (order_by defaults to asc).
         params["order_by"] = cursor_field
-    else:
+    elif config.order_by:
         # Full refresh: a stable creation-time sort prevents page-boundary
         # skips/duplicates if rows change mid-sync.
-        params["order_by"] = "created_at"
+        params["order_by"] = config.order_by
 
     return params
 
@@ -125,54 +135,83 @@ def rippling_source(
 ) -> SourceResponse:
     config = RIPPLING_ENDPOINTS[endpoint]
 
-    rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": RIPPLING_BASE_URL,
-            # Auth (Bearer) via the framework config so the token is redacted from logs/errors.
-            "auth": {"type": "bearer", "token": api_token},
-            "paginator": RipplingNextLinkPaginator(),
-        },
-        "resource_defaults": {},
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": _build_params(
-                        should_use_incremental_field, db_incremental_field_last_value, incremental_field
-                    ),
-                    # A missing `results` key is a legit empty page (not a fail-loud shape change).
-                    "data_selector": "results",
-                },
-            }
-        ],
+    client_config: ClientConfig = {
+        "base_url": RIPPLING_BASE_URL,
+        # Auth (Bearer) via the framework config so the token is redacted from logs/errors.
+        "auth": {"type": "bearer", "token": api_token},
+        "paginator": RipplingNextLinkPaginator(),
+        # Pin every request (fan-out child paths included) to the base host so a hostile
+        # run id or link can't replay the bearer token elsewhere. `[]` means base_url's host only.
+        "allowed_hosts": [],
     }
 
-    initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None:
-            initial_paginator_state = {"next_url": resume.next_url}
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
-        # the last page (merge dedupes on primary key) rather than skipping it.
-        if state and state.get("next_url"):
-            resumable_source_manager.save_state(RipplingResumeConfig(next_url=state["next_url"]))
+    resource: Any
+    if config.fanout is not None:
+        initial_fanout_state = resume.fanout_state if resume is not None else None
 
-    resource = rest_api_resource(
-        rest_config,
-        team_id,
-        job_id,
-        None,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
+        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state:
+                resumable_source_manager.save_state(RipplingResumeConfig(fanout_state=state))
+
+        resource = build_dependent_resource(
+            endpoint_configs=RIPPLING_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            # A missing `results` key is a legit empty page (not a fail-loud shape change).
+            parent_endpoint_extra={"data_selector": "results"},
+            child_endpoint_extra={"data_selector": "results"},
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=initial_fanout_state,
+        )
+    else:
+        rest_config: RESTAPIConfig = {
+            "client": client_config,
+            "resource_defaults": {},
+            "resources": [
+                {
+                    "name": endpoint,
+                    "endpoint": {
+                        "path": config.path,
+                        "params": _build_params(
+                            config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+                        ),
+                        # A missing `results` key is a legit empty page (not a fail-loud shape change).
+                        "data_selector": "results",
+                    },
+                }
+            ],
+        }
+
+        initial_paginator_state = (
+            {"next_url": resume.next_url} if resume is not None and resume.next_url is not None else None
+        )
+
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+            # the last page (merge dedupes on primary key) rather than skipping it.
+            if state and state.get("next_url"):
+                resumable_source_manager.save_state(RipplingResumeConfig(next_url=state["next_url"]))
+
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
 
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

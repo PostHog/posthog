@@ -2,8 +2,6 @@ import json
 import logging
 from collections.abc import Collection, Sequence
 
-from django.conf import settings
-
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
@@ -49,24 +47,26 @@ class AlreadyRaised:
     commenter: str
 
 
-def _is_review_hog_finding(comment: PRComment) -> bool:
+def _is_review_hog_finding(comment: PRComment, app_login: str | None) -> bool:
     """ReviewHog's own finding comment. The marker is public, so it only counts on a bot's comment, and on
     ReviewHog's own app when its login is configured; otherwise anyone could paste it to leave the list."""
-    expected = settings.REVIEWHOG_GITHUB_BOT_LOGIN
-    by_review_hog = comment.user == expected if expected else comment.user.endswith("[bot]")
+    by_review_hog = comment.user.lower() == app_login if app_login else comment.user.endswith("[bot]")
     return by_review_hog and REVIEW_HOG_FINDING_MARKER in comment.body
 
 
-def already_raised(duplicates: Sequence[Duplicate], pr_comments: Sequence[PRComment]) -> list[AlreadyRaised]:
+def already_raised(
+    duplicates: Sequence[Duplicate], pr_comments: Sequence[PRComment], app_login: str | None
+) -> list[AlreadyRaised]:
     """The other reviewers' PR comments that a turn's findings repeat.
 
     One entry per comment, at the most severe level any of its repeating findings gave it, because several
-    perspectives often find the same problem.
+    perspectives often find the same problem. `app_login` is `posthog_app_login()`, which the async caller
+    resolves off the event loop.
     """
     others = {
         str(comment.id): comment
         for comment in pr_comments
-        if comment.id is not None and not _is_review_hog_finding(comment)
+        if comment.id is not None and not _is_review_hog_finding(comment, app_login)
     }
     by_comment: dict[int, AlreadyRaised] = {}
     for duplicate in duplicates:

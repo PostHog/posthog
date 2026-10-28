@@ -198,6 +198,108 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-10-16 — push gate skips follow-ups that rarely surface anything (live)
+
+- **What.** Three live push gate rules run after `draft`: `late_follow_up` (the push would start review 9 or a later
+  one), `small_pr` (the PR has fewer than 150 reviewable lines, the size the lens parts use), and `quiet_small_push`
+  (the last review kept no finding and the push changes at most 30 own code lines). They take over a shadow match of an
+  earlier rule. A skipped push leaves the baseline in place, so the next review covers its changes, and skipped small
+  pushes add up until one crosses 30 lines. Every gate decision now carries `reviewable_lines` and `previous_findings`.
+- **Why.** Automatic follow-ups make up most of the Standard spend, and most of them surface nothing. The findings of
+  the previous review predict what a follow-up surfaces better than the PR size does: inside each PR size band, a
+  follow-up after a review with two or more findings surfaced three to five times the must-fix findings of a follow-up
+  after a review that kept none.
+- **Evidence.** A replay of automatic follow-ups under the current posting rules, with model cost joined per turn
+  (review-eval `experiments/2026-10-16-follow-up-value`):
+  - The three rules match about two in five of those follow-ups and about a third of their cost.
+  - They hold back about one in six follow-up must-fix labels and follow-up findings. The labels are the model's own,
+    and a skipped push stays in the next review's scope, so both shares are upper bounds.
+  - Follow-ups after a push the gate expects another push for surfaced the most per review, so `next_push_likely`
+    stays a shadow rule.
+- **Not chosen.**
+  - Skipping first reviews of small PRs: a first review of a 30 to 99 line PR still surfaces must-fix findings.
+  - System One below 0.7: it saves less per must-fix label held back than the push-size rule.
+  - A cap from review 5: it saves about half as much and holds back almost as many must-fix labels.
+
+### ✅ BUILT 2026-10-15 — push gate: small-change deferral (shadow)
+
+- **What.** A new push gate rule, `small_change`, sits after `docs_only` and before `system_one_below_threshold`. It
+  matches a push that changes 1 to `SMALL_CHANGE_MAX_NET_CODE_LINES` (10) code lines net: the additions plus deletions
+  of the GitHub compare between the last reviewed head and the push head, over files `_NON_CODE_FILE` does not match.
+  A capped file list or a file without counts makes the net lines unknown, and the rule does not match. A per-PR
+  counter in Redis allows `SMALL_CHANGE_MAX_DEFERRALS` (2) deferrals in a row: the next small push runs the review and
+  sets the counter to 0, and so does any push the rule does not match. Without Redis the rule does not match. A retried
+  turn at the same head reuses the count of its first attempt. The count is stored with a compare-and-set: when another
+  turn stored a count first or the write fails, the small push runs the review (`small_change_not_stored`). `SKIP_SMALL_CHANGE = False`, so the rule only logs:
+  every decision carries `net_code_lines` and `small_change_deferrals` on `reviewhog_push_gate_decided`.
+- **Why.** Since Oct 14 14:33 UTC, 71% of automatic follow-up runs surfaced nothing. The chance that a run surfaces
+  something grows with the net code lines of the push, and small pushes rarely surface anything.
+- **Evidence.**
+  - Surfacing rate by net code lines of the push (run 3+, 367 runs; run 2 under the changed-code rule looks the
+    same):
+
+    | Net code lines               | 0   | 1-10 | 11-30 | 31-100 | 101-300 | >300 |
+    | ---------------------------- | --- | ---- | ----- | ------ | ------- | ---- |
+    | Runs that surfaced something | 6%  | 3%   | 12%   | 23%    | 35%     | 56%  |
+
+  - An offline replay of 527 follow-ups on 243 PRs (review-eval `experiments/2026-10-15-gate-surfacing`): deferring at
+    10 net lines with two deferrals in a row at most saves about 16% of follow-up spend (9% of all Standard spend). It
+    withholds 7 of 167 surfaced findings at the deferred push (3 of them on docs-only pushes) and 0 of 40 must-fix
+    labels (95% upper bound 10%).
+  - A 30-line threshold saves 25% but withholds 3 must-fix labels.
+  - A fitted probability model did not beat the size buckets (Brier 0.145 vs 0.148). A cost-per-probability term
+    changed 7 of 125 deferrals.
+  - `own_code_lines` counts churn: a rebase counts every commit again, which made large pushes look small-yield in an
+    earlier read. The rule uses net lines for that reason.
+
+- **Not chosen.**
+  - A 30-line threshold: it withholds must-fix findings.
+  - A probability model: no better than the size buckets.
+  - A per-repo cost term: it changes few deferrals.
+  - System One: its below-threshold pushes carried must-fix labels at the same rate as the rest.
+- **Before it goes live.**
+  - A few days of shadow decisions. In shadow mode the review still runs and moves the baseline, so net lines are per
+    push, not added up over deferred pushes as in live mode.
+  - The final-push gap: in the replay 62 of 243 PRs ended on a deferred push, 33 of them merged. That needs a review
+    started when stamphog asks for evidence on a deferred head, and a visible "latest push not reviewed yet" state on
+    the PR.
+  - One baseline for the gate and the posting filter.
+
+### ✅ BUILT 2026-10-15 — automatic Standard follow-ups post only changed-code findings from run 2 on
+
+- **What.** `FLASH_WHOLE_PR_TURNS` goes from 2 to 1. Run 1 still reviews the whole pull request with the doubled
+  first-review cap. From run 2 on, an automatic Standard (Flash) turn drops every P2 and P3 finding more than
+  `FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES` lines from code the push changed, as `old_code`. Must-fix findings post
+  anywhere. A requested review (`@posthog review`, the label, the UI) still reviews the whole pull request.
+- **Why.** The per-PR loop complaints came from run 2 and later turns that re-reviewed unchanged code: each fix push
+  drew new should-fix findings on code the push never touched, so the author fixed and pushed again. After the
+  Oct 14 changes, run 2 produced 135 of 241 follow-up findings and 7 of its must-fix findings.
+- **Evidence.** An offline replay of 215 run-2 turns (155 after the Oct 14 cutover, 60 before) through the
+  production rule code (review-eval `experiments/2026-10-15-run2-scope-replay`):
+  - The rule suppresses 147 posted findings on 80 turns, all labeled should-fix by the model.
+  - A blind Sonnet judge graded them 91 real, 54 unsure, 2 not real, and none must-fix.
+  - 18 must-fix findings on unchanged code stay posted.
+  - 13% of the suppressed findings were caused by the push: the 3-line margin misses a changed caller that breaks an
+    unchanged callee. A 10-line margin rescues 4 of those 19 and adds 17 unrelated findings, so the margin stays.
+- **Not chosen.**
+  - A lower run-2 cap: unrelated findings still get through, only fewer of them.
+  - Run 2 as a whole-PR review only when run 1 hit its cap: cap saturation says nothing about the new push.
+  - A wider margin: see the Evidence numbers above.
+
+### ✅ BUILT 2026-10-13 — Flash follow-ups drop only P3 findings on unchanged code (`reviewhog-flash-2-3`)
+
+- **What.** The `old_code` rule from `reviewhog-flash-2-1` now drops only P3 findings on code unchanged since the last
+  reviewed head. A P2 on old code goes through dedup like any other finding, so it posts unless it repeats a finding
+  an earlier turn posted.
+- **Why.** Reading the findings the rule dropped showed that many P2s on old code named specific bugs the earlier
+  turn had missed, such as unhandled errors on request paths and races, while no other drop rule removed real
+  findings. Other review bots on the same PRs raised issues in old code that authors then fixed. The rule existed to
+  stop repeats, and dedup against earlier turns' findings already removes a repeat of a finding that posted.
+- **Kept.** P3 findings on old code still drop: they are the trickle the rule was built for, and Flash posts P3s
+  rarely.
+- **Supersedes** the idea of letting an old-code finding through only when two turns raise it independently, which
+  would have kept most of these bugs dropped.
+
 ### ✅ DECIDED 2026-10-09 — the `review-hog-internal` gate is gone
 
 - **What.** `review-hog` is the only ReviewHog flag. Automatic Flash reviews, the label trigger, resolution, manual

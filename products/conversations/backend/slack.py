@@ -410,6 +410,24 @@ def _slack_hosted_fallback(f: dict) -> dict | None:
     }
 
 
+def _resolve_slack_file_stub(f: dict, client: WebClient | None) -> dict:
+    """The full file object for a file that arrived without a download URL.
+
+    In a Slack Connect channel the Events API sends only the file id, with
+    ``file_access: "check_file_info"``. The download URLs and the permalink are only
+    available from ``files.info``. Without them the file can be neither re-hosted nor linked.
+    """
+    file_id = f.get("id")
+    if f.get("url_private_download") or f.get("url_private") or not file_id or client is None:
+        return f
+    try:
+        full_file = client.files_info(file=file_id).get("file")
+    except Exception:
+        logger.warning("🖼️ slack_file_info_failed", file_id=file_id, exc_info=True)
+        return f
+    return full_file if isinstance(full_file, dict) else f
+
+
 def extract_slack_files(files: list[dict] | None, team: Team, client: WebClient | None = None) -> list[dict]:
     """
     Extract attachments from Slack and re-host them in UploadedMedia.
@@ -431,7 +449,10 @@ def extract_slack_files(files: list[dict] | None, team: Team, client: WebClient 
     attachments: list[dict] = []
     unavailable_count = 0
     for f in files[:MAX_ATTACHMENTS_PER_MESSAGE]:
-        attachment = _rehost_slack_file(f, team, bot_token) if can_read_files else None
+        attachment: dict | None = None
+        if can_read_files:
+            f = _resolve_slack_file_stub(f, client)
+            attachment = _rehost_slack_file(f, team, bot_token)
         if attachment is None:
             attachment = _slack_hosted_fallback(f)
             unavailable_count += 1
@@ -1644,7 +1665,7 @@ def ticket_unfurl(ticket: "Ticket", team: Team) -> dict:
     }
 
 
-def _is_internal_channel(client: WebClient, channel: str) -> bool:
+def _is_internal_channel(client: WebClient, channel: str, *, raise_on_error: bool = False) -> bool:
     """Whether `channel` is an ordinary channel of this workspace alone.
 
     Fails closed, twice over: a channel we cannot read is one we cannot prove is internal, and
@@ -1663,6 +1684,8 @@ def _is_internal_channel(client: WebClient, channel: str) -> bool:
         response = client.conversations_info(channel=channel)
     except Exception:
         logger.warning("slack_support_unfurl_channel_lookup_failed", slack_channel_id=channel)
+        if raise_on_error:
+            raise
         return False
     info = response.get("channel") or {}
     if any(info.get(flag) for flag in _NON_INTERNAL_CHANNEL_FLAGS):

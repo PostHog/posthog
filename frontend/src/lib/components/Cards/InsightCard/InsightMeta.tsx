@@ -1,23 +1,15 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 
-import {
-    IconChevronRight,
-    IconClock,
-    IconInfo,
-    IconPulse,
-    IconThumbsDown,
-    IconThumbsUp,
-    IconWarning,
-} from '@posthog/icons'
+import { IconChevronRight, IconClock, IconPulse, IconThumbsDown, IconThumbsUp, IconWarning } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
+import { CompactInfoPopover } from 'lib/components/Cards/InsightCard/CompactInfoPopover'
 import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
-import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
@@ -31,7 +23,6 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -40,6 +31,7 @@ import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { reportDashboardInsightMetaUpdated } from 'scenes/dashboard/dashboardEvents'
 import { getEffectiveDateOverride } from 'scenes/dashboard/dashboardUtils'
 import { dataRetentionBannerLogic } from 'scenes/insights/dataRetention/dataRetentionBannerLogic'
 import { exceedsRetention } from 'scenes/insights/dataRetention/exceedsRetention'
@@ -56,8 +48,9 @@ import { urls } from 'scenes/urls'
 import { insightsModel } from '~/models/insightsModel'
 import { queryScanHasActionableFinding } from '~/queries/nodes/DataNode/queryScan'
 import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTooltip'
+import { WarehouseSyncWarningList } from '~/queries/nodes/DataNode/WarehouseSyncWarningList'
+import { outOfDateSyncWarnings } from '~/queries/nodes/DataNode/warehouseSyncWarnings'
 import { copyTableData, getInsightExportAdapter } from '~/queries/nodes/InsightViz/exportAdapters'
-import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
 import { Node, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import {
     isDataVisualizationNode,
@@ -84,6 +77,7 @@ import {
 } from 'products/alerts/frontend/logic/insightAlertsLogic'
 import type { AlertType } from 'products/alerts/frontend/types'
 import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
+import { useInsightDisplayOptions } from 'products/product_analytics/frontend/insights/editor/insightDisplayOptions'
 
 import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
 import { useDashboardVisualizationOptions } from './dashboardVisualizationOptions'
@@ -111,6 +105,8 @@ interface InsightMetaProps extends Pick<
     | 'dashboardId'
     | 'canEditDashboard'
     | 'moveToDashboard'
+    | 'tileGroupMoveOptions'
+    | 'moveToTileGroup'
     | 'copyToDashboard'
     | 'showEditingControls'
     | 'showDetailsControls'
@@ -130,6 +126,7 @@ interface InsightMetaProps extends Pick<
     refreshDisabledReason?: string
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
+    onInfoVisibilityChange?: (visible: boolean) => void
     persistDisplayOptions?: (node: Node) => void
     onCreateAlert?: () => void
     onEditAlert?: (alertId: AlertType['id']) => void
@@ -157,9 +154,12 @@ export function InsightMeta({
     duplicate,
     setOverride,
     moveToDashboard,
+    tileGroupMoveOptions,
+    moveToTileGroup,
     copyToDashboard,
     areDetailsShown,
     setAreDetailsShown,
+    onInfoVisibilityChange,
     showEditingControls = true,
     showDetailsControls = true,
     moreButtons,
@@ -211,14 +211,13 @@ export function InsightMeta({
     const dashboardWidgetMenusLogicProps = {
         instanceKey: insight.short_id,
         dashboardId,
-        dashboards: insight.dashboards,
         dashboard_tiles: insight.dashboard_tiles,
     }
     const { copyToDestinations } = useValues(dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps))
     const { copyImage } = useActions(captureImageLogic)
     const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
     const { updateInsightDirect } = useActions(insightsModel)
-    const { reportDashboardInsightMetaUpdated, reportInsightResultsCopiedToClipboard } = useActions(eventUsageLogic)
+    const { reportInsightResultsCopiedToClipboard } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showCompactTile =
@@ -280,12 +279,21 @@ export function InsightMeta({
         canEditInsight && queryScan && scanFindings.length > 0 ? (
             <QueryScanTileTooltip summary={queryScan} findings={scanFindings} />
         ) : null
+    const syncWarnings = outOfDateSyncWarnings(insight.warnings)
+    const warehouseSyncTooltip =
+        syncWarnings.length > 0 ? (
+            <div className="flex flex-col gap-1">
+                <span>
+                    Some warehouse tables this insight reads are out of date, so its results may not be current:
+                </span>
+                <WarehouseSyncWarningList warnings={syncWarnings} />
+            </div>
+        ) : null
 
     const showDashboardAlertsMenuItem = isUsedAsDashboardTile && !!dashboardId && !!insight.id && canViewInsight
-    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, {
-        metricsAlertsEnabled: !!featureFlags[FEATURE_FLAGS.METRICS],
-    })
-    const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query)
+    const alertSupportOptions = { metricsAlertsEnabled: !!featureFlags[FEATURE_FLAGS.METRICS] }
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, alertSupportOptions)
+    const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query, alertSupportOptions)
 
     const showCopyTableData = isInsightVizNode(query) && isTrendsQuery(query.source)
     const copyTableAdapter = useMemo(() => getInsightExportAdapter(insightDataRaw, query), [insightDataRaw, query])
@@ -505,10 +513,12 @@ export function InsightMeta({
                         showDescription={tile?.show_description !== false}
                         dataRetentionWarning={dataRetentionWarning}
                         queryScanTooltip={queryScanTooltip}
+                        warehouseSyncTooltip={warehouseSyncTooltip}
                         queryScanActionable={queryScanHasActionableFinding(scanFindings)}
                         infoPopover={
                             showCompactTile ? (
                                 <CompactInfoPopover
+                                    onVisibilityChange={onInfoVisibilityChange}
                                     popoverTopHeading={popoverTopHeadingEl ?? topHeadingEl}
                                     metaTitle={name}
                                     metaDescription={metaDescriptionEl}
@@ -668,6 +678,8 @@ export function InsightMeta({
                                         <DashboardWidgetPlacementMenus
                                             placementDestinations={copyToDestinations}
                                             onMoveToDashboard={moveToDashboard}
+                                            tileGroupMoveOptions={tileGroupMoveOptions}
+                                            onMoveToTileGroup={moveToTileGroup}
                                             onCopyToDashboard={canShowCopyToDashboardTile ? copyToDashboard : undefined}
                                         />
                                         {removeFromDashboard && (
@@ -877,6 +889,7 @@ export function InsightMetaContent({
     dataRetentionWarning,
     queryScanTooltip,
     queryScanActionable,
+    warehouseSyncTooltip,
 }: {
     title: string
     fallbackTitle?: string
@@ -892,6 +905,7 @@ export function InsightMetaContent({
     queryScanTooltip?: JSX.Element | null
     /** Whether the person can act on a finding. Without one the tile only notes that the query is slow. */
     queryScanActionable?: boolean
+    warehouseSyncTooltip?: JSX.Element | null
 }): JSX.Element {
     const dataRetentionIndicator = dataRetentionWarning ? (
         <Tooltip title={dataRetentionWarning}>
@@ -912,14 +926,17 @@ export function InsightMetaContent({
             )}
         </Tooltip>
     ) : null
+    const warehouseSyncIndicator = warehouseSyncTooltip ? (
+        <Tooltip title={warehouseSyncTooltip} interactive>
+            <LemonTag type="warning" size="small" className="ml-1.5 shrink-0" data-attr="insight-card-warehouse-sync">
+                Out of date
+            </LemonTag>
+        </Tooltip>
+    ) : null
+    const hasTitleIndicator = !!(infoPopover || dataRetentionIndicator || queryScanIndicator || warehouseSyncIndicator)
     const titleContent = (
         <>
-            <span
-                className={clsx(
-                    'text-primary',
-                    (infoPopover || dataRetentionIndicator || queryScanIndicator) && 'truncate'
-                )}
-            >
+            <span className={clsx('text-primary', hasTitleIndicator && 'truncate')}>
                 {title || <i>{fallbackTitle || 'Untitled'}</i>}
             </span>
             {(loading || loadingQueued) && (
@@ -935,10 +952,7 @@ export function InsightMetaContent({
         <h4
             title={!compact ? title : undefined}
             data-attr="insight-card-title"
-            className={clsx(
-                (infoPopover || dataRetentionIndicator || queryScanIndicator) &&
-                    'inline-flex items-center overflow-visible'
-            )}
+            className={clsx(hasTitleIndicator && 'inline-flex items-center overflow-visible')}
         >
             {link ? (
                 <Link to={link} className="max-w-full truncate">
@@ -949,6 +963,7 @@ export function InsightMetaContent({
             )}
             {dataRetentionIndicator}
             {queryScanIndicator}
+            {warehouseSyncIndicator}
             {infoPopover}
         </h4>
     )
@@ -964,134 +979,5 @@ export function InsightMetaContent({
             {!compact && tags && tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
             <LemonTableLoader loading={loading} />
         </>
-    )
-}
-
-function CompactInfoPopover({
-    popoverTopHeading,
-    metaTitle,
-    metaDescription,
-    metaDescriptionText,
-    onMetaSave,
-    metaDetails,
-}: {
-    popoverTopHeading?: JSX.Element | null
-    metaTitle: string
-    metaDescription?: JSX.Element | null
-    metaDescriptionText: string
-    onMetaSave?: (updates: { name?: string; description?: string }) => void
-    metaDetails?: JSX.Element | null
-}): JSX.Element {
-    const [popoverVisible, setPopoverVisible] = useState(false)
-    const [pinned, setPinned] = useState(false)
-    const hoverTimerRef = useRef<ReturnType<typeof setTimeout>>()
-
-    useEffect(() => () => clearTimeout(hoverTimerRef.current), [])
-
-    const clearHoverTimer = (): void => clearTimeout(hoverTimerRef.current)
-
-    const showDetails = useCallback(() => {
-        clearHoverTimer()
-        hoverTimerRef.current = setTimeout(() => setPopoverVisible(true), 300)
-    }, [])
-
-    const hideDetails = useCallback(() => {
-        clearHoverTimer()
-        hoverTimerRef.current = setTimeout(() => setPopoverVisible(false), 800)
-    }, [])
-
-    const handleClickInfo = useCallback(
-        (e: React.MouseEvent) => {
-            e.preventDefault()
-            e.stopPropagation()
-            clearHoverTimer()
-            const newPinned = !pinned
-            setPinned(newPinned)
-            setPopoverVisible(newPinned)
-        },
-        [pinned]
-    )
-
-    const handleClickOutside = useCallback(() => {
-        clearHoverTimer()
-        setPinned(false)
-        setPopoverVisible(false)
-    }, [])
-
-    return (
-        <Popover
-            visible={popoverVisible}
-            placement="bottom"
-            showArrow
-            onClickOutside={handleClickOutside}
-            onMouseEnterInside={showDetails}
-            onMouseLeaveInside={pinned ? undefined : hideDetails}
-            overlay={
-                <div
-                    className="p-4 max-w-md space-y-3"
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                    }}
-                >
-                    {popoverTopHeading && (
-                        <h5 className="uppercase text-xs font-bold text-muted tracking-wide m-0">
-                            {popoverTopHeading}
-                        </h5>
-                    )}
-                    {onMetaSave ? (
-                        <>
-                            <EditableField
-                                name="title"
-                                value={metaTitle || ''}
-                                onSave={(value) => onMetaSave({ name: value })}
-                                placeholder="Untitled"
-                                saveOnBlur
-                                clickToEdit
-                                compactButtons
-                                compactIcon
-                                className="font-semibold text-sm mt-1"
-                                data-attr="insight-card-title"
-                            />
-                            <EditableField
-                                name="description"
-                                value={metaDescriptionText || ''}
-                                onSave={(value) => onMetaSave({ description: value })}
-                                placeholder="Enter description (optional)"
-                                saveOnBlur
-                                clickToEdit
-                                multiline
-                                markdown
-                                compactButtons
-                                compactIcon
-                                className="text-xs w-full"
-                                data-attr="insight-card-description"
-                            />
-                        </>
-                    ) : (
-                        <>
-                            {metaTitle && <p className="font-semibold m-0">{metaTitle}</p>}
-                            {metaDescription}
-                        </>
-                    )}
-                    {metaDetails}
-                </div>
-            }
-        >
-            <span
-                className="ml-1 flex-shrink-0"
-                onMouseEnter={showDetails}
-                onMouseLeave={pinned ? undefined : hideDetails}
-            >
-                <LemonButton
-                    icon={<IconInfo />}
-                    size="small"
-                    noPadding
-                    data-attr="card-meta-info"
-                    onClick={handleClickInfo}
-                />
-            </span>
-        </Popover>
     )
 }
