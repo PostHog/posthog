@@ -87,13 +87,14 @@ If the user's question spans multiple kinds, run the playbooks in sequence.
 Decide this now, before the investigation, because it changes which queries you keep.
 
 When the user gave you a saved insight or a query that is a `TrendsQuery` over time (not a box plot, 2D heatmap or scatter plot), the investigation ends with the `posthog:explain-chart` walkthrough.
-Do not check first whether the tool exists. Step 5 calls it, and falls back to the written report when the call fails or the user cannot see the result.
+`posthog:explain-chart` exists only where the walkthrough is enabled, so check for it now and read its schema.
+Where PostHog tools run through `exec`, it is not in your own tool list: run `info explain-chart` before you decide it is missing.
+When it does not exist, the findings go in a written report.
 The walkthrough is the answer, in place of a notebook or a long reply. Write a notebook as well only when the user asks for one.
 For anything else, such as a metric you queried on your own, the findings go in a written report.
 
 When it is a walkthrough:
 
-- Read the `explain-chart` schema now.
 - Add "Show the walkthrough (Step 5)" as the last item of your plan or to-do list.
 - Keep the `TrendsQuery` behind each finding, such as an event count with a breakdown or a property filter.
   The walkthrough draws a `TrendsQuery` as a chart beside the finding, and any other query only as a link.
