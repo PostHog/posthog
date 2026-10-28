@@ -9,6 +9,8 @@ import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopove
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
 import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { FeatureFlagPopoverInfo } from 'lib/components/DefinitionPopover/FeatureFlagPopoverInfo'
+import { featureFlagKeyFromProperty } from 'lib/components/DefinitionPopover/utils'
 import { FlagCalledMoveNotice } from 'lib/components/FlagCalledMoveNotice/FlagCalledMoveNotice'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -248,6 +250,8 @@ export function DefinitionView({
 
     if (isProperty) {
         const _definition = definition as PropertyDefinition
+        const flagKey =
+            type === TaxonomicFilterGroupType.EventFeatureFlags ? featureFlagKeyFromProperty(_definition.name) : null
 
         return (
             <>
@@ -261,9 +265,13 @@ export function DefinitionView({
                         </Tooltip>
                     </div>
                 )}
-                <DefinitionPopover.Grid cols={2}>
-                    <DefinitionPopover.Card title="Property Type" value={_definition.property_type ?? '-'} />
-                </DefinitionPopover.Grid>
+                {flagKey ? (
+                    <FeatureFlagPopoverInfo flagKey={flagKey} />
+                ) : (
+                    <DefinitionPopover.Grid cols={2}>
+                        <DefinitionPopover.Card title="Property Type" value={_definition.property_type ?? '-'} />
+                    </DefinitionPopover.Grid>
+                )}
                 {hasSentAs ? (
                     <>
                         <DefinitionPopover.HorizontalLine />

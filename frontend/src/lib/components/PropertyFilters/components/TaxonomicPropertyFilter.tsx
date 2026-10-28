@@ -7,6 +7,7 @@ import { useId } from 'react'
 import { IconPlusSmall, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
 
+import { featureFlagKeyFromProperty } from 'lib/components/DefinitionPopover/utils'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
 import {
@@ -38,7 +39,6 @@ import { AnyPropertyFilter, GroupTypeIndex, PropertyDefinitionType, PropertyFilt
 
 import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
-import { FeatureFlagFilterTooltip } from 'products/feature_flags/frontend/FeatureFlagFilterTooltip'
 
 import { FILTER_ROW_FRAME_CLASSES } from './filterRowFrame'
 import { PropertyFilterRowOperator } from './PropertyFilterRowOperator'
@@ -130,7 +130,7 @@ export function TaxonomicPropertyFilter({
     // A group row has no key, operator or value, so everything below it reads the leaf filter only.
     const nestedGroup = isPropertyGroupFilterLike(row) ? row : undefined
     const filter = isPropertyGroupFilterLike(row) ? null : row
-    const flagKey = typeof filter?.key === 'string' && filter.key.startsWith('$feature/') ? filter.key.slice(9) : null
+    const isFlagFilter = featureFlagKeyFromProperty(filter?.key) !== null
     const valuePresent = !!nestedGroup || filter?.type === 'cohort' || !!filter?.key
     const showInitialSearchInline =
         !disablePopover &&
@@ -298,7 +298,7 @@ export function TaxonomicPropertyFilter({
         filter?.key && (
             <PropertyKeyInfo
                 value={filter.key}
-                disablePopover
+                disablePopover={!isFlagFilter}
                 ellipsis
                 type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
             />
@@ -321,18 +321,19 @@ export function TaxonomicPropertyFilter({
                 size={size}
                 truncate={true}
                 tooltip={
-                    <>
-                        {cohortLabel ?? nestedGroupLabel ?? filterContent ?? (addText || 'Add filter')}
-                        {flagKey && <FeatureFlagFilterTooltip flagKey={flagKey} />}
-                        {addFilterDocLink && (
-                            <>
-                                <br />
-                                <Link to={addFilterDocLink} target="_blank">
-                                    Read the docs
-                                </Link>
-                            </>
-                        )}
-                    </>
+                    isFlagFilter ? undefined : (
+                        <>
+                            {cohortLabel ?? nestedGroupLabel ?? filterContent ?? (addText || 'Add filter')}
+                            {addFilterDocLink && (
+                                <>
+                                    <br />
+                                    <Link to={addFilterDocLink} target="_blank">
+                                        Read the docs
+                                    </Link>
+                                </>
+                            )}
+                        </>
+                    )
                 }
             >
                 {filterContent ?? (addText || 'Add filter')}
