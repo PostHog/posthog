@@ -190,8 +190,9 @@ def run_trino_node_materializations(
     touched. Refuses while any Trino run of the DAG is in progress, because two runs would write the
     same Trino tables at once.
 
-    `full_refresh` drops the node's Trino watermark, and only after every refusal, so a refused run
-    does not turn the next scheduled shadow into a full rebuild.
+    `full_refresh` drops the node's Trino watermark, and only after every refusal, including losing the
+    race for the run slot, so a refused run does not turn the next scheduled shadow into a full rebuild.
+    The run starts a few seconds late, so the state changes commit before the workflow reads them.
     """
     node = _get_node(team_id, node_id)
     if not is_managed_warehouse_shadow_enabled(node.team):
