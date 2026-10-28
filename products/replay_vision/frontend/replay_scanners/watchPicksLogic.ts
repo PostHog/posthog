@@ -32,6 +32,7 @@ import { SessionRecordingSidebarTab } from '~/types'
 import { visionObservationsViewedCreate, visionScannersWatchFeedRetrieve } from '../generated/api'
 import type { WatchFeedItemApi } from '../generated/api.schemas'
 import { observationKeyMomentMs, watchStartSeconds } from './components/WatchFeedCard'
+import type { WatchFeedEmptyReason } from './watchFeedEmptyState'
 import { recordFeedImpressions } from './watchFeedImpressionCounts'
 import {
     type WatchFeedLoad,
@@ -90,6 +91,9 @@ export interface watchPicksLogicActions {
     ) => {
         item: WatchFeedItemApi
         position: number
+    }
+    emptyStateShown: (reason: WatchFeedEmptyReason) => {
+        reason: WatchFeedEmptyReason
     }
     loadPicks: () => {
         value: true
@@ -172,6 +176,7 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
         markPickViewed: (observationId: string) => ({ observationId }),
         setPicksLoad: (load: WatchFeedLoad) => ({ load }),
         cardSeen: (item: WatchFeedItemApi, position: number) => ({ item, position }),
+        emptyStateShown: (reason: WatchFeedEmptyReason) => ({ reason }),
     }),
 
     loaders(({ values, actions }) => ({
@@ -290,6 +295,13 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
             },
             setPicksLoad: ({ load }) => {
                 cache.impressions.start(load)
+            },
+            emptyStateShown: ({ reason }) => {
+                if (cache.emptyStateShownReason === reason) {
+                    return
+                }
+                cache.emptyStateShownReason = reason
+                posthog.capture('replay_vision_watch_picks_empty_shown', { reason })
             },
             cardSeen: ({ item, position }) => {
                 // Fallback rows below the picks were not served by the ranker, so they are not impressions of this load.
