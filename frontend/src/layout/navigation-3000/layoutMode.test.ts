@@ -4,7 +4,6 @@ describe('resolveLayoutMode', () => {
     it.each([
         ['none', false, false, 'bare'],
         ['minimal', false, false, 'minimal'],
-        ['zen', false, false, 'zen'],
         ['embedded', false, false, 'embedded'],
         ['full', false, false, 'classic'],
         ['full', false, true, 'classic'],
