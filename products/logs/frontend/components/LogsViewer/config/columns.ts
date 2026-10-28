@@ -3,6 +3,8 @@ import { uuid } from 'lib/utils/dom'
 import { LogsQuery } from '~/queries/schema/schema-general'
 import { PropertyFilterType } from '~/types'
 
+import { FacetFilterTarget } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
+import { COLUMN_FILTER_KEYS } from 'products/logs/frontend/components/LogsViewer/Filters/columnFilters'
 import { MAX_ATTRIBUTE_COLUMN_WIDTH } from 'products/logs/frontend/components/VirtualizedLogsList/layoutUtils'
 import { AttributeColumnConfig, ParsedLogMessage } from 'products/logs/frontend/types'
 
@@ -155,30 +157,56 @@ export function attributeLookupExpression(key: string): string {
     return `if(mapContains(attributes, '${escaped}'), attributes['${escaped}'], resource_attributes['${escaped}'])`
 }
 
-/** Only app-written attribute expressions tie `column.name` to a map key, so others keep the log attribute filter. */
-export function customColumnFilterType(
+const ATTRIBUTE_LOOKUP_PATTERN =
+    /^if\(mapContains\(attributes, '((?:[^'\\]|\\[\s\S])*)'\), attributes\['\1'\], resource_attributes\['\1'\]\)$/
+
+function attributeLookupKey(expression: string): string | null {
+    const escaped = ATTRIBUTE_LOOKUP_PATTERN.exec(expression)?.[1]
+    if (escaped === undefined) {
+        return null
+    }
+    const key = escaped.replace(/\\([\s\S])/g, '$1')
+    return attributeLookupExpression(key) === expression ? key : null
+}
+
+function shorthandKey(expression: string, prefix: 'attributes' | 'resource_attributes'): string | null {
+    const key = expression.startsWith(`${prefix}.`) ? expression.slice(prefix.length + 1) : ''
+    return key || null
+}
+
+export function customColumnFilterTarget(
     column: LogsColumnConfig,
     attributes: Record<string, unknown> | undefined,
     resourceAttributes: Record<string, unknown> | undefined
-): PropertyFilterType.LogAttribute | PropertyFilterType.LogResourceAttribute {
-    const key = column.name
-    const expression = column.expression?.trim()
-    if (!key) {
-        return PropertyFilterType.LogAttribute
+): FacetFilterTarget {
+    const expression = column.expression?.trim() ?? ''
+
+    const attributeKey = shorthandKey(expression, 'attributes')
+    if (attributeKey) {
+        return { key: attributeKey, type: PropertyFilterType.LogAttribute }
     }
-    if (expression === `resource_attributes.${key}`) {
-        return PropertyFilterType.LogResourceAttribute
+    const resourceAttributeKey = shorthandKey(expression, 'resource_attributes')
+    if (resourceAttributeKey) {
+        return { key: resourceAttributeKey, type: PropertyFilterType.LogResourceAttribute }
     }
-    // Same check as the expression's mapContains, so the filter targets the map the cell read
-    if (
-        expression === attributeLookupExpression(key) &&
-        !(attributes && Object.hasOwn(attributes, key)) &&
-        resourceAttributes &&
-        Object.hasOwn(resourceAttributes, key)
-    ) {
-        return PropertyFilterType.LogResourceAttribute
+
+    const lookupKey = attributeLookupKey(expression)
+    if (lookupKey !== null) {
+        // Same check as the expression's mapContains, so the filter targets the map the cell read
+        const readResourceMap =
+            !(attributes && Object.hasOwn(attributes, lookupKey)) &&
+            !!resourceAttributes &&
+            Object.hasOwn(resourceAttributes, lookupKey)
+        return {
+            key: lookupKey,
+            type: readResourceMap ? PropertyFilterType.LogResourceAttribute : PropertyFilterType.LogAttribute,
+        }
     }
-    return PropertyFilterType.LogAttribute
+
+    if (COLUMN_FILTER_KEYS.has(expression)) {
+        return { key: expression, type: PropertyFilterType.Log }
+    }
+    return { key: column.name ?? expression, type: PropertyFilterType.LogAttribute }
 }
 
 /** Migrate the legacy persisted `attributeColumnsConfig` map to typed custom columns. */

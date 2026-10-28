@@ -12,6 +12,7 @@ import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
+from pyarrow.lib import concat_batches
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
@@ -30,7 +31,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.resolver import ResolverFactory
 from posthog.hogql.visitor import CloningVisitor
 
-from posthog.clickhouse.client.execute import ClickHouseExternalTable
+from posthog.clickhouse.client.execute import ClickHouseExternalTable, KillSwitchLevel, resolve_kill_switch_level
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -205,6 +206,8 @@ DELTA_KERNEL_ERROR_RETRY_DELAY = dt.timedelta(minutes=2)
 # A saturated cluster refuses every model a spike reaches at once. The default backoff sends them
 # all back within seconds, so wait longer, and jitter the wait so they do not return together.
 TOO_MANY_SIMULTANEOUS_QUERIES_RETRY_DELAY_SECONDS = (60, 120)
+
+KILL_SWITCH_MAX_THREADS: dict[KillSwitchLevel, int] = {KillSwitchLevel.LIGHT: 16, KillSwitchLevel.FULL: 8}
 
 # Above this many files, the per-run compaction is worth its full-table rewrite. Below it, skipping
 # keeps an incremental run's cost proportional to the rows it changed rather than the table's size.
@@ -393,15 +396,6 @@ def get_aws_storage_options() -> dict[str, str]:
         **delta_proxy_storage_options(),
         "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
     }
-
-
-def _combine_batches(batches: list[pa.RecordBatch]) -> pa.RecordBatch:
-    if len(batches) == 1:
-        return batches[0]
-
-    table = pa.Table.from_batches(batches)
-    table = table.combine_chunks()
-    return table.to_batches(max_chunksize=table.num_rows)[0]
 
 
 def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, str]]) -> pa.RecordBatch:
@@ -621,6 +615,9 @@ async def hogql_table(
 
     settings = HogQLGlobalSettings()
     settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
+    kill_switch_level = await database_sync_to_async_pool(resolve_kill_switch_level)(team.pk)
+    if kill_switch_level in KILL_SWITCH_MAX_THREADS:
+        settings.max_threads = KILL_SWITCH_MAX_THREADS[kill_switch_level]
 
     modifiers = await database_sync_to_async_pool(create_default_modifiers_for_team)(team)
     context = HogQLContext(
@@ -806,14 +803,14 @@ async def hogql_table(
                     await logger.adebug(
                         f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB"
                     )
-                    yield (_combine_batches(batches), ch_typings_pairs)
+                    yield (concat_batches(batches), ch_typings_pairs)
                     yielded_results = True
                     batches_size = 0
                     batches = []
 
         if len(batches) > 0:
             await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
-            yield (_combine_batches(batches), ch_typings_pairs)
+            yield (concat_batches(batches), ch_typings_pairs)
             yielded_results = True
 
         if not yielded_results:

@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.source_management import GithubSource, GithubSourceConfig, SourceRegistry
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 
 logger = structlog.get_logger(__name__)
 
@@ -62,10 +63,14 @@ def github_source_credential(*, team_id: int, source_id: str) -> GitHubSourceCre
         return None
     # ``job_inputs`` is an ``EncryptedJSONField`` that can hold any JSON value, and a half-written
     # source is a normal state, so an unreadable config is no reason to fail the consumer.
-    if not isinstance(source.job_inputs, dict):
+    try:
+        inputs = SourceInputsStore.load(source)
+    except UnreadableSourceInputsError:
+        return None
+    if not inputs:
         return None
     try:
-        config = GithubSourceConfig.from_dict(source.job_inputs)
+        config = GithubSourceConfig.from_dict(inputs)
     except Exception:
         logger.warning("github_source_credential_config_unreadable", source_id=str(source.pk))
         return None
