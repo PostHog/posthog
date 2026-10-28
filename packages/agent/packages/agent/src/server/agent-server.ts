@@ -248,6 +248,13 @@ const PENDING_ARTIFACT_RETRY_DELAY_MS = 500;
 
 const POSTHOG_AI_ORIGIN_PRODUCT = "posthog_ai";
 
+export function codexProcessCwd(
+  config: Pick<AgentServerConfig, "repositoryPath" | "repoReadyFile">,
+): string {
+  if (config.repoReadyFile) return "/tmp/workspace";
+  return config.repositoryPath ?? "/tmp/workspace";
+}
+
 export function systemPromptAppendText(
   prompt: ClaudeCodeConfig["systemPrompt"],
 ): string {
@@ -374,6 +381,7 @@ export const PREWARMED_RESUME_IDLE_CAPABILITY = "prewarmedResumeIdle";
 export const CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE =
   "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.";
 export const MESSAGE_DRIVEN_RESUME_CAPABILITY = "prewarmedResumeMessageDriven";
+export const LAUNCH_BEFORE_REPO_READY_CAPABILITY = "launchBeforeRepoReady";
 
 export interface PreparedInitialTaskMessage {
   taskRun: TaskRun;
@@ -516,6 +524,7 @@ export class AgentServer {
   private httpReadyBootMs?: number;
   private commandDispatchedRunId?: string;
   private barrierReleasedAtMs?: number;
+  private repoReadyTimeoutMs = 40 * 60_000;
   private bootTracker: AgentBootTracker;
   private logger: Logger;
   private server: ServerType | null = null;
@@ -810,6 +819,7 @@ export class AgentServer {
         capabilities: [
           PREWARMED_RESUME_IDLE_CAPABILITY,
           MESSAGE_DRIVEN_RESUME_CAPABILITY,
+          LAUNCH_BEFORE_REPO_READY_CAPABILITY,
         ],
       });
     });
@@ -2331,7 +2341,7 @@ export class AgentServer {
       codexOptions:
         runtimeAdapter === "codex"
           ? {
-              cwd: this.config.repositoryPath ?? "/tmp/workspace",
+              cwd: codexProcessCwd(this.config),
               // Routing a plan run through the gateway would bill us as well.
               ...(codexSubscriptionTokens
                 ? {}
@@ -4413,9 +4423,8 @@ export class AgentServer {
       return;
     }
 
-    const REPO_READY_TIMEOUT_MS = 5 * 60_000;
     const result = await waitForFile(readyFile, {
-      timeoutMs: REPO_READY_TIMEOUT_MS,
+      timeoutMs: this.repoReadyTimeoutMs,
       onError: (error) => {
         this.logger.debug("Repo-ready barrier check failed", {
           readyFile,
@@ -4426,11 +4435,9 @@ export class AgentServer {
     });
     this.barrierReleasedAtMs = Date.now();
     if (result.timedOut) {
-      this.logger.warn("Repo-ready barrier timed out; proceeding", {
-        readyFile,
-        waitedMs: result.waitedMs,
-      });
-      return;
+      throw new Error(
+        `Repository was not ready after ${result.waitedMs}ms: ${readyFile}`,
+      );
     }
     this.logger.debug("Repo-ready barrier released", {
       readyFile,

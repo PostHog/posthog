@@ -977,6 +977,7 @@ class DockerSandbox(AgentServerLaunchMixin):
         task_run_session_token: str | None = None,
         event_ingest_url: str | None = None,
         repo_ready_file: str | None = None,
+        shell_waits_for_repo: bool = True,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         pi_acp_conversation: bool = False,
