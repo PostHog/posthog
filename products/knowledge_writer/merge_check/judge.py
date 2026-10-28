@@ -7,7 +7,7 @@ from ..backend.facade.enums import DocsChangeKind
 
 JUDGE_MODEL = "claude-haiku-5-5"
 JUDGE_AI_PRODUCT = "knowledge_writer"
-MAX_DIFF_CHARACTERS = 120_000
+MAX_DIFF_CHARACTERS = 600_000
 JUDGE_TIMEOUT_SECONDS = 120
 JUDGE_MAX_RETRIES = 1
 
