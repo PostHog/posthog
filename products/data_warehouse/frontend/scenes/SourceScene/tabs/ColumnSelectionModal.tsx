@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { IconLock } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonModal, Tooltip } from '@posthog/lemon-ui'
 
 import { ExternalDataSourceSchema } from '~/types'
 
@@ -245,25 +245,20 @@ export function ColumnSelectionPicker({
                             )}
                             {enableMasking &&
                                 (isMasked(column.name) ? (
-                                    <div className="flex items-center gap-1 shrink-0">
-                                        <LemonTag type="muted" icon={<IconLock />}>
-                                            Masked
-                                        </LemonTag>
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="tertiary"
-                                            onClick={() => toggleMask(column.name)}
-                                            tooltip="Sync this column's real values again. A synced table is rebuilt from the source."
-                                            data-attr="schema-column-unmask"
-                                        >
-                                            Unmask
-                                        </LemonButton>
-                                    </div>
-                                ) : (
                                     <LemonButton
                                         size="xsmall"
                                         type="tertiary"
                                         icon={<IconLock />}
+                                        onClick={() => toggleMask(column.name)}
+                                        tooltip="This column syncs as a one-way hash. Click to unmask it and sync its real values again."
+                                        data-attr="schema-column-unmask"
+                                    >
+                                        Masked
+                                    </LemonButton>
+                                ) : (
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="secondary"
                                         onClick={() => toggleMask(column.name)}
                                         tooltip="Replace this column's values with a one-way hash when syncing. Use it for passwords and personal data. A masked column no longer matches the same values in tables where it isn't masked."
                                         disabledReason={
