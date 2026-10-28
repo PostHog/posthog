@@ -2689,37 +2689,35 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.json()["count"] == 4
 
     @parameterized.expand([("live_filters", False), ("cached_columns", True)])
-    def test_section_counts_match_the_per_section_list_counts(self, _name: str, cached: bool) -> None:
+    def test_section_counts_match_the_count_only_list_requests(self, _name: str, cached: bool) -> None:
         with_pr = self._create_report(title="Ready with a PR")
         self._create_assignment(with_pr, pr_url="https://github.com/org/repo/pull/42")
-        actionable = self._create_report(title="Actionable")
-        self._actionability_artefact(actionable, actionability="immediately_actionable")
-        needs_input = self._create_report(title="Needs input", status=SignalReport.Status.PENDING_INPUT)
-        self._actionability_artefact(needs_input, actionability="requires_human_input")
-        not_actionable = self._create_report(title="Not actionable")
-        self._actionability_artefact(not_actionable, actionability="not_actionable")
-        self._create_report(title="Resolved", status=SignalReport.Status.RESOLVED)
-        self._create_report(title="Dismissed", status=SignalReport.Status.SUPPRESSED)
-        sections = {
-            "review_and_merge": {"status": "ready", "has_implementation_pr": "true"},
-            "needs_pr": {
-                "status": "ready,pending_input",
-                "actionability": "immediately_actionable,requires_human_input",
-                "has_implementation_pr": "false",
-            },
-            "resolved": {"status": "resolved"},
-            "dismissed": {"status": "suppressed"},
-        }
+        self._create_report(title="Ready without a PR")
+        excluded = self._create_report(title="Excluded")
+        merged = self._create_report(title="Merged", status=SignalReport.Status.RESOLVED)
+        self._create_assignment(merged, pr_url="https://github.com/org/repo/pull/43")
+        self._create_report(title="Needs input", status=SignalReport.Status.PENDING_INPUT)
 
         with patch("products.signals.backend.views.organization_inbox_cached_filters_enabled", return_value=cached):
-            response = self.client.get(f"{self._list_url()}section_counts/")
-            per_section = {
-                name: self.client.get(self._list_url(count_only="true", **params)).json()["count"]
-                for name, params in sections.items()
+            response = self.client.get(f"{self._list_url()}section_counts/?exclude={excluded.id}")
+            list_counts = {
+                name: self.client.get(
+                    self._list_url(status="ready", has_implementation_pr=has_pr, exclude=excluded.id, count_only="true")
+                ).json()["count"]
+                for name, has_pr in (("pull_requests", "true"), ("reports", "false"))
             }
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == per_section == {"review_and_merge": 1, "needs_pr": 2, "resolved": 1, "dismissed": 1}
+        assert response.json() == list_counts == {"pull_requests": 1, "reports": 1}
+
+    def test_section_counts_accept_a_personal_api_key_with_task_read(self) -> None:
+        key_value = self.create_personal_api_key_with_scopes(["task:read"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key_value}")
+
+        response = self.client.get(f"{self._list_url()}section_counts/")
+
+        assert response.status_code == status.HTTP_200_OK
 
     def test_section_counts_reject_a_condition_a_section_sets(self) -> None:
         response = self.client.get(f"{self._list_url()}section_counts/?status=ready")

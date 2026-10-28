@@ -2255,20 +2255,33 @@ class SignalReportListSerializer(SignalReportSerializer):
 
 
 class SignalReportSectionCountsSerializer(serializers.Serializer):
-    review_and_merge = serializers.IntegerField(
-        help_text="Ready reports with an implementation pull request, for the review and merge section."
-    )
-    needs_pr = serializers.IntegerField(
+    pull_requests = serializers.IntegerField(help_text="Ready reports with an implementation pull request.")
+    reports = serializers.IntegerField(help_text="Ready reports without an implementation pull request.")
+
+
+class SignalReportFilterQuerySerializer(serializers.Serializer):
+    exclude = RepeatedOrCommaSeparatedListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list,
+        max_length=100,
         help_text=(
-            "Ready or pending-input reports that are immediately actionable or need human input, "
-            "and have no implementation pull request."
-        )
+            "Report ids to leave out of the results and counts, for example the reports a client already "
+            "shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100."
+        ),
     )
-    resolved = serializers.IntegerField(help_text="Resolved reports.")
-    dismissed = serializers.IntegerField(help_text="Dismissed (suppressed) reports.")
+    include_unlisted = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Include reports kept out of the shared inbox. A report is kept out when the scout that "
+            "authored it turned off its `inbox` output destination. Defaults to false. Fetching a report "
+            "by id always works, whatever this value is."
+        ),
+    )
 
 
-class SignalReportListQuerySerializer(serializers.Serializer):
+class SignalReportListQuerySerializer(SignalReportFilterQuerySerializer):
     count_only = serializers.BooleanField(
         required=False,
         default=False,
@@ -2285,25 +2298,6 @@ class SignalReportListQuerySerializer(serializers.Serializer):
             "false to skip that lookup and get the page from Postgres only: rows then carry an empty "
             "`source_products` and a null `scout_name`. Load them after with `source_metadata`. "
             "Defaults to true."
-        ),
-    )
-    exclude = RepeatedOrCommaSeparatedListField(
-        child=serializers.UUIDField(),
-        required=False,
-        default=list,
-        max_length=100,
-        help_text=(
-            "Report ids to leave out of `results` and `count`, for example the reports a client already "
-            "shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100."
-        ),
-    )
-    include_unlisted = serializers.BooleanField(
-        required=False,
-        default=False,
-        help_text=(
-            "Include reports kept out of the shared inbox. A report is kept out when the scout that "
-            "authored it turned off its `inbox` output destination. Defaults to false. Fetching a report "
-            "by id always works, whatever this value is."
         ),
     )
 

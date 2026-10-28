@@ -1662,7 +1662,7 @@ export const getSignalsReportsSectionCountsRetrieveUrl = (
 }
 
 /**
- * Count the reports in each inbox section with one query. Accepts the list's other filter parameters, such as `priority` and `suggested_reviewers`. Each section sets its own status, actionability and implementation PR condition, so those list parameters are rejected.
+ * Count the ready reports with and without an implementation pull request, in one query. Accepts the list's filters, so each count matches a `count_only` list request with `status=ready` and the matching `has_implementation_pr`. Rejects `status`, `has_implementation_pr`, `include_all_statuses` and `view`, because the counts set those.
  */
 export const signalsReportsSectionCountsRetrieve = async (
     projectId: string,
