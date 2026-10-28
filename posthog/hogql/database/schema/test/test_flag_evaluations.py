@@ -882,18 +882,24 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             timestamp=self.occurred_at,
             properties=properties,
             event_uuid=str(row_uuid),
+            person_id=self.person_id,
         )
+        # The override is a merge after the call, so each table must correct the person it stored.
+        merged_person_id = uuid.uuid4()
+        self._override(merged_person_id, version=1)
         flush_persons_and_events()
         query = (
-            "SELECT uuid, distinct_id, properties.$feature_flag_response FROM events "
+            "SELECT uuid, distinct_id, person_id, properties.$feature_flag_response FROM events "
             f"WHERE event = '$feature_flag_called' AND {flag_key_read} = '{flag_key}' "
             "AND timestamp >= now() - INTERVAL 7 DAY"
         )
+        modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS)
 
-        from_events = self._query_events(query, rewrite=False).results
-        swapped = self._query_events(query)
+        from_events = self._query_events(query, rewrite=False, modifiers=modifiers).results
+        swapped = self._query_events(query, modifiers=modifiers)
 
         assert len(from_events) == 1
+        assert from_events[0][2] == merged_person_id
         assert swapped.clickhouse is not None
         assert "FROM flag_evaluations" in swapped.clickhouse
         if (
@@ -903,9 +909,9 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         ):
             # The native-JSON events table decodes JSON escapes in a property value. flag_evaluations returns the
             # escaped text, as the legacy events table does.
-            assert [row[:2] for row in swapped.results] == [row[:2] for row in from_events]
-            assert from_events[0][2] == response
-            assert swapped.results[0][2] == json.dumps(response)[1:-1]
+            assert [row[:3] for row in swapped.results] == [row[:3] for row in from_events]
+            assert from_events[0][3] == response
+            assert swapped.results[0][3] == json.dumps(response)[1:-1]
             return
         assert swapped.results == from_events
 
