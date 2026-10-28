@@ -1,0 +1,423 @@
+import json
+import asyncio
+import tempfile
+import dataclasses
+from collections.abc import Sequence
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+import numpy as np
+import duckdb
+import pyarrow as pa
+import deltalake
+import pyarrow.compute as pc
+import pyarrow.dataset as ds
+
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    normalize_column_name,
+    realign_decimal_buffers,
+    relax_batch_nullability,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.evolution import evolve_delta_schema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    DELTA_TABLE_PROPERTIES,
+    delta_merge_spill_kwargs,
+    ensure_table_properties,
+    execute_with_conflict_retry,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import live_size_mib
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import (
+    DeltaWriter,
+    _merge_predicate_ops,
+)
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
+
+STAGED_BATCH_COLUMN = "_ph_staged_batch"
+# Append order, `batch_index << 32 | row`. It decides which of two rows with the same key and order value wins.
+STAGED_ROW_COLUMN = "_ph_staged_row"
+_STAGING_COLUMNS = (STAGED_BATCH_COLUMN, STAGED_ROW_COLUMN)
+# Compressed staged bytes per bucket. Parquet expands several times in memory, so a bucket stays a few hundred MB.
+DEFAULT_BUCKET_TARGET_MIB = 32
+
+
+@frozen
+class HistoryFinalizeResult:
+    staged_rows: int
+    inserted_rows: int
+    closed_rows: int
+    backwards_rows: int
+    buckets: int
+
+
+@frozen
+class _BucketPlan:
+    inserts: pa.Table
+    closes: pa.Table
+    backwards_rows: int
+
+
+class HistoryWriter:
+    """SCD Type 2 history in two steps: `append` stages each batch, `finalize` turns the run into versions.
+
+    A close per batch rewrites every history file that holds a changed key, so its cost grows with the
+    table on every batch. Here each batch only appends to a staging table, and `finalize` writes the
+    run once per bucket of keys: an append of the new versions, then one close merge.
+
+    A row becomes a version when its `order_column` value is greater than that of its key's newest open
+    version, or when its key has no open version. Rows with the same key and order value collapse into
+    the last one staged, which drops incremental re-reads and a redelivered batch. The close sets
+    `valid_to` on every open version older than the key's first staged version that is newer than the
+    oldest open version. Between the append and the close a key has two open versions, so a re-run
+    after a crash there inserts nothing (the newest open version is the run's own) and still closes the
+    old version at the right time. Staged rows are deleted only after every bucket committed both steps.
+    """
+
+    def __init__(
+        self,
+        table: "DeltaTableRef",
+        staging: "DeltaTableRef",
+        *,
+        primary_keys: Sequence[str],
+        valid_from_column: str,
+        valid_to_column: str,
+        order_column: str | None = None,
+        partition_column: str | None = None,
+        current_partition: str | None = None,
+        bucket_target_mib: float = DEFAULT_BUCKET_TARGET_MIB,
+    ) -> None:
+        """`order_column` orders a key's versions and defaults to `valid_from_column` (an incremental
+        cursor); CDC passes its change sequence. `partition_column` partitions a new history table into
+        `current_partition` for open rows and the `YYYY-MM` month a version ended for closed rows."""
+        self._table = table
+        self._staging = staging
+        self._logger = table.logger
+        self._primary_keys = [normalize_column_name(key) for key in primary_keys]
+        self._valid_from = valid_from_column
+        self._valid_to = valid_to_column
+        self._order = order_column or valid_from_column
+        self._partition_column = partition_column
+        self._current_partition = current_partition
+        self._bucket_target_mib = bucket_target_mib
+
+    async def append(self, data: pa.Table, *, run_uuid: str, batch_index: int) -> None:
+        """Stage one batch. Each row needs the key columns, `valid_from` and the order column.
+
+        The commit carries the batch's `run_uuid` and `batch_index`, so the load path's redelivery
+        check finds it on the staging table. A batch staged twice still makes one version per row.
+        """
+        if data.num_rows == 0:
+            return
+        data = relax_batch_nullability(realign_decimal_buffers(data))
+        missing = [c for c in (*self._primary_keys, self._valid_from, self._order) if c not in data.column_names]
+        if missing:
+            raise ValueError(f"History batch is missing column(s) {missing}")
+        data = data.drop_columns(
+            [c for c in (self._valid_to, self._partition_column, *_STAGING_COLUMNS) if c in data.column_names]
+        )
+        first_row = batch_index << 32
+        data = data.append_column(
+            STAGED_BATCH_COLUMN, pa.repeat(pa.scalar(f"{run_uuid}:{batch_index}"), data.num_rows)
+        ).append_column(STAGED_ROW_COLUMN, pa.array(np.arange(first_row, first_row + data.num_rows, dtype=np.int64)))
+
+        staging_table = await self._staging.get_delta_table()
+        if staging_table is None:
+            staging_table = await asyncio.to_thread(
+                deltalake.DeltaTable.create,
+                table_uri=await self._staging.get_table_uri(),
+                schema=data.schema,
+                storage_options=self._staging.get_storage_options(),
+                configuration=DELTA_TABLE_PROPERTIES,
+            )
+            self._staging.adopt_created_table(staging_table)
+        await asyncio.to_thread(
+            deltalake.write_deltalake,
+            table_or_uri=staging_table,
+            data=data,
+            mode="append",
+            schema_mode="merge",
+            commit_properties=deltalake.CommitProperties(
+                custom_metadata={"run_uuid": run_uuid, "batch_index": str(batch_index)}
+            ),
+        )
+
+    async def finalize(self) -> HistoryFinalizeResult:
+        """Write every staged row into the history table as versions, then delete the staged rows."""
+        staging_table = await self._staging.get_delta_table()
+        staged_mib = live_size_mib(staging_table) if staging_table is not None else 0.0
+        if staging_table is None or staged_mib == 0:
+            return HistoryFinalizeResult(staged_rows=0, inserted_rows=0, closed_rows=0, backwards_rows=0, buckets=0)
+
+        # Without file sizes in the log, one bucket keeps the run correct at the cost of its memory.
+        buckets = max(1, int(-(-staged_mib // self._bucket_target_mib))) if staged_mib is not None else 1
+        staged_rows = inserted_rows = closed_rows = backwards_rows = 0
+        with tempfile.TemporaryDirectory(prefix="history-finalize-") as directory:
+            bucket_paths, batch_tags = await asyncio.to_thread(
+                self._spill_buckets, staging_table.to_pyarrow_dataset(), buckets, Path(directory)
+            )
+            for path in bucket_paths:
+                staged = await asyncio.to_thread(_read_bucket, path)
+                if staged.num_rows == 0:
+                    continue
+                staged_rows += staged.num_rows
+                history_table = await self._table.get_delta_table()
+                open_versions = (
+                    await asyncio.to_thread(self._open_versions, history_table, staged)
+                    if history_table is not None
+                    else None
+                )
+                plan = await asyncio.to_thread(self._plan_bucket, staged, open_versions)
+                del staged
+                await self._write_bucket(plan)
+                inserted_rows += plan.inserts.num_rows
+                closed_rows += plan.closes.num_rows
+                backwards_rows += plan.backwards_rows
+
+        # Only after every bucket committed: a crash before this point leaves the rows staged for the re-run.
+        await DeltaWriter(self._staging).delete_where(STAGED_BATCH_COLUMN, batch_tags)
+        history_table = await self._table.get_delta_table()
+        if history_table is not None:
+            await ensure_table_properties(history_table, self._logger)
+        result = HistoryFinalizeResult(
+            staged_rows=staged_rows,
+            inserted_rows=inserted_rows,
+            closed_rows=closed_rows,
+            backwards_rows=backwards_rows,
+            buckets=buckets,
+        )
+        await self._logger.ainfo("history_finalize", **dataclasses.asdict(result))
+        return result
+
+    def _spill_buckets(self, dataset: ds.Dataset, buckets: int, directory: Path) -> tuple[list[Path], set[str]]:
+        paths = [directory / f"bucket-{index}.arrow" for index in range(buckets)]
+        sinks = [pa.OSFile(str(path), "wb") for path in paths]
+        writers = [pa.ipc.new_file(sink, dataset.schema) for sink in sinks]
+        batch_tags: set[str] = set()
+        key_list = ", ".join(_quote(key) for key in self._primary_keys)
+        try:
+            with duckdb.connect() as connection:
+                scanner = dataset.scanner(batch_readahead=1, fragment_readahead=1, use_threads=False)
+                for batch in scanner.to_batches():
+                    if batch.num_rows == 0:
+                        continue
+                    batch_tags.update(
+                        str(tag) for tag in pc.unique(batch.column(STAGED_BATCH_COLUMN)).drop_null().to_pylist()
+                    )
+                    if buckets == 1:
+                        writers[0].write_batch(batch)
+                        continue
+                    connection.register("staged", pa.Table.from_batches([batch]))
+                    bucket_ids = (
+                        connection.execute(f"SELECT hash({key_list}) % {buckets} FROM staged")
+                        .arrow()
+                        .read_all()
+                        .column(0)
+                    )
+                    connection.unregister("staged")
+                    for index, writer in enumerate(writers):
+                        part = batch.filter(pc.equal(bucket_ids, pa.scalar(index, bucket_ids.type)))
+                        if part.num_rows:
+                            writer.write_batch(part)
+        finally:
+            for writer in writers:
+                writer.close()
+            for sink in sinks:
+                sink.close()
+        return paths, batch_tags
+
+    def _open_versions(self, history_table: deltalake.DeltaTable, staged: pa.Table) -> pa.Table | None:
+        """Key and order value of each open version whose key is staged in this bucket."""
+        columns = [*self._primary_keys, self._order]
+        history_columns = {field.name for field in history_table.schema().fields}
+        missing = [column for column in columns if column not in history_columns]
+        if missing:
+            # Without these columns every staged row would look new and duplicate its key's versions.
+            raise ValueError(f"History table is missing column(s) {missing}")
+        row_filter = ds.field(self._valid_to).is_null()
+        if self._partitioned(history_table):
+            row_filter = row_filter & (ds.field(str(self._partition_column)) == self._current_partition)
+        scanner = history_table.to_pyarrow_dataset().scanner(
+            columns=columns, filter=row_filter, batch_readahead=1, fragment_readahead=1, use_threads=False
+        )
+        keys = _positional(staged, self._primary_keys)
+        matches: list[pa.Table] = []
+        with duckdb.connect() as connection:
+            connection.register("staged_keys", keys)
+            for batch in scanner.to_batches():
+                if batch.num_rows == 0:
+                    continue
+                connection.register(
+                    "open_batch", _positional(pa.Table.from_batches([batch]), columns[:-1], self._order)
+                )
+                matches.append(
+                    connection.execute(
+                        "SELECT * FROM open_batch o WHERE EXISTS "
+                        f"(SELECT 1 FROM staged_keys s WHERE {_null_safe_keys('o', 's', len(self._primary_keys))})"
+                    )
+                    .arrow()
+                    .read_all()
+                )
+                connection.unregister("open_batch")
+        return pa.concat_tables(matches) if matches else None
+
+    def _plan_bucket(self, staged: pa.Table, open_versions: pa.Table | None) -> _BucketPlan:
+        key_count = len(self._primary_keys)
+        keys = ", ".join(f"k{index}" for index in range(key_count))
+        narrow = (
+            _positional(staged, self._primary_keys, self._order)
+            .append_column("staged_row", staged.column(STAGED_ROW_COLUMN))
+            .append_column("row_index", pa.array(np.arange(staged.num_rows, dtype=np.int64)))
+        )
+        if open_versions is None:
+            open_versions = narrow.select([f"k{index}" for index in range(key_count)] + ["ord"]).slice(0, 0)
+        with duckdb.connect() as connection:
+            connection.register("staged", narrow)
+            connection.register("open_rows", open_versions)
+            # A key has two open versions after a crash between the append and the close, and also after
+            # an older writer matched null keys with `=`.
+            connection.execute(
+                f"""
+                CREATE TEMP TABLE candidates AS
+                WITH latest AS (
+                    SELECT * FROM staged
+                    QUALIFY row_number() OVER (PARTITION BY {keys}, ord ORDER BY staged_row DESC) = 1
+                ),
+                open_span AS (SELECT {keys}, min(ord) AS oldest, max(ord) AS newest FROM open_rows GROUP BY {keys})
+                SELECT latest.*, open_span.oldest, open_span.newest
+                FROM latest LEFT JOIN open_span ON {_null_safe_keys("latest", "open_span", key_count)}
+                """
+            )
+            plan = (
+                connection.execute(
+                    f"""
+                    SELECT row_index, lead(row_index) OVER versions AS next_row_index
+                    FROM candidates
+                    WHERE newest IS NULL OR ord > newest
+                    WINDOW versions AS (PARTITION BY {keys} ORDER BY ord, staged_row)
+                    """
+                )
+                .arrow()
+                .read_all()
+            )
+            close_rows = (
+                connection.execute(
+                    f"""
+                    SELECT row_index FROM candidates
+                    WHERE oldest IS NOT NULL AND ord > oldest
+                    QUALIFY row_number() OVER (PARTITION BY {keys} ORDER BY ord, staged_row) = 1
+                    """
+                )
+                .arrow()
+                .read_all()
+            )
+            backwards_row = connection.execute("SELECT count(*) FROM candidates WHERE ord < newest").fetchone()
+        backwards_rows = int(backwards_row[0]) if backwards_row else 0
+
+        inserts = staged.take(plan.column("row_index")).drop_columns(list(_STAGING_COLUMNS))
+        valid_to = staged.column(self._valid_from).take(plan.column("next_row_index"))
+        inserts = inserts.append_column(pa.field(self._valid_to, valid_to.type), valid_to)
+        # One narrow row per key keeps the close merge's hash join small; it rewrites the matched files anyway.
+        closes = staged.take(close_rows.column("row_index")).select(
+            list(dict.fromkeys([*self._primary_keys, self._order, self._valid_from]))
+        )
+        if self._partition_column is not None:
+            inserts = inserts.append_column(
+                self._partition_column,
+                pc.if_else(pc.is_null(valid_to), self._current_partition, _month(valid_to)),
+            )
+            closes = closes.append_column(self._partition_column, _month(closes.column(self._valid_from)))
+        return _BucketPlan(inserts=inserts, closes=closes, backwards_rows=backwards_rows)
+
+    async def _write_bucket(self, plan: _BucketPlan) -> None:
+        if plan.inserts.num_rows:
+            await self._append_versions(plan.inserts)
+        if plan.closes.num_rows:
+            await self._close_versions(plan.closes)
+
+    async def _append_versions(self, inserts: pa.Table) -> None:
+        history_table = await self._table.get_delta_table()
+        if history_table is None:
+            history_table = await asyncio.to_thread(
+                deltalake.DeltaTable.create,
+                table_uri=await self._table.get_table_uri(),
+                schema=inserts.schema,
+                partition_by=[self._partition_column] if self._partition_column else None,
+                storage_options=self._table.get_storage_options(),
+                configuration=DELTA_TABLE_PROPERTIES,
+            )
+            self._table.adopt_created_table(history_table)
+        else:
+            history_table = await evolve_delta_schema(history_table, inserts.schema)
+        await asyncio.to_thread(
+            deltalake.write_deltalake,
+            table_or_uri=history_table,
+            data=inserts,
+            mode="append",
+            schema_mode="merge",
+        )
+
+    async def _close_versions(self, closes: pa.Table) -> None:
+        history_table = await self._table.get_delta_table()
+        assert history_table is not None
+        predicate_parts = [
+            f"target.{self._valid_to} IS NULL",
+            *_merge_predicate_ops(self._primary_keys),
+            # Leaves the versions the append just wrote open, which all order at or after this one.
+            f"target.{self._order} < source.{self._order}",
+        ]
+        updates = {self._valid_to: f"source.{self._valid_from}"}
+        if self._partitioned(history_table):
+            # Open versions only sit in the current partition, so the merge reads and rewrites no other.
+            predicate_parts.append(f"target.{self._partition_column} = '{self._current_partition}'")
+            updates[str(self._partition_column)] = f"source.{self._partition_column}"
+        predicate = " AND ".join(predicate_parts)
+        target = history_table
+
+        def _merge() -> dict:
+            return (
+                target.merge(
+                    source=closes,
+                    source_alias="source",
+                    target_alias="target",
+                    predicate=predicate,
+                    streamed_exec=False,
+                    **delta_merge_spill_kwargs(),
+                )
+                .when_matched_update(updates=updates)
+                .execute()
+            )
+
+        stats = await execute_with_conflict_retry(target, _merge, "HistoryWriter.finalize: close merge", self._logger)
+        await self._logger.adebug(f"History finalize close stats: {json.dumps(stats)}")
+
+    def _partitioned(self, delta_table: deltalake.DeltaTable) -> bool:
+        partition_columns = delta_table.metadata().partition_columns or []
+        return self._partition_column is not None and self._partition_column in partition_columns
+
+
+def _read_bucket(path: Path) -> pa.Table:
+    with pa.memory_map(str(path)) as source:
+        return pa.ipc.open_file(source).read_all()
+
+
+def _positional(table: pa.Table, keys: Sequence[str], order: str | None = None) -> pa.Table:
+    """The key columns as `k0..kN` and the order column as `ord`, so no source column name reaches SQL."""
+    columns = {f"k{index}": table.column(key) for index, key in enumerate(keys)}
+    if order is not None:
+        columns["ord"] = table.column(order)
+    return pa.table(columns)
+
+
+def _null_safe_keys(left: str, right: str, key_count: int) -> str:
+    return " AND ".join(f"{left}.k{index} IS NOT DISTINCT FROM {right}.k{index}" for index in range(key_count))
+
+
+def _quote(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _month(values: pa.ChunkedArray | pa.Array) -> pa.ChunkedArray | pa.Array:
+    return pc.strftime(values, format="%Y-%m")
