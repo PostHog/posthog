@@ -28,7 +28,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.metrics.backend.alerts.checkpoint import evaluation_time
 from products.metrics.backend.alerts.evaluation import evaluate_metrics_alert_batch
-from products.metrics.backend.alerts.source_config import MetricsAlertConfig
+from products.metrics.backend.alerts.source_config import MetricsPlatformAlertConfig
 
 _QUERY = 'sum(kafka_consumer_group_lag{group="example"})'
 
@@ -46,7 +46,7 @@ class TestMetricsAlertConfig(SimpleTestCase):
     )
     def test_a_config_that_cannot_be_evaluated_is_refused(self, _name: str, config: dict[str, object]) -> None:
         with self.assertRaises(ValidationError):
-            MetricsAlertConfig.model_validate(config)
+            MetricsPlatformAlertConfig.model_validate(config)
 
 
 class TestMetricsAlertCreate(APIBaseTest):

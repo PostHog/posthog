@@ -25,7 +25,7 @@ MAX_QUERY_LENGTH: Final = 10_000
 Operator = Literal[">", ">=", "<", "<=", "==", "!="]
 
 
-class MetricsAlertCondition(BaseModel):
+class MetricsPlatformAlertCondition(BaseModel):
     # A NaN threshold compares false with every value, so a saved alert could never fire.
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
@@ -50,7 +50,7 @@ class MetricsAlertCondition(BaseModel):
         return self
 
 
-class MetricsAlertConfig(BaseModel):
+class MetricsPlatformAlertConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     query: str = Field(
@@ -59,7 +59,7 @@ class MetricsAlertConfig(BaseModel):
         description="A PromQL expression over this project's metrics. Each series it returns is one group. "
         "For a threshold condition, leave the comparison out of the expression.",
     )
-    condition: MetricsAlertCondition = Field(description="When a series is in breach.")
+    condition: MetricsPlatformAlertCondition = Field(description="When a series is in breach.")
 
 
 def _validate_edit(edit: PlatformAlertConfigurationEdit) -> None:
@@ -72,7 +72,7 @@ def _remove_destinations(*, team_id: int, configuration_id: UUID) -> None:
 
 
 METRICS_ALERT_CONFIG: Final = SourceConfigSpec(
-    model=MetricsAlertConfig,
+    model=MetricsPlatformAlertConfig,
     validate=_validate_edit,
     native=NativeAlertLifecycle(
         check_interval_minutes=CHECK_INTERVAL_MINUTES, remove_destinations=_remove_destinations

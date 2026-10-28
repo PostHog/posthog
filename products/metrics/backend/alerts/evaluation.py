@@ -66,7 +66,7 @@ from products.alerts_platform.backend.facade.platform_metrics import (
 from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
 from products.metrics.backend.alerts.checkpoint import evaluation_time, fetch_live_metrics_checkpoint
 from products.metrics.backend.alerts.destinations import EVENT_IDS_BY_INCIDENT_ACTION, EVENT_IDS_BY_KIND
-from products.metrics.backend.alerts.source_config import MetricsAlertCondition, MetricsAlertConfig
+from products.metrics.backend.alerts.source_config import MetricsPlatformAlertCondition, MetricsPlatformAlertConfig
 from products.metrics.backend.alerts.wording import alert_url
 from products.metrics.backend.promql import PromQLQueryError, snuffle_payload
 
@@ -162,7 +162,7 @@ def _evaluate(
 ) -> Decision:
     started_at = time.monotonic()
     try:
-        config = MetricsAlertConfig.model_validate(check.source_config)
+        config = MetricsPlatformAlertConfig.model_validate(check.source_config)
     except ValidationError:
         # Saved through the same model, so this is a config an older version accepted.
         return _failed(check, _INVALID_CONFIG, transient=False, now=now, muted=muted)
@@ -240,7 +240,7 @@ def _number(raw: Any) -> float | None:
     return value if math.isfinite(value) else None
 
 
-def _breached(condition: MetricsAlertCondition, value: float | None) -> bool | None:
+def _breached(condition: MetricsPlatformAlertCondition, value: float | None) -> bool | None:
     """Whether a sample breaches, or None when its value reaches no verdict."""
     if condition.kind == "present":
         return True
@@ -251,7 +251,7 @@ def _breached(condition: MetricsAlertCondition, value: float | None) -> bool | N
 
 
 def _observations(
-    check: PlatformAlertCheckInput, condition: MetricsAlertCondition, samples: Sequence[_Sample]
+    check: PlatformAlertCheckInput, condition: MetricsPlatformAlertCondition, samples: Sequence[_Sample]
 ) -> tuple[list[GroupObservation], set[str]]:
     """One observation per sample, and the keys of the groups no sample reached a verdict for."""
     by_labels = check.grouping.mode == GroupingMode.BY_RESULT_LABELS
