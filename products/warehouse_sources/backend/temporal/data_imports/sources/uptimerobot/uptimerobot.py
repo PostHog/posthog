@@ -3,10 +3,12 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
+from urllib.parse import parse_qs, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     make_tracked_session,
@@ -19,10 +21,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobo
     RESPONSE_TIMES_INITIAL_LOOKBACK_DAYS,
     RESPONSE_TIMES_WINDOW_DAYS,
     UPTIMEROBOT_ENDPOINTS,
+    V3_PAGE_LIMIT,
     UptimeRobotEndpointConfig,
 )
 
 UPTIMEROBOT_BASE_URL = "https://api.uptimerobot.com/v2"
+UPTIMEROBOT_V3_BASE_URL = "https://api.uptimerobot.com/v3"
 
 # Stable prefix for credential failures — matched by `get_non_retryable_errors` on the source class.
 AUTH_ERROR_PREFIX = "UptimeRobot API key was rejected"
@@ -79,6 +83,8 @@ class UptimeRobotResumeConfig:
     offset: int = 0
     # response_times only: Unix start of the 7-day window being fetched. None for other endpoints.
     window_start: int | None = None
+    # v3 endpoints only: cursor of the next page to fetch.
+    cursor: str | None = None
 
 
 def _to_unix_timestamp(value: Any) -> int | None:
@@ -148,6 +154,88 @@ def _post(session: requests.Session, method: str, data: dict[str, Any], logger: 
         raise UptimeRobotAPIError(f"UptimeRobot API error ({error.get('type')}): {message}")
 
     return payload
+
+
+@retry_with_deadline(
+    retry=retry_if_exception_type((UptimeRobotRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    reraise=True,
+)
+def _get_v3(
+    session: requests.Session, path: str, params: dict[str, Any], logger: FilteringBoundLogger
+) -> dict[str, Any]:
+    """Call a v3 REST endpoint. v3 signals errors with real HTTP statuses, unlike v2."""
+    response = session.get(f"{UPTIMEROBOT_V3_BASE_URL}{path}", params=params, timeout=60)
+
+    if response.status_code == 429 or response.status_code >= 500:
+        raise UptimeRobotRetryableError(
+            f"UptimeRobot API error (retryable): status={response.status_code}, method={path}"
+        )
+
+    if response.status_code == 401:
+        raise UptimeRobotAuthError(f"{AUTH_ERROR_PREFIX}: status=401, method={path}")
+
+    if not response.ok:
+        logger.error(f"UptimeRobot API error: status={response.status_code}, body={response.text}, method={path}")
+        response.raise_for_status()
+
+    return response.json()
+
+
+def _v3_next_cursor(payload: dict[str, Any]) -> str | None:
+    """Return the cursor of the next v3 page, or None on the last page.
+
+    /tags returns `nextCursorId`; the other list endpoints return a `nextLink` URL. Only the cursor is
+    read from `nextLink`, so the bearer token is never sent to a host taken from a response body.
+    """
+    next_cursor_id = payload.get("nextCursorId")
+    if next_cursor_id is not None:
+        return str(next_cursor_id)
+
+    next_link = payload.get("nextLink")
+    if not next_link:
+        return None
+    cursors = parse_qs(urlparse(str(next_link)).query).get("cursor")
+    return cursors[0] if cursors else None
+
+
+def _get_v3_rows(
+    api_key: str,
+    config: UptimeRobotEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[UptimeRobotResumeConfig],
+    resume: UptimeRobotResumeConfig | None,
+) -> Iterator[list[dict[str, Any]]]:
+    # _get_v3 owns the retries, so the adapter retries are off to keep them from compounding.
+    session = make_tracked_session(
+        headers={"Authorization": f"Bearer {api_key}"}, redact_values=(api_key,), retry=Retry(total=0)
+    )
+
+    cursor = resume.cursor if resume is not None else None
+    if cursor:
+        logger.debug(f"UptimeRobot: resuming {config.name} from cursor {cursor}")
+
+    while True:
+        params: dict[str, Any] = {"limit": V3_PAGE_LIMIT} if config.v3_accepts_limit else {}
+        if cursor:
+            params["cursor"] = cursor
+        payload = _get_v3(session, config.method, params, logger)
+        rows = payload.get(config.response_key) or []
+        next_cursor = _v3_next_cursor(payload)
+        # A cursor that does not move would fetch the same page forever.
+        if next_cursor == cursor:
+            next_cursor = None
+
+        if next_cursor is not None:
+            resumable_source_manager.save_state(UptimeRobotResumeConfig(cursor=next_cursor))
+        if rows:
+            yield rows
+        if next_cursor is None:
+            break
+        if not rows:
+            resumable_source_manager.safe_point()
+        cursor = next_cursor
 
 
 def _form_data(api_key: str, config: UptimeRobotEndpointConfig, offset: int) -> dict[str, Any]:
@@ -326,7 +414,9 @@ def get_rows(
         else None
     )
 
-    if config.monitor_list_key == "response_times":
+    if config.api_version == "v3":
+        yield from _get_v3_rows(api_key, config, logger, resumable_source_manager, resume)
+    elif config.monitor_list_key == "response_times":
         yield from _get_response_time_rows(
             session, api_key, config, logger, resumable_source_manager, resume, last_value_ts
         )
