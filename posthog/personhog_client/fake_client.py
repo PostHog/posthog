@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -46,7 +47,7 @@ class _FakeRpcError(grpc.RpcError):
     """A failed call the way grpcio raises one: status, details and trailing metadata are methods."""
 
     def __init__(
-        self, code: grpc.StatusCode, details: str, trailing_metadata: tuple[tuple[str, str], ...] = ()
+        self, code: grpc.StatusCode, details: str, trailing_metadata: Sequence[tuple[str, str | bytes]] = ()
     ) -> None:
         super().__init__(details)
         self._code = code
@@ -59,7 +60,7 @@ class _FakeRpcError(grpc.RpcError):
     def details(self) -> str:
         return self._details
 
-    def trailing_metadata(self) -> tuple[tuple[str, str], ...]:
+    def trailing_metadata(self) -> Sequence[tuple[str, str | bytes]]:
         return self._trailing_metadata
 
 
